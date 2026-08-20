@@ -15,7 +15,7 @@ from color_fade import create_app
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.batch_runner import run_batch
-from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -194,7 +194,7 @@ def test_the_fade_ignores_input_and_repeats_after_a_reset() -> None:
     assert _colours(session.step(0, UserInputEvents([]))) == pytest.approx(first)
 
 
-def test_session_desc_available_before_any_client_window() -> None:
+def test_session_desc_available_before_any_output_is_opened() -> None:
     assert _session().session_desc == _session_desc()
 
 
@@ -215,10 +215,15 @@ def test_create_session_before_init_raises() -> None:
     ("args", "message"),
     [
         (["--seconds", "0"], "--seconds"),
+        (["--seconds", "-1"], "--seconds"),
+        # A fade of nan seconds is nan the whole way through, and nan frames
+        # reach a sink as a picture rather than as an error.
+        (["--seconds", "nan"], "--seconds"),
+        (["--seconds", "inf"], "--seconds"),
         (["--frames-per-step", "0"], "--frames-per-step"),
     ],
 )
-def test_init_rejects_settings_that_generate_nothing(
+def test_init_rejects_settings_that_generate_nothing_watchable(
     args: list[str], message: str
 ) -> None:
     app: IApplication = create_app()
@@ -238,19 +243,19 @@ def test_a_batch_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     frames_per_step = 5
     # Two seconds at ten frames a second: one second of fade, then green.
     steps = 4
+    app = create_app()
+    app.init(["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)])
 
-    run_batch(
-        create_app(),
-        Mp4ClientWindow(path),
-        _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT),
-        steps=steps,
-        commandline_args=[
-            "--seconds",
-            str(_SECONDS),
-            "--frames-per-step",
-            str(frames_per_step),
-        ],
-    )
+    try:
+        run_batch(
+            app.create_session(
+                _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
+            ),
+            Mp4OutputSink(path),
+            steps=steps,
+        )
+    finally:
+        app.close()
 
     frames = _decode(path, width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
     assert len(frames) == steps * frames_per_step

@@ -1,30 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Batch loop generating a fixed number of steps and writing each one out."""
+"""Batch loop generating a fixed number of steps and writing each to a sink."""
 
 import logging
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
 """Logger for a close that failed after the run had already failed."""
 
 
-def run_batch(
-    application: IApplication,
-    window: IClientWindow,
-    session_desc: SessionDesc,
-    *,
-    steps: int,
-    commandline_args: Sequence[str] = (),
-) -> None:
-    """Generate ``steps`` results from an application and write each one out.
+def run_batch(session: ISession, output: OutputSink, *, steps: int) -> None:
+    """Generate ``steps`` results from a session and write each one out.
 
     The loop for output that is a file: generate a step, write it, repeat. One
     thread, no input, and no pacing. A file has no client to take input from or
@@ -38,52 +30,45 @@ def run_batch(
     :func:`flashdreams.runtime_v2.session_runner.run_session` is the polling
     loop the interactive path uses today.
 
-    The application, its session and the window are all closed before this
-    returns, whether the run finished or failed part way through. One call is
-    therefore one load: a caller wanting several files out of one loaded
-    application needs a loop that keeps it, which nothing needs yet.
+    The session and the sink are both closed before this returns, whether the
+    run finished or failed part way through. The application the session came
+    from belongs to the caller, so one loaded application can write several
+    files.
 
     A run that fails raises what failed it, rather than anything that then went
     wrong closing up, since the first failure is the one that explains the
-    rest. A close that fails on its own is raised: for a file window that is
-    the encode failing to finish, which leaves the file unusable.
+    rest. A close that fails on its own is raised: for a file that is the
+    encode failing to finish, which leaves the file unusable.
 
     Args:
-        application: Application to run. Initialized here, not by the caller.
-        window: Window to write results to. Its input is never read, since a
-            batch run has nobody to take input from.
-        session_desc: Session to ask the application for.
+        session: Uninitialized session to drive.
+        output: Sink to write results to.
         steps: Number of steps to generate. A batch run is bounded up front,
-            since a window that reports no input can never report a close.
-        commandline_args: Application-specific arguments.
+            since a sink has no way to ask for the run to end.
 
     Raises:
-        ValueError: ``steps`` is negative, or the application cannot honour
-            ``session_desc``.
+        ValueError: ``steps`` is negative.
     """
     if steps < 0:
         raise ValueError(f"steps must be >= 0, got {steps}.")
 
-    # No input source, so every step is handed the same empty batch.
+    # Nothing reads input here, so every step is handed the same empty batch.
     no_events = UserInputEvents([])
-    # Nested so each one is closed before whatever created it, and so an outer
-    # one is closed even when what it holds never started.
-    with _closing(application.close, "application"):
-        application.init(commandline_args)
-        session = application.create_session(session_desc)
-        with _closing(session.close, "session"):
-            session.init()
-            with _closing(window.close, "window"):
-                window.open(session.session_desc)
-                for step_index in range(steps):
-                    window.write(session.step(step_index, no_events))
+    # Nested so the sink is closed before the session it was opened for, and so
+    # a session that failed to start is still closed.
+    with _closing(session.close, "session"):
+        session.init()
+        with _closing(output.close, "output"):
+            output.open(session.session_desc)
+            for step_index in range(steps):
+                output.write(session.step(step_index, no_events))
 
 
 @contextmanager
 def _closing(close: Callable[[], None], what: str) -> Iterator[None]:
     """Run a block, then close what it was using.
 
-    Closing is where a file window finishes the encode, so a block that raised
+    Closing is where a file sink finishes the encode, so a block that raised
     still leaves what it managed to generate, and one that did not is told when
     finishing the file failed.
 

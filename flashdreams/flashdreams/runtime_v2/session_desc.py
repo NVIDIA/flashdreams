@@ -12,11 +12,11 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SessionDesc:
-    """Description of a session, passed to create one and to open a window on it.
+    """Description of a session, passed to create one and to open its output.
 
     The runtime fills this in to ask an application for a session, and the
     session reports back what it resolved to. The same description then
-    configures the client window through ``OutputSink.open``.
+    configures whatever the results go to, through ``OutputSink.open``.
     """
 
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
@@ -26,7 +26,11 @@ class SessionDesc:
     """Rate to read input and present finished results at, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Rate to generate at, in frames per second. Nothing paces by it yet."""
+    """Rate the generated frames are meant to play at, in frames per second.
+
+    Frames rather than steps: a step generating eight of them covers eight of
+    these, however long it took to generate. Nothing paces by it yet.
+    """
 
     video_width: int = 1280
     """Output video width in pixels."""

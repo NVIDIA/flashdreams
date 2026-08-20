@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU test for the client window that writes an MP4 file."""
+"""CPU test for the output sink that writes an MP4 file."""
 
 import shutil
 import subprocess
@@ -12,7 +12,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -122,38 +122,44 @@ def _mean_colour(frame: np.ndarray) -> tuple[float, float, float]:
 ## Tests that do not encode
 
 
-def test_window_reports_no_input() -> None:
-    window = Mp4ClientWindow("unused.mp4")
-
-    assert window.get_user_input_events().get_events() == []
-
-
 def test_write_before_open_raises(tmp_path: Path) -> None:
-    window = Mp4ClientWindow(tmp_path / "out.mp4")
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
 
     with pytest.raises(RuntimeError, match="open"):
-        window.write(_result([_RED]))
+        sink.write(_result([_RED]))
 
 
-def test_write_rejects_a_layout_the_window_was_not_opened_for(tmp_path: Path) -> None:
-    window = Mp4ClientWindow(tmp_path / "out.mp4")
-    window.open(_session_desc(VideoTensorLayout.bcthw))
+@pytest.mark.parametrize(("width", "height"), [(15, 8), (16, 7), (15, 7)])
+def test_open_rejects_odd_frame_dimensions(
+    tmp_path: Path, width: int, height: int
+) -> None:
+    # Rounding up to the even size the encoding needs would write a file of a
+    # size the session never declared.
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+
+    with pytest.raises(ValueError, match=f"{width}x{height}"):
+        sink.open(_session_desc(width=width, height=height))
+
+
+def test_write_rejects_a_layout_the_sink_was_not_opened_for(tmp_path: Path) -> None:
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+    sink.open(_session_desc(VideoTensorLayout.bcthw))
 
     with pytest.raises(ValueError, match="tchw"):
-        window.write(_result([_RED], layout=VideoTensorLayout.tchw))
+        sink.write(_result([_RED], layout=VideoTensorLayout.tchw))
 
 
 def test_write_rejects_frames_of_another_size(tmp_path: Path) -> None:
-    window = Mp4ClientWindow(tmp_path / "out.mp4")
-    window.open(_session_desc(width=_WIDTH * 2))
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+    sink.open(_session_desc(width=_WIDTH * 2))
 
     with pytest.raises(ValueError, match=f"{_WIDTH}x{_HEIGHT}"):
-        window.write(_result([_RED]))
+        sink.write(_result([_RED]))
 
 
 def test_write_rejects_a_frame_count_the_tensor_does_not_carry(tmp_path: Path) -> None:
-    window = Mp4ClientWindow(tmp_path / "out.mp4")
-    window.open(_session_desc())
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+    sink.open(_session_desc())
     carrying_two = _result([_RED, _BLACK])
     claiming_five = StepResult(
         step_index=0,
@@ -163,12 +169,12 @@ def test_write_rejects_a_frame_count_the_tensor_does_not_carry(tmp_path: Path) -
     )
 
     with pytest.raises(ValueError, match="5 frames"):
-        window.write(claiming_five)
+        sink.write(claiming_five)
 
 
 def test_write_rejects_output_with_more_than_one_batch(tmp_path: Path) -> None:
-    window = Mp4ClientWindow(tmp_path / "out.mp4")
-    window.open(_session_desc())
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+    sink.open(_session_desc())
     one = _result([_RED])
     two_batches = StepResult(
         step_index=0,
@@ -178,21 +184,21 @@ def test_write_rejects_output_with_more_than_one_batch(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="batch"):
-        window.write(two_batches)
+        sink.write(two_batches)
 
 
 def test_a_run_that_generated_nothing_writes_no_file(tmp_path: Path) -> None:
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
+    sink = Mp4OutputSink(path)
 
-    window.open(_session_desc())
-    window.close()
+    sink.open(_session_desc())
+    sink.close()
 
     assert not path.exists()
 
 
-def test_close_tolerates_a_window_that_was_never_opened(tmp_path: Path) -> None:
-    Mp4ClientWindow(tmp_path / "out.mp4").close()
+def test_close_tolerates_a_sink_that_was_never_opened(tmp_path: Path) -> None:
+    Mp4OutputSink(tmp_path / "out.mp4").close()
 
 
 ## Tests that encode
@@ -208,16 +214,16 @@ def test_close_tolerates_a_window_that_was_never_opened(tmp_path: Path) -> None:
         VideoTensorLayout.bvtchw,
     ],
 )
-def test_window_writes_one_frame_per_result_in_order(
+def test_sink_writes_one_frame_per_result_in_order(
     tmp_path: Path, layout: VideoTensorLayout
 ) -> None:
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
+    sink = Mp4OutputSink(path)
 
-    window.open(_session_desc(layout))
-    window.write(_result([_RED], step_index=0, layout=layout))
-    window.write(_result([_BLACK], step_index=1, layout=layout))
-    window.close()
+    sink.open(_session_desc(layout))
+    sink.write(_result([_RED], step_index=0, layout=layout))
+    sink.write(_result([_BLACK], step_index=1, layout=layout))
+    sink.close()
 
     frames = _decode(path)
     assert len(frames) == 2
@@ -229,13 +235,13 @@ def test_window_writes_one_frame_per_result_in_order(
 
 
 @needs_ffmpeg
-def test_window_writes_every_frame_a_result_carries(tmp_path: Path) -> None:
+def test_sink_writes_every_frame_a_result_carries(tmp_path: Path) -> None:
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
+    sink = Mp4OutputSink(path)
 
-    window.open(_session_desc())
-    window.write(_result([_RED, _BLACK, _RED]))
-    window.close()
+    sink.open(_session_desc())
+    sink.write(_result([_RED, _BLACK, _RED]))
+    sink.close()
 
     assert len(_decode(path)) == 3
 
@@ -245,11 +251,11 @@ def test_a_floating_point_result_is_read_as_minus_one_to_one(tmp_path: Path) -> 
     # Zero is the middle of that range, so a frame of zeros is mid grey rather
     # than black, and an application emitting [0, 1] would come out washed out.
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
+    sink = Mp4OutputSink(path)
 
-    window.open(_session_desc())
-    window.write(_result([(0.0, 0.0, 0.0)]))
-    window.close()
+    sink.open(_session_desc())
+    sink.write(_result([(0.0, 0.0, 0.0)]))
+    sink.close()
 
     assert min(_mean_colour(_decode(path)[0])) > 100
     assert max(_mean_colour(_decode(path)[0])) < 155
@@ -258,11 +264,11 @@ def test_a_floating_point_result_is_read_as_minus_one_to_one(tmp_path: Path) -> 
 @needs_ffmpeg
 def test_an_integer_result_is_read_as_raw_bytes(tmp_path: Path) -> None:
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
+    sink = Mp4OutputSink(path)
 
-    window.open(_session_desc())
-    window.write(_result([(17.0, 17.0, 17.0)], dtype=torch.uint8))
-    window.close()
+    sink.open(_session_desc())
+    sink.write(_result([(17.0, 17.0, 17.0)], dtype=torch.uint8))
+    sink.close()
 
     assert max(_mean_colour(_decode(path)[0])) < 25
 
@@ -270,11 +276,11 @@ def test_an_integer_result_is_read_as_raw_bytes(tmp_path: Path) -> None:
 @needs_ffmpeg
 def test_a_single_channel_result_is_written_as_grey(tmp_path: Path) -> None:
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
+    sink = Mp4OutputSink(path)
     grey = torch.zeros((1, 1, _HEIGHT, _WIDTH), dtype=torch.float32)
 
-    window.open(_session_desc(VideoTensorLayout.tchw))
-    window.write(
+    sink.open(_session_desc(VideoTensorLayout.tchw))
+    sink.write(
         StepResult(
             step_index=0,
             output=grey,
@@ -282,7 +288,7 @@ def test_a_single_channel_result_is_written_as_grey(tmp_path: Path) -> None:
             output_layout=VideoTensorLayout.tchw,
         )
     )
-    window.close()
+    sink.close()
 
     red, green, blue = _mean_colour(_decode(path)[0])
     assert abs(red - green) < 10
@@ -292,11 +298,11 @@ def test_a_single_channel_result_is_written_as_grey(tmp_path: Path) -> None:
 @needs_ffmpeg
 def test_close_can_run_twice(tmp_path: Path) -> None:
     path = tmp_path / "out.mp4"
-    window = Mp4ClientWindow(path)
-    window.open(_session_desc())
-    window.write(_result([_RED]))
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
 
-    window.close()
-    window.close()
+    sink.close()
+    sink.close()
 
     assert len(_decode(path)) == 1

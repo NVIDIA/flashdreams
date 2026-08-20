@@ -49,7 +49,7 @@ class RedScreenSession(ISession):
     """Emit red frames controlled by activation and intensity keys.
 
     Pixels are ``[-1, 1]`` floats, which is what FlashDreams models emit and
-    what a client window expects of a floating point result.
+    what an output sink expects of a floating point result.
     """
 
     def __init__(self, config: RedScreenConfig, session_desc: SessionDesc) -> None:

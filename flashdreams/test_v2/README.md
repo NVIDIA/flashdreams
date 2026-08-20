@@ -13,11 +13,11 @@ CPU-only tests for the v2 protocols themselves:
   window implementations, so it depends on no integration at all. It asserts the
   orderings and thread ownership the two-thread loop guarantees, not a particular
   interleaving.
-- `test_batch_runner.py` covers the `run_batch` loop the same way, including what
-  it closes when a run fails part way through.
-- `test_mp4_client_window.py` covers the window that writes an MP4, reading each
-  file back to check what was encoded. Its encoding tests are skipped when
-  `ffmpeg` is missing from `PATH`.
+- `test_batch_runner.py` covers the `run_batch` loop the same way, with a fake
+  session and sink, including what it closes when a run fails part way through.
+- `test_mp4_output_sink.py` covers the sink that writes an MP4, reading each file
+  back to check what was encoded. Its encoding tests are skipped when `ffmpeg` is
+  missing from `PATH`.
 
 Application behaviour is tested by the application that owns it — see
 `integrations_v2/red_screen/red_screen/tests/` and

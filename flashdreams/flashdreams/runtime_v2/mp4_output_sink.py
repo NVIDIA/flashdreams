@@ -1,23 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Client window writing what a session generates to an MP4 file."""
+"""Output sink writing what a session generates to an MP4 file."""
 
 from pathlib import Path
 
-from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_frames
 
 
-class Mp4ClientWindow(IClientWindow):
-    """Encode results into an MP4 file, reporting no input.
+class Mp4OutputSink(OutputSink):
+    """Encode results into an MP4 file.
 
-    A file has no client to press a key or to close the window, so
-    :meth:`get_user_input_events` always reports nothing. A run against this
-    window is bounded by whatever drives it.
+    Each result is encoded as it arrives, and the run is bounded by whatever
+    drives it: a file has no client to ask for it to end.
 
     Encoding belongs to :class:`Mp4Encoder`, which needs an ``ffmpeg``
     executable on ``PATH``. This class is the part that speaks the protocol.
@@ -32,14 +30,6 @@ class Mp4ClientWindow(IClientWindow):
         self._session_desc: SessionDesc | None = None
         self._encoder: Mp4Encoder | None = None
 
-    def get_user_input_events(self) -> UserInputEvents:
-        """Report nothing, since a file has no user.
-
-        Returns:
-            An empty batch, on every call.
-        """
-        return UserInputEvents([])
-
     def open(self, session_desc: SessionDesc) -> None:
         """Prepare to encode a session's output.
 
@@ -50,6 +40,10 @@ class Mp4ClientWindow(IClientWindow):
             session_desc: Output description declared by the session. Its frame
                 size becomes the file's, and its generation rate becomes the
                 rate the file plays back at.
+
+        Raises:
+            ValueError: The frames are an odd number of pixels wide or high,
+                which this cannot encode.
         """
         self._session_desc = session_desc
         self._encoder = Mp4Encoder(
@@ -67,17 +61,17 @@ class Mp4ClientWindow(IClientWindow):
 
         Raises:
             RuntimeError: Called before :meth:`open`, or the encoder stopped.
-            ValueError: ``result`` does not match the description this window was
+            ValueError: ``result`` does not match the description this sink was
                 opened with.
         """
         if self._session_desc is None or self._encoder is None:
-            raise RuntimeError("Mp4ClientWindow.open() must run before write().")
+            raise RuntimeError("Mp4OutputSink.open() must run before write().")
         self._encoder.write(result_to_rgb24_frames(result, self._session_desc))
 
     def close(self) -> None:
         """Finish the file.
 
-        Can be called on a window that was never opened, or twice.
+        Can be called on a sink that was never opened, or twice.
 
         Raises:
             RuntimeError: The encoder failed, so the file is unusable.

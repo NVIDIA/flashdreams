@@ -7,9 +7,10 @@ Protocols for the FlashDreams API.
 
 - `application.py` / `session.py`: `IApplication` creates an `ISession` from a
   `SessionDesc`, and the session reports what it resolved to.
-- `input_source.py` / `output_sink.py` / `client_window.py`: `IClientWindow` is
-  one client's input and output together. It is given the session's `SessionDesc`
-  in `OutputSink.open`.
+- `input_source.py` / `output_sink.py` / `client_window.py`: an `OutputSink` is
+  where results go, and is given the session's `SessionDesc` in
+  `OutputSink.open`. `IClientWindow` is one client's input and output together,
+  for output that has a client to take input from.
 - `user_input_event_data.py`: base type for event payloads.
 
 Each kind of output has its own loop, and what they share is the session they
@@ -19,8 +20,10 @@ step rather than the loop that steps it:
   window on two threads, for a fixed number of steps or until the window reports
   a close. This is the interactive path.
 - `flashdreams.runtime_v2.batch_runner.run_batch` generates a fixed number of
-  steps on one thread and writes each to a window that reports no input. This is
-  the path for output that is a file, and `Mp4ClientWindow` is that window.
+  steps on one thread and writes each to an `OutputSink`. This is the path for
+  output that is a file, which has no input side, and `Mp4OutputSink` is that
+  sink. Both runners take a session, so the application is the caller's either
+  way.
 
 Ownership
 ---------
@@ -57,10 +60,10 @@ Agreed design decisions. Change them by discussion.
   the new generation whole, so a key held down when the client restarts is still
   held after, because it is the earlier edge that says so. A session that must
   not inherit that input ignores the older events itself.
-- A window reads `StepResult.output` by its dtype: a floating point tensor holds
-  `[-1, 1]`, which is what FlashDreams models emit, and an integer tensor holds
-  raw `0`-`255` values. `SessionDesc` does not carry a range, so this is the
-  convention every window follows rather than something a session declares.
+- An `OutputSink` reads `StepResult.output` by its dtype: a floating point tensor
+  holds `[-1, 1]`, which is what FlashDreams models emit, and an integer tensor
+  holds raw `0`-`255` values. `SessionDesc` does not carry a range, so this is the
+  convention every sink follows rather than something a session declares.
 
 Threading
 ---------
@@ -76,9 +79,6 @@ and write finished results. A slow step does not hold up input or output, which
 is why `SessionDesc` carries the two frame rates separately. Only the UI rate is
 read so far — generation currently runs as fast as it can.
 
-A window with no input to report returns no events and leaves `step_ui` at its
-default; the threading is unchanged.
-
 Only the I/O thread touches the window, `open` and `close` included. That is what
 a native window needs, and it keeps `IClientWindow` implementations free of
 locking.
@@ -86,9 +86,10 @@ locking.
 Writing happens on that thread too, so a window slower than generation leaves
 results waiting. `run_session` bounds how many wait, with `max_pending`, and
 `when_full` decides the rest: `WhenFull.BLOCK` holds generation back so every
-result is presented, which is what a file output wants, and `WhenFull.DROP_OLDEST`
-skips frames to keep latency down, which is what a realtime one wants. The caller
-picks, since it is the caller that created the window.
+result is presented, which is what a window that must show all of them wants,
+and `WhenFull.DROP_OLDEST` skips frames to keep latency down, which is what a
+realtime one wants. The caller picks, since it is the caller that created the
+window. A batch run needs neither, since it writes each result as it comes.
 
 Each waiting result carries the generation it was produced for, and a reset moves
 on to the next one. Nothing from the generation the client abandoned is written,
@@ -115,14 +116,12 @@ Not built yet
 - The loops an interactive window needs. A WebRTC or native window owns an event
   loop of its own, an asyncio one or an OS message pump, and would drive the
   session from it. `run_session` polls instead, on a thread it starts itself.
-- `flashdreams-run`: a CLI that creates the requested kind of client window,
-  loads an application module, and runs the loop that window needs. Until it
-  exists, the caller wires that up and an integration ships no entry point.
+- `flashdreams-run`: a CLI that creates the requested kind of output, a client
+  window or a file sink, loads an application module, and runs the loop that
+  output needs. Until it exists, the caller wires that up and an integration
+  ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
-- Several batch runs from one loaded application. `run_batch` initializes the
-  application it is given and closes it again, so rendering two files today
-  loads whatever the application holds twice.
 - Shared per-domain test entry points, so a model integration gets coverage from
   one call — for example `test_t2v_model_impl(model_config, expected_frame_stats)`
   returning a pass or fail result.

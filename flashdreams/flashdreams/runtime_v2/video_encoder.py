@@ -50,7 +50,16 @@ class Mp4Encoder:
             width: Frame width in pixels, which every write must match.
             height: Frame height in pixels, which every write must match.
             frames_per_second: Rate the file plays back at.
+
+        Raises:
+            ValueError: A dimension is odd. Rounding one up would write a file
+                of a size nobody asked for, so it is refused instead.
         """
+        # yuv420p stores one chroma sample per two pixels in each direction.
+        if width % 2 or height % 2:
+            raise ValueError(
+                f"An MP4 needs even frame dimensions, got {width}x{height}."
+            )
         self._path = Path(path)
         self._width = width
         self._height = height
@@ -151,9 +160,6 @@ class Mp4Encoder:
             "-an",
             "-vcodec",
             "libx264",
-            # yuv420p halves the chroma planes, so both dimensions must be even.
-            "-vf",
-            "pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-pix_fmt",
             "yuv420p",
             "-crf",

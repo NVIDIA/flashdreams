@@ -4,6 +4,7 @@
 """Application fading a frame from red to green, for end-to-end file output."""
 
 import argparse
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -63,7 +64,7 @@ class ColorFadeSession(ISession):
     way through the fade.
 
     Pixels are ``[-1, 1]`` floats, which is what FlashDreams models emit and
-    what a client window expects of a floating point result.
+    what an output sink expects of a floating point result.
     """
 
     def __init__(self, config: ColorFadeConfig, session_desc: SessionDesc) -> None:
@@ -168,8 +169,10 @@ class ColorFadeApplication(IApplication):
         )
         args = parser.parse_args(list(commandline_args))
 
-        if args.seconds <= 0:
-            raise ValueError(f"--seconds must be > 0, got {args.seconds}.")
+        # Not just a sign check: a fade of nan seconds makes every frame nan,
+        # which reaches a sink as a picture rather than as an error.
+        if not math.isfinite(args.seconds) or args.seconds <= 0:
+            raise ValueError(f"--seconds must be finite and > 0, got {args.seconds}.")
         if args.frames_per_step <= 0:
             raise ValueError(
                 f"--frames-per-step must be > 0, got {args.frames_per_step}."
