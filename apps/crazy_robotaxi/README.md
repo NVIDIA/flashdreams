@@ -154,8 +154,10 @@ of the bearings and centerline tangents of roads connected to it.
 The complete, authoritative format is documented in
 [`../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md`](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md).
 The bundled `minimal_loop.robotaxi.yaml` is a compact working example, while
-`boulevard_district.robotaxi.yaml` demonstrates arbitrary-angle intersections,
-smooth road paths, mixed road profiles, cul-de-sacs, and several parking lots.
+`boulevard_district.robotaxi.yaml` recreates the original scene's surface-street
+layout at its source scale, including the curved arterial split, neighborhood
+grid, eastern commercial loops, cul-de-sacs, and parking lots. The elevated
+highway and its on-ramps in the northwest are intentionally omitted.
 
 Select a map with either entry point:
 

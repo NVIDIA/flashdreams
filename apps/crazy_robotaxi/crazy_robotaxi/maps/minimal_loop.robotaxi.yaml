@@ -31,6 +31,8 @@ nodes:
 
   - id: neighborhood_lot
     type: parking_lot
+    connected_to: hub
+    opening_vertex: 3
     vertices:
       - {x_m: -13, y_m: -51}
       - {x_m: -13, y_m: -19}
@@ -54,9 +56,6 @@ roads:
     from: hub
     to: dead_end
     profile: neighborhood
-
-parking_accesses:
-  - {id: hub_to_lot, source: hub, parking_lot: neighborhood_lot, opening_vertex: 3}
 
 spawns:
   - id: taxi_start

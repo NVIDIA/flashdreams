@@ -1,6 +1,6 @@
 schema_version: 1
 id: crazy-robotaxi-boulevard-district
-name: Original Boulevard District (WIP)
+name: Original Boulevard District
 
 compiler:
   sample_spacing_m: 2.0
@@ -8,7 +8,7 @@ compiler:
   intersection_connector_samples: 8
 
 profiles:
-  boulevard:
+  arterial:
     lane_width_m: 3.6
     curb_offset_m: 0.6
     lanes: [backward, backward, forward, forward]
@@ -19,7 +19,7 @@ profiles:
       - {style: DASHED_SINGLE, color: WHITE}
       - {style: SOLID_GROUP, color: YELLOW}
       - {style: DASHED_SINGLE, color: WHITE}
-  neighborhood:
+  street:
     lane_width_m: 3.6
     curb_offset_m: 0.6
     lanes: [backward, forward]
@@ -28,168 +28,335 @@ profiles:
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
     divider_markings:
       - {style: SOLID_GROUP, color: YELLOW}
-nodes:
-  - {id: west_boulevard_end, type: cul_de_sac, pose: {x_m: -120, y_m: 0, rotation_deg: 0}, culdesac_radius_m: 18, curb: true}
-  - {id: central_crossing, type: intersection, pose: {x_m: -35.8, y_m: 0, rotation_deg: 0}, curb: true}
-  - {id: east_crossing, type: intersection, pose: {x_m: 47.6, y_m: 0, rotation_deg: 0}, curb: true}
-  - {id: central_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 57, rotation_deg: 0}, curb: true}
-  - {id: east_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 57, rotation_deg: 0}, curb: true}
-  - {id: central_upper_north_junction, type: intersection, pose: {x_m: -35.8, y_m: 110.4, rotation_deg: 180}, curb: true}
-  - {id: east_upper_north_junction, type: intersection, pose: {x_m: 47.6, y_m: 110.4, rotation_deg: 90}, curb: true}
-  - {id: east_upper_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 47.6, y_m: 149.6, rotation_deg: 90}, culdesac_radius_m: 10, curb: true}
-  - {id: central_south_junction, type: intersection, pose: {x_m: -35.8, y_m: -51.2, rotation_deg: 270}, curb: true}
-  - {id: east_south_junction, type: intersection, pose: {x_m: 47.6, y_m: -51.2, rotation_deg: 0}, curb: true}
-  - {id: east_lot_junction, type: driveway, pose: {x_m: 71.8, y_m: -51.2, rotation_deg: 0}}
-  - {id: east_south_spur_end, type: cul_de_sac, pose: {x_m: 96, y_m: -51.2, rotation_deg: 0}, culdesac_radius_m: 10, curb: true}
-  - {id: central_lower_junction, type: intersection, pose: {x_m: -35.8, y_m: -89.6, rotation_deg: 0}, curb: true}
-  - {id: lower_lot_junction, type: driveway, pose: {x_m: 5.9, y_m: -89.6, rotation_deg: 180}}
-  - {id: east_lower_junction, type: intersection, pose: {x_m: 47.6, y_m: -89.6, rotation_deg: 0}, curb: true}
-  - id: central_parking_lot
-    type: parking_lot
-    vertices:
-      - {x_m: -10.100, y_m: -112.800}
-      - {x_m: 2.300, y_m: -112.800}
-      - {x_m: 9.500, y_m: -112.800}
-      - {x_m: 21.900, y_m: -112.800}
-      - {x_m: 21.900, y_m: -138.800}
-      - {x_m: -10.100, y_m: -138.800}
-  - id: east_parking_lot
-    type: parking_lot
-    vertices:
-      - {x_m: 83.800, y_m: -32.000}
-      - {x_m: 75.400, y_m: -32.000}
-      - {x_m: 68.200, y_m: -32.000}
-      - {x_m: 59.800, y_m: -32.000}
-      - {x_m: 59.800, y_m: -8.000}
-      - {x_m: 83.800, y_m: -8.000}
-
-  - id: eastern_gateway
-    type: intersection
-    pose: {x_m: 131.8, y_m: 0, rotation_deg: 0}
+  local:
+    lane_width_m: 3.2
+    curb_offset_m: 0.5
+    lanes: [backward, forward]
+    speed_limit_mps: 8.9
     curb: true
-  - {id: eastern_north_junction, type: intersection, pose: {x_m: 149.365, y_m: 65.584, rotation_deg: 352.747}, curb: true}
-  - {id: eastern_north_cul_de_sac, type: cul_de_sac, pose: {x_m: 157.662, y_m: 114.931, rotation_deg: 82.747}, culdesac_radius_m: 10, curb: true}
-  - {id: eastern_lot_junction, type: driveway, pose: {x_m: 182.507, y_m: 70.942, rotation_deg: 352.747}}
-  - {id: eastern_side_cul_de_sac, type: cul_de_sac, pose: {x_m: 206.513, y_m: 67.887, rotation_deg: 352.747}, culdesac_radius_m: 10, curb: true}
-  - id: eastern_parking_lot
-    type: parking_lot
-    vertices:
-      - {x_m: 196.962, y_m: 89.466}
-      - {x_m: 188.629, y_m: 90.527}
-      - {x_m: 181.487, y_m: 91.436}
-      - {x_m: 173.154, y_m: 92.496}
-      - {x_m: 176.184, y_m: 116.304}
-      - {x_m: 199.992, y_m: 113.274}
-  - {id: eastern_south_cul_de_sac, type: cul_de_sac, pose: {x_m: 130.462, y_m: -83.44, rotation_deg: 262.747}, culdesac_radius_m: 10, curb: true}
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
 
-  - {id: east_spine_crossing_1, type: intersection, pose: {x_m: 283.135, y_m: -64.184, rotation_deg: 359.962}, curb: true}
-  - {id: east_spine_crossing_2, type: intersection, pose: {x_m: 361.535, y_m: -64.236, rotation_deg: 359.962}, curb: true}
-  - {id: east_spine_crossing_3, type: intersection, pose: {x_m: 439.935, y_m: -64.288, rotation_deg: 359.962}, curb: true}
-  - {id: east_spine_crossing_4, type: intersection, pose: {x_m: 518.335, y_m: -64.339, rotation_deg: 359.962}, curb: true}
-  - {id: east_spine_cul_de_sac, type: cul_de_sac, pose: {x_m: 577.535, y_m: -64.378, rotation_deg: 359.962}, culdesac_radius_m: 18, curb: true}
-  - {id: east_lower_junction_1, type: intersection, pose: {x_m: 283.091, y_m: -131.184, rotation_deg: 359.962}, curb: true}
-  - {id: east_lower_junction_2, type: intersection, pose: {x_m: 361.491, y_m: -131.236, rotation_deg: 359.962}, curb: true}
-  - {id: east_lower_junction_3, type: driveway, pose: {x_m: 439.891, y_m: -131.288, rotation_deg: 179.962}}
-  - {id: east_lower_junction_4, type: intersection, pose: {x_m: 518.291, y_m: -131.339, rotation_deg: 359.962}, curb: true}
-  - {id: east_lower_west_cul_de_sac, type: cul_de_sac, pose: {x_m: 253.891, y_m: -131.165, rotation_deg: 179.962}, culdesac_radius_m: 10, curb: true}
-  - {id: east_lower_south_cul_de_sac_1, type: cul_de_sac, pose: {x_m: 283.065, y_m: -170.384, rotation_deg: 269.962}, culdesac_radius_m: 10, curb: true}
-  - id: east_commercial_parking_lot_1
+nodes:
+  # Original spawn-area arterial and northwest surface-street grid. The
+  # elevated highway and its ramps are deliberately omitted.
+  - {id: west_arterial_end, type: cul_de_sac, pose: {x_m: -180, y_m: 0, rotation_deg: 180}, culdesac_radius_m: 12, curb: true}
+  - {id: west_arterial_crossing, type: intersection, pose: {x_m: -128, y_m: 0, rotation_deg: 0}, curb: true}
+  - {id: central_arterial_crossing, type: intersection, pose: {x_m: 75, y_m: 0, rotation_deg: 0}, curb: true}
+  - {id: diagonal_arterial_crossing, type: intersection, pose: {x_m: 284, y_m: 0, rotation_deg: 0}, curb: true}
+
+  - {id: west_north_crossing, type: intersection, pose: {x_m: -123, y_m: 100, rotation_deg: 0}, curb: true}
+  - {id: west_upper_crossing, type: intersection, pose: {x_m: -123, y_m: 198, rotation_deg: 0}, curb: true}
+  - {id: west_north_end, type: cul_de_sac, pose: {x_m: -123, y_m: 235, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
+  - {id: central_north_crossing, type: intersection, pose: {x_m: 75, y_m: 93, rotation_deg: 0}, curb: true}
+  - {id: central_upper_crossing, type: intersection, pose: {x_m: 75, y_m: 198, rotation_deg: 0}, curb: true}
+  - {id: central_north_end, type: cul_de_sac, pose: {x_m: 75, y_m: 260, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
+
+  - {id: west_south_crossing, type: intersection, pose: {x_m: -128, y_m: -84, rotation_deg: 0}, curb: true}
+  - {id: west_lower_crossing, type: intersection, pose: {x_m: -128, y_m: -184, rotation_deg: 0}, curb: true}
+  - {id: west_south_end, type: cul_de_sac, pose: {x_m: -128, y_m: -235, rotation_deg: 270}, culdesac_radius_m: 9, curb: true}
+  - {id: southwest_crossing, type: intersection, pose: {x_m: -44, y_m: -84, rotation_deg: 0}, curb: true}
+  - {id: southwest_north_end, type: cul_de_sac, pose: {x_m: -44, y_m: -30, rotation_deg: 90}, culdesac_radius_m: 8, curb: true}
+  - {id: southwest_lot_driveway, type: driveway, pose: {x_m: 20, y_m: -85, rotation_deg: 0}}
+  - {id: central_south_crossing, type: intersection, pose: {x_m: 75, y_m: -85, rotation_deg: 0}, curb: true}
+  - {id: central_lower_crossing, type: intersection, pose: {x_m: 75, y_m: -120, rotation_deg: 0}, curb: true}
+  - {id: central_south_end, type: cul_de_sac, pose: {x_m: 75, y_m: -200, rotation_deg: 270}, culdesac_radius_m: 9, curb: true}
+  - {id: south_lot_driveway, type: driveway, pose: {x_m: 150, y_m: -120, rotation_deg: 0}}
+  - {id: south_local_end, type: cul_de_sac, pose: {x_m: 210, y_m: -120, rotation_deg: 0}, culdesac_radius_m: 9, curb: true}
+
+  # Diagonal north street and the arterial split visible east of the spawn.
+  - {id: diagonal_bend_lower, type: road_joint, pose: {x_m: 299, y_m: 95, rotation_deg: 0}, curve_length_m: 12}
+  - {id: diagonal_north_crossing, type: intersection, pose: {x_m: 307, y_m: 133, rotation_deg: 0}, curb: true}
+  - {id: diagonal_bend_upper, type: road_joint, pose: {x_m: 314, y_m: 207, rotation_deg: 0}, curve_length_m: 12}
+  - {id: diagonal_north_end, type: cul_de_sac, pose: {x_m: 326, y_m: 285, rotation_deg: 82}, culdesac_radius_m: 9, curb: true}
+  - {id: southwest_merge, type: intersection, pose: {x_m: 277, y_m: -122, rotation_deg: 0}, curb: true}
+  - {id: southwest_boulevard_end, type: cul_de_sac, pose: {x_m: 185, y_m: -310, rotation_deg: 250}, culdesac_radius_m: 14, curb: true}
+  - {id: arterial_merge_crossing, type: intersection, pose: {x_m: 410, y_m: -88, rotation_deg: 0}, curb: true}
+
+  # Northern cross street and its repeated north/south loops.
+  - {id: north_crossing_470, type: intersection, pose: {x_m: 470, y_m: 133, rotation_deg: 0}, curb: true}
+  - {id: north_end_470, type: cul_de_sac, pose: {x_m: 470, y_m: 220, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
+  - {id: north_crossing_550, type: intersection, pose: {x_m: 550, y_m: 130, rotation_deg: 0}, curb: true}
+  - {id: north_crossing_630, type: intersection, pose: {x_m: 630, y_m: 126, rotation_deg: 0}, curb: true}
+  - {id: north_crossing_687, type: intersection, pose: {x_m: 687, y_m: 129, rotation_deg: 0}, curb: true}
+
+  # Long eastern arterial.
+  - {id: arterial_crossing_470, type: intersection, pose: {x_m: 470, y_m: -88, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_550, type: intersection, pose: {x_m: 550, y_m: -84, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_630, type: intersection, pose: {x_m: 630, y_m: -86, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_710, type: intersection, pose: {x_m: 710, y_m: -87, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_800, type: intersection, pose: {x_m: 800, y_m: -86, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_860, type: intersection, pose: {x_m: 860, y_m: -88, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_895, type: intersection, pose: {x_m: 895, y_m: -87, rotation_deg: 0}, curb: true}
+  - {id: east_corner_lot_driveway, type: driveway, pose: {x_m: 955, y_m: -88, rotation_deg: 0}}
+  - {id: arterial_crossing_990, type: intersection, pose: {x_m: 990, y_m: -88, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_1082, type: intersection, pose: {x_m: 1082, y_m: -85, rotation_deg: 0}, curb: true}
+  - {id: arterial_crossing_1170, type: intersection, pose: {x_m: 1170, y_m: -87, rotation_deg: 0}, curb: true}
+  - {id: east_arterial_end, type: cul_de_sac, pose: {x_m: 1220, y_m: -88, rotation_deg: 0}, culdesac_radius_m: 12, curb: true}
+
+  # Southern commercial grid.
+  - {id: south_crossing_630, type: intersection, pose: {x_m: 630, y_m: -303, rotation_deg: 0}, curb: true}
+  - {id: south_crossing_710, type: intersection, pose: {x_m: 710, y_m: -176, rotation_deg: 0}, curb: true}
+  - {id: lower_crossing_710, type: intersection, pose: {x_m: 710, y_m: -262, rotation_deg: 0}, curb: true}
+  - {id: south_end_710, type: cul_de_sac, pose: {x_m: 710, y_m: -310, rotation_deg: 270}, culdesac_radius_m: 9, curb: true}
+  - {id: south_crossing_860, type: intersection, pose: {x_m: 860, y_m: -176, rotation_deg: 0}, curb: true}
+  - {id: lower_crossing_860, type: intersection, pose: {x_m: 860, y_m: -262, rotation_deg: 0}, curb: true}
+  - {id: south_upper_lot_driveway, type: driveway, pose: {x_m: 895, y_m: -176, rotation_deg: 0}}
+  - {id: south_crossing_930, type: intersection, pose: {x_m: 930, y_m: -176, rotation_deg: 0}, curb: true}
+  - {id: lower_crossing_930, type: intersection, pose: {x_m: 930, y_m: -266, rotation_deg: 0}, curb: true}
+  - {id: south_crossing_990, type: intersection, pose: {x_m: 990, y_m: -177, rotation_deg: 0}, curb: true}
+  - {id: lower_crossing_990, type: intersection, pose: {x_m: 990, y_m: -265, rotation_deg: 0}, curb: true}
+  - {id: lower_lot_driveway, type: driveway, pose: {x_m: 785, y_m: -262, rotation_deg: 0}}
+  - {id: lower_crossing_1080, type: intersection, pose: {x_m: 1080, y_m: -267, rotation_deg: 0}, curb: true}
+  - {id: south_cul_de_sac_1080, type: cul_de_sac, pose: {x_m: 1082, y_m: -222, rotation_deg: 90}, culdesac_radius_m: 10, curb: true}
+  - {id: bottom_lot_driveway, type: driveway, pose: {x_m: 550, y_m: -310, rotation_deg: 0}}
+  - {id: bottom_west_end, type: cul_de_sac, pose: {x_m: 470, y_m: -330, rotation_deg: 190}, culdesac_radius_m: 9, curb: true}
+
+  # Far-east surface loop.
+  - {id: far_east_north_crossing, type: intersection, pose: {x_m: 1082, y_m: -33, rotation_deg: 0}, curb: true}
+  - {id: far_east_north_end, type: cul_de_sac, pose: {x_m: 1082, y_m: 71, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
+  - {id: far_east_bend_southeast, type: driveway, pose: {x_m: 1170, y_m: -33, rotation_deg: 0}}
+  - {id: far_east_bend_northeast, type: road_joint, pose: {x_m: 1170, y_m: 75, rotation_deg: 0}, curve_length_m: 10}
+  - {id: far_east_bend_northwest, type: road_joint, pose: {x_m: 1120, y_m: 75, rotation_deg: 0}, curve_length_m: 10}
+  - {id: far_east_bend_southwest, type: road_joint, pose: {x_m: 1120, y_m: -33, rotation_deg: 0}, curve_length_m: 10}
+
+  # Parking masks use original-scene scale and are connected by inferred
+  # access surfaces rather than authored road edges.
+  - id: southwest_parking_lot
     type: parking_lot
+    connected_to: southwest_lot_driveway
+    opening_vertex: 2
     vertices:
-      - {x_m: 346.483, y_m: -152.426}
-      - {x_m: 357.883, y_m: -152.434}
-      - {x_m: 365.083, y_m: -152.438}
-      - {x_m: 376.483, y_m: -152.446}
-      - {x_m: 376.465, y_m: -180.446}
-      - {x_m: 346.465, y_m: -180.426}
-  - id: east_commercial_parking_lot_2
+      - {x_m: -24, y_m: -136}
+      - {x_m: 14, y_m: -136}
+      - {x_m: 26, y_m: -136}
+      - {x_m: 65, y_m: -136}
+      - {x_m: 65, y_m: -189}
+      - {x_m: -24, y_m: -189}
+  - id: south_parking_lot
     type: parking_lot
+    connected_to: south_lot_driveway
+    opening_vertex: 2
     vertices:
-      - {x_m: 426.885, y_m: -149.479}
-      - {x_m: 436.285, y_m: -149.486}
-      - {x_m: 443.485, y_m: -149.490}
-      - {x_m: 452.885, y_m: -149.497}
-      - {x_m: 452.865, y_m: -179.497}
-      - {x_m: 426.865, y_m: -179.479}
-  - {id: east_lower_south_cul_de_sac_4, type: cul_de_sac, pose: {x_m: 518.258, y_m: -180.539, rotation_deg: 269.962}, culdesac_radius_m: 10, curb: true}
-  - {id: east_lower_east_cul_de_sac, type: cul_de_sac, pose: {x_m: 547.491, y_m: -131.359, rotation_deg: 359.962}, culdesac_radius_m: 10, curb: true}
+      - {x_m: 135, y_m: -150}
+      - {x_m: 145, y_m: -150}
+      - {x_m: 157, y_m: -150}
+      - {x_m: 175, y_m: -150}
+      - {x_m: 175, y_m: -205}
+      - {x_m: 135, y_m: -205}
+  - id: central_bottom_parking_lot
+    type: parking_lot
+    connected_to: bottom_lot_driveway
+    opening_vertex: 4
+    vertices:
+      - {x_m: 510, y_m: -266}
+      - {x_m: 570, y_m: -266}
+      - {x_m: 570, y_m: -296}
+      - {x_m: 556, y_m: -296}
+      - {x_m: 544, y_m: -296}
+      - {x_m: 510, y_m: -296}
+  - id: east_upper_parking_lot
+    type: parking_lot
+    connected_to: arterial_crossing_895
+    opening_vertex: 2
+    vertices:
+      - {x_m: 870, y_m: -115}
+      - {x_m: 889, y_m: -115}
+      - {x_m: 901, y_m: -115}
+      - {x_m: 920, y_m: -115}
+      - {x_m: 920, y_m: -165}
+      - {x_m: 870, y_m: -165}
+  - id: east_corner_parking_lot
+    type: parking_lot
+    connected_to: east_corner_lot_driveway
+    opening_vertex: 2
+    vertices:
+      - {x_m: 935, y_m: -115}
+      - {x_m: 949, y_m: -115}
+      - {x_m: 961, y_m: -115}
+      - {x_m: 975, y_m: -115}
+      - {x_m: 975, y_m: -165}
+      - {x_m: 935, y_m: -165}
+  - id: east_lower_parking_lot
+    type: parking_lot
+    connected_to: south_upper_lot_driveway
+    opening_vertex: 2
+    vertices:
+      - {x_m: 870, y_m: -195}
+      - {x_m: 889, y_m: -195}
+      - {x_m: 901, y_m: -195}
+      - {x_m: 920, y_m: -195}
+      - {x_m: 920, y_m: -245}
+      - {x_m: 870, y_m: -245}
+  - id: long_lower_parking_lot
+    type: parking_lot
+    connected_to: lower_lot_driveway
+    opening_vertex: 2
+    vertices:
+      - {x_m: 721, y_m: -275}
+      - {x_m: 779, y_m: -275}
+      - {x_m: 791, y_m: -275}
+      - {x_m: 850, y_m: -275}
+      - {x_m: 850, y_m: -290}
+      - {x_m: 721, y_m: -290}
+  - id: far_east_parking_lot
+    type: parking_lot
+    connected_to: far_east_bend_southeast
+    opening_vertex: 5
+    vertices:
+      - {x_m: 1192, y_m: -5}
+      - {x_m: 1222, y_m: -5}
+      - {x_m: 1222, y_m: -60}
+      - {x_m: 1192, y_m: -60}
+      - {x_m: 1192, y_m: -39}
+      - {x_m: 1192, y_m: -27}
 
 roads:
-  - {id: west_boulevard, from: west_boulevard_end, to: central_crossing, profile: boulevard}
-  - {id: central_boulevard, from: central_crossing, to: east_crossing, profile: boulevard}
-  - {id: east_boulevard, from: east_crossing, to: eastern_gateway, profile: boulevard}
-  - {id: central_north_street, from: central_crossing, to: central_north_junction, profile: neighborhood}
-  - {id: east_north_street, from: east_crossing, to: east_north_junction, profile: neighborhood}
-  - {id: north_cross_street, from: central_north_junction, to: east_north_junction, profile: neighborhood}
-  - {id: central_upper_north_street, from: central_north_junction, to: central_upper_north_junction, profile: neighborhood}
-  - {id: upper_north_cross_street, from: central_upper_north_junction, to: east_upper_north_junction, profile: neighborhood}
-  - {id: east_upper_north_street, from: east_north_junction, to: east_upper_north_junction, profile: neighborhood}
-  - {id: east_upper_north_extension, from: east_upper_north_junction, to: east_upper_north_cul_de_sac, profile: neighborhood}
-  - {id: central_south_street, from: central_crossing, to: central_south_junction, profile: neighborhood}
-  - {id: east_south_street, from: east_crossing, to: east_south_junction, profile: neighborhood}
-  - {id: south_cross_street, from: central_south_junction, to: east_south_junction, profile: neighborhood}
-  - {id: east_south_spur, from: east_south_junction, to: east_lot_junction, profile: neighborhood}
-  - {id: east_south_spur_tail, from: east_lot_junction, to: east_south_spur_end, profile: neighborhood}
-  - {id: central_south_tail, from: central_south_junction, to: central_lower_junction, profile: neighborhood}
-  - {id: lower_cross_west, from: central_lower_junction, to: lower_lot_junction, profile: neighborhood}
-  - {id: lower_cross_east, from: lower_lot_junction, to: east_lower_junction, profile: neighborhood}
-  - {id: east_south_tail, from: east_south_junction, to: east_lower_junction, profile: neighborhood}
+  # Spawn-area arterial and neighborhood grid.
+  - {id: west_arterial_approach, from: west_arterial_end, to: west_arterial_crossing, profile: arterial}
+  - {id: spawn_arterial, from: west_arterial_crossing, to: central_arterial_crossing, profile: arterial}
+  - {id: central_arterial, from: central_arterial_crossing, to: diagonal_arterial_crossing, profile: arterial}
+  - {id: west_north_lower, from: west_arterial_crossing, to: west_north_crossing, profile: street}
+  - {id: west_north_upper, from: west_north_crossing, to: west_upper_crossing, profile: street}
+  - {id: west_north_tail, from: west_upper_crossing, to: west_north_end, profile: street}
+  - {id: central_north_lower, from: central_arterial_crossing, to: central_north_crossing, profile: street}
+  - {id: central_north_upper, from: central_north_crossing, to: central_upper_crossing, profile: street}
+  - {id: central_north_tail, from: central_upper_crossing, to: central_north_end, profile: local}
+  - {id: north_cross_street, from: west_north_crossing, to: central_north_crossing, profile: street}
+  - {id: upper_cross_street, from: west_upper_crossing, to: central_upper_crossing, profile: street}
+  - {id: west_south_upper, from: west_arterial_crossing, to: west_south_crossing, profile: street}
+  - {id: west_south_lower, from: west_south_crossing, to: west_lower_crossing, profile: street}
+  - {id: west_south_tail, from: west_lower_crossing, to: west_south_end, profile: local}
+  - {id: southwest_cross_west, from: west_south_crossing, to: southwest_crossing, profile: local}
+  - {id: southwest_cross_center, from: southwest_crossing, to: southwest_lot_driveway, profile: local}
+  - {id: southwest_cross_east, from: southwest_lot_driveway, to: central_south_crossing, profile: local}
+  - {id: southwest_north_stub, from: southwest_crossing, to: southwest_north_end, profile: local}
+  - {id: central_south_upper, from: central_arterial_crossing, to: central_south_crossing, profile: street}
+  - {id: central_south_middle, from: central_south_crossing, to: central_lower_crossing, profile: local}
+  - {id: central_south_tail, from: central_lower_crossing, to: central_south_end, profile: local}
+  - {id: south_local_west, from: central_lower_crossing, to: south_lot_driveway, profile: local}
+  - {id: south_local_east, from: south_lot_driveway, to: south_local_end, profile: local}
 
-  - {id: eastern_north_approach, from: eastern_gateway, to: eastern_north_junction, profile: neighborhood}
-  - {id: eastern_north_continuation, from: eastern_north_junction, to: eastern_north_cul_de_sac, profile: neighborhood}
-  - {id: eastern_side_road, from: eastern_north_junction, to: eastern_lot_junction, profile: neighborhood}
-  - {id: eastern_side_tail, from: eastern_lot_junction, to: eastern_side_cul_de_sac, profile: neighborhood}
-  - {id: eastern_south_approach, from: eastern_gateway, to: eastern_south_cul_de_sac, profile: neighborhood}
-  - id: eastern_sweep
-    from: eastern_gateway
-    to: east_spine_crossing_1
-    profile: boulevard
+  # Diagonal street and the two broad arterial branches.
+  - {id: diagonal_north_lower, from: diagonal_arterial_crossing, to: diagonal_bend_lower, profile: street}
+  - {id: diagonal_north_middle, from: diagonal_bend_lower, to: diagonal_north_crossing, profile: street}
+  - {id: diagonal_north_upper, from: diagonal_north_crossing, to: diagonal_bend_upper, profile: street}
+  - {id: diagonal_north_tail, from: diagonal_bend_upper, to: diagonal_north_end, profile: street}
+  - {id: diagonal_south_link, from: diagonal_arterial_crossing, to: southwest_merge, profile: arterial}
+  - id: southwest_boulevard
+    from: southwest_boulevard_end
+    to: southwest_merge
+    profile: arterial
     path:
-      - {x_m: 178, y_m: -32}
-      - {x_m: 223.935, y_m: -64.145}
-  - {id: east_spine_1, from: east_spine_crossing_1, to: east_spine_crossing_2, profile: boulevard}
-  - {id: east_spine_2, from: east_spine_crossing_2, to: east_spine_crossing_3, profile: boulevard}
-  - {id: east_spine_3, from: east_spine_crossing_3, to: east_spine_crossing_4, profile: boulevard}
-  - {id: east_spine_final, from: east_spine_crossing_4, to: east_spine_cul_de_sac, profile: boulevard}
-  - id: east_north_loop_west
-    from: east_spine_crossing_1
-    to: east_spine_crossing_2
-    profile: neighborhood
+      - {x_m: 184, y_m: -255}
+      - {x_m: 205, y_m: -190}
+      - {x_m: 242, y_m: -145}
+  - id: arterial_sweep
+    from: diagonal_arterial_crossing
+    to: arterial_merge_crossing
+    profile: arterial
     path:
-      - {x_m: 283.14, y_m: -28}
-      - {x_m: 322.335, y_m: -20}
-      - {x_m: 361.54, y_m: -28}
-  - id: east_north_loop_east
-    from: east_spine_crossing_3
-    to: east_spine_crossing_4
-    profile: neighborhood
+      - {x_m: 332, y_m: -8}
+      - {x_m: 370, y_m: -39}
+      - {x_m: 397, y_m: -72}
+  - id: merge_ramp
+    from: southwest_merge
+    to: arterial_merge_crossing
+    profile: arterial
     path:
-      - {x_m: 439.94, y_m: -28}
-      - {x_m: 479.135, y_m: -20}
-      - {x_m: 518.34, y_m: -28}
-  - {id: east_lower_approach_1, from: east_spine_crossing_1, to: east_lower_junction_1, profile: neighborhood}
-  - {id: east_lower_approach_2, from: east_spine_crossing_2, to: east_lower_junction_2, profile: neighborhood}
-  - {id: east_lower_approach_4, from: east_spine_crossing_4, to: east_lower_junction_4, profile: neighborhood}
-  - {id: east_lower_cross_1, from: east_lower_junction_1, to: east_lower_junction_2, profile: neighborhood}
-  - {id: east_lower_cross_2, from: east_lower_junction_2, to: east_lower_junction_3, profile: neighborhood}
-  - {id: east_lower_cross_3, from: east_lower_junction_3, to: east_lower_junction_4, profile: neighborhood}
-  - {id: east_lower_west_stub, from: east_lower_junction_1, to: east_lower_west_cul_de_sac, profile: neighborhood}
-  - {id: east_lower_south_stub_1, from: east_lower_junction_1, to: east_lower_south_cul_de_sac_1, profile: neighborhood}
-  - {id: east_lower_south_stub_4, from: east_lower_junction_4, to: east_lower_south_cul_de_sac_4, profile: neighborhood}
-  - {id: east_lower_east_stub, from: east_lower_junction_4, to: east_lower_east_cul_de_sac, profile: neighborhood}
+      - {x_m: 322, y_m: -121}
+      - {x_m: 365, y_m: -108}
+  - {id: arterial_merge_connector, from: arterial_merge_crossing, to: arterial_crossing_470, profile: arterial}
 
-parking_accesses:
-  - {id: central_lot_access, source: lower_lot_junction, parking_lot: central_parking_lot, opening_vertex: 2}
-  - {id: east_lot_access, source: east_lot_junction, parking_lot: east_parking_lot, opening_vertex: 2}
-  - {id: eastern_lot_access, source: eastern_lot_junction, parking_lot: eastern_parking_lot, opening_vertex: 2}
-  - {id: east_commercial_access_1, source: east_lower_junction_2, parking_lot: east_commercial_parking_lot_1, opening_vertex: 2}
-  - {id: east_commercial_access_2, source: east_lower_junction_3, parking_lot: east_commercial_parking_lot_2, opening_vertex: 2}
+  # Northern cross street.
+  - {id: north_cross_307_470, from: diagonal_north_crossing, to: north_crossing_470, profile: street}
+  - {id: north_cross_470_550, from: north_crossing_470, to: north_crossing_550, profile: street}
+  - {id: north_cross_550_630, from: north_crossing_550, to: north_crossing_630, profile: street}
+  - {id: north_cross_630_687, from: north_crossing_630, to: north_crossing_687, profile: street}
+  - {id: north_470_tail, from: north_crossing_470, to: north_end_470, profile: street}
+  - id: west_north_loop_leg
+    from: arterial_crossing_470
+    to: north_crossing_470
+    profile: street
+    path:
+      - {x_m: 470, y_m: -5}
+      - {x_m: 451, y_m: 35}
+      - {x_m: 451, y_m: 95}
+  - {id: north_loop_leg_550, from: arterial_crossing_550, to: north_crossing_550, profile: street}
+  - {id: north_loop_leg_630, from: arterial_crossing_630, to: north_crossing_630, profile: street}
+  - id: east_north_loop_leg
+    from: north_crossing_687
+    to: arterial_crossing_710
+    profile: street
+    path:
+      - {x_m: 696, y_m: 83}
+      - {x_m: 710, y_m: 45}
+
+  # Eastern arterial and large northern loop.
+  - {id: arterial_470_550, from: arterial_crossing_470, to: arterial_crossing_550, profile: arterial}
+  - {id: arterial_550_630, from: arterial_crossing_550, to: arterial_crossing_630, profile: arterial}
+  - {id: arterial_630_710, from: arterial_crossing_630, to: arterial_crossing_710, profile: arterial}
+  - {id: arterial_710_800, from: arterial_crossing_710, to: arterial_crossing_800, profile: arterial}
+  - {id: arterial_800_860, from: arterial_crossing_800, to: arterial_crossing_860, profile: arterial}
+  - {id: arterial_860_895, from: arterial_crossing_860, to: arterial_crossing_895, profile: arterial}
+  - {id: arterial_895_955, from: arterial_crossing_895, to: east_corner_lot_driveway, profile: arterial}
+  - {id: arterial_955_990, from: east_corner_lot_driveway, to: arterial_crossing_990, profile: arterial}
+  - {id: arterial_990_1082, from: arterial_crossing_990, to: arterial_crossing_1082, profile: arterial}
+  - {id: arterial_1082_1170, from: arterial_crossing_1082, to: arterial_crossing_1170, profile: arterial}
+  - {id: arterial_1170_end, from: arterial_crossing_1170, to: east_arterial_end, profile: arterial}
+  - id: east_north_loop
+    from: arterial_crossing_800
+    to: arterial_crossing_895
+    profile: street
+    path:
+      - {x_m: 800, y_m: 30}
+      - {x_m: 800, y_m: 90}
+      - {x_m: 895, y_m: 90}
+      - {x_m: 895, y_m: 30}
+
+  # Southern commercial grid and parking courts.
+  - {id: south_spine_630, from: arterial_crossing_630, to: south_crossing_630, profile: street}
+  - {id: south_710_upper, from: arterial_crossing_710, to: south_crossing_710, profile: street}
+  - {id: south_710_lower, from: south_crossing_710, to: lower_crossing_710, profile: street}
+  - {id: south_710_tail, from: lower_crossing_710, to: south_end_710, profile: local}
+  - {id: south_860_upper, from: arterial_crossing_860, to: south_crossing_860, profile: street}
+  - {id: south_860_lower, from: south_crossing_860, to: lower_crossing_860, profile: local}
+  - {id: south_990_upper, from: arterial_crossing_990, to: south_crossing_990, profile: street}
+  - {id: south_990_lower, from: south_crossing_990, to: lower_crossing_990, profile: local}
+  - {id: upper_commercial_west, from: south_crossing_710, to: south_crossing_860, profile: local}
+  - {id: upper_commercial_center_west, from: south_crossing_860, to: south_upper_lot_driveway, profile: local}
+  - {id: upper_commercial_center_east, from: south_upper_lot_driveway, to: south_crossing_930, profile: local}
+  - {id: upper_commercial_east, from: south_crossing_930, to: south_crossing_990, profile: local}
+  - {id: commercial_930_spine, from: south_crossing_930, to: lower_crossing_930, profile: local}
+  - {id: lower_commercial_west, from: lower_crossing_710, to: lower_lot_driveway, profile: local}
+  - {id: lower_commercial_midwest, from: lower_lot_driveway, to: lower_crossing_860, profile: local}
+  - {id: lower_commercial_center, from: lower_crossing_860, to: lower_crossing_930, profile: local}
+  - {id: lower_commercial_east, from: lower_crossing_930, to: lower_crossing_990, profile: local}
+  - {id: lower_commercial_tail, from: lower_crossing_990, to: lower_crossing_1080, profile: local}
+  - {id: east_south_cul_de_sac, from: lower_crossing_1080, to: south_cul_de_sac_1080, profile: local}
+  - id: bottom_west_road
+    from: bottom_west_end
+    to: bottom_lot_driveway
+    profile: local
+    path:
+      - {x_m: 500, y_m: -320}
+  - {id: bottom_east_road, from: bottom_lot_driveway, to: south_crossing_630, profile: local}
+
+  # Far-east surface loop and local northern spur.
+  - {id: far_east_north_spur, from: arterial_crossing_1082, to: far_east_north_crossing, profile: local}
+  - {id: far_east_north_tail, from: far_east_north_crossing, to: far_east_north_end, profile: local}
+  - {id: far_east_loop_entry, from: arterial_crossing_1170, to: far_east_bend_southeast, profile: local}
+  - {id: far_east_loop_east, from: far_east_bend_southeast, to: far_east_bend_northeast, profile: local}
+  - {id: far_east_loop_north, from: far_east_bend_northeast, to: far_east_bend_northwest, profile: local}
+  - {id: far_east_loop_west, from: far_east_bend_northwest, to: far_east_bend_southwest, profile: local}
+  - {id: far_east_loop_exit, from: far_east_bend_southwest, to: far_east_north_crossing, profile: local}
 
 spawns:
   - id: original_area_start
-    road: central_boulevard
+    road: spawn_arterial
     lane: 2
-    distance_m: 30
+    distance_m: 128
     variants:
       default:
         image: package://omnidreams_game_engine/screenshot.jpg

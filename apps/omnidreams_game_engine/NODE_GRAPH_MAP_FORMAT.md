@@ -17,7 +17,6 @@ compiler:
 profiles: {}
 nodes: []
 roads: []
-parking_accesses: []
 spawns: []
 ```
 
@@ -80,8 +79,8 @@ pose: {x_m: 12, y_m: -4, rotation_deg: 30}
 `x_m` and `y_m` use metres. `rotation_deg` rotates the node's own footprint
 counterclockwise from map +x. It does not rotate or snap incident roads.
 
-The persisted `GameMapTopology` retains typed nodes, roads, parking accesses,
-and adjacency. The compiler separately derives a
+The persisted `GameMapTopology` retains typed nodes, roads, derived parking
+accesses, and adjacency. The compiler separately derives a
 directed lane graph for routing. Routing-only turn connectors are not emitted
 into ClipGT map conditioning.
 
@@ -170,6 +169,8 @@ linear attributes:
 ```yaml
 - id: market_lot
   type: parking_lot
+  connected_to: market_west_driveway
+  opening_vertex: 3
   vertices:
     - {x_m: 10, y_m: -30}
     - {x_m: 10, y_m: -10}
@@ -181,8 +182,11 @@ linear attributes:
 
 Vertices must describe a simple clockwise polygon. Concave polygons are
 supported; holes, self-intersections, duplicate vertices, and degenerate edges
-are not. Multiple parking accesses may serve one lot. The lot has physical
-curbs and semantic boundaries on every edge except selected access openings.
+are not. `connected_to` must name an intersection or driveway node.
+`opening_vertex` is one-based and selects the complete polygon edge from that
+vertex to the next, wrapping from the final vertex to the first. Authors may
+insert vertices around a narrower opening. The lot has physical curbs and
+semantic boundaries on every edge except its selected access opening.
 It has no inferred aisle or turnaround lanes. Its surface becomes a green
 ClipGT roadnet mask; parking-stall lines are not generated.
 
@@ -265,30 +269,19 @@ A road may include both fields. Both must be valid, and `bezier` determines the
 compiled geometry when present. This lets a generated or precision-authored
 curve override a simpler editable `path` without conflating the two formats.
 
-## Parking access
+## Inferred parking access
 
-`parking_accesses` generate boundary-to-boundary access spans. They are not
-authored roads:
-
-```yaml
-parking_accesses:
-  - id: market_lot_access
-    source: market_driveway
-    parking_lot: market_lot
-    opening_vertex: 3
-```
-
-`source` must be an intersection or driveway. `opening_vertex` is one-based and
-selects the complete polygon edge from that vertex to the next, wrapping from
-the last vertex to the first. Authors insert vertices around a narrower
-opening. One edge may be selected only once.
+The parking lot's `connected_to` and `opening_vertex` fields generate a
+boundary-to-boundary access span; authors do not declare a separate road or
+top-level access object. The compiler derives its stable identifier from the
+lot identifier.
 
 The compiler infers a tangent cubic to the opening midpoint and validates that
-the source is outside the lot on the edge's exterior side. The exact opening
-width becomes two equal opposing lanes with no shoulder, virtual white
-markings, physical curbs, and a 5.5m/s speed limit. Intersection sources include
-the access as an inferred footprint arm. Access lanes end at the lot boundary;
-parking lots contain no internal routing lanes.
+the connected node is outside the lot on the edge's exterior side. The exact
+opening width becomes two equal opposing lanes with no shoulder, virtual white
+markings, physical curbs, and a 5.5m/s speed limit. Intersection connections
+include the access as an inferred footprint arm. Access lanes end at the lot
+boundary; parking lots contain no internal routing lanes.
 
 ## Spawns and visual variants
 

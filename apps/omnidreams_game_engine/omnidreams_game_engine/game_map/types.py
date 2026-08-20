@@ -137,10 +137,10 @@ class GameMapRoad:
 
 @dataclass(frozen=True)
 class GameMapParkingAccess:
-    """An inferred access corridor from a road node to a parking lot."""
+    """A parking-lot node's inferred access corridor."""
 
     access_id: str
-    """Stable author-defined access identifier."""
+    """Stable identifier derived from the parking-lot node identifier."""
 
     source_node_id: str
     """Intersection or driveway node at the road end of the access."""
@@ -163,7 +163,7 @@ class GameMapTopology:
     """Authored topological road edges."""
 
     parking_accesses: tuple[GameMapParkingAccess, ...]
-    """Inferred access corridors from intersections/driveways to parking lots."""
+    """Access corridors derived from parking-lot node connections."""
 
     adjacency: tuple[tuple[str, tuple[str, ...]], ...]
     """Node identifiers paired with stable incident edge/link references."""

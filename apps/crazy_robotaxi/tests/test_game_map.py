@@ -114,7 +114,6 @@ def _road_joint_map(
                 "speed_limit_mps": 8,
             },
         ],
-        "parking_accesses": [],
         "spawns": [
             {
                 "id": "taxi_start",
@@ -169,10 +168,10 @@ def test_bundled_maps_use_schema_version_1() -> None:
     }
     assert len(starter.topology.roads) == 2
     assert len(starter.topology.roads[0].bezier_spans_world) == 5
-    assert len(boulevard.topology.nodes) == 39
-    assert len(boulevard.topology.roads) == 41
-    assert len(boulevard.topology.parking_accesses) == 5
-    assert boulevard.default_spawn.lane_id == "central_boulevard:lane:2"
+    assert len(boulevard.topology.nodes) == 75
+    assert len(boulevard.topology.roads) == 81
+    assert len(boulevard.topology.parking_accesses) == 8
+    assert boulevard.default_spawn.lane_id == "spawn_arterial:lane:2"
     for game_map in (starter, boulevard):
         for node in game_map.topology.nodes:
             if node.node_type != "intersection":
@@ -205,6 +204,16 @@ def test_unknown_root_fields_are_rejected(tmp_path: Path) -> None:
         load_game_map(_write_map(tmp_path, source))
 
 
+def test_parking_accesses_are_not_a_top_level_authoring_field(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["parking_accesses"] = []
+
+    with pytest.raises(GameMapError, match="unknown fields.*parking_accesses"):
+        load_game_map(_write_map(tmp_path, source))
+
+
 def test_legacy_link_topology_is_rejected(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     source["links"] = []
@@ -222,13 +231,12 @@ def test_parking_lot_vertices_must_be_clockwise(tmp_path: Path) -> None:
         load_game_map(_write_map(tmp_path, source))
 
 
-def test_parking_opening_edge_may_only_be_used_once(tmp_path: Path) -> None:
+def test_parking_opening_vertex_must_select_a_polygon_edge(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
-    duplicate = dict(source["parking_accesses"][0])
-    duplicate["id"] = "duplicate_access"
-    source["parking_accesses"].append(duplicate)
+    lot = next(node for node in source["nodes"] if node["type"] == "parking_lot")
+    lot["opening_vertex"] = len(lot["vertices"]) + 1
 
-    with pytest.raises(GameMapError, match="opening edge 3 is used more than once"):
+    with pytest.raises(GameMapError, match="opening_vertex must be between"):
         load_game_map(_write_map(tmp_path, source))
 
 
@@ -482,14 +490,14 @@ def test_askew_intersection_road_angles_are_geometry_driven() -> None:
     road = next(
         item
         for item in game_map.topology.roads
-        if item.road_id == "eastern_north_approach"
+        if item.road_id == "diagonal_north_lower"
     )
     start, end = nodes[road.from_node_id], nodes[road.to_node_id]
     bearing = np.degrees(np.arctan2(end.y_m - start.y_m, end.x_m - start.x_m)) % 360
 
-    assert start.node_id == "eastern_gateway"
+    assert start.node_id == "diagonal_arterial_crossing"
     assert start.rotation_deg == pytest.approx(0)
-    assert bearing == pytest.approx(75.1, abs=0.2)
+    assert bearing == pytest.approx(81.0, abs=0.2)
 
 
 def test_road_joint_trims_roads_and_emits_visible_curve(tmp_path: Path) -> None:
@@ -899,15 +907,15 @@ def test_cul_de_sac_must_terminate_exactly_one_road(tmp_path: Path) -> None:
 
 def test_intersection_surface_is_inferred_from_incident_road_edges() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
-    crossing = _surface(game_map, "central_crossing")
-    gateway = _surface(game_map, "eastern_gateway")
+    crossing = _surface(game_map, "central_arterial_crossing")
+    merge = _surface(game_map, "arterial_merge_crossing")
 
     assert np.ptp(np.asarray(crossing.exterior.coords)[:, 0]) == pytest.approx(15.6)
     assert np.ptp(np.asarray(crossing.exterior.coords)[:, 1]) == pytest.approx(15.6)
     assert crossing.area == pytest.approx(15.6**2, abs=0.05)
-    assert np.ptp(np.asarray(gateway.exterior.coords)[:, 0]) < 30.0
-    assert np.ptp(np.asarray(gateway.exterior.coords)[:, 1]) < 28.0
-    assert gateway.convex_hull.area - gateway.area > 10.0
+    assert np.ptp(np.asarray(merge.exterior.coords)[:, 0]) < 30.0
+    assert np.ptp(np.asarray(merge.exterior.coords)[:, 1]) < 28.0
+    assert merge.convex_hull.area - merge.area > 10.0
 
 
 def test_cul_de_sac_has_full_width_flat_road_connection() -> None:
@@ -921,7 +929,9 @@ def test_cul_de_sac_has_full_width_flat_road_connection() -> None:
     assert float(segment_lengths.max()) == pytest.approx(8.4, abs=0.05)
 
 
-def test_parking_accesses_are_inferred_and_not_authored_roads() -> None:
+def test_parking_access_is_inferred_from_lot_node_and_not_authored_as_a_road() -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    lot = next(node for node in source["nodes"] if node["type"] == "parking_lot")
     game_map = load_game_map(_STARTER_MAP)
     road_ids = {road.road_id for road in game_map.topology.roads}
     access_ids = {access.access_id for access in game_map.topology.parking_accesses}
@@ -931,18 +941,22 @@ def test_parking_accesses_are_inferred_and_not_authored_roads() -> None:
         if element.element_type == "parking_access"
     }
 
-    assert "hub_to_lot" not in road_ids
-    assert access_ids == {"hub_to_lot"}
+    assert lot["connected_to"] == "hub"
+    assert lot["opening_vertex"] == 3
+    assert "neighborhood_lot:access" not in road_ids
+    assert access_ids == {"neighborhood_lot:access"}
     assert inferred == access_ids
     width = np.ptp(
         next(
             element.surface_world[:, 0]
             for element in game_map.elements
-            if element.element_id == "hub_to_lot"
+            if element.element_id == "neighborhood_lot:access"
         )
     )
     assert width == pytest.approx(7.2, abs=0.2)
-    lanes = [lane for lane in game_map.lanes if lane.element_id == "hub_to_lot"]
+    lanes = [
+        lane for lane in game_map.lanes if lane.element_id == "neighborhood_lot:access"
+    ]
     assert len(lanes) == 2
     assert all(lane.speed_limit_mps == pytest.approx(5.5) for lane in lanes)
     assert all(lane.marking_style == "VIRTUAL" for lane in lanes)
@@ -953,24 +967,24 @@ def test_degree_two_parking_sources_compile_as_driveway_nodes() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
     nodes = {node.node_id: node for node in game_map.topology.nodes}
 
-    assert nodes["lower_lot_junction"].node_type == "driveway"
-    assert nodes["east_lot_junction"].node_type == "driveway"
-    assert nodes["eastern_lot_junction"].node_type == "driveway"
-    assert nodes["east_lower_junction_3"].node_type == "driveway"
-    assert nodes["east_lower_junction_2"].node_type == "intersection"
+    assert nodes["southwest_lot_driveway"].node_type == "driveway"
+    assert nodes["south_lot_driveway"].node_type == "driveway"
+    assert nodes["east_corner_lot_driveway"].node_type == "driveway"
+    assert nodes["south_upper_lot_driveway"].node_type == "driveway"
+    assert nodes["arterial_crossing_895"].node_type == "intersection"
     assert not any(
         element.element_type == "intersection"
         for element in game_map.elements
-        if element.element_id == "lower_lot_junction"
+        if element.element_id == "southwest_lot_driveway"
     )
 
 
 def test_lane_graph_routes_to_and_from_parking_lot() -> None:
     game_map = load_game_map(_STARTER_MAP)
     outbound = _reachable(game_map, game_map.default_spawn.lane_id)
-    returning = _reachable(game_map, "hub_to_lot:lane:1")
+    returning = _reachable(game_map, "neighborhood_lot:access:lane:1")
 
-    assert "hub_to_lot:lane:0" in outbound
+    assert "neighborhood_lot:access:lane:0" in outbound
     assert "neighborhood_loop:lane:0" in returning
     assert not any(lane.element_id == "neighborhood_lot" for lane in game_map.lanes)
 
@@ -980,7 +994,7 @@ def test_parking_lots_compile_as_green_roadnet_masks() -> None:
     rows = game_map_compiler._road_marking_rows(game_map)
     lots = [node for node in game_map.topology.nodes if node.node_type == "parking_lot"]
 
-    assert len(rows) == len(lots) == 5
+    assert len(rows) == len(lots) == 8
     assert all(
         cast(dict[str, Any], row["road_marking"])["category"]
         == "ROI_POLYGON_ROADNET_MASK"

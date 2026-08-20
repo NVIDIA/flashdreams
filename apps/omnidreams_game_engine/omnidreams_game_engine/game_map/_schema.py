@@ -31,7 +31,6 @@ _REQUIRED_ROOT_FIELDS = frozenset(
         "compiler",
         "nodes",
         "roads",
-        "parking_accesses",
         "spawns",
     }
 )

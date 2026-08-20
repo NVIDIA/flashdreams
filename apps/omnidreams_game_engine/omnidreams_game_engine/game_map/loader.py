@@ -201,8 +201,18 @@ def _parse_nodes(
         ids.add(node_id)
         context = f"node {node_id!r}"
         if node_type == "parking_lot":
-            if set(raw) != {"id", "type", "vertices"}:
-                raise GameMapError(f"{context} requires exactly id, type, and vertices")
+            expected = {
+                "id",
+                "type",
+                "vertices",
+                "connected_to",
+                "opening_vertex",
+            }
+            if set(raw) != expected:
+                raise GameMapError(
+                    f"{context} requires exactly id, type, vertices, "
+                    "connected_to, and opening_vertex"
+                )
             vertices = tuple(
                 tuple(
                     float(item)
@@ -221,6 +231,15 @@ def _parse_nodes(
                 raise GameMapError(f"{context}.vertices must be clockwise")
             if len(set(vertices)) != len(vertices):
                 raise GameMapError(f"{context}.vertices contains duplicate points")
+            if not str(raw["connected_to"]).strip():
+                raise GameMapError(f"{context}.connected_to must not be empty")
+            opening_value = raw["opening_vertex"]
+            if type(opening_value) is not int:
+                raise GameMapError(f"{context}.opening_vertex must be an integer")
+            if opening_value < 1 or opening_value > len(vertices):
+                raise GameMapError(
+                    f"{context}.opening_vertex must be between 1 and {len(vertices)}"
+                )
             centroid = polygon.centroid
             nodes.append(
                 GameMapNode(
@@ -573,60 +592,28 @@ def _resolve_linear_joint_nodes(
     return tuple(resolved)
 
 
-def _parse_parking_accesses(
+def _parking_accesses_from_nodes(
     doc: dict[str, Any], nodes: dict[str, GameMapNode]
 ) -> tuple[GameMapParkingAccess, ...]:
     accesses: list[GameMapParkingAccess] = []
-    ids: set[str] = set()
-    openings: set[tuple[str, int]] = set()
-    for index, value in enumerate(
-        _sequence(doc.get("parking_accesses"), "parking_accesses")
-    ):
-        raw = _mapping(value, f"parking_accesses[{index}]")
-        expected = {"id", "source", "parking_lot", "opening_vertex"}
-        if set(raw) != expected:
-            raise GameMapError(
-                f"parking_accesses[{index}] requires exactly "
-                "id, source, parking_lot, and opening_vertex"
-            )
-        access_id = str(raw["id"]).strip()
-        source_id = str(raw["source"])
-        lot_id = str(raw["parking_lot"])
+    for index, value in enumerate(_sequence(doc.get("nodes"), "nodes")):
+        raw = _mapping(value, f"nodes[{index}]")
+        if raw.get("type") != "parking_lot":
+            continue
+        lot_id = str(raw["id"])
+        source_id = str(raw["connected_to"])
         opening_value = raw["opening_vertex"]
-        if not access_id or access_id in ids:
-            raise GameMapError(
-                f"Parking access id {access_id!r} is empty or duplicated"
-            )
-        ids.add(access_id)
         if source_id not in nodes or nodes[source_id].node_type not in {
             "intersection",
             "driveway",
         }:
             raise GameMapError(
-                f"Parking access {access_id!r} source must be an intersection or driveway"
-            )
-        if lot_id not in nodes or nodes[lot_id].node_type != "parking_lot":
-            raise GameMapError(
-                f"Parking access {access_id!r} parking_lot must reference a parking lot"
-            )
-        if type(opening_value) is not int:
-            raise GameMapError(
-                f"Parking access {access_id!r} opening_vertex must be an integer"
+                f"Parking lot {lot_id!r}.connected_to must reference an "
+                "intersection or driveway"
             )
         opening_index = opening_value - 1
-        vertex_count = len(nodes[lot_id].polygon_vertices_xy)
-        if opening_index < 0 or opening_index >= vertex_count:
-            raise GameMapError(
-                f"Parking access {access_id!r} opening_vertex must be between 1 and {vertex_count}"
-            )
-        opening = (lot_id, opening_index)
-        if opening in openings:
-            raise GameMapError(
-                f"Parking lot {lot_id!r} opening edge {opening_value} is used more than once"
-            )
-        openings.add(opening)
         accesses.append(
-            GameMapParkingAccess(access_id, source_id, lot_id, opening_index)
+            GameMapParkingAccess(f"{lot_id}:access", source_id, lot_id, opening_index)
         )
     return tuple(accesses)
 
@@ -1599,7 +1586,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     road_specs = _parse_roads(doc, nodes, profiles)
     node_values = _resolve_linear_joint_nodes(node_values, road_specs)
     nodes = {node.node_id: node for node in node_values}
-    parking_accesses = _parse_parking_accesses(doc, nodes)
+    parking_accesses = _parking_accesses_from_nodes(doc, nodes)
     adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes}
     for spec in road_specs:
         adjacency[spec.road.from_node_id].append(f"road:{spec.road.road_id}")
