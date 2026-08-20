@@ -7,6 +7,9 @@ What is specific to this integration is which model it runs and that the model
 has two transformers rather than one, so that is what these cover. How a
 text-to-video application behaves in general belongs to the shared layer and is
 covered in ``flashdreams/test_v2``, which is why there is so little here.
+
+The one thing a stand-in cannot show is what the checkpoint generates, which is
+what ``test_real_model.py`` alongside this is for. Nothing here needs a GPU.
 """
 
 import shutil
