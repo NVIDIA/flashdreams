@@ -60,10 +60,10 @@ Agreed design decisions. Change them by discussion.
   the new generation whole, so a key held down when the client restarts is still
   held after, because it is the earlier edge that says so. A session that must
   not inherit that input ignores the older events itself.
-- An `OutputSink` reads `StepResult.output` by its dtype: a floating point tensor
-  holds `[-1, 1]`, which is what FlashDreams models emit, or an integer tensor
-  holds raw `0`-`255` values. `SessionDesc` does not carry a range, and a session
-  has no way to declare one, so every sink follows this convention instead.
+- An `OutputSink` reads `StepResult.output` as one of two things: a floating point
+  tensor holding `[-1, 1]`, which is what FlashDreams models emit, or an integer
+  tensor holding raw `0`-`255` values. `SessionDesc` does not carry a range, and a
+  session has no way to declare one, so every sink follows this convention instead.
 
 Threading
 ---------
