@@ -22,11 +22,20 @@ run whose output is a file goes the same way, against
 input and encodes every result. Since it never reports a close, such a run needs
 a session that finishes.
 
-An integration gets coverage of the batch path from one call:
-`flashdreams.testing_v2.t2v_conformance.check_t2v_model_impl` runs a
-text-to-video application, inspects the frames it generated, and reports which
-expectations they missed. `integrations_v2/t2v_self_forcing` is the first model
-behind it.
+`flashdreams-run-v2` is the batch path from a shell:
+`flashdreams.runtime_v2.cli` finds an application by slug, gives it the
+arguments after `--`, and runs it into an MP4. MP4 is the only output it offers,
+because `IClientWindow` has no implementation outside the tests, so there is no
+window to select. Applications are found through the
+`flashdreams.applications_v2` entry point group, or by the name of the package
+an integration ships when it has registered nothing.
+
+`flashdreams.t2v_v2` is text-to-video on top of these protocols rather than part
+of them: one `T2VApplication` owns the command line every t2v model needs, an
+integration supplies only its own defaults, and `testing.check_t2v_model_impl`
+is the check its tests run to cover the batch path in one call. See
+[its README](../t2v_v2/README.md). `integrations_v2/t2v_self_forcing` is the
+first model behind it.
 
 Ownership
 ---------
@@ -118,19 +127,23 @@ Not built yet
 - Input that keeps up with generation. Input is polled at the UI rate, so a run of
   fast steps can finish several of them between polls and hand them all the same
   batch. Pacing generation is what would fix it.
-- `ApplicationRunner`: takes an `IApplication` and an `IClientWindow` and drives
-  the main loop. `run_session` is what exists today; it drives a session the
-  caller already created.
-- `flashdreams-run`: a CLI that creates the requested kind of client window,
-  loads an application module, and hands both to `ApplicationRunner`. Until it
-  exists, the caller wires that up and an integration ships no entry point.
+- Driving a session from a window's own event loop. A WebRTC or native window
+  owns an event loop already, an asyncio one or an OS message pump, and stepping
+  the session from it is what such a window wants. `run_session` polls instead,
+  on a thread it starts itself.
+- An interactive output for `flashdreams-run-v2`. It writes an MP4 and nothing
+  else, so there is no `--output local-window` to select until a client window
+  exists to select it.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
 - A way for a session to say a run is over. `run_batch` is told how many steps to
   generate, so a model that knows its own length has nowhere to say so, and the
   caller states it instead.
-- A way for an application to describe the session it generates before one
+- A way for any application to describe the session it generates before one
   exists. A caller has to build a `SessionDesc` to ask for a session, but only
-  the application knows what its model generates, so `t2v_self_forcing` ships a
-  `default_session_desc()` of its own rather than the protocol carrying it.
+  the application knows what its model generates. `T2VApplication.session_desc`
+  answers it for text-to-video, and is a method on that class rather than on
+  `IApplication` because what a session looks like before it exists is only
+  settled for this one kind of model. It is what `flashdreams-run-v2` calls,
+  which is also why that command can only run a t2v application so far.
 - Shared test entry points for domains other than text-to-video.

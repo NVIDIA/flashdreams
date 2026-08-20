@@ -23,6 +23,12 @@ dependencies = [
 flashdreams = { workspace = true }
 flashdreams-self-forcing = { workspace = true }
 
+# What ``flashdreams-run-v2 t2v-self-forcing`` resolves to. A separate group from
+# the v1 ``flashdreams.applications``, which holds the older contract; the slug
+# is the same because it is the same model.
+[project.entry-points."flashdreams.applications_v2"]
+"t2v-self-forcing" = "t2v_self_forcing.app:create_app"
+
 [tool.setuptools.packages.find]
 # Keep the distribution limited to the integration-owned Python package.
 include = ["t2v_self_forcing*"]

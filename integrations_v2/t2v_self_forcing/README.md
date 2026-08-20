@@ -10,18 +10,36 @@ MP4 file. The model is Self-Forcing distilled Wan 2.1 1.3B, which the
 `flashdreams-self-forcing` package already configures for the v1 runner; this
 package is the application around it and holds no model code of its own.
 
-## What a run looks like
+## Generate a clip
+
+```bash
+flashdreams-run-v2 t2v-self-forcing --output-path clip.mp4 --steps 7 \
+    -- --prompt "A cat surfing" --no-compile
+```
+
+Arguments after `--` go to the application, and
+`flashdreams-run-v2 t2v-self-forcing -- --help` lists them.
+
+`--steps` is how many autoregressive blocks to generate, and defaults to the
+model's `--total-blocks`. The model streams, so a run is as long as it is asked
+for: the first block decodes 9 frames and every block after it 12, at 16 frames
+per second, so seven blocks is about four and a half seconds.
+
+`--no-compile` is worth it for a short clip. Compilation is on in the model's
+own config; it costs minutes on the first run and saves milliseconds a block.
+
+## What a run looks like in code
 
 ```python
 from flashdreams.runtime_v2.batch_runner import run_batch
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
-from t2v_self_forcing import SelfForcingT2VApplication, default_session_desc
+from t2v_self_forcing import SelfForcingT2VApplication
 
 app = SelfForcingT2VApplication()
 app.init(["--prompt", "A cat surfing"])
 try:
     run_batch(
-        app.create_session(default_session_desc()),
+        app.create_session(app.session_desc()),
         Mp4OutputSink("clip.mp4"),
         steps=7,
     )
@@ -29,23 +47,19 @@ finally:
     app.close()
 ```
 
-`steps` is how many autoregressive blocks to generate. The model streams, so a
-run is as long as the caller asks for: the first block decodes 9 frames and
-every block after it 12, at 16 frames per second, so seven blocks is about four
-and a half seconds.
-
-Arguments are `--prompt` (required), `--device` (default `cuda`), and
-`--compile` / `--no-compile`. Compilation is on in the model's own config: it
-costs minutes on the first run and saves milliseconds a block, so a short clip
-is quicker without it.
-
 ## What it generates
 
-832x480 frames, laid out `tchw`, as `[-1, 1]` floats on the GPU. That is what
-`default_session_desc()` describes, and a session refuses a description it
-cannot honour rather than quietly generating something else. Frame sizes other
-than the trained one are accepted as long as each dimension is a multiple of 8,
-which is what one latent covers.
+832x480 frames at 16fps, laid out `tchw`, as `[-1, 1]` floats on the GPU. Those
+numbers are the checkpoint's and are not written down here: this package is a
+factory over
+[`T2VApplication`](../../flashdreams/flashdreams/t2v_v2/README.md), which reads
+them off the runner config the `flashdreams-self-forcing` package already
+ships. `app.session_desc()` is what they add up to.
+
+Something else can be asked for, with `--pixel-width`, `--pixel-height`, and
+`--fps`. A session refuses a description it cannot honour rather than quietly
+generating something else, so each dimension has to be a multiple of 8, which
+is what one latent covers.
 
 ## First run
 
@@ -73,5 +87,5 @@ T2V_SELF_FORCING_REAL_MODEL_RUN=1 uv run --no-sync pytest \
 vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
 
-Both go through `flashdreams.testing_v2.t2v_conformance.check_t2v_model_impl`,
+Both go through `flashdreams.t2v_v2.testing.check_t2v_model_impl`,
 the shared check a text-to-video integration runs to cover the batch path.

@@ -3,16 +3,9 @@
 
 """Self-Forcing text-to-video application for the FlashDreams v2 API."""
 
-from .app import (
-    SelfForcingT2VApplication,
-    SelfForcingT2VSession,
-    create_app,
-    default_session_desc,
-)
+from .app import SelfForcingT2VApplication, create_app
 
 __all__ = [
     "SelfForcingT2VApplication",
-    "SelfForcingT2VSession",
     "create_app",
-    "default_session_desc",
 ]

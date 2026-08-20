@@ -26,12 +26,9 @@ from pathlib import Path
 import pytest
 import torch
 from self_forcing.runner import DEFAULT_T2V_PROMPT
-from t2v_self_forcing import SelfForcingT2VApplication, default_session_desc
+from t2v_self_forcing import SelfForcingT2VApplication
 
-from flashdreams.testing_v2.t2v_conformance import (
-    ExpectedFrameStats,
-    check_t2v_model_impl,
-)
+from flashdreams.t2v_v2.testing import ExpectedFrameStats, check_t2v_model_impl
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -54,13 +51,16 @@ _BLOCK_FRAMES = 12
     reason=f"set {_RUN_ENV}=1 to download the checkpoints and generate a clip",
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="the model needs a GPU")
-@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg")
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg"
+)
 def test_the_model_generates_a_clip_worth_watching(tmp_path: Path) -> None:
     path = tmp_path / "clip.mp4"
 
     result = check_t2v_model_impl(
+        # No session described here: the clip worth watching is the one the
+        # model was trained to generate, which it says for itself.
         SelfForcingT2VApplication(),
-        default_session_desc(),
         steps=_STEPS,
         # Compilation costs minutes and buys back milliseconds a block, which
         # is the wrong trade for three blocks.

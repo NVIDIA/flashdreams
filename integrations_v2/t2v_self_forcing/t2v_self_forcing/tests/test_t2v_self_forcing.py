@@ -17,15 +17,13 @@ from typing import Any
 
 import pytest
 import torch
-from t2v_self_forcing import SelfForcingT2VApplication, default_session_desc
+from self_forcing.config import RUNNER_WAN21_T2V_1PT3B
+from t2v_self_forcing import SelfForcingT2VApplication
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.testing_v2.t2v_conformance import (
-    ExpectedFrameStats,
-    check_t2v_model_impl,
-)
+from flashdreams.t2v_v2.testing import ExpectedFrameStats, check_t2v_model_impl
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -160,17 +158,23 @@ def _application(
 
 
 def test_a_run_needs_something_to_generate_from() -> None:
-    app = SelfForcingT2VApplication(pipeline_config=_FakePipelineConfig(_FakePipeline()))
+    app = SelfForcingT2VApplication(
+        pipeline_config=_FakePipelineConfig(_FakePipeline())
+    )
     with pytest.raises(ValueError, match="--prompt is required"):
         app.init([])
     with pytest.raises(ValueError, match="--prompt is required"):
         app.init(["--prompt", "   "])
 
 
-def test_a_session_cannot_be_created_before_the_application_is_told_what_to_do() -> None:
-    app = SelfForcingT2VApplication(pipeline_config=_FakePipelineConfig(_FakePipeline()))
+def test_a_session_cannot_be_created_before_the_application_is_told_what_to_do() -> (
+    None
+):
+    app = SelfForcingT2VApplication(
+        pipeline_config=_FakePipelineConfig(_FakePipeline())
+    )
     with pytest.raises(RuntimeError, match="init.. must run before create_session"):
-        app.create_session(default_session_desc())
+        app.create_session(_session_desc())
 
 
 def test_the_model_loads_once_and_every_session_shares_it() -> None:
@@ -191,6 +195,26 @@ def test_the_model_is_not_loaded_until_a_session_wants_it() -> None:
     config = app.pipeline_config
     assert isinstance(config, _FakePipelineConfig)
     assert config.setup_count == 0
+
+
+def test_the_model_says_what_it_generates_without_being_told() -> None:
+    """These numbers are the checkpoint's, and are only written down once.
+
+    They come from the runner config this integration ships, which is the point
+    of deriving the defaults from it: a caller wanting the clip the model was
+    trained to generate passes no size flags at all.
+    """
+    app, _ = _application()
+
+    desc = app.session_desc()
+
+    assert (desc.video_width, desc.video_height) == (
+        RUNNER_WAN21_T2V_1PT3B.pixel_width,
+        RUNNER_WAN21_T2V_1PT3B.pixel_height,
+    )
+    assert desc.frames_per_second_for_step == RUNNER_WAN21_T2V_1PT3B.fps
+    assert desc.output_layout is VideoTensorLayout.tchw
+    assert app.total_blocks == RUNNER_WAN21_T2V_1PT3B.total_blocks
 
 
 def test_closing_the_application_releases_the_model() -> None:

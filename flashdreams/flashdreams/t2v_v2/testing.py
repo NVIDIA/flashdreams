@@ -1,7 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared check a text-to-video integration runs to cover the batch path."""
+"""Test support for text-to-video integrations, shipped for them to import.
+
+Nothing here runs in production: the application, the session, and the command
+line do not use it. It is the shared check an integration's own tests call to
+cover the batch path, named as ``numpy.testing`` and ``torch.testing`` are so
+that an importer can see what it is getting.
+"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -17,6 +23,7 @@ from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
+from flashdreams.t2v_v2.application import T2VApplication
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -83,7 +90,7 @@ class T2VCheckResult:
 
 def check_t2v_model_impl(
     application: IApplication,
-    session_desc: SessionDesc,
+    session_desc: SessionDesc | None = None,
     *,
     steps: int,
     expected: ExpectedFrameStats,
@@ -105,7 +112,10 @@ def check_t2v_model_impl(
     Args:
         application: Uninitialized application to run.
         session_desc: Session to ask the application for. What the session
-            resolves it to is what the frames are checked against.
+            resolves it to is what the frames are checked against. ``None`` asks
+            the application what it would generate, which is what a check of the
+            real model wants; a stand-in generating some other size says so here
+            instead.
         steps: Steps to generate. Enough to reach steady state, since a model
             whose first chunk differs is only interesting from the second.
         expected: What the generated video should look like.
@@ -127,11 +137,27 @@ def check_t2v_model_impl(
     inspector = _FrameInspector(Mp4OutputSink(mp4_path) if mp4_path else None)
     application.init(commandline_args)
     try:
+        if session_desc is None:
+            session_desc = _described_by(application)
         run_batch(application.create_session(session_desc), inspector, steps=steps)
     finally:
         application.close()
 
     return _compare(inspector, expected, Path(mp4_path) if mp4_path else None)
+
+
+def _described_by(application: IApplication) -> SessionDesc:
+    """Ask an initialized application what session it would generate.
+
+    Raises:
+        TypeError: It has no way to say, so the caller has to describe one.
+    """
+    if not isinstance(application, T2VApplication):
+        raise TypeError(
+            f"{type(application).__name__} cannot describe the session it would "
+            "generate, so check_t2v_model_impl needs one passed in."
+        )
+    return application.session_desc()
 
 
 class _FrameInspector(OutputSink):
