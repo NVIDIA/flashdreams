@@ -66,9 +66,8 @@ def _close_application(application: IApplication, *, run_failed: bool) -> None:
 
     Args:
         application: Application to close.
-        run_failed: Whether something has already failed the run. A close that
-            fails is logged when it has, and raised when it has not, since then
-            it is the only thing that went wrong.
+        run_failed: Whether something has already failed the run. When it has,
+            a failing close is logged rather than raised over the top of it.
 
     Raises:
         Whatever the application raises, when nothing has failed yet.

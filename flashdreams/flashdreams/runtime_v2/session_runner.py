@@ -46,10 +46,8 @@ def _close_session(session: ISession, *, run_failed: bool) -> None:
 
     Args:
         session: Session to close.
-        run_failed: Whether something has already failed the run. A close that
-            fails is logged at that time, since the earlier failure is what
-            explains the run, and raised when it has not, since then it is the
-            only thing that went wrong.
+        run_failed: Whether something has already failed the run. When it has,
+            a failing close is logged rather than raised over the top of it.
 
     Raises:
         Whatever the session raises, when nothing has failed yet.
