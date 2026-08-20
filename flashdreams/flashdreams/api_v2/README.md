@@ -109,6 +109,9 @@ Not built yet
 - Input that keeps up with generation. Input is polled at the UI rate, so a run of
   fast steps can finish several of them between polls and hand them all the same
   batch. Pacing generation is what would fix it.
+- `ApplicationRunner`: takes an `IApplication` and an `IClientWindow` and drives
+  the main loop. `run_session` is what exists today; it drives a session the
+  caller already created.
 - `flashdreams-run`: a CLI that creates the requested kind of client window,
   loads an application module, and hands both to `ApplicationRunner`. Until it
   exists, the caller wires that up and an integration ships no entry point.
