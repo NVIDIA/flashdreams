@@ -64,6 +64,36 @@ means downloads between them as well as at the start. It is also why a model
 needing a package must declare it rather than have it synced in by hand, since
 the next scenario in the sweep would prune it.
 
+## Set up PAI-Bench, if you want scores
+
+Scoring runs as a hook after a scenario generates its clip, so whether to score
+is a decision to make before a sweep rather than after: there is no way to score
+a run that already happened without generating its clips again. Both commands
+below therefore carry the profile, and dropping their last two flags is how a
+run skips it.
+
+PAI-Bench and its dependencies are not FlashDreams dependencies: they are
+evaluator-only and carry their own license terms, so they go in a separate
+environment you have reviewed for your use case. This is the one the local runs
+used:
+
+```bash
+uv venv --python 3.12 ~/.venvs/flashdreams-paibench
+export PAI_BENCH_PYTHON="$HOME/.venvs/flashdreams-paibench/bin/python"
+
+uv pip install --python "$PAI_BENCH_PYTHON" \
+    torch torchvision \
+    opencv-python-headless \
+    omegaconf \
+    openai-clip \
+    "pyiqa>=0.1.15,<0.1.16" \
+    "setuptools<81"
+
+"$PAI_BENCH_PYTHON" -c "import clip, cv2, omegaconf, pyiqa, torch; print('PAI-Bench environment OK')"
+```
+
+If the virtual environment already exists, `uv venv` asks before replacing it.
+
 ## Generate the baseline
 
 A dry run first, which renders every command and writes the report skeleton
@@ -94,7 +124,9 @@ uv run --no-sync flashdreams-benchmark \
     --scenario t2v-causal-forcing-one-minute \
     --scenario t2v-fastvideo-causal-wan22-one-minute \
     --keep-going \
-    --output-dir artifacts/benchmarks/v2-model-baseline
+    --output-dir artifacts/benchmarks/v2-model-baseline \
+    --quality-profile pai-bench-long \
+    --pai-bench-python "$PAI_BENCH_PYTHON"
 ```
 
 `--keep-going` is what stops one model failing from abandoning the models after
@@ -103,10 +135,14 @@ tags, which is the table above without reading the JSON. Without `--output-dir`
 a run lands in `artifacts/benchmarks/<timestamp>`; naming it instead is what
 makes it findable later as the baseline. Either way `artifacts/` is git-ignored.
 
+Every scenario generates its clip, but only the five tagged `one-minute` or
+`pai-bench` are scored: the profile ignores the rest rather than scoring clips
+too short for it to say anything about.
+
 ## Compare a candidate
 
-The same command, plus the baseline to compare against and a directory of its
-own:
+The same command again, once there is something to compare: the baseline to
+compare against, and a directory of its own to write to.
 
 ```bash
 uv run --no-sync flashdreams-benchmark \
@@ -120,8 +156,10 @@ uv run --no-sync flashdreams-benchmark \
     --scenario t2v-causal-forcing-one-minute \
     --scenario t2v-fastvideo-causal-wan22-one-minute \
     --keep-going \
+    --output-dir artifacts/benchmarks/v2-model-candidate \
     --quality-baseline-dir artifacts/benchmarks/v2-model-baseline \
-    --output-dir artifacts/benchmarks/v2-model-candidate
+    --quality-profile pai-bench-long \
+    --pai-bench-python "$PAI_BENCH_PYTHON"
 ```
 
 `--quality-baseline-dir` takes a previous run root, or a flat directory of
@@ -153,49 +191,12 @@ review links to both clips. The five short scenarios compare the whole frame, so
 `--quality-compute-flip` adds FLIP metrics when `flip-evaluator` is installed,
 warning and carrying on when it is not.
 
-## Score clips with PAI-Bench
+## What PAI-Bench scoring does
 
-PAI-Bench and its dependencies are not FlashDreams dependencies: they are
-evaluator-only and carry their own license terms, so they go in a separate
-environment you have reviewed for your use case. This is the one the local runs
-used:
-
-```bash
-uv venv --python 3.12 ~/.venvs/flashdreams-paibench
-export PAI_BENCH_PYTHON="$HOME/.venvs/flashdreams-paibench/bin/python"
-
-uv pip install --python "$PAI_BENCH_PYTHON" \
-    torch torchvision \
-    opencv-python-headless \
-    omegaconf \
-    openai-clip \
-    "pyiqa>=0.1.15,<0.1.16" \
-    "setuptools<81"
-
-"$PAI_BENCH_PYTHON" -c "import clip, cv2, omegaconf, pyiqa, torch; print('PAI-Bench environment OK')"
-```
-
-If the virtual environment already exists, `uv venv` asks before replacing it.
-
-Then add the profile to a baseline or candidate run, selecting only the
-scenarios it applies to: the three one-minute rollouts and the two single-block
-clips. The profile ignores anything not tagged `one-minute` or `pai-bench`, so
-including the 10-second scenarios costs their generation time and scores
-nothing.
-
-```bash
-uv run --no-sync flashdreams-benchmark \
-    --scenario-file configs/v2_model_benchmarks.json \
-    --scenario t2v-wan21-native-clip \
-    --scenario t2v-cosmos-predict2-native-clip \
-    --scenario t2v-self-forcing-one-minute \
-    --scenario t2v-causal-forcing-one-minute \
-    --scenario t2v-fastvideo-causal-wan22-one-minute \
-    --keep-going \
-    --quality-profile pai-bench-long \
-    --pai-bench-python "$PAI_BENCH_PYTHON" \
-    --output-dir artifacts/benchmarks/v2-model-baseline
-```
+The scores are reported per run and read across runs, unlike the baseline
+comparison, which is one run measured against another. A candidate's numbers
+mean something next to the baseline's numbers for the same scenario, so both
+runs above ask for them.
 
 `pai-bench-long` splits each clip into segments, scores them with public
 PAI-Bench-G, and reports a 0-100 `pai_bench_long_*` average. Its dimensions are
