@@ -20,6 +20,11 @@ CPU-only tests for the v2 protocols themselves:
 - `test_mp4_output_sink.py` covers the sink that writes an MP4, reading each file
   back to check what was encoded. Its encoding tests are skipped when `ffmpeg` is
   missing from `PATH`.
+- `test_client_window_factory.py` covers each way of watching a run answering for
+  itself: the window its arguments ask for, the usage error when they are
+  incomplete, and what it says about where the output went. The WebRTC tests are
+  skipped when the serving packages are missing, which is also why a run writing
+  a file does not import them.
 - `test_t2v_application.py` covers the shared text-to-video application: its
   flags, the clip it says it would generate, what it refuses to generate, and
   when the model is

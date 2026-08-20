@@ -13,7 +13,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
 _LOGGER = logging.getLogger(__name__)
-"""Logger for an application that could not be closed."""
+"""Logger for an application or window that could not be closed."""
 
 
 class ApplicationRunner:
@@ -38,18 +38,40 @@ class ApplicationRunner:
 
         The application is closed before this method returns or raises.
 
+        The window is closed too when the run never starts, since ``run_session``
+        is what otherwise owns it, and a window may already be serving a client
+        before the application has loaded anything.
+
         Args:
             session_desc: Output shape and timing requested for the session.
             commandline_args: Arguments owned and parsed by the application.
         """
+        run_started = False
         try:
             self._application.init(commandline_args)
             session = self._application.create_session(session_desc)
+            run_started = True
             run_session(session, self._client_window)
         finally:
+            if not run_started:
+                _close_client_window(self._client_window)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
+
+
+def _close_client_window(client_window: IClientWindow) -> None:
+    """Close a window the run never reached, so what it was serving goes with it.
+
+    The run has already failed by the time this is called, so a failure here is
+    logged rather than raised over the top of it.
+    """
+    try:
+        client_window.close()
+    except Exception:
+        _LOGGER.exception(
+            "The client window failed to close after a run that never started."
+        )
 
 
 def _close_application(application: IApplication, *, run_failed: bool) -> None:

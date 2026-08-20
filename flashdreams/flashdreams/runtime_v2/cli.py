@@ -5,30 +5,32 @@
 
 ``flashdreams-run-v2`` finds an application by slug, gives it the arguments
 after ``--``, and hands it to :class:`ApplicationRunner` along with the window
-``--mode`` asked for: an MP4 file, or a client over WebRTC. The session it asks
-for is the one the application says it would generate, with whatever the frame
-arguments here override.
+``--mode`` asked for. The session it asks for is the one the application says it
+would generate, with whatever the frame arguments here override.
+
+What the modes are, and what each one takes, belongs to
+:mod:`flashdreams.runtime_v2.client_window_factory`. Nothing here reads an
+argument that only one of them uses.
 """
 
 import argparse
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.applications import (
+from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
 )
-from flashdreams.runtime_v2.client_window_factory import create_client_window
-from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.client_window_factory import (
+    add_client_window_arguments,
+    client_window_mode,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
 _ARGUMENT_SEPARATOR = "--"
 """What separates this command's arguments from the application's.
@@ -37,12 +39,6 @@ An application declares whatever arguments it likes, including ones this
 command also has, so the split is stated rather than guessed.
 """
 
-_MP4_MODE = "mp4"
-"""Mode writing a file, and the only one with nobody watching."""
-
-_WEBRTC_MODE = "webrtc"
-"""Mode streaming to a browser."""
-
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
     """Run the command, reporting where to watch what it generates."""
@@ -50,20 +46,22 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     own_args, application_args = split_arguments(arguments)
     parser = _parser()
     parsed = parser.parse_args(own_args)
-    if parsed.mode == _MP4_MODE and parsed.output_path is None:
-        parser.error("--output-path is required when writing an MP4.")
+
+    mode = client_window_mode(parsed.mode)
+    try:
+        mode.check_arguments(parsed)
+    except ValueError as error:
+        parser.error(str(error))
 
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
     session_desc = _session_desc(application, parsed)
-    window = _client_window(parsed)
-    if isinstance(window, WebRTCClientWindow):
-        print(f"Open {window.server.url} in a browser.", flush=True)
+    window = mode.create(parsed)
+    _report(mode.starting(window))
     # Nothing here says how long the run is: a session reports itself finished,
     # and a window ends the run when its client goes away.
     ApplicationRunner(application, window).run(session_desc, application_args)
-    if parsed.mode == _MP4_MODE:
-        print(parsed.output_path)
+    _report(mode.finished(window))
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -95,28 +93,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("slug", help="Application to run.")
-    parser.add_argument(
-        "--mode",
-        choices=(_MP4_MODE, _WEBRTC_MODE),
-        default=_MP4_MODE,
-        help="Where the run goes. Default: %(default)s.",
-    )
-    parser.add_argument(
-        "--output-path", type=Path, help="MP4 file to write. Required for mp4."
-    )
-    parser.add_argument(
-        "--stats-path",
-        type=Path,
-        default=None,
-        help=(
-            "JSON file to record what each step measured in, for a benchmark "
-            "to read. Nothing is measured unless this is asked for."
-        ),
-    )
-    parser.add_argument("--host", default="127.0.0.1", help="Interface to serve on.")
-    parser.add_argument("--port", type=int, default=0, help="Port to serve on.")
+    add_client_window_arguments(parser)
     _add_session_arguments(parser)
     return parser
+
+
+def _report(message: str | None) -> None:
+    """Print what the mode has to say about the run, if it has anything."""
+    if message is not None:
+        print(message, flush=True)
 
 
 def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
@@ -169,12 +154,3 @@ def _session_desc(
     if described is None:
         return SessionDesc(**asked_for)
     return replace(described, **asked_for)
-
-
-def _client_window(parsed_args: argparse.Namespace) -> IClientWindow:
-    """Create the window the arguments ask for."""
-    if parsed_args.mode == _MP4_MODE:
-        return Mp4ClientWindow(
-            parsed_args.output_path, stats_path=parsed_args.stats_path
-        )
-    return create_client_window(parsed_args)

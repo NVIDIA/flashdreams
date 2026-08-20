@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Finding the application a runner was asked for."""
+"""The applications installed here, and finding the one a runner was asked for.
+
+The registry is the entry points an install wrote down, rather than anything
+this holds.
+"""
 
 import importlib
 from importlib.metadata import EntryPoint, entry_points

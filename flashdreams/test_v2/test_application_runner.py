@@ -162,14 +162,16 @@ def test_application_runner_drives_complete_lifecycle() -> None:
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
 
 
-def test_application_runner_closes_application_when_init_fails() -> None:
+def test_application_runner_closes_both_when_the_run_never_starts() -> None:
+    """The window is closed by the loop, which a failure here never reaches, and
+    a window may already be serving a client by then."""
     calls: list[str] = []
     application = _Application(calls, fail_to_init=True)
 
     with pytest.raises(RuntimeError, match="application init failed"):
         ApplicationRunner(application, _Window(calls)).run(_session_desc())
 
-    assert calls == ["application.init([])", "application.close"]
+    assert calls == ["application.init([])", "window.close", "application.close"]
 
 
 def test_application_runner_ends_a_run_a_window_cannot_end() -> None:

@@ -8,6 +8,7 @@ application found, given its arguments, asked what session it would generate,
 run against the window the arguments chose, and closed.
 """
 
+import argparse
 import json
 import shutil
 from collections.abc import Sequence
@@ -21,11 +22,12 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli
-from flashdreams.runtime_v2.applications import (
+from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
     create_application,
     registered_application_slugs,
 )
+from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -250,6 +252,18 @@ def _write_application_module(
 ## Running
 
 
+class StubMode(ClientWindowMode):
+    """A mode handing the command a window the test can look inside."""
+
+    def __init__(self, name: str, window: IClientWindow) -> None:
+        self.name = name
+        self._window = window
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        del parsed_args
+        return self._window
+
+
 def _install(
     monkeypatch: pytest.MonkeyPatch,
     application: IApplication,
@@ -257,12 +271,14 @@ def _install(
 ) -> None:
     """Point the command at this application, and at this window when given one.
 
-    Only a run that is not writing a file needs one; the command builds the
-    file window itself.
+    Only a run that is not writing a file needs one; a file run builds its
+    window from the arguments like any other.
     """
     monkeypatch.setattr(cli, "create_application", lambda slug: application)
     if window is not None:
-        monkeypatch.setattr(cli, "create_client_window", lambda parsed: window)
+        monkeypatch.setattr(
+            cli, "client_window_mode", lambda name: StubMode(name, window)
+        )
 
 
 @needs_ffmpeg
@@ -424,17 +440,17 @@ def test_a_model_generates_what_it_was_trained_for_unless_asked_otherwise(
 ## The command itself
 
 
-def test_a_mode_other_than_a_file_takes_its_window_from_the_runtime(
+def test_the_run_goes_to_the_window_the_mode_asked_for(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The window comes from the arguments, and only the file one is built here."""
+    """Which mode that is, and what it takes, is not this command's business."""
     window = RecordingWindow()
     asked_for: list[str] = []
     _install(monkeypatch, StubT2VApplication(_stand_in()))
     monkeypatch.setattr(
         cli,
-        "create_client_window",
-        lambda parsed: (asked_for.append(parsed.mode), window)[1],
+        "client_window_mode",
+        lambda name: (asked_for.append(name), StubMode(name, window))[1],
     )
 
     cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])

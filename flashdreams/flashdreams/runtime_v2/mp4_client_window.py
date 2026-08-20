@@ -54,9 +54,15 @@ class Mp4ClientWindow(IClientWindow):
                 ``None`` to measure nothing. A benchmark asks for one and gets
                 both files from the one run.
         """
+        self._path = Path(path)
         self._sinks: tuple[OutputSink, ...] = (Mp4OutputSink(path),)
         if stats_path is not None:
             self._sinks += (MetricsOutputSink(stats_path),)
+
+    @property
+    def path(self) -> Path:
+        """File this writes, for a caller that has to say where the run went."""
+        return self._path
 
     def get_user_input_events(self) -> UserInputEvents:
         """Report nothing, since there is no client to take input from.

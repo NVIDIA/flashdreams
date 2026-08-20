@@ -29,7 +29,15 @@ an application by slug, gives it the arguments after `--`, and hands it to
 `ApplicationRunner` with the window `--mode` asked for, an MP4 file or a client
 over WebRTC. Applications are found through the `flashdreams.applications_v2`
 entry point group, or by the name of the package an integration ships when it
-has registered nothing.
+has registered nothing, which is
+`flashdreams.runtime_v2.application_registry`'s job.
+
+What the modes are belongs to
+`flashdreams.runtime_v2.client_window_factory`, not to the command. A mode owns
+the arguments only it takes, such as `--output-path` for a file or `--port` for
+a browser, and what to say about where the run went: a URL to open before it
+starts, or the file once there is something in it. So a new way of watching a
+run is a mode added there, and the command is unchanged.
 
 The session it asks for comes from `IApplication.session_desc`, with
 `--pixel-width`, `--pixel-height`, `--fps`, and `--layout` overriding whatever
