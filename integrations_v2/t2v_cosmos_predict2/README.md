@@ -63,9 +63,10 @@ them off the runner config the `flashdreams-cosmos-predict2` package already
 ships, block count included. `app.session_desc()` is what they add up to.
 
 Something else can be asked for, with `--pixel-width`, `--pixel-height`, and
-`--fps`. A session refuses a description it cannot honour rather than quietly
-generating something else, so each dimension has to be a multiple of 8, which
-is what one latent covers.
+`--fps` before the `--`, since they describe the session rather than the model.
+A session refuses a description it cannot honour rather than quietly generating
+something else, so each dimension has to be a multiple of 8, which is what one
+latent covers.
 
 ## First run
 

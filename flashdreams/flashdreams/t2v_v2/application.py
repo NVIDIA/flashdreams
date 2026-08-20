@@ -18,7 +18,7 @@ from flashdreams.t2v_v2.session import T2VSession
 _FRAMES_PER_SECOND_FOR_UI = 60
 """Rate an interactive window would read input and present results at.
 
-Nothing on the batch path reads it, since a file has no client to keep up with,
+A run writing a file has no client to keep up with, so nothing reads it there,
 but a session has to declare one.
 """
 
@@ -32,15 +32,6 @@ class T2VSessionConfig:
 
     device: str
     """Device the pipeline is built on."""
-
-    pixel_width: int
-    """Frame width to generate."""
-
-    pixel_height: int
-    """Frame height to generate."""
-
-    fps: int
-    """Rate the generated frames are meant to play at."""
 
     total_blocks: int
     """Blocks a rollout generates, which is what ends a run."""
@@ -81,7 +72,11 @@ class T2VApplication(IApplication):
         return self._pipeline_config
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse what to generate, at what size, and where.
+        """Parse what to generate, how much of it, and where.
+
+        What size and rate to generate at is not asked here: that describes the
+        session, which the caller asks for and :meth:`session_desc` supplies a
+        default for.
 
         The model itself is not loaded here. A caller can ask an application
         what it wants before paying for a checkpoint.
@@ -90,8 +85,8 @@ class T2VApplication(IApplication):
             commandline_args: Application-specific arguments.
 
         Raises:
-            ValueError: No prompt was given, or a size, rate, or rollout length
-                is not positive.
+            ValueError: No prompt was given, or the rollout length is not one
+                this model can generate.
         """
         parser = argparse.ArgumentParser(
             prog="flashdreams-run-v2 SLUG --",
@@ -104,24 +99,6 @@ class T2VApplication(IApplication):
             "--device",
             default=self.defaults.device,
             help="Device to load the model on. Default: %(default)s.",
-        )
-        parser.add_argument(
-            "--pixel-width",
-            type=int,
-            default=self.defaults.pixel_width,
-            help="Frame width. Default: %(default)s, what this model generates.",
-        )
-        parser.add_argument(
-            "--pixel-height",
-            type=int,
-            default=self.defaults.pixel_height,
-            help="Frame height. Default: %(default)s.",
-        )
-        parser.add_argument(
-            "--fps",
-            type=int,
-            default=self.defaults.fps,
-            help="Rate the frames are meant to play at. Default: %(default)s.",
         )
         parser.add_argument(
             "--total-blocks",
@@ -156,13 +133,6 @@ class T2VApplication(IApplication):
 
         if not args.prompt.strip():
             raise ValueError("--prompt is required, and cannot be empty.")
-        if args.pixel_width <= 0 or args.pixel_height <= 0:
-            raise ValueError(
-                "--pixel-width and --pixel-height must be > 0, got "
-                f"{args.pixel_width}x{args.pixel_height}."
-            )
-        if args.fps <= 0:
-            raise ValueError(f"--fps must be > 0, got {args.fps}.")
         self._validate_total_blocks(args.total_blocks)
         self._apply_parsed_arguments(args)
 
@@ -177,34 +147,22 @@ class T2VApplication(IApplication):
         self._config = T2VSessionConfig(
             prompt=args.prompt,
             device=args.device,
-            pixel_width=args.pixel_width,
-            pixel_height=args.pixel_height,
-            fps=args.fps,
             total_blocks=args.total_blocks,
         )
 
     def session_desc(self) -> SessionDesc:
-        """Return the session this application would generate as asked.
+        """Return the description of a session this application uses.
 
-        A caller has to describe a session before one exists to describe it,
-        and only the application knows what its model generates, so this is
-        where a runner gets a description it can pass straight back to
-        :meth:`create_session`.
-
-        Raises:
-            RuntimeError: :meth:`init` has not run yet.
+        The integration's defaults, which is what a caller with no size of its
+        own in mind wants: a model generates its best video at the size and rate
+        it was trained at.
         """
-        config = self._config
-        if config is None:
-            raise RuntimeError(
-                f"{type(self).__name__}.init() must run before session_desc()."
-            )
         return SessionDesc(
             output_layout=self.defaults.output_layout,
             frames_per_second_for_ui=_FRAMES_PER_SECOND_FOR_UI,
-            frames_per_second_for_step=config.fps,
-            video_width=config.pixel_width,
-            video_height=config.pixel_height,
+            frames_per_second_for_step=self.defaults.fps,
+            video_width=self.defaults.pixel_width,
+            video_height=self.defaults.pixel_height,
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:

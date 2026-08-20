@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for the command line that runs a text-to-video application.
+"""CPU tests for the command line that runs a v2 application.
 
 The end-to-end runs here use a stand-in for a model, so what they cover is the
-wiring: that the application is found, given its own arguments, asked what it
-would generate, run against the window the arguments chose, and closed. Whether
-a real checkpoint generates anything worth watching is a GPU question, asked in
-the integration that owns the checkpoint.
+wiring: that the application is found, given its own arguments, asked what
+session it would generate, run against the window the arguments chose, and
+closed. Whether a real checkpoint generates anything worth watching is a GPU
+question, asked in the integration that owns the checkpoint.
 """
 
 import json
@@ -17,20 +17,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import torch
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2 import cli
 from flashdreams.runtime_v2.applications import (
     APPLICATION_ENTRY_POINT_GROUP,
     create_application,
     registered_application_slugs,
 )
-from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2 import cli
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
@@ -83,14 +84,53 @@ class StubT2VApplication(T2VApplication):
         )
 
 
-class NotATextToVideoApplication(IApplication):
-    """An application with no way to say what session it would generate."""
+class UndescribedApplication(IApplication):
+    """An application that generates whatever it is asked for.
+
+    What everything that is not a model looks like to this command: it has no
+    clip of its own in mind, so the description it is handed is the one the
+    command line built.
+    """
+
+    def __init__(self) -> None:
+        self.asked_for: SessionDesc | None = None
 
     def init(self, commandline_args: Sequence[str]) -> None:
         del commandline_args
 
-    def create_session(self, session_desc: SessionDesc) -> Any:
-        raise AssertionError("should never be reached")
+    def create_session(self, session_desc: SessionDesc) -> ISession:
+        self.asked_for = session_desc
+        return OneStepSession(session_desc)
+
+
+class OneStepSession(ISession):
+    """A session generating one frame and reporting itself finished."""
+
+    def __init__(self, session_desc: SessionDesc) -> None:
+        self._session_desc = session_desc
+        self._generated = False
+
+    def init(self) -> None:
+        return
+
+    @property
+    def session_desc(self) -> SessionDesc:
+        return self._session_desc
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        del events
+        self._generated = True
+        return StepResult(
+            step_index=step_index,
+            output=torch.zeros(
+                1, 3, self._session_desc.video_height, self._session_desc.video_width
+            ),
+            frame_count=1,
+            output_layout=self._session_desc.output_layout,
+        )
+
+    def is_finished(self) -> bool:
+        return self._generated
 
 
 class RecordingWindow(IClientWindow):
@@ -218,61 +258,85 @@ def _write_application_module(
 ## Running
 
 
+def _install(
+    monkeypatch: pytest.MonkeyPatch,
+    application: IApplication,
+    window: IClientWindow | None = None,
+) -> None:
+    """Point the command at this application, and at this window when given one.
+
+    A window is only needed by a run that is not writing a file, since the file
+    window is the one the command builds itself.
+    """
+    monkeypatch.setattr(cli, "create_application", lambda slug: application)
+    if window is not None:
+        monkeypatch.setattr(cli, "create_client_window", lambda parsed: window)
+
+
 @needs_ffmpeg
-def test_a_run_writes_what_the_application_generated(tmp_path: Path) -> None:
+def test_a_run_writes_what_the_application_generated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     pipeline = _stand_in()
+    _install(monkeypatch, StubT2VApplication(pipeline))
     path = tmp_path / "clip.mp4"
 
-    cli.run_application(
-        StubT2VApplication(pipeline),
-        Mp4ClientWindow(path),
-        application_args=["--prompt", _PROMPT, "--total-blocks", "2"],
+    cli.entrypoint(
+        [
+            "stub",
+            "--output-path",
+            str(path),
+            "--",
+            "--prompt",
+            _PROMPT,
+            "--total-blocks",
+            "2",
+        ]
     )
 
+    assert capsys.readouterr().out.strip() == str(path)
     assert path.stat().st_size > 0
     assert pipeline.caches[0]["text"] == [_PROMPT]
     assert pipeline.generated == [0, 1]
 
 
-def test_a_run_lasts_as_long_as_the_rollout_the_application_asked_for() -> None:
-    """Nothing here counts steps: the session reports itself finished."""
-    pipeline = _stand_in()
-
-    cli.run_application(
-        StubT2VApplication(pipeline),
-        RecordingWindow(),
-        application_args=["--prompt", _PROMPT],
-    )
-
-    assert pipeline.generated == list(range(_TOTAL_BLOCKS))
-
-
-def test_the_model_is_released_when_a_run_fails() -> None:
+def test_the_model_is_released_when_a_run_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # A model holds most of a GPU, so a run that gave up part way through has
     # to put it back whether or not it produced anything.
     pipeline = _stand_in(fail_at=1)
+    _install(monkeypatch, StubT2VApplication(pipeline), RecordingWindow())
 
     with pytest.raises(RuntimeError, match="generate failed"):
-        cli.run_application(
-            StubT2VApplication(pipeline),
-            RecordingWindow(),
-            application_args=["--prompt", _PROMPT],
-        )
+        cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])
 
     assert pipeline.closed
 
 
 @needs_ffmpeg
-def test_a_run_can_record_what_generating_the_clip_cost(tmp_path: Path) -> None:
+def test_a_run_can_record_what_generating_the_clip_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A clip says nothing about what it took to generate, so a benchmark run
     asks for both and the file it writes is the one the harness reads."""
+    _install(monkeypatch, StubT2VApplication(_stand_in()))
     stats_path = tmp_path / "stats_run.json"
     clip_path = tmp_path / "clip.mp4"
 
-    cli.run_application(
-        StubT2VApplication(_stand_in()),
-        Mp4ClientWindow(clip_path, stats_path=stats_path),
-        application_args=["--prompt", _PROMPT, "--total-blocks", "2"],
+    cli.entrypoint(
+        [
+            "stub",
+            "--output-path",
+            str(clip_path),
+            "--stats-path",
+            str(stats_path),
+            "--",
+            "--prompt",
+            _PROMPT,
+            "--total-blocks",
+            "2",
+        ]
     )
 
     # Both files, and every step in the one recording them. What a stats file
@@ -287,67 +351,16 @@ def test_a_run_can_record_what_generating_the_clip_cost(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
-def test_nothing_is_measured_unless_a_run_asks(tmp_path: Path) -> None:
-    cli.run_application(
-        StubT2VApplication(_stand_in()),
-        Mp4ClientWindow(tmp_path / "clip.mp4"),
-        application_args=["--prompt", _PROMPT, "--total-blocks", "1"],
-    )
-
-    assert list(tmp_path.glob("*.json")) == []
-
-
-def test_an_application_that_will_not_start_reports_why() -> None:
-    with pytest.raises(ValueError, match="--prompt is required"):
-        cli.run_application(StubT2VApplication(_stand_in()), RecordingWindow())
-
-
-## The command itself
-
-
-@needs_ffmpeg
-def test_the_command_reports_the_file_it_wrote(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    pipeline = _stand_in()
-    monkeypatch.setattr(
-        cli, "create_application", lambda slug: StubT2VApplication(pipeline)
-    )
-    path = tmp_path / "clip.mp4"
-
-    cli.entrypoint(
-        [
-            "stub",
-            "--output-path",
-            str(path),
-            "--",
-            "--prompt",
-            _PROMPT,
-            "--total-blocks",
-            "1",
-        ]
-    )
-
-    assert capsys.readouterr().out.strip() == str(path)
-    assert path.stat().st_size > 0
-
-
-@needs_ffmpeg
-def test_the_command_can_be_asked_to_measure_the_run(
+def test_nothing_is_measured_unless_a_run_asks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        cli, "create_application", lambda slug: StubT2VApplication(_stand_in())
-    )
-    stats_path = tmp_path / "stats_run.json"
+    _install(monkeypatch, StubT2VApplication(_stand_in()))
 
     cli.entrypoint(
         [
             "stub",
             "--output-path",
             str(tmp_path / "clip.mp4"),
-            "--stats-path",
-            str(stats_path),
             "--",
             "--prompt",
             _PROMPT,
@@ -356,7 +369,69 @@ def test_the_command_can_be_asked_to_measure_the_run(
         ]
     )
 
-    assert json.loads(stats_path.read_text(encoding="utf-8"))["steps"] != []
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_application_that_will_not_start_reports_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, StubT2VApplication(_stand_in()), RecordingWindow())
+
+    with pytest.raises(ValueError, match="--prompt is required"):
+        cli.entrypoint(["stub", "--mode", "webrtc"])
+
+
+## Describing the session to run
+
+
+def test_an_application_with_no_session_of_its_own_is_described_by_the_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Which is what lets this command run something that is not a model."""
+    application = UndescribedApplication()
+    _install(monkeypatch, application, RecordingWindow())
+
+    cli.entrypoint(
+        [
+            "stub",
+            "--mode",
+            "webrtc",
+            "--pixel-width",
+            "64",
+            "--pixel-height",
+            "32",
+            "--fps",
+            "12",
+            "--layout",
+            "bcthw",
+        ]
+    )
+
+    assert application.asked_for == SessionDesc(
+        output_layout=VideoTensorLayout.bcthw,
+        frames_per_second_for_step=12,
+        video_width=64,
+        video_height=32,
+    )
+
+
+def test_a_model_generates_what_it_was_trained_for_unless_asked_otherwise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pipeline = _stand_in()
+    window = RecordingWindow()
+    _install(monkeypatch, StubT2VApplication(pipeline), window)
+
+    cli.entrypoint(
+        ["stub", "--mode", "webrtc", "--pixel-width", "64", "--", "--prompt", _PROMPT]
+    )
+
+    assert window.session_desc.video_width == 64
+    # What nobody asked about is still the model's own.
+    assert window.session_desc.video_height == pipeline.height
+
+
+## The command itself
 
 
 def test_a_mode_other_than_a_file_takes_its_window_from_the_runtime(
@@ -365,9 +440,7 @@ def test_a_mode_other_than_a_file_takes_its_window_from_the_runtime(
     """The window comes from the arguments, and only the file one is built here."""
     window = RecordingWindow()
     asked_for: list[str] = []
-    monkeypatch.setattr(
-        cli, "create_application", lambda slug: StubT2VApplication(_stand_in())
-    )
+    _install(monkeypatch, StubT2VApplication(_stand_in()))
     monkeypatch.setattr(
         cli,
         "create_client_window",
@@ -377,21 +450,10 @@ def test_a_mode_other_than_a_file_takes_its_window_from_the_runtime(
     cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])
 
     assert asked_for == ["webrtc"]
+    # And nothing counted the steps: the session reported itself finished.
     assert len(window.results) == _TOTAL_BLOCKS
 
 
 def test_the_command_needs_somewhere_to_write() -> None:
     with pytest.raises(SystemExit):
         cli.entrypoint(["stub"])
-
-
-def test_an_application_that_cannot_describe_a_session_cannot_be_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Only text-to-video says what it would generate, so only it runs here."""
-    monkeypatch.setattr(
-        cli, "create_application", lambda slug: NotATextToVideoApplication()
-    )
-
-    with pytest.raises(TypeError, match="only runs text-to-video"):
-        cli.entrypoint(["stub", "--output-path", str(tmp_path / "clip.mp4")])

@@ -21,7 +21,8 @@ CPU-only tests for the v2 protocols themselves:
   back to check what was encoded. Its encoding tests are skipped when `ffmpeg` is
   missing from `PATH`.
 - `test_t2v_application.py` covers the shared text-to-video application: its
-  flags, what they resolve to, what it refuses to generate, and when the model is
+  flags, the clip it says it would generate, what it refuses to generate, and
+  when the model is
   loaded. Covering it here is what lets each `integrations_v2/t2v_*` package test
   only what is particular to its own model, over the stand-in pipeline
   `flashdreams.t2v_v2.testing` ships.
@@ -33,8 +34,10 @@ CPU-only tests for the v2 protocols themselves:
   integration runs the passing path against its own stand-in; what a check says
   about a run that fell short is only worth covering once.
 - `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
-  the command line at `--`, choosing a window, and running one into a real MP4
-  with a stand-in for a model.
+  the command line at `--`, choosing a window, describing the session to ask for,
+  and running one into a real MP4 with a stand-in for a model. An application
+  that describes no session of its own is run there too, since running more than
+  text-to-video is the point of the command.
 - `test_metrics_output_sink.py` covers the sink that records what a run
   measured, which is a file another tool reads: what a benchmark expects of it
   is checked against the reader itself in

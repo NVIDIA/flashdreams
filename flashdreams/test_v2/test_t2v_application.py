@@ -226,32 +226,20 @@ def test_a_v1_layout_becomes_a_v2_layout(
 ## The command line
 
 
-def test_a_run_generates_what_the_model_was_trained_for_by_default() -> None:
-    app = _application()
+def test_a_model_describes_the_clip_it_was_trained_for_without_loading() -> None:
+    """Asked before the application is told anything, since a caller has to
+    describe a session before it can ask for one."""
+    app = T2VApplication(defaults=_defaults())
 
     desc = app.session_desc()
 
     assert desc == _session_desc()
+    assert _pipeline_config(app).setup_count == 0
 
 
-def test_every_default_can_be_overridden() -> None:
-    app = _application(
-        args=[
-            "--pixel-width",
-            "256",
-            "--pixel-height",
-            "128",
-            "--fps",
-            "24",
-            "--total-blocks",
-            "3",
-        ]
-    )
+def test_the_rollout_length_can_be_overridden() -> None:
+    app = _application(args=["--total-blocks", "3"])
 
-    desc = app.session_desc()
-
-    assert (desc.video_width, desc.video_height) == (256, 128)
-    assert desc.frames_per_second_for_step == 24
     assert _rollout_length(app) == 3
 
 
@@ -264,27 +252,14 @@ def test_a_run_needs_something_to_generate_from() -> None:
         app.init(["--prompt", "   "])
 
 
-@pytest.mark.parametrize(
-    "args,message",
-    [
-        (["--pixel-width", "0"], "--pixel-width and --pixel-height"),
-        (["--pixel-height", "-64"], "--pixel-width and --pixel-height"),
-        (["--fps", "0"], "--fps must be"),
-        (["--total-blocks", "0"], "--total-blocks must be"),
-    ],
-)
-def test_a_run_that_would_generate_no_video_is_refused(
-    args: list[str], message: str
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        _application(args=args)
+def test_a_run_that_would_generate_no_video_is_refused() -> None:
+    with pytest.raises(ValueError, match="--total-blocks must be"):
+        _application(args=["--total-blocks", "0"])
 
 
-def test_nothing_can_be_asked_before_the_application_is_told_what_to_do() -> None:
+def test_no_session_is_created_before_the_application_is_told_what_to_do() -> None:
     app = T2VApplication(defaults=_defaults())
 
-    with pytest.raises(RuntimeError, match="init.. must run before session_desc"):
-        app.session_desc()
     with pytest.raises(RuntimeError, match="init.. must run before create_session"):
         app.create_session(_session_desc())
 
@@ -303,15 +278,6 @@ def test_the_model_loads_once_and_every_session_shares_it() -> None:
     assert config.pipeline.device == "cpu"
     assert config.pipeline.eval_count == 1
     assert first is not second
-
-
-def test_the_model_is_not_loaded_to_answer_questions_about_it() -> None:
-    """A caller can ask an application what it would generate for nothing."""
-    app = _application()
-
-    app.session_desc()
-
-    assert _pipeline_config(app).setup_count == 0
 
 
 def test_closing_the_application_releases_the_model() -> None:

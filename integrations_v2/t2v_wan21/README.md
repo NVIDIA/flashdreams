@@ -65,9 +65,10 @@ runner config for a model that does not roll out carries no block count, so
 `--total-blocks` defaults to 1 here and refuses anything else.
 
 Something else can be asked for, with `--pixel-width`, `--pixel-height`, and
-`--fps`. A session refuses a description it cannot honour rather than quietly
-generating something else, so each dimension has to be a multiple of 8, which
-is what one latent covers.
+`--fps` before the `--`, since they describe the session rather than the model.
+A session refuses a description it cannot honour rather than quietly generating
+something else, so each dimension has to be a multiple of 8, which is what one
+latent covers.
 
 ## First run
 

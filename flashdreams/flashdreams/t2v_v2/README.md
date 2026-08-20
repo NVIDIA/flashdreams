@@ -13,16 +13,14 @@ supplies only what differs.
 - `defaults.py`: `T2VApplicationDefaults` is what an integration contributes,
   and `from_runner_config` reads it off the runner config the integration
   already has, so a model's frame size and rate are not written down twice.
-- `application.py`: `T2VApplication` declares `--prompt`, `--pixel-width`,
-  `--pixel-height`, `--fps`, `--total-blocks`, `--device`, `--compile`, and
-  `--seed`, defaulting each from those defaults. `_configure_argument_parser`
-  and `_apply_parsed_arguments` are where a model adds a flag of its own.
+- `application.py`: `T2VApplication` declares `--prompt`, `--total-blocks`,
+  `--device`, `--compile`, and `--seed`, defaulting each from those defaults,
+  and answers `session_desc()` with the clip the model was trained to generate.
+  `_configure_argument_parser` and `_apply_parsed_arguments` are where a model
+  adds a flag of its own.
 - `session.py`: `T2VSession` is one rollout, encoding the prompt into a cache
   and generating one autoregressive block per step until it has generated the
   whole rollout, which is when it reports itself finished.
-- `cli.py`: `flashdreams-run-v2` finds an application by slug, asks it what it
-  would generate, and drives one session of it against the window its arguments
-  chose — an MP4 file, or a client over WebRTC.
 - `testing.py`: test support, imported by an integration's tests and by the
   shared tests in `flashdreams/test_v2`, and by nothing that runs in production.
   `check_t2v_model_impl` runs an application, measures the frames on their way to
@@ -70,15 +68,12 @@ frame to reach the session, which `create_session` does not currently offer. Wha
 that hook should look like is worth settling on a model that needs it rather than
 in advance.
 
-`session_desc()` is the piece a runner needs and the protocol does not carry: a
-caller has to describe a session before one exists to describe it, and only the
-application knows what its model generates. `cli.py` calls it and passes the
-result straight back to `create_session`, which is why `flashdreams-run-v2`
-needs no size flags of its own. It is a method here rather than on
-`IApplication` because what a session looks like before it exists is not settled
-for every kind of model, only for this one. That is also why the command line
-lives here: a command line for any v2 application needs this on the protocol
-first, and then it becomes an argument parser over it.
+Nothing here asks what size or rate to generate at. That describes the session
+rather than the application, so `flashdreams-run-v2` owns those arguments and
+`session_desc()` is what this answers when nobody uses them: the size, rate, and
+layout the checkpoint was trained at, read off the runner config. A model
+generates its best video there, so a caller wanting something to watch says
+nothing and gets it.
 
 `--total-blocks` is how long a rollout is, and the session generates that many
 blocks and then reports itself finished. Nothing above it counts steps, so a run

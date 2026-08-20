@@ -6,7 +6,9 @@ SPDX-License-Identifier: Apache-2.0
 Protocols for the FlashDreams API.
 
 - `application.py` / `session.py`: `IApplication` creates an `ISession` from a
-  `SessionDesc`, and the session reports what it resolved to.
+  `SessionDesc`, and the session reports what it resolved to. `session_desc`
+  is the description the application would choose for itself, for a caller with
+  none of its own.
 - `input_source.py` / `output_sink.py` / `client_window.py`: `IClientWindow` is
   one client's input and output together. It is given the session's `SessionDesc`
   in `OutputSink.open`.
@@ -22,14 +24,19 @@ run whose output is a file goes the same way, against
 input and encodes every result. Since it never reports a close, such a run needs
 a session that finishes.
 
-`flashdreams-run-v2` is that run from a shell: `flashdreams.t2v_v2.cli` finds an
-application by slug, gives it the arguments after `--`, and runs one session of
-it against the window `--mode` asked for, an MP4 file or a client over WebRTC.
-It lives beside the text-to-video application rather than here because it asks
-the application what session it would generate, which nothing on `IApplication`
-offers. Applications are found through the `flashdreams.applications_v2` entry
-point group, or by the name of the package an integration ships when it has
-registered nothing.
+`flashdreams-run-v2` is that run from a shell: `flashdreams.runtime_v2.cli` finds
+an application by slug, gives it the arguments after `--`, and hands it to
+`ApplicationRunner` with the window `--mode` asked for, an MP4 file or a client
+over WebRTC. Applications are found through the `flashdreams.applications_v2`
+entry point group, or by the name of the package an integration ships when it
+has registered nothing.
+
+The session it asks for comes from `IApplication.session_desc`, with
+`--pixel-width`, `--pixel-height`, `--fps`, and `--layout` overriding whatever
+they name. That is the whole of what the command knows about the kind of
+application it is running: a model answers with the clip its checkpoint was
+trained for, and an application that generates whatever it is asked for answers
+nothing and is described by those arguments alone.
 
 `--stats-path` asks a run to record what it cost as well as what it generated.
 `Mp4ClientWindow` takes that path and adds a `MetricsOutputSink` beside the MP4
@@ -59,7 +66,10 @@ Agreed design decisions. Change them by discussion.
   creates every other protocol here and passes it in.
 - `IApplication` lasts as long as the process. It holds what its sessions share,
   such as a checkpoint or a compiled pipeline, and outlives every session it
-  creates.
+  creates. It also says what session it would generate unasked, through
+  `session_desc`, since only it knows what its model was trained for. The
+  default says nothing, for an application that generates whatever it is asked
+  for.
 - `ISession` is one run: KV cache, game state, and anything else that must not
   carry into another run. It also says when that run is over, through
   `is_finished`. The default never finishes.
@@ -140,14 +150,5 @@ Not built yet
 - Input that keeps up with generation. Input is polled at the UI rate, so a run of
   fast steps can finish several of them between polls and hand them all the same
   batch. Pacing generation is what would fix it.
-- `ApplicationRunner`: takes an `IApplication` and an `IClientWindow` and drives
-  the main loop. `run_session` is what exists today; it drives a session the
-  caller already created.
-- `flashdreams-run`: a CLI that creates the requested kind of client window,
-  loads an application module, and hands both to `ApplicationRunner`. Until it
-  exists, the caller wires that up and an integration ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
-- Shared per-domain test entry points, so a model integration gets coverage from
-  one call — for example `test_t2v_model_impl(model_config, expected_frame_stats)`
-  returning a pass or fail result.

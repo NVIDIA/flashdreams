@@ -73,7 +73,7 @@ dependencies = [
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
 # The same idea on the v2 API, kept separate while both exist: v2 applications
 # implement a different contract, so one binary could not resolve both.
-flashdreams-run-v2 = "flashdreams.t2v_v2.cli:entrypoint"
+flashdreams-run-v2 = "flashdreams.runtime_v2.cli:entrypoint"
 flashdreams-benchmark = "tools.benchmarks.cli:main"
 
 [project.entry-points."flashdreams.postprocess_presets"]

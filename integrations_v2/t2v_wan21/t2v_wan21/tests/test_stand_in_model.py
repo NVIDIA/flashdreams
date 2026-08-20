@@ -36,7 +36,6 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     one.
     """
     app = Wan21T2VApplication(pipeline_config=FakeT2VPipelineConfig())
-    app.init(["--prompt", _PROMPT, "--device", "cpu"])
 
     desc = app.session_desc()
 

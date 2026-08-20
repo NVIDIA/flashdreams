@@ -47,7 +47,6 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     trained to generate passes no size flags at all.
     """
     app = SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig())
-    app.init(["--prompt", _PROMPT, "--device", "cpu"])
 
     desc = app.session_desc()
 
