@@ -24,6 +24,13 @@ CPU-only tests for the v2 protocols themselves:
   loaded. Covering it here is what lets each `integrations_v2/t2v_*` package test
   only what is particular to its own model, over the stand-in pipeline
   `flashdreams.t2v_v2.testing` ships.
+- `test_t2v_session.py` covers one rollout through `T2VSession`: the prompt
+  encoded into a cache once, a block generated per step, and what a reset or a
+  close leaves behind. Driving a rollout is the same job for every model, so it
+  is covered here rather than in each integration.
+- `test_t2v_model_check.py` covers `check_t2v_model_impl` failing usefully. Every
+  integration runs the passing path against its own stand-in; what a check says
+  about a run that fell short is only worth covering once.
 - `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
   the command line at `--`, and running one into a real MP4 with a stand-in for
   a model.

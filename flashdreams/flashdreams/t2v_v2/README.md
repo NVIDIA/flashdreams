@@ -19,8 +19,8 @@ supplies only what differs.
   and `_apply_parsed_arguments` are where a model adds a flag of its own.
 - `session.py`: `T2VSession` is one rollout, encoding the prompt into a cache
   and generating one autoregressive block per step.
-- `testing.py`: test support, imported by an integration's tests and by nothing
-  that runs in production. `check_t2v_model_impl` runs an application, measures
+- `testing.py`: test support, imported by an integration's tests and by the
+  shared tests in `flashdreams/test_v2`, and by nothing that runs in production. `check_t2v_model_impl` runs an application, measures
   the frames on their way to the file, and reports which expectations they
   missed — which is how a test says "that is a video" about a model that samples
   and so cannot be asked for a particular picture. `FakeT2VPipeline` is the

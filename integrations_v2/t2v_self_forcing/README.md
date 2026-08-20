@@ -77,9 +77,15 @@ uv sync --package flashdreams-t2v-self-forcing --group test --inexact
 uv run --no-sync pytest integrations_v2/t2v_self_forcing -m ci_cpu -v
 ```
 
-Those run against a stand-in model, and cover everything except what the real
-one generates. The run that uses the real model needs a GPU, and skips unless
-its environment variable is set, so asking for it is deliberate:
+Those run against the stand-in model in `flashdreams.t2v_v2.testing`, and cover
+what is specific to this integration: that the defaults come off the runner
+config, that turning compilation off reaches the setting this model's config
+keeps, and that a run reaches a file. How a text-to-video application behaves in
+general, and how one rollout is driven, are covered once in
+`flashdreams/test_v2`.
+
+The run that uses the real model needs a GPU, and skips unless its environment
+variable is set, so asking for it is deliberate:
 
 ```bash
 T2V_SELF_FORCING_REAL_MODEL_RUN=1 uv run --no-sync pytest \
