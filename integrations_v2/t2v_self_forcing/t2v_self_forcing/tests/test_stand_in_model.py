@@ -8,6 +8,11 @@ these cover. How a text-to-video application behaves in general, and how one
 rollout is driven, belong to the shared layer and are covered in
 ``flashdreams/test_v2``, which is why there is so little here.
 
+This is also where the run through an integration to a real MP4 is covered, on
+behalf of all five of them: every t2v integration is the same forty-line factory
+over the same shared layer, so running each one to a file would cover the same
+path five times. The other four cover only what differs about them.
+
 The one thing a stand-in cannot show is what the checkpoint generates, which is
 what ``test_real_model.py`` alongside this is for. Nothing here needs a GPU.
 """
@@ -74,7 +79,7 @@ def test_compilation_can_be_turned_off_for_a_run() -> None:
     shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg on PATH"
 )
 def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
-    """The whole batch path, over the stand-in, through the shared check."""
+    """An integration to a file, over the stand-in, through the shared check."""
     pipeline = FakeT2VPipeline()
     steps = 3
     path = tmp_path / "clip.mp4"

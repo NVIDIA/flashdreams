@@ -86,9 +86,11 @@ uv run --no-sync pytest integrations_v2/t2v_fastvideo_causal_wan22 -m ci_cpu -v
 
 Those run against the stand-in model in `flashdreams.t2v_v2.testing`, and cover
 what is specific to this integration: that the defaults come off the runner
-config, that `--no-compile` reaches both transformers rather than one, and that
-a run reaches a file. How a text-to-video application behaves in general is
-covered once, in `flashdreams/test_v2`.
+config, and that `--no-compile` reaches both transformers rather than one. How a
+text-to-video application behaves in general is covered once, in
+`flashdreams/test_v2`, and a run of one reaching a file is covered once in the
+Self-Forcing integration, since every integration here is the same factory over
+the same shared layer.
 
 The run that uses the real model needs a GPU, and skips unless its environment
 variable is set, so asking for it is deliberate:
@@ -100,5 +102,6 @@ T2V_FASTVIDEO_CAUSAL_WAN22_REAL_MODEL_RUN=1 uv run --no-sync pytest \
 vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
 
-Both go through `flashdreams.t2v_v2.testing.check_t2v_model_impl`,
-the shared check a text-to-video integration runs to cover the batch path.
+That run goes through
+`flashdreams.t2v_v2.testing.check_real_model_generates_a_clip`, which is where
+every integration's clip and the checks made of it come from.

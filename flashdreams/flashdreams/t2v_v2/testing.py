@@ -14,6 +14,8 @@ integration shares, so the stand-in for it belongs here rather than being
 written again by each of them.
 """
 
+import os
+import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +34,16 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
 from flashdreams.t2v_v2.application import T2VApplication
+
+_REAL_CLIP_LUMINANCE = (16.0, 240.0)
+"""Mean pixel value a real clip has to land inside, from ``0`` to ``255``.
+
+Loose, because what a model samples is its own business. What it catches is a
+run that came back blank.
+"""
+
+_REAL_CLIP_FRAME_DIFFERENCE = 0.5
+"""How much consecutive frames of a real clip have to differ, on that scale."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -158,6 +170,80 @@ def check_t2v_model_impl(
     return _compare(inspector, expected, Path(mp4_path) if mp4_path else None)
 
 
+def real_model_run_skip_reason(run_env: str) -> str | None:
+    """Return why the real model cannot be run here, or ``None`` if it can.
+
+    A real-model run is too heavy to be an automated one: it needs a GPU, and on
+    a machine that has not run the model before it downloads tens of gigabytes
+    of checkpoint. So such a test carries the ``ci_gpu`` tier marker and skips
+    unless ``run_env`` is set, which costs the GPU job milliseconds and still
+    keeps the module imported and collected there. The ``manual`` marker
+    describes it better and cannot be used: the ``pytest-manual-marker`` plugin
+    xfails every ``manual`` test at setup, so a test marked that way never runs,
+    here or on anybody's machine.
+
+    Args:
+        run_env: Environment variable a caller sets to ask for the run.
+
+    Returns:
+        A reason to skip, or ``None`` when the run can go ahead.
+    """
+    if not os.environ.get(run_env):
+        return f"set {run_env}=1 to download the checkpoints and generate a clip"
+    if not torch.cuda.is_available():
+        return "the model needs a GPU"
+    if shutil.which("ffmpeg") is None:
+        return "writing an MP4 needs ffmpeg on PATH"
+    return None
+
+
+def check_real_model_generates_a_clip(
+    application: T2VApplication,
+    *,
+    prompt: str,
+    steps: int,
+    frame_count: int,
+    mp4_path: str | Path,
+) -> T2VCheckResult:
+    """Generate a clip with a real checkpoint and check that it is a video.
+
+    Every integration's real-model run is this one: load the checkpoint,
+    generate a few blocks with compilation off, write an MP4 somebody can watch,
+    and check the frames loosely. Only the numbers differ between models, and
+    they belong to the checkpoint. No session is described, because the clip
+    worth watching is the one the model was trained to generate, which it says
+    for itself.
+
+    Where the clip landed is printed, so a run made with ``-s`` says where to
+    look for it.
+
+    Args:
+        application: Uninitialized application over the real model.
+        prompt: Text to generate from, usually the integration's own default.
+        steps: Blocks to generate.
+        frame_count: Frames those blocks should decode to.
+        mp4_path: File to write.
+
+    Returns:
+        What the run generated, and which expectations it missed.
+    """
+    result = check_t2v_model_impl(
+        application,
+        steps=steps,
+        # Compilation costs minutes and buys back milliseconds a block, which is
+        # the wrong trade for a handful of blocks.
+        commandline_args=["--prompt", prompt, "--no-compile"],
+        expected=ExpectedFrameStats(
+            frame_count=frame_count,
+            mean_luminance=_REAL_CLIP_LUMINANCE,
+            min_frame_difference=_REAL_CLIP_FRAME_DIFFERENCE,
+        ),
+        mp4_path=mp4_path,
+    )
+    print(f"\nwrote {mp4_path}\n{result}")
+    return result
+
+
 class FakeT2VPipeline:
     """A model's worth of behaviour, without a model.
 
@@ -180,6 +266,7 @@ class FakeT2VPipeline:
         compression_ratio: int = 8,
         first_block_frames: int = 9,
         block_frames: int = 12,
+        fail_at: int | None = None,
     ) -> None:
         """
         Args:
@@ -191,6 +278,8 @@ class FakeT2VPipeline:
             first_block_frames: Frames the first block decodes. A causal decoder
                 usually decodes fewer for its first block than the rest.
             block_frames: Frames every block after the first decodes.
+            fail_at: Step to fail generating at, for covering what a run that
+                gave up part way through leaves behind.
         """
         self.decoder = _FakeDecoder(compression_ratio)
         self.width = width
@@ -203,6 +292,7 @@ class FakeT2VPipeline:
         self.generated: list[int] = []
         self.finalized: list[int] = []
         self.closed = False
+        self._fail_at = fail_at
         self._frames_generated = 0
 
     def to(self, device: str) -> "FakeT2VPipeline":
@@ -221,6 +311,8 @@ class FakeT2VPipeline:
     def generate(self, *, autoregressive_index: int, cache: object) -> torch.Tensor:
         del cache
         self.generated.append(autoregressive_index)
+        if autoregressive_index == self._fail_at:
+            raise RuntimeError("generate failed")
         count = (
             self.first_block_frames if autoregressive_index == 0 else self.block_frames
         )

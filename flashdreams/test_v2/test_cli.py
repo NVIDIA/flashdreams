@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import torch
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
@@ -34,6 +33,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2 import cli
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
+from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -41,16 +41,6 @@ needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None,
     reason="writing an MP4 needs ffmpeg on PATH",
 )
-
-_WIDTH = 128
-"""Frame width the stand-in generates. A whole number of latents across, and not
-square, so a transposed frame cannot pass unnoticed."""
-
-_HEIGHT = 64
-"""Frame height it generates."""
-
-_COMPRESSION_RATIO = 8
-"""Pixels per latent in each direction."""
 
 _BLOCK_FRAMES = 4
 """Frames a step generates. Small, because these tests encode real files."""
@@ -65,75 +55,27 @@ _PROMPT = "A cat surfing"
 ## Stand-in model
 
 
-class FakeDecoder:
-    spatial_compression_ratio = _COMPRESSION_RATIO
+def _stand_in(*, fail_at: int | None = None) -> FakeT2VPipeline:
+    """Return the shared stand-in, generating small blocks of one size.
 
-
-class FakePipeline:
-    """Generate frames of the shape and range a real pipeline generates."""
-
-    def __init__(self, *, fail_at: int | None = None) -> None:
-        """
-        Args:
-            fail_at: Step to fail at, for exercising what a failed run releases.
-        """
-        self.decoder = FakeDecoder()
-        self.closed = False
-        self.prompts: list[str] = []
-        self.generated: list[int] = []
-        self._fail_at = fail_at
-
-    def to(self, device: str) -> "FakePipeline":
-        del device
-        return self
-
-    def eval(self) -> "FakePipeline":
-        return self
-
-    def initialize_cache(self, **kwargs: Any) -> object:
-        self.prompts.extend(kwargs["text"])
-        return object()
-
-    def generate(self, *, autoregressive_index: int, cache: object) -> torch.Tensor:
-        del cache
-        self.generated.append(autoregressive_index)
-        if autoregressive_index == self._fail_at:
-            raise RuntimeError("generate failed")
-        # A different shade per step, so a file that dropped or repeated one
-        # does not read back as a correct video.
-        shade = -0.5 + (autoregressive_index % 4) / 4.0
-        return torch.full(
-            (_BLOCK_FRAMES, 3, _HEIGHT, _WIDTH), shade, dtype=torch.float32
-        )
-
-    def finalize(self, *, autoregressive_index: int, cache: object) -> dict[str, float]:
-        del cache
-        # A measurement, as a real pipeline reports one, so a run asked what it
-        # cost has something to answer with.
-        return {"total_ms": 20.0 + autoregressive_index}
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class FakePipelineConfig:
-    def __init__(self, pipeline: FakePipeline) -> None:
-        self.pipeline = pipeline
-
-    def setup(self) -> FakePipeline:
-        return self.pipeline
+    The same count for every block, since what a first block of its own size
+    covers belongs to the session's own tests.
+    """
+    return FakeT2VPipeline(
+        first_block_frames=_BLOCK_FRAMES, block_frames=_BLOCK_FRAMES, fail_at=fail_at
+    )
 
 
 class StubT2VApplication(T2VApplication):
     """A text-to-video application whose model costs nothing to load."""
 
-    def __init__(self, pipeline: FakePipeline) -> None:
+    def __init__(self, pipeline: FakeT2VPipeline) -> None:
         super().__init__(
             defaults=T2VApplicationDefaults(
-                pipeline_config=FakePipelineConfig(pipeline),
+                pipeline_config=FakeT2VPipelineConfig(pipeline),
                 total_blocks=_TOTAL_BLOCKS,
-                pixel_width=_WIDTH,
-                pixel_height=_HEIGHT,
+                pixel_width=pipeline.width,
+                pixel_height=pipeline.height,
                 device="cpu",
                 fps=8,
                 output_layout=VideoTensorLayout.tchw,
@@ -278,7 +220,7 @@ def _write_application_module(
 
 @needs_ffmpeg
 def test_a_run_writes_what_the_application_generated(tmp_path: Path) -> None:
-    pipeline = FakePipeline()
+    pipeline = _stand_in()
     path = tmp_path / "clip.mp4"
 
     cli.run_application(
@@ -288,13 +230,13 @@ def test_a_run_writes_what_the_application_generated(tmp_path: Path) -> None:
     )
 
     assert path.stat().st_size > 0
-    assert pipeline.prompts == [_PROMPT]
+    assert pipeline.caches[0]["text"] == [_PROMPT]
     assert pipeline.generated == [0, 1]
 
 
 def test_a_run_lasts_as_long_as_the_rollout_the_application_asked_for() -> None:
     """Nothing here counts steps: the session reports itself finished."""
-    pipeline = FakePipeline()
+    pipeline = _stand_in()
 
     cli.run_application(
         StubT2VApplication(pipeline),
@@ -308,7 +250,7 @@ def test_a_run_lasts_as_long_as_the_rollout_the_application_asked_for() -> None:
 def test_the_model_is_released_when_a_run_fails() -> None:
     # A model holds most of a GPU, so a run that gave up part way through has
     # to put it back whether or not it produced anything.
-    pipeline = FakePipeline(fail_at=1)
+    pipeline = _stand_in(fail_at=1)
 
     with pytest.raises(RuntimeError, match="generate failed"):
         cli.run_application(
@@ -328,7 +270,7 @@ def test_a_run_can_record_what_generating_the_clip_cost(tmp_path: Path) -> None:
     clip_path = tmp_path / "clip.mp4"
 
     cli.run_application(
-        StubT2VApplication(FakePipeline()),
+        StubT2VApplication(_stand_in()),
         Mp4ClientWindow(clip_path, stats_path=stats_path),
         application_args=["--prompt", _PROMPT, "--total-blocks", "2"],
     )
@@ -347,7 +289,7 @@ def test_a_run_can_record_what_generating_the_clip_cost(tmp_path: Path) -> None:
 @needs_ffmpeg
 def test_nothing_is_measured_unless_a_run_asks(tmp_path: Path) -> None:
     cli.run_application(
-        StubT2VApplication(FakePipeline()),
+        StubT2VApplication(_stand_in()),
         Mp4ClientWindow(tmp_path / "clip.mp4"),
         application_args=["--prompt", _PROMPT, "--total-blocks", "1"],
     )
@@ -357,7 +299,7 @@ def test_nothing_is_measured_unless_a_run_asks(tmp_path: Path) -> None:
 
 def test_an_application_that_will_not_start_reports_why() -> None:
     with pytest.raises(ValueError, match="--prompt is required"):
-        cli.run_application(StubT2VApplication(FakePipeline()), RecordingWindow())
+        cli.run_application(StubT2VApplication(_stand_in()), RecordingWindow())
 
 
 ## The command itself
@@ -367,7 +309,7 @@ def test_an_application_that_will_not_start_reports_why() -> None:
 def test_the_command_reports_the_file_it_wrote(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    pipeline = FakePipeline()
+    pipeline = _stand_in()
     monkeypatch.setattr(
         cli, "create_application", lambda slug: StubT2VApplication(pipeline)
     )
@@ -395,7 +337,7 @@ def test_the_command_can_be_asked_to_measure_the_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        cli, "create_application", lambda slug: StubT2VApplication(FakePipeline())
+        cli, "create_application", lambda slug: StubT2VApplication(_stand_in())
     )
     stats_path = tmp_path / "stats_run.json"
 
@@ -424,7 +366,7 @@ def test_a_mode_other_than_a_file_takes_its_window_from_the_runtime(
     window = RecordingWindow()
     asked_for: list[str] = []
     monkeypatch.setattr(
-        cli, "create_application", lambda slug: StubT2VApplication(FakePipeline())
+        cli, "create_application", lambda slug: StubT2VApplication(_stand_in())
     )
     monkeypatch.setattr(
         cli,

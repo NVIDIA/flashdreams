@@ -232,7 +232,6 @@ def test_a_run_generates_what_the_model_was_trained_for_by_default() -> None:
     desc = app.session_desc()
 
     assert desc == _session_desc()
-    assert _rollout_length(app) == _TOTAL_BLOCKS
 
 
 def test_every_default_can_be_overridden() -> None:

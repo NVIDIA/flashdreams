@@ -3,37 +3,33 @@
 
 """The real model, generating a short clip somebody can watch.
 
-Too heavy for any automated run: it needs a GPU, and on a machine that has not
-run this model before it downloads tens of gigabytes of checkpoint. So it
-carries the ``ci_gpu`` tier marker but skips unless
-``T2V_COSMOS_PREDICT2_REAL_MODEL_RUN`` is set, which costs the GPU job
-milliseconds and still keeps the module imported and collected there. Run it
-with a base temporary directory you can reach, then play the file::
+Too heavy for an automated run, so it skips unless asked for, and the slowest of
+these at 720p. Run it with a base temporary directory you can reach, then play
+the file::
 
     T2V_COSMOS_PREDICT2_REAL_MODEL_RUN=1 uv run --no-sync pytest \
         integrations_v2/t2v_cosmos_predict2 -m ci_gpu -s --basetemp="$HOME/t2v-out"
     vlc "$HOME"/t2v-out/*current/clip.mp4
 
-The ``manual`` marker describes this test better and cannot be used: the
-``pytest-manual-marker`` plugin xfails every ``manual`` test at setup, so a test
-marked that way never runs, here or on anybody's machine.
+What the run does, and why it skips, is
+:func:`flashdreams.t2v_v2.testing.check_real_model_generates_a_clip`.
 """
 
-import os
-import shutil
 from pathlib import Path
 
 import pytest
-import torch
 from cosmos_predict2.runner import DEFAULT_PROMPT
 from t2v_cosmos_predict2 import CosmosPredict2T2VApplication
 
-from flashdreams.t2v_v2.testing import ExpectedFrameStats, check_t2v_model_impl
+from flashdreams.t2v_v2.testing import (
+    check_real_model_generates_a_clip,
+    real_model_run_skip_reason,
+)
 
 pytestmark = pytest.mark.ci_gpu
 
-_RUN_ENV = "T2V_COSMOS_PREDICT2_REAL_MODEL_RUN"
-"""Set this to run the model rather than skip it."""
+_SKIP = real_model_run_skip_reason("T2V_COSMOS_PREDICT2_REAL_MODEL_RUN")
+"""Why this cannot run here, if it cannot."""
 
 _CLIP_FRAMES = 93
 """Frames the one block decodes. The config generates 24 latent frames, and the
@@ -41,35 +37,15 @@ Wan VAE decodes the first to one frame and each after it to four, so the clip is
 1 + 23 * 4. At 16 frames per second that is about six seconds."""
 
 
-@pytest.mark.skipif(
-    not os.environ.get(_RUN_ENV),
-    reason=f"set {_RUN_ENV}=1 to download the checkpoints and generate a clip",
-)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="the model needs a GPU")
-@pytest.mark.skipif(
-    shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg"
-)
+@pytest.mark.skipif(_SKIP is not None, reason=_SKIP or "")
 def test_the_model_generates_a_clip_worth_watching(tmp_path: Path) -> None:
-    path = tmp_path / "clip.mp4"
-
-    result = check_t2v_model_impl(
-        # No session described here: the clip worth watching is the one the
-        # model was trained to generate, which it says for itself.
+    result = check_real_model_generates_a_clip(
         CosmosPredict2T2VApplication(),
-        # One step, because this model generates its whole clip in one block.
+        prompt=DEFAULT_PROMPT,
+        # One block is the whole clip, for a model that attends over all of it.
         steps=1,
-        # Compilation costs minutes and buys back milliseconds, which is the
-        # wrong trade for a single block.
-        commandline_args=["--prompt", DEFAULT_PROMPT, "--no-compile"],
-        expected=ExpectedFrameStats(
-            frame_count=_CLIP_FRAMES,
-            # A picture rather than a blank frame. Loose, because what a model
-            # samples is its own business.
-            mean_luminance=(16.0, 240.0),
-            min_frame_difference=0.5,
-        ),
-        mp4_path=path,
+        frame_count=_CLIP_FRAMES,
+        mp4_path=tmp_path / "clip.mp4",
     )
 
-    print(f"\nwrote {path}\n{result}")
     assert result.passed, result.failures

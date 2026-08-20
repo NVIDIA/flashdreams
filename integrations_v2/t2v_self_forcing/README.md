@@ -77,10 +77,11 @@ uv run --no-sync pytest integrations_v2/t2v_self_forcing -m ci_cpu -v
 
 Those run against the stand-in model in `flashdreams.t2v_v2.testing`, and cover
 what is specific to this integration: that the defaults come off the runner
-config, that turning compilation off reaches the setting this model's config
-keeps, and that a run reaches a file. How a text-to-video application behaves in
-general, and how one rollout is driven, are covered once in
-`flashdreams/test_v2`.
+config, and that turning compilation off reaches the setting this model's config
+keeps. They also cover a run through an integration to a real MP4, on behalf of
+all five of them, since each is the same factory over the same shared layer. How
+a text-to-video application behaves in general, and how one rollout is driven,
+are covered once in `flashdreams/test_v2`.
 
 The run that uses the real model needs a GPU, and skips unless its environment
 variable is set, so asking for it is deliberate:
@@ -91,5 +92,7 @@ T2V_SELF_FORCING_REAL_MODEL_RUN=1 uv run --no-sync pytest \
 vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
 
-Both go through `flashdreams.t2v_v2.testing.check_t2v_model_impl`,
-the shared check a text-to-video integration runs to cover the batch path.
+Both go through `flashdreams.t2v_v2.testing`: the run above through
+`check_t2v_model_impl`, and this one through
+`check_real_model_generates_a_clip`, which wraps it with the numbers and checks
+every integration's clip is measured against.

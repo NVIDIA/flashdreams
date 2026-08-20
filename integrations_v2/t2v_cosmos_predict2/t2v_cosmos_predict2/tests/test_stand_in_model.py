@@ -4,29 +4,21 @@
 """CPU tests for the Cosmos Predict2 application, against a stand-in model.
 
 What is specific to this integration is which model it runs and that the model
-generates its clip in one block, so that is what these cover. How a
-text-to-video application behaves in general belongs to the shared layer and is
-covered in ``flashdreams/test_v2``, which is why there is so little here.
+generates its clip in one block, so that is what these cover. How such an
+application behaves, and how a run of one reaches a file, are covered in
+``flashdreams/test_v2`` and in the Self-Forcing integration on behalf of all of
+them.
 
 The one thing a stand-in cannot show is what the checkpoint generates, which is
 what ``test_real_model.py`` alongside this is for. Nothing here needs a GPU.
 """
 
-import shutil
-from pathlib import Path
-
 import pytest
 from cosmos_predict2.config import RUNNER_COSMOS2_T2V_2B_720P
 from t2v_cosmos_predict2 import CosmosPredict2T2VApplication
 
-from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2.testing import (
-    ExpectedFrameStats,
-    FakeT2VPipeline,
-    FakeT2VPipelineConfig,
-    check_t2v_model_impl,
-)
+from flashdreams.t2v_v2.testing import FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -73,37 +65,3 @@ def test_a_rollout_is_refused_because_this_model_does_not_roll_out(
                 str(total_blocks),
             ]
         )
-
-
-@pytest.mark.skipif(
-    shutil.which("ffmpeg") is None, reason="writing an MP4 needs ffmpeg on PATH"
-)
-def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
-    """The whole batch path, over the stand-in, through the shared check."""
-    pipeline = FakeT2VPipeline()
-    path = tmp_path / "clip.mp4"
-
-    result = check_t2v_model_impl(
-        CosmosPredict2T2VApplication(pipeline_config=FakeT2VPipelineConfig(pipeline)),
-        # The stand-in generates its own size rather than the checkpoint's, so
-        # it says so here rather than asking the application.
-        SessionDesc(
-            output_layout=VideoTensorLayout.tchw,
-            frames_per_second_for_step=RUNNER_COSMOS2_T2V_2B_720P.fps,
-            video_width=pipeline.width,
-            video_height=pipeline.height,
-        ),
-        # One step, because one block is the whole clip.
-        steps=1,
-        commandline_args=["--prompt", _PROMPT, "--device", "cpu"],
-        expected=ExpectedFrameStats(
-            frame_count=pipeline.first_block_frames,
-            mean_luminance=(16.0, 240.0),
-            min_frame_difference=0.5,
-        ),
-        mp4_path=path,
-    )
-
-    assert result.passed, result.failures
-    assert path.exists()
-    assert pipeline.generated == [0]

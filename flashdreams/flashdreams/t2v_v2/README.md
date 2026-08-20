@@ -24,12 +24,16 @@ supplies only what differs.
   would generate, and drives one session of it against the window its arguments
   chose — an MP4 file, or a client over WebRTC.
 - `testing.py`: test support, imported by an integration's tests and by the
-  shared tests in `flashdreams/test_v2`, and by nothing that runs in production. `check_t2v_model_impl` runs an application, measures
-  the frames on their way to the file, and reports which expectations they
-  missed — which is how a test says "that is a video" about a model that samples
-  and so cannot be asked for a particular picture. `FakeT2VPipeline` is the
-  stand-in those tests run on a CPU, and lives here because the contract it
-  stands in for is `T2VSession`'s and so is the same for every model.
+  shared tests in `flashdreams/test_v2`, and by nothing that runs in production.
+  `check_t2v_model_impl` runs an application, measures the frames on their way to
+  the file, and reports which expectations they missed — which is how a test says
+  "that is a video" about a model that samples and so cannot be asked for a
+  particular picture. `check_real_model_generates_a_clip` is the whole of an
+  integration's GPU run over that, so each one writes down only its own numbers,
+  and `real_model_run_skip_reason` is why such a run skips unless it is asked
+  for. `FakeT2VPipeline` is the stand-in these tests run on a CPU, and lives
+  here because the contract it stands in for is `T2VSession`'s and so is the same
+  for every model.
 
 An integration is then a factory:
 
