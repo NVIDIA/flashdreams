@@ -2842,6 +2842,8 @@ class SlangPyHudPresenter:
             "d": _lookup_key(spy.KeyCode, "d"),
             "r": _lookup_key(spy.KeyCode, "r"),
             "x": _lookup_key(spy.KeyCode, "x"),
+            "k": _lookup_key(spy.KeyCode, "k"),
+            "c": _lookup_key(spy.KeyCode, "c"),
             "space": _lookup_key(spy.KeyCode, "space"),
             "up": _lookup_key(spy.KeyCode, "up", "arrow_up"),
             "down": _lookup_key(spy.KeyCode, "down", "arrow_down"),
@@ -2964,6 +2966,20 @@ class SlangPyHudPresenter:
             self._keyboard.request_reset()
         elif self._key_matches(key, "x"):
             self.exit_scene()
+        elif self._key_matches(key, "k"):
+            self._request_live_edit("skin")
+        elif self._key_matches(key, "c"):
+            self._request_live_edit("coins")
+
+    def _request_live_edit(self, ability: str) -> None:
+        """Raise a live-edit key request; no-op when the flags are off."""
+        requests = getattr(self._keyboard, "live_edit", None)
+        if requests is None:
+            return
+        if ability == "skin":
+            requests.request_skin_cycle()
+        else:
+            requests.request_coins_toggle()
 
     def _expire_pending_drive_releases(self) -> None:
         """Commit any debounced release whose grace window has passed.

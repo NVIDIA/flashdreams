@@ -1087,6 +1087,7 @@ def _build_application(
             CrazyRobotaxiApp,
             taxi_config_from_args,
         )
+        from crazy_robotaxi.live_edit.config import live_edit_config_from_args
 
         return CrazyRobotaxiApp(
             config=config,
@@ -1097,6 +1098,7 @@ def _build_application(
                 args, "taxi_alignment_diagnostics", None
             ),
             close_presenter_on_exit=close_presenter_on_exit,
+            live_edit_config=live_edit_config_from_args(args),
         )
     return InteractiveDriveApp(
         config=config,

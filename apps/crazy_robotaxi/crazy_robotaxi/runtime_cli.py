@@ -339,6 +339,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Captures the standalone game session."
         ),
     )
+    from crazy_robotaxi.live_edit.config import add_live_edit_args
+
+    add_live_edit_args(parser)
     parser.add_argument(
         "--oob-warn-proximity",
         type=float,
@@ -581,6 +584,7 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
             CrazyRobotaxiApp,
             taxi_config_from_args,
         )
+        from crazy_robotaxi.live_edit.config import live_edit_config_from_args
 
         app = CrazyRobotaxiApp(
             config=config,
@@ -588,6 +592,7 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
             backend=backend,
             alignment_diagnostics_root=args.taxi_alignment_diagnostics,
             trace_sink=trace_sink,
+            live_edit_config=live_edit_config_from_args(args),
         )
     else:
         app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)

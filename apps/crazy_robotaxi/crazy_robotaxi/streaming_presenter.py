@@ -589,7 +589,7 @@ function paintGameOver(taxi) {
 }
 function paintTaxi(taxi) {
   driveHintEl.textContent = taxi
-    ? 'WASD / Arrows = Drive · Space = Handbrake · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout'
+    ? 'WASD / Arrows = Drive · Space = Handbrake · K = Skin · C = Coins · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout'
     : 'WASD / Arrows = Drive · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout';
   if (!taxi) {
     taxiHudEl.classList.add('hidden');
@@ -1248,6 +1248,17 @@ class MJPEGStreamingPresenter:
             # holding the key doesn't trigger a cascade of resets.
             if key in ("r", "R"):
                 self._keyboard.request_reset()
+                return
+            # Live-edit abilities: ``k`` cycles the world skin, ``c``
+            # toggles coins. Rising-edge requests drained by the runtime;
+            # no-ops when the --live-edit-* flags are off.
+            requests = getattr(self._keyboard, "live_edit", None)
+            if requests is None:
+                return
+            if key in ("k", "K"):
+                requests.request_skin_cycle()
+            elif key in ("c", "C"):
+                requests.request_coins_toggle()
 
     def _state_snapshot(self) -> dict[str, object]:
         """Return a JSON-serializable vehicle and taxi telemetry snapshot.

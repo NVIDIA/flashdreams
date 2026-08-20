@@ -55,6 +55,9 @@ from crazy_robotaxi.high_scores import (
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
+from crazy_robotaxi.live_edit.coin_ability import CoinAbility
+from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.navigation import NavigationLane
 from crazy_robotaxi.passengers import (
     build_pickup_passenger_trajectories,
 )
@@ -75,9 +78,14 @@ class CrazyRobotaxiRuntime:
         self,
         controller: TaxiGameController,
         keyboard: CrazyRobotaxiKeyboardState,
+        *,
+        style_ability: Any | None = None,
+        coin_ability: CoinAbility | None = None,
     ) -> None:
         self._controller = controller
         self._keyboard = keyboard
+        self._style_ability = style_ability
+        self._coin_ability = coin_ability
 
     @property
     def is_running(self) -> bool:
@@ -85,7 +93,8 @@ class CrazyRobotaxiRuntime:
         return self._controller.is_playing
 
     def process_events(self, state: VehicleState) -> None:
-        """Consume a pending high-score name submission."""
+        """Drain live-edit key requests and a pending high-score name."""
+        self._process_live_edit_requests()
         submitted_name = self._keyboard.consume_taxi_name_submission()
         if submitted_name is None:
             return
@@ -95,11 +104,29 @@ class CrazyRobotaxiRuntime:
             logger.warning(f"[crazy-robotaxi] ignored high-score submission: {exc}")
         self.publish_boundary(state)
 
+    def _process_live_edit_requests(self) -> None:
+        """Consume rising-edge skin-cycle / coins-toggle key requests."""
+        requests = getattr(self._keyboard, "live_edit", None)
+        if requests is None:
+            return
+        if requests.consume_skin_cycle() and self._style_ability is not None:
+            self._style_ability.request_cycle()
+        if requests.consume_coins_toggle() and self._coin_ability is not None:
+            enabled = self._coin_ability.toggle()
+            logger.info(f"[live-edit] coins {'on' if enabled else 'off'}")
+
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> ApplicationChunkUpdate:
         """Advance the game and add passengers synchronized to pickup state."""
         snapshots = tuple(self._controller.advance_frames(trajectory, frame_interval_s))
+        if self._coin_ability is not None:
+            picked = self._coin_ability.advance_frames(trajectory.vehicle_states)
+            if picked:
+                logger.info(
+                    f"[live-edit] coin pickup +{picked} "
+                    f"total={self._coin_ability.collected_count}"
+                )
         passengers = build_pickup_passenger_trajectories(
             snapshots, trajectory.timestamps_us
         )
@@ -124,6 +151,9 @@ class CrazyRobotaxiApplication:
         config: TaxiGameConfig,
         keyboard: CrazyRobotaxiKeyboardState,
         presenter_config: Any,
+        *,
+        live_edit: LiveEditConfig | None = None,
+        style_ability: Any | None = None,
     ) -> None:
         self._config = config
         self._keyboard = keyboard
@@ -133,6 +163,14 @@ class CrazyRobotaxiApplication:
         self._ground_snapper: GroundSnapper | None = None
         self._map_bounds: MapBounds | None = None
         self._enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
+        self._live_edit = live_edit or LiveEditConfig()
+        self._style_ability = style_ability
+        self._live_edit_presenter: Any | None = None
+        self._coin_lanes: tuple[NavigationLane, ...] = ()
+
+    def attach_live_edit_presenter(self, presenter: Any) -> None:
+        """Bind the live-edit presenter so coin abilities reach the pixels."""
+        self._live_edit_presenter = presenter
 
     def configure_presenter(self, presenter: Any) -> None:
         """Configure application presentation before scene loading."""
@@ -148,6 +186,16 @@ class CrazyRobotaxiApplication:
         self._enclosure_segments_world = scene_data.enclosure_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
         self._map_bounds = map_bounds
+        if self._live_edit.coins.enabled:
+            # Lay coins along the driving-lane graph; legacy scenes without
+            # mapped lanes fall back to the recorded ego route.
+            self._coin_lanes = scene_data.navigation_lanes or (
+                NavigationLane(
+                    centerline_world=np.asarray(
+                        scene_data.reference_route_world, dtype=np.float32
+                    )
+                ),
+            )
         logger.info(
             "[crazy-robotaxi] play-area enclosure: perimeter_segments={}",
             len(scene_data.perimeter_segments_world),
@@ -203,7 +251,23 @@ class CrazyRobotaxiApplication:
             initial_camera=scene.selected_camera,
             map_bounds=self._map_bounds,
         )
-        return CrazyRobotaxiRuntime(controller, self._keyboard)
+        coin_ability: CoinAbility | None = None
+        if self._live_edit.coins.enabled and self._coin_lanes:
+            # Rebuilt per rollout so a reset restores the full course.
+            coin_ability = CoinAbility.from_lanes(
+                self._coin_lanes, self._live_edit.coins
+            )
+            logger.info(
+                f"[live-edit] coin course laid out: {coin_ability.remaining_count} coins"
+            )
+        if self._live_edit_presenter is not None:
+            self._live_edit_presenter.set_coin_ability(coin_ability)
+        return CrazyRobotaxiRuntime(
+            controller,
+            self._keyboard,
+            style_ability=self._style_ability,
+            coin_ability=coin_ability,
+        )
 
 
 class CrazyRobotaxiApp(InteractiveDriveApp):
@@ -219,8 +283,22 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
         alignment_diagnostics_root: Path | None = None,
         trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
+        live_edit_config: LiveEditConfig | None = None,
     ) -> None:
         keyboard = CrazyRobotaxiKeyboardState()
+        live_edit = live_edit_config or LiveEditConfig()
+        style_ability = None
+        if live_edit.style.enabled:
+            from crazy_robotaxi.live_edit.style_ability import (
+                StyleAbility,
+                install_style_ability_on_backend,
+            )
+
+            # Must run before super().__init__ starts model warmup on the
+            # pipeline worker: the corrector needs a CUDA-graph-free session
+            # and the LoRA attach is deferred to the end of warmup_model.
+            style_ability = StyleAbility(live_edit.style)
+            install_style_ability_on_backend(backend, style_ability)
         if alignment_diagnostics_root is not None:
             from crazy_robotaxi.alignment_diagnostics import (
                 AlignmentDiagnosticPresenter,
@@ -237,6 +315,13 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             logger.info(
                 f"[crazy-robotaxi] alignment diagnostics -> {presenter.output_dir}"
             )
+        application = CrazyRobotaxiApplication(
+            taxi_config,
+            keyboard,
+            config.bev,
+            live_edit=live_edit,
+            style_ability=style_ability,
+        )
         super().__init__(
             config=config,
             backend=backend,
@@ -244,9 +329,19 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             trace_sink=trace_sink,
             close_presenter_on_exit=close_presenter_on_exit,
             keyboard=keyboard,
-            application=CrazyRobotaxiApplication(taxi_config, keyboard, config.bev),
+            application=application,
         )
-        self._presenter = CausalFrameAlignmentPresenter(self._presenter)
+        inner_presenter = self._presenter
+        if live_edit.any_enabled:
+            from crazy_robotaxi.live_edit.presenter import LiveEditPresenter
+
+            # Inside the alignment wrapper so composites see the
+            # frame-synchronized rig_to_world matching the generated RGB.
+            inner_presenter = LiveEditPresenter(
+                inner_presenter, live_edit, style_ability=style_ability
+            )
+            application.attach_live_edit_presenter(inner_presenter)
+        self._presenter = CausalFrameAlignmentPresenter(inner_presenter)
 
 
 def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
