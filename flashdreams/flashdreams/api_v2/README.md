@@ -18,7 +18,8 @@ window, for a fixed number of steps or until the window reports a close, and
 holding an application uses to get there. A run whose output is a file goes the
 same way, against `flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`,
 which reports no input and encodes every result. Since it never reports a close,
-`steps` is what ends such a run.
+such a run ends on `steps` or on the session reporting `is_finished`, which is
+how a model that knows its own length ends its own run.
 
 Ownership
 ---------
@@ -31,7 +32,8 @@ Agreed design decisions. Change them by discussion.
   such as a checkpoint or a compiled pipeline, and outlives every session it
   creates.
 - `ISession` is one run: KV cache, game state, and anything else that must not
-  carry into another run.
+  carry into another run. It also says when that run is over, through
+  `is_finished`. The default never finishes.
 - `InputSource` and `OutputSink` belong to the runtime. The runner reads from the
   source and writes to the sink, so a session takes `UserInputEvents` in, returns
   a `StepResult`, and holds neither.

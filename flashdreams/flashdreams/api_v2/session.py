@@ -73,6 +73,25 @@ class ISession(ABC):
         """
         return
 
+    def is_finished(self) -> bool:
+        """Report whether this session has generated everything it has to.
+
+        ``run_session`` asks before every step and ends the run when the answer
+        is yes. A session that knows its own length says so here, rather than
+        the caller counting steps on its behalf: a fixed rollout knows how many
+        blocks it has, where a caller only knows what it was told.
+
+        The default never finishes, which is what an interactive session wants:
+        a run like that ends when its client goes away.
+
+        A reset is applied before this is asked, so a session starting over is
+        asked about the run it is starting, not the one it just finished.
+
+        Returns:
+            Whether the run should end rather than take another step.
+        """
+        return False
+
     def reset(self) -> None:
         """Reset per-generation state so the session can run again.
 

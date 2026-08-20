@@ -123,6 +123,42 @@ class FakeSession(ISession):
             raise RuntimeError("session close failed")
 
 
+class FiniteSession(FakeSession):
+    """A session with a fixed length."""
+
+    def __init__(
+        self,
+        session_desc: SessionDesc,
+        log: CallLog,
+        *,
+        length: int,
+        generated: int = 0,
+    ) -> None:
+        """
+        Args:
+            session_desc: Description this session reports as resolved.
+            log: Shared log both fakes record into.
+            length: Steps to generate before reporting that it has finished.
+                Counted from the last reset, as a session starting over would.
+            generated: Steps to start out having generated, for a session that
+                has finished before the run begins.
+        """
+        super().__init__(session_desc, log)
+        self._length = length
+        self._generated = generated
+
+    def is_finished(self) -> bool:
+        return self._generated >= self._length
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        self._generated += 1
+        return super().step(step_index, events)
+
+    def reset(self) -> None:
+        self._generated = 0
+        super().reset()
+
+
 class RecordingClientWindow(IClientWindow):
     """Report scripted input and record every call the runner makes."""
 
@@ -305,6 +341,42 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     assert log.calls.index("session.reset") < log.calls.index("session.step(0)")
     # A reset restarts the index without granting extra steps.
     assert [result.step_index for result in window.results] == [0, 1]
+
+
+def test_run_session_stops_when_the_session_says_it_has_finished() -> None:
+    """A model that knows its own length ends its own run, uncounted."""
+    log = CallLog()
+    session = FiniteSession(_session_desc(), log, length=2)
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=None)
+
+    assert [result.step_index for result in window.results] == [0, 1]
+
+
+def test_run_session_ends_at_whichever_comes_first() -> None:
+    """A caller can ask for fewer steps than the session would generate."""
+    log = CallLog()
+    session = FiniteSession(_session_desc(), log, length=5)
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=2)
+
+    assert [result.step_index for result in window.results] == [0, 1]
+
+
+def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
+    """A session that starts over is asked about the run it is starting."""
+    log = CallLog()
+    session = FiniteSession(_session_desc(), log, length=1, generated=1)
+    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData())])
+
+    run_session(session, window, steps=3)
+
+    # Finished before the run began, so without the reset nothing would be
+    # generated. It is applied first, and the session runs its length again.
+    assert [result.step_index for result in window.results] == [0]
+    assert "session.reset" in log.calls
 
 
 def test_run_session_closes_a_session_that_failed_to_init() -> None:

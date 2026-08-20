@@ -100,8 +100,12 @@ def run_session(
 
     A run whose output is a file works the same way, driven against
     :class:`~flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`. That
-    window reports no input, so it never reports a close and ``steps`` is what
-    ends the run.
+    window reports no input, so it never reports a close, and such a run ends on
+    ``steps`` or on the session saying it has finished.
+
+    A session says so through :meth:`ISession.is_finished`, asked before every
+    step, which is how a model that knows its own length ends its own run. The
+    run ends at whichever comes first: that, ``steps``, or a close.
 
     A window that fails to close fails the run, because for a file that means the
     encode did not finish. Whatever failed first is what the run reports, though:
@@ -111,9 +115,9 @@ def run_session(
     Args:
         session: Uninitialized session to drive.
         window: Client window supplying input events and presenting results.
-        steps: Exact number of steps to run, counted across resets so a reset
-            cannot extend the run. ``None`` runs until the window reports a close,
-            which is what an interactive window does.
+        steps: Most steps to run, counted across resets so a reset cannot extend
+            the run. ``None`` runs until the session finishes or the window
+            reports a close, which is what an interactive window does.
         max_pending: How many finished results may wait to be written.
         when_full: What to do with a result when ``max_pending`` are already
             waiting.
@@ -287,6 +291,10 @@ def run_session(
             if _contains(events, ResetUserInputEventData):
                 session.reset()
                 step_index = 0
+            # After the reset, so a session starting over is asked about the new
+            # run rather than the one it just finished.
+            if session.is_finished():
+                break
             dropped_for_space += add_pending_result(
                 step_generation, session.step(step_index, events)
             )
