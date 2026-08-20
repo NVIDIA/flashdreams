@@ -12,7 +12,7 @@ with a base temporary directory you can reach, then play the file::
 
     T2V_COSMOS_PREDICT2_REAL_MODEL_RUN=1 uv run --no-sync pytest \
         integrations_v2/t2v_cosmos_predict2 -m ci_gpu -s --basetemp="$HOME/t2v-out"
-    vlc "$HOME"/t2v-out/*current/clip.mp4
+    vlc "$HOME"/t2v-out/*/clip.mp4
 
 The ``manual`` marker describes this test better and cannot be used: the
 ``pytest-manual-marker`` plugin xfails every ``manual`` test at setup, so a test
