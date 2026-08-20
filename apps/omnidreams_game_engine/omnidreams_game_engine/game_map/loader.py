@@ -111,6 +111,48 @@ class _Connection:
     """Opening center with shape ``[2]``."""
 
 
+@dataclass(frozen=True)
+class _RoadArm:
+    """One road cross-section oriented outward from an incident node."""
+
+    node_id: str
+    """Identifier of the node that owns the arm."""
+
+    road: GameMapRoad
+    """Authored road incident to the node."""
+
+    path_xy: np.ndarray
+    """Sampled road centerline oriented outward from the node."""
+
+    attributes: GameMapLinearAttributes
+    """Authored cross-section oriented outward from the node."""
+
+
+@dataclass(frozen=True)
+class _ArmTransition:
+    """One node-owned transition from a local to an authored cross-section."""
+
+    arm: _RoadArm
+    """Road arm whose authored cross-section differs from the node."""
+
+    local_attributes: GameMapLinearAttributes
+    """Dominant cross-section used at the node opening."""
+
+    length_m: float
+    """Distance over which the node cross-section becomes the road cross-section."""
+
+
+@dataclass(frozen=True)
+class _TransitionGeometry:
+    """Resolved centerline and cross-sections for one tapered node arm."""
+
+    transition: _ArmTransition
+    """Semantic transition resolved for this arm."""
+
+    path_xy: np.ndarray
+    """Sampled centerline from the node opening to the authored road."""
+
+
 def _point(value: object, context: str) -> np.ndarray:
     raw = _mapping(value, context)
     if set(raw) != {"x_m", "y_m"}:
@@ -264,10 +306,12 @@ def _parse_nodes(
             )
         if node_type in {"road_joint", "driveway"}:
             expected = {"id", "type", "pose"}
+            allowed = set(expected)
             if node_type == "road_joint":
                 expected.add("curve_length_m")
+                allowed.update({"curve_length_m", "lane_transition_length_m"})
             missing = expected - set(raw)
-            unknown = set(raw) - expected
+            unknown = set(raw) - allowed
             if missing:
                 raise GameMapError(f"{context} is missing attributes {sorted(missing)}")
             if unknown:
@@ -279,7 +323,11 @@ def _parse_nodes(
                 {
                     "curve_length_m": _nonnegative_float(
                         raw["curve_length_m"], f"{context}.curve_length_m"
-                    )
+                    ),
+                    "lane_transition_length_m": _nonnegative_float(
+                        raw.get("lane_transition_length_m", 0.0),
+                        f"{context}.lane_transition_length_m",
+                    ),
                 }
                 if node_type == "road_joint"
                 else {}
@@ -295,7 +343,12 @@ def _parse_nodes(
             profile_id, values = _resolve_attribute_values(
                 raw,
                 profiles,
-                structural_fields={"id", "type", "pose"},
+                structural_fields={"id", "type", "pose"}
+                | (
+                    {"lane_transition_length_m"}
+                    if node_type == "intersection"
+                    else set()
+                ),
                 allowed_fields=allowed,
                 required_fields=required,
                 context=context,
@@ -305,6 +358,11 @@ def _parse_nodes(
                 for key, item in values.items()
                 if key in {"culdesac_radius_m"}
             }
+            if node_type == "intersection":
+                geometry["lane_transition_length_m"] = _nonnegative_float(
+                    raw.get("lane_transition_length_m", 0.0),
+                    f"{context}.lane_transition_length_m",
+                )
             attributes = GameMapBoundaryAttributes(curb=bool(values["curb"]))
         nodes.append(
             GameMapNode(
@@ -525,8 +583,13 @@ def _oriented_joint_attributes(
 ) -> GameMapLinearAttributes:
     """Orient road attributes along the canonical path through a joint."""
     attributes = road.attributes
-    if not reverse:
-        return attributes
+    return _reversed_attributes(attributes) if reverse else attributes
+
+
+def _reversed_attributes(
+    attributes: GameMapLinearAttributes,
+) -> GameMapLinearAttributes:
+    """Reverse linear attributes with their physical cross-section order."""
     return replace(
         attributes,
         directions=tuple(
@@ -534,6 +597,114 @@ def _oriented_joint_attributes(
             for direction in reversed(attributes.directions)
         ),
         divider_markings=tuple(reversed(attributes.divider_markings)),
+    )
+
+
+def _outward_attributes(road: GameMapRoad, node_id: str) -> GameMapLinearAttributes:
+    """Orient road attributes along its centerline away from ``node_id``."""
+    return _oriented_joint_attributes(
+        road,
+        reverse=road.to_node_id == node_id,
+    )
+
+
+def _direction_block_count(attributes: GameMapLinearAttributes) -> int:
+    return 1 + sum(
+        first != second
+        for first, second in zip(
+            attributes.directions[:-1],
+            attributes.directions[1:],
+            strict=True,
+        )
+    )
+
+
+def _opposing_divider(
+    attributes: GameMapLinearAttributes,
+) -> tuple[str, str] | None:
+    indices = [
+        index
+        for index, (first, second) in enumerate(
+            zip(
+                attributes.directions[:-1],
+                attributes.directions[1:],
+                strict=True,
+            )
+        )
+        if first != second
+    ]
+    return None if not indices else attributes.divider_markings[indices[0]]
+
+
+def _dominant_cross_section(
+    first: GameMapLinearAttributes,
+    second: GameMapLinearAttributes,
+    context: str,
+) -> GameMapLinearAttributes:
+    """Select the node-side profile that can contain both road profiles."""
+    direction_set = {"backward", "forward"}
+    compatible = (
+        set(first.directions) == set(second.directions)
+        and set(first.directions) <= direction_set
+        and _direction_block_count(first) <= 2
+        and _direction_block_count(second) <= 2
+        and _opposing_divider(first) == _opposing_divider(second)
+    )
+    if not compatible:
+        raise GameMapError(
+            f"{context} requires compatible direction ordering and opposing dividers"
+        )
+
+    first_counts = {
+        direction: first.directions.count(direction) for direction in direction_set
+    }
+    second_counts = {
+        direction: second.directions.count(direction) for direction in direction_set
+    }
+    first_dominates = all(
+        first_counts[direction] >= second_counts[direction]
+        for direction in direction_set
+    )
+    second_dominates = all(
+        second_counts[direction] >= first_counts[direction]
+        for direction in direction_set
+    )
+    if not first_dominates and not second_dominates:
+        raise GameMapError(
+            f"{context} has conflicting directional lane counts; one road must "
+            "have at least as many lanes in both directions"
+        )
+    if first_dominates and not second_dominates:
+        dominant = first
+    elif second_dominates and not first_dominates:
+        dominant = second
+    else:
+        dominant = first if first.lane_width_m >= second.lane_width_m else second
+    return replace(
+        dominant,
+        speed_limit_mps=min(first.speed_limit_mps, second.speed_limit_mps),
+    )
+
+
+def _cross_section_changes(
+    first: GameMapLinearAttributes,
+    second: GameMapLinearAttributes,
+) -> bool:
+    return (
+        first.directions != second.directions
+        or first.lane_width_m != second.lane_width_m
+    )
+
+
+def _lane_layout_for_arm(
+    layout: GameMapLinearAttributes,
+    arm: GameMapLinearAttributes,
+) -> GameMapLinearAttributes:
+    return replace(
+        layout,
+        curb_offset_m=arm.curb_offset_m,
+        curb=arm.curb,
+        speed_limit_mps=arm.speed_limit_mps,
     )
 
 
@@ -566,30 +737,154 @@ def _resolve_linear_joint_nodes(
         second = _oriented_joint_attributes(
             roads[1], reverse=roads[1].to_node_id == node.node_id
         )
-        compatible = (
-            first.lane_width_m == second.lane_width_m
-            and first.curb_offset_m == second.curb_offset_m
-            and first.directions == second.directions
-            and first.curb == second.curb
-            and first.marking_style == second.marking_style
-            and first.marking_color == second.marking_color
-            and first.divider_markings == second.divider_markings
-        )
-        if not compatible:
-            raise GameMapError(
-                f"{node.node_type.replace('_', ' ').title()} {node.node_id!r} requires compatible road "
-                "cross-sections, markings, and curb modes"
+        context = f"{node.node_type.replace('_', ' ').title()} {node.node_id!r}"
+        if node.node_type == "driveway":
+            compatible = (
+                first.lane_width_m == second.lane_width_m
+                and first.curb_offset_m == second.curb_offset_m
+                and first.directions == second.directions
+                and first.curb == second.curb
+                and first.marking_style == second.marking_style
+                and first.marking_color == second.marking_color
+                and first.divider_markings == second.divider_markings
             )
+            if not compatible:
+                raise GameMapError(
+                    f"{context} requires compatible road cross-sections, "
+                    "markings, and curb modes"
+                )
+            dominant = replace(
+                first,
+                speed_limit_mps=min(first.speed_limit_mps, second.speed_limit_mps),
+            )
+        else:
+            dominant = _dominant_cross_section(first, second, context)
+            if (
+                _cross_section_changes(first, second)
+                and node.geometry["lane_transition_length_m"] <= 0.0
+            ):
+                raise GameMapError(
+                    f"{context} changes lane count or width and requires a "
+                    "positive lane_transition_length_m"
+                )
         resolved.append(
             replace(
                 node,
-                attributes=replace(
-                    first,
-                    speed_limit_mps=min(first.speed_limit_mps, second.speed_limit_mps),
-                ),
+                attributes=dominant,
             )
         )
     return tuple(resolved)
+
+
+def _arm_for_road(
+    road: GameMapRoad,
+    node_id: str,
+    raw_roads: dict[str, np.ndarray],
+) -> _RoadArm:
+    return _RoadArm(
+        node_id=node_id,
+        road=road,
+        path_xy=_road_path_from_node(road, raw_roads[road.road_id], node_id),
+        attributes=_outward_attributes(road, node_id),
+    )
+
+
+def _mutual_opposite_pairs(arms: list[_RoadArm]) -> list[tuple[_RoadArm, _RoadArm]]:
+    """Pair mutually straightest intersection arms within 45 degrees."""
+    if len(arms) < 2:
+        return []
+    directions: list[np.ndarray] = []
+    for arm in arms:
+        vector = arm.path_xy[1] - arm.path_xy[0]
+        directions.append(vector / max(float(np.linalg.norm(vector)), 1.0e-9))
+    best: dict[int, int] = {}
+    for first_index, first_direction in enumerate(directions):
+        candidates = [
+            (float(np.dot(first_direction, second_direction)), second_index)
+            for second_index, second_direction in enumerate(directions)
+            if second_index != first_index
+        ]
+        dot, second_index = min(candidates)
+        if dot <= -math.cos(math.radians(45.0)):
+            best[first_index] = second_index
+    return [
+        (arms[first_index], arms[second_index])
+        for first_index, second_index in sorted(best.items())
+        if first_index < second_index and best.get(second_index) == first_index
+    ]
+
+
+def _cross_section_transitions(
+    topology: GameMapTopology,
+    raw_roads: dict[str, np.ndarray],
+) -> dict[tuple[str, str], _ArmTransition]:
+    """Plan every node arm that must taper to its authored road profile."""
+    incident: dict[str, list[GameMapRoad]] = {
+        node.node_id: [] for node in topology.nodes
+    }
+    for road in topology.roads:
+        incident[road.from_node_id].append(road)
+        if road.to_node_id != road.from_node_id:
+            incident[road.to_node_id].append(road)
+
+    transitions: dict[tuple[str, str], _ArmTransition] = {}
+    for node in topology.nodes:
+        if node.node_type == "road_joint":
+            assert isinstance(node.attributes, GameMapLinearAttributes)
+            roads = sorted(incident[node.node_id], key=lambda road: road.road_id)
+            arms = [_arm_for_road(road, node.node_id, raw_roads) for road in roads]
+            local_attributes = (
+                _reversed_attributes(node.attributes),
+                node.attributes,
+            )
+            for arm, local in zip(arms, local_attributes, strict=True):
+                local = _lane_layout_for_arm(local, arm.attributes)
+                if _cross_section_changes(local, arm.attributes):
+                    transitions[(node.node_id, arm.road.road_id)] = _ArmTransition(
+                        arm,
+                        local,
+                        node.geometry["lane_transition_length_m"],
+                    )
+            continue
+        if node.node_type != "intersection":
+            continue
+        arms = [
+            _arm_for_road(road, node.node_id, raw_roads)
+            for road in incident[node.node_id]
+            if road.from_node_id != road.to_node_id
+        ]
+        for first, second in _mutual_opposite_pairs(arms):
+            second_through = _reversed_attributes(second.attributes)
+            if not _cross_section_changes(first.attributes, second_through):
+                continue
+            context = (
+                f"Intersection {node.node_id!r} through roads "
+                f"{first.road.road_id!r} and {second.road.road_id!r}"
+            )
+            dominant = _dominant_cross_section(
+                first.attributes,
+                second_through,
+                context,
+            )
+            length = node.geometry["lane_transition_length_m"]
+            if length <= 0.0:
+                raise GameMapError(
+                    f"{context} changes lane count or width and requires a "
+                    "positive lane_transition_length_m"
+                )
+            local_values = (
+                dominant,
+                _reversed_attributes(dominant),
+            )
+            for arm, local in zip((first, second), local_values, strict=True):
+                local = _lane_layout_for_arm(local, arm.attributes)
+                if _cross_section_changes(local, arm.attributes):
+                    transitions[(node.node_id, arm.road.road_id)] = _ArmTransition(
+                        arm,
+                        local,
+                        length,
+                    )
+    return transitions
 
 
 def _parking_accesses_from_nodes(
@@ -1029,24 +1324,98 @@ def _parking_access_path(
     return path, width
 
 
+def _polyline_section(
+    points: np.ndarray,
+    start_m: float,
+    end_m: float,
+    context: str,
+) -> np.ndarray:
+    line = LineString(points)
+    if end_m >= line.length - _POSITION_TOLERANCE_M:
+        raise GameMapError(
+            f"{context} transition length {end_m - start_m:g} m consumes its "
+            f"road arm (available length {max(0.0, line.length - start_m):.3f} m)"
+        )
+    section = substring(line, start_m, end_m)
+    if section.geom_type != "LineString" or section.length <= _POSITION_TOLERANCE_M:
+        raise GameMapError(f"{context} produces a degenerate lane transition")
+    coordinates = np.asarray(section.coords, dtype=np.float64)
+    cleaned = [coordinates[0]]
+    for index, point in enumerate(coordinates[1:], start=1):
+        if np.linalg.norm(point - cleaned[-1]) > _POSITION_TOLERANCE_M:
+            cleaned.append(point)
+        elif index == len(coordinates) - 1 and len(cleaned) > 1:
+            cleaned[-1] = point
+    if len(cleaned) < 2:
+        raise GameMapError(f"{context} produces a degenerate lane transition")
+    return np.asarray(cleaned, dtype=np.float64)
+
+
+def _variable_offset_polyline(
+    points: np.ndarray,
+    offsets: np.ndarray,
+) -> np.ndarray:
+    tangents = np.empty_like(points)
+    tangents[0] = points[1] - points[0]
+    tangents[-1] = points[-1] - points[-2]
+    if len(points) > 2:
+        tangents[1:-1] = points[2:] - points[:-2]
+    lengths = np.linalg.norm(tangents, axis=1)
+    if np.any(lengths <= _POSITION_TOLERANCE_M):
+        raise GameMapError("Lane transition has a degenerate centerline tangent")
+    normals = np.column_stack((-tangents[:, 1], tangents[:, 0])) / lengths[:, None]
+    return points + normals * offsets[:, None]
+
+
+def _taper_polygon(
+    points: np.ndarray,
+    start_width_m: float,
+    end_width_m: float,
+    context: str,
+) -> Polygon:
+    segment_lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    distances = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+    alpha = distances / max(float(distances[-1]), 1.0e-9)
+    widths = start_width_m + alpha * (end_width_m - start_width_m)
+    left = _variable_offset_polyline(points, widths * 0.5)
+    right = _variable_offset_polyline(points, -widths * 0.5)
+    polygon = Polygon(np.vstack((left, right[::-1])))
+    if not polygon.is_valid or polygon.area <= _AREA_TOLERANCE_M2:
+        raise GameMapError(f"{context} produces an invalid tapered surface")
+    return polygon
+
+
 def _node_polygons(
     topology: GameMapTopology,
     raw_roads: dict[str, np.ndarray],
     road_joint_centerlines: dict[str, np.ndarray],
     parking_access_paths: dict[str, tuple[np.ndarray, float]],
-) -> dict[str, Polygon]:
-    incidences: dict[str, list[tuple[np.ndarray, float]]] = {
+    transitions: dict[tuple[str, str], _ArmTransition],
+) -> tuple[
+    dict[str, Polygon],
+    dict[tuple[str, str], _TransitionGeometry],
+]:
+    incidences: dict[str, list[tuple[np.ndarray, float, str | None]]] = {
         node.node_id: [] for node in topology.nodes
     }
     for road in topology.roads:
         points = raw_roads[road.road_id]
-        width = road.attributes.surface_width_m
-        incidences[road.from_node_id].append((points, width))
-        incidences[road.to_node_id].append((points[::-1], width))
+        for node_id, path in (
+            (road.from_node_id, points),
+            (road.to_node_id, points[::-1]),
+        ):
+            transition = transitions.get((node_id, road.road_id))
+            width = (
+                transition.local_attributes.surface_width_m
+                if transition is not None
+                else road.attributes.surface_width_m
+            )
+            incidences[node_id].append((path, width, road.road_id))
     for access in topology.parking_accesses:
         path, width = parking_access_paths[access.access_id]
-        incidences[access.source_node_id].append((path, width))
+        incidences[access.source_node_id].append((path, width, None))
     polygons: dict[str, Polygon] = {}
+    transition_geometry: dict[tuple[str, str], _TransitionGeometry] = {}
     for node in topology.nodes:
         center = np.asarray([node.x_m, node.y_m])
         if node.node_type == "driveway":
@@ -1076,8 +1445,12 @@ def _node_polygons(
                     f"Node {node.node_id!r} must have at least one incidence"
                 )
             arms: list[BaseGeometry] = []
-            reaches = _inferred_intersection_arm_reaches(incident)
-            for (path, opening_width), reach in zip(incident, reaches, strict=True):
+            reaches = _inferred_intersection_arm_reaches(
+                [(path, width) for path, width, _road_id in incident]
+            )
+            for (path, opening_width, road_id), reach in zip(
+                incident, reaches, strict=True
+            ):
                 arm_path = _polyline_prefix(path, reach)
                 direction = arm_path[1] - arm_path[0]
                 direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
@@ -1091,19 +1464,112 @@ def _node_polygons(
                         join_style=2,
                     )
                 )
+                transition = (
+                    None
+                    if road_id is None
+                    else transitions.get((node.node_id, road_id))
+                )
+                if transition is not None:
+                    context = (
+                        f"Node {node.node_id!r} road {transition.arm.road.road_id!r}"
+                    )
+                    transition_path = _polyline_section(
+                        path,
+                        reach,
+                        reach + transition.length_m,
+                        context,
+                    )
+                    arms.append(
+                        _taper_polygon(
+                            transition_path,
+                            transition.local_attributes.surface_width_m,
+                            transition.arm.attributes.surface_width_m,
+                            context,
+                        )
+                    )
+                    transition_geometry[(node.node_id, road_id)] = _TransitionGeometry(
+                        transition, transition_path
+                    )
             polygon = unary_union(arms).buffer(0)
         elif node.node_type == "road_joint":
             assert isinstance(node.attributes, GameMapLinearAttributes)
             centerline = road_joint_centerlines[node.node_id]
-            polygon = LineString(centerline).buffer(
-                node.attributes.surface_width_m * 0.5,
-                cap_style=2,
-                join_style=2,
+            joint_roads = sorted(
+                (
+                    road
+                    for road in topology.roads
+                    if node.node_id in {road.from_node_id, road.to_node_id}
+                ),
+                key=lambda road: road.road_id,
             )
+            endpoint_layouts = (
+                _reversed_attributes(node.attributes),
+                node.attributes,
+            )
+            endpoint_widths = [
+                _lane_layout_for_arm(
+                    layout,
+                    _outward_attributes(road, node.node_id),
+                ).surface_width_m
+                for road, layout in zip(
+                    joint_roads,
+                    endpoint_layouts,
+                    strict=True,
+                )
+            ]
+            if endpoint_widths[0] == endpoint_widths[1]:
+                polygon = LineString(centerline).buffer(
+                    endpoint_widths[0] * 0.5,
+                    cap_style=2,
+                    join_style=2,
+                )
+            else:
+                polygon = _taper_polygon(
+                    centerline,
+                    endpoint_widths[0],
+                    endpoint_widths[1],
+                    f"Road joint {node.node_id!r}",
+                )
+            parts: list[BaseGeometry] = [polygon]
+            for road in topology.roads:
+                key = (node.node_id, road.road_id)
+                transition = transitions.get(key)
+                if transition is None:
+                    continue
+                path = _road_path_from_node(road, raw_roads[road.road_id], node.node_id)
+                context = f"Road joint {node.node_id!r} road {road.road_id!r}"
+                transition_path = _polyline_section(
+                    path,
+                    0.0,
+                    transition.length_m,
+                    context,
+                )
+                overlap_direction = transition_path[1] - transition_path[0]
+                overlap_direction /= float(np.linalg.norm(overlap_direction))
+                transition_surface_path = np.vstack(
+                    (
+                        transition_path[0]
+                        - overlap_direction * (2.0 * _POSITION_TOLERANCE_M),
+                        transition_path,
+                    )
+                )
+                parts.append(
+                    _taper_polygon(
+                        transition_surface_path,
+                        transition.local_attributes.surface_width_m,
+                        transition.arm.attributes.surface_width_m,
+                        context,
+                    )
+                )
+                transition_geometry[key] = _TransitionGeometry(
+                    transition,
+                    transition_path,
+                )
+            polygon = unary_union(parts).buffer(0)
         elif node.node_type == "cul_de_sac":
             radius = node.geometry["culdesac_radius_m"]
             circle = Point(center).buffer(radius, quad_segs=32)
-            path, opening_width = incidences[node.node_id][0]
+            path, opening_width, _road_id = incidences[node.node_id][0]
             vector = path[1] - path[0]
             direction = vector / max(float(np.linalg.norm(vector)), 1.0e-9)
             normal = np.asarray([-direction[1], direction[0]])
@@ -1129,7 +1595,7 @@ def _node_polygons(
         if not isinstance(polygon, Polygon) or polygon.area <= 0.0:
             raise GameMapError(f"Node {node.node_id!r} has an invalid footprint")
         polygons[node.node_id] = polygon
-    return polygons
+    return polygons, transition_geometry
 
 
 def _corridor_polygon(
@@ -1201,6 +1667,7 @@ def _boundaries_for_elements(
     elements: list[GameMapElement],
     connections: list[_Connection],
     permitted_boundary_contacts: set[tuple[str, str]] | None = None,
+    curb_regions: dict[str, list[tuple[BaseGeometry, bool]]] | None = None,
 ) -> list[GameMapElement]:
     """Validate contacts and attach semantic boundaries and physical curbs."""
     polygons = {
@@ -1297,16 +1764,30 @@ def _boundaries_for_elements(
             for index, points in enumerate(parts)
             if len(points) >= 2
         )
-        curbs = (
-            tuple(
-                GameMapCurb(
-                    curb_id=f"{element.element_id}:curb:{index}",
-                    polyline_world=road_boundary.polyline_world,
-                )
-                for index, road_boundary in enumerate(road_boundaries)
+        remaining_curb_boundary = boundary
+        selected_curb_parts: list[np.ndarray] = []
+        for region, enabled in (curb_regions or {}).get(element.element_id, []):
+            selected = remaining_curb_boundary.intersection(region)
+            if enabled:
+                selected_curb_parts.extend(_line_parts(selected))
+            remaining_curb_boundary = remaining_curb_boundary.difference(region)
+        if element.attributes.curb:
+            selected_curb_parts.extend(_line_parts(remaining_curb_boundary))
+        selected_curb_parts.sort(
+            key=lambda points: (
+                round(float(np.min(points[:, 0])), 6),
+                round(float(np.min(points[:, 1])), 6),
+                round(float(np.max(points[:, 0])), 6),
+                round(float(np.max(points[:, 1])), 6),
             )
-            if element.attributes.curb
-            else ()
+        )
+        curbs = tuple(
+            GameMapCurb(
+                curb_id=f"{element.element_id}:curb:{index}",
+                polyline_world=_xyz(points),
+            )
+            for index, points in enumerate(selected_curb_parts)
+            if len(points) >= 2
         )
         resolved.append(replace(element, road_boundaries=road_boundaries, curbs=curbs))
     return resolved
@@ -1357,6 +1838,183 @@ def _build_linear_lanes(
             )
         )
     return lanes
+
+
+def _lane_boundary_offsets(attributes: GameMapLinearAttributes) -> np.ndarray:
+    lane_count = len(attributes.directions)
+    return np.linspace(
+        lane_count * attributes.lane_width_m * 0.5,
+        -lane_count * attributes.lane_width_m * 0.5,
+        lane_count + 1,
+    )
+
+
+def _direction_groups(directions: tuple[str, ...]) -> list[tuple[str, int, int]]:
+    groups: list[tuple[str, int, int]] = []
+    start = 0
+    for index in range(1, len(directions) + 1):
+        if index == len(directions) or directions[index] != directions[start]:
+            groups.append((directions[start], start, index - start))
+            start = index
+    return groups
+
+
+def _transition_boundary_mapping(
+    local: GameMapLinearAttributes,
+    road: GameMapLinearAttributes,
+) -> list[int]:
+    local_groups = _direction_groups(local.directions)
+    road_groups = _direction_groups(road.directions)
+    if [group[0] for group in local_groups] != [group[0] for group in road_groups]:
+        raise GameMapError("Lane transition changes directional lane ordering")
+    mapping = [0] * (len(local.directions) + 1)
+    for group_index, (local_group, road_group) in enumerate(
+        zip(local_groups, road_groups, strict=True)
+    ):
+        _direction, local_start, local_count = local_group
+        _road_direction, road_start, road_count = road_group
+        extra = local_count - road_count
+        if extra < 0:
+            raise GameMapError("Lane transition local profile is not dominant")
+        for boundary in range(local_count + 1):
+            if group_index == 0:
+                road_boundary = max(0, boundary - extra)
+            else:
+                road_boundary = min(boundary, road_count)
+            mapping[local_start + boundary] = road_start + road_boundary
+    return mapping
+
+
+def _build_transition_lanes(
+    geometry: _TransitionGeometry,
+) -> list[_LaneBuild]:
+    transition = geometry.transition
+    local = transition.local_attributes
+    road = transition.arm.attributes
+    path = geometry.path_xy
+    segment_lengths = np.linalg.norm(np.diff(path, axis=0), axis=1)
+    distances = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+    alpha = distances / max(float(distances[-1]), 1.0e-9)
+    local_offsets = _lane_boundary_offsets(local)
+    road_offsets = _lane_boundary_offsets(road)
+    mapping = _transition_boundary_mapping(local, road)
+    boundaries = [
+        _variable_offset_polyline(
+            path,
+            local_offsets[index]
+            + alpha * (road_offsets[remote_index] - local_offsets[index]),
+        )
+        for index, remote_index in enumerate(mapping)
+    ]
+
+    lanes: list[_LaneBuild] = []
+    for index, direction in enumerate(local.directions):
+        upper = boundaries[index]
+        lower = boundaries[index + 1]
+        center = 0.5 * (upper + lower)
+        left, right = upper, lower
+        roadside_offsets = (
+            local_offsets[index + 1]
+            + alpha * (road_offsets[mapping[index + 1]] - local_offsets[index + 1])
+            - road.curb_offset_m
+        )
+        roadside = _variable_offset_polyline(path, roadside_offsets)
+        kind = "start"
+        if direction == "backward":
+            center = center[::-1]
+            left, right = lower[::-1], upper[::-1]
+            roadside_offsets = (
+                local_offsets[index]
+                + alpha * (road_offsets[mapping[index]] - local_offsets[index])
+                + road.curb_offset_m
+            )
+            roadside = _variable_offset_polyline(path, roadside_offsets)[::-1]
+            kind = "end"
+        left_marking, right_marking = _lane_edge_markings(local, index, direction)
+        lanes.append(
+            _LaneBuild(
+                lane_id=(
+                    f"{transition.arm.node_id}:transition:"
+                    f"{transition.arm.road.road_id}:lane:{index}"
+                ),
+                element_id=transition.arm.node_id,
+                centerline=_xyz(center),
+                left_edge=_xyz(left),
+                right_edge=_xyz(right),
+                roadside_edge=_xyz(roadside),
+                speed_limit_mps=road.speed_limit_mps,
+                marking_style=local.marking_style,
+                marking_color=local.marking_color,
+                start_endpoint="from" if kind == "start" else "to",
+                end_endpoint="to" if kind == "start" else "from",
+                successors=[],
+                allows_taxi_stops=False,
+                left_marking_style=left_marking[0],
+                left_marking_color=left_marking[1],
+                right_marking_style=right_marking[0],
+                right_marking_color=right_marking[1],
+            )
+        )
+    return lanes
+
+
+def _splice_transition_lanes(
+    transition_geometry: dict[tuple[str, str], _TransitionGeometry],
+    incidences: dict[str, list[_LaneIncidence]],
+    lanes: list[_LaneBuild],
+    lane_dividers: list[GameMapLaneDivider],
+) -> None:
+    """Replace narrow road incidences with visible node transition lanes."""
+    for (node_id, road_id), geometry in sorted(transition_geometry.items()):
+        road_incidences = [
+            incidence
+            for incidence in incidences[node_id]
+            if incidence.lane.element_id == road_id
+        ]
+        if not road_incidences:
+            raise AssertionError(f"Missing road incidences for {node_id!r}/{road_id!r}")
+        incidences[node_id] = [
+            incidence
+            for incidence in incidences[node_id]
+            if incidence.lane.element_id != road_id
+        ]
+        built = _build_transition_lanes(geometry)
+        for lane, direction in zip(
+            built,
+            geometry.transition.local_attributes.directions,
+            strict=True,
+        ):
+            kind = "start" if direction == "forward" else "end"
+            candidates = [item for item in road_incidences if item.kind == kind]
+            transition_far = (
+                lane.centerline[-1, :2]
+                if direction == "forward"
+                else lane.centerline[0, :2]
+            )
+            target = min(
+                candidates,
+                key=lambda incidence: float(
+                    np.linalg.norm(
+                        (
+                            incidence.lane.centerline[0, :2]
+                            if kind == "start"
+                            else incidence.lane.centerline[-1, :2]
+                        )
+                        - transition_far
+                    )
+                ),
+            )
+            if direction == "forward":
+                lane.successors.append(target.lane.lane_id)
+            else:
+                target.lane.successors.append(lane.lane_id)
+            incidences[node_id].append(
+                _LaneIncidence(lane, node_id, kind, target.edge_ref)
+            )
+        lanes.extend(built)
+        lane_dividers.extend(
+            _build_lane_dividers(built, geometry.transition.local_attributes)
+        )
 
 
 def _build_lane_dividers(
@@ -1622,11 +2280,16 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         access.access_id: _parking_access_path(access, nodes, settings.sample_spacing_m)
         for access in parking_accesses
     }
+    transitions = _cross_section_transitions(topology, raw_roads)
     raw_roads, road_joint_centerlines = _trimmed_road_paths_and_joints(
         topology, raw_roads, settings.sample_spacing_m
     )
-    polygons = _node_polygons(
-        topology, raw_roads, road_joint_centerlines, parking_access_paths
+    polygons, transition_geometry = _node_polygons(
+        topology,
+        raw_roads,
+        road_joint_centerlines,
+        parking_access_paths,
+        transitions,
     )
     elements: list[GameMapElement] = []
     connections: list[_Connection] = []
@@ -1696,7 +2359,10 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             (road.to_node_id, points[-1]),
         ):
             if node_id in road_joint_openings:
-                road_joint_openings[node_id][road.road_id] = center
+                transition = transition_geometry.get((node_id, road.road_id))
+                road_joint_openings[node_id][road.road_id] = (
+                    transition.path_xy[0] if transition is not None else center
+                )
 
     for access in parking_accesses:
         source = nodes[access.source_node_id]
@@ -1765,6 +2431,13 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 ),
             )
         )
+
+    _splice_transition_lanes(
+        transition_geometry,
+        incidences,
+        lanes,
+        lane_dividers,
+    )
 
     for node in node_values:
         polygon = polygons[node.node_id]
@@ -1862,8 +2535,23 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         for road in topology.roads
         if access.source_node_id in {road.from_node_id, road.to_node_id}
     }
+    transition_curb_regions: dict[str, list[tuple[BaseGeometry, bool]]] = {}
+    for (node_id, _road_id), geometry in transition_geometry.items():
+        transition = geometry.transition
+        region = _taper_polygon(
+            geometry.path_xy,
+            transition.local_attributes.surface_width_m,
+            transition.arm.attributes.surface_width_m,
+            f"Node {node_id!r} curb region",
+        ).buffer(_POSITION_TOLERANCE_M)
+        transition_curb_regions.setdefault(node_id, []).append(
+            (region, transition.arm.attributes.curb)
+        )
     elements = _boundaries_for_elements(
-        elements, connections, permitted_boundary_contacts
+        elements,
+        connections,
+        permitted_boundary_contacts,
+        transition_curb_regions,
     )
     elements = [
         replace(

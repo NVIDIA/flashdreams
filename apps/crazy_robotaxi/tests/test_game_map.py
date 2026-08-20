@@ -33,7 +33,7 @@ from omnidreams_game_engine.game_map.types import (
 )
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.types import VehicleState
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Polygon
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -131,6 +131,138 @@ def _road_joint_map(
     }
 
 
+def _intersection_transition_map(
+    transition_length_m: float = 20,
+) -> dict[str, object]:
+    """Build a four-way intersection with one narrower through arm."""
+    common = {
+        "curb_offset_m": 0.6,
+        "speed_limit_mps": 12,
+        "curb": True,
+        "lane_marking": {"style": "DASHED_SINGLE", "color": "WHITE"},
+    }
+    return {
+        "schema_version": 1,
+        "id": "intersection-transition-test",
+        "name": "Intersection Transition Test",
+        "compiler": {
+            "sample_spacing_m": 1,
+            "ground_margin_m": 10,
+            "intersection_connector_samples": 8,
+        },
+        "profiles": {
+            "wide": {
+                **common,
+                "lane_width_m": 3.6,
+                "lanes": ["backward", "backward", "forward", "forward"],
+                "divider_markings": [
+                    {"style": "DASHED_SINGLE", "color": "WHITE"},
+                    {"style": "SOLID_GROUP", "color": "YELLOW"},
+                    {"style": "DASHED_SINGLE", "color": "WHITE"},
+                ],
+            },
+            "narrow": {
+                **common,
+                "lane_width_m": 3.2,
+                "curb_offset_m": 0.5,
+                "curb": False,
+                "lanes": ["backward", "forward"],
+                "divider_markings": [{"style": "SOLID_GROUP", "color": "YELLOW"}],
+            },
+        },
+        "nodes": [
+            {
+                "id": "center",
+                "type": "intersection",
+                "pose": {"x_m": 0, "y_m": 0, "rotation_deg": 0},
+                "curb": True,
+                "lane_transition_length_m": transition_length_m,
+            },
+            *(
+                {
+                    "id": node_id,
+                    "type": "cul_de_sac",
+                    "pose": {"x_m": x_m, "y_m": y_m, "rotation_deg": 0},
+                    "culdesac_radius_m": 12,
+                    "curb": True,
+                }
+                for node_id, x_m, y_m in (
+                    ("north", 0, 100),
+                    ("south", 0, -100),
+                    ("east", 100, 0),
+                    ("west", -100, 0),
+                )
+            ),
+        ],
+        "roads": [
+            {
+                "id": "north_road",
+                "from": "center",
+                "to": "north",
+                "profile": "narrow",
+            },
+            {
+                "id": "south_road",
+                "from": "center",
+                "to": "south",
+                "profile": "wide",
+            },
+            {
+                "id": "east_road",
+                "from": "center",
+                "to": "east",
+                "profile": "narrow",
+            },
+            {
+                "id": "west_road",
+                "from": "center",
+                "to": "west",
+                "profile": "narrow",
+            },
+        ],
+        "spawns": [
+            {
+                "id": "start",
+                "road": "south_road",
+                "lane": 2,
+                "distance_m": 10,
+                "variants": {
+                    "default": {
+                        "image": "package://omnidreams_game_engine/screenshot.jpg",
+                        "prompt": "A road widening at an intersection.",
+                    }
+                },
+            }
+        ],
+    }
+
+
+def _self_loop_map() -> dict[str, object]:
+    """Restore a compact self-loop fixture independent of the bundled demo."""
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["nodes"] = [node for node in source["nodes"] if node["type"] != "road_joint"]
+    source["roads"] = [
+        road for road in source["roads"] if road["id"] == "dead_end_road"
+    ]
+    source["roads"].insert(
+        0,
+        {
+            "id": "neighborhood_loop",
+            "from": "hub",
+            "to": "hub",
+            "profile": "neighborhood",
+            "path": [
+                {"x_m": 45, "y_m": 15},
+                {"x_m": 45, "y_m": 50},
+                {"x_m": -45, "y_m": 50},
+                {"x_m": -45, "y_m": 15},
+            ],
+        },
+    )
+    source["spawns"][0]["road"] = "neighborhood_loop"
+    return cast(dict[str, object], source)
+
+
 def _reachable(game_map: ResolvedGameMap, start_lane_id: str) -> set[str]:
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
     pending = [start_lane_id]
@@ -163,11 +295,11 @@ def test_bundled_maps_use_schema_version_1() -> None:
     assert starter.schema_version == boulevard.schema_version == 1
     assert {node.node_type for node in starter.topology.nodes} == {
         "intersection",
+        "road_joint",
         "cul_de_sac",
         "parking_lot",
     }
-    assert len(starter.topology.roads) == 2
-    assert len(starter.topology.roads[0].bezier_spans_world) == 5
+    assert len(starter.topology.roads) == 6
     assert len(boulevard.topology.nodes) == 75
     assert len(boulevard.topology.roads) == 81
     assert len(boulevard.topology.parking_accesses) == 8
@@ -176,7 +308,7 @@ def test_bundled_maps_use_schema_version_1() -> None:
         for node in game_map.topology.nodes:
             if node.node_type != "intersection":
                 continue
-            assert node.geometry == {}, node.node_id
+            assert set(node.geometry) == {"lane_transition_length_m"}, node.node_id
 
 
 @pytest.mark.parametrize(
@@ -194,6 +326,20 @@ def test_authored_intersection_geometry_is_rejected(tmp_path: Path, field: str) 
 
     with pytest.raises(GameMapError, match="unknown attributes"):
         load_game_map(_write_map(tmp_path, source))
+
+
+def test_lane_transition_length_is_rejected_on_cul_de_sac(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    dead_end = next(node for node in source["nodes"] if node["id"] == "dead_end")
+    dead_end["lane_transition_length_m"] = 10
+
+    with pytest.raises(GameMapError, match="unknown attributes"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_lane_transition_length_must_be_nonnegative(tmp_path: Path) -> None:
+    with pytest.raises(GameMapError, match="must be nonnegative"):
+        load_game_map(_write_map(tmp_path, _intersection_transition_map(-1)))
 
 
 def test_unknown_root_fields_are_rejected(tmp_path: Path) -> None:
@@ -348,7 +494,7 @@ def test_direct_attributes_override_values_present_in_profile(tmp_path: Path) ->
     )
 
     assert resolved_road.attributes.lane_width_m == pytest.approx(4.1)
-    assert resolved_hub.geometry == {}
+    assert resolved_hub.geometry == {"lane_transition_length_m": 0}
     assert resolved_hub.attributes.curb is True
 
 
@@ -508,7 +654,10 @@ def test_road_joint_trims_roads_and_emits_visible_curve(tmp_path: Path) -> None:
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
 
     assert node.node_type == "road_joint"
-    assert node.geometry == {"curve_length_m": 10}
+    assert node.geometry == {
+        "curve_length_m": 10,
+        "lane_transition_length_m": 0,
+    }
     assert node.attributes.speed_limit_mps == pytest.approx(8)
     assert len(joint_lanes) == 2
     assert all(lane.conditioning_visible for lane in joint_lanes)
@@ -634,13 +783,166 @@ def test_road_joint_normalizes_reversed_authored_road_direction(tmp_path: Path) 
     assert lanes["bend:lane:1"].successor_ids == ("exit:lane:0",)
 
 
-def test_road_joint_rejects_incompatible_cross_sections(tmp_path: Path) -> None:
+def test_road_joint_builds_visible_lane_count_and_width_transition(
+    tmp_path: Path,
+) -> None:
+    source = _road_joint_map(8)
+    nodes = cast(list[dict[str, Any]], source["nodes"])
+    bend = next(node for node in nodes if node["id"] == "bend")
+    bend["lane_transition_length_m"] = 16
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads[0]["lanes"] = ["backward", "backward", "forward", "forward"]
+    roads[0]["divider_markings"] = [
+        {"style": "DASHED_SINGLE", "color": "WHITE"},
+        {"style": "SOLID_GROUP", "color": "YELLOW"},
+        {"style": "DASHED_SINGLE", "color": "WHITE"},
+    ]
+    roads[1]["lane_width_m"] = 3.2
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    transitions = [
+        lane
+        for lane in game_map.lanes
+        if lane.lane_id.startswith("bend:transition:exit:")
+    ]
+
+    assert len(transitions) == 4
+    assert all(lane.conditioning_visible for lane in transitions)
+    assert lanes["exit:lane:0"].successor_ids == (
+        "bend:transition:exit:lane:0",
+        "bend:transition:exit:lane:1",
+    )
+    assert lanes["bend:transition:exit:lane:2"].successor_ids == ("exit:lane:1",)
+    assert lanes["bend:transition:exit:lane:3"].successor_ids == ("exit:lane:1",)
+    joint = _surface(game_map, "bend")
+    assert joint.is_valid
+    assert joint.bounds[2] > 15
+
+
+def test_road_joint_lane_change_requires_transition_length(tmp_path: Path) -> None:
     source = _road_joint_map(8)
     roads = cast(list[dict[str, Any]], source["roads"])
     roads[1]["lane_width_m"] = 4.2
 
-    with pytest.raises(GameMapError, match="requires compatible road"):
+    with pytest.raises(GameMapError, match="positive lane_transition_length_m"):
         load_game_map(_write_map(tmp_path, source))
+
+
+def test_road_joint_builds_lane_width_only_transition(tmp_path: Path) -> None:
+    source = _road_joint_map(8)
+    nodes = cast(list[dict[str, Any]], source["nodes"])
+    bend = next(node for node in nodes if node["id"] == "bend")
+    bend["lane_transition_length_m"] = 12
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads[1]["lane_width_m"] = 4.2
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    transitions = [
+        lane
+        for lane in game_map.lanes
+        if lane.lane_id.startswith("bend:transition:approach:")
+    ]
+
+    assert len(transitions) == 2
+    for lane in transitions:
+        widths = np.linalg.norm(
+            lane.left_edge_world[:, :2] - lane.right_edge_world[:, :2],
+            axis=1,
+        )
+        assert {round(float(widths[0]), 1), round(float(widths[-1]), 1)} == {
+            3.6,
+            4.2,
+        }
+
+
+def test_road_joint_transition_preserves_each_curb_offset(
+    tmp_path: Path,
+) -> None:
+    source = _road_joint_map(8)
+    nodes = cast(list[dict[str, Any]], source["nodes"])
+    bend = next(node for node in nodes if node["id"] == "bend")
+    bend["lane_transition_length_m"] = 12
+    roads = cast(list[dict[str, Any]], source["roads"])
+    roads[0]["curb_offset_m"] = 0.4
+    roads[1]["lane_width_m"] = 4.2
+    roads[1]["curb_offset_m"] = 1.0
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+    transition = next(
+        lane
+        for lane in game_map.lanes
+        if lane.lane_id == "bend:transition:approach:lane:1"
+    )
+    curb_offsets = np.linalg.norm(
+        transition.right_edge_world[:, :2] - transition.roadside_edge_world[:, :2],
+        axis=1,
+    )
+
+    np.testing.assert_allclose(curb_offsets, 0.4, atol=0.02)
+
+
+def test_intersection_builds_transition_only_on_mismatched_through_arm(
+    tmp_path: Path,
+) -> None:
+    game_map = load_game_map(_write_map(tmp_path, _intersection_transition_map()))
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    transition_ids = {
+        lane.lane_id for lane in game_map.lanes if ":transition:" in lane.lane_id
+    }
+
+    assert transition_ids == {
+        f"center:transition:north_road:lane:{index}" for index in range(4)
+    }
+    assert lanes["north_road:lane:0"].successor_ids == (
+        "center:transition:north_road:lane:0",
+        "center:transition:north_road:lane:1",
+    )
+    assert lanes["center:transition:north_road:lane:2"].successor_ids == (
+        "north_road:lane:1",
+    )
+    assert lanes["center:transition:north_road:lane:3"].successor_ids == (
+        "north_road:lane:1",
+    )
+    assert not any("east_road" in lane_id for lane_id in transition_ids)
+    assert not any("west_road" in lane_id for lane_id in transition_ids)
+    center = _surface(game_map, "center")
+    assert center.bounds[3] > 27
+    assert center.bounds[0] == pytest.approx(-7.8, abs=0.1)
+    assert center.bounds[2] == pytest.approx(7.8, abs=0.1)
+    north_transition = lanes["center:transition:north_road:lane:3"]
+    curb_offsets = np.linalg.norm(
+        north_transition.right_edge_world[:, :2]
+        - north_transition.roadside_edge_world[:, :2],
+        axis=1,
+    )
+    np.testing.assert_allclose(curb_offsets, 0.5, atol=0.02)
+    center_element = next(
+        element for element in game_map.elements if element.element_id == "center"
+    )
+    assert (
+        max(
+            float(np.max(boundary.polyline_world[:, 1]))
+            for boundary in center_element.road_boundaries
+        )
+        > 27
+    )
+    assert (
+        max(float(np.max(curb.polyline_world[:, 1])) for curb in center_element.curbs)
+        < 15
+    )
+
+
+def test_intersection_lane_change_requires_transition_length(tmp_path: Path) -> None:
+    with pytest.raises(GameMapError, match="positive lane_transition_length_m"):
+        load_game_map(_write_map(tmp_path, _intersection_transition_map(0)))
+
+
+def test_intersection_rejects_transition_that_consumes_road_arm(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(GameMapError, match="consumes its road arm"):
+        load_game_map(_write_map(tmp_path, _intersection_transition_map(95)))
 
 
 def test_road_joint_rejects_excessive_trim(tmp_path: Path) -> None:
@@ -690,8 +992,8 @@ def test_road_rejects_combined_trims_from_both_endpoint_joints(
         load_game_map(_write_map(tmp_path, source))
 
 
-def test_path_road_is_one_topological_road() -> None:
-    game_map = load_game_map(_STARTER_MAP)
+def test_path_road_is_one_topological_road(tmp_path: Path) -> None:
+    game_map = load_game_map(_write_map(tmp_path, _self_loop_map(), "self-loop"))
     road = next(
         item for item in game_map.topology.roads if item.road_id == "neighborhood_loop"
     )
@@ -721,7 +1023,7 @@ def test_path_road_is_one_topological_road() -> None:
 
 
 def test_malformed_path_points_are_rejected(tmp_path: Path) -> None:
-    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source = _self_loop_map()
     loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
     loop["path"][0] = {"x_m": 0, "y_m": 0}
 
@@ -836,7 +1138,7 @@ def test_bezier_final_endpoint_must_match_to_node(tmp_path: Path) -> None:
 
 
 def test_self_loop_supports_explicit_bezier(tmp_path: Path) -> None:
-    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source = _self_loop_map()
     loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
     del loop["path"]
     loop["bezier"] = [
@@ -867,7 +1169,7 @@ def test_self_loop_supports_explicit_bezier(tmp_path: Path) -> None:
 
 
 def test_self_loop_requires_path_or_bezier(tmp_path: Path) -> None:
-    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source = _self_loop_map()
     loop = next(road for road in source["roads"] if road["id"] == "neighborhood_loop")
     del loop["path"]
 
@@ -942,7 +1244,7 @@ def test_parking_access_is_inferred_from_lot_node_and_not_authored_as_a_road() -
     }
 
     assert lot["connected_to"] == "hub"
-    assert lot["opening_vertex"] == 3
+    assert lot["opening_vertex"] == 2
     assert "neighborhood_lot:access" not in road_ids
     assert access_ids == {"neighborhood_lot:access"}
     assert inferred == access_ids
@@ -953,7 +1255,7 @@ def test_parking_access_is_inferred_from_lot_node_and_not_authored_as_a_road() -
             if element.element_id == "neighborhood_lot:access"
         )
     )
-    assert width == pytest.approx(7.2, abs=0.2)
+    assert width == pytest.approx(6.0, abs=0.2)
     lanes = [
         lane for lane in game_map.lanes if lane.element_id == "neighborhood_lot:access"
     ]
@@ -985,7 +1287,7 @@ def test_lane_graph_routes_to_and_from_parking_lot() -> None:
     returning = _reachable(game_map, "neighborhood_lot:access:lane:1")
 
     assert "neighborhood_lot:access:lane:0" in outbound
-    assert "neighborhood_loop:lane:0" in returning
+    assert "neighborhood_loop_southwest:lane:0" in returning
     assert not any(lane.element_id == "neighborhood_lot" for lane in game_map.lanes)
 
 

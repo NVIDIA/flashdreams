@@ -104,6 +104,7 @@ An intersection requires `curb`:
   type: intersection
   pose: {x_m: 0, y_m: 0, rotation_deg: 45}
   curb: true
+  lane_transition_length_m: 20
 ```
 
 The compiler infers the intersection footprint from its incident roads and
@@ -113,6 +114,22 @@ roads form a compact rectangular junction while acute approaches extend far
 enough to meet without gaps. Intersection dimensions and arm lengths are not
 authored. Road centerlines determine their endpoint tangents independently of
 node rotation.
+
+`lane_transition_length_m` is optional and defaults to zero. For each pair of
+opposing through-road arms, the compiler independently selects the cross-section
+with the greater lane count (or wider lanes when the counts match) at the
+intersection. A narrower arm then widens over this distance: its incoming lane
+splits before the intersection and its outgoing local lanes merge after it.
+Perpendicular through roads are paired separately, so a north-south lane-count
+change does not add lanes to a matching east-west street. The taper is part of
+the intersection surface and its lanes and markings are conditioning-visible.
+Each approach retains its own `curb_offset_m` outside the changing lane
+envelope, and its authored curb mode controls the physical curb along the taper.
+
+Opposing arms are inferred from their endpoint tangents; authors do not label
+through-road pairs. A positive transition length is required only when a pair
+changes lane count or lane width. It is measured into the authored road from
+the inferred intersection opening and must not consume the complete road arm.
 
 ### Road joints
 
@@ -124,6 +141,7 @@ intersection. It requires `curve_length_m`:
   type: road_joint
   pose: {x_m: 40, y_m: 20, rotation_deg: 0}
   curve_length_m: 12
+  lane_transition_length_m: 20
 ```
 
 The compiler measures `curve_length_m` independently along each incident road,
@@ -137,12 +155,24 @@ trim may cross multiple curve spans.
 positive-length curve does not necessarily pass through the pose; the pose is
 the original sharp-corner vertex. Node rotation does not affect the join.
 
-Both roads must resolve to compatible lane directions, widths, curb offsets,
-markings, divider markings, and curb modes when oriented through the joint.
-Their speed limits may differ. The joint emits conditioning-visible lanes and
-markings, and each directed joint lane inherits its incoming road's speed.
-Requested trims that consume an entire road or produce invalid or overlapping
-geometry are errors.
+`lane_transition_length_m` is optional and defaults to zero. It permits the two
+roads to differ in lane count, lane width, or both. The joint uses the dominant
+cross-section at the curve, then tapers into each narrower incident road over
+the authored distance. As at an intersection, an incoming narrow lane splits
+toward the joint and outgoing local lanes merge into the narrow road. The taper
+is measured along the incident road after its `curve_length_m` trim, including
+across curved `path` or `bezier` approaches.
+
+When oriented through the joint, both roads must still have compatible
+direction ordering and opposing dividers. Speed limits, outer markings, curb
+offsets, and curb modes may differ. Each approach keeps its authored curb offset
+outside the changing lane envelope throughout its taper; adding lanes never
+widens or narrows that offset. A lane-count or lane-width change requires a
+positive `lane_transition_length_m`; otherwise its default of zero preserves
+the previous exact-width behavior. The joint and taper emit
+conditioning-visible lanes and markings, and each directed joint lane inherits
+its incoming road's speed. Requested curve trims or lane transitions that
+consume an entire road or produce invalid or overlapping geometry are errors.
 
 ### Cul-de-sacs
 
@@ -221,6 +251,11 @@ driveways, and/or cul-de-sacs:
 It uses the linear attributes. Without `path` or `bezier`, its centerline is
 the straight segment between node poses. A self-loop therefore requires one of
 those fields.
+
+Each authored road has one uniform cross-section. To change lane count or lane
+width along a contiguous street, end one road and begin another at a road joint,
+then set the joint's `lane_transition_length_m`. Intersections provide the same
+transition independently for each inferred through-road pair.
 
 For normal hand-authored maps, `path` is a list of map-space points the road
 centerline passes through. The `from` node pose is the implicit first point and
@@ -311,4 +346,6 @@ attributes, duplicate element identifiers, invalid endpoint types, malformed
 or discontinuous road paths, invalid node degrees, invalid driveway
 relationships, invalid parking polygons or openings, overlapping or
 edge-sharing unrelated surfaces, overlapping connected surfaces, mismatched
-connection openings, and parking accesses placed on an opening's interior side.
+connection openings, incompatible lane-transition cross-sections, transitions
+that consume a road arm, and parking accesses placed on an opening's interior
+side.

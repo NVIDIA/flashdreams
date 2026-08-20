@@ -44,22 +44,22 @@ nodes:
   - {id: west_arterial_end, type: cul_de_sac, pose: {x_m: -180, y_m: 0, rotation_deg: 180}, culdesac_radius_m: 12, curb: true}
   - {id: west_arterial_crossing, type: intersection, pose: {x_m: -128, y_m: 0, rotation_deg: 0}, curb: true}
   - {id: central_arterial_crossing, type: intersection, pose: {x_m: 75, y_m: 0, rotation_deg: 0}, curb: true}
-  - {id: diagonal_arterial_crossing, type: intersection, pose: {x_m: 284, y_m: 0, rotation_deg: 0}, curb: true}
+  - {id: diagonal_arterial_crossing, type: intersection, pose: {x_m: 284, y_m: 0, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
 
   - {id: west_north_crossing, type: intersection, pose: {x_m: -123, y_m: 100, rotation_deg: 0}, curb: true}
   - {id: west_upper_crossing, type: intersection, pose: {x_m: -123, y_m: 198, rotation_deg: 0}, curb: true}
   - {id: west_north_end, type: cul_de_sac, pose: {x_m: -123, y_m: 235, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
   - {id: central_north_crossing, type: intersection, pose: {x_m: 75, y_m: 93, rotation_deg: 0}, curb: true}
-  - {id: central_upper_crossing, type: intersection, pose: {x_m: 75, y_m: 198, rotation_deg: 0}, curb: true}
+  - {id: central_upper_crossing, type: intersection, pose: {x_m: 75, y_m: 198, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
   - {id: central_north_end, type: cul_de_sac, pose: {x_m: 75, y_m: 260, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
 
   - {id: west_south_crossing, type: intersection, pose: {x_m: -128, y_m: -84, rotation_deg: 0}, curb: true}
-  - {id: west_lower_crossing, type: intersection, pose: {x_m: -128, y_m: -184, rotation_deg: 0}, curb: true}
+  - {id: west_lower_crossing, type: intersection, pose: {x_m: -128, y_m: -184, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
   - {id: west_south_end, type: cul_de_sac, pose: {x_m: -128, y_m: -235, rotation_deg: 270}, culdesac_radius_m: 9, curb: true}
   - {id: southwest_crossing, type: intersection, pose: {x_m: -44, y_m: -84, rotation_deg: 0}, curb: true}
   - {id: southwest_north_end, type: cul_de_sac, pose: {x_m: -44, y_m: -30, rotation_deg: 90}, culdesac_radius_m: 8, curb: true}
   - {id: southwest_lot_driveway, type: driveway, pose: {x_m: 20, y_m: -85, rotation_deg: 0}}
-  - {id: central_south_crossing, type: intersection, pose: {x_m: 75, y_m: -85, rotation_deg: 0}, curb: true}
+  - {id: central_south_crossing, type: intersection, pose: {x_m: 75, y_m: -85, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
   - {id: central_lower_crossing, type: intersection, pose: {x_m: 75, y_m: -120, rotation_deg: 0}, curb: true}
   - {id: central_south_end, type: cul_de_sac, pose: {x_m: 75, y_m: -200, rotation_deg: 270}, culdesac_radius_m: 9, curb: true}
   - {id: south_lot_driveway, type: driveway, pose: {x_m: 150, y_m: -120, rotation_deg: 0}}
@@ -98,14 +98,14 @@ nodes:
   # Southern commercial grid.
   - {id: south_crossing_630, type: intersection, pose: {x_m: 630, y_m: -303, rotation_deg: 0}, curb: true}
   - {id: south_crossing_710, type: intersection, pose: {x_m: 710, y_m: -176, rotation_deg: 0}, curb: true}
-  - {id: lower_crossing_710, type: intersection, pose: {x_m: 710, y_m: -262, rotation_deg: 0}, curb: true}
+  - {id: lower_crossing_710, type: intersection, pose: {x_m: 710, y_m: -262, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
   - {id: south_end_710, type: cul_de_sac, pose: {x_m: 710, y_m: -310, rotation_deg: 270}, culdesac_radius_m: 9, curb: true}
-  - {id: south_crossing_860, type: intersection, pose: {x_m: 860, y_m: -176, rotation_deg: 0}, curb: true}
+  - {id: south_crossing_860, type: intersection, pose: {x_m: 860, y_m: -176, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
   - {id: lower_crossing_860, type: intersection, pose: {x_m: 860, y_m: -262, rotation_deg: 0}, curb: true}
   - {id: south_upper_lot_driveway, type: driveway, pose: {x_m: 895, y_m: -176, rotation_deg: 0}}
   - {id: south_crossing_930, type: intersection, pose: {x_m: 930, y_m: -176, rotation_deg: 0}, curb: true}
   - {id: lower_crossing_930, type: intersection, pose: {x_m: 930, y_m: -266, rotation_deg: 0}, curb: true}
-  - {id: south_crossing_990, type: intersection, pose: {x_m: 990, y_m: -177, rotation_deg: 0}, curb: true}
+  - {id: south_crossing_990, type: intersection, pose: {x_m: 990, y_m: -177, rotation_deg: 0}, curb: true, lane_transition_length_m: 20}
   - {id: lower_crossing_990, type: intersection, pose: {x_m: 990, y_m: -265, rotation_deg: 0}, curb: true}
   - {id: lower_lot_driveway, type: driveway, pose: {x_m: 785, y_m: -262, rotation_deg: 0}}
   - {id: lower_crossing_1080, type: intersection, pose: {x_m: 1080, y_m: -267, rotation_deg: 0}, curb: true}
