@@ -18,17 +18,16 @@ _LOGGER = logging.getLogger(__name__)
 def run_batch(session: ISession, output: OutputSink, *, steps: int) -> None:
     """Generate ``steps`` results from a session and write each one out.
 
-    The loop for output that is a file: generate a step, write it, repeat. One
-    thread, no input, and no pacing. A file has no client to take input from or
-    to keep up with, so frames are generated as fast as they can be, and the
-    file plays back at the rate its session declared.
+    Generate a step, write it, repeat, on the model generation thread. Nothing
+    paces the loop, so frames are generated as fast as they can be and the file
+    plays back at the rate its session declared.
 
-    Each kind of output has its own loop. An interactive window brings the loop
-    its platform expects, a WebRTC event loop or an OS message pump, and what
-    those have in common with this one is the session they step rather than the
-    way they step it.
-    :func:`flashdreams.runtime_v2.session_runner.run_session` is the polling
-    loop the interactive path uses today.
+    Running a session as a batch rather than interactively is a way of driving
+    it, not a kind of session: the same session produces the same results either
+    way. Every step here is handed an empty batch of events, since nothing is
+    reading input yet.
+    :func:`flashdreams.runtime_v2.session_runner.run_session` is the interactive
+    counterpart.
 
     The session and the sink are both closed before this returns, whether the
     run finished or failed part way through. The application the session came
