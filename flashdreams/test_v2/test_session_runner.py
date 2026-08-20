@@ -516,3 +516,21 @@ def test_run_session_reports_a_window_that_fails_to_open() -> None:
     # holds what it had acquired, so both halves are closed anyway.
     assert "session.step(0)" not in log.calls
     assert log.calls[-2:] == ["window.close", "session.close"]
+
+
+def test_run_session_reports_what_ended_the_run_rather_than_the_close(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log, fail_at=0)
+    window = RecordingClientWindow(log, fail_to_close=True)
+
+    # Both the step and the close fail. The step is the one that explains the
+    # run, so that is what a caller is given, and the close is logged rather
+    # than lost.
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="step failed"):
+            run_session(session, window, steps=2)
+
+    assert "close failed" in caplog.text
+    assert log.calls[-2:] == ["window.close", "session.close"]

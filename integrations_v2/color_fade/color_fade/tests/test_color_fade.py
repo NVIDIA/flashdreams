@@ -14,9 +14,9 @@ from color_fade import create_app
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.batch_runner import run_batch
-from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -236,7 +236,7 @@ def test_init_rejects_settings_that_generate_nothing_watchable(
 
 
 @needs_ffmpeg
-def test_a_batch_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
+def test_a_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     # Written at a size a player will open, so the file this leaves behind is
     # one a person can watch as well as one this test can read back.
     path = tmp_path / "fade.mp4"
@@ -247,11 +247,11 @@ def test_a_batch_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     app.init(["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)])
 
     try:
-        run_batch(
+        run_session(
             app.create_session(
                 _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
             ),
-            Mp4OutputSink(path),
+            Mp4ClientWindow(path),
             steps=steps,
         )
     finally:

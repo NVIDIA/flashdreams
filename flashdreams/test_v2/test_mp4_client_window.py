@@ -1,0 +1,129 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""CPU test for the window a run writing a file is driven against.
+
+What this window has to do is report no input and encode everything else, which
+is what lets one loop drive both an interactive run and a run whose output is a
+file. Driving that loop is covered in ``test_session_runner.py``; what a file
+ends up holding is covered in ``test_mp4_output_sink.py``. The test here that
+runs the loop is the seam between them.
+"""
+
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+import torch
+
+from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
+pytestmark = pytest.mark.ci_cpu
+
+needs_ffmpeg = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None,
+    reason="encoding and reading an MP4 back needs ffmpeg on PATH",
+)
+
+_WIDTH = 16
+"""Frame width. Not square, so a transposed frame cannot pass unnoticed."""
+
+_HEIGHT = 8
+"""Frame height."""
+
+_FRAMES_PER_STEP = 2
+"""Frames a step generates. More than one, so a step is not a frame."""
+
+
+class FakeSession(ISession):
+    """Emit blank frames, recording the input each step was given."""
+
+    def __init__(self, session_desc: SessionDesc) -> None:
+        self._session_desc = session_desc
+        self.observed_events: list[UserInputEvents] = []
+
+    def init(self) -> None:
+        return
+
+    @property
+    def session_desc(self) -> SessionDesc:
+        return self._session_desc
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        self.observed_events.append(events)
+        return StepResult(
+            step_index=step_index,
+            output=torch.zeros(
+                (1, 3, _FRAMES_PER_STEP, _HEIGHT, _WIDTH), dtype=torch.float32
+            ),
+            frame_count=_FRAMES_PER_STEP,
+            output_layout=self._session_desc.output_layout,
+        )
+
+    def reset(self) -> None:
+        return
+
+    def close(self) -> None:
+        return
+
+
+def _session_desc() -> SessionDesc:
+    return SessionDesc(
+        output_layout=VideoTensorLayout.bcthw,
+        frames_per_second_for_ui=100,
+        frames_per_second_for_step=30,
+        video_width=_WIDTH,
+        video_height=_HEIGHT,
+    )
+
+
+def _frame_count(path: Path) -> int:
+    """Return how many frames an MP4 holds, by reading it back."""
+    raw = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    return len(raw) // (_WIDTH * _HEIGHT * 3)
+
+
+def test_there_is_never_any_input_to_report(tmp_path: Path) -> None:
+    """A file has no client, and a run polls anyway, on every tick."""
+    window = Mp4ClientWindow(tmp_path / "clip.mp4")
+
+    assert window.get_user_input_events().get_events() == []
+    assert window.get_user_input_events().get_events() == []
+
+
+@needs_ffmpeg
+def test_a_run_writing_a_file_encodes_a_step_at_a_time(tmp_path: Path) -> None:
+    """The whole point of the window: one loop, and output nobody watches.
+
+    Every step reaches the file, and every step is handed no input, which is what
+    makes a run like this repeatable.
+    """
+    session = FakeSession(_session_desc())
+    path = tmp_path / "clip.mp4"
+
+    run_session(session, Mp4ClientWindow(path), steps=3)
+
+    assert _frame_count(path) == 3 * _FRAMES_PER_STEP
+    assert [events.get_events() for events in session.observed_events] == [[], [], []]

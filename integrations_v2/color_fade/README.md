@@ -7,18 +7,18 @@ SPDX-License-Identifier: Apache-2.0
 
 Smallest end-to-end application that produces a file. It holds no model: a
 session emits solid frames fading from red to green over a fixed number of
-seconds, then stays green. It runs the whole batch path — `IApplication`,
-`ISession`, `run_batch`, `Mp4OutputSink` — on CPU.
+seconds, then stays green. It runs the whole file path — `IApplication`,
+`ISession`, `run_session`, `Mp4ClientWindow`, `Mp4OutputSink` — on CPU.
 
 `red_screen` is the interactive counterpart: it responds to keys and is driven
-by `run_session`. This one responds to nothing, which is what makes the file it
-writes the same on every run.
+against a window with a client on the other end. This one responds to nothing,
+which is what makes the file it writes the same on every run.
 
 ## What it demonstrates
 
 - The same `IApplication` and `ISession` an interactive application implements,
-  driven by a different loop. Nothing here names an output sink or the loop that
-  drives it.
+  driven by the same loop against a window that has no client. Nothing here
+  names an output sink or the window that holds it.
 - Frames are `[-1, 1]` floats, which is what FlashDreams models emit and what a
   sink assumes of a floating point result.
 - A frame's colour comes from when it plays, not from which step produced it, so
@@ -31,9 +31,9 @@ writes the same on every run.
 Writes two seconds of video, the first of them fading:
 
 ```python
-from flashdreams.runtime_v2.batch_runner import run_batch
-from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from color_fade import create_app
 
@@ -48,14 +48,19 @@ app = create_app()
 app.init(["--seconds", "1", "--frames-per-step", "10"])
 try:
     # Six steps of ten frames, at thirty frames a second.
-    run_batch(app.create_session(session_desc), Mp4OutputSink("fade.mp4"), steps=6)
+    run_session(
+        app.create_session(session_desc),
+        Mp4ClientWindow("fade.mp4"),
+        steps=6,
+    )
 finally:
     app.close()
 ```
 
-The application is the caller's, so one that has loaded a model can write
-several files. `run_batch` owns only the session and the sink, closing both
-before it returns.
+`steps` is what ends the run: the window reports no input, so it can never
+report a close either. The application is the caller's, so one that has loaded a
+model can write several files. `run_session` owns only the session and the
+window, closing both before it returns.
 
 Writing an MP4 needs an `ffmpeg` executable on `PATH`, and a frame size that is
 even in both directions.

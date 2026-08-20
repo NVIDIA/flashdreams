@@ -5,6 +5,7 @@
 
 import logging
 import queue
+import sys
 import threading
 from enum import Enum
 
@@ -75,6 +76,17 @@ def run_session(
     Writing happens on the I/O thread, so a window slower than generation leaves
     results waiting. ``max_pending`` bounds how many wait, and ``when_full`` says
     what to do about the next one.
+
+    Output nobody is watching runs the same way. A run writing a file is given
+    :class:`~flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`, which
+    reports no input, so it never reports a close either and ``steps`` is what
+    ends it. Every result reaches the window, in order, which is what a file
+    needs; what differs from an interactive run is only how often ``step_ui`` is
+    called, since that follows a wall clock.
+
+    A window that fails to close fails the run, since for a file that is the
+    encode not finishing. A window that fails while the run is already failing is
+    logged instead: what ended the run is what explains it.
 
     Args:
         session: Uninitialized session to drive.
@@ -263,6 +275,14 @@ def run_session(
     finally:
         stop.set()
         io_thread.join()
+        if io_failure and sys.exc_info()[0] is not None:
+            # The run is already failing, and what failed it is what explains
+            # the run, so the window's failure is logged rather than replacing
+            # it. For a file that failure is the encode not finishing, which is
+            # worth knowing about even when it is not the headline.
+            _LOGGER.error(
+                "The window failed after the run had already failed: %r", io_failure[0]
+            )
         session.close()
 
     # A log line is the only report of these: a caller cannot count them.

@@ -14,24 +14,29 @@ Protocols for the FlashDreams API.
   output sink.
 - `user_input_event_data.py`: base type for event payloads.
 
-There are two ways to run a session, interactively or as a batch. These are
-styles of running a session rather than kinds of session, and a session is
-written the same way for both:
+One loop runs every session:
+`flashdreams.runtime_v2.session_runner.run_session` drives a session against a
+window on two threads, for a fixed number of steps or until the window reports a
+close. What changes between a run somebody is watching and a run that writes a
+file is the window it is driven against, not the loop and not the session:
 
-- `flashdreams.runtime_v2.session_runner.run_session` drives a session against a
-  window on two threads, for a fixed number of steps or until the window reports
-  a close. This is the interactive path.
-- `flashdreams.runtime_v2.batch_runner.run_batch` generates a fixed number of
-  steps on the thread that calls it, and writes each to an `OutputSink`, which is
-  `Mp4OutputSink` when the results are going to a file.
+- An interactive run is given a window with a client on the other end, which
+  reports what the client did and presents what the session generated.
+- A run writing a file is given
+  `flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`, which reports no
+  input and encodes every result through `Mp4OutputSink`. Since it never reports
+  a close, `steps` is what ends the run.
 
-A batch run is for an artifact that can be compared: the same configuration in
-gives the same frames out, so a run can be scored against other engines running
-the same model and against earlier runs of our own. That is why it takes its step
-count up front, writes every result, and reads no clock. The interactive path
-gives all of that up, but for a reason: it drops frames and polls input on a wall
-clock because a client is waiting. So a batch run is the reference and an
-interactive run approximates it, not the other way round.
+A run that writes a file is there to produce an artifact that can be compared:
+the same configuration in gives the same frames out, so a run can be scored
+against other engines running the same model and against earlier runs of our own.
+It gets that from being handed no input and from keeping every result, with
+`WhenFull.BLOCK`, rather than from a loop of its own. A run with a client waiting
+gives both up on purpose, dropping frames to stay in the present.
+
+One thing does still follow a wall clock in both: how often `ISession.step_ui` is
+called, which is why what a session does there must not change what `step`
+generates. See `session.py`.
 
 Ownership
 ---------
@@ -76,9 +81,7 @@ Agreed design decisions. Change them by discussion.
 Threading
 ---------
 
-`run_session` uses two threads, and every interactive window runs that way.
-`run_batch` generates a step and writes it on the one thread it is called on. The
-rest of this section is about `run_session`.
+`run_session` uses two threads, whatever window it is driving, a file included.
 
 `ISession.step` runs on the thread that called `run_session`, which is the
 generation thread; the window gets an I/O thread of its own, ticking at
@@ -102,7 +105,8 @@ results waiting. `run_session` bounds how many wait, with `max_pending`, and
 result is presented, which is what a window that must show all of them wants,
 and `WhenFull.DROP_OLDEST` skips frames to keep latency down, which is what a
 realtime program wants. The caller picks, since it is the caller that created the
-window. A batch run needs neither, since it writes each result as it comes.
+window. A run writing a file leaves this alone: the default is what keeps every
+frame, and dropping one would leave a hole in the file nothing reports.
 
 A reset starts a new attempt at the run, which `run_session` calls a generation:
 a counter it takes up by one each time, recorded on every result it hands to the
@@ -132,9 +136,9 @@ Not built yet
   the session from it is what such a window wants. `run_session` polls instead,
   on a thread it starts itself.
 - `flashdreams-run-v2`: a CLI that creates the requested output, loads an
-  application module, and runs it interactively or as a batch. Named apart from
-  the v1 `flashdreams-run`, which stays as it is. Until it exists, the caller
-  wires that up and an integration ships no entry point.
+  application module, and runs it against a client window or to a file. Named
+  apart from the v1 `flashdreams-run`, which stays as it is. Until it exists, the
+  caller wires that up and an integration ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
 - Shared per-domain test entry points, so a model integration gets coverage from
