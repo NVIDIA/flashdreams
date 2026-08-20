@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import socket
 import threading
 import time
@@ -35,6 +36,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 _WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
 _BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
 _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
+_LOGGER = logging.getLogger(__name__)
 
 
 class _VideoTrack(MediaStreamTrack):
@@ -159,8 +161,14 @@ class WebRTCServer:
 
     @property
     def url(self) -> str:
-        """Return the browser URL for this server."""
-        return f"http://{self._host}:{self._port}/"
+        """Return a browser URL for this server's local host.
+
+        ``0.0.0.0`` and ``::`` listen on every interface but are not browser
+        destinations. Map them to the local loopback address for the URL shown
+        by standalone applications.
+        """
+        host = "127.0.0.1" if self._host in {"0.0.0.0", "::"} else self._host
+        return f"http://{host}:{self._port}/"
 
     def open(self, session_desc: SessionDesc) -> None:
         """Configure the server for one session's generated video.
@@ -278,14 +286,17 @@ class WebRTCServer:
 
     async def _serve_browser(self, _: web.Request) -> web.Response:
         """Return the minimal browser client."""
+        _LOGGER.info("WebRTC endpoint called: GET /")
         return web.Response(text=_BROWSER_PAGE, content_type="text/html")
 
     async def _serve_browser_script(self, _: web.Request) -> web.Response:
         """Return the browser client's JavaScript."""
+        _LOGGER.info("WebRTC endpoint called: GET /app.js")
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
 
     async def _health(self, _: web.Request) -> web.Response:
         """Report whether the server has an open session and client."""
+        _LOGGER.info("WebRTC endpoint called: GET /healthz")
         return web.json_response(
             {
                 "open": self._session_desc is not None,
@@ -295,13 +306,17 @@ class WebRTCServer:
 
     async def _offer(self, request: web.Request) -> web.Response:
         """Negotiate one browser peer connection."""
+        _LOGGER.info("WebRTC endpoint called: %s %s", request.method, request.path)
         if self._closed:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
         session_desc = self._session_desc
         if session_desc is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
         if self._peer_connection is not None:
-            raise web.HTTPConflict(reason="A WebRTC client is already connected.")
+            await self._release_peer_connection(
+                self._peer_connection,
+                close_peer=True,
+            )
 
         try:
             payload = await request.json()
@@ -335,12 +350,12 @@ class WebRTCServer:
 
             @channel.on("close")
             def on_close() -> None:
-                self._record_client_disconnect()
+                _LOGGER.info("WebRTC browser controls channel closed.")
 
         @peer_connection.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
             if peer_connection.connectionState in {"failed", "disconnected", "closed"}:
-                self._record_client_disconnect()
+                await self._release_peer_connection(peer_connection)
 
         try:
             await peer_connection.setRemoteDescription(
@@ -377,6 +392,7 @@ class WebRTCServer:
             raise ValueError("Browser event must be a JSON object.")
 
         event_type = payload.get("type")
+        _LOGGER.info("WebRTC browser event received: %s", event_type)
         if event_type == "keyboard":
             key = payload.get("key")
             pressed = payload.get("pressed")
@@ -416,13 +432,28 @@ class WebRTCServer:
         #  The callback stores it in WebRTCClientWindow’s thread-safe queue.
         callback(event)
 
-    def _record_client_disconnect(self) -> None:
-        """Buffer one close event when the active browser disconnects."""
-        if not self._client_connected:
+    async def _release_peer_connection(
+        self,
+        peer_connection: RTCPeerConnection,
+        *,
+        close_peer: bool = False,
+    ) -> None:
+        """Release the active peer so a browser can reconnect.
+
+        A browser refresh closes its data channel and peer connection. That ends
+        only this transport connection; it does not end the session running on
+        the server.
+        """
+        if self._peer_connection is not peer_connection:
             return
         self._client_connected = False
-        if not self._closed:
-            self._append_event(CloseUserInputEventData())
+        self._peer_connection = None
+        track = self._video_track
+        self._video_track = None
+        if track is not None:
+            await track.close()
+        if close_peer:
+            await peer_connection.close()
 
     async def _enqueue_frames(
         self, frames: tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]

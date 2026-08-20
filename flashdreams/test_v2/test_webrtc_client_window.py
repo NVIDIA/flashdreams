@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import logging
 
 import pytest
 import torch
@@ -28,6 +29,8 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+_WEBRTC_SERVER_LOGGER = "flashdreams.runtime_v2.serving.webrtc_server"
 
 
 def _session_desc() -> SessionDesc:
@@ -79,7 +82,10 @@ async def _connect_browser(
 
 
 @pytest.mark.asyncio
-async def test_window_buffers_browser_events_until_drained() -> None:
+async def test_window_buffers_browser_events_until_drained(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=_WEBRTC_SERVER_LOGGER)
     window = WebRTCClientWindow()
     peer: RTCPeerConnection | None = None
     try:
@@ -124,6 +130,11 @@ async def test_window_buffers_browser_events_until_drained() -> None:
         ]
         assert events[0].get_timestamp() <= events[1].get_timestamp()
         assert window.get_user_input_events().get_events() == []
+        assert "WebRTC endpoint called: GET /healthz" in caplog.messages
+        assert "WebRTC endpoint called: GET /" in caplog.messages
+        assert "WebRTC endpoint called: GET /app.js" in caplog.messages
+        assert "WebRTC endpoint called: POST /api/webrtc/offer" in caplog.messages
+        assert caplog.messages.count("WebRTC browser event received: keyboard") == 2
     finally:
         if peer is not None:
             await peer.close()
@@ -157,4 +168,36 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
     finally:
         if peer is not None:
             await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_window_accepts_a_browser_reconnect() -> None:
+    window = WebRTCClientWindow()
+    first_peer: RTCPeerConnection | None = None
+    second_peer: RTCPeerConnection | None = None
+    try:
+        window.open(_session_desc())
+        first_peer, _, _ = await _connect_browser(window)
+        await first_peer.close()
+
+        second_peer, _, video_track = await _connect_browser(window)
+        track = await asyncio.wait_for(video_track, timeout=5)
+        window.write(
+            StepResult(
+                step_index=0,
+                output=torch.full((2, 3, 16, 16), 17, dtype=torch.uint8),
+                frame_count=2,
+                output_layout=VideoTensorLayout.tchw,
+                metrics={},
+            )
+        )
+
+        frame = await asyncio.wait_for(track.recv(), timeout=5)
+        assert isinstance(frame, VideoFrame)
+    finally:
+        if first_peer is not None:
+            await first_peer.close()
+        if second_peer is not None:
+            await second_peer.close()
         window.close()

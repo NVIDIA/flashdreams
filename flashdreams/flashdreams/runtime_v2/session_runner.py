@@ -53,7 +53,9 @@ def _close_session(session: ISession, *, run_failed: bool) -> None:
     except Exception:
         if not run_failed:
             raise
-        _LOGGER.exception("The session failed to close after the run had already failed.")
+        _LOGGER.exception(
+            "The session failed to close after the run had already failed."
+        )
 
 
 @dataclass
