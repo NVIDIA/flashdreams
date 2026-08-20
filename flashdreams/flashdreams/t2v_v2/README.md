@@ -3,94 +3,72 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-Text-to-video on the v2 API, for every t2v model rather than one of them.
+Text-to-video on the v2 API: one application every t2v model configures rather
+than writes. A prompt goes in, an MP4 comes out.
 
-Each text-to-video model takes a prompt and generates blocks of frames at a
-size and rate it was trained for, so the command line for one is the command
-line for all of them. This package owns that command line, and an integration
-supplies only what differs.
+## Run a model
 
-- `defaults.py`: `T2VApplicationDefaults` is what an integration contributes,
-  and `from_runner_config` reads it off the runner config the integration
-  already has, so a model's frame size and rate are not written down twice.
-- `application.py`: `T2VApplication` declares `--prompt`, `--total-blocks`,
-  `--device`, `--compile`, and `--seed`, defaulting each from those defaults,
-  and answers `session_desc()` with the clip the model was trained to generate.
-  `_configure_argument_parser` and `_apply_parsed_arguments` are where a model
-  adds a flag of its own.
-- `session.py`: `T2VSession` is one rollout, encoding the prompt into a cache
-  and generating one autoregressive block per step until it has generated the
-  whole rollout, which is when it reports itself finished.
-- `testing.py`: test support, imported by an integration's tests and by the
-  shared tests in `flashdreams/test_v2`, and by nothing that runs in production.
-  `check_t2v_model_impl` runs an application, measures the frames on their way to
-  the file, and reports which expectations they missed — which is how a test says
-  "that is a video" about a model that samples and so cannot be asked for a
-  particular picture. `check_real_model_generates_a_clip` is the whole of an
-  integration's GPU run over that, so each one writes down only its own numbers,
-  and `real_model_run_skip_reason` is why such a run skips unless it is asked
-  for. `FakeT2VPipeline` is the stand-in these tests run on a CPU, and lives
-  here because the contract it stands in for is `T2VSession`'s and so is the same
-  for every model.
-
-An integration is then a factory:
-
-```python
-class SelfForcingT2VApplication(T2VApplication):
-    def __init__(self, pipeline_config: Any | None = None) -> None:
-        defaults = T2VApplicationDefaults.from_runner_config(RUNNER_WAN21_T2V_1PT3B)
-        ...
+```bash
+export HF_TOKEN=<your-hf-token>
+uv run --project integrations_v2/t2v_self_forcing flashdreams-run-v2 \
+    t2v-self-forcing --output-path clip.mp4 \
+    -- --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
 
-Five models are behind it, and between them they are why the parts above are
-split the way they are:
+The slug names the model, arguments before `--` describe the run, and arguments
+after it go to the model. The first run downloads the checkpoint, which is tens
+of gigabytes.
 
-| Application | Model | A run |
+| Slug | Model | A run |
 | --- | --- | --- |
-| `t2v_self_forcing` | Self-Forcing Wan 2.1 1.3B, 480p | streams, 9 frames then 12 a block |
-| `t2v_causal_forcing` | Causal-Forcing Wan 2.1 1.3B, 480p | streams, 9 frames then 12 a block |
-| `t2v_fastvideo_causal_wan22` | CausalWan 2.2 14B, 480p | streams, two transformers |
-| `t2v_wan21` | Wan 2.1 1.3B, 480p | one block, 81 frames |
-| `t2v_cosmos_predict2` | Cosmos Predict2 2B, 720p | one block, 93 frames |
+| `t2v-self-forcing` | Self-Forcing Wan 2.1 1.3B, 480p | streams, 9 frames then 12 a block |
+| `t2v-causal-forcing` | Causal-Forcing Wan 2.1 1.3B, 480p | streams, 9 frames then 12 a block |
+| `t2v-fastvideo-causal-wan22` | CausalWan 2.2 14B, 480p | streams, two transformers |
+| `t2v-wan21` | Wan 2.1 1.3B, 480p | one block, 81 frames |
+| `t2v-cosmos-predict2` | Cosmos Predict2 2B, 720p | one block, 93 frames |
 
-The last two are bidirectional: they attend over the whole clip and generate it
-at once, so they override `_validate_total_blocks` to refuse a second block,
-which would not continue the first. CausalWan 2.2 overrides
-`_apply_compile_override`, since it denoises with two transformers and the shared
-override reaches one. Nothing else differs, which is the point.
+Each has a README of its own under `integrations_v2/`, with the frame
+arithmetic for that model.
 
-That is every model here that generates from a prompt alone. The rest condition
-on something else — an image, a camera path, a pose, an HDMap — and `T2VSession`
-forecloses all of them by passing `image=None` when it encodes the prompt. Wan
-2.2 TI2V is the one to bring across next, being a prompt and a first frame and
-nothing further: it needs a session that encodes that frame, and a way for the
-frame to reach the session, which `create_session` does not currently offer. What
-that hook should look like is worth settling on a model that needs it rather than
-in advance.
+## Arguments
 
-Nothing here asks what size or rate to generate at. That describes the session
-rather than the application, so `flashdreams-run-v2` owns those arguments and
-`session_desc()` is what this answers when nobody uses them: the size, rate, and
-layout the checkpoint was trained at, read off the runner config. A model
-generates its best video there, so a caller wanting something to watch says
-nothing and gets it.
+After the `--`, the same for every model, and listed by
+`flashdreams-run-v2 SLUG -- --help`:
 
-`--total-blocks` is how long a rollout is, and the session generates that many
-blocks and then reports itself finished. Nothing above it counts steps, so a run
-writing a file ends by itself and one serving a client ends when that client
-leaves.
+| Argument | |
+| --- | --- |
+| `--prompt` | Text to generate from. Required. |
+| `--total-blocks` | Blocks to generate, which is how long the clip is. |
+| `--device` | Device to load the model on. |
+| `--compile` / `--no-compile` | Compile the network: minutes once, milliseconds a step. |
+| `--seed` | Seed the noise, so the same command generates the same clip. |
 
-`--compile` and `--seed` are the two flags that change the model rather than the
-session, so both are applied by deriving a new pipeline config rather than by
-editing the one the integration ships. Unasked, neither is touched and the
-model's own config decides. `_apply_seed_override` puts the seed on the
-diffusion model, where every model built on this framework keeps it; a model
-that keeps it elsewhere overrides that, as CausalWan 2.2 already overrides
-`_apply_compile_override` for having two transformers.
+Before the `--` are `flashdreams-run-v2`'s own, including `--output-path`,
+`--pixel-width`, `--pixel-height`, and `--fps`. Unasked, a model generates at
+the size and rate its checkpoint was trained for, which is what `session_desc()`
+answers with.
 
-Comparing these models against each other is what
-[`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
-is for: the same prompt and seed through every one of them, ten seconds for
-looking at and a minute for PAI-Bench to score. The two bidirectional models
-reach neither length, so they run at the length they do generate. How to run it
-is [beside the harness](../../tools/benchmarks/README.md).
+## What is here
+
+- `defaults.py`: what an integration contributes, read off the runner config it
+  already ships so a model's frame size and rate are not written down twice.
+- `application.py`: the shared command line above, and the model loaded once for
+  every session. `_configure_argument_parser` and `_apply_parsed_arguments` are
+  where a model adds a flag of its own.
+- `session.py`: one rollout. The prompt is encoded into a cache, a block is
+  generated per step, and the session reports itself finished when it has
+  generated `--total-blocks` of them.
+- `testing.py`: the check an integration's tests run, and the stand-in model
+  they run it against on a CPU.
+
+## Adding a model
+
+Subclass `T2VApplication` with defaults from the integration's runner config,
+which is all any of the five packages behind it are. Override
+`_validate_total_blocks` for a model that generates its whole clip in one
+bidirectional block, and `_apply_compile_override` for one whose transformers
+the shared override does not reach.
+
+Comparing the models against each other is
+[`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json),
+and running it is [beside the harness](../../tools/benchmarks/README.md).
