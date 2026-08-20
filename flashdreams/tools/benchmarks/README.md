@@ -254,7 +254,7 @@ a clip is still repeatable. They also allow themselves six hours rather than
 two.
 
 Every scenario passes `--stats-path` as well as `--output-path`. That is what
-gets [`BenchmarkStatsOutputSink`](../../flashdreams/runtime_v2/benchmark_stats_sink.py)
+gets [`MetricsOutputSink`](../../flashdreams/runtime_v2/metrics_output_sink.py)
 into the run beside the MP4 writer, recording each step's own measurements in
 the artifact the harness reads. Without it a scenario generates a clip that says
 nothing about what it cost. `--seed 1` is passed to every model, and reaches the

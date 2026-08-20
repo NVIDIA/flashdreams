@@ -23,8 +23,8 @@ from flashdreams.runtime_v2.applications import (
     registered_application_slugs,
 )
 from flashdreams.runtime_v2.batch_runner import run_batch
-from flashdreams.runtime_v2.benchmark_stats_sink import BenchmarkStatsOutputSink
 from flashdreams.runtime_v2.composite_output_sink import CompositeOutputSink
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.t2v_v2.application import T2VApplication
 
@@ -174,7 +174,7 @@ def _sink(output_path: str | Path, stats_path: str | Path | None) -> OutputSink:
     mp4 = Mp4OutputSink(output_path)
     if stats_path is None:
         return mp4
-    return CompositeOutputSink(mp4, BenchmarkStatsOutputSink(stats_path))
+    return CompositeOutputSink(mp4, MetricsOutputSink(stats_path))
 
 
 def _as_t2v(application: IApplication) -> T2VApplication:

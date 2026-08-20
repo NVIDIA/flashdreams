@@ -31,7 +31,7 @@ window to select. Applications are found through the
 an integration ships when it has registered nothing.
 
 `--stats-path` asks a run to record what it cost as well as what it generated.
-`BenchmarkStatsOutputSink` writes each step's measurements as the artifact
+`MetricsOutputSink` writes each step's measurements as the artifact
 `flashdreams-benchmark` reads, and `CompositeOutputSink` is how one run reaches
 both it and the MP4. The measurements are the model's own: a step reports what
 it measured and this writes it down, converting milliseconds to seconds because

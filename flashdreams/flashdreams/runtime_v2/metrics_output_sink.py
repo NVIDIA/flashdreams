@@ -15,15 +15,16 @@ from flashdreams.runtime_v2.step_result import StepResult
 _ARTIFACT_TYPE = "flashdreams.runtime.demo.benchmark_stats"
 """What a stats file declares itself to be.
 
-``flashdreams-benchmark`` reads timings out of the files carrying this, and it
-is what the v1 sink writes, so a report can hold runs of both APIs.
+``flashdreams-benchmark`` reads timings out of the files carrying this, and it is
+what the v1 sink, ``flashdreams.demo.outputs.BenchmarkStatsOutputSink``, writes,
+so a report can hold runs of both APIs.
 """
 
 _SCHEMA_VERSION = 1
 """Version of the payload below, as the benchmark tool numbers this artifact."""
 
 
-class BenchmarkStatsOutputSink(OutputSink):
+class MetricsOutputSink(OutputSink):
     """Write what a run measured, where a benchmark report reads it from.
 
     A generated clip says nothing about what it cost to generate, so a run
@@ -73,9 +74,7 @@ class BenchmarkStatsOutputSink(OutputSink):
             RuntimeError: Called before :meth:`open`.
         """
         if self._session_desc is None:
-            raise RuntimeError(
-                "BenchmarkStatsOutputSink.open() must run before write()."
-            )
+            raise RuntimeError("MetricsOutputSink.open() must run before write().")
         samples = _samples_from(result)
         self._samples.extend(samples)
         self._steps.append(
