@@ -34,13 +34,17 @@ class Mp4ClientWindow(IClientWindow):
     which follows a wall clock, so a session generating differently because of
     what it did there generates differently here run to run. That is why it must
     not.
+
+    Everything about the file itself — what an ``open`` accepts, what a failed
+    encode raises — belongs to
+    :class:`~flashdreams.runtime_v2.mp4_output_sink.Mp4OutputSink`, which this
+    owns and delegates to.
     """
 
     def __init__(self, path: str | Path) -> None:
         """
         Args:
-            path: MP4 file to write. Parent directories are created. Encoding
-                happens on the run's I/O thread, so nothing here needs locking.
+            path: MP4 file to write. Parent directories are created.
         """
         self._sink = Mp4OutputSink(path)
 
@@ -53,39 +57,13 @@ class Mp4ClientWindow(IClientWindow):
         return UserInputEvents([])
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Prepare to encode a session's output.
-
-        Args:
-            session_desc: Output description declared by the session. Its frame
-                size becomes the file's, and its ``frames_per_second_for_step``
-                becomes the rate the file plays back at.
-
-        Raises:
-            ValueError: The frames are an odd number of pixels wide or high,
-                which this cannot encode. The run ends before generating
-                anything.
-        """
+        """Prepare to encode a session's output."""
         self._sink.open(session_desc)
 
     def write(self, result: StepResult) -> None:
-        """Encode one step's frames.
-
-        Args:
-            result: Generated output for the completed step.
-
-        Raises:
-            RuntimeError: The encoder stopped, which ends the run: half of what
-                was asked for is not a run that succeeded.
-            ValueError: ``result`` does not match the description the session
-                declared.
-        """
+        """Encode one step's frames."""
         self._sink.write(result)
 
     def close(self) -> None:
-        """Finish the file, which is what makes it playable.
-
-        Raises:
-            RuntimeError: The encoder failed, so the file is unusable, and the
-                run reports it rather than leaving it to be discovered.
-        """
+        """Finish the file, which is what makes it playable."""
         self._sink.close()
