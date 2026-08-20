@@ -48,6 +48,10 @@ _FRAMES_PER_SECOND = 10
 _SECONDS = 1.0
 """Fade length the tests ask for. Short, so a whole fade is a few steps."""
 
+_STEPS_FOR_THE_FADE = 3
+"""Steps a whole fade takes at five frames a step. One second at ten frames a
+second needs eleven frames, so the last step runs a little past the fade."""
+
 _RED = (1.0, -1.0, -1.0)
 """Colour the fade starts at, in the ``[-1, 1]`` range the frames carry."""
 
@@ -194,6 +198,19 @@ def test_the_fade_ignores_input_and_repeats_after_a_reset() -> None:
     assert _colours(session.step(0, UserInputEvents([]))) == pytest.approx(first)
 
 
+def test_the_session_finishes_once_it_has_generated_the_fade() -> None:
+    session = _session(frames_per_step=5)
+
+    assert not session.is_finished()
+    for step_index in range(_STEPS_FOR_THE_FADE):
+        session.step(step_index, UserInputEvents([]))
+
+    assert session.is_finished()
+    # A client asking to start over gets the fade again, not a finished session.
+    session.reset()
+    assert not session.is_finished()
+
+
 def test_session_desc_available_before_any_output_is_opened() -> None:
     assert _session().session_desc == _session_desc()
 
@@ -241,17 +258,15 @@ def test_a_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     # one a person can watch as well as one this test can read back.
     path = tmp_path / "fade.mp4"
     frames_per_step = 5
-    # Two seconds at ten frames a second: one second of fade, then green.
-    steps = 4
 
+    # No step count: the session knows how long its fade is and ends the run.
     ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(
         _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT),
         ["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)],
-        steps=steps,
     )
 
     frames = _decode(path, width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
-    assert len(frames) == steps * frames_per_step
+    assert len(frames) == _STEPS_FOR_THE_FADE * frames_per_step
     red, green, blue = _mean_colour(frames[0])
     assert red > 180
     assert green < 80

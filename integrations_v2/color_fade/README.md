@@ -6,8 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 # Colour Fade
 
 Smallest end-to-end application that writes a file. It holds no model: a session
-emits solid frames fading from red to green over a fixed number of seconds, then
-stays green. It runs the whole file path — `IApplication`, `ISession`,
+emits solid frames fading from red to green over a fixed number of seconds, and
+finishes once it has. It runs the whole file path — `IApplication`, `ISession`,
 `ApplicationRunner`, `run_session`, `Mp4ClientWindow`, `Mp4OutputSink`, on CPU.
 
 `red_screen` is the interactive counterpart. This one responds to nothing, which
@@ -56,8 +56,9 @@ the newest run.
 | `--frames-per-step` | `8` | Frames one step generates. A frame's colour comes from when it plays, so this does not change the video. |
 
 The frame width and height come from the `SessionDesc`, along with the rate the
-frames are meant to play at, and the step count comes from the caller that drives
-the session.
+frames are meant to play at. How long the run lasts comes from `--seconds`: the
+session reports itself finished once it has generated that much fade, so the
+caller driving it passes no step count.
 
 Output is a `[1, 3, frames_per_step, H, W]` float32 tensor in `bcthw` layout,
 carrying `[-1, 1]` values.

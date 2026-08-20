@@ -13,13 +13,14 @@ Protocols for the FlashDreams API.
 - `user_input_event_data.py`: base type for event payloads.
 
 `flashdreams.runtime_v2.session_runner.run_session` drives a session against a
-window, for a fixed number of steps or until the window reports a close, and
-`flashdreams.runtime_v2.application_runner.ApplicationRunner` is what a caller
-holding an application uses to get there. A run whose output is a file goes the
-same way, against `flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`,
-which reports no input and encodes every result. Since it never reports a close,
-such a run ends on `steps` or on the session reporting `is_finished`, which is
-how a model that knows its own length ends its own run.
+window until the session reports `is_finished` or the window reports a close, or
+for a fixed number of steps a caller asks for. A caller holding an application
+uses `flashdreams.runtime_v2.application_runner.ApplicationRunner` to get there,
+which takes no step count: how long a run lasts is the application's business. A
+run whose output is a file goes the same way, against
+`flashdreams.runtime_v2.mp4_client_window.Mp4ClientWindow`, which reports no
+input and encodes every result. Since it never reports a close, such a run needs
+a session that finishes.
 
 Ownership
 ---------

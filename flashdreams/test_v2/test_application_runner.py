@@ -29,9 +29,20 @@ _RUNNER_LOGGER = "flashdreams.runtime_v2.application_runner"
 
 
 class _Session(ISession):
-    def __init__(self, session_desc: SessionDesc, calls: list[str]) -> None:
+    def __init__(
+        self, session_desc: SessionDesc, calls: list[str], *, length: int | None = None
+    ) -> None:
+        """
+        Args:
+            session_desc: Description this session reports as resolved.
+            calls: Shared log every fake records into.
+            length: Steps to generate before reporting that it has finished, or
+                ``None`` for a session that runs until its window ends it.
+        """
         self._session_desc = session_desc
         self._calls = calls
+        self._length = length
+        self._generated = 0
 
     def init(self) -> None:
         self._calls.append("session.init")
@@ -40,9 +51,13 @@ class _Session(ISession):
     def session_desc(self) -> SessionDesc:
         return self._session_desc
 
+    def is_finished(self) -> bool:
+        return self._length is not None and self._generated >= self._length
+
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         del events
         self._calls.append(f"session.step({step_index})")
+        self._generated += 1
         return StepResult(
             step_index=step_index,
             output=torch.zeros((1, 3, 1, 2, 2)),
@@ -61,10 +76,12 @@ class _Application(IApplication):
         *,
         fail_to_init: bool = False,
         fail_to_close: bool = False,
+        session_length: int | None = None,
     ) -> None:
         self._calls = calls
         self._fail_to_init = fail_to_init
         self._fail_to_close = fail_to_close
+        self._session_length = session_length
 
     def init(self, commandline_args: Sequence[str]) -> None:
         self._calls.append(f"application.init({list(commandline_args)!r})")
@@ -73,7 +90,7 @@ class _Application(IApplication):
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         self._calls.append("application.create_session")
-        return _Session(session_desc, self._calls)
+        return _Session(session_desc, self._calls, length=self._session_length)
 
     def close(self) -> None:
         self._calls.append("application.close")
@@ -156,11 +173,13 @@ def test_application_runner_closes_application_when_init_fails() -> None:
 
 
 def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
-    """A window with no client never reports a close, so steps ends the run."""
+    """A window with no client never reports a close, so the session ends it."""
     calls: list[str] = []
     window = _SilentWindow(calls)
 
-    ApplicationRunner(_Application(calls), window).run(_session_desc(), steps=3)
+    ApplicationRunner(_Application(calls, session_length=3), window).run(
+        _session_desc()
+    )
 
     assert [result.step_index for result in window.results] == [0, 1, 2]
     assert calls[-3:] == ["window.close", "session.close", "application.close"]

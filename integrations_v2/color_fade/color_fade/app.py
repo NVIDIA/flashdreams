@@ -60,8 +60,9 @@ class ColorFadeSession(ISession):
     ``frames_per_second_for_step``. The fade therefore takes the same time
     however many frames a step generates.
 
-    A run longer than the fade keeps emitting green; a shorter one stops part
-    way through the fade.
+    The session finishes once it has generated the fade, so a run against it
+    ends on its own rather than on a count the caller had to work out. A caller
+    that stops it earlier gets part of the fade.
 
     Pixels are ``[-1, 1]`` floats, which is what FlashDreams models emit and
     what an output sink expects of a floating point result.
@@ -84,6 +85,13 @@ class ColorFadeSession(ISession):
             )
         self._config = config
         self._session_desc = session_desc
+        self._steps_generated = 0
+        # One step past the fade's last whole frame, so the run ends on a frame
+        # that is fully green rather than a shade short of it.
+        frames = 1 + math.floor(
+            config.seconds * session_desc.frames_per_second_for_step
+        )
+        self._steps = math.ceil(frames / config.frames_per_step)
 
     def init(self) -> None:
         """Do nothing: there is no model here to load."""
@@ -104,6 +112,7 @@ class ColorFadeSession(ISession):
         Returns:
             Result carrying ``[1, 3, frames_per_step, H, W]``.
         """
+        self._steps_generated += 1
         return StepResult(
             step_index=step_index,
             output=self._frames(step_index),
@@ -111,9 +120,24 @@ class ColorFadeSession(ISession):
             output_layout=self._session_desc.output_layout,
         )
 
+    def is_finished(self) -> bool:
+        """Report whether the whole fade has been generated.
+
+        Returns:
+            Whether the frames generated so far cover ``seconds`` of fade. The
+            last step may run a little past it, since a step generates whole
+            frames and the frames after the fade are green.
+        """
+        return self._steps_generated >= self._steps
+
     def reset(self) -> None:
-        """Do nothing: every frame is a function of its step index."""
-        return
+        """Start the fade again.
+
+        Every frame is a function of its step index, so there is nothing else to
+        undo. Only the count of what has been generated goes back, which is what
+        makes this session unfinished again.
+        """
+        self._steps_generated = 0
 
     def _frames(self, step_index: int) -> Tensor:
         frames_per_step = self._config.frames_per_step

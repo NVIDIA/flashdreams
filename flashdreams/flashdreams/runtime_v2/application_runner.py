@@ -29,28 +29,23 @@ class ApplicationRunner:
         self._client_window = client_window
 
     def run(
-        self,
-        session_desc: SessionDesc,
-        commandline_args: Sequence[str] = (),
-        *,
-        steps: int | None = None,
+        self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
     ) -> None:
         """Initialize the application, create one session, and run it.
+
+        The run ends when the window reports a close or the session reports that
+        it has finished.
 
         The application is closed before this method returns or raises.
 
         Args:
             session_desc: Output shape and timing requested for the session.
             commandline_args: Arguments owned and parsed by the application.
-            steps: Steps to generate, or ``None`` to run until the window
-                reports a close. A window with a client on the other end reports
-                one when that client goes away; a window writing a file never
-                does, so a run like that needs a count to end it.
         """
         try:
             self._application.init(commandline_args)
             session = self._application.create_session(session_desc)
-            run_session(session, self._client_window, steps=steps)
+            run_session(session, self._client_window)
         finally:
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None

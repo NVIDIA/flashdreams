@@ -108,9 +108,8 @@ def run_session(
     run ends at whichever comes first: that, ``steps``, or a close.
 
     A window that fails to close fails the run, because for a file that means the
-    encode did not finish. Whatever failed first is what the run reports, though:
-    a window or session that then fails to close is logged instead of replacing
-    the error that ended the run.
+    encode did not finish. A close that fails after something else already has is
+    logged instead, though, since the earlier failure is what explains the run.
 
     Args:
         session: Uninitialized session to drive.
@@ -303,13 +302,16 @@ def run_session(
     finally:
         stop.set()
         io_thread.join()
-        # Whatever failed first is what the run reports. Anything that fails
-        # afterwards, while cleaning up, is logged rather than raised over the
-        # top of it.
+        # A failure here is what the run reports, since a window failure stops
+        # generation rather than raising through it: both places this thread can
+        # be sitting give up once io_failure is set, so a run that reports a
+        # window failure got there without failing itself. The two are only ever
+        # both set by failing independently, and then this is the one raised.
         run_failed = sys.exc_info()[0] is not None
         if io_failure and run_failed:
             _LOGGER.error(
-                "The window failed after the run had already failed: %r", io_failure[0]
+                "The window failed as well as the run, and this is that failure.",
+                exc_info=io_failure[0],
             )
         _close_session(session, run_failed=run_failed or bool(io_failure))
 

@@ -22,8 +22,9 @@ class Mp4ClientWindow(IClientWindow):
 
     Two things a caller has to get right, because nothing here can:
 
-    - Pass ``steps``. Nothing here ever reports a close, so a run left to end on
-      its own never ends.
+    - Give it a session that finishes. Nothing here ever reports a close, so a
+      run only ends when the session says it has generated everything, or when
+      ``run_session`` is called directly with ``steps``.
     - Leave ``when_full`` alone. The default holds generation back until encoding
       has caught up, where ``WhenFull.DROP_OLDEST`` would quietly leave frames
       out of the file.
