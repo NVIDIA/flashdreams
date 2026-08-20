@@ -266,7 +266,7 @@ def _require_dimensions(
 
 
 def _require_one(size: int, name: str, layout: VideoTensorLayout) -> None:
-    """If a file can only hold one dimension, confirm it is exactly one."
+    """If a file can only hold one dimension, confirm it is exactly one."""
     if size != 1:
         raise ValueError(
             f"An MP4 holds one sequence of frames, so {layout.value} output "
