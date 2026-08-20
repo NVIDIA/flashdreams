@@ -5,9 +5,11 @@ const peer = new RTCPeerConnection();
 const controls = peer.createDataChannel("controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 
+const video = document.getElementById("video");
+
 peer.ontrack = event => {
-  document.getElementById("video").srcObject =
-    event.streams[0] ?? new MediaStream([event.track]);
+  video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+  video.play().catch(error => console.error("Unable to play WebRTC video", error));
 };
 
 const send = payload => {
@@ -36,7 +38,19 @@ document.getElementById("reset").onclick = () => {
   send({type: "reset"});
 };
 
-window.addEventListener("beforeunload", () => send({type: "close"}));
+
+async function waitForIceGathering() {
+  if (peer.iceGatheringState === "complete") {
+    return;
+  }
+  await new Promise(resolve => {
+    peer.addEventListener("icegatheringstatechange", () => {
+      if (peer.iceGatheringState === "complete") {
+        resolve();
+      }
+    });
+  });
+}
 
 async function connect() {
   while (true) {
@@ -47,6 +61,7 @@ async function connect() {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   await peer.setLocalDescription(await peer.createOffer());
+  await waitForIceGathering();
   const response = await fetch("/api/webrtc/offer", {
     method: "POST",
     headers: {"content-type": "application/json"},

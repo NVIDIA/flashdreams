@@ -14,7 +14,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import WhenFull, run_session
+from flashdreams.runtime_v2.session_runner import SessionRunner, WhenFull
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -32,6 +32,24 @@ _IO_THREAD_NAME = "flashdreams-io"
 
 _RUNNER_LOGGER = "flashdreams.runtime_v2.session_runner"
 """Logger the runner reports discarded results on."""
+
+
+def run_session(
+    session: ISession,
+    window: IClientWindow,
+    *,
+    steps: int | None = None,
+    max_pending: int = 2,
+    when_full: WhenFull = WhenFull.BLOCK,
+) -> None:
+    """Run the public session-runner API with test-specific arguments."""
+    SessionRunner(
+        session,
+        window,
+        steps=steps,
+        max_pending=max_pending,
+        when_full=when_full,
+    ).run_session()
 
 
 class CallLog:

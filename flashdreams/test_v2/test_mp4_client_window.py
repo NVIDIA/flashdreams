@@ -18,7 +18,7 @@ import torch
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import SessionRunner
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -117,7 +117,7 @@ def test_a_run_writing_a_file_encodes_a_step_at_a_time(tmp_path: Path) -> None:
     session = FakeSession(_session_desc())
     path = tmp_path / "clip.mp4"
 
-    run_session(session, Mp4ClientWindow(path), steps=3)
+    SessionRunner(session, Mp4ClientWindow(path), steps=3).run_session()
 
     assert _frame_count(path) == 3 * _FRAMES_PER_STEP
     assert [events.get_events() for events in session.observed_events] == [[], [], []]

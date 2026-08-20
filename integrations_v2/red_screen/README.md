@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Smallest end-to-end application on the v2 API. It holds no model: a session emits
 red frames controlled by activation and intensity keys. It runs the whole path —
-`IApplication`, `ISession`, `run_session`, `IClientWindow` — on CPU.
+`IApplication`, `ISession`, `SessionRunner`, `IClientWindow` — on CPU.
 
 ## What it demonstrates
 
@@ -15,7 +15,7 @@ red frames controlled by activation and intensity keys. It runs the whole path �
   else. This one never names `IClientWindow`, `InputSource` or `OutputSink`.
 - A session is created from a `SessionDesc` with no client window involved, so it
   works before any client connects. It reports what it resolved to in
-  `ISession.session_desc`, which `run_session` hands to `IClientWindow.open`.
+  `ISession.session_desc`, which `SessionRunner` hands to `IClientWindow.open`.
 - An application can reject a description it cannot honour: this one raises on
   any layout other than `bcthw`.
 - The runner drives the loop and hands the session each `step_index`, so the
@@ -53,7 +53,7 @@ The same application can be driven directly without WebRTC:
 
 ```python
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import SessionRunner
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from red_screen import create_app
 
@@ -66,7 +66,7 @@ session = app.create_session(
         video_height=16,
     )
 )
-run_session(session, my_client_window, steps=4)
+SessionRunner(session, my_client_window, steps=4).run_session()
 app.close()
 ```
 

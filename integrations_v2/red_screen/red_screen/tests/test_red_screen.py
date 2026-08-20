@@ -13,7 +13,7 @@ from red_screen import create_app
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import WhenFull, run_session
+from flashdreams.runtime_v2.session_runner import SessionRunner, WhenFull
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEventData,
@@ -118,7 +118,7 @@ def _run(
     session = app.create_session(_session_desc())
     window = ScriptedClientWindow([initial_events] if initial_events else None)
     try:
-        run_session(session, window, steps=steps)
+        SessionRunner(session, window, steps=steps).run_session()
     finally:
         app.close()
     return window
@@ -211,7 +211,13 @@ def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
     # previous one, and every tick polls input before it presents. That makes the
     # key reach a step rather than depending on how the threads are scheduled.
     try:
-        run_session(session, window, steps=3, max_pending=1, when_full=WhenFull.BLOCK)
+        SessionRunner(
+            session,
+            window,
+            steps=3,
+            max_pending=1,
+            when_full=WhenFull.BLOCK,
+        ).run_session()
     finally:
         app.close()
 

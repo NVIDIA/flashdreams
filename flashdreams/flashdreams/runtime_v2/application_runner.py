@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import SessionRunner
 
 _LOGGER = logging.getLogger(__name__)
 """Logger for an application that could not be closed."""
@@ -45,7 +45,7 @@ class ApplicationRunner:
         try:
             self._application.init(commandline_args)
             session = self._application.create_session(session_desc)
-            run_session(session, self._client_window)
+            SessionRunner(session, self._client_window).run_session()
         finally:
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
