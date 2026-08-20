@@ -34,12 +34,12 @@ nodes:
     connected_to: hub
     opening_vertex: 2
     vertices:
-      - {x_m: -35, y_m: -2}
-      - {x_m: -5, y_m: -2}
-      - {x_m: 5, y_m: -2}
-      - {x_m: 35, y_m: -2}
-      - {x_m: 35, y_m: -22}
-      - {x_m: -35, y_m: -22}
+      - {x_m: -35, y_m: -7}
+      - {x_m: -3, y_m: -7}
+      - {x_m: 3, y_m: -7}
+      - {x_m: 35, y_m: -7}
+      - {x_m: 35, y_m: -27}
+      - {x_m: -35, y_m: -27}
 
   - id: neighborhood_loop_northeast_corner
     type: road_joint
