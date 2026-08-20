@@ -18,7 +18,8 @@ class Mp4OutputSink(OutputSink):
     drives it: a file has no client to ask for it to end.
 
     Encoding belongs to :class:`Mp4Encoder`, which needs an ``ffmpeg``
-    executable on ``PATH``. This class is the part that speaks the protocol.
+    executable on ``PATH``. This class is the part that implements
+    :class:`~flashdreams.api_v2.output_sink.OutputSink`.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -38,8 +39,8 @@ class Mp4OutputSink(OutputSink):
 
         Args:
             session_desc: Output description declared by the session. Its frame
-                size becomes the file's, and its generation rate becomes the
-                rate the file plays back at.
+                size becomes the file's, and its ``frames_per_second_for_step``
+                becomes the rate the file plays back at.
 
         Raises:
             ValueError: The frames are an odd number of pixels wide or high,

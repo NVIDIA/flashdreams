@@ -27,10 +27,10 @@ _DEFAULT_ACTIVATION_KEY = "r"
 _RED_CHANNEL = 0
 """Channel index set to full intensity while the activation key is held."""
 
-_FULL = 1.0
+_FULL_INTENSITY = 1.0
 """Full intensity for a channel, in the ``[-1, 1]`` range a model emits."""
 
-_NONE = -1.0
+_NO_INTENSITY = -1.0
 """No intensity for a channel, which is black across all three."""
 
 
@@ -124,11 +124,11 @@ class RedScreenSession(ISession):
     def _frame(self) -> Tensor:
         frame = torch.full(
             (1, 3, 1, self._session_desc.video_height, self._session_desc.video_width),
-            _NONE,
+            _NO_INTENSITY,
             dtype=torch.float32,
         )
         frame[:, _RED_CHANNEL] = (
-            _FULL if self._key_held else 2.0 * self._color_intensity - 1.0
+            _FULL_INTENSITY if self._key_held else 2.0 * self._color_intensity - 1.0
         )
         return frame
 
@@ -145,9 +145,10 @@ class RedScreenApplication(IApplication):
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse the activation key.
 
-        Neither frame geometry nor rollout length is an application argument: the
-        runtime supplies geometry per session through :class:`SessionDesc`, and
-        decides how long to run when it drives the session.
+        Neither the frame size nor the length of the run is an application
+        argument: the runtime supplies the width and height per session through
+        :class:`SessionDesc`, and decides how many steps to run when it drives
+        the session.
 
         Args:
             commandline_args: Application-specific arguments.

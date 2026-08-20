@@ -22,15 +22,15 @@ written the same way for both:
   window on two threads, for a fixed number of steps or until the window reports
   a close. This is the interactive path.
 - `flashdreams.runtime_v2.batch_runner.run_batch` generates a fixed number of
-  steps for the model generation thread and writes each to an `OutputSink`,
-  which is `Mp4OutputSink` when the results are going to a file.
+  steps on the thread that calls it, and writes each to an `OutputSink`, which is
+  `Mp4OutputSink` when the results are going to a file.
 
 A batch run is for an artifact that can be compared: the same configuration in
 gives the same frames out, so a run can be scored against other engines running
 the same model and against earlier runs of our own. That is why it takes its step
 count up front, writes every result, and reads no clock. The interactive path
-gives none of that up for nothing — it drops frames and polls input on a wall
-clock because a client is waiting — so a batch run is the reference and an
+gives all of that up, but for a reason: it drops frames and polls input on a wall
+clock because a client is waiting. So a batch run is the reference and an
 interactive run approximates it, not the other way round.
 
 Ownership
@@ -77,13 +77,14 @@ Threading
 ---------
 
 `run_session` uses two threads, and every interactive window runs that way.
-`run_batch` generates a step and writes it on the model generation thread. The
+`run_batch` generates a step and writes it on the one thread it is called on. The
 rest of this section is about `run_session`.
 
-Generation is on the calling thread; the window gets a thread of its own,
-ticking at `frames_per_second_for_ui` to read input, call `ISession.step_ui`,
-and write finished results. A step that takes longer than one of those ticks
-does not hold up input or output, because it is not on that thread.
+`ISession.step` runs on the thread that called `run_session`, which is the
+generation thread; the window gets an I/O thread of its own, ticking at
+`frames_per_second_for_ui` to read input, call `ISession.step_ui`, and write
+finished results. A step that takes longer than one of those ticks does not hold
+up input or output, because it is not on the I/O thread.
 
 The two rates in `SessionDesc` measure different things.
 `frames_per_second_for_ui` is how often input is read and finished results are
@@ -103,15 +104,16 @@ and `WhenFull.DROP_OLDEST` skips frames to keep latency down, which is what a
 realtime program wants. The caller picks, since it is the caller that created the
 window. A batch run needs neither, since it writes each result as it comes.
 
-Each waiting result carries the generation it was produced for, and a reset moves
-on to the next one. Nothing from the generation the client abandoned is written,
-whether it was already waiting or was still being generated when the reset
-arrived, so what a client sees after restarting begins at the new step zero.
+A reset starts a new attempt at the run, which `run_session` calls a generation:
+a counter it takes up by one each time, recorded on every result it hands to the
+window. Nothing from the attempt the client abandoned is written, whether it was
+already waiting or was still being generated when the reset arrived, so what a
+client sees after restarting begins at the new step zero.
 
 Reading input and presenting frames belong to `IClientWindow`, not to `ISession`.
-`ISession.step_ui` is the second tick the I/O thread drives, so a session's UI work
-keeps running while a step is in flight. It cannot produce output yet, so today it
-can only update state.
+Alongside reading input, each I/O tick calls `ISession.step_ui`, so a session's
+UI work keeps running while a step is in flight. It cannot produce output yet, so
+today it can only update state.
 
 Not built yet
 -------------
@@ -129,9 +131,10 @@ Not built yet
   owns an event loop already, an asyncio one or an OS message pump, and stepping
   the session from it is what such a window wants. `run_session` polls instead,
   on a thread it starts itself.
-- `flashdreams-run`: a CLI that creates the requested output, loads an
-  application module, and runs it interactively or as a batch. Until it exists,
-  the caller wires that up and an integration ships no entry point.
+- `flashdreams-run-v2`: a CLI that creates the requested output, loads an
+  application module, and runs it interactively or as a batch. Named apart from
+  the v1 `flashdreams-run`, which stays as it is. Until it exists, the caller
+  wires that up and an integration ships no entry point.
 - An output path for `ISession.step_ui`, so UI work can reach the window rather
   than only updating session state.
 - Shared per-domain test entry points, so a model integration gets coverage from

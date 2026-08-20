@@ -94,8 +94,8 @@ it was not asked about, which the framework tests import.
 |---|---|---|
 | `--key` | `r` | Key whose held state selects red over black. |
 
-Frame geometry comes from the `SessionDesc`, and the step count from the caller
-that drives the session. Neither is a command-line argument.
+The frame width and height come from the `SessionDesc`, and the step count from
+the caller that drives the session. Neither is a command-line argument.
 
 Output is a `[1, 3, 1, H, W]` float32 tensor in `bcthw` layout, carrying the
 `[-1, 1]` values a client window expects: red is `1.0` on channel 0 and `-1.0`

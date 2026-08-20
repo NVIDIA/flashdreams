@@ -23,19 +23,19 @@ _DEFAULT_SECONDS = 10.0
 
 _DEFAULT_FRAMES_PER_STEP = 8
 """Frames one step generates by default. More than one, because a model
-generates a chunk of frames per step rather than a single frame."""
+generates several frames a step rather than a single frame."""
 
 _RED_CHANNEL = 0
-"""Channel the fade starts at full intensity."""
+"""Channel at full intensity when the fade starts."""
 
 _GREEN_CHANNEL = 1
-"""Channel the fade ends at full intensity."""
+"""Channel at full intensity when the fade ends."""
 
-_FULL = 1.0
+_FULL_INTENSITY = 1.0
 """Full intensity for a channel, in the ``[-1, 1]`` range a model emits."""
 
-_NONE = -1.0
-"""No intensity for a channel."""
+_NO_INTENSITY = -1.0
+"""No intensity for a channel, which is black across all three."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +58,7 @@ class ColorFadeSession(ISession):
     Each frame's colour comes from when it plays rather than from which step
     produced it: a frame's time is its position in the run divided by
     ``frames_per_second_for_step``. The fade therefore takes the same time
-    whatever the chunk size.
+    however many frames a step generates.
 
     A run longer than the fade keeps emitting green; a shorter one stops part
     way through the fade.
@@ -71,8 +71,8 @@ class ColorFadeSession(ISession):
         """
         Args:
             config: Resolved settings shared with the owning application.
-            session_desc: Session the runtime asked for. Honoured as-is; this
-                application can produce any frame size.
+            session_desc: Description of the session the runtime asked for.
+                Honoured as-is; this application can produce any frame size.
 
         Raises:
             ValueError: ``session_desc`` requests a layout other than ``bcthw``.
@@ -94,7 +94,7 @@ class ColorFadeSession(ISession):
         return self._session_desc
 
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Emit the chunk of frames belonging to ``step_index``.
+        """Emit the frames belonging to ``step_index``.
 
         Args:
             step_index: Zero-based index of this step.
@@ -124,9 +124,10 @@ class ColorFadeSession(ISession):
         ) * seconds_per_frame
         progress = (frame_times / self._config.seconds).clamp(max=1.0)
 
-        channels = torch.full((3, frames_per_step), _NONE, dtype=torch.float32)
-        channels[_RED_CHANNEL] = _FULL + (_NONE - _FULL) * progress
-        channels[_GREEN_CHANNEL] = _NONE + (_FULL - _NONE) * progress
+        channels = torch.full((3, frames_per_step), _NO_INTENSITY, dtype=torch.float32)
+        span = _FULL_INTENSITY - _NO_INTENSITY
+        channels[_RED_CHANNEL] = _FULL_INTENSITY - span * progress
+        channels[_GREEN_CHANNEL] = _NO_INTENSITY + span * progress
         # One colour per frame, spread over every pixel of that frame.
         return (
             channels.view(1, 3, frames_per_step, 1, 1)

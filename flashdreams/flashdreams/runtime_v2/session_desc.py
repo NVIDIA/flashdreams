@@ -28,8 +28,9 @@ class SessionDesc:
     frames_per_second_for_step: int = 30
     """Rate the generated frames are meant to play at, in frames per second.
 
-    Frames rather than steps: a step generating eight of them covers eight of
-    these, however long it took to generate. Nothing paces by it yet.
+    This counts frames, not steps: eight frames from one step play over eight
+    frames' worth of this rate, however long that step took to generate. Nothing
+    paces by it yet.
     """
 
     video_width: int = 1280

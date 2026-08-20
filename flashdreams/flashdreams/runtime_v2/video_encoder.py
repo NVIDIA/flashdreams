@@ -184,7 +184,8 @@ def result_to_rgb24_frames(
 
     A pixel's value is read by dtype: a floating point tensor holds ``[-1, 1]``,
     which is what FlashDreams models emit, and an integer tensor holds raw
-    ``0``-``255`` values. One channel is repeated to three.
+    ``0``-``255`` values. A result carrying one colour channel has it repeated
+    across all three.
 
     Args:
         result: Generated output for one step.
@@ -194,9 +195,9 @@ def result_to_rgb24_frames(
         Frames as uint8 RGB, oldest first.
 
     Raises:
-        ValueError: ``result`` does not match ``session_desc``, its layout names
-            more than one sequence of frames, or it disagrees with itself over
-            how many frames it carries.
+        ValueError: ``result`` does not match ``session_desc``, carries more than
+            one sequence of frames, or disagrees with itself over how many frames
+            it carries.
     """
     if result.output_layout is not session_desc.output_layout:
         raise ValueError(
@@ -231,8 +232,8 @@ def _to_tchw(output: Tensor, layout: VideoTensorLayout) -> Tensor:
     """Return ``output`` as ``[T, C, H, W]``, whatever ``layout`` it arrived in.
 
     Raises:
-        ValueError: The layout names more than one sequence of frames, or the
-            tensor does not have the shape its layout claims.
+        ValueError: The tensor carries more than one sequence of frames, or does
+            not have the shape its layout claims.
     """
     if layout is VideoTensorLayout.tchw:
         _require_dimensions(output, layout, 4)
@@ -265,7 +266,7 @@ def _require_dimensions(
 
 
 def _require_one(size: int, name: str, layout: VideoTensorLayout) -> None:
-    """Check a dimension a file can only hold one of."""
+    """If a file can only hold one dimension, confirm it is exactly one."
     if size != 1:
         raise ValueError(
             f"An MP4 holds one sequence of frames, so {layout.value} output "

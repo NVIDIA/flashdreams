@@ -19,10 +19,10 @@ writes the same on every run.
 - The same `IApplication` and `ISession` an interactive application implements,
   driven by a different loop. Nothing here names an output sink or the loop that
   drives it.
-- Frames are `[-1, 1]` floats, which is what FlashDreams models emit and how a
-  sink reads a floating point result.
+- Frames are `[-1, 1]` floats, which is what FlashDreams models emit and what a
+  sink assumes of a floating point result.
 - A frame's colour comes from when it plays, not from which step produced it, so
-  chunk size does not change the video.
+  how many frames a step generates does not change the video.
 - A run longer than the fade keeps generating: the caller decides when to stop,
   not the application.
 
@@ -71,8 +71,8 @@ uv run --no-sync pytest integrations_v2/color_fade -m ci_cpu -v
 ```
 
 The end-to-end test writes a real 854x480 file and reads it back. It is written
-at a size a player will open, so it can be watched as well as asserted over.
-Send it somewhere you can find it:
+at a size a player will open, so it can be watched as well as asserted on. Send
+it somewhere you can find it:
 
 ```bash
 uv run --no-sync pytest integrations_v2/color_fade -k mp4 --basetemp="$HOME/fade-out"
@@ -101,8 +101,9 @@ it was not asked about, which the framework tests import.
 | `--seconds` | `10` | How long the fade from red to green takes. |
 | `--frames-per-step` | `8` | Frames one step generates. |
 
-Frame geometry and the generation rate come from the `SessionDesc`, and the step
-count from the caller that drives the session.
+The frame width and height come from the `SessionDesc`, along with the rate the
+frames are meant to play at, and the step count comes from the caller that drives
+the session.
 
 Output is a `[1, 3, frames_per_step, H, W]` float32 tensor in `bcthw` layout,
 carrying `[-1, 1]` values.
