@@ -25,6 +25,14 @@ written the same way for both:
   steps for the model generation thread and writes each to an `OutputSink`,
   which is `Mp4OutputSink` when the results are going to a file.
 
+A batch run is for an artifact that can be compared: the same configuration in
+gives the same frames out, so a run can be scored against other engines running
+the same model and against earlier runs of our own. That is why it takes its step
+count up front, writes every result, and reads no clock. The interactive path
+gives none of that up for nothing — it drops frames and polls input on a wall
+clock because a client is waiting — so a batch run is the reference and an
+interactive run approximates it, not the other way round.
+
 Ownership
 ---------
 

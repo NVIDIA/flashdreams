@@ -64,6 +64,13 @@ class ISession(ABC):
         same events reach :meth:`step` in its next batch, so a session can
         respond here and generate from them later.
 
+        What happens here must not change what :meth:`step` generates. Anything
+        that should reach generation goes through the events :meth:`step` is
+        given, which is where these events arrive anyway. A batch run does not
+        call this at all, since its output is meant to be the generated frames
+        and nothing else, so a session that generated differently depending on
+        this would produce a result that could not be reproduced.
+
         It cannot produce output yet, so today it can only update state. The
         default does nothing, and a session with nothing to do at this rate
         leaves it alone.

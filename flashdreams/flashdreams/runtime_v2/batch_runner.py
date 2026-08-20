@@ -25,9 +25,14 @@ def run_batch(session: ISession, output: OutputSink, *, steps: int) -> None:
     Running a session as a batch rather than interactively is a way of driving
     it, not a kind of session: the same session produces the same results either
     way. Every step here is handed an empty batch of events, since nothing is
-    reading input yet.
+    reading input yet, and :meth:`ISession.step_ui` is not called, since the
+    output is meant to be the generated frames and nothing else.
     :func:`flashdreams.runtime_v2.session_runner.run_session` is the interactive
     counterpart.
+
+    Every result is written and no clock is read, so the same configuration
+    generates the same frames each time. That is what makes the output worth
+    comparing, against other engines running the model and against earlier runs.
 
     The session and the sink are both closed before this returns, whether the
     run finished or failed part way through. The application the session came
