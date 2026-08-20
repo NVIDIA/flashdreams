@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from shapely import is_valid_reason
 from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import substring, unary_union
+from shapely.ops import polygonize, substring, unary_union
 
 from omnidreams_game_engine.game_map._schema import (
     _SCHEMA_VERSION,
@@ -55,6 +56,11 @@ from omnidreams_game_engine.game_map.types import (
 _POSITION_TOLERANCE_M = 0.05
 _AREA_TOLERANCE_M2 = 1.0e-4
 _LINE_TOLERANCE_M = 1.0e-4
+_OPENING_TOLERANCE_M = 1.0e-2
+"""Maximum numeric drift when matching separately materialized seam polylines."""
+
+_BOUNDARY_CLEARANCE_M = 1.0e-2
+"""Outward clearance that keeps sampled roadside corners behind their openings."""
 
 _LINEAR_ATTRIBUTE_FIELDS = frozenset(
     {
@@ -104,11 +110,8 @@ class _Connection:
     second_element_id: str
     """Second connected surface element."""
 
-    width_m: float
-    """Opening width measured along both element boundaries."""
-
-    center_xy: np.ndarray
-    """Opening center with shape ``[2]``."""
+    opening_xy: np.ndarray
+    """Shared boundary polyline with shape ``[N, 2]``."""
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,20 @@ class _TransitionGeometry:
 
     path_xy: np.ndarray
     """Sampled centerline from the node opening to the authored road."""
+
+
+@dataclass(frozen=True)
+class _BoundaryArmGeometry:
+    """Boundary rails from a node core to one connected surface."""
+
+    reference_id: str
+    """Identifier of the road or inferred parking access."""
+
+    left_xy: np.ndarray
+    """Left roadside rail oriented from the core to the opening."""
+
+    right_xy: np.ndarray
+    """Right roadside rail oriented from the core to the opening."""
 
 
 def _point(value: object, context: str) -> np.ndarray:
@@ -1201,74 +1218,158 @@ def _polyline_prefix(points: np.ndarray, length_m: float) -> np.ndarray:
     return np.asarray(prefix.coords, dtype=np.float64)
 
 
+def _polyline_end_tangent(points: np.ndarray) -> np.ndarray:
+    """Return a stable unit tangent at the end of a sampled polyline."""
+    for index in range(len(points) - 1, 0, -1):
+        vector = points[-1] - points[index - 1]
+        length = float(np.linalg.norm(vector))
+        if length > _POSITION_TOLERANCE_M:
+            return vector / length
+    raise GameMapError("Polyline endpoint has no stable tangent")
+
+
 def _inferred_intersection_arm_reaches(
     incident: list[tuple[np.ndarray, float]],
-) -> list[float]:
-    """Infer compact arm reaches from incident widths and approach geometry."""
+) -> tuple[list[float], list[int], list[np.ndarray | None]]:
+    """Infer arm openings and roadside corners from approach geometry."""
     directions: list[np.ndarray] = []
     left_normals: list[np.ndarray] = []
+    centerlines: list[LineString] = []
+    center_distances: list[np.ndarray] = []
+    left_boundary_distances: list[np.ndarray] = []
+    right_boundary_distances: list[np.ndarray] = []
+    left_boundaries: list[LineString] = []
+    right_boundaries: list[LineString] = []
     for path, _width in incident:
         direction = path[1] - path[0]
         direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
         directions.append(direction)
         left_normals.append(np.asarray([-direction[1], direction[0]]))
+    for path, width in incident:
+        widths = np.full(len(path), width, dtype=np.float64)
+        left = _variable_offset_polyline(path, widths * 0.5)
+        right = _variable_offset_polyline(path, -widths * 0.5)
+        centerlines.append(LineString(path))
+        center_distances.append(
+            np.concatenate(
+                ([0.0], np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1)))
+            )
+        )
+        left_boundary_distances.append(
+            np.concatenate(
+                ([0.0], np.cumsum(np.linalg.norm(np.diff(left, axis=0), axis=1)))
+            )
+        )
+        right_boundary_distances.append(
+            np.concatenate(
+                ([0.0], np.cumsum(np.linalg.norm(np.diff(right, axis=0), axis=1)))
+            )
+        )
+        left_boundaries.append(LineString(left))
+        right_boundaries.append(LineString(right))
 
-    reaches = [width * 0.5 for _path, width in incident]
+    reaches = [0.0 for _path, _width in incident]
     order = sorted(
         range(len(incident)),
         key=lambda index: math.atan2(directions[index][1], directions[index][0]),
     )
+    bearings = [math.atan2(direction[1], direction[0]) for direction in directions]
+    corners: list[np.ndarray | None] = []
     for order_index, first_index in enumerate(order):
         second_index = order[(order_index + 1) % len(order)]
         first_direction = directions[first_index]
         second_direction = directions[second_index]
+        sector_angle = (bearings[second_index] - bearings[first_index]) % (
+            2.0 * math.pi
+        )
+        crossing: BaseGeometry = Point()
+        if sector_angle < math.pi - 1.0e-6:
+            crossing = left_boundaries[first_index].intersection(
+                right_boundaries[second_index]
+            )
+        crossing_points: list[np.ndarray] = []
+        if crossing.geom_type == "Point" and not crossing.is_empty:
+            crossing_points.append(np.asarray(crossing.coords[0], dtype=np.float64))
+        elif crossing.geom_type in {"MultiPoint", "GeometryCollection"}:
+            crossing_points.extend(
+                np.asarray(part.coords[0], dtype=np.float64)
+                for part in crossing.geoms
+                if part.geom_type == "Point"
+            )
+        if crossing_points:
+            corner = min(
+                crossing_points,
+                key=lambda point: centerlines[first_index].project(Point(point))
+                + centerlines[second_index].project(Point(point)),
+            )
+            first_boundary_distance = left_boundaries[first_index].project(
+                Point(corner)
+            )
+            second_boundary_distance = right_boundaries[second_index].project(
+                Point(corner)
+            )
+            first_center_distance = float(
+                np.interp(
+                    first_boundary_distance,
+                    left_boundary_distances[first_index],
+                    center_distances[first_index],
+                )
+            )
+            second_center_distance = float(
+                np.interp(
+                    second_boundary_distance,
+                    right_boundary_distances[second_index],
+                    center_distances[second_index],
+                )
+            )
+            if (
+                first_center_distance
+                < centerlines[first_index].length - _POSITION_TOLERANCE_M
+                and second_center_distance
+                < centerlines[second_index].length - _POSITION_TOLERANCE_M
+            ):
+                corners.append(corner)
+                reaches[first_index] = max(reaches[first_index], first_center_distance)
+                reaches[second_index] = max(
+                    reaches[second_index], second_center_distance
+                )
+                continue
+        if sector_angle >= math.pi - 1.0e-6:
+            corners.append(None)
+            continue
         matrix = np.column_stack((first_direction, -second_direction))
         if abs(float(np.linalg.det(matrix))) <= 1.0e-9:
+            corners.append(None)
             continue
         first_width = incident[first_index][1]
         second_width = incident[second_index][1]
         first_edge = left_normals[first_index] * first_width * 0.5
         second_edge = -left_normals[second_index] * second_width * 0.5
         first_reach, second_reach = np.linalg.solve(matrix, second_edge - first_edge)
+        if (
+            first_reach < -_POSITION_TOLERANCE_M
+            or second_reach < -_POSITION_TOLERANCE_M
+            or first_reach >= centerlines[first_index].length - _POSITION_TOLERANCE_M
+            or second_reach >= centerlines[second_index].length - _POSITION_TOLERANCE_M
+        ):
+            corners.append(None)
+            continue
+        corner = (
+            incident[first_index][0][0] + first_edge + (first_direction * first_reach)
+        )
+        corners.append(corner)
         if first_reach > 0.0:
             reaches[first_index] = max(reaches[first_index], float(first_reach))
         if second_reach > 0.0:
             reaches[second_index] = max(reaches[second_index], float(second_reach))
 
-    center = Point(incident[0][0][0])
-    maximum_width = max(width for _path, width in incident)
-    local_paths = [
-        _polyline_prefix(path, max(reach * 2.0, reach + maximum_width))
-        for (path, _width), reach in zip(incident, reaches, strict=True)
+    if len(incident) == 2 and max(reaches) <= _POSITION_TOLERANCE_M:
+        fallback = max(width for _path, width in incident) * 0.5
+        reaches = [fallback, fallback]
+    reaches = [
+        reach + _BOUNDARY_CLEARANCE_M if reach > 0.0 else reach for reach in reaches
     ]
-    centerlines = [LineString(path) for path in local_paths]
-    surfaces = [
-        centerline.buffer(width * 0.5, cap_style=2, join_style=2)
-        for centerline, (_path, width) in zip(centerlines, incident, strict=True)
-    ]
-    for first_index, first_surface in enumerate(surfaces):
-        for second_index in range(first_index + 1, len(surfaces)):
-            overlap = first_surface.intersection(surfaces[second_index])
-            polygon_parts = (
-                [overlap]
-                if overlap.geom_type == "Polygon"
-                else [
-                    part
-                    for part in getattr(overlap, "geoms", ())
-                    if part.geom_type == "Polygon"
-                ]
-            )
-            for part in polygon_parts:
-                if part.area <= _AREA_TOLERANCE_M2 or part.distance(center) > 1.0e-6:
-                    continue
-                coordinates = np.asarray(part.exterior.coords, dtype=np.float64)
-                for index in (first_index, second_index):
-                    reach = max(
-                        centerlines[index].project(Point(coordinate))
-                        for coordinate in coordinates
-                    )
-                    reaches[index] = max(reaches[index], float(reach))
-    return reaches
+    return reaches, order, corners
 
 
 def _parking_access_path(
@@ -1361,10 +1462,79 @@ def _variable_offset_polyline(
     if len(points) > 2:
         tangents[1:-1] = points[2:] - points[:-2]
     lengths = np.linalg.norm(tangents, axis=1)
-    if np.any(lengths <= _POSITION_TOLERANCE_M):
+    if np.any(lengths <= 1.0e-9):
         raise GameMapError("Lane transition has a degenerate centerline tangent")
     normals = np.column_stack((-tangents[:, 1], tangents[:, 0])) / lengths[:, None]
     return points + normals * offsets[:, None]
+
+
+def _ribbon_sides(
+    points: np.ndarray,
+    widths_m: np.ndarray,
+    context: str,
+    start_opening_xy: np.ndarray | None = None,
+    end_opening_xy: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Offset both sides of a centerline and optionally pin its openings."""
+    if len(points) != len(widths_m):
+        raise AssertionError(f"{context} has mismatched path and width samples")
+    left = _remove_rail_loops(_variable_offset_polyline(points, widths_m * 0.5))
+    right = _remove_rail_loops(_variable_offset_polyline(points, -widths_m * 0.5))
+    if start_opening_xy is not None:
+        first = start_opening_xy[0].copy()
+        second = start_opening_xy[1].copy()
+        direct = np.linalg.norm(left[0] - first) + np.linalg.norm(right[0] - second)
+        reverse = np.linalg.norm(left[0] - second) + np.linalg.norm(right[0] - first)
+        if direct <= reverse:
+            left[0], right[0] = first, second
+        else:
+            left[0], right[0] = second, first
+    if end_opening_xy is not None:
+        first = end_opening_xy[0].copy()
+        second = end_opening_xy[1].copy()
+        direct = np.linalg.norm(left[-1] - first) + np.linalg.norm(right[-1] - second)
+        reverse = np.linalg.norm(left[-1] - second) + np.linalg.norm(right[-1] - first)
+        if direct <= reverse:
+            left[-1], right[-1] = first, second
+        else:
+            left[-1], right[-1] = second, first
+    return left, right
+
+
+def _remove_rail_loops(points: np.ndarray) -> np.ndarray:
+    """Trim self-intersecting loops from an offset boundary rail."""
+    cleaned: list[np.ndarray] = [points[0], points[1]]
+    for point in points[2:]:
+        current = LineString((cleaned[-1], point))
+        crossing_index: int | None = None
+        crossing_point: np.ndarray | None = None
+        for index in range(len(cleaned) - 2):
+            crossing = current.intersection(
+                LineString((cleaned[index], cleaned[index + 1]))
+            )
+            if crossing.geom_type == "Point" and not crossing.is_empty:
+                crossing_index = index
+                crossing_point = np.asarray(crossing.coords[0], dtype=np.float64)
+                break
+        if crossing_index is not None and crossing_point is not None:
+            cleaned = [*cleaned[: crossing_index + 1], crossing_point, point]
+        else:
+            cleaned.append(point)
+    return np.asarray(cleaned)
+
+
+def _polygon_from_ribbon(
+    left: np.ndarray,
+    right: np.ndarray,
+    context: str,
+) -> Polygon:
+    """Build one explicit surface from paired boundary rails."""
+    polygon = Polygon(np.vstack((left, right[::-1])))
+    if not polygon.is_valid or polygon.area <= _AREA_TOLERANCE_M2 or polygon.interiors:
+        raise GameMapError(
+            f"{context} produces an invalid boundary ribbon: {is_valid_reason(polygon)}"
+        )
+    return polygon
 
 
 def _taper_polygon(
@@ -1377,12 +1547,165 @@ def _taper_polygon(
     distances = np.concatenate(([0.0], np.cumsum(segment_lengths)))
     alpha = distances / max(float(distances[-1]), 1.0e-9)
     widths = start_width_m + alpha * (end_width_m - start_width_m)
-    left = _variable_offset_polyline(points, widths * 0.5)
-    right = _variable_offset_polyline(points, -widths * 0.5)
-    polygon = Polygon(np.vstack((left, right[::-1])))
-    if not polygon.is_valid or polygon.area <= _AREA_TOLERANCE_M2:
-        raise GameMapError(f"{context} produces an invalid tapered surface")
-    return polygon
+    left, right = _ribbon_sides(points, widths, context)
+    return _polygon_from_ribbon(left, right, context)
+
+
+def _linear_width_samples(
+    points: np.ndarray,
+    start_width_m: float,
+    end_width_m: float,
+) -> np.ndarray:
+    """Interpolate surface widths by distance along a sampled centerline."""
+    distances = np.concatenate(
+        ([0.0], np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1)))
+    )
+    alpha = distances / max(float(distances[-1]), 1.0e-9)
+    return start_width_m + alpha * (end_width_m - start_width_m)
+
+
+def _multiarm_node_polygon(
+    node: GameMapNode,
+    incident: list[tuple[np.ndarray, float, str]],
+    transitions: dict[tuple[str, str], _ArmTransition],
+) -> tuple[
+    Polygon,
+    dict[str, np.ndarray],
+    dict[tuple[str, str], _TransitionGeometry],
+]:
+    """Trace a multi-arm node from connected roadside boundaries."""
+    reaches, order, corners = _inferred_intersection_arm_reaches(
+        [(path, width) for path, width, _reference_id in incident]
+    )
+    if node.node_type == "road_joint" and len(reaches) == 2:
+        symmetric_reach = max(
+            max(reaches),
+            max(width for _path, width, _reference_id in incident) * 0.5,
+        )
+        reaches = [symmetric_reach, symmetric_reach]
+    arms: dict[int, _BoundaryArmGeometry] = {}
+    openings: dict[str, np.ndarray] = {}
+    transition_geometry: dict[tuple[str, str], _TransitionGeometry] = {}
+    for index, (path, width, reference_id) in enumerate(incident):
+        reach = reaches[index]
+        path_length = LineString(path).length
+        if reach >= path_length - _POSITION_TOLERANCE_M:
+            raise GameMapError(
+                f"Node {node.node_id!r} opening for {reference_id!r} consumes "
+                f"its approach ({reach:.3f} m required, {path_length:.3f} m available)"
+            )
+        core_path = _polyline_prefix(path, max(reach, _POSITION_TOLERANCE_M * 2.0))
+        tangent = _polyline_end_tangent(core_path)
+        normal = np.asarray([-tangent[1], tangent[0]])
+        core_left = core_path[-1] + normal * width * 0.5
+        core_right = core_path[-1] - normal * width * 0.5
+
+        transition = transitions.get((node.node_id, reference_id))
+        if transition is None:
+            left = core_left[None, :]
+            right = core_right[None, :]
+        else:
+            context = f"Node {node.node_id!r} road {reference_id!r}"
+            transition_path = _polyline_section(
+                path,
+                reach,
+                reach + transition.length_m,
+                context,
+            )
+            widths = _linear_width_samples(
+                transition_path,
+                transition.local_attributes.surface_width_m,
+                transition.arm.attributes.surface_width_m,
+            )
+            left, right = _ribbon_sides(transition_path, widths, context)
+            left[0] = core_left
+            right[0] = core_right
+            transition_geometry[(node.node_id, reference_id)] = _TransitionGeometry(
+                transition,
+                transition_path,
+            )
+        arms[index] = _BoundaryArmGeometry(reference_id, left, right)
+        opening = np.asarray([right[-1], left[-1]])
+        if np.linalg.norm(opening[1] - opening[0]) <= _LINE_TOLERANCE_M:
+            raise GameMapError(
+                f"Node {node.node_id!r} produces a degenerate opening for "
+                f"{reference_id!r}"
+            )
+        openings[reference_id] = opening
+
+    first = arms[order[0]]
+    perimeter: list[np.ndarray] = [first.right_xy[-1], first.left_xy[-1]]
+    perimeter.extend(first.left_xy[-2::-1])
+    for order_index in range(len(order)):
+        corner = corners[order_index]
+        if corner is not None:
+            perimeter.append(corner)
+        next_index = order[(order_index + 1) % len(order)]
+        next_arm = arms[next_index]
+        perimeter.extend(next_arm.right_xy)
+        if next_index == order[0]:
+            break
+        perimeter.append(next_arm.left_xy[-1])
+        perimeter.extend(next_arm.left_xy[-2::-1])
+
+    cleaned = [perimeter[0]]
+    for point in perimeter[1:]:
+        if np.linalg.norm(point - cleaned[-1]) > _POSITION_TOLERANCE_M:
+            cleaned.append(point)
+    if len(cleaned) > 1 and np.linalg.norm(cleaned[0] - cleaned[-1]) <= (
+        _POSITION_TOLERANCE_M
+    ):
+        cleaned.pop()
+    polygon = Polygon(cleaned)
+    if not polygon.is_valid:
+        linework = unary_union(LineString(np.vstack((cleaned, cleaned[0]))))
+        candidates = list(polygonize(linework))
+        resolved = unary_union(candidates)
+        if isinstance(resolved, Polygon):
+            polygon = resolved
+    extent = max(
+        100.0,
+        max(float(np.linalg.norm(point - [node.x_m, node.y_m])) for point in cleaned)
+        * 4.0,
+    )
+    for opening in openings.values():
+        opening_center = np.mean(opening, axis=0)
+        opening_tangent = opening[1] - opening[0]
+        opening_tangent /= float(np.linalg.norm(opening_tangent))
+        outward = np.asarray([opening_tangent[1], -opening_tangent[0]])
+        if np.dot(outward, opening_center - [node.x_m, node.y_m]) < 0.0:
+            outward *= -1.0
+        clip = Polygon(
+            (
+                opening_center + opening_tangent * extent,
+                opening_center - opening_tangent * extent,
+                opening_center - opening_tangent * extent - outward * extent,
+                opening_center + opening_tangent * extent - outward * extent,
+            )
+        )
+        polygon = polygon.intersection(clip)
+        support = Polygon(
+            (
+                opening[0],
+                opening[1],
+                opening[1] - outward * _POSITION_TOLERANCE_M,
+                opening[0] - outward * _POSITION_TOLERANCE_M,
+            )
+        )
+        supported = polygon.union(support)
+        if isinstance(supported, Polygon):
+            polygon = supported
+    if (
+        not isinstance(polygon, Polygon)
+        or not polygon.is_valid
+        or polygon.area <= _AREA_TOLERANCE_M2
+        or polygon.interiors
+    ):
+        raise GameMapError(
+            f"Node {node.node_id!r} produces an invalid boundary-driven footprint: "
+            f"{is_valid_reason(polygon)}"
+        )
+    return polygon, openings, transition_geometry
 
 
 def _node_polygons(
@@ -1394,15 +1717,16 @@ def _node_polygons(
 ) -> tuple[
     dict[str, Polygon],
     dict[tuple[str, str], _TransitionGeometry],
+    dict[tuple[str, str], np.ndarray],
 ]:
     incidences: dict[str, list[tuple[np.ndarray, float, str | None]]] = {
         node.node_id: [] for node in topology.nodes
     }
     for road in topology.roads:
         points = raw_roads[road.road_id]
-        for node_id, path in (
-            (road.from_node_id, points),
-            (road.to_node_id, points[::-1]),
+        for endpoint, node_id, path in (
+            ("from", road.from_node_id, points),
+            ("to", road.to_node_id, points[::-1]),
         ):
             transition = transitions.get((node_id, road.road_id))
             width = (
@@ -1410,32 +1734,59 @@ def _node_polygons(
                 if transition is not None
                 else road.attributes.surface_width_m
             )
-            incidences[node_id].append((path, width, road.road_id))
+            reference_id = (
+                f"{road.road_id}:{endpoint}"
+                if road.from_node_id == road.to_node_id
+                else road.road_id
+            )
+            incidences[node_id].append((path, width, reference_id))
     for access in topology.parking_accesses:
         path, width = parking_access_paths[access.access_id]
-        incidences[access.source_node_id].append((path, width, None))
+        incidences[access.source_node_id].append((path, width, access.access_id))
     polygons: dict[str, Polygon] = {}
     transition_geometry: dict[tuple[str, str], _TransitionGeometry] = {}
+    node_openings: dict[tuple[str, str], np.ndarray] = {}
     for node in topology.nodes:
         center = np.asarray([node.x_m, node.y_m])
         if node.node_type == "driveway":
             assert isinstance(node.attributes, GameMapLinearAttributes)
-            through = LineString(road_joint_centerlines[node.node_id]).buffer(
-                node.attributes.surface_width_m * 0.5,
-                cap_style=2,
-                join_style=2,
+            joint_roads = sorted(
+                (
+                    road
+                    for road in topology.roads
+                    if node.node_id in {road.from_node_id, road.to_node_id}
+                ),
+                key=lambda road: road.road_id,
             )
-            access_path, access_width = next(
-                parking_access_paths[access.access_id]
+            centerline = road_joint_centerlines[node.node_id]
+            driveway_incident: list[tuple[np.ndarray, float, str]] = []
+            for road, cut in zip(
+                joint_roads, (centerline[0], centerline[-1]), strict=True
+            ):
+                outward = _road_path_from_node(
+                    road, raw_roads[road.road_id], node.node_id
+                )
+                branch = np.vstack((center, cut, outward[1:]))
+                driveway_incident.append(
+                    (branch, node.attributes.surface_width_m, road.road_id)
+                )
+            access = next(
+                access
                 for access in topology.parking_accesses
                 if access.source_node_id == node.node_id
             )
-            arm = LineString(_polyline_prefix(access_path, access_width)).buffer(
-                access_width * 0.5,
-                cap_style=2,
-                join_style=2,
+            access_path, access_width = parking_access_paths[access.access_id]
+            driveway_incident.append((access_path, access_width, access.access_id))
+            polygon, openings, resolved_transitions = _multiarm_node_polygon(
+                node,
+                driveway_incident,
+                transitions,
             )
-            polygon = unary_union((through, arm)).buffer(0)
+            node_openings.update(
+                ((node.node_id, reference_id), opening)
+                for reference_id, opening in openings.items()
+            )
+            transition_geometry.update(resolved_transitions)
         elif node.node_type in {"intersection", "road_joint"} and (
             node.node_type == "intersection" or node.geometry["curve_length_m"] == 0.0
         ):
@@ -1444,53 +1795,20 @@ def _node_polygons(
                 raise GameMapError(
                     f"Node {node.node_id!r} must have at least one incidence"
                 )
-            arms: list[BaseGeometry] = []
-            reaches = _inferred_intersection_arm_reaches(
-                [(path, width) for path, width, _road_id in incident]
+            polygon, openings, resolved_transitions = _multiarm_node_polygon(
+                node,
+                [
+                    (path, width, reference_id)
+                    for path, width, reference_id in incident
+                    if reference_id is not None
+                ],
+                transitions,
             )
-            for (path, opening_width, road_id), reach in zip(
-                incident, reaches, strict=True
-            ):
-                arm_path = _polyline_prefix(path, reach)
-                direction = arm_path[1] - arm_path[0]
-                direction /= max(float(np.linalg.norm(direction)), 1.0e-9)
-                arm_path = np.vstack(
-                    (arm_path[0] - direction * opening_width * 0.5, arm_path)
-                )
-                arms.append(
-                    LineString(arm_path).buffer(
-                        opening_width * 0.5,
-                        cap_style=2,
-                        join_style=2,
-                    )
-                )
-                transition = (
-                    None
-                    if road_id is None
-                    else transitions.get((node.node_id, road_id))
-                )
-                if transition is not None:
-                    context = (
-                        f"Node {node.node_id!r} road {transition.arm.road.road_id!r}"
-                    )
-                    transition_path = _polyline_section(
-                        path,
-                        reach,
-                        reach + transition.length_m,
-                        context,
-                    )
-                    arms.append(
-                        _taper_polygon(
-                            transition_path,
-                            transition.local_attributes.surface_width_m,
-                            transition.arm.attributes.surface_width_m,
-                            context,
-                        )
-                    )
-                    transition_geometry[(node.node_id, road_id)] = _TransitionGeometry(
-                        transition, transition_path
-                    )
-            polygon = unary_union(arms).buffer(0)
+            node_openings.update(
+                ((node.node_id, reference_id), opening)
+                for reference_id, opening in openings.items()
+            )
+            transition_geometry.update(resolved_transitions)
         elif node.node_type == "road_joint":
             assert isinstance(node.attributes, GameMapLinearAttributes)
             centerline = road_joint_centerlines[node.node_id]
@@ -1517,75 +1835,102 @@ def _node_polygons(
                     strict=True,
                 )
             ]
-            if endpoint_widths[0] == endpoint_widths[1]:
-                polygon = LineString(centerline).buffer(
-                    endpoint_widths[0] * 0.5,
-                    cap_style=2,
-                    join_style=2,
+            path_parts: list[np.ndarray] = []
+            width_parts: list[np.ndarray] = []
+            first_transition = transitions.get((node.node_id, joint_roads[0].road_id))
+            if first_transition is not None:
+                context = f"Road joint {node.node_id!r} road {joint_roads[0].road_id!r}"
+                outward = _road_path_from_node(
+                    joint_roads[0], raw_roads[joint_roads[0].road_id], node.node_id
                 )
-            else:
-                polygon = _taper_polygon(
-                    centerline,
-                    endpoint_widths[0],
-                    endpoint_widths[1],
-                    f"Road joint {node.node_id!r}",
-                )
-            parts: list[BaseGeometry] = [polygon]
-            for road in topology.roads:
-                key = (node.node_id, road.road_id)
-                transition = transitions.get(key)
-                if transition is None:
-                    continue
-                path = _road_path_from_node(road, raw_roads[road.road_id], node.node_id)
-                context = f"Road joint {node.node_id!r} road {road.road_id!r}"
                 transition_path = _polyline_section(
-                    path,
-                    0.0,
-                    transition.length_m,
-                    context,
+                    outward, 0.0, first_transition.length_m, context
                 )
-                overlap_direction = transition_path[1] - transition_path[0]
-                overlap_direction /= float(np.linalg.norm(overlap_direction))
-                transition_surface_path = np.vstack(
-                    (
-                        transition_path[0]
-                        - overlap_direction * (2.0 * _POSITION_TOLERANCE_M),
+                transition_geometry[(node.node_id, joint_roads[0].road_id)] = (
+                    _TransitionGeometry(first_transition, transition_path)
+                )
+                path_parts.append(transition_path[::-1])
+                width_parts.append(
+                    _linear_width_samples(
                         transition_path,
+                        first_transition.local_attributes.surface_width_m,
+                        first_transition.arm.attributes.surface_width_m,
+                    )[::-1]
+                )
+            path_parts.append(centerline)
+            width_parts.append(
+                _linear_width_samples(
+                    centerline, endpoint_widths[0], endpoint_widths[1]
+                )
+            )
+            second_transition = transitions.get((node.node_id, joint_roads[1].road_id))
+            if second_transition is not None:
+                context = f"Road joint {node.node_id!r} road {joint_roads[1].road_id!r}"
+                outward = _road_path_from_node(
+                    joint_roads[1], raw_roads[joint_roads[1].road_id], node.node_id
+                )
+                transition_path = _polyline_section(
+                    outward, 0.0, second_transition.length_m, context
+                )
+                transition_geometry[(node.node_id, joint_roads[1].road_id)] = (
+                    _TransitionGeometry(second_transition, transition_path)
+                )
+                path_parts.append(transition_path)
+                width_parts.append(
+                    _linear_width_samples(
+                        transition_path,
+                        second_transition.local_attributes.surface_width_m,
+                        second_transition.arm.attributes.surface_width_m,
                     )
                 )
-                parts.append(
-                    _taper_polygon(
-                        transition_surface_path,
-                        transition.local_attributes.surface_width_m,
-                        transition.arm.attributes.surface_width_m,
-                        context,
-                    )
-                )
-                transition_geometry[key] = _TransitionGeometry(
-                    transition,
-                    transition_path,
-                )
-            polygon = unary_union(parts).buffer(0)
+            combined_path = path_parts[0]
+            combined_widths = width_parts[0]
+            for path_part, width_part in zip(
+                path_parts[1:], width_parts[1:], strict=True
+            ):
+                combined_path = np.vstack((combined_path, path_part[1:]))
+                combined_widths = np.concatenate((combined_widths, width_part[1:]))
+            context = f"Road joint {node.node_id!r}"
+            left, right = _ribbon_sides(combined_path, combined_widths, context)
+            polygon = _polygon_from_ribbon(left, right, context)
+            node_openings[(node.node_id, joint_roads[0].road_id)] = np.asarray(
+                [right[0], left[0]]
+            )
+            node_openings[(node.node_id, joint_roads[1].road_id)] = np.asarray(
+                [right[-1], left[-1]]
+            )
         elif node.node_type == "cul_de_sac":
             radius = node.geometry["culdesac_radius_m"]
-            circle = Point(center).buffer(radius, quad_segs=32)
-            path, opening_width, _road_id = incidences[node.node_id][0]
+            path, opening_width, road_id = incidences[node.node_id][0]
+            assert road_id is not None
             vector = path[1] - path[0]
             direction = vector / max(float(np.linalg.norm(vector)), 1.0e-9)
             normal = np.asarray([-direction[1], direction[0]])
             chord_distance = math.sqrt(radius**2 - (opening_width * 0.5) ** 2)
-            extent = radius * 4.0
-            clip = Polygon(
-                (
-                    center - direction * extent + normal * extent,
-                    center + direction * chord_distance + normal * extent,
-                    center + direction * chord_distance - normal * extent,
-                    center - direction * extent - normal * extent,
-                )
+            opening_center = center + direction * chord_distance
+            right = opening_center - normal * opening_width * 0.5
+            left = opening_center + normal * opening_width * 0.5
+            bearing = math.atan2(direction[1], direction[0])
+            half_angle = math.asin(opening_width * 0.5 / radius)
+            angles = np.linspace(
+                bearing + half_angle,
+                bearing + 2.0 * math.pi - half_angle,
+                129,
             )
-            polygon = circle.intersection(clip)
+            arc = center + radius * np.column_stack((np.cos(angles), np.sin(angles)))
+            polygon = Polygon(np.vstack((right, left, arc[1:-1])))
+            node_openings[(node.node_id, road_id)] = np.asarray([right, left])
         elif node.node_type == "parking_lot":
             polygon = Polygon(node.polygon_vertices_xy)
+            vertices = np.asarray(node.polygon_vertices_xy, dtype=np.float64)
+            for access in topology.parking_accesses:
+                if access.parking_lot_node_id != node.node_id:
+                    continue
+                first = vertices[access.opening_vertex_index]
+                second = vertices[(access.opening_vertex_index + 1) % len(vertices)]
+                node_openings[(node.node_id, access.access_id)] = np.asarray(
+                    [first, second]
+                )
         else:
             raise AssertionError(f"Unsupported footprint node {node.node_type!r}")
         if polygon.geom_type == "MultiPolygon":
@@ -1595,44 +1940,7 @@ def _node_polygons(
         if not isinstance(polygon, Polygon) or polygon.area <= 0.0:
             raise GameMapError(f"Node {node.node_id!r} has an invalid footprint")
         polygons[node.node_id] = polygon
-    return polygons, transition_geometry
-
-
-def _corridor_polygon(
-    points: np.ndarray,
-    width_m: float,
-    excluded: tuple[Polygon, ...],
-    context: str,
-) -> Polygon:
-    """Build a paved corridor outside its connected element footprints."""
-    geometry: BaseGeometry = LineString(points).buffer(
-        width_m * 0.5,
-        cap_style=2,
-        join_style=2,
-    )
-    for polygon in excluded:
-        geometry = geometry.difference(polygon)
-    if geometry.geom_type in {"MultiPolygon", "GeometryCollection"}:
-        parts = [
-            part
-            for part in geometry.geoms
-            if isinstance(part, Polygon) and part.area > _AREA_TOLERANCE_M2
-        ]
-        if len(parts) == 1:
-            geometry = parts[0]
-        elif parts:
-            raise GameMapError(
-                f"{context} is split into surfaces with areas "
-                f"{[round(part.area, 6) for part in parts]}"
-            )
-    if not isinstance(geometry, Polygon) or geometry.area <= _AREA_TOLERANCE_M2:
-        raise GameMapError(
-            f"{context} does not produce one connected surface "
-            f"({geometry.geom_type}, area={geometry.area:.6f})"
-        )
-    if geometry.interiors:
-        raise GameMapError(f"{context} surface must not contain holes")
-    return geometry
+    return polygons, transition_geometry, node_openings
 
 
 def _surface_array(polygon: Polygon) -> np.ndarray:
@@ -1641,26 +1949,25 @@ def _surface_array(polygon: Polygon) -> np.ndarray:
     return np.column_stack((points, np.zeros(len(points), dtype=np.float64)))
 
 
-def _boundary_window(
-    polygon: Polygon,
-    center_xy: np.ndarray,
-    width_m: float,
-) -> BaseGeometry:
-    """Return an exact-width interval centered on a polygon boundary."""
-    boundary = LineString(polygon.exterior.coords)
-    distance = boundary.project(Point(center_xy))
-    start = distance - width_m * 0.5
-    end = distance + width_m * 0.5
-    parts: list[BaseGeometry] = []
-    if start < 0.0:
-        parts.append(substring(boundary, boundary.length + start, boundary.length))
-        start = 0.0
-    if end > boundary.length:
-        parts.append(substring(boundary, 0.0, end - boundary.length))
-        end = boundary.length
-    parts.append(substring(boundary, start, end))
-    lines = [part for part in parts if part.length > _LINE_TOLERANCE_M]
-    return lines[0] if len(lines) == 1 else unary_union(lines)
+def _exclude_connected_footprints(
+    surface: Polygon,
+    excluded: tuple[Polygon, ...],
+    context: str,
+) -> Polygon:
+    """Trim numeric seam overlap from an explicit corridor ribbon."""
+    geometry: BaseGeometry = surface
+    for footprint in excluded:
+        geometry = geometry.difference(footprint)
+    if isinstance(geometry, Polygon):
+        return geometry
+    parts = [
+        part
+        for part in getattr(geometry, "geoms", ())
+        if isinstance(part, Polygon) and part.area > _AREA_TOLERANCE_M2
+    ]
+    if len(parts) != 1:
+        raise GameMapError(f"{context} does not retain one connected surface")
+    return parts[0]
 
 
 def _boundaries_for_elements(
@@ -1676,7 +1983,10 @@ def _boundaries_for_elements(
     }
     for element_id, polygon in polygons.items():
         if not polygon.is_valid:
-            raise GameMapError(f"Element {element_id!r} has an invalid surface")
+            raise GameMapError(
+                f"Element {element_id!r} has an invalid surface: "
+                f"{is_valid_reason(polygon)}"
+            )
     connection_groups: dict[tuple[str, str], list[_Connection]] = {}
     for connection in connections:
         pair = tuple(
@@ -1698,7 +2008,8 @@ def _boundaries_for_elements(
             if declared is None:
                 if overlap_area > _AREA_TOLERANCE_M2:
                     raise GameMapError(
-                        f"Unrelated elements {first_id!r} and {second_id!r} overlap"
+                        f"Unrelated elements {first_id!r} and {second_id!r} overlap "
+                        f"by {overlap_area:.6f} m^2"
                     )
                 if pair not in (permitted_boundary_contacts or set()) and (
                     first.boundary.intersection(second.boundary).length
@@ -1713,28 +2024,29 @@ def _boundaries_for_elements(
                 labels = ", ".join(item.connection_id for item in declared)
                 raise GameMapError(
                     f"Connected elements {first_id!r} and {second_id!r} overlap "
-                    f"at {labels}"
+                    f"by {overlap_area:.6f} m^2 at {labels}"
                 )
             for connection in declared:
-                first_opening = _boundary_window(
-                    first, connection.center_xy, connection.width_m
-                )
-                second_opening = _boundary_window(
-                    second, connection.center_xy, connection.width_m
-                )
-                separation = first_opening.hausdorff_distance(second_opening)
-                if separation > _POSITION_TOLERANCE_M:
+                opening = LineString(connection.opening_xy)
+                first_error = opening.difference(
+                    first.boundary.buffer(_OPENING_TOLERANCE_M)
+                ).length
+                second_error = opening.difference(
+                    second.boundary.buffer(_OPENING_TOLERANCE_M)
+                ).length
+                if (
+                    opening.length <= _LINE_TOLERANCE_M
+                    or first_error > _OPENING_TOLERANCE_M
+                    or second_error > _OPENING_TOLERANCE_M
+                ):
                     raise GameMapError(
                         f"Connection {connection.connection_id!r} between "
                         f"{first_id!r} and {second_id!r} has mismatched openings "
-                        f"({separation:.3f} m apart)"
+                        f"({first_error:.9f}/{second_error:.9f} m outside boundaries, "
+                        f"{opening.length:.9f} m long)"
                     )
-            openings[first_id].append(
-                first.boundary.intersection(second.boundary.buffer(_LINE_TOLERANCE_M))
-            )
-            openings[second_id].append(
-                second.boundary.intersection(first.boundary.buffer(_LINE_TOLERANCE_M))
-            )
+                openings[first_id].append(opening)
+                openings[second_id].append(opening)
 
     resolved: list[GameMapElement] = []
     for element in elements:
@@ -1742,13 +2054,17 @@ def _boundaries_for_elements(
         for opening in openings[element.element_id]:
             boundary = boundary.difference(
                 opening.buffer(
-                    _LINE_TOLERANCE_M,
+                    _OPENING_TOLERANCE_M,
                     cap_style=2,
                     join_style=2,
                 )
             )
         parts = sorted(
-            _line_parts(boundary),
+            (
+                points
+                for points in _line_parts(boundary)
+                if LineString(points).length > _OPENING_TOLERANCE_M * 2.0
+            ),
             key=lambda points: (
                 round(float(np.min(points[:, 0])), 6),
                 round(float(np.min(points[:, 1])), 6),
@@ -1788,6 +2104,7 @@ def _boundaries_for_elements(
             )
             for index, points in enumerate(selected_curb_parts)
             if len(points) >= 2
+            and LineString(points).length > _OPENING_TOLERANCE_M * 2.0
         )
         resolved.append(replace(element, road_boundaries=road_boundaries, curbs=curbs))
     return resolved
@@ -2152,6 +2469,32 @@ def _wire_road_joint(
         node.attributes,
         False,
     )
+    if node.geometry.get("curve_length_m") == 0.0:
+        first_direction = centerline_xy[1] - centerline_xy[0]
+        second_direction = centerline_xy[-1] - centerline_xy[-2]
+        for joint_lane in joint_lanes:
+            for field_name in (
+                "centerline",
+                "left_edge",
+                "right_edge",
+                "roadside_edge",
+            ):
+                points = getattr(joint_lane, field_name)
+                matrix = np.column_stack((first_direction, -second_direction))
+                if abs(float(np.linalg.det(matrix))) <= 1.0e-9:
+                    continue
+                first_distance, _second_distance = np.linalg.solve(
+                    matrix,
+                    points[-1, :2] - points[0, :2],
+                )
+                vertex = points[0, :2] + first_direction * first_distance
+                setattr(
+                    joint_lane,
+                    field_name,
+                    np.asarray(
+                        (points[0], [*vertex, 0.0], points[-1]), dtype=np.float32
+                    ),
+                )
     incoming = [incidence for incidence in incidences if incidence.kind == "end"]
     outgoing = [incidence for incidence in incidences if incidence.kind == "start"]
     if len(incoming) != len(joint_lanes) or len(outgoing) != len(joint_lanes):
@@ -2284,7 +2627,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     raw_roads, road_joint_centerlines = _trimmed_road_paths_and_joints(
         topology, raw_roads, settings.sample_spacing_m
     )
-    polygons, transition_geometry = _node_polygons(
+    polygons, transition_geometry, node_openings = _node_polygons(
         topology,
         raw_roads,
         road_joint_centerlines,
@@ -2305,12 +2648,35 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     for spec in road_specs:
         road = spec.road
         attributes = road.attributes
-        points = _trim_line(
-            raw_roads[road.road_id],
-            polygons[road.from_node_id],
-            polygons[road.to_node_id],
-            f"Road {road.road_id!r}",
+        from_reference = (
+            f"{road.road_id}:from"
+            if road.from_node_id == road.to_node_id
+            else road.road_id
         )
+        to_reference = (
+            f"{road.road_id}:to"
+            if road.from_node_id == road.to_node_id
+            else road.road_id
+        )
+        try:
+            points = _trim_line(
+                raw_roads[road.road_id],
+                polygons[road.from_node_id],
+                polygons[road.to_node_id],
+                f"Road {road.road_id!r}",
+            )
+        except GameMapError as error:
+            transition_nodes = [
+                node_id
+                for node_id in (road.from_node_id, road.to_node_id)
+                if (node_id, road.road_id) in transition_geometry
+            ]
+            if transition_nodes and "completely contained" in str(error):
+                raise GameMapError(
+                    f"Node {transition_nodes[0]!r} transition consumes its road arm "
+                    f"on {road.road_id!r}"
+                ) from error
+            raise
         built = _build_linear_lanes(road.road_id, points, attributes, True)
         lanes.extend(built)
         lane_dividers.extend(_build_lane_dividers(built, attributes))
@@ -2318,17 +2684,20 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             built, road.from_node_id, road.to_node_id, f"road:{road.road_id}"
         ):
             incidences[incidence.node_id].append(incidence)
-        excluded = tuple(
-            {
-                node_id: polygons[node_id]
-                for node_id in (road.from_node_id, road.to_node_id)
-            }.values()
+        context = f"Road {road.road_id!r}"
+        widths = np.full(len(points), attributes.surface_width_m, dtype=np.float64)
+        left, right = _ribbon_sides(
+            points,
+            widths,
+            context,
+            start_opening_xy=node_openings[(road.from_node_id, from_reference)],
+            end_opening_xy=node_openings[(road.to_node_id, to_reference)],
         )
-        surface = _corridor_polygon(
-            raw_roads[road.road_id],
-            attributes.surface_width_m,
-            excluded,
-            f"Road {road.road_id!r}",
+        surface = _polygon_from_ribbon(left, right, context)
+        surface = _exclude_connected_footprints(
+            surface,
+            (polygons[road.from_node_id], polygons[road.to_node_id]),
+            context,
         )
         elements.append(
             GameMapElement(
@@ -2346,12 +2715,18 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 connection_id=f"road:{road.road_id}:{endpoint}",
                 first_element_id=road.road_id,
                 second_element_id=node_id,
-                width_m=attributes.surface_width_m,
-                center_xy=center,
+                opening_xy=node_openings[
+                    (
+                        node_id,
+                        f"{road.road_id}:{endpoint}"
+                        if road.from_node_id == road.to_node_id
+                        else road.road_id,
+                    )
+                ],
             )
-            for endpoint, node_id, center in (
-                ("from", road.from_node_id, points[0]),
-                ("to", road.to_node_id, points[-1]),
+            for endpoint, node_id in (
+                ("from", road.from_node_id),
+                ("to", road.to_node_id),
             )
         )
         for node_id, center in (
@@ -2361,7 +2736,9 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             if node_id in road_joint_openings:
                 transition = transition_geometry.get((node_id, road.road_id))
                 road_joint_openings[node_id][road.road_id] = (
-                    transition.path_xy[0] if transition is not None else center
+                    transition.path_xy[0]
+                    if transition is not None
+                    else np.mean(node_openings[(node_id, road.road_id)], axis=0)
                 )
 
     for access in parking_accesses:
@@ -2395,12 +2772,20 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         ):
             if incidence.node_id == source.node_id:
                 incidences[incidence.node_id].append(incidence)
-        excluded = (polygons[source.node_id], polygons[lot.node_id])
-        surface = _corridor_polygon(
-            centerline,
-            opening_width,
-            excluded,
-            f"Parking access {access.access_id!r}",
+        context = f"Parking access {access.access_id!r}"
+        widths = np.full(len(points), opening_width, dtype=np.float64)
+        left, right = _ribbon_sides(
+            points,
+            widths,
+            context,
+            start_opening_xy=node_openings[(source.node_id, access.access_id)],
+            end_opening_xy=node_openings[(lot.node_id, access.access_id)],
+        )
+        surface = _polygon_from_ribbon(left, right, context)
+        surface = _exclude_connected_footprints(
+            surface,
+            (polygons[source.node_id], polygons[lot.node_id]),
+            context,
         )
         elements.append(
             GameMapElement(
@@ -2419,15 +2804,13 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                     connection_id=f"parking_access:{access.access_id}:source",
                     first_element_id=access.access_id,
                     second_element_id=source.node_id,
-                    width_m=opening_width,
-                    center_xy=points[0],
+                    opening_xy=node_openings[(source.node_id, access.access_id)],
                 ),
                 _Connection(
                     connection_id=f"parking_access:{access.access_id}:lot",
                     first_element_id=access.access_id,
                     second_element_id=lot.node_id,
-                    width_m=opening_width,
-                    center_xy=points[-1],
+                    opening_xy=node_openings[(lot.node_id, access.access_id)],
                 ),
             )
         )

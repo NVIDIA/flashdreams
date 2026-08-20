@@ -907,7 +907,7 @@ def test_intersection_builds_transition_only_on_mismatched_through_arm(
     assert not any("east_road" in lane_id for lane_id in transition_ids)
     assert not any("west_road" in lane_id for lane_id in transition_ids)
     center = _surface(game_map, "center")
-    assert center.bounds[3] > 27
+    assert center.bounds[3] == pytest.approx(23.71, abs=0.1)
     assert center.bounds[0] == pytest.approx(-7.8, abs=0.1)
     assert center.bounds[2] == pytest.approx(7.8, abs=0.1)
     north_transition = lanes["center:transition:north_road:lane:3"]
@@ -920,13 +920,10 @@ def test_intersection_builds_transition_only_on_mismatched_through_arm(
     center_element = next(
         element for element in game_map.elements if element.element_id == "center"
     )
-    assert (
-        max(
-            float(np.max(boundary.polyline_world[:, 1]))
-            for boundary in center_element.road_boundaries
-        )
-        > 27
-    )
+    assert max(
+        float(np.max(boundary.polyline_world[:, 1]))
+        for boundary in center_element.road_boundaries
+    ) == pytest.approx(23.71, abs=0.1)
     assert (
         max(float(np.max(curb.polyline_world[:, 1])) for curb in center_element.curbs)
         < 15
@@ -1187,7 +1184,10 @@ def test_roads_cannot_cross_without_a_connection_node(tmp_path: Path) -> None:
 
     with pytest.raises(
         GameMapError,
-        match="Unrelated elements.*overlap|completely contained by its endpoint footprints",
+        match=(
+            "Unrelated elements.*overlap|completely contained by its endpoint "
+            "footprints|invalid boundary ribbon"
+        ),
     ):
         load_game_map(_write_map(tmp_path, source))
 
@@ -1212,12 +1212,46 @@ def test_intersection_surface_is_inferred_from_incident_road_edges() -> None:
     crossing = _surface(game_map, "central_arterial_crossing")
     merge = _surface(game_map, "arterial_merge_crossing")
 
-    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 0]) == pytest.approx(15.6)
-    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 1]) == pytest.approx(15.6)
-    assert crossing.area == pytest.approx(15.6**2, abs=0.05)
+    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 0]) == pytest.approx(
+        8.4, abs=0.05
+    )
+    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 1]) == pytest.approx(
+        15.6, abs=0.05
+    )
+    assert crossing.area == pytest.approx(8.4 * 15.6, abs=0.5)
     assert np.ptp(np.asarray(merge.exterior.coords)[:, 0]) < 30.0
     assert np.ptp(np.asarray(merge.exterior.coords)[:, 1]) < 28.0
-    assert merge.convex_hull.area - merge.area > 10.0
+    assert merge.convex_hull.area - merge.area < 5.0
+
+
+def test_boulevard_intersection_curbs_have_no_cap_fragments() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    elements = {element.element_id: element for element in game_map.elements}
+
+    assert not elements["central_arterial_crossing"].curbs
+    merge_lengths = [
+        LineString(curb.polyline_world[:, :2]).length
+        for curb in elements["arterial_merge_crossing"].curbs
+    ]
+    assert merge_lengths
+    assert min(merge_lengths) > 1.0
+
+
+def test_south_parking_lot_uses_its_complete_authored_opening() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    elements = {element.element_id: element for element in game_map.elements}
+    opening = LineString(((145.0, -150.0), (157.0, -150.0)))
+    lot = elements["south_parking_lot"]
+    access = _surface(game_map, "south_parking_lot:access")
+
+    assert access.boundary.intersection(opening).length == pytest.approx(12.0)
+    assert (
+        sum(
+            LineString(curb.polyline_world[:, :2]).intersection(opening).length
+            for curb in lot.curbs
+        )
+        <= 1.0e-4
+    )
 
 
 def test_cul_de_sac_has_full_width_flat_road_connection() -> None:
