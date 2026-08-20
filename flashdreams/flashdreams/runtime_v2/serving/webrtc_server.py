@@ -37,6 +37,7 @@ _WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
 _BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
 _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 _LOGGER = logging.getLogger(__name__)
+_DISCONNECT_GRACE_SECONDS = 5.0
 
 
 class _VideoTrack(MediaStreamTrack):
@@ -132,6 +133,7 @@ class WebRTCServer:
         self._runner: web.AppRunner | None = None
         self._peer_connection: RTCPeerConnection | None = None
         self._video_track: _VideoTrack | None = None
+        self._disconnect_task: asyncio.Task[None] | None = None
         self._session_desc: SessionDesc | None = None
         self._session_start_ns: int | None = None
         self._closed = False
@@ -312,12 +314,6 @@ class WebRTCServer:
         session_desc = self._session_desc
         if session_desc is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
-        if self._peer_connection is not None:
-            await self._release_peer_connection(
-                self._peer_connection,
-                close_peer=True,
-            )
-
         try:
             payload = await request.json()
         except (json.JSONDecodeError, web.HTTPException) as error:
@@ -334,12 +330,11 @@ class WebRTCServer:
         peer_connection = RTCPeerConnection()
         video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
         peer_connection.addTrack(video_track)
-        self._peer_connection = peer_connection
-        self._video_track = video_track
 
         @peer_connection.on("datachannel")
         def on_datachannel(channel: Any) -> None:
-            self._client_connected = True
+            if self._peer_connection is peer_connection:
+                self._client_connected = True
 
             @channel.on("message")
             def on_message(message: Any) -> None:
@@ -365,17 +360,23 @@ class WebRTCServer:
                 await peer_connection.createAnswer()
             )
         except Exception:
-            self._peer_connection = None
-            self._video_track = None
             await video_track.close()
             await peer_connection.close()
             raise
 
         local_description = peer_connection.localDescription
         if local_description is None:
+            await video_track.close()
+            await peer_connection.close()
             raise web.HTTPInternalServerError(
                 reason="WebRTC peer did not create an answer."
             )
+        active_peer = self._peer_connection
+        if active_peer is not None:
+            await self._release_peer_connection(active_peer, close_peer=True)
+        self._cancel_disconnect_timer()
+        self._peer_connection = peer_connection
+        self._video_track = video_track
         return web.json_response(
             {"sdp": local_description.sdp, "type": local_description.type}
         )
@@ -454,6 +455,26 @@ class WebRTCServer:
             await track.close()
         if close_peer:
             await peer_connection.close()
+        if not self._closed:
+            self._disconnect_task = asyncio.create_task(
+                self._close_session_after_disconnect()
+            )
+
+    async def _close_session_after_disconnect(self) -> None:
+        """End a session only when no browser reconnects during the grace period."""
+        try:
+            await asyncio.sleep(_DISCONNECT_GRACE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        if self._peer_connection is None and not self._closed:
+            _LOGGER.info("WebRTC reconnect grace period expired; closing session.")
+            self._append_event(CloseUserInputEventData())
+
+    def _cancel_disconnect_timer(self) -> None:
+        """Cancel a pending session close after a browser reconnects."""
+        if self._disconnect_task is not None:
+            self._disconnect_task.cancel()
+            self._disconnect_task = None
 
     async def _enqueue_frames(
         self, frames: tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]
@@ -465,6 +486,7 @@ class WebRTCServer:
 
     async def _shutdown(self) -> None:
         """Release async server resources on their owning loop."""
+        self._cancel_disconnect_timer()
         peer_connection = self._peer_connection
         self._peer_connection = None
         track = self._video_track

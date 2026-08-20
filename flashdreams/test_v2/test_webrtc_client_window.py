@@ -26,7 +26,10 @@ from av import VideoFrame
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEventData,
+    KeyboardUserInputEventData,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
@@ -149,6 +152,12 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         window.open(_session_desc())
         peer, _, video_track = await _connect_browser(window)
         track = await asyncio.wait_for(video_track, timeout=5)
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/webrtc/offer",
+                json={"type": "offer"},
+            ) as response:
+                assert response.status == 400
 
         window.write(
             StepResult(
@@ -165,6 +174,31 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         pixels = frame.to_ndarray(format="rgb24")
         assert pixels.shape == (16, 16, 3)
         assert abs(float(pixels.mean()) - 17.0) <= 2.0
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_window_closes_the_session_after_a_browser_disconnect() -> None:
+    window = WebRTCClientWindow()
+    peer: RTCPeerConnection | None = None
+    try:
+        window.open(_session_desc())
+        peer, _, _ = await _connect_browser(window)
+        await peer.close()
+
+        for _ in range(60):
+            events = window.get_user_input_events().get_events()
+            if any(
+                isinstance(event.get_event_data(), CloseUserInputEventData)
+                for event in events
+            ):
+                break
+            await asyncio.sleep(0.1)
+        else:
+            pytest.fail("Browser disconnect did not close the session.")
     finally:
         if peer is not None:
             await peer.close()
