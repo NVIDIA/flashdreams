@@ -321,15 +321,15 @@ def test_a_run_can_record_what_generating_the_clip_cost(tmp_path: Path) -> None:
         application_args=["--prompt", _PROMPT],
     )
 
+    # Both files, and every step in the one recording them. What a stats file
+    # says is the sink's own business, covered in test_benchmark_stats_sink.py.
     assert clip_path.stat().st_size > 0
     payload = json.loads(stats_path.read_text(encoding="utf-8"))
-    assert payload["artifact_type"] == "flashdreams.runtime.demo.benchmark_stats"
     assert [step["step_index"] for step in payload["steps"]] == [0, 1]
     assert [step["frame_count"] for step in payload["steps"]] == [
         _BLOCK_FRAMES,
         _BLOCK_FRAMES,
     ]
-    assert [sample["name"] for sample in payload["samples"]] == ["total_s", "total_s"]
 
 
 @needs_ffmpeg

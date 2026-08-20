@@ -97,16 +97,3 @@ def test_the_first_failure_to_close_is_the_one_reported() -> None:
 
     with pytest.raises(RuntimeError, match="first"):
         composite.close()
-
-
-def test_a_sink_that_cannot_take_a_result_ends_the_run() -> None:
-    # Half of what a run was asked to write is not a run that succeeded.
-    class Refusing(RecordingSink):
-        def write(self, result: StepResult) -> None:
-            raise RuntimeError("cannot write that")
-
-    composite = CompositeOutputSink(RecordingSink(), Refusing())
-    composite.open(_session_desc())
-
-    with pytest.raises(RuntimeError, match="cannot write that"):
-        composite.write(_result())

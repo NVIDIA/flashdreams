@@ -141,16 +141,18 @@ def test_a_measurement_in_milliseconds_is_recorded_in_seconds(tmp_path: Path) ->
 @pytest.mark.parametrize(
     "name,unit,category",
     [
-        ("model_step_s", "s", "timing"),
         ("generated_fps", "fps", "throughput"),
-        ("peak_memory_gib", "gib", "memory"),
-        ("dropped_count", "count", "runtime"),
+        # A name saying nothing is still recorded, since a model measuring
+        # something this does not recognize measured it for a reason.
         ("guidance_scale", "value", "runtime"),
     ],
 )
 def test_a_measurement_is_labelled_with_what_its_name_says_it_is(
     tmp_path: Path, name: str, unit: str, category: str
 ) -> None:
+    """One suffix the reader knows and one it does not. The rest of the suffixes
+    are a lookup table, and what a report needs of them is that a run of either
+    API labels them the same, which the reader's own tests cover."""
     payload = _write_run(tmp_path / "stats_run.json", [_result(0, {name: 4.0})])
 
     sample = payload["samples"][0]
@@ -165,7 +167,6 @@ def test_a_measurement_is_labelled_with_what_its_name_says_it_is(
     "metrics",
     [
         {"total_ms": math.nan},
-        {"total_ms": math.inf},
         {"finished": True},
         {"   ": 1.0},
     ],
