@@ -41,6 +41,29 @@ def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> 
     )
 
 
+def _close_session(session: ISession, *, run_failed: bool) -> None:
+    """Close a session, keeping its close from hiding an earlier failure.
+
+    Args:
+        session: Session to close.
+        run_failed: Whether something has already failed the run. A close that
+            fails is logged when it has, since the earlier failure is what
+            explains the run, and raised when it has not, since then it is the
+            only thing that went wrong.
+
+    Raises:
+        Whatever the session raises, when nothing has failed yet.
+    """
+    try:
+        session.close()
+    except Exception:
+        if not run_failed:
+            raise
+        _LOGGER.exception(
+            "The session failed to close after the run had already failed."
+        )
+
+
 def run_session(
     session: ISession,
     window: IClientWindow,
@@ -83,8 +106,9 @@ def run_session(
     ends the run.
 
     A window that fails to close fails the run, because for a file that means the
-    encode did not finish. If the run was already failing, the close failure is
-    logged instead of replacing the error that ended it.
+    encode did not finish. Whatever failed first is what the run reports, though:
+    a window or session that then fails to close is logged instead of replacing
+    the error that ended the run.
 
     Args:
         session: Uninitialized session to drive.
@@ -115,7 +139,7 @@ def run_session(
         session.init()
     except Exception:
         # A partly initialized session still holds whatever it managed to load.
-        session.close()
+        _close_session(session, run_failed=True)
         raise
 
     # Backpressure is all here. Finished results wait here for the I/O thread to
@@ -273,13 +297,15 @@ def run_session(
     finally:
         stop.set()
         io_thread.join()
-        if io_failure and sys.exc_info()[0] is not None:
-            # Whatever ended the run explains it better than a failure to close,
-            # so this is logged rather than raised over the top of it.
+        # Whatever failed first is what the run reports. Anything that fails
+        # afterwards, while cleaning up, is logged rather than raised over the
+        # top of it.
+        run_failed = sys.exc_info()[0] is not None
+        if io_failure and run_failed:
             _LOGGER.error(
                 "The window failed after the run had already failed: %r", io_failure[0]
             )
-        session.close()
+        _close_session(session, run_failed=run_failed or bool(io_failure))
 
     # A log line is the only report of these: a caller cannot count them.
     if dropped_for_space:

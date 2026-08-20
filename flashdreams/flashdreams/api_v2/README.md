@@ -65,9 +65,12 @@ Threading
 `run_session` uses two threads, and every window runs that way. Generation is on
 the calling thread; the window gets a thread of its own, ticking at
 `frames_per_second_for_ui` to read input, call `ISession.step_ui`, and write
-finished results. A slow step does not hold up input or output, which is why
-`SessionDesc` carries the two frame rates separately. Only the UI rate is read so
-far — generation currently runs as fast as it can.
+finished results. A step that takes longer than one of those ticks does not hold
+up input or output, because it is not on that thread. That is why `SessionDesc`
+carries two rates: `frames_per_second_for_ui` is how often input is read and
+results are presented, and `frames_per_second_for_step` is the rate the generated
+frames are meant to play back at. Only the UI rate is read so far, generation
+currently runs as fast as it can.
 
 A window with no input to report, such as one writing an MP4, returns no events
 and leaves `step_ui` at its default; the threading is unchanged.

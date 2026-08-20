@@ -67,6 +67,7 @@ class FakeSession(ISession):
         log: CallLog,
         *,
         fail_at: int | None = None,
+        fail_to_close: bool = False,
         release_writes: threading.Event | None = None,
         release_writes_at: int | None = None,
     ) -> None:
@@ -75,6 +76,8 @@ class FakeSession(ISession):
             session_desc: Description this session reports as resolved.
             log: Shared log both fakes record into.
             fail_at: Step index to raise at, for exercising cleanup on failure.
+            fail_to_close: Whether :meth:`close` raises, as a session that
+                cannot release what it holds would.
             release_writes: Event to set once ``release_writes_at`` has been
                 generated, for holding the window back until then.
             release_writes_at: Step index that sets ``release_writes``.
@@ -82,6 +85,7 @@ class FakeSession(ISession):
         self._session_desc = session_desc
         self._log = log
         self._fail_at = fail_at
+        self._fail_to_close = fail_to_close
         self._release_writes = release_writes
         self._release_writes_at = release_writes_at
         self.observed_events: list[UserInputEvents] = []
@@ -115,6 +119,8 @@ class FakeSession(ISession):
 
     def close(self) -> None:
         self._log.record("session.close")
+        if self._fail_to_close:
+            raise RuntimeError("session close failed")
 
 
 class RecordingClientWindow(IClientWindow):
@@ -534,3 +540,49 @@ def test_run_session_reports_what_ended_the_run_rather_than_the_close(
 
     assert "close failed" in caplog.text
     assert log.calls[-2:] == ["window.close", "session.close"]
+
+
+def test_run_session_reports_a_session_that_fails_to_close() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log, fail_to_close=True)
+    window = RecordingClientWindow(log)
+
+    # Nothing else went wrong, so the only thing wrong with the run is that the
+    # session still holds what it was using.
+    with pytest.raises(RuntimeError, match="session close failed"):
+        run_session(session, window, steps=2)
+
+    assert [result.step_index for result in window.results] == [0, 1]
+
+
+def test_run_session_reports_the_step_rather_than_the_session_close(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log, fail_at=0, fail_to_close=True)
+    window = RecordingClientWindow(log)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="step failed"):
+            run_session(session, window, steps=2)
+
+    assert "session close failed" in caplog.text
+
+
+def test_run_session_reports_the_init_rather_than_the_session_close(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+
+    class FailingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            raise RuntimeError("init failed")
+
+    session = FailingSession(_session_desc(), log, fail_to_close=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="init failed"):
+            run_session(session, RecordingClientWindow(log), steps=1)
+
+    assert "session close failed" in caplog.text
