@@ -88,4 +88,5 @@ Comparing these models against each other is what
 [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
 is for: the same prompt and seed through every one of them, ten seconds for
 looking at and a minute for PAI-Bench to score. The two bidirectional models
-reach neither length, so they run at the length they do generate.
+reach neither length, so they run at the length they do generate. How to run it
+is [beside the harness](../../tools/benchmarks/README.md).

@@ -38,7 +38,9 @@ it measured and this writes it down, converting milliseconds to seconds because
 a report cannot compare two units. Nothing is measured unless a run asks, so an
 ordinary run pays nothing for this.
 [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
-is the suite that uses it, comparing every t2v model on one prompt and seed.
+is the suite that uses it, comparing every t2v model on one prompt and seed, and
+[running it](../../tools/benchmarks/README.md) is written down beside the
+harness.
 
 `flashdreams.t2v_v2` is text-to-video on top of these protocols rather than part
 of them: one `T2VApplication` owns the command line every t2v model needs, an
