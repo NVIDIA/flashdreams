@@ -32,25 +32,60 @@ nodes:
   - id: neighborhood_lot
     type: parking_lot
     connected_to: hub
-    opening_vertex: 3
+    opening_vertex: 2
     vertices:
-      - {x_m: -13, y_m: -51}
-      - {x_m: -13, y_m: -19}
-      - {x_m: -3.6, y_m: -19}
-      - {x_m: 3.6, y_m: -19}
-      - {x_m: 13, y_m: -19}
-      - {x_m: 13, y_m: -51}
+      - {x_m: -35, y_m: -2}
+      - {x_m: -5, y_m: -2}
+      - {x_m: 5, y_m: -2}
+      - {x_m: 35, y_m: -2}
+      - {x_m: 35, y_m: -22}
+      - {x_m: -35, y_m: -22}
+
+  - id: neighborhood_loop_northeast_corner
+    type: road_joint
+    pose: {x_m: -50, y_m: 75, rotation_deg: 0}
+    curve_length_m: 12
+
+  - id: neighborhood_loop_northwest_corner
+    type: road_joint
+    pose: {x_m: 50, y_m: 75, rotation_deg: 0}
+    curve_length_m: 12
+
+  - id: neighborhood_loop_southeast_corner
+    type: road_joint
+    pose: {x_m: -50, y_m: 0, rotation_deg: 0}
+    curve_length_m: 12
+
+  - id: neighborhood_loop_southwest_corner
+    type: road_joint
+    pose: {x_m: 50, y_m: 0, rotation_deg: 0}
+    curve_length_m: 12
 
 roads:
-  - id: neighborhood_loop
-    from: hub
+  - id: neighborhood_loop_north
+    from: neighborhood_loop_northeast_corner
+    to: neighborhood_loop_northwest_corner
+    profile: neighborhood
+
+  - id: neighborhood_loop_southeast
+    from: neighborhood_loop_southeast_corner
     to: hub
     profile: neighborhood
-    path:
-      - {x_m: 45, y_m: 15}
-      - {x_m: 45, y_m: 50}
-      - {x_m: -45, y_m: 50}
-      - {x_m: -45, y_m: 15}
+
+  - id: neighborhood_loop_southwest
+    from: neighborhood_loop_southwest_corner
+    to: hub
+    profile: neighborhood
+
+  - id: neighborhood_loop_east
+    from: neighborhood_loop_northeast_corner
+    to: neighborhood_loop_southeast_corner
+    profile: neighborhood
+
+  - id: neighborhood_loop_west
+    from: neighborhood_loop_northwest_corner
+    to: neighborhood_loop_southwest_corner
+    profile: neighborhood
 
   - id: dead_end_road
     from: hub
@@ -59,7 +94,7 @@ roads:
 
 spawns:
   - id: taxi_start
-    road: neighborhood_loop
+    road: neighborhood_loop_southwest
     lane: 1
     distance_m: 5
     variants:
