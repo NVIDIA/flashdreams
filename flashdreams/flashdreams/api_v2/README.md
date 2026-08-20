@@ -12,7 +12,7 @@ Protocols for the FlashDreams API.
   in `OutputSink.open`.
 - `user_input_event_data.py`: base type for event payloads.
 
-`flashdreams.runtime_v2.session_runner.run_session` drives a session against a
+`flashdreams.runtime_v2.session_runner.SessionRunner.run_session` drives a session against a
 window until the session reports `is_finished` or the window reports a close, or
 for a fixed number of steps a caller asks for. A caller holding an application
 uses `flashdreams.runtime_v2.application_runner.ApplicationRunner` to get there,
@@ -66,7 +66,7 @@ Agreed design decisions. Change them by discussion.
 Threading
 ---------
 
-`run_session` uses two threads, and every window runs that way. Generation is on
+`SessionRunner.run_session` uses two threads, and every window runs that way. Generation is on
 the calling thread; the window gets a thread of its own, ticking at
 `frames_per_second_for_ui` to read input, call `ISession.step_ui`, and write
 finished results. A step that takes longer than one of those ticks does not hold
@@ -84,7 +84,7 @@ a native window needs, and it keeps `IClientWindow` implementations free of
 locking.
 
 Writing happens on that thread too, so a window slower than generation leaves
-results waiting. `run_session` bounds how many wait, with `max_pending`, and
+results waiting. `SessionRunner` bounds how many wait, with `max_pending`, and
 `when_full` decides the rest: `WhenFull.BLOCK` holds generation back so every
 result is presented, which is what a file output wants, and `WhenFull.DROP_OLDEST`
 skips frames to keep latency down, which is what a realtime one wants. The caller
@@ -113,7 +113,7 @@ Not built yet
   fast steps can finish several of them between polls and hand them all the same
   batch. Pacing generation is what would fix it.
 - `ApplicationRunner`: takes an `IApplication` and an `IClientWindow` and drives
-  the main loop. `run_session` is what exists today; it drives a session the
+  the main loop. `SessionRunner` is what exists today; it drives a session the
   caller already created.
 - `flashdreams-run`: a CLI that creates the requested kind of client window,
   loads an application module, and hands both to `ApplicationRunner`. Until it
