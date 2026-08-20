@@ -3,12 +3,17 @@
 
 """Batch loop generating a fixed number of steps and writing each one out."""
 
-from collections.abc import Sequence
+import logging
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+_LOGGER = logging.getLogger(__name__)
+"""Logger for a close that failed after the run had already failed."""
 
 
 def run_batch(
@@ -38,6 +43,11 @@ def run_batch(
     therefore one load: a caller wanting several files out of one loaded
     application needs a loop that keeps it, which nothing needs yet.
 
+    A run that fails raises what failed it, rather than anything that then went
+    wrong closing up, since the first failure is the one that explains the
+    rest. A close that fails on its own is raised: for a file window that is
+    the encode failing to finish, which leaves the file unusable.
+
     Args:
         application: Application to run. Initialized here, not by the caller.
         window: Window to write results to. Its input is never read, since a
@@ -56,22 +66,41 @@ def run_batch(
 
     # No input source, so every step is handed the same empty batch.
     no_events = UserInputEvents([])
-    try:
+    # Nested so each one is closed before whatever created it, and so an outer
+    # one is closed even when what it holds never started.
+    with _closing(application.close, "application"):
         application.init(commandline_args)
         session = application.create_session(session_desc)
-        try:
+        with _closing(session.close, "session"):
             session.init()
-            try:
+            with _closing(window.close, "window"):
                 window.open(session.session_desc)
                 for step_index in range(steps):
                     window.write(session.step(step_index, no_events))
-            finally:
-                # Closing is where a file window finishes the encode, so a run
-                # that raised still leaves what it managed to generate.
-                window.close()
-        finally:
-            session.close()
-    finally:
-        # An application that failed part way through init still holds whatever
-        # it managed to load.
-        application.close()
+
+
+@contextmanager
+def _closing(close: Callable[[], None], what: str) -> Iterator[None]:
+    """Run a block, then close what it was using.
+
+    Closing is where a file window finishes the encode, so a block that raised
+    still leaves what it managed to generate, and one that did not is told when
+    finishing the file failed.
+
+    A close that fails after the block has already failed is logged rather than
+    raised: the caller wants to see what ended the run, not what went wrong
+    tidying up after it.
+
+    Args:
+        close: Called on the way out, whichever way that is.
+        what: Name for the thing being closed, for the log line.
+    """
+    try:
+        yield
+    except BaseException:
+        try:
+            close()
+        except Exception:
+            _LOGGER.exception("Closing the %s failed after a failed run.", what)
+        raise
+    close()

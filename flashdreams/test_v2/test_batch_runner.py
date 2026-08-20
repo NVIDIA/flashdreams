@@ -122,14 +122,23 @@ class FakeApplication(IApplication):
 class RecordingClientWindow(IClientWindow):
     """Record what a batch run writes, as a file window would encode it."""
 
-    def __init__(self, calls: list[str], *, fail_to_open: bool = False) -> None:
+    def __init__(
+        self,
+        calls: list[str],
+        *,
+        fail_to_open: bool = False,
+        fail_to_close: bool = False,
+    ) -> None:
         """
         Args:
             calls: Shared log, so window calls can be ordered against the rest.
             fail_to_open: Whether :meth:`open` raises.
+            fail_to_close: Whether :meth:`close` raises, as a file window whose
+                encoder could not finish the file does.
         """
         self._calls = calls
         self._fail_to_open = fail_to_open
+        self._fail_to_close = fail_to_close
         self.session_descs: list[SessionDesc] = []
         self.results: list[StepResult] = []
 
@@ -149,6 +158,8 @@ class RecordingClientWindow(IClientWindow):
 
     def close(self) -> None:
         self._calls.append("window.close")
+        if self._fail_to_close:
+            raise RuntimeError("close failed")
 
 
 ## Helpers
@@ -256,6 +267,33 @@ def test_a_failed_step_still_closes_the_window_and_the_session() -> None:
         run_batch(app, window, _session_desc(), steps=3)
 
     assert len(window.results) == 1
+    assert app.calls[-3:] == ["window.close", "session.close", "app.close"]
+
+
+def test_a_window_that_fails_to_close_reports_it() -> None:
+    # For a file window this is the encode failing to finish, so the run cannot
+    # be called a success: the file it was writing is unusable.
+    app = FakeApplication()
+    window = RecordingClientWindow(app.calls, fail_to_close=True)
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        run_batch(app, window, _session_desc(), steps=1)
+
+    assert app.calls[-2:] == ["session.close", "app.close"]
+
+
+def test_a_failed_run_reports_what_failed_it_rather_than_the_close(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Both the step and the close fail. The step is the one that explains the
+    # run, so it is raised and the close is only logged.
+    app = FakeApplication(session_fails_at=0)
+    window = RecordingClientWindow(app.calls, fail_to_close=True)
+
+    with pytest.raises(RuntimeError, match="step failed"):
+        run_batch(app, window, _session_desc(), steps=1)
+
+    assert "close failed" in caplog.text
     assert app.calls[-3:] == ["window.close", "session.close", "app.close"]
 
 
