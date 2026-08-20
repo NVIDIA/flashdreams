@@ -325,8 +325,7 @@ def _parse_nodes(
             expected = {"id", "type", "pose"}
             allowed = set(expected)
             if node_type == "road_joint":
-                expected.add("curve_length_m")
-                allowed.update({"curve_length_m", "lane_transition_length_m"})
+                allowed.add("lane_transition_length_m")
             missing = expected - set(raw)
             unknown = set(raw) - allowed
             if missing:
@@ -338,9 +337,6 @@ def _parse_nodes(
             profile_id = None
             geometry = (
                 {
-                    "curve_length_m": _nonnegative_float(
-                        raw["curve_length_m"], f"{context}.curve_length_m"
-                    ),
                     "lane_transition_length_m": _nonnegative_float(
                         raw.get("lane_transition_length_m", 0.0),
                         f"{context}.lane_transition_length_m",
@@ -1031,7 +1027,7 @@ def _trimmed_road_paths_and_joints(
     raw_roads: dict[str, np.ndarray],
     spacing_m: float,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Trim incident roads and build positive-length road-joint centerlines."""
+    """Trim incident roads and build compact tangent joint centerlines."""
     nodes = {node.node_id: node for node in topology.nodes}
     incident: dict[str, list[GameMapRoad]] = {
         node.node_id: [] for node in topology.nodes
@@ -1039,6 +1035,25 @@ def _trimmed_road_paths_and_joints(
     for road in topology.roads:
         incident[road.from_node_id].append(road)
         incident[road.to_node_id].append(road)
+
+    joint_trims: dict[tuple[str, str], float] = {}
+    for node in topology.nodes:
+        if node.node_type != "road_joint":
+            continue
+        assert isinstance(node.attributes, GameMapLinearAttributes)
+        roads = sorted(incident[node.node_id], key=lambda road: road.road_id)
+        layouts = (_reversed_attributes(node.attributes), node.attributes)
+        arms: list[tuple[np.ndarray, float]] = []
+        for road, layout in zip(roads, layouts, strict=True):
+            path = _road_path_from_node(road, raw_roads[road.road_id], node.node_id)
+            attributes = _lane_layout_for_arm(
+                layout,
+                _outward_attributes(road, node.node_id),
+            )
+            arms.append((path, attributes.surface_width_m))
+        reaches, _order, _corners = _inferred_intersection_arm_reaches(arms)
+        for road, reach in zip(roads, reaches, strict=True):
+            joint_trims[(node.node_id, road.road_id)] = reach
 
     trimmed: dict[str, np.ndarray] = {}
     for road in topology.roads:
@@ -1048,7 +1063,7 @@ def _trimmed_road_paths_and_joints(
 
         def trim_for(node: GameMapNode) -> float:
             if node.node_type == "road_joint":
-                return node.geometry["curve_length_m"]
+                return joint_trims[(node.node_id, road.road_id)]
             if node.node_type == "driveway":
                 access = next(
                     item
@@ -1098,13 +1113,16 @@ def _trimmed_road_paths_and_joints(
                     - vertices[access.opening_vertex_index]
                 )
             )
-        else:
-            length = node.geometry["curve_length_m"]
-        if length == 0.0:
-            continue
         first_road, second_road = sorted(
             incident[node.node_id], key=lambda road: road.road_id
         )
+        if node.node_type == "driveway":
+            lengths = (length, length)
+        else:
+            lengths = (
+                joint_trims[(node.node_id, first_road.road_id)],
+                joint_trims[(node.node_id, second_road.road_id)],
+            )
         first_path = _road_path_from_node(
             first_road, raw_roads[first_road.road_id], node.node_id
         )
@@ -1112,8 +1130,8 @@ def _trimmed_road_paths_and_joints(
             second_road, raw_roads[second_road.road_id], node.node_id
         )
         prefixes = [
-            _polyline_prefix(first_path, length),
-            _polyline_prefix(second_path, length),
+            _polyline_prefix(path, trim)
+            for path, trim in zip((first_path, second_path), lengths, strict=True)
         ]
         cuts = [prefix[-1] for prefix in prefixes]
         outward_tangents: list[np.ndarray] = []
@@ -1131,9 +1149,27 @@ def _trimmed_road_paths_and_joints(
                 )
             joints[node.node_id] = centerline
             continue
+        incoming_tangent = -outward_tangents[0]
+        outgoing_tangent = outward_tangents[1]
+        turn_angle = math.acos(
+            float(np.clip(np.dot(incoming_tangent, outgoing_tangent), -1.0, 1.0))
+        )
+        if turn_angle >= math.pi - 1.0e-6:
+            raise GameMapError(
+                f"Road joint {node.node_id!r} cannot form a tangent U-turn"
+            )
+        if turn_angle <= 1.0e-6:
+            handle_ratio = 2.0 / 3.0
+        else:
+            handle_ratio = (
+                4.0 / 3.0 * math.tan(turn_angle * 0.25) / math.tan(turn_angle * 0.5)
+            )
+        handle_lengths = [trim * handle_ratio for trim in lengths]
         controls = [
-            cuts[0] - outward_tangents[0] * length,
-            cuts[1] - outward_tangents[1] * length,
+            cut - outward_tangent * handle
+            for cut, outward_tangent, handle in zip(
+                cuts, outward_tangents, handle_lengths, strict=True
+            )
         ]
         span = np.asarray(
             [cuts[0], controls[0], controls[1], cuts[1]], dtype=np.float64
@@ -1149,13 +1185,15 @@ def _trimmed_road_paths_and_joints(
             + 3.0 * (1.0 - t) * t**2 * span[2]
             + t**3 * span[3]
         )
-        tangent_epsilon = min(spacing_m * 0.5, length * 0.25)
+        tangent_epsilons = [
+            min(spacing_m * 0.5, handle * 0.25) for handle in handle_lengths
+        ]
         centerline = np.concatenate(
             (
                 centerline[:1],
-                (cuts[0] - outward_tangents[0] * tangent_epsilon)[None, :],
+                (cuts[0] - outward_tangents[0] * tangent_epsilons[0])[None, :],
                 centerline[1:-1],
-                (cuts[1] - outward_tangents[1] * tangent_epsilon)[None, :],
+                (cuts[1] - outward_tangents[1] * tangent_epsilons[1])[None, :],
                 centerline[-1:],
             ),
             axis=0,
@@ -1537,6 +1575,53 @@ def _polygon_from_ribbon(
     return polygon
 
 
+def _road_joint_ribbon(
+    points: np.ndarray,
+    widths_m: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, Polygon]:
+    """Build a compact joint ribbon while preserving its curved outside rail.
+
+    Args:
+        points: Sampled joint centerline.
+        widths_m: Paved width at each centerline sample.
+        context: Element description used in validation errors.
+
+    Returns:
+        Left and right roadside rails with their enclosed surface polygon.
+
+    Raises:
+        GameMapError: The rails cannot form one valid surface.
+    """
+    left, right = _ribbon_sides(points, widths_m, context)
+    polygon = Polygon(np.vstack((left, right[::-1])))
+    if polygon.is_valid and polygon.area > _AREA_TOLERANCE_M2:
+        return left, right, polygon
+
+    start_direction = points[1] - points[0]
+    end_direction = points[-1] - points[-2]
+    turn = float(
+        start_direction[0] * end_direction[1] - start_direction[1] * end_direction[0]
+    )
+    inner = left if turn > 0.0 else right
+    first_tangent = inner[1] - inner[0]
+    last_tangent = inner[-1] - inner[-2]
+    matrix = np.column_stack((first_tangent, -last_tangent))
+    if abs(float(np.linalg.det(matrix))) <= 1.0e-9:
+        return left, right, _polygon_from_ribbon(left, right, context)
+    first_distance, _last_distance = np.linalg.solve(
+        matrix,
+        inner[-1] - inner[0],
+    )
+    vertex = inner[0] + first_tangent * first_distance
+    mitered = np.asarray((inner[0], vertex, inner[-1]), dtype=np.float64)
+    if turn > 0.0:
+        left = mitered
+    else:
+        right = mitered
+    return left, right, _polygon_from_ribbon(left, right, context)
+
+
 def _taper_polygon(
     points: np.ndarray,
     start_width_m: float,
@@ -1577,12 +1662,6 @@ def _multiarm_node_polygon(
     reaches, order, corners = _inferred_intersection_arm_reaches(
         [(path, width) for path, width, _reference_id in incident]
     )
-    if node.node_type == "road_joint" and len(reaches) == 2:
-        symmetric_reach = max(
-            max(reaches),
-            max(width for _path, width, _reference_id in incident) * 0.5,
-        )
-        reaches = [symmetric_reach, symmetric_reach]
     arms: dict[int, _BoundaryArmGeometry] = {}
     openings: dict[str, np.ndarray] = {}
     transition_geometry: dict[tuple[str, str], _TransitionGeometry] = {}
@@ -1787,9 +1866,7 @@ def _node_polygons(
                 for reference_id, opening in openings.items()
             )
             transition_geometry.update(resolved_transitions)
-        elif node.node_type in {"intersection", "road_joint"} and (
-            node.node_type == "intersection" or node.geometry["curve_length_m"] == 0.0
-        ):
+        elif node.node_type == "intersection":
             incident = incidences[node.node_id]
             if not incident:
                 raise GameMapError(
@@ -1891,8 +1968,11 @@ def _node_polygons(
                 combined_path = np.vstack((combined_path, path_part[1:]))
                 combined_widths = np.concatenate((combined_widths, width_part[1:]))
             context = f"Road joint {node.node_id!r}"
-            left, right = _ribbon_sides(combined_path, combined_widths, context)
-            polygon = _polygon_from_ribbon(left, right, context)
+            left, right, polygon = _road_joint_ribbon(
+                combined_path,
+                combined_widths,
+                context,
+            )
             node_openings[(node.node_id, joint_roads[0].road_id)] = np.asarray(
                 [right[0], left[0]]
             )
@@ -2469,32 +2549,6 @@ def _wire_road_joint(
         node.attributes,
         False,
     )
-    if node.geometry.get("curve_length_m") == 0.0:
-        first_direction = centerline_xy[1] - centerline_xy[0]
-        second_direction = centerline_xy[-1] - centerline_xy[-2]
-        for joint_lane in joint_lanes:
-            for field_name in (
-                "centerline",
-                "left_edge",
-                "right_edge",
-                "roadside_edge",
-            ):
-                points = getattr(joint_lane, field_name)
-                matrix = np.column_stack((first_direction, -second_direction))
-                if abs(float(np.linalg.det(matrix))) <= 1.0e-9:
-                    continue
-                first_distance, _second_distance = np.linalg.solve(
-                    matrix,
-                    points[-1, :2] - points[0, :2],
-                )
-                vertex = points[0, :2] + first_direction * first_distance
-                setattr(
-                    joint_lane,
-                    field_name,
-                    np.asarray(
-                        (points[0], [*vertex, 0.0], points[-1]), dtype=np.float32
-                    ),
-                )
     incoming = [incidence for incidence in incidences if incidence.kind == "end"]
     outgoing = [incidence for incidence in incidences if incidence.kind == "start"]
     if len(incoming) != len(joint_lanes) or len(outgoing) != len(joint_lanes):
@@ -2639,11 +2693,6 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     lanes: list[_LaneBuild] = []
     lane_dividers: list[GameMapLaneDivider] = []
     incidences: dict[str, list[_LaneIncidence]] = {node_id: [] for node_id in nodes}
-    road_joint_openings: dict[str, dict[str, np.ndarray]] = {
-        node.node_id: {}
-        for node in node_values
-        if node.node_type in {"road_joint", "driveway"}
-    }
 
     for spec in road_specs:
         road = spec.road
@@ -2729,18 +2778,6 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 ("to", road.to_node_id),
             )
         )
-        for node_id, center in (
-            (road.from_node_id, points[0]),
-            (road.to_node_id, points[-1]),
-        ):
-            if node_id in road_joint_openings:
-                transition = transition_geometry.get((node_id, road.road_id))
-                road_joint_openings[node_id][road.road_id] = (
-                    transition.path_xy[0]
-                    if transition is not None
-                    else np.mean(node_openings[(node_id, road.road_id)], axis=0)
-                )
-
     for access in parking_accesses:
         source = nodes[access.source_node_id]
         lot = nodes[access.parking_lot_node_id]
@@ -2838,21 +2875,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
 
     for node in node_values:
         if node.node_type in {"road_joint", "driveway"}:
-            road_ids = sorted(road_joint_openings[node.node_id])
-            if (
-                node.node_type == "road_joint"
-                and node.geometry["curve_length_m"] == 0.0
-            ):
-                centerline = np.asarray(
-                    [
-                        road_joint_openings[node.node_id][road_ids[0]],
-                        [node.x_m, node.y_m],
-                        road_joint_openings[node.node_id][road_ids[1]],
-                    ],
-                    dtype=np.float64,
-                )
-            else:
-                centerline = road_joint_centerlines[node.node_id]
+            centerline = road_joint_centerlines[node.node_id]
             _wire_road_joint(
                 node,
                 [

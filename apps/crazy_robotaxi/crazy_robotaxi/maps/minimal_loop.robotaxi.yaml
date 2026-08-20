@@ -44,22 +44,18 @@ nodes:
   - id: neighborhood_loop_northeast_corner
     type: road_joint
     pose: {x_m: -50, y_m: 75, rotation_deg: 0}
-    curve_length_m: 12
 
   - id: neighborhood_loop_northwest_corner
     type: road_joint
     pose: {x_m: 50, y_m: 75, rotation_deg: 0}
-    curve_length_m: 12
 
   - id: neighborhood_loop_southeast_corner
     type: road_joint
     pose: {x_m: -50, y_m: 0, rotation_deg: 0}
-    curve_length_m: 12
 
   - id: neighborhood_loop_southwest_corner
     type: road_joint
     pose: {x_m: 50, y_m: 0, rotation_deg: 0}
-    curve_length_m: 12
 
 roads:
   - id: neighborhood_loop_north

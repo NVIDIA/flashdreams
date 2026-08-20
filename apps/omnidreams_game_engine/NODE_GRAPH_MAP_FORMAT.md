@@ -134,33 +134,32 @@ the inferred intersection opening and must not consume the complete road arm.
 ### Road joints
 
 A road joint connects exactly two compatible authored roads without creating an
-intersection. It requires `curve_length_m`:
+intersection:
 
 ```yaml
 - id: diagonal_bend
   type: road_joint
   pose: {x_m: 40, y_m: 20, rotation_deg: 0}
-  curve_length_m: 12
   lane_transition_length_m: 20
 ```
 
-The compiler measures `curve_length_m` independently along each incident road,
-trims those portions, and replaces them with one tangent-continuous cubic
-Bézier. Each control point is one `curve_length_m` from its cut point along the
-trimmed road's local tangent. For straight approaches, both controls coincide
-with the joint pose. Curved `path` and `bezier` approaches are supported, and a
-trim may cross multiple curve spans.
+The compiler independently infers the shortest trim on each incident road from
+the roads' endpoint tangents and paved widths. It replaces those portions with
+one tangent-continuous cubic Bézier and traces the joint surface from the
+resulting roadside boundaries. The outside boundary remains curved rather than
+forming a straight miter between the two approaches. Curved `path` and `bezier`
+approaches are supported. Node rotation does not affect the join.
 
-`curve_length_m: 0` keeps a sharp change in direction at the joint pose. A
-positive-length curve does not necessarily pass through the pose; the pose is
-the original sharp-corner vertex. Node rotation does not affect the join.
+To author a longer curve, place a `bezier` road between two road joints. The
+joints provide the minimal tangent connections while the road owns the extended
+curve geometry.
 
 `lane_transition_length_m` is optional and defaults to zero. It permits the two
 roads to differ in lane count, lane width, or both. The joint uses the dominant
 cross-section at the curve, then tapers into each narrower incident road over
 the authored distance. As at an intersection, an incoming narrow lane splits
 toward the joint and outgoing local lanes merge into the narrow road. The taper
-is measured along the incident road after its `curve_length_m` trim, including
+is measured along the incident road after its inferred joint trim, including
 across curved `path` or `bezier` approaches.
 
 When oriented through the joint, both roads must still have compatible
@@ -171,8 +170,8 @@ widens or narrows that offset. A lane-count or lane-width change requires a
 positive `lane_transition_length_m`; otherwise its default of zero preserves
 the previous exact-width behavior. The joint and taper emit
 conditioning-visible lanes and markings, and each directed joint lane inherits
-its incoming road's speed. Requested curve trims or lane transitions that
-consume an entire road or produce invalid or overlapping geometry are errors.
+its incoming road's speed. Inferred curve trims or lane transitions that consume
+an entire road or produce invalid or overlapping geometry are errors.
 
 ### Cul-de-sacs
 

@@ -66,9 +66,9 @@ nodes:
   - {id: south_local_end, type: cul_de_sac, pose: {x_m: 210, y_m: -120, rotation_deg: 0}, culdesac_radius_m: 9, curb: true}
 
   # Diagonal north street and the arterial split visible east of the spawn.
-  - {id: diagonal_bend_lower, type: road_joint, pose: {x_m: 299, y_m: 95, rotation_deg: 0}, curve_length_m: 12}
+  - {id: diagonal_bend_lower, type: road_joint, pose: {x_m: 299, y_m: 95, rotation_deg: 0}}
   - {id: diagonal_north_crossing, type: intersection, pose: {x_m: 307, y_m: 133, rotation_deg: 0}, curb: true}
-  - {id: diagonal_bend_upper, type: road_joint, pose: {x_m: 314, y_m: 207, rotation_deg: 0}, curve_length_m: 12}
+  - {id: diagonal_bend_upper, type: road_joint, pose: {x_m: 314, y_m: 207, rotation_deg: 0}}
   - {id: diagonal_north_end, type: cul_de_sac, pose: {x_m: 326, y_m: 285, rotation_deg: 82}, culdesac_radius_m: 9, curb: true}
   - {id: southwest_merge, type: intersection, pose: {x_m: 277, y_m: -122, rotation_deg: 0}, curb: true}
   - {id: southwest_boulevard_end, type: cul_de_sac, pose: {x_m: 185, y_m: -310, rotation_deg: 250}, culdesac_radius_m: 14, curb: true}
@@ -117,9 +117,9 @@ nodes:
   - {id: far_east_north_crossing, type: intersection, pose: {x_m: 1082, y_m: -33, rotation_deg: 0}, curb: true}
   - {id: far_east_north_end, type: cul_de_sac, pose: {x_m: 1082, y_m: 71, rotation_deg: 90}, culdesac_radius_m: 9, curb: true}
   - {id: far_east_bend_southeast, type: driveway, pose: {x_m: 1170, y_m: -33, rotation_deg: 0}}
-  - {id: far_east_bend_northeast, type: road_joint, pose: {x_m: 1170, y_m: 75, rotation_deg: 0}, curve_length_m: 10}
-  - {id: far_east_bend_northwest, type: road_joint, pose: {x_m: 1120, y_m: 75, rotation_deg: 0}, curve_length_m: 10}
-  - {id: far_east_bend_southwest, type: road_joint, pose: {x_m: 1120, y_m: -33, rotation_deg: 0}, curve_length_m: 10}
+  - {id: far_east_bend_northeast, type: road_joint, pose: {x_m: 1170, y_m: 75, rotation_deg: 0}}
+  - {id: far_east_bend_northwest, type: road_joint, pose: {x_m: 1120, y_m: 75, rotation_deg: 0}}
+  - {id: far_east_bend_southwest, type: road_joint, pose: {x_m: 1120, y_m: -33, rotation_deg: 0}}
 
   # Parking masks use original-scene scale and are connected by inferred
   # access surfaces rather than authored road edges.
