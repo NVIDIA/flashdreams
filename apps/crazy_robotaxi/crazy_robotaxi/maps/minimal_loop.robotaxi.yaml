@@ -13,21 +13,19 @@ profiles:
     curb_offset_m: 0.6
     lanes: [backward, forward]
     speed_limit_mps: 13.4
-    curb: true
     lane_marking: {style: SOLID_GROUP, color: YELLOW}
     divider_markings:
       - {style: SOLID_GROUP, color: YELLOW}
+
 nodes:
   - id: hub
     type: intersection
-    pose: {x_m: 0, y_m: 0, rotation_deg: 0}
-    curb: true
+    pose: {x_m: 0, y_m: 0}
 
   - id: dead_end
     type: cul_de_sac
-    pose: {x_m: 0, y_m: 30, rotation_deg: 0}
+    pose: {x_m: 0, y_m: 30}
     culdesac_radius_m: 10
-    curb: true
 
   - id: neighborhood_lot
     type: parking_lot
@@ -43,19 +41,19 @@ nodes:
 
   - id: neighborhood_loop_northeast_corner
     type: road_joint
-    pose: {x_m: -50, y_m: 75, rotation_deg: 0}
+    pose: {x_m: -50, y_m: 75}
 
   - id: neighborhood_loop_northwest_corner
     type: road_joint
-    pose: {x_m: 50, y_m: 75, rotation_deg: 0}
+    pose: {x_m: 50, y_m: 75}
 
   - id: neighborhood_loop_southeast_corner
     type: road_joint
-    pose: {x_m: -50, y_m: 0, rotation_deg: 0}
+    pose: {x_m: -50, y_m: 0}
 
   - id: neighborhood_loop_southwest_corner
     type: road_joint
-    pose: {x_m: 50, y_m: 0, rotation_deg: 0}
+    pose: {x_m: 50, y_m: 0}
 
 roads:
   - id: neighborhood_loop_north

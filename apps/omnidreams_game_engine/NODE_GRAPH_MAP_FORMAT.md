@@ -44,7 +44,6 @@ lane_width_m: 3.6
 curb_offset_m: 0.6
 lanes: [backward, forward]
 speed_limit_mps: 13.4
-curb: true
 lane_marking: {style: SOLID_GROUP, color: YELLOW}
 divider_markings:
   - {style: SOLID_GROUP, color: YELLOW}
@@ -56,7 +55,8 @@ surface width is `lane_width_m * len(lanes) + 2 * curb_offset_m`.
 Every element emits semantic road-boundary polylines around its surface,
 excluding declared connections. Those boundaries are always included in HD-map
 conditioning. `curb: true` also makes them physical collision barriers;
-`curb: false` leaves them non-colliding.
+`curb: false` leaves them non-colliding. The `curb` attribute defaults to
+`true` when neither the element nor its profile supplies it.
 
 For example, a road can inherit most values while overriding its width:
 
@@ -73,11 +73,11 @@ For example, a road can inherit most values while overriding its width:
 Every node except a parking lot has an explicit map-space pose:
 
 ```yaml
-pose: {x_m: 12, y_m: -4, rotation_deg: 30}
+pose: {x_m: 12, y_m: -4}
 ```
 
-`x_m` and `y_m` use metres. `rotation_deg` rotates the node's own footprint
-counterclockwise from map +x. It does not rotate or snap incident roads.
+`x_m` and `y_m` use metres. Connected road geometry determines every node's
+approach directions and footprint orientation.
 
 The persisted `GameMapTopology` retains typed nodes, roads, derived parking
 accesses, and adjacency. The compiler separately derives a
@@ -97,13 +97,12 @@ attributes may be supplied directly or by profile.
 
 ### Intersections
 
-An intersection requires `curb`:
+An intersection has no required attributes beyond its identity and pose:
 
 ```yaml
 - id: askew_junction
   type: intersection
-  pose: {x_m: 0, y_m: 0, rotation_deg: 45}
-  curb: true
+  pose: {x_m: 0, y_m: 0}
   lane_transition_length_m: 20
 ```
 
@@ -139,7 +138,7 @@ intersection:
 ```yaml
 - id: diagonal_bend
   type: road_joint
-  pose: {x_m: 40, y_m: 20, rotation_deg: 0}
+  pose: {x_m: 40, y_m: 20}
   lane_transition_length_m: 20
 ```
 
@@ -148,7 +147,7 @@ the roads' endpoint tangents and paved widths. It replaces those portions with
 one tangent-continuous cubic Bézier and traces the joint surface from the
 resulting roadside boundaries. The outside boundary remains curved rather than
 forming a straight miter between the two approaches. Curved `path` and `bezier`
-approaches are supported. Node rotation does not affect the join.
+approaches are supported.
 
 To author a longer curve, place a `bezier` road between two road joints. The
 joints provide the minimal tangent connections while the road owns the extended
@@ -175,15 +174,13 @@ an entire road or produce invalid or overlapping geometry are errors.
 
 ### Cul-de-sacs
 
-A cul-de-sac requires `curb` and `culdesac_radius_m` and must terminate exactly
-one road:
+A cul-de-sac requires `culdesac_radius_m` and must terminate exactly one road:
 
 ```yaml
 - id: oak_court_end
   type: cul_de_sac
-  pose: {x_m: 80, y_m: 20, rotation_deg: 0}
+  pose: {x_m: 80, y_m: 20}
   culdesac_radius_m: 10
-  curb: true
 ```
 
 Its circular surface has a flat opening matching the incident road width. The
@@ -226,7 +223,7 @@ A driveway is a degree-two road node with one parking access:
 ```yaml
 - id: market_west_driveway
   type: driveway
-  pose: {x_m: 17, y_m: -7, rotation_deg: 270}
+  pose: {x_m: 17, y_m: -7}
 ```
 
 Its two roads must have compatible cross-sections, markings, and curb modes.

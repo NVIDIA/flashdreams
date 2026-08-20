@@ -73,7 +73,6 @@ def _road_joint_map(*, curved_approach: bool = False) -> dict[str, object]:
                 "curb_offset_m": 0.6,
                 "lanes": ["backward", "forward"],
                 "speed_limit_mps": 13.4,
-                "curb": True,
                 "lane_marking": {"style": "SOLID_GROUP", "color": "YELLOW"},
                 "divider_markings": [{"style": "SOLID_GROUP", "color": "YELLOW"}],
             }
@@ -82,21 +81,19 @@ def _road_joint_map(*, curved_approach: bool = False) -> dict[str, object]:
             {
                 "id": "west_end",
                 "type": "cul_de_sac",
-                "pose": {"x_m": -45, "y_m": 0, "rotation_deg": 0},
+                "pose": {"x_m": -45, "y_m": 0},
                 "culdesac_radius_m": 8,
-                "curb": True,
             },
             {
                 "id": "bend",
                 "type": "road_joint",
-                "pose": {"x_m": 0, "y_m": 0, "rotation_deg": 0},
+                "pose": {"x_m": 0, "y_m": 0},
             },
             {
                 "id": "east_end",
                 "type": "cul_de_sac",
-                "pose": {"x_m": 35, "y_m": 35, "rotation_deg": 0},
+                "pose": {"x_m": 35, "y_m": 35},
                 "culdesac_radius_m": 8,
-                "curb": True,
             },
         ],
         "roads": [
@@ -133,7 +130,6 @@ def _intersection_transition_map(
     common = {
         "curb_offset_m": 0.6,
         "speed_limit_mps": 12,
-        "curb": True,
         "lane_marking": {"style": "DASHED_SINGLE", "color": "WHITE"},
     }
     return {
@@ -169,17 +165,15 @@ def _intersection_transition_map(
             {
                 "id": "center",
                 "type": "intersection",
-                "pose": {"x_m": 0, "y_m": 0, "rotation_deg": 0},
-                "curb": True,
+                "pose": {"x_m": 0, "y_m": 0},
                 "lane_transition_length_m": transition_length_m,
             },
             *(
                 {
                     "id": node_id,
                     "type": "cul_de_sac",
-                    "pose": {"x_m": x_m, "y_m": y_m, "rotation_deg": 0},
+                    "pose": {"x_m": x_m, "y_m": y_m},
                     "culdesac_radius_m": 12,
-                    "curb": True,
                 }
                 for node_id, x_m, y_m in (
                     ("north", 0, 100),
@@ -402,7 +396,7 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
     for profile in source["profiles"].values():
         profile["curb"] = False
     for node in source["nodes"]:
-        if "curb" in node:
+        if node["type"] in {"intersection", "cul_de_sac"}:
             node["curb"] = False
 
     source_path = _write_map(tmp_path, source)
@@ -479,6 +473,7 @@ def test_direct_attributes_override_values_present_in_profile(tmp_path: Path) ->
         "curb": False,
     }
     hub["profile"] = "intersection_defaults"
+    hub["curb"] = True
 
     game_map = load_game_map(_write_map(tmp_path, source))
     resolved_road = next(
@@ -601,28 +596,26 @@ def test_serialized_road_boundaries_do_not_require_physical_curbs() -> None:
     assert not any(element.curbs for element in restored.elements)
 
 
-def test_node_rotation_does_not_change_road_path(tmp_path: Path) -> None:
+def test_node_rotation_is_not_an_authored_pose_field(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     hub = next(node for node in source["nodes"] if node["id"] == "hub")
-    baseline = load_game_map(_STARTER_MAP)
     hub["pose"]["rotation_deg"] = 45
-    rotated = load_game_map(_write_map(tmp_path, source))
 
-    baseline_road = next(
-        lane for lane in baseline.lanes if lane.lane_id == "dead_end_road:lane:1"
+    with pytest.raises(GameMapError, match="pose requires x_m and y_m"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_curb_defaults_to_true_for_roads_and_boundary_nodes() -> None:
+    game_map = load_game_map(_STARTER_MAP)
+
+    assert all(road.attributes.curb for road in game_map.topology.roads)
+    assert all(
+        node.attributes.curb
+        for node in game_map.topology.nodes
+        if node.node_type in {"intersection", "cul_de_sac"}
     )
-    rotated_road = next(
-        lane for lane in rotated.lanes if lane.lane_id == "dead_end_road:lane:1"
-    )
-    baseline_direction = (
-        baseline_road.centerline_world[-1, :2] - baseline_road.centerline_world[0, :2]
-    )
-    rotated_direction = (
-        rotated_road.centerline_world[-1, :2] - rotated_road.centerline_world[0, :2]
-    )
-    baseline_direction /= np.linalg.norm(baseline_direction)
-    rotated_direction /= np.linalg.norm(rotated_direction)
-    np.testing.assert_allclose(rotated_direction, baseline_direction, atol=1.0e-5)
+    serialized = game_map_to_dict(game_map)
+    assert all("rotation_deg" not in node for node in serialized["topology"]["nodes"])
 
 
 def test_askew_intersection_road_angles_are_geometry_driven() -> None:
@@ -637,7 +630,6 @@ def test_askew_intersection_road_angles_are_geometry_driven() -> None:
     bearing = np.degrees(np.arctan2(end.y_m - start.y_m, end.x_m - start.x_m)) % 360
 
     assert start.node_id == "diagonal_arterial_crossing"
-    assert start.rotation_deg == pytest.approx(0)
     assert bearing == pytest.approx(81.0, abs=0.2)
 
 
@@ -717,7 +709,7 @@ def test_road_joint_rounds_ninety_degree_outside_boundary(tmp_path: Path) -> Non
     source = _road_joint_map()
     nodes = cast(list[dict[str, Any]], source["nodes"])
     east = next(node for node in nodes if node["id"] == "east_end")
-    east["pose"] = {"x_m": 0, "y_m": 35, "rotation_deg": 0}
+    east["pose"] = {"x_m": 0, "y_m": 35}
 
     game_map = load_game_map(_write_map(tmp_path, source))
     joint = next(
@@ -735,7 +727,7 @@ def test_straight_road_joint_remains_straight(tmp_path: Path) -> None:
     source = _road_joint_map()
     nodes = cast(list[dict[str, Any]], source["nodes"])
     east = next(node for node in nodes if node["id"] == "east_end")
-    east["pose"] = {"x_m": 35, "y_m": 0, "rotation_deg": 0}
+    east["pose"] = {"x_m": 35, "y_m": 0}
 
     game_map = load_game_map(_write_map(tmp_path, source))
     joint_lane = next(lane for lane in game_map.lanes if lane.lane_id == "bend:lane:1")
@@ -980,16 +972,14 @@ def test_road_rejects_combined_trims_from_both_endpoint_joints(
     nodes = cast(list[dict[str, Any]], source["nodes"])
     east = next(node for node in nodes if node["id"] == "east_end")
     east["type"] = "road_joint"
-    east["pose"] = {"x_m": 2, "y_m": 2, "rotation_deg": 0}
+    east["pose"] = {"x_m": 2, "y_m": 2}
     east.pop("culdesac_radius_m")
-    east.pop("curb")
     nodes.append(
         {
             "id": "far_end",
             "type": "cul_de_sac",
-            "pose": {"x_m": 2, "y_m": 35, "rotation_deg": 0},
+            "pose": {"x_m": 2, "y_m": 35},
             "culdesac_radius_m": 8,
-            "curb": True,
         }
     )
     roads = cast(list[dict[str, Any]], source["roads"])

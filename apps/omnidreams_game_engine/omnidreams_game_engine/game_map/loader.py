@@ -73,6 +73,7 @@ _LINEAR_ATTRIBUTE_FIELDS = frozenset(
         "divider_markings",
     }
 )
+_REQUIRED_LINEAR_ATTRIBUTE_FIELDS = _LINEAR_ATTRIBUTE_FIELDS - {"curb"}
 
 _NODE_ATTRIBUTE_FIELDS = {
     "intersection": frozenset({"curb"}),
@@ -213,6 +214,8 @@ def _resolve_attribute_values(
         if key in allowed_fields
     }
     values.update(direct)
+    if "curb" in allowed_fields:
+        values.setdefault("curb", True)
     missing = required_fields - set(values)
     if missing:
         raise GameMapError(f"{context} is missing attributes {sorted(missing)}")
@@ -306,7 +309,6 @@ def _parse_nodes(
                     node_type=node_type,
                     x_m=float(centroid.x),
                     y_m=float(centroid.y),
-                    rotation_deg=0.0,
                     profile_id=None,
                     attributes=GameMapBoundaryAttributes(curb=True),
                     geometry={},
@@ -317,10 +319,8 @@ def _parse_nodes(
         if not {"id", "type", "pose"} <= set(raw):
             raise GameMapError(f"nodes[{index}] requires id, type, and pose")
         pose = _mapping(raw["pose"], f"node {node_id!r}.pose")
-        if set(pose) != {"x_m", "y_m", "rotation_deg"}:
-            raise GameMapError(
-                f"Node {node_id!r}.pose requires x_m, y_m, and rotation_deg"
-            )
+        if set(pose) != {"x_m", "y_m"}:
+            raise GameMapError(f"Node {node_id!r}.pose requires x_m and y_m")
         if node_type in {"road_joint", "driveway"}:
             expected = {"id", "type", "pose"}
             allowed = set(expected)
@@ -350,8 +350,8 @@ def _parse_nodes(
         else:
             allowed = _NODE_ATTRIBUTE_FIELDS[node_type]
             required = {
-                "intersection": frozenset({"curb"}),
-                "cul_de_sac": frozenset({"curb", "culdesac_radius_m"}),
+                "intersection": frozenset(),
+                "cul_de_sac": frozenset({"culdesac_radius_m"}),
             }[node_type]
             profile_id, values = _resolve_attribute_values(
                 raw,
@@ -383,10 +383,6 @@ def _parse_nodes(
                 node_type=node_type,
                 x_m=_finite_float(pose["x_m"], f"node {node_id!r}.pose.x_m"),
                 y_m=_finite_float(pose["y_m"], f"node {node_id!r}.pose.y_m"),
-                rotation_deg=_finite_float(
-                    pose["rotation_deg"], f"node {node_id!r}.pose.rotation_deg"
-                )
-                % 360.0,
                 profile_id=profile_id,
                 attributes=attributes,
                 geometry=geometry,
@@ -542,7 +538,7 @@ def _parse_roads(
             profiles,
             structural_fields={"id", "from", "to", "path", "bezier"},
             allowed_fields=_LINEAR_ATTRIBUTE_FIELDS,
-            required_fields=_LINEAR_ATTRIBUTE_FIELDS,
+            required_fields=_REQUIRED_LINEAR_ATTRIBUTE_FIELDS,
             context=context,
         )
         attributes = _linear_attributes(values, context)

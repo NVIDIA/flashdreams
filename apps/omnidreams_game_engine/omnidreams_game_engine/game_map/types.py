@@ -75,9 +75,6 @@ class GameMapNode:
     y_m: float
     """Map-space y coordinate of the node origin."""
 
-    rotation_deg: float
-    """Counterclockwise footprint rotation from map +x, independent of roads."""
-
     profile_id: str | None
     """Optional source profile used to resolve node attributes."""
 
@@ -417,7 +414,6 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "node_type": node.node_type,
                     "x_m": node.x_m,
                     "y_m": node.y_m,
-                    "rotation_deg": node.rotation_deg,
                     "profile_id": node.profile_id,
                     "attributes": _attributes_to_dict(node.attributes),
                     "geometry": node.geometry,
@@ -612,7 +608,6 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 node_type=str(raw["node_type"]),
                 x_m=float(raw["x_m"]),
                 y_m=float(raw["y_m"]),
-                rotation_deg=float(raw["rotation_deg"]),
                 profile_id=(
                     None if raw.get("profile_id") is None else str(raw["profile_id"])
                 ),
