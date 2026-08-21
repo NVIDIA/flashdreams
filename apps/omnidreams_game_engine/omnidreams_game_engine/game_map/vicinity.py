@@ -24,37 +24,77 @@ class GameMapVicinity:
     pedestrian_element_ids: frozenset[str]
 
 
-def _point_segment_distance(
-    point: np.ndarray, start: np.ndarray, end: np.ndarray
-) -> float:
-    vector = end - start
-    length_sq = float(np.dot(vector, vector))
-    alpha = (
-        0.0
-        if length_sq <= 1.0e-12
-        else float(np.dot(point - start, vector)) / length_sq
-    )
-    closest = start + np.clip(alpha, 0.0, 1.0) * vector
-    return float(np.linalg.norm(point - closest))
-
-
 def _polygon_contains(point: np.ndarray, polygon: np.ndarray) -> bool:
-    vertices = np.asarray(polygon[:, :2], dtype=np.float64)
-    if len(vertices) > 1 and np.allclose(vertices[0], vertices[-1]):
-        vertices = vertices[:-1]
-    inside = False
-    previous = vertices[-1]
-    for current in vertices:
-        if _point_segment_distance(point, previous, current) <= _BOUNDARY_EPSILON_M:
-            return True
-        if (current[1] > point[1]) != (previous[1] > point[1]):
-            crossing_x = (previous[0] - current[0]) * (point[1] - current[1]) / (
-                previous[1] - current[1]
-            ) + current[0]
-            if point[0] < crossing_x:
-                inside = not inside
-        previous = current
-    return inside
+    """Return whether a point is inside or on a pre-normalized polygon."""
+    starts = polygon
+    ends = np.roll(polygon, -1, axis=0)
+    vectors = ends - starts
+    lengths_sq = np.einsum("ij,ij->i", vectors, vectors)
+    relative = point[None, :] - starts
+    alpha = np.divide(
+        np.einsum("ij,ij->i", relative, vectors),
+        lengths_sq,
+        out=np.zeros_like(lengths_sq),
+        where=lengths_sq > 1.0e-12,
+    )
+    closest = starts + np.clip(alpha, 0.0, 1.0)[:, None] * vectors
+    offsets = point[None, :] - closest
+    if np.any(np.einsum("ij,ij->i", offsets, offsets) <= _BOUNDARY_EPSILON_M**2):
+        return True
+
+    crosses_y = (starts[:, 1] > point[1]) != (ends[:, 1] > point[1])
+    if not np.any(crosses_y):
+        return False
+    crossing_starts = starts[crosses_y]
+    crossing_vectors = vectors[crosses_y]
+    crossing_x = crossing_starts[:, 0] + (
+        (point[1] - crossing_starts[:, 1])
+        * crossing_vectors[:, 0]
+        / crossing_vectors[:, 1]
+    )
+    return bool(np.count_nonzero(point[0] < crossing_x) % 2)
+
+
+@dataclass(frozen=True)
+class _PolygonLookup:
+    """A small vectorized bounding-box index over semantic polygons."""
+
+    element_ids: tuple[str, ...]
+    polygons: tuple[np.ndarray, ...]
+    minimums_xy: np.ndarray
+    maximums_xy: np.ndarray
+
+    @classmethod
+    def build(cls, entries: tuple[tuple[str, np.ndarray], ...]) -> _PolygonLookup:
+        element_ids: list[str] = []
+        polygons: list[np.ndarray] = []
+        for element_id, polygon in entries:
+            vertices = np.asarray(polygon[:, :2], dtype=np.float64)
+            if len(vertices) > 1 and np.allclose(vertices[0], vertices[-1]):
+                vertices = vertices[:-1]
+            element_ids.append(element_id)
+            polygons.append(vertices)
+        if not polygons:
+            empty = np.empty((0, 2), dtype=np.float64)
+            return cls((), (), empty, empty.copy())
+        return cls(
+            tuple(element_ids),
+            tuple(polygons),
+            np.asarray([polygon.min(axis=0) for polygon in polygons]),
+            np.asarray([polygon.max(axis=0) for polygon in polygons]),
+        )
+
+    def containing_element(self, point_xy: np.ndarray) -> str | None:
+        """Return the first indexed polygon containing ``point_xy``."""
+        within_bounds = np.all(
+            (point_xy >= self.minimums_xy - _BOUNDARY_EPSILON_M)
+            & (point_xy <= self.maximums_xy + _BOUNDARY_EPSILON_M),
+            axis=1,
+        )
+        for index in np.flatnonzero(within_bounds):
+            if _polygon_contains(point_xy, self.polygons[int(index)]):
+                return self.element_ids[int(index)]
+        return None
 
 
 class GameMapVicinityResolver:
@@ -83,33 +123,39 @@ class GameMapVicinityResolver:
             ).add(access.parking_lot_node_id)
             self._access_source_by_id[access.access_id] = access.source_node_id
         elements = {element.element_id: element for element in game_map.elements}
-        self._node_polygons = tuple(
-            (node_id, elements[node_id].surface_world)
-            for node_id in sorted(self._nodes)
-            if node_id in elements
+        self._node_polygons = _PolygonLookup.build(
+            tuple(
+                (node_id, elements[node_id].surface_world)
+                for node_id in sorted(self._nodes)
+                if node_id in elements
+            )
         )
-        self._road_polygons = tuple(
-            (road_id, elements[road_id].surface_world)
-            for road_id in sorted(self._roads)
-            if road_id in elements
+        self._road_polygons = _PolygonLookup.build(
+            tuple(
+                (road_id, elements[road_id].surface_world)
+                for road_id in sorted(self._roads)
+                if road_id in elements
+            )
         )
-        self._access_polygons = tuple(
-            (access_id, elements[access_id].surface_world)
-            for access_id in sorted(self._access_source_by_id)
-            if access_id in elements
+        self._access_polygons = _PolygonLookup.build(
+            tuple(
+                (
+                    self._access_source_by_id[access_id],
+                    elements[access_id].surface_world,
+                )
+                for access_id in sorted(self._access_source_by_id)
+                if access_id in elements
+            )
         )
 
     def _location_element(self, point_xy: np.ndarray) -> str | None:
-        for element_id, polygon in self._node_polygons:
-            if _polygon_contains(point_xy, polygon):
-                return element_id
-        for element_id, polygon in self._road_polygons:
-            if _polygon_contains(point_xy, polygon):
-                return element_id
-        for access_id, polygon in self._access_polygons:
-            if _polygon_contains(point_xy, polygon):
-                return self._access_source_by_id[access_id]
-        return None
+        node_id = self._node_polygons.containing_element(point_xy)
+        if node_id is not None:
+            return node_id
+        road_id = self._road_polygons.containing_element(point_xy)
+        if road_id is not None:
+            return road_id
+        return self._access_polygons.containing_element(point_xy)
 
     def _next_node(self, road_id: str, point_xy: np.ndarray, yaw_rad: float) -> str:
         road = self._roads[road_id]

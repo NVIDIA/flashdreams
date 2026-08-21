@@ -29,6 +29,7 @@ from omnidreams_game_engine.game_map import (
     write_spawn_first_frame_preview,
 )
 from omnidreams_game_engine.game_map import compiler as game_map_compiler
+from omnidreams_game_engine.game_map import vicinity as game_map_vicinity
 from omnidreams_game_engine.game_map.types import (
     ResolvedGameMap,
     game_map_from_dict,
@@ -358,6 +359,35 @@ def test_boulevard_vicinity_follows_facing_direction_and_retains_offroad() -> No
     assert "central_arterial_crossing" in forward.traffic_element_ids
     assert "west_arterial_crossing" in reverse.traffic_element_ids
     assert resolver.resolve(1.0e6, 1.0e6, 0.0, previous=forward) is forward
+
+
+def test_boulevard_vicinity_rejects_distant_polygons_before_exact_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    resolver = GameMapVicinityResolver(game_map)
+    spawn = game_map.default_spawn
+    exact_test_count = 0
+    polygon_contains = game_map_vicinity._polygon_contains
+
+    def counted_polygon_contains(point: np.ndarray, polygon: np.ndarray) -> bool:
+        nonlocal exact_test_count
+        exact_test_count += 1
+        return polygon_contains(point, polygon)
+
+    monkeypatch.setattr(
+        game_map_vicinity, "_polygon_contains", counted_polygon_contains
+    )
+
+    vicinity = resolver.resolve(
+        float(spawn.position_world[0]),
+        float(spawn.position_world[1]),
+        spawn.yaw_rad,
+    )
+
+    assert vicinity is not None
+    assert vicinity.location_element_id == "spawn_arterial"
+    assert exact_test_count == 1
 
 
 def test_vicinity_exposes_parking_lot_pedestrian_at_its_access_node() -> None:
