@@ -257,9 +257,7 @@ class LiveEditFrameCompositor:
             self._scaled_sprite_cache.move_to_end(key)
         return cached
 
-    def _scaled_shadow(
-        self, device: torch.device, width: int, height: int
-    ) -> Tensor:
+    def _scaled_shadow(self, device: torch.device, width: int, height: int) -> Tensor:
         """One-minus-alpha shadow texture ``[h,w,1]`` at one size."""
         key = (device, width, height)
         cached = self._scaled_shadow_cache.get(key)

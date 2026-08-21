@@ -21,7 +21,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
 from crazy_robotaxi.runner import (
     CRAZY_ROBOTAXI_RUNNER,
     CrazyRobotaxiRunner,
