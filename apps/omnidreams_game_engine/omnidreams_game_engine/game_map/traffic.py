@@ -5,15 +5,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import heapq
 import math
 from collections import deque
+from dataclasses import dataclass
 
 import numpy as np
 
 from omnidreams_game_engine.game_map._schema import GameMapError
 from omnidreams_game_engine.game_map.types import (
     GameMapLane,
+    GameMapSpawn,
     GameMapTopology,
     GameMapTrafficVehicle,
 )
@@ -24,6 +27,30 @@ _VEHICLE_DIMENSIONS_LWH_M = {
     "bus": (12.0, 2.55, 3.2),
 }
 _TURN_THRESHOLD_RAD = math.radians(35.0)
+_GENERATED_SLOT_SPACING_M = 2.0
+_GENERATED_FOOTPRINT_BUFFER_M = 0.5
+_GENERATED_SPAWN_CLEARANCE_M = 8.0
+_HEADWAY_MIN_CLEARANCE_M = 2.0
+_HEADWAY_TIME_S = 1.25
+_HEADWAY_LANE_CORRIDOR_M = 2.25
+_HEADWAY_MAX_ANGLE_RAD = math.radians(40.0)
+
+
+@dataclass(frozen=True)
+class _RouteTemplate:
+    node_ids: tuple[str, ...]
+    end_behavior: str
+    centerline_world: np.ndarray
+    speed_limits_mps: np.ndarray
+
+
+@dataclass(frozen=True)
+class _Placement:
+    position_xy: np.ndarray
+    forward_xy: np.ndarray
+    speed_mps: float
+    half_length_m: float
+    half_width_m: float
 
 
 def _polyline_length(points: np.ndarray) -> float:
@@ -319,14 +346,342 @@ def _insert_turnarounds(
     return result
 
 
+def _compile_waypoint_route(
+    node_ids: tuple[str, ...],
+    end_behavior: str,
+    topology: GameMapTopology,
+    lanes: tuple[GameMapLane, ...],
+    directed: dict[tuple[str, str, str], list[GameMapLane]],
+    speed_mps: float | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    waypoint_cycle = list(node_ids)
+    if end_behavior == "reverse":
+        waypoint_cycle.extend(reversed(node_ids[:-1]))
+    legs = list(zip(waypoint_cycle, waypoint_cycle[1:]))
+    if end_behavior == "wrap":
+        legs.append((waypoint_cycle[-1], waypoint_cycle[0]))
+    traversals: list[tuple[str, str, str]] = []
+    for source_id, target_id in legs:
+        traversals.extend(_shortest_roads(source_id, target_id, topology, directed))
+    traversals = _insert_turnarounds(traversals, topology, directed)
+    return _compile_route(traversals, topology, lanes, speed_mps)
+
+
+def _tree_path(
+    start_id: str,
+    end_id: str,
+    adjacency: dict[str, list[tuple[str, str]]],
+) -> list[str]:
+    queue = deque([start_id])
+    previous: dict[str, str | None] = {start_id: None}
+    while queue:
+        node_id = queue.popleft()
+        if node_id == end_id:
+            break
+        for neighbor_id, _ in adjacency.get(node_id, ()):
+            if neighbor_id in previous:
+                continue
+            previous[neighbor_id] = node_id
+            queue.append(neighbor_id)
+    if end_id not in previous:
+        return []
+    path: list[str] = []
+    node_id: str | None = end_id
+    while node_id is not None:
+        path.append(node_id)
+        node_id = previous[node_id]
+    return list(reversed(path))
+
+
+def _fundamental_cycles(topology: GameMapTopology) -> list[tuple[str, ...]]:
+    parent: dict[str, str] = {}
+
+    def find(node_id: str) -> str:
+        parent.setdefault(node_id, node_id)
+        while parent[node_id] != node_id:
+            parent[node_id] = parent[parent[node_id]]
+            node_id = parent[node_id]
+        return node_id
+
+    tree: dict[str, list[tuple[str, str]]] = {}
+    cycles: list[tuple[str, ...]] = []
+    for road in sorted(topology.roads, key=lambda value: value.road_id):
+        first = road.from_node_id
+        second = road.to_node_id
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parent[second_root] = first_root
+            tree.setdefault(first, []).append((second, road.road_id))
+            tree.setdefault(second, []).append((first, road.road_id))
+            continue
+        path = _tree_path(second, first, tree)
+        if len(path) >= 3:
+            cycles.append(tuple([first, *path[:-1]]))
+    return cycles
+
+
+def _nearest_cul_de_sac_pairs(
+    topology: GameMapTopology,
+    directed: dict[tuple[str, str, str], list[GameMapLane]],
+) -> list[tuple[str, str]]:
+    cul_de_sacs = sorted(
+        node.node_id for node in topology.nodes if node.node_type == "cul_de_sac"
+    )
+    pairs: set[tuple[str, str]] = set()
+    for source_id in cul_de_sacs:
+        candidates: list[tuple[float, str]] = []
+        for target_id in cul_de_sacs:
+            if target_id == source_id:
+                continue
+            try:
+                route = _shortest_roads(source_id, target_id, topology, directed)
+            except GameMapError:
+                continue
+            length = sum(
+                min(
+                    _polyline_length(lane.centerline_world)
+                    for lane in directed[traversal]
+                )
+                for traversal in route
+            )
+            candidates.append((length, target_id))
+        if candidates:
+            target_id = min(candidates)[1]
+            pairs.add(tuple(sorted((source_id, target_id))))
+    return sorted(pairs)
+
+
+def _generated_route_templates(
+    topology: GameMapTopology,
+    lanes: tuple[GameMapLane, ...],
+    directed: dict[tuple[str, str, str], list[GameMapLane]],
+) -> list[_RouteTemplate]:
+    candidates: list[tuple[tuple[str, ...], str]] = []
+    for cycle in _fundamental_cycles(topology):
+        candidates.append((cycle, "wrap"))
+        candidates.append((tuple([cycle[0], *reversed(cycle[1:])]), "wrap"))
+    candidates.extend(
+        ((pair, "reverse") for pair in _nearest_cul_de_sac_pairs(topology, directed))
+    )
+    templates: list[_RouteTemplate] = []
+    seen_geometry: set[bytes] = set()
+    for node_ids, end_behavior in candidates:
+        try:
+            centerline, speed_limits = _compile_waypoint_route(
+                node_ids,
+                end_behavior,
+                topology,
+                lanes,
+                directed,
+                None,
+            )
+        except GameMapError:
+            continue
+        fingerprint = hashlib.sha256(centerline.tobytes()).digest()
+        if fingerprint in seen_geometry:
+            continue
+        seen_geometry.add(fingerprint)
+        templates.append(
+            _RouteTemplate(
+                node_ids=node_ids,
+                end_behavior=end_behavior,
+                centerline_world=centerline,
+                speed_limits_mps=speed_limits,
+            )
+        )
+    return templates
+
+
+def _placement_at_distance(
+    centerline: np.ndarray,
+    speeds: np.ndarray,
+    distance_m: float,
+    dimensions_lwh_m: tuple[float, float, float],
+) -> _Placement:
+    lengths = np.linalg.norm(np.diff(centerline[:, :2], axis=0), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+    segment = min(
+        max(int(np.searchsorted(cumulative, distance_m, side="right") - 1), 0),
+        len(lengths) - 1,
+    )
+    alpha = (distance_m - cumulative[segment]) / max(float(lengths[segment]), 1e-9)
+    position = centerline[segment, :2] + alpha * (
+        centerline[segment + 1, :2] - centerline[segment, :2]
+    )
+    forward = centerline[segment + 1, :2] - centerline[segment, :2]
+    forward /= max(float(np.linalg.norm(forward)), 1e-9)
+    speed = float(speeds[segment] * (1.0 - alpha) + speeds[segment + 1] * alpha)
+    return _Placement(
+        position_xy=np.asarray(position, dtype=np.float64),
+        forward_xy=np.asarray(forward, dtype=np.float64),
+        speed_mps=speed,
+        half_length_m=dimensions_lwh_m[0] * 0.5,
+        half_width_m=dimensions_lwh_m[1] * 0.5,
+    )
+
+
+def _footprints_overlap(first: _Placement, second: _Placement) -> bool:
+    first_left = np.asarray([-first.forward_xy[1], first.forward_xy[0]])
+    second_left = np.asarray([-second.forward_xy[1], second.forward_xy[0]])
+    delta = second.position_xy - first.position_xy
+    axes = (first.forward_xy, first_left, second.forward_xy, second_left)
+    first_extents = (
+        first.half_length_m + _GENERATED_FOOTPRINT_BUFFER_M,
+        first.half_width_m + _GENERATED_FOOTPRINT_BUFFER_M,
+    )
+    second_extents = (
+        second.half_length_m + _GENERATED_FOOTPRINT_BUFFER_M,
+        second.half_width_m + _GENERATED_FOOTPRINT_BUFFER_M,
+    )
+    for axis in axes:
+        first_radius = first_extents[0] * abs(float(np.dot(first.forward_xy, axis)))
+        first_radius += first_extents[1] * abs(float(np.dot(first_left, axis)))
+        second_radius = second_extents[0] * abs(float(np.dot(second.forward_xy, axis)))
+        second_radius += second_extents[1] * abs(float(np.dot(second_left, axis)))
+        if abs(float(np.dot(delta, axis))) >= first_radius + second_radius:
+            return False
+    return True
+
+
+def _placement_is_safe(
+    candidate: _Placement,
+    occupied: list[_Placement],
+    spawn_positions: tuple[np.ndarray, ...],
+) -> bool:
+    if any(
+        float(np.linalg.norm(candidate.position_xy - spawn_position))
+        < _GENERATED_SPAWN_CLEARANCE_M
+        for spawn_position in spawn_positions
+    ):
+        return False
+    for other in occupied:
+        if _footprints_overlap(candidate, other):
+            return False
+        heading_dot = float(np.dot(candidate.forward_xy, other.forward_xy))
+        heading_dot = float(np.clip(heading_dot, -1.0, 1.0))
+        if math.acos(heading_dot) > _HEADWAY_MAX_ANGLE_RAD:
+            continue
+        delta = other.position_xy - candidate.position_xy
+        lateral = abs(
+            float(
+                candidate.forward_xy[0] * delta[1] - candidate.forward_xy[1] * delta[0]
+            )
+        )
+        if lateral > _HEADWAY_LANE_CORRIDOR_M:
+            continue
+        longitudinal = abs(float(np.dot(delta, candidate.forward_xy)))
+        required = (
+            candidate.half_length_m
+            + other.half_length_m
+            + _HEADWAY_MIN_CLEARANCE_M
+            + _HEADWAY_TIME_S * max(candidate.speed_mps, other.speed_mps)
+        )
+        if longitudinal < required:
+            return False
+    return True
+
+
+def _generate_traffic(
+    count: int,
+    authored: list[GameMapTrafficVehicle],
+    topology: GameMapTopology,
+    lanes: tuple[GameMapLane, ...],
+    directed: dict[tuple[str, str, str], list[GameMapLane]],
+    map_id: str,
+    spawns: tuple[GameMapSpawn, ...],
+) -> list[GameMapTrafficVehicle]:
+    templates = _generated_route_templates(topology, lanes, directed)
+    dimensions = _VEHICLE_DIMENSIONS_LWH_M["car"]
+    occupied = [
+        _placement_at_distance(
+            vehicle.centerline_world,
+            vehicle.speed_limits_mps,
+            vehicle.start_distance_m,
+            vehicle.dimensions_lwh_m,
+        )
+        for vehicle in authored
+    ]
+    spawn_positions = tuple(
+        np.asarray(spawn.position_world[:2], dtype=np.float64) for spawn in spawns
+    )
+    slots: list[tuple[bytes, _RouteTemplate, float]] = []
+    for template in templates:
+        route_length = _polyline_length(template.centerline_world)
+        signature = "|".join((*template.node_ids, template.end_behavior)).encode()
+        for offset_m in np.arange(0.0, route_length, _GENERATED_SLOT_SPACING_M):
+            key = hashlib.sha256(
+                map_id.encode()
+                + b"|"
+                + signature
+                + b"|"
+                + f"{float(offset_m):.3f}".encode()
+            ).digest()
+            slots.append((key, template, float(offset_m)))
+    accepted: list[tuple[_RouteTemplate, float]] = []
+    for _, template, offset_m in sorted(slots, key=lambda item: item[0]):
+        placement = _placement_at_distance(
+            template.centerline_world,
+            template.speed_limits_mps,
+            offset_m,
+            dimensions,
+        )
+        if not _placement_is_safe(placement, occupied, spawn_positions):
+            continue
+        occupied.append(placement)
+        accepted.append((template, offset_m))
+        if len(accepted) == count:
+            break
+    if len(accepted) < count:
+        maximum = len(authored) + len(accepted)
+        raise GameMapError(
+            f"traffic_count requests {len(authored) + count} vehicles, but this "
+            f"map has safe capacity for {maximum}"
+        )
+    used_ids = {vehicle.vehicle_id for vehicle in authored}
+    generated: list[GameMapTrafficVehicle] = []
+    next_id = 1
+    for template, offset_m in accepted[:count]:
+        while True:
+            vehicle_id = f"generated-traffic-{next_id:04d}"
+            next_id += 1
+            if vehicle_id not in used_ids:
+                break
+        used_ids.add(vehicle_id)
+        generated.append(
+            GameMapTrafficVehicle(
+                vehicle_id=vehicle_id,
+                node_ids=template.node_ids,
+                end_behavior=template.end_behavior,
+                vehicle_type="car",
+                dimensions_lwh_m=dimensions,
+                speed_mps=None,
+                start_distance_m=offset_m,
+                centerline_world=template.centerline_world,
+                speed_limits_mps=template.speed_limits_mps,
+            )
+        )
+    return generated
+
+
 def compile_traffic(
     raw_values: object,
     topology: GameMapTopology,
     lanes: tuple[GameMapLane, ...],
+    *,
+    traffic_count: object = None,
+    map_id: str = "",
+    spawns: tuple[GameMapSpawn, ...] = (),
 ) -> tuple[GameMapTrafficVehicle, ...]:
     """Validate and compile optional traffic definitions."""
+    if traffic_count is not None and (
+        isinstance(traffic_count, bool)
+        or not isinstance(traffic_count, int)
+        or traffic_count < 0
+    ):
+        raise GameMapError("traffic_count must be a nonnegative integer")
     if raw_values is None:
-        return ()
+        raw_values = []
     if not isinstance(raw_values, list):
         raise GameMapError("traffic must be a sequence")
     nodes = {node.node_id: node for node in topology.nodes}
@@ -417,18 +772,13 @@ def compile_traffic(
                 f"Traffic {vehicle_id!r}.start_distance_m must be nonnegative and finite"
             )
 
-        waypoint_cycle = list(node_ids)
-        if end_behavior == "reverse":
-            waypoint_cycle.extend(reversed(node_ids[:-1]))
-        legs = list(zip(waypoint_cycle, waypoint_cycle[1:]))
-        if end_behavior == "wrap":
-            legs.append((waypoint_cycle[-1], waypoint_cycle[0]))
-        traversals: list[tuple[str, str, str]] = []
-        for source_id, target_id in legs:
-            traversals.extend(_shortest_roads(source_id, target_id, topology, directed))
-        traversals = _insert_turnarounds(traversals, topology, directed)
-        centerline, speed_limits = _compile_route(
-            traversals, topology, lanes, speed_mps
+        centerline, speed_limits = _compile_waypoint_route(
+            node_ids,
+            end_behavior,
+            topology,
+            lanes,
+            directed,
+            speed_mps,
         )
         route_length = _polyline_length(centerline)
         if start_distance_m >= route_length:
@@ -446,6 +796,26 @@ def compile_traffic(
                 start_distance_m=start_distance_m,
                 centerline_world=centerline,
                 speed_limits_mps=speed_limits,
+            )
+        )
+    if traffic_count is None:
+        return tuple(results)
+    if traffic_count < len(results):
+        raise GameMapError(
+            f"traffic_count is {traffic_count}, but traffic defines "
+            f"{len(results)} vehicles; remove entries or increase traffic_count"
+        )
+    generated_count = traffic_count - len(results)
+    if generated_count:
+        results.extend(
+            _generate_traffic(
+                generated_count,
+                results,
+                topology,
+                lanes,
+                directed,
+                map_id,
+                spawns,
             )
         )
     return tuple(results)

@@ -34,7 +34,7 @@ _REQUIRED_ROOT_FIELDS = frozenset(
         "spawns",
     }
 )
-_OPTIONAL_ROOT_FIELDS = frozenset({"profiles", "traffic"})
+_OPTIONAL_ROOT_FIELDS = frozenset({"profiles", "traffic", "traffic_count"})
 
 _PROFILE_ATTRIBUTE_FIELDS = frozenset(
     {

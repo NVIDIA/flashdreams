@@ -17,12 +17,13 @@ compiler:
 profiles: {}
 nodes: []
 roads: []
+traffic_count: 12
 traffic: []
 spawns: []
 ```
 
-`profiles` and `traffic` are optional. All other root fields are required, and
-unknown root fields are errors.
+`profiles`, `traffic_count`, and `traffic` are optional. All other root fields
+are required, and unknown root fields are errors.
 
 The compiler settings control road sampling, ground extent, and routing-only
 turn-connector resolution. They do not configure the renderer archive.
@@ -332,6 +333,15 @@ traffic:
     speed_mps: 11
     start_distance_m: 20
 ```
+
+`traffic_count` optionally fixes the final number of NPC vehicles. When it is
+omitted, the compiler uses the authored `traffic` list unchanged. It must be a
+nonnegative integer at least as large as the authored list; a smaller value is
+a conflict and fails compilation. When it is larger, the compiler fills the
+difference with deterministic default cars distributed across legal public-road
+loops and cul-de-sac routes. Generated cars avoid playable spawns and unsafe
+initial overlap. Compilation fails with the map's safe capacity when the
+requested count cannot be placed.
 
 `nodes` requires at least two non-parking nodes. Consecutive nodes do not need
 to be adjacent: the compiler selects the shortest routable sequence of public

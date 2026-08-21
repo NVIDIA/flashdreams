@@ -280,6 +280,17 @@ def _curb_lines(game_map: ResolvedGameMap) -> list[LineString]:
     ]
 
 
+def _point_on_polyline(points: np.ndarray, distance_m: float) -> np.ndarray:
+    lengths = np.linalg.norm(np.diff(points[:, :2], axis=0), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+    index = min(
+        max(int(np.searchsorted(cumulative, distance_m, side="right") - 1), 0),
+        len(lengths) - 1,
+    )
+    alpha = (distance_m - cumulative[index]) / max(float(lengths[index]), 1e-9)
+    return points[index] + alpha * (points[index + 1] - points[index])
+
+
 def test_bundled_maps_use_schema_version_1() -> None:
     starter = load_game_map(_STARTER_MAP)
     boulevard = load_game_map(_BOULEVARD_MAP)
@@ -612,6 +623,7 @@ def test_topology_round_trip_is_lossless() -> None:
 
 def test_traffic_compiles_and_round_trips(tmp_path: Path) -> None:
     source = _road_joint_map()
+    source["traffic_count"] = 1
     source["traffic"] = [
         {
             "id": "local_car",
@@ -655,6 +667,126 @@ def test_traffic_rejects_parking_lot_waypoint(tmp_path: Path) -> None:
     ]
 
     with pytest.raises(GameMapError, match="cannot visit parking-lot"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_traffic_count_rejects_more_authored_vehicles(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    source["traffic_count"] = 1
+    source["traffic"] = [
+        {
+            "id": vehicle_id,
+            "nodes": ["west_end", "bend", "east_end"],
+            "end_behavior": "reverse",
+        }
+        for vehicle_id in ("first", "second")
+    ]
+
+    with pytest.raises(
+        GameMapError, match=r"traffic_count is 1.*traffic defines 2 vehicles"
+    ):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_zero_traffic_count_produces_empty_fleet(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    source["traffic_count"] = 0
+
+    assert load_game_map(_write_map(tmp_path, source)).traffic == ()
+
+
+def test_traffic_count_generates_deterministic_graph_wide_cars(
+    tmp_path: Path,
+) -> None:
+    source = _road_joint_map()
+    source["traffic_count"] = 3
+    source_path = _write_map(tmp_path, source)
+
+    first = load_game_map(source_path)
+    second = load_game_map(source_path)
+    restored = game_map_from_dict(game_map_to_dict(first))
+    compiled_first = compile_game_map(source_path, cache_root=tmp_path / "cache")
+    compiled_second = compile_game_map(source_path, cache_root=tmp_path / "cache")
+    preview_text = write_game_map_preview(
+        source_path, tmp_path / "generated-traffic-preview.svg"
+    ).read_text(encoding="utf-8")
+
+    assert len(first.traffic) == 3
+    assert [vehicle.vehicle_id for vehicle in first.traffic] == [
+        "generated-traffic-0001",
+        "generated-traffic-0002",
+        "generated-traffic-0003",
+    ]
+    assert all(vehicle.vehicle_type == "car" for vehicle in first.traffic)
+    assert all(vehicle.end_behavior == "reverse" for vehicle in first.traffic)
+    assert all("neighborhood_lot" not in vehicle.node_ids for vehicle in first.traffic)
+    assert len(restored.traffic) == 3
+    assert compiled_first.cache_hit is False
+    assert compiled_second.cache_hit is True
+    assert [vehicle.vehicle_id for vehicle in compiled_first.game_map.traffic] == [
+        vehicle.vehicle_id for vehicle in first.traffic
+    ]
+    assert all(vehicle.vehicle_id in preview_text for vehicle in first.traffic)
+    for generated, restored in zip(first.traffic, second.traffic, strict=True):
+        assert generated.node_ids == restored.node_ids
+        assert generated.start_distance_m == restored.start_distance_m
+        np.testing.assert_array_equal(
+            generated.centerline_world, restored.centerline_world
+        )
+        assert all(
+            np.linalg.norm(
+                _point_on_polyline(
+                    generated.centerline_world, generated.start_distance_m
+                )[:2]
+                - spawn.position_world[:2]
+            )
+            >= 8
+            for spawn in first.spawns
+        )
+
+
+def test_traffic_count_generates_loop_routes_without_authored_cars(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["traffic_count"] = 2
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    assert len(game_map.traffic) == 2
+    assert all(vehicle.end_behavior == "wrap" for vehicle in game_map.traffic)
+    assert all(
+        "neighborhood_lot" not in vehicle.node_ids for vehicle in game_map.traffic
+    )
+
+
+@pytest.mark.parametrize("count", [-1, 1.5, True, "2"])
+def test_traffic_count_requires_nonnegative_integer(
+    tmp_path: Path, count: object
+) -> None:
+    source = _road_joint_map()
+    source["traffic_count"] = count
+
+    with pytest.raises(GameMapError, match="nonnegative integer"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_traffic_count_rejects_unsafe_capacity(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    source["traffic_count"] = 1_000
+
+    with pytest.raises(GameMapError, match=r"requests 1000 vehicles.*safe capacity"):
+        load_game_map(_write_map(tmp_path, source))
+
+
+def test_traffic_count_rejects_map_without_return_route(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    source["profiles"]["street"]["lanes"] = ["forward"]
+    source["profiles"]["street"]["divider_markings"] = []
+    source["spawns"][0]["lane"] = 0
+    source["traffic_count"] = 1
+
+    with pytest.raises(GameMapError, match=r"requests 1 vehicles.*safe capacity for 0"):
         load_game_map(_write_map(tmp_path, source))
 
 
