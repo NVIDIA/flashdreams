@@ -24,6 +24,7 @@ graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 
 from __future__ import annotations
 
+import hmac
 import json
 import math as _math
 import shutil
@@ -424,7 +425,7 @@ _INDEX_HTML = """<!doctype html>
 </style>
 </head>
 <body>
-<img id="stream" src="/stream">
+<img id="stream">
 <div class="taxi-hud hidden" id="taxi-hud">
   <div class="taxi-arrow" id="taxi-arrow" aria-hidden="true">
     <svg viewBox="0 0 64 72">
@@ -435,7 +436,7 @@ _INDEX_HTML = """<!doctype html>
   <div class="taxi-event" id="taxi-event"></div>
 </div>
 <div class="taxi-map hidden" id="taxi-map">
-  <img id="taxi-bev" src="/bev_stream">
+  <img id="taxi-bev">
   <svg class="taxi-boundaries" id="taxi-boundaries" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
   <div id="taxi-pins"></div>
 </div>
@@ -480,6 +481,17 @@ _INDEX_HTML = """<!doctype html>
   </div>
 </div>
 <script>
+// Shared stream token: the page embeds it from its own URL (?token=...)
+// and appends it to every request it makes (streams, fetches, thumbnails).
+// Empty when the server runs without --stream-token; withToken() is then
+// the identity function and the page behaves exactly as before.
+const STREAM_TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+function withToken(url) {
+  if (!STREAM_TOKEN) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(STREAM_TOKEN);
+}
+document.getElementById('stream').src = withToken('/stream');
+document.getElementById('taxi-bev').src = withToken('/bev_stream');
 const DOWN_KEYS = new Set();
 const INDICATOR_FOR_KEY = {
   "w":"w","W":"w","ArrowUp":"w",
@@ -506,7 +518,7 @@ function send(key, down) {
   // Update the local indicator UI immediately (no round-trip latency).
   const indicator = INDICATOR_FOR_KEY[key];
   if (indicator) bumpIndicator(indicator, down ? 1 : -1);
-  fetch('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0))
+  fetch(withToken('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0)))
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
 // Skip key handling when focus is on a form input (e.g. a future
@@ -643,7 +655,7 @@ nameEntryEl.addEventListener('submit', async event => {
   event.preventDefault();
   nameErrorEl.textContent = '';
   try {
-    const response = await fetch('/taxi/name', {
+    const response = await fetch(withToken('/taxi/name'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name: playerNameEl.value}),
@@ -657,12 +669,12 @@ nameEntryEl.addEventListener('submit', async event => {
   }
 });
 newGameEl.addEventListener('click', async () => {
-  await fetch('/control?key=r&down=1').catch(() => {});
-  await fetch('/control?key=r&down=0').catch(() => {});
+  await fetch(withToken('/control?key=r&down=1')).catch(() => {});
+  await fetch(withToken('/control?key=r&down=0')).catch(() => {});
 });
 async function pollState() {
   try {
-    const r = await fetch('/state', { cache: 'no-store' });
+    const r = await fetch(withToken('/state'), { cache: 'no-store' });
     if (!r.ok) throw new Error('http ' + r.status);
     const s = await r.json();
     if (typeof s.speed_mps === 'number') {
@@ -713,7 +725,7 @@ document.addEventListener('mousedown', e => {
 });
 async function fetchScenes() {
   try {
-    const r = await fetch('/scenes', { cache: 'no-store' });
+    const r = await fetch(withToken('/scenes'), { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
     SCENES = Array.isArray(data.scenes) ? data.scenes : [];
@@ -729,7 +741,7 @@ async function fetchScenes() {
       card.dataset.idx = String(i);
       if (s.has_thumbnail) {
         const img = document.createElement('img');
-        img.src = '/thumbnail?scene=' + encodeURIComponent(s.path);
+        img.src = withToken('/thumbnail?scene=' + encodeURIComponent(s.path));
         img.alt = '';
         img.onerror = () => { img.style.display = 'none'; };
         card.appendChild(img);
@@ -776,7 +788,7 @@ async function loadScene(idx, card, variant, pill) {
     let url = '/scene/select?scene=' + encodeURIComponent(scene.path);
     // No variant -> server uses the scene's default; a pill selects one.
     if (variant) url += '&variant=' + encodeURIComponent(variant);
-    await fetch(url, { method: 'GET', cache: 'no-store' });
+    await fetch(withToken(url), { method: 'GET', cache: 'no-store' });
   } catch {}
   // Tuck the panel away so the user gets the camera view back; the
   // scene transition itself is driven by the server-side loop. From
@@ -812,8 +824,13 @@ class MJPEGStreamingPresenter:
         jpeg_quality: int = 85,
         scenes: tuple[dict[str, object], ...] = (),
         thumbnails: dict[str, bytes] | None = None,
+        stream_token: str | None = None,
     ) -> None:
         self._raster = raster
+        # Shared-secret gate for every HTTP endpoint. ``None`` / empty keeps
+        # the historical open behavior; a non-empty token means requests must
+        # carry it (``?token=`` or ``X-Stream-Token`` header) or get a 403.
+        self._stream_token = (stream_token or "").strip() or None
         self._keyboard = keyboard
         self._visual_flare = CollisionVisualFlare()
         self._taxi_enabled = False
@@ -898,9 +915,14 @@ class MJPEGStreamingPresenter:
         # unpacking so pyright is happy on both variants.
         actual_host = self._server.server_address[0]
         actual_port = self._server.server_address[1]
+        gate_note = (
+            " -- token gate ACTIVE, append ?token=... to the URL"
+            if self._stream_token is not None
+            else ""
+        )
         logger.info(
             f"[presenter] MJPEG stream listening on http://{actual_host}:{actual_port}/ "
-            f"(open that URL in a browser on the same network)",
+            f"(open that URL in a browser on the same network){gate_note}",
         )
 
     @property
@@ -1352,6 +1374,20 @@ class MJPEGStreamingPresenter:
             result["taxi"] = taxi_payload
         return result
 
+    def _is_request_authorized(
+        self, query: dict[str, list[str]], header_token: str | None
+    ) -> bool:
+        """Check the shared stream token; always True when no token is set.
+
+        Accepts the token either as a ``?token=`` query parameter (what the
+        served page appends to its own fetches) or as an ``X-Stream-Token``
+        header (curl-friendly, keeps the token out of proxy access logs).
+        """
+        if self._stream_token is None:
+            return True
+        candidate = query.get("token", [""])[0] or (header_token or "")
+        return hmac.compare_digest(candidate, self._stream_token)
+
     def _request_scene_change(self, scene_path_str: str, variant: str) -> bool:
         """Validate a ``/scene/select`` request against registered ``_scenes`` and stash it.
 
@@ -1399,8 +1435,19 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
         def log_message(self, format: str, *args: object) -> None:  # noqa: A003
             return
 
+        def _check_stream_token(self, parsed_query: str) -> bool:
+            """Reject the request with 403 unless the stream token matches."""
+            authorized = presenter._is_request_authorized(
+                parse_qs(parsed_query), self.headers.get("X-Stream-Token")
+            )
+            if not authorized:
+                self.send_error(HTTPStatus.FORBIDDEN, "Missing or invalid stream token")
+            return authorized
+
         def do_GET(self) -> None:  # noqa: N802 (http.server mandated name)
             parsed = urlparse(self.path)
+            if not self._check_stream_token(parsed.query):
+                return
             if parsed.path in ("/", "/index.html"):
                 self._serve_index()
             elif parsed.path == "/stream":
@@ -1422,6 +1469,8 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
 
         def do_POST(self) -> None:  # noqa: N802 (http.server mandated name)
             parsed = urlparse(self.path)
+            if not self._check_stream_token(parsed.query):
+                return
             if parsed.path == "/taxi/name":
                 self._serve_taxi_name()
             else:

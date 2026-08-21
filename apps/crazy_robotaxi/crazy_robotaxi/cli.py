@@ -925,6 +925,15 @@ def _run_streaming(args: argparse.Namespace) -> None:
             parse_bind,
         )
 
+    stream_token = (getattr(args, "stream_token", None) or "").strip() or None
+    if stream_token is not None and not getattr(args, "taxi_game", False):
+        # The upstream engine presenter has no token gate; failing loudly
+        # beats silently serving an open stream the user believes is gated.
+        raise SystemExit(
+            "--stream-token requires the taxi-game streaming presenter; "
+            "the upstream engine presenter would serve an ungated stream."
+        )
+
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
     _materialize_synthetic_scene_for_picker(args)
@@ -984,6 +993,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
         bind_port=bind_port,
         scenes=scenes_payload,
         thumbnails=thumbnails,
+        **({"stream_token": stream_token} if stream_token is not None else {}),
     )
 
     # Build the backend + engine once so the model warms up (on the

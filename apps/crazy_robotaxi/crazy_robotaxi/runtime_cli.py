@@ -229,6 +229,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--stream-token",
+        default=None,
+        metavar="TOKEN",
+        help=(
+            "Shared secret gating every MJPEG endpoint (/, /stream, /control,"
+            " ...). Clients must send it as a ``?token=`` query parameter or"
+            " an ``X-Stream-Token`` header; requests without a valid token"
+            " get 403. The served page picks the token up from its own URL,"
+            " so players just open http://HOST:PORT/?token=TOKEN. Omitted or"
+            " empty keeps the historical open (unauthenticated) behavior."
+        ),
+    )
+    parser.add_argument(
         "--stop-after-chunks",
         type=int,
         default=None,
