@@ -7,14 +7,18 @@ import logging
 import queue
 import sys
 import threading
+import time
+from dataclasses import replace
 from enum import Enum
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
+    NewSessionUserInputEventData,
     ResetUserInputEventData,
     UserInputEvent,
 )
@@ -41,6 +45,60 @@ def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> 
     )
 
 
+def _latest_session_transition(
+    events: UserInputEvents, current: SessionDesc
+) -> tuple[bool, SessionDesc | None]:
+    """Return the latest close or replacement requested by ``events``.
+
+    A new-session request replaces application-owned metadata while preserving
+    the resolved video and timing settings of the current session. The
+    application interprets and validates the metadata when it creates the next
+    session. A close after that request cancels it; a request after a close wins.
+
+    Returns:
+        Whether the batch contains a close or replacement, and the replacement
+        description. The description is ``None`` when close is latest.
+    """
+    found = False
+    next_session_desc = None
+    for event in events.get_events():
+        event_data = event.get_event_data()
+        if isinstance(event_data, CloseUserInputEventData):
+            found = True
+            next_session_desc = None
+        elif isinstance(event_data, NewSessionUserInputEventData):
+            found = True
+            next_session_desc = replace(current, metadata=dict(event_data.metadata))
+    return found, next_session_desc
+
+
+def wait_for_new_session(
+    window: IClientWindow, current_session_desc: SessionDesc
+) -> SessionDesc:
+    """Wait until ``window`` requests a new session.
+
+    This polls the window at its configured UI rate and converts the latest
+    buffered new-session event into a complete session description. Other
+    events, including a browser close, are ignored: no session exists to receive
+    them, and a persistent server must remain ready for a refreshed page.
+
+    Args:
+        window: Open client window supplying buffered input events.
+        current_session_desc: Resolved settings to preserve for the next session.
+
+    Returns:
+        A complete description for the requested session.
+    """
+    tick_seconds = 1.0 / current_session_desc.frames_per_second_for_ui
+    while True:
+        _, next_session_desc = _latest_session_transition(
+            window.get_user_input_events(), current_session_desc
+        )
+        if next_session_desc is not None:
+            return next_session_desc
+        time.sleep(tick_seconds)
+
+
 def _close_session(session: ISession, *, run_failed: bool) -> None:
     """Close a session, keeping its close from hiding an earlier failure.
 
@@ -54,7 +112,7 @@ def _close_session(session: ISession, *, run_failed: bool) -> None:
     """
     try:
         session.close()
-    except Exception:
+    except BaseException:
         if not run_failed:
             raise
         _LOGGER.exception(
@@ -69,24 +127,28 @@ def run_session(
     steps: int | None = None,
     max_pending: int = 2,
     when_full: WhenFull = WhenFull.BLOCK,
-) -> None:
+    keep_window_open: bool = False,
+) -> SessionDesc | None:
     """Drive one session against one client window.
 
     Runs on two threads. The calling thread initializes the session and calls
     ``step`` for each index, with the input collected since the previous step. A
     second thread owns the window: it opens it, ticks at
     ``frames_per_second_for_ui`` to read input, call ``step_ui`` and write
-    whatever generation has finished, then closes it. A slow step therefore does
-    not hold up input or output. Only the I/O thread touches the window, which is
-    what a native window needs, and the window and session are always closed,
-    including on failure.
+    whatever generation has finished, then closes it unless a replacement was
+    requested or ``keep_window_open`` is set. A slow step therefore does not hold
+    up input or output. Only the I/O thread touches the window, which is what a
+    native window needs. The session is always closed, and a failure always
+    closes the window.
 
     The window ends the run by reporting a :class:`CloseUserInputEventData`, and
     restarts it by reporting a :class:`ResetUserInputEventData`, which resets the
-    session and takes the step index back to zero. The window stays open. Nothing
-    from the abandoned generation is presented: each result carries the generation
-    it was produced for, so results already waiting and a step that was still
-    running when the reset arrived are both dropped rather than written.
+    session and takes the step index back to zero. A
+    :class:`NewSessionUserInputEventData` instead ends and cleans up this session,
+    leaves the window open, and becomes the complete session description returned
+    for its replacement. Nothing from an abandoned generation is presented: each
+    result carries the generation it was produced for, so results already waiting
+    and a step that was still running when the request arrived are both dropped.
 
     Input is not split at a reset: the batch carrying it reaches the first step
     afterwards whole, earlier events included. Events are edges, so a key held
@@ -120,6 +182,13 @@ def run_session(
         max_pending: How many finished results may wait to be written.
         when_full: What to do with a result when ``max_pending`` are already
             waiting.
+        keep_window_open: Leave the window available after normal completion or
+            a client close, so an application runner can wait for another session.
+
+    Returns:
+        The complete description requested for the next session, or ``None``
+        when the run ended without one. The window remains open when a
+        description is returned or ``keep_window_open`` is set.
 
     Raises:
         ValueError: ``steps`` is negative, or ``max_pending`` is not positive.
@@ -138,9 +207,15 @@ def run_session(
 
     try:
         session.init()
-    except Exception:
+    except BaseException:
         # A partly initialized session still holds whatever it managed to load.
         _close_session(session, run_failed=True)
+        try:
+            window.close()
+        except Exception:
+            _LOGGER.exception(
+                "The window failed to close after session initialization failed."
+            )
         raise
 
     # Backpressure is all here. Finished results wait here for the I/O thread to
@@ -157,44 +232,52 @@ def run_session(
     collected_events_lock = threading.Lock()
     opened = threading.Event()
     stop = threading.Event()
+    io_stopped = threading.Event()
+    finish_io = threading.Event()
+    window_stays_open = False
     io_failure: list[Exception] = []
+    next_session_desc: SessionDesc | None = None
     # What never reached the window, reported once the run is over.
     dropped_for_space = 0
-    discarded_at_reset = 0
+    discarded_at_restart = 0
 
     def present_pending_results() -> None:
         """Write every waiting result to the window, oldest first.
 
         Because each tick writes all of them, results only pile up when writing
         itself is slower than generation, not merely because the UI rate is lower.
-        Results the client reset away from are dropped here rather than written,
-        which is also what frees the room they were holding.
+        Results the client reset or replaced away from are dropped here rather
+        than written, which is also what frees the room they were holding.
         """
-        nonlocal discarded_at_reset
+        nonlocal discarded_at_restart
         while True:
             try:
                 result_generation, result = pending_results.get_nowait()
             except queue.Empty:
                 return
             if result_generation != generation:
-                discarded_at_reset += 1
+                discarded_at_restart += 1
                 continue
             window.write(result)
 
     def tick() -> None:
-        nonlocal generation
+        nonlocal generation, next_session_desc
         events = window.get_user_input_events()
+        transition_found, requested_session_desc = _latest_session_transition(
+            events, session.session_desc
+        )
         with collected_events_lock:
             collected_events.extend(events.get_events())
             # Move on to the next generation from here, since this thread sees the
-            # reset first. Under the lock, so a step already picking up its input
-            # either belongs to the generation being abandoned or to the new one,
-            # never to neither.
-            if _contains(events, ResetUserInputEventData):
+            # reset or replacement first. Under the lock, so a step already
+            # picking up its input either belongs to the generation being
+            # abandoned or to the new one, never to neither.
+            if _contains(events, ResetUserInputEventData) or transition_found:
                 generation += 1
         # Stop from here rather than waiting for the step loop to notice, so a
         # slow step does not delay a client that has gone away.
-        if _contains(events, CloseUserInputEventData):
+        if transition_found:
+            next_session_desc = requested_session_desc
             stop.set()
         session.step_ui(events)
         present_pending_results()
@@ -217,14 +300,17 @@ def run_session(
             io_failure.append(error)
         finally:
             opened.set()
-            try:
-                window.close()
-            except Exception as error:
-                # Closing is where a sink finishes the writes it was holding, so
-                # swallowing this would report a run as complete when the output
-                # never landed. An open that raised part way through gets closed
-                # here too, since it still holds whatever it had acquired.
-                io_failure.append(error)
+            io_stopped.set()
+            finish_io.wait()
+            if not window_stays_open:
+                try:
+                    window.close()
+                except Exception as error:
+                    # Closing is where a sink finishes the writes it was holding,
+                    # so swallowing this would report a run as complete when the
+                    # output never landed. An open that raised part way through
+                    # gets closed here too, since it may hold acquired resources.
+                    io_failure.append(error)
 
     def take_collected_events() -> tuple[UserInputEvents, int]:
         """Take the input waiting for the next step, and the generation it is for."""
@@ -273,8 +359,20 @@ def run_session(
                 continue
         return 0
 
-    io_thread = threading.Thread(target=run_io, name="flashdreams-io")
-    io_thread.start()
+    try:
+        io_thread = threading.Thread(target=run_io, name="flashdreams-io")
+        io_thread.start()
+    except BaseException:
+        # Starting the I/O thread is part of starting the session. Nothing else
+        # can own either object when startup fails this early.
+        _close_session(session, run_failed=True)
+        try:
+            window.close()
+        except Exception:
+            _LOGGER.exception(
+                "The window failed to close after I/O thread startup failed."
+            )
+        raise
     try:
         opened.wait()
         step_index = 0
@@ -301,29 +399,72 @@ def run_session(
             steps_run += 1
     finally:
         stop.set()
-        io_thread.join()
+        run_failed = False
+        session_close_attempted = False
+        session_close_error: Exception | None = None
+        try:
+            try:
+                io_stopped.wait()
+                # Another session can own the same window, but only after this
+                # one has released everything it holds. If cleanup fails, tell
+                # the I/O thread to close the window and report the failure.
+                run_failed = sys.exc_info()[0] is not None
+                if (
+                    (next_session_desc is not None or keep_window_open)
+                    and not run_failed
+                    and not io_failure
+                ):
+                    session_close_attempted = True
+                    try:
+                        session.close()
+                    except Exception as error:
+                        session_close_error = error
+                    else:
+                        window_stays_open = True
+            finally:
+                # The I/O thread waits for the cleanup decision before it can
+                # close the window. Always release it, including when cleanup
+                # is interrupted.
+                finish_io.set()
+                io_thread.join()
+        finally:
+            # An interrupt while waiting for the I/O thread skips the normal
+            # cleanup below. Close the session here so that path cannot leak it.
+            if not session_close_attempted:
+                _close_session(
+                    session,
+                    run_failed=sys.exc_info()[0] is not None or bool(io_failure),
+                )
         # A failure here is what the run reports, since a window failure stops
         # generation rather than raising through it: both places this thread can
         # be sitting give up once io_failure is set, so a run that reports a
         # window failure got there without failing itself. The two are only ever
         # both set by failing independently, and then this is the one raised.
-        run_failed = sys.exc_info()[0] is not None
         if io_failure and run_failed:
             _LOGGER.error(
                 "The window failed as well as the run, and this is that failure.",
                 exc_info=io_failure[0],
             )
-        _close_session(session, run_failed=run_failed or bool(io_failure))
+        if session_close_error is not None and io_failure:
+            _LOGGER.error(
+                "The window failed as well as the session cleanup, and this is "
+                "that failure.",
+                exc_info=io_failure[0],
+            )
+        if session_close_error is not None:
+            raise session_close_error
 
     # A log line is the only report of these: a caller cannot count them.
     if dropped_for_space:
         _LOGGER.warning(
             "Dropped %d results the window could not keep up with.", dropped_for_space
         )
-    if discarded_at_reset:
+    if discarded_at_restart:
         _LOGGER.info(
-            "Discarded %d results generated before a reset.", discarded_at_reset
+            "Discarded %d results generated before a reset or replacement.",
+            discarded_at_restart,
         )
 
     if io_failure:
         raise io_failure[0]
+    return next_session_desc

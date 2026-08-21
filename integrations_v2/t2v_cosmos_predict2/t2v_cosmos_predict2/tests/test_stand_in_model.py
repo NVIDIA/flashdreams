@@ -26,7 +26,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     integration already ships rather than written down again."""
     app = CosmosPredict2T2VApplication(pipeline_config=FakeT2VPipelineConfig())
 
-    desc = app.session_desc()
+    desc = app.default_session_desc()
 
     assert (desc.video_width, desc.video_height) == (
         RUNNER_COSMOS2_T2V_2B_720P.pixel_width,

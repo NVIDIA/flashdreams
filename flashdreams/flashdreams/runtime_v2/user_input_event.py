@@ -4,7 +4,7 @@
 """User input events, each a timestamp plus the data for one input modality."""
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any
 
 from numpy import uint64
 
@@ -65,6 +65,24 @@ class ResetUserInputEventData(UserInputEventData):
     def get_type_name(cls) -> str:
         """Return the event type name."""
         return "reset"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class NewSessionUserInputEventData(UserInputEventData):
+    """The client asked the application to replace the current session.
+
+    The runtime carries ``metadata`` to the application without interpreting
+    it. The application owns the requirements for its sessions and validates
+    the values when it creates the replacement.
+    """
+
+    metadata: dict[str, Any]
+    """Application-specific values requested for the replacement session."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "new_session"
 
 
 # Below are stubbed input event data implementations for the sake of future implementation.
@@ -133,7 +151,7 @@ class UserInputEvent:
     """User input event."""
 
     timestamp: uint64
-    """Timestamp in microseconds since the start of the session."""
+    """Microseconds since the input source's stable monotonic time origin."""
 
     event_data: UserInputEventData
     """Event data."""

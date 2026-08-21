@@ -26,9 +26,11 @@ class ISession(ABC):
 
     @abstractmethod
     def init(self) -> None:
-        """Load the model and anything else this run needs.
+        """Prepare the state owned by this run.
 
-        Must not do client I/O, since this can run before a client connects.
+        Shared model loading belongs to the application. This method prepares
+        per-session state such as an encoded prompt or KV cache. It must not do
+        client I/O, since this can run before a client connects.
         """
         ...
 

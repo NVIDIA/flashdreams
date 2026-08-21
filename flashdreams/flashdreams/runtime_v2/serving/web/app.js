@@ -4,11 +4,9 @@
 const peer = new RTCPeerConnection();
 const controls = peer.createDataChannel("controls");
 peer.addTransceiver("video", {direction: "recvonly"});
-
-peer.ontrack = event => {
-  document.getElementById("video").srcObject =
-    event.streams[0] ?? new MediaStream([event.track]);
-};
+const newSessionButton = document.getElementById("new-session");
+const promptInput = document.getElementById("prompt");
+let pendingNewSession = null;
 
 const send = payload => {
   if (controls.readyState === "open") {
@@ -16,11 +14,36 @@ const send = payload => {
   }
 };
 
+controls.addEventListener("open", () => {
+  newSessionButton.disabled = false;
+  if (pendingNewSession !== null) {
+    send(pendingNewSession);
+    pendingNewSession = null;
+  }
+  newSessionButton.textContent = "New session";
+});
+
+controls.addEventListener("close", () => {
+  newSessionButton.disabled = true;
+  newSessionButton.textContent = "Disconnected";
+});
+
+peer.ontrack = event => {
+  document.getElementById("video").srcObject =
+    event.streams[0] ?? new MediaStream([event.track]);
+};
+
 window.addEventListener("keydown", event => {
+  if (event.target === promptInput) {
+    return;
+  }
   send({type: "keyboard", key: event.key, pressed: true});
 });
 
 window.addEventListener("keyup", event => {
+  if (event.target === promptInput) {
+    return;
+  }
   send({type: "keyboard", key: event.key, pressed: false});
 });
 
@@ -36,6 +59,22 @@ document.getElementById("reset").onclick = () => {
   send({type: "reset"});
 };
 
+newSessionButton.onclick = () => {
+  if (!promptInput.reportValidity()) {
+    return;
+  }
+  const request = {
+    type: "new_session",
+    metadata: {prompt: promptInput.value},
+  };
+  if (controls.readyState === "open") {
+    send(request);
+  } else {
+    pendingNewSession = request;
+    newSessionButton.textContent = "Opening...";
+  }
+};
+
 window.addEventListener("beforeunload", () => send({type: "close"}));
 
 async function connect() {
@@ -47,15 +86,26 @@ async function connect() {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   await peer.setLocalDescription(await peer.createOffer());
-  const response = await fetch("/api/webrtc/offer", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify(peer.localDescription),
-  });
+  let response;
+  while (true) {
+    response = await fetch("/api/webrtc/offer", {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify(peer.localDescription),
+    });
+    if (response.status !== 409) {
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
   if (!response.ok) {
     throw new Error(await response.text());
   }
   await peer.setRemoteDescription(await response.json());
 }
 
-connect();
+connect().catch(error => {
+  newSessionButton.disabled = true;
+  newSessionButton.textContent = "Connection failed";
+  console.error(error);
+});

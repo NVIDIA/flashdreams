@@ -23,8 +23,8 @@ _FRAMES_PER_SECOND_FOR_UI = 60
 class T2VSessionConfig:
     """What one command line resolved to, shared by every session it creates."""
 
-    prompt: str
-    """Text every session generates from."""
+    prompt: str | None
+    """Default text for a session, when its request does not provide one."""
 
     device: str
     """Device the pipeline is built on."""
@@ -41,8 +41,9 @@ class T2VApplication(IApplication):
     command line for all of them. An integration supplies
     :class:`T2VApplicationDefaults` and inherits the rest.
 
-    The model is loaded once, on the first session, and shared by every session
-    after it, since loading reads a checkpoint of several gigabytes.
+    :meth:`init` loads the model once after resolving its command-line options.
+    The application then keeps that model resident and shares it with every
+    session, since loading reads a checkpoint of several gigabytes.
     """
 
     session_type: type[T2VSession] = T2VSession
@@ -65,21 +66,27 @@ class T2VApplication(IApplication):
         return self._pipeline_config
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse what to generate, how much of it, and where.
+        """Parse application options and load the shared model.
 
         Not what size or rate to generate at: that describes the session, which
-        the caller asks for. The model is not loaded here either.
+        the caller asks for. Loading happens after device, compilation, seed,
+        and integration-specific options have been resolved.
 
         Raises:
-            ValueError: No prompt was given, or the rollout length is not one
-                this model can generate.
+            ValueError: An explicitly provided prompt is empty, or the rollout
+                length is not one this model can generate.
         """
         parser = argparse.ArgumentParser(
             prog="flashdreams-run-v2 SLUG --",
             description="Generate video from text.",
         )
         parser.add_argument(
-            "--prompt", default="", help="Text to generate from. Required."
+            "--prompt",
+            default=None,
+            help=(
+                "Default text to generate from. A client may instead provide "
+                "a prompt for each session."
+            ),
         )
         parser.add_argument(
             "--device",
@@ -117,8 +124,8 @@ class T2VApplication(IApplication):
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
-        if not args.prompt.strip():
-            raise ValueError("--prompt is required, and cannot be empty.")
+        if args.prompt is not None and not args.prompt.strip():
+            raise ValueError("--prompt cannot be empty.")
         self._validate_total_blocks(args.total_blocks)
         self._apply_parsed_arguments(args)
 
@@ -130,13 +137,22 @@ class T2VApplication(IApplication):
             self._pipeline_config = self._apply_seed_override(
                 self._pipeline_config, args.seed
             )
-        self._config = T2VSessionConfig(
+        config = T2VSessionConfig(
             prompt=args.prompt,
             device=args.device,
             total_blocks=args.total_blocks,
         )
+        # Take ownership as soon as setup returns. If moving or evaluating the
+        # model fails, ApplicationRunner.close() can still release what loaded.
+        pipeline = self._pipeline_config.setup()
+        self._pipeline = pipeline
+        pipeline = pipeline.to(config.device)
+        self._pipeline = pipeline
+        pipeline = pipeline.eval()
+        self._config = config
+        self._pipeline = pipeline
 
-    def session_desc(self) -> SessionDesc:
+    def default_session_desc(self) -> SessionDesc:
         """Return the description of a session this application uses.
 
         A model generates its best video at the size and rate it was trained
@@ -151,26 +167,28 @@ class T2VApplication(IApplication):
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
-        """Create one uninitialized session, loading the model if needed.
+        """Create one uninitialized session against the resident model.
 
         Raises:
             RuntimeError: :meth:`init` has not run yet.
-            ValueError: The description asks for output this cannot generate.
+            ValueError: The description asks for output this cannot generate,
+                or its prompt metadata is not a non-empty string.
         """
         config = self._config
-        if config is None:
+        pipeline = self._pipeline
+        if config is None or pipeline is None:
             raise RuntimeError(
                 f"{type(self).__name__}.init() must run before create_session()."
             )
-        # Before loading rather than after: a checkpoint of several gigabytes is
-        # a long wait for a layout this was never going to accept.
         self._validate_layout(session_desc)
-        if self._pipeline is None:
-            self._pipeline = self._pipeline_config.setup().to(config.device).eval()
-        self._validate_frame_size(session_desc, self._pipeline)
-        return self.session_type(
-            self._pipeline, config.prompt, session_desc, config.total_blocks
-        )
+        prompt = session_desc.metadata.get("prompt", config.prompt)
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError(
+                "A session prompt is required: pass --prompt or set "
+                "SessionDesc.metadata['prompt'] to a non-empty string."
+            )
+        self._validate_frame_size(session_desc, pipeline)
+        return self.session_type(pipeline, prompt, session_desc, config.total_blocks)
 
     def close(self) -> None:
         """Release the model, and whatever memory it was holding."""

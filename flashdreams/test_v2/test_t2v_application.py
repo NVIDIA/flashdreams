@@ -8,6 +8,7 @@ what an application refuses to generate, and when the model is loaded.
 """
 
 import argparse
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -72,8 +73,8 @@ class FakePipeline:
 class FakePipelineConfig:
     """Record how often the model was loaded, which is the expensive part."""
 
-    def __init__(self) -> None:
-        self.pipeline = FakePipeline()
+    def __init__(self, pipeline: FakePipeline | None = None) -> None:
+        self.pipeline = pipeline if pipeline is not None else FakePipeline()
         self.setup_count = 0
 
     def setup(self) -> FakePipeline:
@@ -88,6 +89,7 @@ class RecordingRollout(T2VSession):
         self, pipeline: Any, prompt: str, session_desc: SessionDesc, total_blocks: int
     ) -> None:
         super().__init__(pipeline, prompt, session_desc, total_blocks)
+        self.prompt = prompt
         self.blocks_to_generate = total_blocks
 
 
@@ -136,7 +138,7 @@ def _rollout_length(app: T2VApplication) -> int:
     An application answers no such question: the length reaches a run through
     the session, which reports itself finished at the end of it.
     """
-    session = app.create_session(app.session_desc())
+    session = app.create_session(app.default_session_desc())
     assert isinstance(session, RecordingRollout)
     return session.blocks_to_generate
 
@@ -228,7 +230,7 @@ def test_a_model_describes_the_clip_it_was_trained_for_without_loading() -> None
     describe a session before it can ask for one."""
     app = T2VApplication(defaults=_defaults())
 
-    desc = app.session_desc()
+    desc = app.default_session_desc()
 
     assert desc == _session_desc()
     assert _pipeline_config(app).setup_count == 0
@@ -240,12 +242,21 @@ def test_the_rollout_length_can_be_overridden() -> None:
     assert _rollout_length(app) == 3
 
 
-def test_a_run_needs_something_to_generate_from() -> None:
+def test_an_application_preloads_before_a_session_has_a_prompt() -> None:
+    defaults = _defaults()
+    app = T2VApplication(defaults=defaults)
+
+    app.init([])
+
+    assert defaults.pipeline_config.setup_count == 1
+    with pytest.raises(ValueError, match="session prompt is required"):
+        app.create_session(_session_desc())
+
+
+def test_an_explicit_command_line_prompt_cannot_be_empty() -> None:
     app = T2VApplication(defaults=_defaults())
 
-    with pytest.raises(ValueError, match="--prompt is required"):
-        app.init([])
-    with pytest.raises(ValueError, match="--prompt is required"):
+    with pytest.raises(ValueError, match="--prompt cannot be empty"):
         app.init(["--prompt", "   "])
 
 
@@ -264,9 +275,13 @@ def test_no_session_is_created_before_the_application_is_told_what_to_do() -> No
 ## Loading the model
 
 
-def test_the_model_loads_once_and_every_session_shares_it() -> None:
-    app = _application()
+def test_initialization_loads_the_model_once_for_every_session() -> None:
+    app = ApplicationUnderTest(defaults=_defaults())
     config = _pipeline_config(app)
+
+    assert config.setup_count == 0
+
+    app.init(["--prompt", _PROMPT])
 
     first = app.create_session(_session_desc())
     second = app.create_session(_session_desc())
@@ -277,28 +292,65 @@ def test_the_model_loads_once_and_every_session_shares_it() -> None:
     assert first is not second
 
 
+def test_session_metadata_can_replace_the_command_line_prompt() -> None:
+    app = _application()
+
+    session = app.create_session(
+        replace(_session_desc(), metadata={"prompt": "A dog snowboarding"})
+    )
+
+    assert isinstance(session, RecordingRollout)
+    assert session.prompt == "A dog snowboarding"
+
+
+@pytest.mark.parametrize("prompt", ["", 7])
+def test_a_replacement_prompt_must_be_non_empty_text(prompt: object) -> None:
+    app = _application()
+
+    with pytest.raises(ValueError, match="session prompt is required"):
+        app.create_session(replace(_session_desc(), metadata={"prompt": prompt}))
+
+    assert _pipeline_config(app).setup_count == 1
+
+
 def test_closing_the_application_releases_the_model() -> None:
     app = _application()
     config = _pipeline_config(app)
-    app.create_session(_session_desc())
 
     app.close()
 
     assert config.pipeline.closed
 
 
+def test_failed_model_initialization_remains_owned_for_cleanup() -> None:
+    class FailingPipeline(FakePipeline):
+        def eval(self) -> "FakePipeline":
+            super().eval()
+            raise RuntimeError("eval failed")
+
+    pipeline = FailingPipeline()
+    app = T2VApplication(
+        defaults=_defaults(pipeline_config=FakePipelineConfig(pipeline))
+    )
+
+    with pytest.raises(RuntimeError, match="eval failed"):
+        app.init(["--prompt", _PROMPT])
+    app.close()
+
+    assert pipeline.closed
+
+
 ## What a model will not generate
 
 
-def test_a_layout_the_model_does_not_emit_is_refused_before_it_loads() -> None:
-    """A checkpoint of several gigabytes is a long wait for a certain refusal."""
+def test_a_layout_the_model_does_not_emit_is_refused_before_a_session_starts() -> None:
     app = _application()
     config = _pipeline_config(app)
 
     with pytest.raises(ValueError, match="only produces tchw output"):
         app.create_session(_session_desc(VideoTensorLayout.bcthw))
 
-    assert config.setup_count == 0
+    assert config.setup_count == 1
 
 
 @pytest.mark.parametrize("width,height", [(130, 64), (128, 60)])
@@ -408,9 +460,11 @@ def test_a_seed_reaches_the_model_where_a_model_keeps_one() -> None:
     """Straight onto the config the pipeline is built from, so a model that
     draws its own noise draws the same noise twice."""
     diffusion_model = SimpleNamespace(seed=42)
-    defaults = _defaults(
-        pipeline_config=SimpleNamespace(diffusion_model=diffusion_model)
+    pipeline_config = SimpleNamespace(
+        diffusion_model=diffusion_model,
+        setup=lambda: FakePipeline(),
     )
+    defaults = _defaults(pipeline_config=pipeline_config)
 
     app = T2VApplication(defaults=defaults)
     app.init(["--prompt", _PROMPT, "--seed", "7"])

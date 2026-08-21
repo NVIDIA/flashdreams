@@ -132,7 +132,7 @@ def check_t2v_model_impl(
     application.init(commandline_args)
     try:
         if session_desc is None:
-            session_desc = application.session_desc()
+            session_desc = application.default_session_desc()
         run_session(
             application.create_session(session_desc),
             _InspectingClientWindow(inspector),

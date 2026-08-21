@@ -41,6 +41,13 @@ Developer Guides
       How public runner names are registered, parsed, matched to manifests,
       and dispatched to integration-owned demo launch modes.
 
+   .. grid-item-card:: V2 WebRTC lifecycle
+      :link: v2_webrtc_lifecycle
+      :link-type: doc
+
+      Ownership and data flow across the CLI, application runner, persistent
+      browser window, resident model, and sequential sessions.
+
    .. grid-item-card:: Add a new method
       :link: new_integration
       :link-type: doc
@@ -70,6 +77,7 @@ generated clip, see :doc:`/quickstart/index`.
    inference_pipeline_overview
    config_system
    runner_slugs
+   v2_webrtc_lifecycle
    new_integration
    local_benchmarks
 

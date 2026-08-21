@@ -9,8 +9,10 @@ being the same factory over the same shared layer. The checkpoint itself is
 ``test_real_model.py``.
 """
 
+import copy
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from self_forcing.config import RUNNER_WAN21_T2V_1PT3B
@@ -36,7 +38,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     integration already ships rather than written down again."""
     app = SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig())
 
-    desc = app.session_desc()
+    desc = app.default_session_desc()
 
     assert (desc.video_width, desc.video_height) == (
         RUNNER_WAN21_T2V_1PT3B.pixel_width,
@@ -48,10 +50,14 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
 
 
 def test_compilation_can_be_turned_off_for_a_run() -> None:
-    """Run against the real config rather than a stand-in, since what this
-    covers is the override landing where this model keeps the setting. No model
-    is loaded to answer it."""
-    app = SelfForcingT2VApplication()
+    """Apply the override to the real config while loading a stand-in model."""
+    pipeline_config: Any = copy.deepcopy(RUNNER_WAN21_T2V_1PT3B.pipeline)
+
+    def load_stand_in(_: object) -> FakeT2VPipeline:
+        return FakeT2VPipeline()
+
+    pipeline_config._target = load_stand_in
+    app = SelfForcingT2VApplication(pipeline_config=pipeline_config)
 
     app.init(["--prompt", _PROMPT, "--no-compile"])
 

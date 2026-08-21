@@ -8,6 +8,7 @@ import threading
 import pytest
 import torch
 from numpy import uint64
+from red_screen import app as red_screen_app
 from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
@@ -16,6 +17,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import WhenFull, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEventData,
     KeyboardUserInputEventData,
     UserInputEvent,
 )
@@ -133,6 +135,63 @@ def _new_session() -> ISession:
 
 
 ## Tests
+
+
+def test_webrtc_entrypoint_runs_its_initial_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class EntrypointWindow(IClientWindow):
+        def __init__(
+            self,
+            *,
+            host: str,
+            port: int,
+            keeps_open_between_sessions: bool,
+        ) -> None:
+            assert host == "127.0.0.1"
+            assert port == 8080
+            assert keeps_open_between_sessions is False
+            self.keeps_open_between_sessions = keeps_open_between_sessions
+            self.url = "http://127.0.0.1:8080"
+            self.opened = False
+            self.closed = False
+            self._polled = False
+            windows.append(self)
+
+        def get_user_input_events(self) -> UserInputEvents:
+            if self._polled:
+                raise RuntimeError("entrypoint waited for a session request")
+            self._polled = True
+            return UserInputEvents(
+                [
+                    UserInputEvent(
+                        timestamp=uint64(0),
+                        event_data=CloseUserInputEventData(),
+                    )
+                ]
+            )
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+            self.opened = True
+
+        def write(self, result: StepResult) -> None:
+            del result
+
+        def close(self) -> None:
+            self.closed = True
+
+    windows: list[EntrypointWindow] = []
+    monkeypatch.setattr(red_screen_app, "WebRTCClientWindow", EntrypointWindow)
+
+    exit_code = red_screen_app.main(
+        ["--port", "8080", "--width", "2", "--height", "2", "--fps", "100"]
+    )
+
+    assert exit_code == 0
+    assert len(windows) == 1
+    assert windows[0].opened
+    assert windows[0].closed
 
 
 def test_red_screen_holds_red_between_key_edges() -> None:

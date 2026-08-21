@@ -20,6 +20,19 @@ flashdreams-run-v2 t2v-self-forcing --output-path clip.mp4 \
 Arguments after `--` go to the application, and
 `flashdreams-run-v2 t2v-self-forcing -- --help` lists them.
 
+To stream one clip to a browser instead of writing an MP4:
+
+```bash
+uv run --project integrations_v2/t2v_self_forcing flashdreams-run-v2 \
+    t2v-self-forcing --mode webrtc
+```
+
+Open the printed URL, enter a prompt, and select **New session**. The server
+cleans up each completed rollout and waits for another prompt without reloading
+the model. Closing or refreshing the page ends the active rollout but not the
+server; the browser can reconnect and request another session. Stop it with
+Ctrl-C.
+
 `--total-blocks` is how many autoregressive blocks to generate, and the run ends
 when the session has generated them. The first block decodes 9 frames and every
 block after it 12, at 16 frames per second, so seven blocks is about four and a

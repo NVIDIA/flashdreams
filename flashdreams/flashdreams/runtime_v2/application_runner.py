@@ -9,68 +9,124 @@ from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_desc import SessionDesc, SessionDescRequest
+from flashdreams.runtime_v2.session_runner import run_session, wait_for_new_session
 
 _LOGGER = logging.getLogger(__name__)
 """Logger for an application or window that could not be closed."""
 
 
 class ApplicationRunner:
-    """Create and run one application session against one client window."""
+    """Hold one initialized application and run its sessions."""
 
-    def __init__(self, application: IApplication, client_window: IClientWindow) -> None:
+    def __init__(self, application: IApplication) -> None:
         """
         Args:
-            application: Long-lived application that creates the session.
-            client_window: Window that supplies input and presents generated output.
+            application: Long-lived application that creates sessions.
         """
         self._application = application
-        self._client_window = client_window
+        self._initialized = False
+        self._initialization_attempted = False
+        self._closed = False
 
-    def run(
-        self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
-    ) -> None:
-        """Initialize the application, create one session, and run it.
-
-        The run ends when the window reports a close or the session reports that
-        it has finished.
-
-        The application is closed before this method returns or raises.
-
-        The window is closed too when the run never starts, since ``run_session``
-        is what otherwise owns it, and a window may already be serving a client
-        before the application has loaded anything.
+    def init(self, commandline_args: Sequence[str] = ()) -> None:
+        """Initialize the application once.
 
         Args:
-            session_desc: Output shape and timing requested for the session.
             commandline_args: Arguments owned and parsed by the application.
+
+        Raises:
+            RuntimeError: The application has already been initialized or closed.
         """
-        run_started = False
+        if self._closed:
+            raise RuntimeError("ApplicationRunner is closed.")
+        if self._initialization_attempted:
+            raise RuntimeError("ApplicationRunner is already initialized.")
+        self._initialization_attempted = True
+        self._application.init(commandline_args)
+        self._initialized = True
+
+    def run(
+        self,
+        session_desc_request: SessionDescRequest,
+        client_window: IClientWindow,
+    ) -> None:
+        """Create sessions against ``client_window`` until the run ends.
+
+        The window decides whether to start immediately with the resolved
+        description or stay open and wait for a client request. A replacement
+        description returned by the session loop starts another session after
+        the current one has closed. A persistent window returns to waiting when
+        a session finishes or its client disconnects.
+
+        The session and window are closed before this method returns or raises.
+        The application remains initialized, so callers can run another session
+        without reloading its shared state. Call :meth:`close` when no further
+        sessions are needed.
+
+        Args:
+            session_desc_request: Explicit overrides to apply to the
+                application's initialized default description.
+            client_window: Window that supplies input and presents generated output.
+        """
         try:
-            self._application.init(commandline_args)
-            session = self._application.create_session(session_desc)
-            run_started = True
-            run_session(session, self._client_window)
+            persistent_window = client_window.keeps_open_between_sessions
+            current_session_desc = self._resolve_session_desc(session_desc_request)
+            if persistent_window:
+                client_window.open(current_session_desc)
+                next_session_desc = wait_for_new_session(
+                    client_window, current_session_desc
+                )
+            else:
+                next_session_desc = current_session_desc
+
+            while next_session_desc is not None:
+                session = self._application.create_session(next_session_desc)
+                current_session_desc = session.session_desc
+                next_session_desc = run_session(
+                    session,
+                    client_window,
+                    keep_window_open=persistent_window,
+                )
+                if persistent_window and next_session_desc is None:
+                    next_session_desc = wait_for_new_session(
+                        client_window, current_session_desc
+                    )
         finally:
-            if not run_started:
-                _close_client_window(self._client_window)
-            _close_application(
-                self._application, run_failed=sys.exc_info()[0] is not None
-            )
+            _close_client_window(client_window)
+
+    def _resolve_session_desc(
+        self, session_desc_request: SessionDescRequest
+    ) -> SessionDesc:
+        """Resolve one request against the initialized application's default."""
+        if self._closed:
+            raise RuntimeError("ApplicationRunner is closed.")
+        if not self._initialized:
+            raise RuntimeError("ApplicationRunner.init() must run first.")
+        default = self._application.default_session_desc() or SessionDesc()
+        return session_desc_request.resolve(default)
+
+    def close(self) -> None:
+        """Release the application and the state it shares across sessions."""
+        if self._closed:
+            return
+        self._closed = True
+        _close_application(self._application, run_failed=sys.exc_info()[0] is not None)
 
 
 def _close_client_window(client_window: IClientWindow) -> None:
-    """Close a window the run never reached, so what it was serving goes with it.
+    """Ensure a window closes without hiding the run's meaningful result.
 
-    The run has already failed by the time this is called, so a failure here is
-    logged rather than raised over the top of it.
+    ``IClientWindow.close`` is idempotent. The session loop normally performs
+    the first close on its I/O thread so file-finalization errors can fail the
+    run. This is the application runner's fallback for setup failures,
+    persistent windows, and interrupted ownership handoffs.
     """
     try:
         client_window.close()
     except Exception:
         _LOGGER.exception(
-            "The client window failed to close after a run that never started."
+            "The client window failed to close while the runner was stopping."
         )
 
 

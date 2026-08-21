@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import socket
 import threading
 import time
@@ -18,7 +19,12 @@ from typing import Any
 import numpy as np
 import torch
 from aiohttp import web
-from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    MediaStreamTrack,
+    RTCDataChannel,
+    RTCPeerConnection,
+    RTCSessionDescription,
+)
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 
@@ -27,6 +33,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
     KeyboardUserInputEventData,
+    NewSessionUserInputEventData,
     ResetUserInputEventData,
     UserInputEvent,
 )
@@ -35,6 +42,8 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 _WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
 _BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
 _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class _VideoTrack(MediaStreamTrack):
@@ -46,9 +55,10 @@ class _VideoTrack(MediaStreamTrack):
         super().__init__()
         self._frames_per_second = frames_per_second
         self._time_base = Fraction(1, frames_per_second)
-        self._frames: asyncio.Queue[np.ndarray[Any, np.dtype[np.uint8]] | None] = (
-            asyncio.Queue()
-        )
+        self._frames: asyncio.Queue[
+            tuple[int, np.ndarray[Any, np.dtype[np.uint8]]] | None
+        ] = asyncio.Queue()
+        self._session_generation = 0
         self._next_frame_time: float | None = None
         self._pts = 0
         self._closed = False
@@ -60,29 +70,46 @@ class _VideoTrack(MediaStreamTrack):
         if self._closed:
             return
         for frame in frames:
-            await self._frames.put(frame)
+            await self._frames.put((self._session_generation, frame))
+
+    async def start_session(self) -> None:
+        """Discard frames queued by the session being replaced."""
+        self._session_generation += 1
+        self._next_frame_time = None
+        while True:
+            try:
+                self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                return
 
     async def recv(self) -> VideoFrame:
         """Return the next generated frame when aiortc requests one."""
         if self._closed:
             raise MediaStreamError
-        frame = await self._frames.get()
-        if frame is None:
-            raise MediaStreamError
+        while True:
+            item = await self._frames.get()
+            if item is None:
+                raise MediaStreamError
+            session_generation, frame = item
+            if session_generation != self._session_generation:
+                continue
 
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        if self._next_frame_time is None:
-            self._next_frame_time = now
-        else:
-            self._next_frame_time += 1.0 / self._frames_per_second
-            await asyncio.sleep(max(0.0, self._next_frame_time - now))
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            if self._next_frame_time is None:
+                self._next_frame_time = now
+            else:
+                self._next_frame_time += 1.0 / self._frames_per_second
+                await asyncio.sleep(max(0.0, self._next_frame_time - now))
+            if session_generation != self._session_generation:
+                self._next_frame_time = None
+                continue
 
-        video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
-        video_frame.pts = self._pts
-        video_frame.time_base = self._time_base
-        self._pts += 1
-        return video_frame
+            video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
+            video_frame.pts = self._pts
+            video_frame.time_base = self._time_base
+            self._pts += 1
+            return video_frame
 
     async def close(self) -> None:
         """Stop the track and release a pending receiver."""
@@ -94,7 +121,11 @@ class _VideoTrack(MediaStreamTrack):
 
 
 class WebRTCServer:
-    """Own the HTTP, signaling, input buffering, and media transport."""
+    """Own HTTP signaling and media transport for one browser at a time.
+
+    Validated browser events leave through the registered callback. The client
+    window owns the thread-safe queue that buffers them for the runtime loop.
+    """
 
     def __init__(
         self,
@@ -128,10 +159,12 @@ class WebRTCServer:
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._runner: web.AppRunner | None = None
+        self._offer_lock: asyncio.Lock | None = None
         self._peer_connection: RTCPeerConnection | None = None
+        self._control_channel: RTCDataChannel | None = None
         self._video_track: _VideoTrack | None = None
         self._session_desc: SessionDesc | None = None
-        self._session_start_ns: int | None = None
+        self._event_origin_ns: int | None = None
         self._closed = False
         self._client_connected = False
         self._thread = threading.Thread(
@@ -141,6 +174,8 @@ class WebRTCServer:
         )
         self._thread.start()
         if not self._started.wait(startup_timeout_seconds):
+            self._closed = True
+            self._stop_server_thread()
             raise TimeoutError("WebRTC server did not start before the timeout.")
         if self._startup_error is not None:
             raise RuntimeError(
@@ -163,22 +198,42 @@ class WebRTCServer:
         return f"http://{self._host}:{self._port}/"
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Configure the server for one session's generated video.
+        """Configure the video format this server's sessions generate.
 
         Args:
             session_desc: Resolved dimensions, frame rate, and tensor layout.
 
+        A session-serving runner calls this before its first session so the
+        browser can connect and request one. Each session opens it again while
+        the browser remains connected. Its stream format must match the first
+        call because the existing media track keeps its negotiated frame rate.
+
         Raises:
-            RuntimeError: The server is closed or already open.
+            RuntimeError: The server is closed or has no input callback.
+            ValueError: A replacement changes the active stream format.
         """
         if self._closed:
             raise RuntimeError("Cannot open a closed WebRTC server.")
-        if self._session_desc is not None:
-            raise RuntimeError("WebRTC server is already open.")
         if self._input_callback is None:
             raise RuntimeError("Register an input callback before opening WebRTC.")
+        current_desc = self._session_desc
+        if current_desc is not None and not _same_stream_format(
+            current_desc, session_desc
+        ):
+            raise ValueError(
+                "A replacement WebRTC session must keep the original output "
+                "layout, frame rate, width, and height."
+            )
         self._session_desc = session_desc
-        self._session_start_ns = time.monotonic_ns()
+        if self._event_origin_ns is None:
+            # UserInputEvents sorts by timestamp. Keep one origin for this
+            # window's lifetime so opening a replacement session cannot reorder
+            # an older browser's close after a newer browser's request.
+            self._event_origin_ns = time.monotonic_ns()
+        track = self._video_track
+        loop = self._loop
+        if track is not None and loop is not None:
+            asyncio.run_coroutine_threadsafe(track.start_session(), loop).result()
 
     def register_input_callback(
         self, callback: Callable[[UserInputEvent], None]
@@ -227,8 +282,24 @@ class WebRTCServer:
         if loop is None:
             return
         future = asyncio.run_coroutine_threadsafe(self._shutdown(), loop)
-        future.result(timeout=self._startup_timeout_seconds)
-        loop.call_soon_threadsafe(loop.stop)
+        try:
+            future.result(timeout=self._startup_timeout_seconds)
+        except BaseException:
+            try:
+                self._stop_server_thread()
+            except Exception:
+                _LOGGER.exception(
+                    "The WebRTC server thread also failed to stop during cleanup."
+                )
+            raise
+        else:
+            self._stop_server_thread()
+
+    def _stop_server_thread(self) -> None:
+        """Stop and join the server thread after startup or shutdown."""
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(loop.stop)
         self._thread.join(timeout=self._startup_timeout_seconds)
         if self._thread.is_alive():
             raise TimeoutError("WebRTC server did not stop before the timeout.")
@@ -253,6 +324,7 @@ class WebRTCServer:
 
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
+        self._offer_lock = asyncio.Lock()
         app = web.Application()
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
@@ -285,7 +357,7 @@ class WebRTCServer:
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
 
     async def _health(self, _: web.Request) -> web.Response:
-        """Report whether the server has an open session and client."""
+        """Report whether the server can negotiate video and has a client."""
         return web.json_response(
             {
                 "open": self._session_desc is not None,
@@ -300,8 +372,6 @@ class WebRTCServer:
         session_desc = self._session_desc
         if session_desc is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
-        if self._peer_connection is not None:
-            raise web.HTTPConflict(reason="A WebRTC client is already connected.")
 
         try:
             payload = await request.json()
@@ -316,54 +386,84 @@ class WebRTCServer:
                 reason="WebRTC offer requires string sdp and type."
             )
 
-        peer_connection = RTCPeerConnection()
-        video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
-        peer_connection.addTrack(video_track)
-        self._peer_connection = peer_connection
-        self._video_track = video_track
+        offer_lock = self._offer_lock
+        if offer_lock is None:
+            raise web.HTTPServiceUnavailable(reason="WebRTC server is not ready.")
+        async with offer_lock:
+            existing_peer = self._peer_connection
+            if existing_peer is not None:
+                control_channel = self._control_channel
+                if existing_peer.connectionState in {
+                    "failed",
+                    "disconnected",
+                    "closed",
+                } or (
+                    control_channel is not None
+                    and control_channel.readyState == "closed"
+                ):
+                    await self._release_peer_connection(existing_peer)
+                else:
+                    raise web.HTTPConflict(
+                        reason="A WebRTC client is already connected."
+                    )
 
-        @peer_connection.on("datachannel")
-        def on_datachannel(channel: Any) -> None:
-            self._client_connected = True
+            peer_connection = RTCPeerConnection()
+            video_track = _VideoTrack(session_desc.frames_per_second_for_step)
+            peer_connection.addTrack(video_track)
+            self._peer_connection = peer_connection
+            self._video_track = video_track
 
-            @channel.on("message")
-            def on_message(message: Any) -> None:
-                try:
-                    self._buffer_browser_message(message)
-                except ValueError as error:
-                    channel.send(json.dumps({"type": "error", "message": str(error)}))
+            @peer_connection.on("datachannel")
+            def on_datachannel(channel: RTCDataChannel) -> None:
+                if self._peer_connection is not peer_connection:
+                    channel.close()
+                    return
+                self._control_channel = channel
+                self._client_connected = True
 
-            @channel.on("close")
-            def on_close() -> None:
-                self._record_client_disconnect()
+                @channel.on("message")
+                def on_message(message: Any) -> None:
+                    if self._peer_connection is not peer_connection:
+                        return
+                    try:
+                        self._buffer_browser_message(message)
+                    except ValueError as error:
+                        channel.send(
+                            json.dumps({"type": "error", "message": str(error)})
+                        )
 
-        @peer_connection.on("connectionstatechange")
-        async def on_connectionstatechange() -> None:
-            if peer_connection.connectionState in {"failed", "disconnected", "closed"}:
-                self._record_client_disconnect()
+                @channel.on("close")
+                async def on_close() -> None:
+                    await self._release_peer_connection(peer_connection)
 
-        try:
-            await peer_connection.setRemoteDescription(
-                RTCSessionDescription(sdp=sdp, type=offer_type)
+            @peer_connection.on("connectionstatechange")
+            async def on_connectionstatechange() -> None:
+                if peer_connection.connectionState in {
+                    "failed",
+                    "disconnected",
+                    "closed",
+                }:
+                    await self._release_peer_connection(peer_connection)
+
+            try:
+                await peer_connection.setRemoteDescription(
+                    RTCSessionDescription(sdp=sdp, type=offer_type)
+                )
+                await peer_connection.setLocalDescription(
+                    await peer_connection.createAnswer()
+                )
+                local_description = peer_connection.localDescription
+                if local_description is None:
+                    raise web.HTTPInternalServerError(
+                        reason="WebRTC peer did not create an answer."
+                    )
+            except BaseException:
+                await self._release_peer_connection(peer_connection)
+                raise
+
+            return web.json_response(
+                {"sdp": local_description.sdp, "type": local_description.type}
             )
-            await peer_connection.setLocalDescription(
-                await peer_connection.createAnswer()
-            )
-        except Exception:
-            self._peer_connection = None
-            self._video_track = None
-            await video_track.close()
-            await peer_connection.close()
-            raise
-
-        local_description = peer_connection.localDescription
-        if local_description is None:
-            raise web.HTTPInternalServerError(
-                reason="WebRTC peer did not create an answer."
-            )
-        return web.json_response(
-            {"sdp": local_description.sdp, "type": local_description.type}
-        )
 
     def _buffer_browser_message(self, raw_message: object) -> None:
         """Validate and append one data-channel message."""
@@ -387,11 +487,17 @@ class WebRTCServer:
             event_data = KeyboardUserInputEventData(key=key, pressed=pressed)
         elif event_type == "reset":
             event_data = ResetUserInputEventData()
+        elif event_type == "new_session":
+            metadata = payload.get("metadata")
+            if not isinstance(metadata, dict):
+                raise ValueError("New-session event requires metadata object.")
+            event_data = NewSessionUserInputEventData(metadata=metadata)
         elif event_type == "close":
             event_data = CloseUserInputEventData()
         else:
             raise ValueError(
-                "Browser event type must be 'keyboard', 'reset', or 'close'."
+                "Browser event type must be 'keyboard', 'reset', 'new_session', "
+                "or 'close'."
             )
         self._append_event(event_data)
 
@@ -400,25 +506,26 @@ class WebRTCServer:
         event_data: (
             KeyboardUserInputEventData
             | ResetUserInputEventData
+            | NewSessionUserInputEventData
             | CloseUserInputEventData
         ),
     ) -> None:
         """Timestamp and buffer one validated browser event."""
-        session_start_ns = self._session_start_ns
-        if session_start_ns is None:
+        event_origin_ns = self._event_origin_ns
+        if event_origin_ns is None:
             return
-        timestamp_us = np.uint64((time.monotonic_ns() - session_start_ns) // 1_000)
+        timestamp_us = np.uint64((time.monotonic_ns() - event_origin_ns) // 1_000)
         event = UserInputEvent(timestamp=timestamp_us, event_data=event_data)
         callback = self._input_callback
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")
-        #  Pass that UserInputEvent to the callback.
-        #  The callback stores it in WebRTCClientWindow’s thread-safe queue.
+        # Every event takes the same callback path into WebRTCClientWindow's
+        # thread-safe queue; the server loop never handles lifecycle events.
         callback(event)
 
-    def _record_client_disconnect(self) -> None:
+    def _record_client_disconnect(self, peer_connection: RTCPeerConnection) -> None:
         """Buffer one close event when the active browser disconnects."""
-        if not self._client_connected:
+        if self._peer_connection is not peer_connection or not self._client_connected:
             return
         self._client_connected = False
         if not self._closed:
@@ -432,20 +539,46 @@ class WebRTCServer:
         if track is not None:
             await track.enqueue(frames)
 
-    async def _shutdown(self) -> None:
-        """Release async server resources on their owning loop."""
-        peer_connection = self._peer_connection
+    async def _release_peer_connection(
+        self, peer_connection: RTCPeerConnection
+    ) -> None:
+        """Release one disconnected peer so a refreshed page can reconnect."""
+        if self._peer_connection is not peer_connection:
+            return
+        self._record_client_disconnect(peer_connection)
         self._peer_connection = None
+        self._control_channel = None
         track = self._video_track
         self._video_track = None
         if track is not None:
             await track.close()
-        if peer_connection is not None:
+        if peer_connection.connectionState != "closed":
             await peer_connection.close()
+
+    async def _shutdown(self) -> None:
+        """Release async server resources on their owning loop."""
+        peer_connection = self._peer_connection
+        if peer_connection is not None:
+            await self._release_peer_connection(peer_connection)
+        else:
+            track = self._video_track
+            self._video_track = None
+            if track is not None:
+                await track.close()
         runner = self._runner
         self._runner = None
         if runner is not None:
             await runner.cleanup()
+
+
+def _same_stream_format(first: SessionDesc, second: SessionDesc) -> bool:
+    """Return whether two sessions can use the same WebRTC media track."""
+    return (
+        first.output_layout is second.output_layout
+        and first.frames_per_second_for_step == second.frames_per_second_for_step
+        and first.video_width == second.video_width
+        and first.video_height == second.video_height
+    )
 
 
 def _result_to_rgb_frames(

@@ -27,17 +27,19 @@ class IApplication(ABC):
         """Parse application arguments and validate startup state."""
         ...
 
-    def session_desc(self) -> SessionDesc | None:
-        """Return the description of a session this application would generate.
+    def default_session_desc(self) -> SessionDesc | None:
+        """Return this initialized application's default session description.
 
-        A caller has to describe a session before there is one to describe, and
-        only the application knows what its model was trained for. Asked before
-        :meth:`init`, so describing a session costs nothing.
+        The application owns its model's output requirements and defaults, such
+        as its layout, preferred dimensions, and frame rate. The runtime asks
+        after :meth:`init`, then applies the caller's explicit requests to this
+        default before calling :meth:`create_session`. That method accepts the
+        resolved description or rejects it; it does not silently change the
+        stream the runtime already asked the client window to prepare for.
 
         Returns:
-            The session to create when nobody asks for another, or ``None``,
-            the default, from an application that generates whatever it is
-            asked for. Its caller describes the session instead.
+            The default session description, or ``None`` when the application
+            has no output requirements and accepts the runtime's defaults.
         """
         return None
 
@@ -49,8 +51,7 @@ class IApplication(ABC):
             session_desc: Session the runtime is asking for.
 
         Returns:
-            A session for ``session_desc``, resolved to what this application can
-            actually produce.
+            A session that produces ``session_desc``.
 
         Raises:
             ValueError: The application cannot honour ``session_desc``.

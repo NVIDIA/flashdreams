@@ -16,7 +16,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import SessionDesc, SessionDescRequest
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -260,10 +260,22 @@ def test_a_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
     frames_per_step = 5
 
     # No step count: the session knows how long its fade is and ends the run.
-    ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(
-        _session_desc(width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT),
-        ["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)],
-    )
+    runner = ApplicationRunner(create_app())
+    try:
+        runner.init(
+            ["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)]
+        )
+        runner.run(
+            SessionDescRequest(
+                output_layout=VideoTensorLayout.bcthw,
+                frames_per_second_for_step=_FRAMES_PER_SECOND,
+                video_width=_PLAYABLE_WIDTH,
+                video_height=_PLAYABLE_HEIGHT,
+            ),
+            Mp4ClientWindow(path),
+        )
+    finally:
+        runner.close()
 
     frames = _decode(path, width=_PLAYABLE_WIDTH, height=_PLAYABLE_HEIGHT)
     assert len(frames) == _STEPS_FOR_THE_FADE * frames_per_step

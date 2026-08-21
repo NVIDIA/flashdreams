@@ -13,7 +13,6 @@ import json
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import pytest
 import torch
@@ -98,6 +97,28 @@ class UndescribedApplication(IApplication):
         return OneStepSession(session_desc)
 
 
+class InitializedDescriptionApplication(IApplication):
+    """Application whose default output width comes from its own arguments."""
+
+    def __init__(self) -> None:
+        self._width: int | None = None
+        self.asked_for: SessionDesc | None = None
+
+    def init(self, commandline_args: Sequence[str]) -> None:
+        if len(commandline_args) != 2 or commandline_args[0] != "--width":
+            raise ValueError("--width is required.")
+        self._width = int(commandline_args[1])
+
+    def default_session_desc(self) -> SessionDesc:
+        if self._width is None:
+            raise RuntimeError("init() must run before default_session_desc().")
+        return SessionDesc(video_width=self._width)
+
+    def create_session(self, session_desc: SessionDesc) -> ISession:
+        self.asked_for = session_desc
+        return OneStepSession(session_desc)
+
+
 class OneStepSession(ISession):
     """A session generating one frame and reporting itself finished."""
 
@@ -133,6 +154,7 @@ class RecordingWindow(IClientWindow):
 
     def __init__(self) -> None:
         self.results: list[StepResult] = []
+        self.closed = False
 
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
@@ -144,7 +166,7 @@ class RecordingWindow(IClientWindow):
         self.results.append(result)
 
     def close(self) -> None:
-        return
+        self.closed = True
 
 
 ## Splitting the command line
@@ -378,13 +400,45 @@ def test_nothing_is_measured_unless_a_run_asks(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_application_that_will_not_start_reports_why(
+def test_a_non_serving_run_without_a_prompt_reports_why(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, StubT2VApplication(_stand_in()), RecordingWindow())
 
-    with pytest.raises(ValueError, match="--prompt is required"):
-        cli.entrypoint(["stub", "--mode", "webrtc"])
+    with pytest.raises(ValueError, match="session prompt is required"):
+        cli.entrypoint(["stub", "--mode", "mp4"])
+
+
+def test_a_browser_server_starts_without_a_command_line_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InterruptingWindow(RecordingWindow):
+        keeps_open_between_sessions = True
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.closed = False
+
+        def get_user_input_events(self) -> UserInputEvents:
+            raise KeyboardInterrupt
+
+        def close(self) -> None:
+            self.closed = True
+
+    pipeline = _stand_in()
+    window = InterruptingWindow()
+    _install(monkeypatch, StubT2VApplication(pipeline))
+    monkeypatch.setattr(
+        cli,
+        "client_window_mode",
+        lambda name: StubMode(name, window),
+    )
+
+    cli.entrypoint(["stub", "--mode", "webrtc"])
+
+    assert window.closed
+    assert pipeline.device == "cpu"
+    assert pipeline.eval_count == 1
 
 
 ## Describing the session to run
@@ -437,6 +491,18 @@ def test_a_model_generates_what_it_was_trained_for_unless_asked_otherwise(
     assert window.session_desc.video_height == pipeline.height
 
 
+def test_application_arguments_resolve_the_default_session_before_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = InitializedDescriptionApplication()
+    _install(monkeypatch, application, RecordingWindow())
+
+    cli.entrypoint(["stub", "--mode", "webrtc", "--", "--width", "64"])
+
+    assert application.asked_for is not None
+    assert application.asked_for.video_width == 64
+
+
 ## The command itself
 
 
@@ -458,6 +524,31 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
     assert asked_for == ["webrtc"]
     # And nothing counted the steps: the session reported itself finished.
     assert len(window.results) == _TOTAL_BLOCKS
+
+
+def test_a_window_is_closed_when_reporting_its_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingStartMode(StubMode):
+        def starting(self, client_window: IClientWindow) -> str | None:
+            del client_window
+            raise RuntimeError("cannot report window")
+
+    pipeline = _stand_in()
+    application = StubT2VApplication(pipeline)
+    window = RecordingWindow()
+    _install(monkeypatch, application)
+    monkeypatch.setattr(
+        cli,
+        "client_window_mode",
+        lambda name: FailingStartMode(name, window),
+    )
+
+    with pytest.raises(RuntimeError, match="cannot report window"):
+        cli.entrypoint(["stub", "--mode", "webrtc"])
+
+    assert window.closed
+    assert pipeline.closed
 
 
 def test_the_command_needs_somewhere_to_write() -> None:

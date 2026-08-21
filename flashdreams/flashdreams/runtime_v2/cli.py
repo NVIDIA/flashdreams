@@ -5,8 +5,8 @@
 
 ``flashdreams-run-v2`` finds an application by slug, gives it the arguments
 after ``--``, and hands it to :class:`ApplicationRunner` along with the window
-``--mode`` asked for. The session it asks for is the one the application says it
-would generate, with whatever the frame arguments here override.
+``--mode`` asked for. The runner initializes the application, then resolves its
+session default with whatever frame arguments this command overrides.
 
 What the modes are, and what each one takes, belongs to
 :mod:`flashdreams.runtime_v2.client_window_factory`. Nothing here reads an
@@ -14,12 +14,10 @@ argument that only one of them uses.
 """
 
 import argparse
+import logging
 import sys
 from collections.abc import Sequence
-from dataclasses import replace
-from typing import Any
 
-from flashdreams.api_v2.application import IApplication
 from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
@@ -29,7 +27,7 @@ from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
 )
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import SessionDescRequest
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ARGUMENT_SEPARATOR = "--"
@@ -38,6 +36,8 @@ _ARGUMENT_SEPARATOR = "--"
 An application declares whatever arguments it likes, including ones this
 command also has, so the split is stated rather than guessed.
 """
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
@@ -55,13 +55,28 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
 
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
-    session_desc = _session_desc(application, parsed)
-    window = mode.create(parsed)
-    _report(mode.starting(window))
-    # Nothing here says how long the run is: a session reports itself finished,
-    # and a window ends the run when its client goes away.
-    ApplicationRunner(application, window).run(session_desc, application_args)
-    _report(mode.finished(window))
+    runner = ApplicationRunner(application)
+    try:
+        runner.init(application_args)
+        window = mode.create(parsed)
+        try:
+            _report(mode.starting(window))
+        except BaseException:
+            try:
+                window.close()
+            except Exception:
+                _LOGGER.exception(
+                    "The client window failed to close after startup failed."
+                )
+            raise
+        # Nothing here says how long a session or window lives: each reports that.
+        try:
+            runner.run(_session_desc_request(parsed), window)
+        except KeyboardInterrupt:
+            return
+        _report(mode.finished(window))
+    finally:
+        runner.close()
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -132,25 +147,11 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _session_desc(
-    application: IApplication, parsed_args: argparse.Namespace
-) -> SessionDesc:
-    """Return the session to ask for: the application's, with the arguments on top.
-
-    An application describing no session of its own gets the arguments alone,
-    over :class:`SessionDesc`'s own defaults.
-    """
-    asked_for: dict[str, Any] = {
-        field: value
-        for field, value in (
-            ("output_layout", parsed_args.layout),
-            ("frames_per_second_for_step", parsed_args.fps),
-            ("video_width", parsed_args.pixel_width),
-            ("video_height", parsed_args.pixel_height),
-        )
-        if value is not None
-    }
-    described = application.session_desc()
-    if described is None:
-        return SessionDesc(**asked_for)
-    return replace(described, **asked_for)
+def _session_desc_request(parsed_args: argparse.Namespace) -> SessionDescRequest:
+    """Return the output properties the command line explicitly requested."""
+    return SessionDescRequest(
+        output_layout=parsed_args.layout,
+        frames_per_second_for_step=parsed_args.fps,
+        video_width=parsed_args.pixel_width,
+        video_height=parsed_args.pixel_height,
+    )
