@@ -242,10 +242,13 @@ def test_the_rollout_length_can_be_overridden() -> None:
     assert _rollout_length(app) == 3
 
 
-def test_an_application_can_initialize_before_a_session_has_a_prompt() -> None:
-    app = T2VApplication(defaults=_defaults())
+def test_an_application_preloads_before_a_session_has_a_prompt() -> None:
+    defaults = _defaults()
+    app = T2VApplication(defaults=defaults)
 
     app.init([])
+
+    assert defaults.pipeline_config.setup_count == 1
     with pytest.raises(ValueError, match="session prompt is required"):
         app.create_session(_session_desc())
 
@@ -272,9 +275,13 @@ def test_no_session_is_created_before_the_application_is_told_what_to_do() -> No
 ## Loading the model
 
 
-def test_the_model_loads_once_and_every_session_shares_it() -> None:
-    app = _application()
+def test_initialization_loads_the_model_once_for_every_session() -> None:
+    app = ApplicationUnderTest(defaults=_defaults())
     config = _pipeline_config(app)
+
+    assert config.setup_count == 0
+
+    app.init(["--prompt", _PROMPT])
 
     first = app.create_session(_session_desc())
     second = app.create_session(_session_desc())
@@ -303,13 +310,12 @@ def test_a_replacement_prompt_must_be_non_empty_text(prompt: object) -> None:
     with pytest.raises(ValueError, match="session prompt is required"):
         app.create_session(replace(_session_desc(), metadata={"prompt": prompt}))
 
-    assert _pipeline_config(app).setup_count == 0
+    assert _pipeline_config(app).setup_count == 1
 
 
 def test_closing_the_application_releases_the_model() -> None:
     app = _application()
     config = _pipeline_config(app)
-    app.create_session(_session_desc())
 
     app.close()
 
@@ -319,15 +325,14 @@ def test_closing_the_application_releases_the_model() -> None:
 ## What a model will not generate
 
 
-def test_a_layout_the_model_does_not_emit_is_refused_before_it_loads() -> None:
-    """A checkpoint of several gigabytes is a long wait for a certain refusal."""
+def test_a_layout_the_model_does_not_emit_is_refused_before_a_session_starts() -> None:
     app = _application()
     config = _pipeline_config(app)
 
     with pytest.raises(ValueError, match="only produces tchw output"):
         app.create_session(_session_desc(VideoTensorLayout.bcthw))
 
-    assert config.setup_count == 0
+    assert config.setup_count == 1
 
 
 @pytest.mark.parametrize("width,height", [(130, 64), (128, 60)])
@@ -437,9 +442,11 @@ def test_a_seed_reaches_the_model_where_a_model_keeps_one() -> None:
     """Straight onto the config the pipeline is built from, so a model that
     draws its own noise draws the same noise twice."""
     diffusion_model = SimpleNamespace(seed=42)
-    defaults = _defaults(
-        pipeline_config=SimpleNamespace(diffusion_model=diffusion_model)
+    pipeline_config = SimpleNamespace(
+        diffusion_model=diffusion_model,
+        setup=lambda: FakePipeline(),
     )
+    defaults = _defaults(pipeline_config=pipeline_config)
 
     app = T2VApplication(defaults=defaults)
     app.init(["--prompt", _PROMPT, "--seed", "7"])

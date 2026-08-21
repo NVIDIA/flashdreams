@@ -8,12 +8,14 @@ model denoises with two transformers. The checkpoint itself is
 ``test_real_model.py``.
 """
 
+import copy
+
 import pytest
 from fastvideo_causal_wan22.config import RUNNER_WAN22_T2V_14B
 from t2v_fastvideo_causal_wan22 import FastvideoCausalWan22T2VApplication
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2.testing import FakeT2VPipelineConfig
+from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -44,7 +46,13 @@ def test_compilation_is_turned_off_for_both_noise_level_transformers() -> None:
     model splits denoising across two transformers, and the shared override
     reaches only one of them, so it is overridden here.
     """
-    app = FastvideoCausalWan22T2VApplication()
+    pipeline_config = copy.deepcopy(RUNNER_WAN22_T2V_14B.pipeline)
+
+    def load_stand_in(_: object) -> FakeT2VPipeline:
+        return FakeT2VPipeline()
+
+    pipeline_config._target = load_stand_in
+    app = FastvideoCausalWan22T2VApplication(pipeline_config=pipeline_config)
 
     app.init(["--prompt", _PROMPT, "--no-compile"])
 

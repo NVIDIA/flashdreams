@@ -41,8 +41,9 @@ class T2VApplication(IApplication):
     command line for all of them. An integration supplies
     :class:`T2VApplicationDefaults` and inherits the rest.
 
-    The model is loaded once, on the first session, and shared by every session
-    after it, since loading reads a checkpoint of several gigabytes.
+    :meth:`init` loads the model once after resolving its command-line options.
+    The application then keeps that model resident and shares it with every
+    session, since loading reads a checkpoint of several gigabytes.
     """
 
     session_type: type[T2VSession] = T2VSession
@@ -65,10 +66,11 @@ class T2VApplication(IApplication):
         return self._pipeline_config
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse the default prompt, rollout length, and device.
+        """Parse application options and load the shared model.
 
         Not what size or rate to generate at: that describes the session, which
-        the caller asks for. The model is not loaded here either.
+        the caller asks for. Loading happens after device, compilation, seed,
+        and integration-specific options have been resolved.
 
         Raises:
             ValueError: An explicitly provided prompt is empty, or the rollout
@@ -135,11 +137,14 @@ class T2VApplication(IApplication):
             self._pipeline_config = self._apply_seed_override(
                 self._pipeline_config, args.seed
             )
-        self._config = T2VSessionConfig(
+        config = T2VSessionConfig(
             prompt=args.prompt,
             device=args.device,
             total_blocks=args.total_blocks,
         )
+        pipeline = self._pipeline_config.setup().to(config.device).eval()
+        self._config = config
+        self._pipeline = pipeline
 
     def default_session_desc(self) -> SessionDesc:
         """Return the description of a session this application uses.
@@ -156,7 +161,7 @@ class T2VApplication(IApplication):
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
-        """Create one uninitialized session, loading the model if needed.
+        """Create one uninitialized session against the resident model.
 
         Raises:
             RuntimeError: :meth:`init` has not run yet.
@@ -164,12 +169,11 @@ class T2VApplication(IApplication):
                 or its prompt metadata is not a non-empty string.
         """
         config = self._config
-        if config is None:
+        pipeline = self._pipeline
+        if config is None or pipeline is None:
             raise RuntimeError(
                 f"{type(self).__name__}.init() must run before create_session()."
             )
-        # Before loading rather than after: a checkpoint of several gigabytes is
-        # a long wait for a layout this was never going to accept.
         self._validate_layout(session_desc)
         prompt = session_desc.metadata.get("prompt", config.prompt)
         if not isinstance(prompt, str) or not prompt.strip():
@@ -177,12 +181,8 @@ class T2VApplication(IApplication):
                 "A session prompt is required: pass --prompt or set "
                 "SessionDesc.metadata['prompt'] to a non-empty string."
             )
-        if self._pipeline is None:
-            self._pipeline = self._pipeline_config.setup().to(config.device).eval()
-        self._validate_frame_size(session_desc, self._pipeline)
-        return self.session_type(
-            self._pipeline, prompt, session_desc, config.total_blocks
-        )
+        self._validate_frame_size(session_desc, pipeline)
+        return self.session_type(pipeline, prompt, session_desc, config.total_blocks)
 
     def close(self) -> None:
         """Release the model, and whatever memory it was holding."""

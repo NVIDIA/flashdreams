@@ -13,7 +13,6 @@ import json
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import pytest
 import torch
@@ -442,7 +441,8 @@ def test_a_browser_server_starts_without_a_command_line_prompt(
     cli.entrypoint(["stub", "--mode", "webrtc"])
 
     assert window.closed
-    assert pipeline.device is None
+    assert pipeline.device == "cpu"
+    assert pipeline.eval_count == 1
 
 
 ## Describing the session to run
