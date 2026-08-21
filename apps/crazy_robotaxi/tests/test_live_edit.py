@@ -409,7 +409,7 @@ class TestStyleAbility:
 
         ((_, _, kwargs),) = session.pipeline.replace_text_calls
         assert kwargs["guidance_scale"] == 2.5
-        assert kwargs["guidance_chunks"] == 20
+        assert kwargs["guidance_chunks"] == 6
 
     def test_revert_to_base_is_a_plain_swap(self) -> None:
         ability, session = self._ability()
@@ -463,7 +463,7 @@ class TestDutyCycledReswap:
         _, text, kwargs = session.pipeline.replace_text_calls[-1]
         assert text == [["arcade prompt"]]
         assert kwargs["guidance_scale"] == 2.5
-        assert kwargs["guidance_chunks"] == 20
+        assert kwargs["guidance_chunks"] == 6
         assert ability.active_skin_name == "arcade"
 
     def test_reswap_flushes_the_pending_finalize_first(self) -> None:
@@ -683,3 +683,216 @@ class TestReswapConfig:
     def test_negative_reswap_interval_is_rejected(self) -> None:
         with pytest.raises(ValueError):
             LiveEditStyleConfig(reswap_interval_chunks=-1)
+
+
+class TestGuidanceChunkFlags:
+    def test_skin_and_weather_guidance_chunk_flags_round_trip(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-style",
+                "--live-edit-style-lora",
+                "/tmp/lora.pt",
+                "--live-edit-skin-guidance-chunks",
+                "4",
+                "--live-edit-weather",
+                "--live-edit-weather-guidance-chunks",
+                "12",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.style.guidance_chunks == 4
+        assert config.weather.guidance_chunks == 12
+
+    def test_skin_window_defaults_short_and_weather_default_stays_validated(
+        self,
+    ) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        config = live_edit_config_from_args(parser.parse_args([]))
+        assert config.style.guidance_chunks == 6
+        assert config.weather.guidance_chunks == 20
+
+    def test_corrector_mode_off_round_trips(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(["--live-edit-corrector-mode", "off"])
+        config = live_edit_config_from_args(args)
+        assert config.style.corrector_mode == "off"
+
+
+class TestTorchCompositor:
+    """Device-agnostic torch compositing (CPU tensors run the CUDA code)."""
+
+    def _presenter_with_coin(self) -> LiveEditPresenter:
+        class RecordingPresenter:
+            def __init__(self) -> None:
+                self.frames: list[object] = []
+
+            def present_frame(self, frame: object, view_mode: str) -> None:
+                self.frames.append(frame)
+
+        config = LiveEditConfig(coins=_coins_config())
+        ability = CoinAbility(
+            np.array([[15.0, 0.0, 0.0]], dtype=np.float32), config.coins
+        )
+        presenter = LiveEditPresenter(
+            RecordingPresenter(), config, coin_ability=ability
+        )
+        presenter.configure_taxi_camera(_test_calibration())
+        presenter._allow_cpu_tensor_source = True
+        return presenter
+
+    class _FakeLazyTensorFrame:
+        """LazyCudaFrame duck-type over a CPU torch tensor."""
+
+        def __init__(self, tensor: object) -> None:
+            self._tensor = tensor
+            self.cuda_tensor_calls = 0
+
+        @property
+        def shape(self) -> tuple[int, ...]:
+            return tuple(self._tensor.shape)
+
+        def to_cuda_tensor(self) -> object:
+            self.cuda_tensor_calls += 1
+            return self._tensor
+
+        def to_cuda_event(self) -> None:
+            return None
+
+        def to_numpy(self) -> object:
+            raise AssertionError("torch path must not materialize the source")
+
+    def _frame(self, source: object) -> object:
+        from omnidreams_game_engine.types import PresentedFrame
+
+        return PresentedFrame(
+            timestamp_us=1,
+            rgb_host_uint8=None,
+            depth_host_f32=None,
+            model_rgb_host_uint8=source,
+            rig_to_world=np.eye(4, dtype=np.float32),
+        )
+
+    def test_tensor_source_composites_without_a_host_round_trip(self) -> None:
+        import torch
+
+        presenter = self._presenter_with_coin()
+        base = torch.full((704, 1280, 3), 90, dtype=torch.uint8)
+        source = self._FakeLazyTensorFrame(base.clone())
+        presenter.present_frame(self._frame(source), "model_rgb")
+
+        (out_frame,) = presenter._inner.frames
+        out = out_frame.model_rgb_host_uint8
+        assert callable(getattr(out, "to_cuda_tensor", None))
+        composited = out.to_cuda_tensor()
+        assert torch.is_tensor(composited)
+        assert not torch.equal(composited, base)
+        # Counter chip occupies the top-left corner.
+        assert not torch.equal(composited[:40, :120], base[:40, :120])
+        # A golden coin landed near the projected center.
+        changed = (composited != base).any(dim=-1)
+        assert changed[100:650, 200:1100].any()
+
+    def test_speculative_prepare_and_present_share_one_composite(self) -> None:
+        import torch
+
+        presenter = self._presenter_with_coin()
+        base = torch.full((704, 1280, 3), 90, dtype=torch.uint8)
+        source = self._FakeLazyTensorFrame(base.clone())
+        frame = self._frame(source)
+        presenter.prepare_frame(frame, "model_rgb")
+        presenter.present_frame(frame, "model_rgb")
+        assert source.cuda_tensor_calls == 1
+
+    def test_annotate_flag_forces_the_host_path(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.config import LiveEditObstacleConfig
+
+        class ObstacleStub:
+            active = False
+            hit_count = 0
+            event = None
+
+        config = LiveEditConfig(
+            coins=_coins_config(),
+            obstacle=LiveEditObstacleConfig(enabled=True, annotate=True),
+        )
+        presenter = LiveEditPresenter(object(), config)
+        presenter._allow_cpu_tensor_source = True
+        presenter.set_obstacle_ability(ObstacleStub())
+        source = self._FakeLazyTensorFrame(torch.full((8, 8, 3), 90, dtype=torch.uint8))
+        assert presenter._process_tensor(self._frame(source)) is None
+
+    def test_alpha_blend_clips_at_canvas_edges(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.gpu_compositor import alpha_blend_
+
+        canvas = torch.zeros((10, 10, 3), dtype=torch.uint8)
+        rgb = torch.full((3, 4, 4), 200.0)
+        alpha = torch.ones((1, 4, 4))
+        alpha_blend_(canvas, rgb, alpha, -2, -2)  # top-left overhang
+        alpha_blend_(canvas, rgb, alpha, 8, 8)  # bottom-right overhang
+        alpha_blend_(canvas, rgb, alpha, 20, 20)  # fully outside: no-op
+        assert canvas[0, 0].tolist() == [200, 200, 200]
+        assert canvas[1, 1].tolist() == [200, 200, 200]
+        assert canvas[9, 9].tolist() == [200, 200, 200]
+        assert canvas[5, 5].tolist() == [0, 0, 0]
+
+    def test_chip_textures_are_cached_per_label(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
+
+        compositor = LiveEditFrameCompositor(procedural_coin_sprite())
+        device = torch.device("cpu")
+        first = compositor._chip("COINS 3", device)
+        again = compositor._chip("COINS 3", device)
+        other = compositor._chip("COINS 4", device)
+        assert first[0] is again[0]
+        assert other[0] is not first[0]
+
+    def test_torch_unsharp_increases_edge_contrast(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
+
+        frame = np.full((32, 32, 3), 40, dtype=np.uint8)
+        frame[:, 16:] = 200
+        compositor = LiveEditFrameCompositor(procedural_coin_sprite())
+        sharpened = compositor.unsharp(
+            torch.from_numpy(frame.copy()), sigma=2.0, amount=0.8
+        ).numpy()
+        assert int(sharpened[16, 15].mean()) < 40
+        assert int(sharpened[16, 16].mean()) > 200
+        identity = compositor.unsharp(
+            torch.from_numpy(frame.copy()), sigma=2.0, amount=0.0
+        ).numpy()
+        assert np.array_equal(identity, frame)
+
+    def test_torch_and_host_paths_draw_the_coin_in_the_same_region(self) -> None:
+        import torch
+
+        # Host reference.
+        host_presenter = self._presenter_with_coin()
+        host_presenter._allow_cpu_tensor_source = False
+        rgb = np.full((704, 1280, 3), 90, dtype=np.uint8)
+        host_presenter.present_frame(self._frame(rgb.copy()), "model_rgb")
+        host_out = np.asarray(host_presenter._inner.frames[0].model_rgb_host_uint8)
+
+        torch_presenter = self._presenter_with_coin()
+        source = self._FakeLazyTensorFrame(torch.from_numpy(rgb.copy()))
+        torch_presenter.present_frame(self._frame(source), "model_rgb")
+        torch_out = (
+            torch_presenter._inner.frames[0].model_rgb_host_uint8.to_cuda_tensor()
+        ).numpy()
+
+        host_mask = (host_out != rgb).any(axis=-1)
+        torch_mask = (torch_out != rgb).any(axis=-1)
+        # Skip the chip corner; compare the coin footprints.
+        host_mask[:60, :200] = False
+        torch_mask[:60, :200] = False
+        assert host_mask.any() and torch_mask.any()
+        overlap = (host_mask & torch_mask).sum()
+        union = (host_mask | torch_mask).sum()
+        assert overlap / union > 0.5  # same place, resampler differences ok

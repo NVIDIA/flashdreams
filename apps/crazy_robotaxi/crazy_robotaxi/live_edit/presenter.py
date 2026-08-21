@@ -12,11 +12,22 @@ root so it sees frame-synchronized ``rig_to_world``:
         LiveEditPresenter(presenter, ...)
     )
 
-It rewrites ``PresentedFrame.model_rgb_host_uint8`` with a host-composited
-copy wrapped in a lazy-source shim, so both downstream branches (the
-SlangPy CUDA fast path via ``to_cuda_tensor`` and the PIL/MJPEG path via
-``to_numpy``) keep working. CPU cost is milliseconds per frame; a
-GPU-native torch compositing path is a follow-up (TODO below).
+It rewrites ``PresentedFrame.model_rgb_host_uint8`` with a composited copy
+wrapped in a lazy-source shim, so both downstream branches (the SlangPy
+CUDA fast path via ``to_cuda_tensor`` and the PIL/MJPEG path via
+``to_numpy``) keep working.
+
+Two compositing paths, selected per frame by the source's residency:
+
+- CUDA source (the native fast path's lazy CUDA uint8 HWC frame, also the
+  MJPEG path before its host prefetch): torch ops on the device via
+  :class:`~.gpu_compositor.LiveEditFrameCompositor` — no host round trip,
+  the result is re-wrapped as a ``LazyCudaFrame`` whose CUDA event orders
+  downstream consumers after the compositing;
+- host source (plain numpy arrays, already-materialized frames): the
+  original PIL path. The obstacle box-outline annotation
+  (``--live-edit-obstacle-annotate``, a debug/evidence aid) always takes
+  the host path.
 """
 
 from __future__ import annotations
@@ -110,8 +121,9 @@ class _HostRGBFrame:
         return None
 
     def to_cuda_tensor(self) -> Any:
-        # TODO(gpu): host round-trip; a torch-native compositing path
-        # should keep the frame on-device instead of re-uploading here.
+        # Host-composited frame (host source or annotate fallback): the
+        # native consumer re-uploads it. CUDA sources take the torch
+        # compositing path instead and never round-trip through here.
         import torch
 
         return torch.from_numpy(self._rgb).cuda()
@@ -139,6 +151,9 @@ class LiveEditPresenter:
         self._last_timestamp_us: int | None = None
         self._last_processed: PresentedFrame | None = None
         self._coin_sprite = self._load_sprite(config.coins.sprite_path)
+        self._gpu_compositor: Any | None = None
+        # Test hook: lets CPU torch tensors exercise the torch path.
+        self._allow_cpu_tensor_source = False
 
     def set_coin_ability(self, coin_ability: CoinAbility | None) -> None:
         """Bind the per-rollout coin ability (rebuilt on scene load / reset)."""
@@ -185,18 +200,110 @@ class LiveEditPresenter:
                 frame,
                 model_rgb_host_uint8=self._last_processed.model_rgb_host_uint8,
             )
-        rgb = np.ascontiguousarray(
-            np.asarray(frame.model_rgb_host_uint8, dtype=np.uint8)[..., :3]
-        )
-        rgb = self._apply_style_filter(rgb)
-        rgb = self._composite_coins(rgb, frame)
-        rgb = self._annotate_obstacle(rgb, frame)
-        rgb = self._draw_hud_chips(rgb)
+        composited = self._process_tensor(frame)
+        if composited is None:
+            rgb = np.ascontiguousarray(
+                np.asarray(frame.model_rgb_host_uint8, dtype=np.uint8)[..., :3]
+            )
+            rgb = self._apply_style_filter(rgb)
+            rgb = self._composite_coins(rgb, frame)
+            rgb = self._annotate_obstacle(rgb, frame)
+            rgb = self._draw_hud_chips(rgb)
+            composited = _HostRGBFrame(rgb)
         self._frame_index += 1
-        processed = replace(frame, model_rgb_host_uint8=_HostRGBFrame(rgb))
+        processed = replace(frame, model_rgb_host_uint8=composited)
         self._last_timestamp_us = frame.timestamp_us
         self._last_processed = processed
         return processed
+
+    def _process_tensor(self, frame: PresentedFrame) -> Any | None:
+        """Composite on the source's device when it is a torch tensor.
+
+        Returns ``None`` to fall back to the host/PIL path: for plain
+        numpy sources, already-host-materialized lazy frames, and whenever
+        the obstacle box-outline annotation (host-only debug aid) is on.
+        The returned frame is a ``LazyCudaFrame`` whose source event is
+        recorded after the compositing ops, so downstream consumers
+        (Vulkan interop copy stream, MJPEG host prefetch) order correctly.
+        """
+        if self._config.obstacle.annotate and self._obstacle_ability is not None:
+            return None
+        source = frame.model_rgb_host_uint8
+        to_cuda_tensor = getattr(source, "to_cuda_tensor", None)
+        if not callable(to_cuda_tensor):
+            return None
+        import torch
+
+        try:
+            tensor = to_cuda_tensor()
+        except RuntimeError:
+            # Already materialized on the host (numpy XOR cuda contract).
+            return None
+        if (
+            not torch.is_tensor(tensor)
+            or tensor.ndim != 3
+            or tensor.dtype != torch.uint8
+        ):
+            return None
+        if not tensor.is_cuda and not self._allow_cpu_tensor_source:
+            return None
+        if tensor.is_cuda:
+            to_cuda_event = getattr(source, "to_cuda_event", None)
+            event = to_cuda_event() if callable(to_cuda_event) else None
+            if event is not None:
+                torch.cuda.current_stream(tensor.device).wait_event(event)
+        source_tensor = tensor[..., :3]
+
+        compositor = self._require_gpu_compositor()
+        style = self._style_ability
+        sharpen = style is not None and style.active_skin_name != "base"
+        sprites: Any = ()
+        coins = self._coin_ability
+        if coins is not None and coins.enabled and frame.rig_to_world is not None:
+            height, width = source_tensor.shape[:2]
+            camera_model = self._require_camera_model(width, height)
+            if camera_model is not None:
+                sprites = coins.visible_sprites(
+                    np.asarray(frame.rig_to_world, dtype=np.float32),
+                    camera_model,
+                    image_width=width,
+                    image_height=height,
+                )
+        work = compositor.composite(
+            source_tensor,
+            sprites=sprites,
+            frame_index=self._frame_index,
+            labels=self._hud_labels(),
+            sharpen_sigma=self._config.sharpen_sigma if sharpen else 0.0,
+            sharpen_amount=self._config.sharpen_amount if sharpen else 0.0,
+        )
+
+        done_event = None
+        if work.is_cuda:
+            done_event = torch.cuda.Event()
+            done_event.record(torch.cuda.current_stream(work.device))
+        from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
+
+        return LazyCudaFrame(
+            work.unsqueeze(0),
+            0,
+            source_event=done_event,
+            lost_source_message=(
+                "Live-edit composited frame lost its tensor before materialization."
+            ),
+            already_materialized_message=(
+                "Live-edit composited frame was already materialized on the host."
+            ),
+        )
+
+    def _require_gpu_compositor(self) -> Any:
+        if self._gpu_compositor is None:
+            from crazy_robotaxi.live_edit.gpu_compositor import (
+                LiveEditFrameCompositor,
+            )
+
+            self._gpu_compositor = LiveEditFrameCompositor(self._coin_sprite)
+        return self._gpu_compositor
 
     def _anything_active(self) -> bool:
         coins_active = self._coin_ability is not None and self._coin_ability.enabled
@@ -348,13 +455,8 @@ class LiveEditPresenter:
             )
         return np.asarray(canvas)
 
-    def _draw_hud_chips(self, rgb: np.ndarray) -> np.ndarray:
-        """Draw the skin-name and coin-counter chips into the frame.
-
-        Drawn into pixels so both the native window and the MJPEG stream
-        show them without touching ``_draw_taxi_hud``; the polished version
-        belongs in the taxi HUD panel (needs an upstream hook or edit).
-        """
+    def _hud_labels(self) -> list[str]:
+        """Chip labels for the current ability state (shared by both paths)."""
         labels: list[str] = []
         style = self._style_ability
         if style is not None:
@@ -370,6 +472,16 @@ class LiveEditPresenter:
             labels.append("OBSTACLE!")
         if obstacle is not None and obstacle.hit_count:
             labels.append(f"HITS {obstacle.hit_count}")
+        return labels
+
+    def _draw_hud_chips(self, rgb: np.ndarray) -> np.ndarray:
+        """Draw the skin-name and coin-counter chips into the frame.
+
+        Drawn into pixels so both the native window and the MJPEG stream
+        show them without touching ``_draw_taxi_hud``; the polished version
+        belongs in the taxi HUD panel (needs an upstream hook or edit).
+        """
+        labels = self._hud_labels()
         if not labels:
             return rgb
         canvas = Image.fromarray(rgb, mode="RGB").convert("RGBA")
