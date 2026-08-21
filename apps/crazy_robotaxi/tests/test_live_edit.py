@@ -815,6 +815,7 @@ class TestTorchCompositor:
             active = False
             hit_count = 0
             event = None
+            events: tuple = ()
 
         config = LiveEditConfig(
             coins=_coins_config(),
@@ -896,3 +897,279 @@ class TestTorchCompositor:
         overlap = (host_mask & torch_mask).sum()
         union = (host_mask | torch_mask).sum()
         assert overlap / union > 0.5  # same place, resampler differences ok
+
+
+class TestCoinSpatialWindow:
+    """O(nearby) windowed culling must match the brute-force reference."""
+
+    def _course(self) -> np.ndarray:
+        xs = np.arange(0.0, 2000.0, 5.0, dtype=np.float32)
+        near_lane = np.stack([xs, np.zeros_like(xs), np.full_like(xs, 0.8)], axis=1)
+        far_lane = np.stack([xs, np.full_like(xs, 60.0), np.full_like(xs, 0.8)], axis=1)
+        return np.concatenate([near_lane, far_lane])
+
+    def _brute_force(
+        self, coins: np.ndarray, config: LiveEditCoinsConfig
+    ) -> CoinAbility:
+        """Reference ability whose grid degenerates to one all-coins cell."""
+        from crazy_robotaxi.live_edit import coin_ability as module
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(module, "_GRID_CELL_M", 1.0e9)
+            return CoinAbility(coins, config)
+
+    def test_windowed_projection_matches_brute_force_across_cells(self) -> None:
+        from omnidreams_game_engine.camera import FThetaCameraModel
+
+        config = _coins_config()
+        coins = self._course()
+        windowed = CoinAbility(coins, config)
+        reference = self._brute_force(coins, config)
+        camera = FThetaCameraModel(_test_calibration())
+        for x in (0.0, 31.9, 32.1, 63.9, 100.0, 500.5, 1999.0):
+            rig = np.eye(4, dtype=np.float32)
+            rig[0, 3] = np.float32(x)
+            kwargs = {"image_width": 1280, "image_height": 704}
+            assert windowed.visible_sprites(
+                rig, camera, **kwargs
+            ) == reference.visible_sprites(rig, camera, **kwargs), f"x={x}"
+
+    def test_pickup_matches_brute_force_across_cell_boundaries(self) -> None:
+        config = _coins_config(pickup_radius_m=2.5)
+        coins = np.array([[32.1, 0.0, 0.8], [31.9, 0.0, 0.8]], dtype=np.float32)
+        windowed = CoinAbility(coins, config)
+        reference = self._brute_force(coins, config)
+        states = [_ego_at(30.0), _ego_at(33.0)]
+        assert windowed.advance_frames(states) == reference.advance_frames(states) == 2
+
+    def test_window_is_a_superset_of_the_exact_radius(self) -> None:
+        from crazy_robotaxi.live_edit.coin_ability import _CoinGrid
+
+        rng = np.random.default_rng(7)
+        coins_xy = rng.uniform(-500.0, 500.0, size=(4400, 2)).astype(np.float32)
+        grid = _CoinGrid(coins_xy)
+        for x, y, radius in ((0.0, 0.0, 120.0), (-431.0, 250.0, 2.5)):
+            window = set(grid.near(x, y, radius).tolist())
+            exact = np.flatnonzero(
+                np.linalg.norm(coins_xy - np.array([x, y], dtype=np.float32), axis=1)
+                <= radius
+            )
+            assert set(exact.tolist()) <= window
+
+    def test_window_query_is_cached_per_cell(self) -> None:
+        from crazy_robotaxi.live_edit.coin_ability import _CoinGrid
+
+        grid = _CoinGrid(np.zeros((10, 2), dtype=np.float32))
+        first = grid.near(1.0, 1.0, 120.0)
+        again = grid.near(5.0, 9.0, 120.0)  # same 32 m cell
+        assert again is first
+
+
+class TestRoiCompositor:
+    """The uint8 ROI path must match the float full-frame blends."""
+
+    def _sprites(self):
+        from crazy_robotaxi.live_edit.coin_ability import CoinSprite
+
+        return (
+            CoinSprite(
+                center_uv=(200.0, 300.0),
+                height_px=40.0,
+                alpha=1.0,
+                distance_m=20.0,
+                spin_phase=0.0,
+            ),
+            # Overlaps the first coin and carries a distance fade.
+            CoinSprite(
+                center_uv=(215.0, 310.0),
+                height_px=30.0,
+                alpha=0.4,
+                distance_m=90.0,
+                spin_phase=1.2,
+            ),
+            # Straddles the frame edge.
+            CoinSprite(
+                center_uv=(2.0, 700.0),
+                height_px=24.0,
+                alpha=0.8,
+                distance_m=50.0,
+                spin_phase=2.4,
+            ),
+        )
+
+    def test_roi_path_matches_float_path_within_one_lsb(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.gpu_compositor import (
+            LiveEditFrameCompositor,
+            _blend_float_,
+        )
+
+        rng = np.random.default_rng(3)
+        frame = torch.from_numpy(
+            rng.integers(0, 256, size=(704, 1280, 3), dtype=np.uint8)
+        )
+        compositor = LiveEditFrameCompositor(procedural_coin_sprite())
+        compositor._roi_blends = True
+        sprites = self._sprites()
+        labels = ["COINS 7", "SKIN ARCADE"]
+
+        out = compositor.composite(frame, sprites=sprites, frame_index=5, labels=labels)
+
+        reference = frame.to(torch.float32)
+        compositor._blend_coins(reference, sprites, 5, _blend_float_)
+        compositor._blend_chips(reference, labels, _blend_float_)
+        reference = reference.round_().clamp_(0.0, 255.0).to(torch.uint8)
+        diff = (out.int() - reference.int()).abs()
+        assert diff.max().item() <= 1
+        # Blends changed something.
+        assert not torch.equal(out, frame)
+
+    def test_composite_without_edits_copies_and_leaves_the_source_alone(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
+
+        frame = torch.full((32, 32, 3), 90, dtype=torch.uint8)
+        compositor = LiveEditFrameCompositor(procedural_coin_sprite())
+        compositor._roi_blends = True
+        out = compositor.composite(frame)
+        assert torch.equal(out, frame)
+        assert out is not frame
+
+    def test_roi_path_does_not_mutate_the_source_frame(self) -> None:
+        import torch
+        from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
+
+        frame = torch.full((704, 1280, 3), 90, dtype=torch.uint8)
+        pristine = frame.clone()
+        compositor = LiveEditFrameCompositor(procedural_coin_sprite())
+        compositor._roi_blends = True
+        out = compositor.composite(frame, sprites=self._sprites(), labels=["COINS 1"])
+        assert torch.equal(frame, pristine)
+        assert not torch.equal(out, pristine)
+
+    def test_env_switch_selects_the_blend_path(self, monkeypatch) -> None:
+        from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
+
+        sprite = procedural_coin_sprite()
+        monkeypatch.delenv("LIVE_EDIT_COMPOSITOR", raising=False)
+        assert LiveEditFrameCompositor(sprite)._roi_blends is False
+        monkeypatch.setenv("LIVE_EDIT_COMPOSITOR", "roi")
+        assert LiveEditFrameCompositor(sprite)._roi_blends is True
+
+
+class TestPerfLog:
+    def test_perf_log_reports_percentiles_every_n_frames(self) -> None:
+        import torch
+        from loguru import logger
+        from omnidreams_game_engine.types import PresentedFrame
+
+        class RecordingPresenter:
+            def __init__(self) -> None:
+                self.frames: list[object] = []
+
+            def present_frame(self, frame: object, view_mode: str) -> None:
+                self.frames.append(frame)
+
+        class LazyTensorFrame:
+            def __init__(self, tensor: object) -> None:
+                self._tensor = tensor
+
+            def to_cuda_tensor(self) -> object:
+                return self._tensor
+
+            def to_cuda_event(self) -> None:
+                return None
+
+        config = LiveEditConfig(coins=_coins_config(), perf_log_every_frames=2)
+        ability = CoinAbility(
+            np.array([[15.0, 0.0, 0.0]], dtype=np.float32), config.coins
+        )
+        presenter = LiveEditPresenter(
+            RecordingPresenter(), config, coin_ability=ability
+        )
+        presenter.configure_taxi_camera(_test_calibration())
+        presenter._allow_cpu_tensor_source = True
+
+        messages: list[str] = []
+        sink_id = logger.add(lambda message: messages.append(str(message)))
+        try:
+            for timestamp in (1, 2):
+                frame = PresentedFrame(
+                    timestamp_us=timestamp,
+                    rgb_host_uint8=None,
+                    depth_host_f32=None,
+                    model_rgb_host_uint8=LazyTensorFrame(
+                        torch.full((704, 1280, 3), 90, dtype=torch.uint8)
+                    ),
+                    rig_to_world=np.eye(4, dtype=np.float32),
+                )
+                presenter.present_frame(frame, "model_rgb")
+        finally:
+            logger.remove(sink_id)
+        perf_lines = [line for line in messages if "[live-edit] perf over 2" in line]
+        assert len(perf_lines) == 1
+        assert "coin_cpu_ms p50=" in perf_lines[0]
+        assert "compositor_enqueue_cpu_ms p50=" in perf_lines[0]
+
+    def test_perf_log_flag_round_trip_and_env_default(self, monkeypatch) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(["--live-edit-perf-log", "240"])
+        assert live_edit_config_from_args(args).perf_log_every_frames == 240
+
+        monkeypatch.setenv("LIVE_EDIT_PERF_LOG", "120")
+        env_parser = argparse.ArgumentParser()
+        add_live_edit_args(env_parser)
+        env_args = env_parser.parse_args([])
+        assert live_edit_config_from_args(env_args).perf_log_every_frames == 120
+
+    def test_negative_perf_log_interval_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            LiveEditConfig(perf_log_every_frames=-1)
+
+
+class TestSpriteCap:
+    def test_cap_keeps_the_nearest_coins_in_painter_order(self) -> None:
+        from omnidreams_game_engine.camera import FThetaCameraModel
+
+        config = _coins_config(max_render_distance_m=120.0, max_visible_sprites=2)
+        coins = np.array(
+            [[10.0, 0.0, 0.0], [40.0, 0.0, 0.0], [80.0, 0.0, 0.0]],
+            dtype=np.float32,
+        )
+        ability = CoinAbility(coins, config)
+        camera = FThetaCameraModel(_test_calibration())
+
+        sprites = ability.visible_sprites(
+            np.eye(4, dtype=np.float32), camera, image_width=1280, image_height=704
+        )
+
+        assert len(sprites) == 2
+        # The farthest coin (80 m) dropped; order stays far-to-near.
+        assert sprites[0].distance_m == pytest.approx(40.0)
+        assert sprites[1].distance_m == pytest.approx(10.0)
+
+    def test_zero_cap_disables_the_limit(self) -> None:
+        from omnidreams_game_engine.camera import FThetaCameraModel
+
+        config = _coins_config(max_visible_sprites=0)
+        coins = np.array(
+            [[10.0, 0.0, 0.0], [40.0, 0.0, 0.0], [80.0, 0.0, 0.0]],
+            dtype=np.float32,
+        )
+        ability = CoinAbility(coins, config)
+        camera = FThetaCameraModel(_test_calibration())
+        sprites = ability.visible_sprites(
+            np.eye(4, dtype=np.float32), camera, image_width=1280, image_height=704
+        )
+        assert len(sprites) == 3
+
+    def test_cap_flag_round_trip(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(["--live-edit-coin-max-visible", "32"])
+        assert live_edit_config_from_args(args).coins.max_visible_sprites == 32
+        assert (
+            live_edit_config_from_args(parser.parse_args([])).coins.max_visible_sprites
+            == 64
+        )

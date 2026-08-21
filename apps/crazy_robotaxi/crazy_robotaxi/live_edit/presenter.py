@@ -33,11 +33,13 @@ Two compositing paths, selected per frame by the source's residency:
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from loguru import logger
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.types import CameraCalibration, PresentedFrame
 from PIL import Image, ImageDraw, ImageFilter
@@ -129,6 +131,69 @@ class _HostRGBFrame:
         return torch.from_numpy(self._rgb).cuda()
 
 
+class _LiveEditPerfLog:
+    """Rolling p50/p95 self-report of live-edit per-frame costs.
+
+    Enabled by ``--live-edit-perf-log N`` / ``LIVE_EDIT_PERF_LOG=N``; logs
+    one line every ``N`` composited frames so remote users can report the
+    coin-update CPU cost and the compositor's enqueue/GPU cost from their
+    machine. GPU timings come from CUDA event pairs resolved lazily at
+    report time — pairs still in flight are skipped, never synchronized on,
+    so the report itself adds no GPU sync point.
+    """
+
+    def __init__(self, every_frames: int) -> None:
+        self._every = every_frames
+        self._coin_ms: list[float] = []
+        self._enqueue_ms: list[float] = []
+        self._sprite_counts: list[int] = []
+        self._gpu_event_pairs: list[tuple[Any, Any]] = []
+
+    def record(
+        self,
+        *,
+        coin_ms: float,
+        enqueue_ms: float,
+        sprite_count: int,
+        gpu_events: tuple[Any, Any] | None,
+    ) -> None:
+        """Add one frame's samples; emit the report every N frames."""
+        self._coin_ms.append(coin_ms)
+        self._enqueue_ms.append(enqueue_ms)
+        self._sprite_counts.append(sprite_count)
+        if gpu_events is not None:
+            self._gpu_event_pairs.append(gpu_events)
+        if len(self._coin_ms) >= self._every:
+            self._report()
+
+    def _report(self) -> None:
+        gpu_ms = [
+            start.elapsed_time(end)
+            for start, end in self._gpu_event_pairs
+            if end.query()
+        ]
+        gpu_summary = (
+            f"compositor_gpu_ms p50={np.percentile(gpu_ms, 50):.3f} "
+            f"p95={np.percentile(gpu_ms, 95):.3f} (n={len(gpu_ms)})"
+            if gpu_ms
+            else "compositor_gpu_ms n/a"
+        )
+        logger.info(
+            f"[live-edit] perf over {len(self._coin_ms)} frames: "
+            f"coin_cpu_ms p50={np.percentile(self._coin_ms, 50):.3f} "
+            f"p95={np.percentile(self._coin_ms, 95):.3f} | "
+            f"compositor_enqueue_cpu_ms p50={np.percentile(self._enqueue_ms, 50):.3f} "
+            f"p95={np.percentile(self._enqueue_ms, 95):.3f} | "
+            f"{gpu_summary} | "
+            f"sprites p50={np.percentile(self._sprite_counts, 50):.0f} "
+            f"max={max(self._sprite_counts)}"
+        )
+        self._coin_ms.clear()
+        self._enqueue_ms.clear()
+        self._sprite_counts.clear()
+        self._gpu_event_pairs.clear()
+
+
 class LiveEditPresenter:
     """Composite live-edit pixels into frames before HUD drawing/encoding."""
 
@@ -152,6 +217,11 @@ class LiveEditPresenter:
         self._last_processed: PresentedFrame | None = None
         self._coin_sprite = self._load_sprite(config.coins.sprite_path)
         self._gpu_compositor: Any | None = None
+        self._perf_log = (
+            _LiveEditPerfLog(config.perf_log_every_frames)
+            if config.perf_log_every_frames > 0
+            else None
+        )
         # Test hook: lets CPU torch tensors exercise the torch path.
         self._allow_cpu_tensor_source = False
 
@@ -257,7 +327,9 @@ class LiveEditPresenter:
         compositor = self._require_gpu_compositor()
         style = self._style_ability
         sharpen = style is not None and style.active_skin_name != "base"
+        perf = self._perf_log
         sprites: Any = ()
+        coin_start = time.perf_counter()
         coins = self._coin_ability
         if coins is not None and coins.enabled and frame.rig_to_world is not None:
             height, width = source_tensor.shape[:2]
@@ -269,6 +341,14 @@ class LiveEditPresenter:
                     image_width=width,
                     image_height=height,
                 )
+        enqueue_start = time.perf_counter()
+        gpu_events = None
+        if perf is not None and source_tensor.is_cuda:
+            gpu_events = (
+                torch.cuda.Event(enable_timing=True),
+                torch.cuda.Event(enable_timing=True),
+            )
+            gpu_events[0].record(torch.cuda.current_stream(source_tensor.device))
         work = compositor.composite(
             source_tensor,
             sprites=sprites,
@@ -277,6 +357,16 @@ class LiveEditPresenter:
             sharpen_sigma=self._config.sharpen_sigma if sharpen else 0.0,
             sharpen_amount=self._config.sharpen_amount if sharpen else 0.0,
         )
+        if gpu_events is not None:
+            gpu_events[1].record(torch.cuda.current_stream(work.device))
+        if perf is not None:
+            enqueue_end = time.perf_counter()
+            perf.record(
+                coin_ms=(enqueue_start - coin_start) * 1.0e3,
+                enqueue_ms=(enqueue_end - enqueue_start) * 1.0e3,
+                sprite_count=len(sprites),
+                gpu_events=gpu_events,
+            )
 
         done_event = None
         if work.is_cuda:

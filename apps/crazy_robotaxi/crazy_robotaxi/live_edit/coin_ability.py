@@ -25,6 +25,9 @@ from omnidreams_game_engine.types import VehicleState
 from crazy_robotaxi.live_edit.config import LiveEditCoinsConfig
 from crazy_robotaxi.navigation import NavigationLane
 
+_GRID_CELL_M = 32.0
+"""Spatial-hash cell edge for the coin course (see :class:`_CoinGrid`)."""
+
 
 @dataclass(frozen=True)
 class CoinSprite:
@@ -108,6 +111,62 @@ def build_coin_course(
     return np.stack(coins).astype(np.float32)
 
 
+class _CoinGrid:
+    """Static 2D spatial hash over coin XY positions.
+
+    A course spans thousands of coins but only the ones within
+    ``max_render_distance_m`` of the ego matter each frame; hashing the
+    (immutable) coin layout into ``_GRID_CELL_M`` cells makes the per-frame
+    candidate lookup O(nearby) instead of O(course). Query results are
+    cached per (cell, radius) and only recomputed when the query point
+    crosses a cell boundary, so the steady-state cost is one dict probe.
+    """
+
+    def __init__(
+        self, coins_xy: npt.NDArray[np.float32], cell_m: float = _GRID_CELL_M
+    ) -> None:
+        self._cell_m = float(cell_m)
+        cells = np.floor(coins_xy / self._cell_m).astype(np.int64)
+        order = np.lexsort((cells[:, 1], cells[:, 0]))
+        sorted_cells = cells[order]
+        boundaries = np.flatnonzero(np.any(np.diff(sorted_cells, axis=0), axis=1)) + 1
+        self._cells: dict[tuple[int, int], npt.NDArray[np.intp]] = {}
+        for chunk in np.split(order, boundaries) if len(order) else ():
+            key = (int(cells[chunk[0], 0]), int(cells[chunk[0], 1]))
+            self._cells[key] = chunk
+        self._window_cache: dict[tuple[int, int, float], npt.NDArray[np.intp]] = {}
+        self._empty = np.empty(0, dtype=np.intp)
+
+    def near(self, x: float, y: float, radius: float) -> npt.NDArray[np.intp]:
+        """Indices of all coins possibly within ``radius`` of ``(x, y)``.
+
+        Superset by construction (cell granularity); callers still apply the
+        exact distance test. Cached per (query cell, radius): valid for any
+        query point inside the cell because the reach adds one full cell.
+        """
+        cell_x = math.floor(x / self._cell_m)
+        cell_y = math.floor(y / self._cell_m)
+        key = (cell_x, cell_y, radius)
+        cached = self._window_cache.get(key)
+        if cached is not None:
+            return cached
+        reach = math.ceil(radius / self._cell_m) + 1
+        chunks = [
+            chunk
+            for cx in range(cell_x - reach, cell_x + reach + 1)
+            for cy in range(cell_y - reach, cell_y + reach + 1)
+            if (chunk := self._cells.get((cx, cy))) is not None
+        ]
+        # Ascending index order keeps painter's-order ties deterministic and
+        # identical to the pre-grid full scan.
+        window = np.sort(np.concatenate(chunks)) if chunks else self._empty
+        # Keep only the most recent windows; the ego revisits few cells.
+        if len(self._window_cache) > 8:
+            self._window_cache.clear()
+        self._window_cache[key] = window
+        return window
+
+
 class CoinAbility:
     """Track coin collection and produce per-frame screen sprites."""
 
@@ -121,6 +180,7 @@ class CoinAbility:
         self._coins_world = coins_world.astype(np.float32)
         self._config = config
         self._collected = np.zeros(len(coins_world), dtype=bool)
+        self._grid = _CoinGrid(self._coins_world[:, :2])
         self.enabled = True
 
     @classmethod
@@ -155,19 +215,21 @@ class CoinAbility:
         if not self.enabled:
             return 0
         newly_collected = 0
-        remaining = ~self._collected
+        radius = self._config.pickup_radius_m
         for state in vehicle_states:
-            if not remaining.any():
-                break
-            deltas = self._coins_world[remaining, :2] - np.array(
+            near = self._grid.near(state.x_m, state.y_m, radius)
+            if len(near) == 0:
+                continue
+            candidates = near[~self._collected[near]]
+            if len(candidates) == 0:
+                continue
+            deltas = self._coins_world[candidates, :2] - np.array(
                 [state.x_m, state.y_m], dtype=np.float32
             )
-            hits = np.linalg.norm(deltas, axis=1) <= self._config.pickup_radius_m
+            hits = np.linalg.norm(deltas, axis=1) <= radius
             if hits.any():
-                indices = np.flatnonzero(remaining)[hits]
-                self._collected[indices] = True
-                remaining = ~self._collected
-                newly_collected += len(indices)
+                self._collected[candidates[hits]] = True
+                newly_collected += int(hits.sum())
         return newly_collected
 
     def visible_sprites(
@@ -186,14 +248,20 @@ class CoinAbility:
 
         Returns:
             Sprites sorted far-to-near, ready for painter's-algorithm
-            compositing.
+            compositing; at most ``config.max_visible_sprites`` (the
+            nearest ones win when the course is dense).
         """
         if not self.enabled:
             return ()
-        remaining = np.flatnonzero(~self._collected)
+        camera_xy = rig_to_world[:2, 3]
+        window = self._grid.near(
+            float(camera_xy[0]), float(camera_xy[1]), self._config.max_render_distance_m
+        )
+        if len(window) == 0:
+            return ()
+        remaining = window[~self._collected[window]]
         if len(remaining) == 0:
             return ()
-        camera_xy = rig_to_world[:2, 3]
         centers = self._coins_world[remaining]
         distances = np.linalg.norm(centers[:, :2] - camera_xy[None, :], axis=1)
         near = distances <= self._config.max_render_distance_m
@@ -210,29 +278,47 @@ class CoinAbility:
         uv, _depth, forward = camera_model.project_world(points, rig_to_world)
         count = len(centers)
         bottom_uv, top_uv = uv[:count], uv[count:]
-        visible = forward[:count] & forward[count:]
-
-        sprites: list[CoinSprite] = []
-        for i in np.flatnonzero(visible):
-            center_uv = (bottom_uv[i] + top_uv[i]) / 2.0
-            if not (
-                0.0 <= center_uv[0] < image_width and 0.0 <= center_uv[1] < image_height
-            ):
-                continue
-            height_px = float(np.linalg.norm(top_uv[i] - bottom_uv[i]))
-            if height_px < 3.0:
-                continue
-            sprites.append(
-                CoinSprite(
-                    center_uv=(float(center_uv[0]), float(center_uv[1])),
-                    height_px=height_px,
-                    alpha=self._fade(float(distances[i])),
-                    distance_m=float(distances[i]),
-                    spin_phase=float(indices[i]) * 0.61,
-                )
+        center_uv = (bottom_uv + top_uv) / 2.0
+        heights_px = np.linalg.norm(top_uv - bottom_uv, axis=1)
+        keep = (
+            forward[:count]
+            & forward[count:]
+            & (center_uv[:, 0] >= 0.0)
+            & (center_uv[:, 0] < image_width)
+            & (center_uv[:, 1] >= 0.0)
+            & (center_uv[:, 1] < image_height)
+            & (heights_px >= 3.0)
+        )
+        if not keep.any():
+            return ()
+        kept = np.flatnonzero(keep)
+        order = kept[np.argsort(-distances[kept], kind="stable")]
+        cap = self._config.max_visible_sprites
+        if cap > 0 and len(order) > cap:
+            # Far-to-near order: dropping the head keeps the nearest coins.
+            order = order[-cap:]
+        alphas = self._fade_array(distances)
+        return tuple(
+            CoinSprite(
+                center_uv=(float(center_uv[i, 0]), float(center_uv[i, 1])),
+                height_px=float(heights_px[i]),
+                alpha=float(alphas[i]),
+                distance_m=float(distances[i]),
+                spin_phase=float(indices[i]) * 0.61,
             )
-        sprites.sort(key=lambda sprite: -sprite.distance_m)
-        return tuple(sprites)
+            for i in order
+        )
+
+    def _fade_array(
+        self, distances_m: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
+        """Vectorized :meth:`_fade` over all candidate distances."""
+        fade_start = self._config.fade_start_distance_m
+        fade_end = self._config.max_render_distance_m
+        if fade_end <= fade_start:
+            return np.ones_like(distances_m)
+        alphas = (fade_end - distances_m) / (fade_end - fade_start)
+        return np.clip(alphas, 0.0, 1.0)
 
     def _fade(self, distance_m: float) -> float:
         fade_start = self._config.fade_start_distance_m

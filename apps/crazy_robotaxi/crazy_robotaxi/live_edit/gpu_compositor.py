@@ -22,9 +22,10 @@ blurred ellipse rescaled per coin instead of a per-coin Gaussian blur.
 from __future__ import annotations
 
 import math
+import os
 from collections import OrderedDict
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import torch
@@ -42,7 +43,13 @@ _SPRITE_REF_PX = 96
 """Canonical sprite edge used for the pre-uploaded coin/shadow textures."""
 
 _SCALED_CACHE_MAX = 1024
-"""Cached per-size sprite/shadow textures (a few KB each)."""
+"""Cached per-size merged coin textures (a few KB each)."""
+
+_FADE_STEPS = 16
+"""Distance-fade quantization for the texture cache. Baking the fade into
+the cached texture makes every coin a single full-opacity blend (the hot
+path is CPU-launch-bound, so per-coin torch-op count dominates); 1/16 alpha
+steps are imperceptible on the 20 m fade ramp."""
 
 
 def _rgba_to_tensors(image: Image.Image, device: torch.device) -> tuple[Tensor, Tensor]:
@@ -127,6 +134,56 @@ def _blend_float_(
         roi.add_(c if fade >= 1.0 else fade * c)
 
 
+def _blend_uint8_(
+    canvas_hwc_uint8: Tensor,
+    premultiplied_rgb_hwc: Tensor | None,
+    one_minus_alpha_hw1: Tensor,
+    left: int,
+    top: int,
+    fade: float = 1.0,
+) -> None:
+    """ROI-local premultiplied blend directly on a uint8 HWC canvas.
+
+    Same math and clipping as :func:`_blend_float_`, but only the sprite's
+    ROI is converted to float and back — the full frame never leaves uint8,
+    so per-frame GPU memory traffic scales with on-screen sprite area
+    instead of the ~5-frame-sized traffic of the float32 canvas round trip
+    (selected via ``LIVE_EDIT_COMPOSITOR=roi``). Values can differ from the
+    float path by at most 1 LSB where blends overlap (each ROI blend rounds
+    independently).
+    """
+    height, width = canvas_hwc_uint8.shape[:2]
+    src_h, src_w = one_minus_alpha_hw1.shape[:2]
+    x0, y0 = max(0, left), max(0, top)
+    x1, y1 = min(width, left + src_w), min(height, top + src_h)
+    if x0 >= x1 or y0 >= y1:
+        return
+    sx, sy = x0 - left, y0 - top
+    om = one_minus_alpha_hw1[sy : sy + (y1 - y0), sx : sx + (x1 - x0)]
+    if fade < 1.0:
+        om = (1.0 - fade) + fade * om
+    roi = canvas_hwc_uint8[y0:y1, x0:x1]
+    out = roi * om
+    if premultiplied_rgb_hwc is not None:
+        c = premultiplied_rgb_hwc[sy : sy + (y1 - y0), sx : sx + (x1 - x0)]
+        out += c if fade >= 1.0 else fade * c
+    roi.copy_(out.round_().clamp_(0.0, 255.0))
+
+
+class _BlendFn(Protocol):
+    """Signature shared by :func:`_blend_float_` and :func:`_blend_uint8_`."""
+
+    def __call__(
+        self,
+        canvas_hwc: Tensor,
+        premultiplied_rgb_hwc: Tensor | None,
+        one_minus_alpha_hw1: Tensor,
+        left: int,
+        top: int,
+        fade: float = 1.0,
+    ) -> None: ...
+
+
 class LiveEditFrameCompositor:
     """Pre-uploaded textures + per-frame ROI blends for one coin sprite.
 
@@ -139,20 +196,28 @@ class LiveEditFrameCompositor:
 
     def __init__(self, coin_sprite: Image.Image) -> None:
         self._coin_sprite_image = coin_sprite.convert("RGBA")
+        # A/B switch for remote perf triage (LIVE_EDIT_COMPOSITOR=roi):
+        # "roi" keeps the frame uint8 and blends each sprite slice in place
+        # (minimal GPU memory traffic, ~5 tiny kernels per coin); "float"
+        # (default) uses one full-frame float32 canvas with 2 kernels per
+        # coin. Both paths are launch-count-bound in every measurement on
+        # GB300 (GPU execution fully hidden), which makes "float" ~2x faster
+        # wall-clock there; "roi" exists for machines where the compositor's
+        # full-frame traffic on the inference stream is the actual cost.
+        # Pair with --live-edit-perf-log to compare.
+        self._roi_blends = os.environ.get("LIVE_EDIT_COMPOSITOR", "float") == "roi"
         self._sprite_cache: dict[torch.device, tuple[Tensor, Tensor]] = {}
         self._shadow_cache: dict[torch.device, Tensor] = {}
         self._chip_cache: OrderedDict[tuple[str, torch.device], tuple[Tensor, Tensor]]
         self._chip_cache = OrderedDict()
         self._kernel_cache: dict[tuple[float, torch.device], Tensor] = {}
-        # Per-size texture caches: coin sizes quantize to a few dozen
+        # Merged per-size coin textures (contact shadow + coin + quantized
+        # distance fade pre-composited): coin sizes quantize to a few dozen
         # (height from distance, width from the 36-frame squash cycle), so
-        # the per-frame hot path is dictionary lookups + fused lerp blends,
-        # no per-frame F.interpolate.
-        self._scaled_sprite_cache: OrderedDict[
-            tuple[torch.device, int, int], Tensor
-        ] = OrderedDict()
-        self._scaled_shadow_cache: OrderedDict[
-            tuple[torch.device, int, int], Tensor
+        # the per-frame hot path is one dictionary lookup and ONE blend per
+        # coin — no per-frame F.interpolate, no separate shadow pass.
+        self._coin_texture_cache: OrderedDict[
+            tuple[torch.device, int, int, int], tuple[Tensor, Tensor, int]
         ] = OrderedDict()
 
     ## Texture caches
@@ -227,51 +292,64 @@ class LiveEditFrameCompositor:
             self._chip_cache.popitem(last=False)
         return cached
 
-    def _scaled_sprite(
-        self, device: torch.device, width: int, height: int
-    ) -> tuple[Tensor, Tensor]:
-        """Coin texture at one size: ``([h,w,3] rgb*a, [h,w,1] 1-a)``.
+    def _coin_texture(
+        self, device: torch.device, width: int, height: int, alpha_q: int
+    ) -> tuple[Tensor, Tensor, int]:
+        """Merged coin+shadow texture at one size and quantized fade.
 
-        Sizes quantize to a few dozen (height from distance, width from the
-        36-frame squash cycle), so per-frame work is a cache lookup.
+        The contact shadow, the coin sprite (composited over the shadow with
+        premultiplied "over", exactly associativity-equivalent to the old
+        two-pass blend), and the ``alpha_q / _FADE_STEPS`` distance fade are
+        all baked in, so the per-frame cost per coin is one blend.
+
+        Returns:
+            ``([h,w,3] premultiplied rgb, [h,w,1] 1-alpha, coin_left)``
+            where ``coin_left`` is the coin rect's x offset inside the
+            texture (the texture is anchored at the coin's top edge).
         """
-        key = (device, width, height)
-        cached = self._scaled_sprite_cache.get(key)
-        if cached is None:
-            sprite_rgb, sprite_alpha = self._sprite(device)
-            scaled = F.interpolate(
-                torch.cat([sprite_rgb, sprite_alpha], dim=0).unsqueeze(0),
-                size=(height, width),
-                mode="bilinear",
-                align_corners=False,
-            )[0].permute(1, 2, 0)
-            alpha = scaled[..., 3:]
-            cached = (
-                (scaled[..., :3] * alpha).contiguous(),
-                (1.0 - alpha).contiguous(),
-            )
-            self._scaled_sprite_cache[key] = cached
-            while len(self._scaled_sprite_cache) > _SCALED_CACHE_MAX:
-                self._scaled_sprite_cache.popitem(last=False)
-        else:
-            self._scaled_sprite_cache.move_to_end(key)
-        return cached
+        key = (device, width, height, alpha_q)
+        cached = self._coin_texture_cache.get(key)
+        if cached is not None:
+            self._coin_texture_cache.move_to_end(key)
+            return cached
+        from crazy_robotaxi.live_edit.presenter import _SHADOW_DROP_FRACTION
 
-    def _scaled_shadow(self, device: torch.device, width: int, height: int) -> Tensor:
-        """One-minus-alpha shadow texture ``[h,w,1]`` at one size."""
-        key = (device, width, height)
-        cached = self._scaled_shadow_cache.get(key)
-        if cached is None:
-            shadow = self._shadow(device)
-            scaled = F.interpolate(
-                shadow, size=(height, width), mode="bilinear", align_corners=False
-            )[0].permute(1, 2, 0)
-            cached = (1.0 - scaled).contiguous()
-            self._scaled_shadow_cache[key] = cached
-            while len(self._scaled_shadow_cache) > _SCALED_CACHE_MAX:
-                self._scaled_shadow_cache.popitem(last=False)
-        else:
-            self._scaled_shadow_cache.move_to_end(key)
+        sprite_rgb, sprite_alpha = self._sprite(device)
+        scaled = F.interpolate(
+            torch.cat([sprite_rgb, sprite_alpha], dim=0).unsqueeze(0),
+            size=(height, width),
+            mode="bilinear",
+            align_corners=False,
+        )[0]
+        coin_rgb, coin_a = scaled[:3], scaled[3:]
+        shadow_ref = self._shadow(device)
+        shadow_w = max(2, round(width * shadow_ref.shape[-1] / _SPRITE_REF_PX))
+        shadow_h = max(2, round(height * shadow_ref.shape[-2] / _SPRITE_REF_PX))
+        shadow_a = F.interpolate(
+            shadow_ref, size=(shadow_h, shadow_w), mode="bilinear", align_corners=False
+        )[0]
+        tex_w = max(width, shadow_w)
+        coin_x = (tex_w - width) // 2
+        shadow_x = (tex_w - shadow_w) // 2
+        shadow_y = round(height * (0.5 + _SHADOW_DROP_FRACTION))
+        tex_h = max(height, shadow_y + shadow_h)
+        alpha = torch.zeros((1, tex_h, tex_w), device=device)
+        rgb = torch.zeros((3, tex_h, tex_w), device=device)
+        alpha[:, shadow_y : shadow_y + shadow_h, shadow_x : shadow_x + shadow_w] = (
+            shadow_a
+        )
+        coin_region = alpha[:, :height, coin_x : coin_x + width]
+        coin_region.copy_(coin_a + coin_region * (1.0 - coin_a))
+        rgb[:, :height, coin_x : coin_x + width] = coin_rgb * coin_a
+        fade = alpha_q / _FADE_STEPS
+        cached = (
+            (rgb * fade).permute(1, 2, 0).contiguous(),
+            (1.0 - alpha * fade).permute(1, 2, 0).contiguous(),
+            coin_x,
+        )
+        self._coin_texture_cache[key] = cached
+        while len(self._coin_texture_cache) > _SCALED_CACHE_MAX:
+            self._coin_texture_cache.popitem(last=False)
         return cached
 
     ## Frame operations
@@ -288,18 +366,27 @@ class LiveEditFrameCompositor:
     ) -> Tensor:
         """All live-edit pixels in one pass; returns a new uint8 frame.
 
-        The canvas is converted to float32 once, every texture blend is a
-        fused in-place lerp on it, and the single round/clamp/uint8 cast
-        happens at the end — the per-frame kernel count stays small enough
-        for a sub-millisecond budget with a dozen coins on screen.
+        Every coin is exactly one blend of a merged (shadow+coin+fade)
+        cached texture. The default canvas is float32 full-frame (convert
+        once, fused in-place lerps, single round/clamp/cast at the end);
+        ``LIVE_EDIT_COMPOSITOR=roi`` keeps the frame uint8 end to end and
+        blends only the sprite ROIs (:func:`_blend_uint8_`) so per-frame
+        memory traffic scales with sprite area instead of frame size. The
+        unsharp mask always forces the float path (it filters the whole
+        frame anyway).
         """
+        if sharpen_amount <= 0.0 and self._roi_blends:
+            canvas = frame_hwc_uint8.clone()
+            self._blend_coins(canvas, sprites, frame_index, _blend_uint8_)
+            self._blend_chips(canvas, labels, _blend_uint8_)
+            return canvas
         canvas = frame_hwc_uint8.to(torch.float32)
         if sharpen_amount > 0.0:
             canvas = self._unsharp_float(
                 canvas, sigma=sharpen_sigma, amount=sharpen_amount
             )
-        self._blend_coins(canvas, sprites, frame_index)
-        self._blend_chips(canvas, labels)
+        self._blend_coins(canvas, sprites, frame_index, _blend_float_)
+        self._blend_chips(canvas, labels, _blend_float_)
         return canvas.round_().clamp_(0.0, 255.0).to(torch.uint8)
 
     def unsharp(
@@ -352,58 +439,47 @@ class LiveEditFrameCompositor:
 
     def _blend_coins(
         self,
-        canvas_hwc_f32: Tensor,
+        canvas_hwc: Tensor,
         sprites: Sequence[CoinSprite],
         frame_index: int,
+        blend: _BlendFn,
     ) -> None:
-        """Blend sprites far-to-near (input order) onto the float canvas."""
+        """Blend sprites far-to-near (input order) onto the canvas."""
         if not sprites:
             return
         from crazy_robotaxi.live_edit.coin_ability import coin_squash
-        from crazy_robotaxi.live_edit.presenter import (
-            _SHADOW_DROP_FRACTION,
-            scaled_sprite_size,
-        )
+        from crazy_robotaxi.live_edit.presenter import scaled_sprite_size
 
-        device = canvas_hwc_f32.device
-        shadow_ref = self._shadow(device)
-        shadow_scale_w = shadow_ref.shape[-1] / _SPRITE_REF_PX
-        shadow_scale_h = shadow_ref.shape[-2] / _SPRITE_REF_PX
+        device = canvas_hwc.device
         for sprite in sprites:
+            alpha_q = min(_FADE_STEPS, round(sprite.alpha * _FADE_STEPS))
+            if alpha_q <= 0:
+                continue
             squash = coin_squash(sprite.spin_phase, frame_index)
             sprite_w, sprite_h = scaled_sprite_size(
                 self._coin_sprite_image.size, sprite.height_px, squash
             )
-            shadow_w = max(2, round(sprite_w * shadow_scale_w))
-            shadow_h = max(2, round(sprite_h * shadow_scale_h))
-            _blend_float_(
-                canvas_hwc_f32,
-                None,
-                self._scaled_shadow(device, shadow_w, shadow_h),
-                round(sprite.center_uv[0] - shadow_w / 2.0),
-                round(sprite.center_uv[1] + sprite_h * _SHADOW_DROP_FRACTION),
-                fade=sprite.alpha,
+            premultiplied, one_minus, coin_x = self._coin_texture(
+                device, sprite_w, sprite_h, alpha_q
             )
-            premultiplied, one_minus = self._scaled_sprite(device, sprite_w, sprite_h)
-            _blend_float_(
-                canvas_hwc_f32,
+            blend(
+                canvas_hwc,
                 premultiplied,
                 one_minus,
-                round(sprite.center_uv[0] - sprite_w / 2.0),
+                round(sprite.center_uv[0] - sprite_w / 2.0) - coin_x,
                 round(sprite.center_uv[1] - sprite_h / 2.0),
-                fade=sprite.alpha,
             )
 
-    def _blend_chips(self, canvas_hwc_f32: Tensor, labels: Sequence[str]) -> None:
+    def _blend_chips(
+        self, canvas_hwc: Tensor, labels: Sequence[str], blend: _BlendFn
+    ) -> None:
         if not labels:
             return
         from crazy_robotaxi.live_edit.presenter import _COUNTER_MARGIN_PX
 
-        device = canvas_hwc_f32.device
+        device = canvas_hwc.device
         y0 = _COUNTER_MARGIN_PX
         for label in labels:
             premultiplied, one_minus = self._chip(label, device)
-            _blend_float_(
-                canvas_hwc_f32, premultiplied, one_minus, _COUNTER_MARGIN_PX, y0
-            )
+            blend(canvas_hwc, premultiplied, one_minus, _COUNTER_MARGIN_PX, y0)
             y0 += one_minus.shape[0] - 1 + 8

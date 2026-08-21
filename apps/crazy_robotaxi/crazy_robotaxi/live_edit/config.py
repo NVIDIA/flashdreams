@@ -427,6 +427,15 @@ class LiveEditCoinsConfig:
     fade_start_distance_m: float = 100.0
     """Alpha ramps to zero between this distance and the render limit."""
 
+    max_visible_sprites: int = 64
+    """Composite at most this many coins per frame, keeping the nearest.
+
+    Dense courses put hundreds of coins inside the render radius (the
+    shipped suburb course peaks at 211), and the compositor's per-frame
+    cost is launch-bound per sprite — unbounded sprite counts are what
+    actually blow the frame budget. The dropped coins are the farthest
+    (small, distance-faded) ones. ``0`` disables the cap."""
+
     sprite_path: Path | None = None
     """RGBA coin sprite; ``None`` renders a procedural coin."""
 
@@ -442,6 +451,8 @@ class LiveEditCoinsConfig:
             raise ValueError(
                 "fade_start_distance_m must be in (0, max_render_distance_m]"
             )
+        if self.max_visible_sprites < 0:
+            raise ValueError("max_visible_sprites must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -466,6 +477,12 @@ class LiveEditConfig:
     sharpen_sigma: float = 2.0
     """Gaussian sigma of the unsharp mask."""
 
+    perf_log_every_frames: int = 0
+    """Log p50/p95 of the live-edit per-frame costs (coin-update CPU ms,
+    compositor enqueue CPU ms, compositor GPU ms) every N composited frames
+    on the tensor path. ``0`` disables the report. Exposed as
+    ``--live-edit-perf-log``; ``LIVE_EDIT_PERF_LOG`` sets the CLI default."""
+
     @property
     def any_enabled(self) -> bool:
         """Return whether any ability needs the presenter wrapper."""
@@ -482,6 +499,8 @@ class LiveEditConfig:
             raise ValueError("sharpen_amount must be non-negative")
         if self.sharpen_sigma <= 0.0:
             raise ValueError("sharpen_sigma must be positive")
+        if self.perf_log_every_frames < 0:
+            raise ValueError("perf_log_every_frames must be non-negative")
 
 
 def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
@@ -662,6 +681,25 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="RGBA coin sprite path (default: procedural coin).",
     )
+    group.add_argument(
+        "--live-edit-coin-max-visible",
+        type=int,
+        default=64,
+        help=(
+            "Composite at most this many coins per frame (nearest win; the "
+            "farthest, distance-faded ones drop first; 0 disables the cap)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-perf-log",
+        type=int,
+        default=int(os.environ.get("LIVE_EDIT_PERF_LOG", "0")),
+        help=(
+            "Log p50/p95 of the live-edit per-frame costs (coin-update CPU "
+            "ms, compositor enqueue CPU ms, compositor GPU ms) every N "
+            "composited frames (0 disables; env default: LIVE_EDIT_PERF_LOG)."
+        ),
+    )
 
 
 def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
@@ -682,6 +720,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
         coins=LiveEditCoinsConfig(
             enabled=bool(args.live_edit_coins),
             sprite_path=args.live_edit_coin_sprite,
+            max_visible_sprites=int(args.live_edit_coin_max_visible),
         ),
         weather=LiveEditWeatherConfig(
             enabled=bool(args.live_edit_weather),
@@ -691,6 +730,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             corrector_checkpoint=args.live_edit_weather_corrector,
             weathers=weathers_starting_with(args.live_edit_weather_first),
         ),
+        perf_log_every_frames=int(args.live_edit_perf_log),
         obstacle=LiveEditObstacleConfig(
             enabled=bool(args.live_edit_obstacle),
             spawn_ahead_m=float(args.live_edit_obstacle_ahead_m),
