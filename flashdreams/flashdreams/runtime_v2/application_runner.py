@@ -46,7 +46,7 @@ class ApplicationRunner:
         self._application.init(commandline_args)
         self._initialized = True
 
-    def run_session(
+    def run(
         self,
         session_desc_request: SessionDescRequest,
         client_window: IClientWindow,
@@ -82,13 +82,13 @@ class ApplicationRunner:
 
         try:
             next_session_desc = self._resolve_session_desc(session_desc_request)
-        except Exception:
+        except BaseException:
             _close_client_window(client_window)
             raise
         while True:
             try:
                 session = self._application.create_session(next_session_desc)
-            except Exception:
+            except BaseException:
                 _close_client_window(client_window)
                 raise
             next_session_desc = run_session(session, client_window)
@@ -112,8 +112,8 @@ class ApplicationRunner:
         client_window: IClientWindow,
     ) -> None:
         """Keep one client window available for browser-requested sessions."""
-        current_session_desc = self._resolve_session_desc(session_desc_request)
         try:
+            current_session_desc = self._resolve_session_desc(session_desc_request)
             client_window.open(current_session_desc)
             next_session_desc: SessionDesc | None = None
             while True:

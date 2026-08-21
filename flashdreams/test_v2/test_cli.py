@@ -154,6 +154,7 @@ class RecordingWindow(IClientWindow):
 
     def __init__(self) -> None:
         self.results: list[StepResult] = []
+        self.closed = False
 
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
@@ -165,7 +166,7 @@ class RecordingWindow(IClientWindow):
         self.results.append(result)
 
     def close(self) -> None:
-        return
+        self.closed = True
 
 
 ## Splitting the command line
@@ -406,13 +407,13 @@ def test_nothing_is_measured_unless_a_run_asks(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_one_shot_run_without_a_prompt_reports_why(
+def test_a_non_serving_run_without_a_prompt_reports_why(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, StubT2VApplication(_stand_in()), RecordingWindow())
 
     with pytest.raises(ValueError, match="session prompt is required"):
-        cli.entrypoint(["stub", "--mode", "webrtc"])
+        cli.entrypoint(["stub", "--mode", "mp4"])
 
 
 def test_a_browser_server_starts_without_a_command_line_prompt(
@@ -528,6 +529,31 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
     assert asked_for == ["webrtc"]
     # And nothing counted the steps: the session reported itself finished.
     assert len(window.results) == _TOTAL_BLOCKS
+
+
+def test_a_window_is_closed_when_reporting_its_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingStartMode(StubMode):
+        def starting(self, client_window: IClientWindow) -> str | None:
+            del client_window
+            raise RuntimeError("cannot report window")
+
+    pipeline = _stand_in()
+    application = StubT2VApplication(pipeline)
+    window = RecordingWindow()
+    _install(monkeypatch, application)
+    monkeypatch.setattr(
+        cli,
+        "client_window_mode",
+        lambda name: FailingStartMode(name, window),
+    )
+
+    with pytest.raises(RuntimeError, match="cannot report window"):
+        cli.entrypoint(["stub", "--mode", "webrtc"])
+
+    assert window.closed
+    assert pipeline.closed
 
 
 def test_the_command_needs_somewhere_to_write() -> None:

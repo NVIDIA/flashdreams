@@ -12,6 +12,7 @@ being the same factory over the same shared layer. The checkpoint itself is
 import copy
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from self_forcing.config import RUNNER_WAN21_T2V_1PT3B
@@ -50,7 +51,7 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
 
 def test_compilation_can_be_turned_off_for_a_run() -> None:
     """Apply the override to the real config while loading a stand-in model."""
-    pipeline_config = copy.deepcopy(RUNNER_WAN21_T2V_1PT3B.pipeline)
+    pipeline_config: Any = copy.deepcopy(RUNNER_WAN21_T2V_1PT3B.pipeline)
 
     def load_stand_in(_: object) -> FakeT2VPipeline:
         return FakeT2VPipeline()

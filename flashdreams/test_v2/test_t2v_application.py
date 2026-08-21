@@ -73,8 +73,8 @@ class FakePipeline:
 class FakePipelineConfig:
     """Record how often the model was loaded, which is the expensive part."""
 
-    def __init__(self) -> None:
-        self.pipeline = FakePipeline()
+    def __init__(self, pipeline: FakePipeline | None = None) -> None:
+        self.pipeline = pipeline if pipeline is not None else FakePipeline()
         self.setup_count = 0
 
     def setup(self) -> FakePipeline:
@@ -320,6 +320,24 @@ def test_closing_the_application_releases_the_model() -> None:
     app.close()
 
     assert config.pipeline.closed
+
+
+def test_failed_model_initialization_remains_owned_for_cleanup() -> None:
+    class FailingPipeline(FakePipeline):
+        def eval(self) -> "FakePipeline":
+            super().eval()
+            raise RuntimeError("eval failed")
+
+    pipeline = FailingPipeline()
+    app = T2VApplication(
+        defaults=_defaults(pipeline_config=FakePipelineConfig(pipeline))
+    )
+
+    with pytest.raises(RuntimeError, match="eval failed"):
+        app.init(["--prompt", _PROMPT])
+    app.close()
+
+    assert pipeline.closed
 
 
 ## What a model will not generate

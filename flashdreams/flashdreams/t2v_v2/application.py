@@ -142,7 +142,13 @@ class T2VApplication(IApplication):
             device=args.device,
             total_blocks=args.total_blocks,
         )
-        pipeline = self._pipeline_config.setup().to(config.device).eval()
+        # Take ownership as soon as setup returns. If moving or evaluating the
+        # model fails, ApplicationRunner.close() can still release what loaded.
+        pipeline = self._pipeline_config.setup()
+        self._pipeline = pipeline
+        pipeline = pipeline.to(config.device)
+        self._pipeline = pipeline
+        pipeline = pipeline.eval()
         self._config = config
         self._pipeline = pipeline
 

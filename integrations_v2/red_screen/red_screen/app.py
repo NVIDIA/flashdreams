@@ -207,7 +207,7 @@ def main(commandline_args: Sequence[str] | None = None) -> int:
     app = create_app()
     runner = ApplicationRunner(app)
     if isinstance(window, WebRTCClientWindow):
-        print(f"Open {window.server.url} in a browser.", flush=True)
+        print(f"Open {window.url} in a browser.", flush=True)
     try:
         # ApplicationRunner is a FlashDreams runtime component that takes an IApplication instance, a IClientWindow instance,
         # and drives the main loop.
@@ -215,7 +215,7 @@ def main(commandline_args: Sequence[str] | None = None) -> int:
         # TODO: in production, commandline argument parsing and IClientWindow creation should be done by flashdreams-run, a CLI tool
         # basically, we need to generailze this main function to be shared by all applications
         runner.init(application_args)
-        runner.run_session(
+        runner.run(
             SessionDescRequest(
                 output_layout=VideoTensorLayout.bcthw,
                 frames_per_second_for_ui=args.fps,

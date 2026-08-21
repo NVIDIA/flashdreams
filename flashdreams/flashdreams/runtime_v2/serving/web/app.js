@@ -5,6 +5,7 @@ const peer = new RTCPeerConnection();
 const controls = peer.createDataChannel("controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const newSessionButton = document.getElementById("new-session");
+const promptInput = document.getElementById("prompt");
 let pendingNewSession = null;
 
 const send = payload => {
@@ -24,6 +25,7 @@ controls.addEventListener("open", () => {
 
 controls.addEventListener("close", () => {
   newSessionButton.disabled = true;
+  newSessionButton.textContent = "Disconnected";
 });
 
 peer.ontrack = event => {
@@ -32,10 +34,16 @@ peer.ontrack = event => {
 };
 
 window.addEventListener("keydown", event => {
+  if (event.target === promptInput) {
+    return;
+  }
   send({type: "keyboard", key: event.key, pressed: true});
 });
 
 window.addEventListener("keyup", event => {
+  if (event.target === promptInput) {
+    return;
+  }
   send({type: "keyboard", key: event.key, pressed: false});
 });
 
@@ -52,7 +60,6 @@ document.getElementById("reset").onclick = () => {
 };
 
 newSessionButton.onclick = () => {
-  const promptInput = document.getElementById("prompt");
   if (!promptInput.reportValidity()) {
     return;
   }
@@ -97,4 +104,8 @@ async function connect() {
   await peer.setRemoteDescription(await response.json());
 }
 
-connect();
+connect().catch(error => {
+  newSessionButton.disabled = true;
+  newSessionButton.textContent = "Connection failed";
+  console.error(error);
+});

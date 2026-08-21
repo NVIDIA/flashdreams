@@ -196,8 +196,8 @@ def test_application_runner_keeps_the_application_open_for_another_session() -> 
     second_window = _SilentWindow(calls)
 
     runner.init(["--model-option"])
-    runner.run_session(_session_desc_request(), first_window)
-    runner.run_session(_session_desc_request(), second_window)
+    runner.run(_session_desc_request(), first_window)
+    runner.run(_session_desc_request(), second_window)
 
     assert [result.step_index for result in first_window.results] == [0]
     assert [result.step_index for result in second_window.results] == [0]
@@ -237,7 +237,7 @@ def test_application_runner_replaces_a_session_from_window_metadata() -> None:
     window = _ScriptedWindow(calls, [new_session, close])
 
     runner.init()
-    runner.run_session(_session_desc_request(), window)
+    runner.run(_session_desc_request(), window)
     runner.close()
 
     assert len(application.created_session_descs) == 2
@@ -261,7 +261,7 @@ def test_application_runner_serves_sessions_until_it_is_interrupted() -> None:
 
     runner.init()
     with pytest.raises(KeyboardInterrupt):
-        runner.run_session(_session_desc_request(), window, serve_sessions=True)
+        runner.run(_session_desc_request(), window, serve_sessions=True)
 
     assert [desc.metadata for desc in application.created_session_descs] == [
         {"prompt": "A cat surfing"},
@@ -281,9 +281,26 @@ def test_application_runner_closes_the_window_when_a_session_cannot_start() -> N
     window = _Window(calls)
 
     with pytest.raises(RuntimeError, match=r"init\(\) must run first"):
-        runner.run_session(_session_desc_request(), window)
+        runner.run(_session_desc_request(), window)
 
     assert calls == ["window.close"]
+
+
+def test_serving_closes_the_window_when_the_session_request_is_invalid() -> None:
+    calls: list[str] = []
+    runner = ApplicationRunner(_Application(calls))
+    window = _Window(calls)
+    runner.init()
+
+    with pytest.raises(ValueError, match="frames_per_second_for_ui"):
+        runner.run(
+            SessionDescRequest(frames_per_second_for_ui=0),
+            window,
+            serve_sessions=True,
+        )
+
+    assert calls == ["application.init([])", "window.close"]
+    runner.close()
 
 
 def test_application_runner_rejects_a_second_initialization() -> None:

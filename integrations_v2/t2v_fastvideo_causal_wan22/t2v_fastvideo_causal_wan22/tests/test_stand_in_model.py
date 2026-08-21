@@ -9,6 +9,7 @@ model denoises with two transformers. The checkpoint itself is
 """
 
 import copy
+from typing import Any
 
 import pytest
 from fastvideo_causal_wan22.config import RUNNER_WAN22_T2V_14B
@@ -46,7 +47,7 @@ def test_compilation_is_turned_off_for_both_noise_level_transformers() -> None:
     model splits denoising across two transformers, and the shared override
     reaches only one of them, so it is overridden here.
     """
-    pipeline_config = copy.deepcopy(RUNNER_WAN22_T2V_14B.pipeline)
+    pipeline_config: Any = copy.deepcopy(RUNNER_WAN22_T2V_14B.pipeline)
 
     def load_stand_in(_: object) -> FakeT2VPipeline:
         return FakeT2VPipeline()

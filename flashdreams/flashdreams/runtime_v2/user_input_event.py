@@ -151,7 +151,7 @@ class UserInputEvent:
     """User input event."""
 
     timestamp: uint64
-    """Timestamp in microseconds since the start of the session."""
+    """Microseconds since the input source's stable monotonic time origin."""
 
     event_data: UserInputEventData
     """Event data."""

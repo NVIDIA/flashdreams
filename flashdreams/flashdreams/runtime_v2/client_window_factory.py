@@ -117,8 +117,8 @@ class _WebRTCMode(ClientWindowMode):
 
     def starting(self, client_window: IClientWindow) -> str | None:
         """Return where to connect, which nobody can guess when the port is free."""
-        server = cast("WebRTCClientWindow", client_window).server
-        return f"Open {server.url} in a browser."
+        window = cast("WebRTCClientWindow", client_window)
+        return f"Open {window.url} in a browser."
 
 
 _MODES: tuple[ClientWindowMode, ...] = (_Mp4Mode(), _WebRTCMode())

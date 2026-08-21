@@ -33,9 +33,9 @@ class IApplication(ABC):
         The application owns its model's output requirements and defaults, such
         as its layout, preferred dimensions, and frame rate. The runtime asks
         after :meth:`init`, then applies the caller's explicit requests to this
-        default before calling :meth:`create_session`. That method may reject
-        or further resolve the request to satisfy the model's requirements. The
-        created session's ``session_desc`` is authoritative when a window opens.
+        default before calling :meth:`create_session`. That method accepts the
+        resolved description or rejects it; it does not silently change the
+        stream the runtime already asked the client window to prepare for.
 
         Returns:
             The default session description, or ``None`` when the application
@@ -51,8 +51,7 @@ class IApplication(ABC):
             session_desc: Session the runtime is asking for.
 
         Returns:
-            A session for ``session_desc``, resolved to what this application can
-            actually produce.
+            A session that produces ``session_desc``.
 
         Raises:
             ValueError: The application cannot honour ``session_desc``.

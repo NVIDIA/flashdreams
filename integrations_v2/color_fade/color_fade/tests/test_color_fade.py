@@ -265,7 +265,7 @@ def test_a_run_writes_the_whole_fade_to_an_mp4(tmp_path: Path) -> None:
         runner.init(
             ["--seconds", str(_SECONDS), "--frames-per-step", str(frames_per_step)]
         )
-        runner.run_session(
+        runner.run(
             SessionDescRequest(
                 output_layout=VideoTensorLayout.bcthw,
                 frames_per_second_for_step=_FRAMES_PER_SECOND,

@@ -14,6 +14,7 @@ argument that only one of them uses.
 """
 
 import argparse
+import logging
 import sys
 from collections.abc import Sequence
 
@@ -36,6 +37,8 @@ An application declares whatever arguments it likes, including ones this
 command also has, so the split is stated rather than guessed.
 """
 
+_LOGGER = logging.getLogger(__name__)
+
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
     """Run the command, reporting where to watch what it generates."""
@@ -56,11 +59,20 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     try:
         runner.init(application_args)
         window = mode.create(parsed)
-        _report(mode.starting(window))
+        try:
+            _report(mode.starting(window))
+        except BaseException:
+            try:
+                window.close()
+            except Exception:
+                _LOGGER.exception(
+                    "The client window failed to close after startup failed."
+                )
+            raise
         # Nothing here says how long a session is: the application reports that.
         # A serving mode stays up between sessions; a file mode runs just one.
         try:
-            runner.run_session(
+            runner.run(
                 _session_desc_request(parsed),
                 window,
                 serve_sessions=mode.serves_sessions,

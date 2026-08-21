@@ -74,7 +74,7 @@ class TestWebRTC:
         window = mode.create(_parsed(["--mode", "webrtc"]))
         try:
             assert isinstance(window, WebRTCClientWindow)
-            assert mode.starting(window) == f"Open {window.server.url} in a browser."
+            assert mode.starting(window) == f"Open {window.url} in a browser."
             assert mode.serves_sessions is True
         finally:
             window.close()

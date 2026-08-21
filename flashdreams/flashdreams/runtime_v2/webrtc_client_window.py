@@ -34,7 +34,7 @@ class WebRTCClientWindow(IClientWindow):
             startup_timeout_seconds: Maximum time to wait for server startup.
         """
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
-        self.server = WebRTCServer(
+        self._server = WebRTCServer(
             host=host,
             port=port,
             startup_timeout_seconds=startup_timeout_seconds,
@@ -44,7 +44,12 @@ class WebRTCClientWindow(IClientWindow):
             """Buffer one backend event for the ``InputSource`` protocol."""
             self._input_events.put(event)
 
-        self.server.register_input_callback(handle_input)
+        self._server.register_input_callback(handle_input)
+
+    @property
+    def url(self) -> str:
+        """Return the URL at which a browser can open this window."""
+        return self._server.url
 
     def open(self, session_desc: SessionDesc) -> None:
         """Configure WebRTC output for waiting or running a session.
@@ -52,7 +57,7 @@ class WebRTCClientWindow(IClientWindow):
         Args:
             session_desc: Resolved dimensions, frame rate, and tensor layout.
         """
-        self.server.open(session_desc)
+        self._server.open(session_desc)
 
     def get_user_input_events(self) -> UserInputEvents:
         """Implement ``InputSource.get_user_input_events`` for browser input.
@@ -73,8 +78,8 @@ class WebRTCClientWindow(IClientWindow):
         Args:
             result: Generated frames matching the opened session.
         """
-        self.server.write(result)
+        self._server.write(result)
 
     def close(self) -> None:
         """Implement ``OutputSink.close`` by releasing WebRTC resources."""
-        self.server.close()
+        self._server.close()

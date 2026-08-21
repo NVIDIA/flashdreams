@@ -15,7 +15,11 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import WhenFull, run_session
+from flashdreams.runtime_v2.session_runner import (
+    WhenFull,
+    run_session,
+    wait_for_new_session,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -343,6 +347,71 @@ def test_run_session_returns_the_next_session_desc_after_cleanup() -> None:
     assert "session.step(0)" not in log.calls
 
 
+def test_the_latest_close_or_new_session_event_wins() -> None:
+    session_desc = _session_desc()
+    replacement = NewSessionUserInputEventData(metadata={"prompt": "new browser"})
+
+    close_then_new = RecordingClientWindow(
+        CallLog(),
+        [
+            UserInputEvents(
+                [
+                    UserInputEvent(uint64(0), CloseUserInputEventData()),
+                    UserInputEvent(uint64(1), replacement),
+                ]
+            )
+        ],
+    )
+    returned = run_session(
+        FakeSession(session_desc, CallLog()), close_then_new, steps=None
+    )
+
+    assert returned == replace(session_desc, metadata={"prompt": "new browser"})
+
+    new_then_close = RecordingClientWindow(
+        CallLog(),
+        [
+            UserInputEvents(
+                [
+                    UserInputEvent(uint64(0), replacement),
+                    UserInputEvent(uint64(1), CloseUserInputEventData()),
+                ]
+            )
+        ],
+    )
+    returned = run_session(
+        FakeSession(session_desc, CallLog()), new_then_close, steps=None
+    )
+
+    assert returned is None
+
+
+def test_wait_for_new_session_ignores_a_request_cancelled_by_close() -> None:
+    session_desc = _session_desc()
+    replacement = NewSessionUserInputEventData(metadata={"prompt": "new browser"})
+    window = RecordingClientWindow(
+        CallLog(),
+        [
+            UserInputEvents(
+                [
+                    UserInputEvent(uint64(0), replacement),
+                    UserInputEvent(uint64(1), CloseUserInputEventData()),
+                ]
+            ),
+            UserInputEvents(
+                [
+                    UserInputEvent(uint64(2), CloseUserInputEventData()),
+                    UserInputEvent(uint64(3), replacement),
+                ]
+            ),
+        ],
+    )
+
+    returned = wait_for_new_session(window, session_desc)
+
+    assert returned == replace(session_desc, metadata={"prompt": "new browser"})
+
+
 def test_run_session_closes_the_window_when_replacement_cleanup_fails() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log, fail_to_close=True)
@@ -359,6 +428,24 @@ def test_run_session_closes_the_window_when_replacement_cleanup_fails() -> None:
         run_session(session, window, steps=None)
 
     assert log.calls[-2:] == ["session.close", "window.close"]
+
+
+def test_run_session_releases_the_io_thread_when_cleanup_is_interrupted() -> None:
+    log = CallLog()
+
+    class InterruptedCleanupSession(FakeSession):
+        def close(self) -> None:
+            super().close()
+            raise KeyboardInterrupt
+
+    session = InterruptedCleanupSession(_session_desc(), log)
+    window = RecordingClientWindow(log)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_session(session, window, steps=0, keep_window_open=True)
+
+    assert log.calls[-2:] == ["session.close", "window.close"]
+    assert not any(thread.name == _IO_THREAD_NAME for thread in threading.enumerate())
 
 
 def test_run_session_resets_the_session_and_the_step_index() -> None:
@@ -426,7 +513,7 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
     assert "session.reset" in log.calls
 
 
-def test_run_session_closes_a_session_that_failed_to_init() -> None:
+def test_run_session_closes_a_session_and_window_that_failed_to_init() -> None:
     log = CallLog()
 
     class FailingSession(FakeSession):
@@ -440,9 +527,65 @@ def test_run_session_closes_a_session_that_failed_to_init() -> None:
     with pytest.raises(RuntimeError, match="init failed"):
         run_session(session, window, steps=1)
 
-    # A session that got halfway through starting still has to be released, and
-    # the window is never opened for a session that cannot run.
-    assert log.calls == ["session.init", "session.close"]
+    # A session that got halfway through starting still has to be released. The
+    # constructor-owned window may already hold resources even though open was
+    # never called, so it is closed too.
+    assert log.calls == ["session.init", "session.close", "window.close"]
+
+
+def test_run_session_closes_a_session_whose_init_is_interrupted() -> None:
+    log = CallLog()
+
+    class InterruptedSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            raise KeyboardInterrupt
+
+    session = InterruptedSession(_session_desc(), log)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_session(session, RecordingClientWindow(log), steps=1)
+
+    assert log.calls == ["session.init", "session.close", "window.close"]
+
+
+def test_run_session_closes_the_session_when_io_shutdown_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_event = threading.Event
+    events_created = 0
+
+    class InterruptingEvent(real_event):
+        """Interrupt the caller waiting for the runner's I/O-stopped event."""
+
+        def __init__(self, *, interrupt_wait: bool = False) -> None:
+            super().__init__()
+            self._interrupt_wait = interrupt_wait
+
+        def wait(self, timeout: float | None = None) -> bool:
+            if (
+                self._interrupt_wait
+                and threading.current_thread() is threading.main_thread()
+            ):
+                raise KeyboardInterrupt
+            return super().wait(timeout)
+
+    def event_factory() -> InterruptingEvent:
+        nonlocal events_created
+        events_created += 1
+        # run_session creates opened, stop, then io_stopped in this order.
+        return InterruptingEvent(interrupt_wait=events_created == 3)
+
+    monkeypatch.setattr(threading, "Event", event_factory)
+    log = CallLog()
+
+    with pytest.raises(KeyboardInterrupt):
+        run_session(
+            FakeSession(_session_desc(), log), RecordingClientWindow(log), steps=0
+        )
+
+    assert log.calls[-2:] == ["window.close", "session.close"]
+    assert not any(thread.name == _IO_THREAD_NAME for thread in threading.enumerate())
 
 
 def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
@@ -520,6 +663,34 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     # the step from after the reset reaches the window.
     assert log.calls.count("session.step(0)") == 2
     assert [result.step_index for result in window.results] == [0]
+
+
+def test_run_session_drops_a_result_generated_during_disconnect() -> None:
+    log = CallLog()
+    disconnect_reported = threading.Event()
+
+    class SlowStep(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            disconnect_reported.wait()
+            return super().step(step_index, UserInputEvents([]))
+
+    class DisconnectingWindow(RecordingClientWindow):
+        def get_user_input_events(self) -> UserInputEvents:
+            events = super().get_user_input_events()
+            if events.get_events():
+                disconnect_reported.set()
+            return events
+
+    session = SlowStep(_session_desc(), log)
+    window = DisconnectingWindow(
+        log,
+        [UserInputEvents([]), _lifecycle_event(CloseUserInputEventData())],
+    )
+
+    run_session(session, window, steps=None)
+
+    assert window.results == []
 
 
 def test_run_session_presents_every_result_when_blocking() -> None:
