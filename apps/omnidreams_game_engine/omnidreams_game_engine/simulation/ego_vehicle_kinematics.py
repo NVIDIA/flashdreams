@@ -347,6 +347,7 @@ def sample_chunk_trajectory(
         physics_world.synchronize_window(
             np.asarray([state.x_m, state.y_m], dtype=np.float32),
             timestamp_us=start_timestamp_us,
+            yaw_rad=state.yaw_rad,
         )
         sync_elapsed_s = time.perf_counter() - physx_started_at
         physx_sync_s += sync_elapsed_s

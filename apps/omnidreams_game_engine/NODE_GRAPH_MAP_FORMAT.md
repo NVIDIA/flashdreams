@@ -343,6 +343,14 @@ loops and cul-de-sac routes. Generated cars avoid playable spawns and unsafe
 initial overlap. Compilation fails with the map's safe capacity when the
 requested count cannot be placed.
 
+The compiled fleet advances logically across the full public-road graph, but
+only graph-nearby vehicles enter PhysX and HD-map conditioning. While the ego
+is on a road, nearby means that road, the next node in the ego's facing
+direction, and every public road attached to that node. While the ego is on a
+node, nearby means that node and its attached public roads. Leaving mapped
+road/node surfaces retains the last valid neighborhood. Invisible vehicles
+continue following their routes, speed limits, and same-direction headway.
+
 `nodes` requires at least two non-parking nodes. Consecutive nodes do not need
 to be adjacent: the compiler selects the shortest routable sequence of public
 roads and rejects routes that cannot be connected. Parking accesses and

@@ -18,9 +18,10 @@ from crazy_robotaxi import cli
 from crazy_robotaxi.game import TaxiGameConfig, TaxiGameController
 from crazy_robotaxi.navigation import NavigationLane, TaxiNavigationMap
 from crazy_robotaxi.scene import load_scene_data
-from omnidreams_game_engine.config import RasterConfig
+from omnidreams_game_engine.config import RasterConfig, VehicleConfig
 from omnidreams_game_engine.game_map import (
     GameMapError,
+    GameMapVicinityResolver,
     compile_game_map,
     load_game_map,
     render_spawn_first_frame,
@@ -34,6 +35,7 @@ from omnidreams_game_engine.game_map.types import (
     game_map_to_dict,
 )
 from omnidreams_game_engine.scene_loader import load_scene_bundle
+from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import VehicleState
 from PIL import Image
 from shapely.geometry import LineString, Point, Polygon
@@ -327,6 +329,53 @@ def test_bundled_maps_use_schema_version_1() -> None:
             if node.node_type != "intersection":
                 continue
             assert set(node.geometry) == {"lane_transition_length_m"}, node.node_id
+
+
+def test_unreleased_map_compiler_stays_at_version_1() -> None:
+    assert game_map_compiler._COMPILER_VERSION == "1"
+
+
+def test_boulevard_vicinity_follows_facing_direction_and_retains_offroad() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    resolver = GameMapVicinityResolver(game_map)
+    spawn = game_map.default_spawn
+
+    forward = resolver.resolve(
+        float(spawn.position_world[0]),
+        float(spawn.position_world[1]),
+        spawn.yaw_rad,
+    )
+    reverse = resolver.resolve(
+        float(spawn.position_world[0]),
+        float(spawn.position_world[1]),
+        spawn.yaw_rad + np.pi,
+    )
+
+    assert forward is not None
+    assert reverse is not None
+    assert forward.location_element_id == "spawn_arterial"
+    assert reverse.location_element_id == "spawn_arterial"
+    assert "central_arterial_crossing" in forward.traffic_element_ids
+    assert "west_arterial_crossing" in reverse.traffic_element_ids
+    assert resolver.resolve(1.0e6, 1.0e6, 0.0, previous=forward) is forward
+
+
+def test_vicinity_exposes_parking_lot_pedestrian_at_its_access_node() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    resolver = GameMapVicinityResolver(game_map)
+    access = game_map.topology.parking_accesses[0]
+    source = next(
+        node
+        for node in game_map.topology.nodes
+        if node.node_id == access.source_node_id
+    )
+
+    vicinity = resolver.resolve(source.x_m, source.y_m, 0.0)
+
+    assert vicinity is not None
+    assert access.source_node_id in vicinity.traffic_element_ids
+    assert access.parking_lot_node_id not in vicinity.traffic_element_ids
+    assert access.parking_lot_node_id in vicinity.pedestrian_element_ids
 
 
 @pytest.mark.parametrize(
@@ -648,9 +697,14 @@ def test_traffic_compiles_and_round_trips(tmp_path: Path) -> None:
     assert traffic.speed_mps == pytest.approx(7.5)
     assert traffic.centerline_world.shape[1] == 3
     assert np.all(traffic.speed_limits_mps <= 7.5)
+    assert len(traffic.route_element_ids) == len(traffic.centerline_world) - 1
+    assert set(traffic.route_element_ids) <= {
+        element.element_id for element in original.elements
+    }
     np.testing.assert_array_equal(
         restored.traffic[0].centerline_world, traffic.centerline_world
     )
+    assert restored.traffic[0].route_element_ids == traffic.route_element_ids
     preview_text = preview.read_text(encoding="utf-8")
     assert "#ef476f" in preview_text
     assert "local_car" in preview_text
@@ -758,6 +812,27 @@ def test_traffic_count_generates_loop_routes_without_authored_cars(
     assert all(
         "neighborhood_lot" not in vehicle.node_ids for vehicle in game_map.traffic
     )
+
+
+def test_boulevard_large_logical_fleet_activates_only_graph_nearby_cars(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
+    source["traffic_count"] = 100
+    game_map = load_game_map(_write_map(tmp_path, source, "dense-boulevard"))
+    spawn = game_map.default_spawn
+    vicinity = GameMapVicinityResolver(game_map).resolve(
+        float(spawn.position_world[0]),
+        float(spawn.position_world[1]),
+        spawn.yaw_rad,
+    )
+    controller = MapTrafficController(game_map.traffic, VehicleConfig())
+
+    controller.set_vicinity(vicinity)
+
+    assert len(game_map.traffic) == 100
+    assert 0 < len(controller.active_objects) < len(game_map.traffic)
+    assert len(controller.active_objects) == 6
 
 
 @pytest.mark.parametrize("count", [-1, 1.5, True, "2"])
@@ -1798,11 +1873,13 @@ def test_lane_graph_initializes_navigation_and_gameplay() -> None:
 def test_compile_preview_and_scene_discovery(tmp_path: Path) -> None:
     first = compile_game_map(_STARTER_MAP, cache_root=tmp_path / "cache")
     second = compile_game_map(_STARTER_MAP, cache_root=tmp_path / "cache")
+    forced = compile_game_map(_STARTER_MAP, cache_root=tmp_path / "cache", force=True)
     preview = write_game_map_preview(_STARTER_MAP, tmp_path / "preview.svg")
     options = cli._discover_scene_options(_MAPS, _STARTER_MAP)
 
     assert not first.cache_hit and second.cache_hit
-    assert first.archive_path == second.archive_path
+    assert forced.cache_hit is False
+    assert first.archive_path == second.archive_path == forced.archive_path
     preview_text = preview.read_text(encoding="utf-8")
     assert preview_text.startswith("<svg")
     assert "#ff453a" not in preview_text

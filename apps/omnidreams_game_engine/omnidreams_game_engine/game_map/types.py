@@ -234,6 +234,15 @@ class GameMapTrafficVehicle:
     speed_limits_mps: FloatArray
     """Per-route-sample target speeds with shape ``[N]``."""
 
+    route_element_ids: tuple[str, ...]
+    """Owning road or node identifier for each route segment."""
+
+    def __post_init__(self) -> None:
+        if len(self.route_element_ids) != len(self.centerline_world) - 1:
+            raise ValueError(
+                "route_element_ids must contain one identifier per route segment"
+            )
+
 
 @dataclass(frozen=True)
 class GameMapLane:
@@ -583,6 +592,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "start_distance_m": vehicle.start_distance_m,
                 "centerline_world": vehicle.centerline_world.tolist(),
                 "speed_limits_mps": vehicle.speed_limits_mps.tolist(),
+                "route_element_ids": list(vehicle.route_element_ids),
             }
             for vehicle in game_map.traffic
         ],
@@ -804,6 +814,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             start_distance_m=float(raw["start_distance_m"]),
             centerline_world=np.asarray(raw["centerline_world"], dtype=np.float32),
             speed_limits_mps=np.asarray(raw["speed_limits_mps"], dtype=np.float32),
+            route_element_ids=tuple(str(item) for item in raw["route_element_ids"]),
         )
         for raw in value.get("traffic", [])
     )

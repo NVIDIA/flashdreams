@@ -34,7 +34,9 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "3"
+# Pre-release maps and compiler output stay at version 1. Do not increment this
+# during development; a future release process owns version changes.
+_COMPILER_VERSION = "1"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
 
 
@@ -361,8 +363,13 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
         )
 
 
-def compile_game_map(path: Path, *, cache_root: Path | None = None) -> CompiledGameMap:
-    """Compile a semantic YAML map into a cached private renderer archive."""
+def compile_game_map(
+    path: Path,
+    *,
+    cache_root: Path | None = None,
+    force: bool = False,
+) -> CompiledGameMap:
+    """Compile a map, optionally replacing its valid cached archive."""
     game_map = load_game_map(path)
     digest = _digest(game_map)
     root = _cache_root() if cache_root is None else Path(cache_root)
@@ -371,7 +378,7 @@ def compile_game_map(path: Path, *, cache_root: Path | None = None) -> CompiledG
     lock = FileLock(str(root / f"{digest}.lock"))
     root.mkdir(parents=True, exist_ok=True)
     with lock:
-        if archive_path.is_file():
+        if archive_path.is_file() and not force:
             try:
                 with zipfile.ZipFile(archive_path, "r") as archive:
                     if "game_map.json" in archive.namelist():

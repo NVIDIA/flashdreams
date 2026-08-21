@@ -314,9 +314,13 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
             self.last_step_actor_collision = False
 
         def synchronize_window(
-            self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+            self,
+            center_xy_m: np.ndarray,
+            timestamp_us: int | None = None,
+            *,
+            yaw_rad: float | None = None,
         ) -> None:
-            del center_xy_m, timestamp_us
+            del center_xy_m, timestamp_us, yaw_rad
 
         def step(
             self,

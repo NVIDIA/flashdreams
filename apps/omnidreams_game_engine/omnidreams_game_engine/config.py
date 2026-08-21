@@ -129,6 +129,7 @@ class AppConfig:
     camera_name: str = "camera_front_wide_120fov"
     variant: str = "default"
     prompt_override: str | None = None
+    force_map_recompile: bool = False
     manifest_path: Path | None = None
     chunk: ChunkConfig = ChunkConfig()
     raster: RasterConfig = RasterConfig()

@@ -144,6 +144,7 @@ class InteractiveDriveApp:
         # geometry and differ only in seed frame + prompt, so we parse once and
         # re-seed per variant rather than re-parsing the USDZ each switch.
         self._geometry_cache: dict[str, tuple[SceneBundle, GroundSnapper | None]] = {}
+        self._forced_map_recompiles: set[Path] = set()
         self._scene_cache_lock = threading.Lock()
         # Set while --preload-scenes is still parsing scenes in the
         # background; the presenter locks scene selection until it clears so
@@ -322,7 +323,22 @@ class InteractiveDriveApp:
         Later variants: re-seed the cached bundle (frame + prompt only).
         """
         source_path = Path(str(scene_path))
-        renderer_path = compile_game_map(source_path).archive_path
+        canonical_source = source_path.expanduser().resolve()
+        force_recompile = False
+        if self._config.force_map_recompile:
+            with self._scene_cache_lock:
+                if canonical_source not in self._forced_map_recompiles:
+                    self._forced_map_recompiles.add(canonical_source)
+                    force_recompile = True
+        try:
+            renderer_path = compile_game_map(
+                source_path, force=force_recompile
+            ).archive_path
+        except BaseException:
+            if force_recompile:
+                with self._scene_cache_lock:
+                    self._forced_map_recompiles.discard(canonical_source)
+            raise
         geometry = self._cached_geometry(scene_path)
         if geometry is not None:
             base_scene, ground_snapper = geometry

@@ -61,6 +61,7 @@ def load_scene_data(scene: SceneBundle) -> CrazyRobotaxiSceneData:
             allows_taxi_stops=lane.allows_taxi_stops,
             lane_id=lane.lane_id,
             successor_ids=lane.successor_ids,
+            element_id=lane.element_id,
         )
         for lane in game_map.lanes
     )

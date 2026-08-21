@@ -42,6 +42,7 @@ class _RouteTemplate:
     end_behavior: str
     centerline_world: np.ndarray
     speed_limits_mps: np.ndarray
+    route_element_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -77,12 +78,19 @@ def _resample(points: np.ndarray, count: int) -> np.ndarray:
 
 
 def _append_path(
-    points: list[np.ndarray], speeds: list[float], path: np.ndarray, speed_mps: float
+    points: list[np.ndarray],
+    speeds: list[float],
+    element_ids: list[str],
+    path: np.ndarray,
+    speed_mps: float,
+    element_id: str,
 ) -> None:
     for point in path:
         if points and float(np.linalg.norm(points[-1][:2] - point[:2])) <= 1.0e-4:
             speeds[-1] = min(speeds[-1], speed_mps)
             continue
+        if points:
+            element_ids.append(element_id)
         points.append(np.asarray(point, dtype=np.float64))
         speeds.append(speed_mps)
 
@@ -223,7 +231,7 @@ def _compile_route(
     topology: GameMapTopology,
     lanes: tuple[GameMapLane, ...],
     speed_cap_mps: float | None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, tuple[str, ...]]:
     if not traversals:
         raise GameMapError("Traffic routes must contain travel between distinct nodes")
     directed = _directed_road_lanes(topology, lanes)
@@ -262,6 +270,7 @@ def _compile_route(
     parking_access_ids = {access.access_id for access in topology.parking_accesses}
     points: list[np.ndarray] = []
     speeds: list[float] = []
+    element_ids: list[str] = []
     for index, road_candidates in enumerate(candidates):
         incoming_lane = road_candidates[int(entry[index] or 0)]
         outgoing_lane = road_candidates[int(exit_lane[index] or 0)]
@@ -279,7 +288,14 @@ def _compile_route(
         road_speed = min(incoming_lane.speed_limit_mps, outgoing_lane.speed_limit_mps)
         if speed_cap_mps is not None:
             road_speed = min(road_speed, speed_cap_mps)
-        _append_path(points, speeds, road_path, road_speed)
+        _append_path(
+            points,
+            speeds,
+            element_ids,
+            road_path,
+            road_speed,
+            traversals[index][0],
+        )
 
         following_index = (index + 1) % len(candidates)
         target_lane = candidates[following_index][int(entry[following_index] or 0)]
@@ -294,13 +310,27 @@ def _compile_route(
             connector_speed = lane.speed_limit_mps
             if speed_cap_mps is not None:
                 connector_speed = min(connector_speed, speed_cap_mps)
-            _append_path(points, speeds, lane.centerline_world, connector_speed)
+            _append_path(
+                points,
+                speeds,
+                element_ids,
+                lane.centerline_world,
+                connector_speed,
+                lane.element_id,
+            )
     if float(np.linalg.norm(points[-1][:2] - points[0][:2])) > 1.0e-4:
+        element_ids.append(element_ids[-1])
         points.append(points[0].copy())
         speeds.append(speeds[0])
     if len(points) < 3 or _polyline_length(np.asarray(points)) <= 1.0:
         raise GameMapError("Traffic route resolves to degenerate geometry")
-    return np.asarray(points, dtype=np.float32), np.asarray(speeds, dtype=np.float32)
+    if len(element_ids) != len(points) - 1:
+        raise GameMapError("Traffic route element metadata is misaligned")
+    return (
+        np.asarray(points, dtype=np.float32),
+        np.asarray(speeds, dtype=np.float32),
+        tuple(element_ids),
+    )
 
 
 def _insert_turnarounds(
@@ -353,7 +383,7 @@ def _compile_waypoint_route(
     lanes: tuple[GameMapLane, ...],
     directed: dict[tuple[str, str, str], list[GameMapLane]],
     speed_mps: float | None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, tuple[str, ...]]:
     waypoint_cycle = list(node_ids)
     if end_behavior == "reverse":
         waypoint_cycle.extend(reversed(node_ids[:-1]))
@@ -468,7 +498,7 @@ def _generated_route_templates(
     seen_geometry: set[bytes] = set()
     for node_ids, end_behavior in candidates:
         try:
-            centerline, speed_limits = _compile_waypoint_route(
+            centerline, speed_limits, route_element_ids = _compile_waypoint_route(
                 node_ids,
                 end_behavior,
                 topology,
@@ -488,6 +518,7 @@ def _generated_route_templates(
                 end_behavior=end_behavior,
                 centerline_world=centerline,
                 speed_limits_mps=speed_limits,
+                route_element_ids=route_element_ids,
             )
         )
     return templates
@@ -659,6 +690,7 @@ def _generate_traffic(
                 start_distance_m=offset_m,
                 centerline_world=template.centerline_world,
                 speed_limits_mps=template.speed_limits_mps,
+                route_element_ids=template.route_element_ids,
             )
         )
     return generated
@@ -772,7 +804,7 @@ def compile_traffic(
                 f"Traffic {vehicle_id!r}.start_distance_m must be nonnegative and finite"
             )
 
-        centerline, speed_limits = _compile_waypoint_route(
+        centerline, speed_limits, route_element_ids = _compile_waypoint_route(
             node_ids,
             end_behavior,
             topology,
@@ -796,6 +828,7 @@ def compile_traffic(
                 start_distance_m=start_distance_m,
                 centerline_world=centerline,
                 speed_limits_mps=speed_limits,
+                route_element_ids=route_element_ids,
             )
         )
     if traffic_count is None:

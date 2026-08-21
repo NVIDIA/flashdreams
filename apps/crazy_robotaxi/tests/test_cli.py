@@ -25,6 +25,29 @@ def test_map_flag_sets_internal_scene_path(
     assert args.scene == Path("city.robotaxi.yaml")
 
 
+@pytest.mark.parametrize("parser_factory", [build_parser, build_engine_parser])
+def test_force_map_recompile_flag(
+    parser_factory: Callable[[], argparse.ArgumentParser],
+) -> None:
+    assert parser_factory().parse_args([]).force_map_recompile is False
+    assert (
+        parser_factory().parse_args(["--force-map-recompile"]).force_map_recompile
+        is True
+    )
+
+
+def test_force_map_recompile_flag_is_forwarded_to_app_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_kwargs: object())
+
+    config, _backend = cli.prepare_config_and_backend(
+        build_parser().parse_args([*_MAP_ARGS, "--force-map-recompile"])
+    )
+
+    assert config.force_map_recompile is True
+
+
 @pytest.mark.parametrize(
     "removed_flag",
     ["--scene", "--synthetic-scene", "--synthetic-initial-rgb", "--synthetic-prompt"],

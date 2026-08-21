@@ -14,6 +14,10 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import numpy.typing as npt
 from omnidreams_game_engine.camera import FThetaCameraModel
+from omnidreams_game_engine.game_map.vicinity import (
+    GameMapVicinity,
+    GameMapVicinityResolver,
+)
 from omnidreams_game_engine.math3d import (
     extract_yaw_from_transform,
     invert_transform,
@@ -514,10 +518,13 @@ class TaxiGameController:
         config: TaxiGameConfig,
         initial_camera: CameraCalibration | None = None,
         high_score_store: HighScoreStore | None = None,
+        vicinity_resolver: GameMapVicinityResolver | None = None,
     ) -> None:
         self._config = config
         rng_seed = None if config.seed is None else _stable_seed(scene_id, config.seed)
         self._rng = np.random.default_rng(rng_seed)
+        self._vicinity_resolver = vicinity_resolver
+        self._vicinity: GameMapVicinity | None = None
         offset = float(self._rng.uniform(0.0, config.waypoint_spacing_m))
         if navigation_lanes:
             self._navigation = TaxiNavigationMap(navigation_lanes)
@@ -662,6 +669,13 @@ class TaxiGameController:
     def _snapshot_for_pose(
         self, x_m: float, y_m: float, yaw_rad: float
     ) -> TaxiGameSnapshot:
+        if self._vicinity_resolver is not None:
+            self._vicinity = self._vicinity_resolver.resolve(
+                x_m,
+                y_m,
+                yaw_rad,
+                previous=self._vicinity,
+            )
         target_index = (
             min(
                 self._available_pickup_indices,
@@ -687,6 +701,16 @@ class TaxiGameController:
             yaw_rad,
             float(target[0]),
             float(target[1]),
+        )
+        passenger_indices = tuple(
+            index
+            for index in self._available_pickup_indices
+            if self._waypoints[index].element_id is None
+            or (
+                self._vicinity is not None
+                and self._waypoints[index].element_id
+                in self._vicinity.pedestrian_element_ids
+            )
         )
         return TaxiGameSnapshot(
             phase=self._phase,
@@ -723,7 +747,7 @@ class TaxiGameController:
             pickup_passengers_xyz_m=(
                 tuple(
                     _passenger_xyz_tuple(self._waypoints[index])
-                    for index in self._available_pickup_indices
+                    for index in passenger_indices
                 )
                 if self._phase == "seeking_pickup"
                 else ()

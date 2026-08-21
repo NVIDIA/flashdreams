@@ -190,7 +190,13 @@ The engine's private ClipGT archive is cached under
 `$FLASHDREAMS_CACHE_DIR/omnidreams-game-engine/game-maps/`. The cache key includes the YAML,
 resolved geometry, compiler implementation, and referenced seed assets, so
 map or compiler edits rebuild it at the next load. The archive is runtime
-output, not an authoring format.
+output, not an authoring format. Pass `--force-map-recompile` when launching
+the game to rebuild each selected map once for that process even if its cache
+entry is valid. The standalone equivalent is:
+
+```bash
+crazy-robotaxi-map compile /path/to/city.robotaxi.yaml --force-map-recompile
+```
 
 Parking-lot surfaces are emitted as green `ROI_POLYGON_ROADNET_MASK` regions.
 Parking-space dividers remain intentionally omitted because ClipGT would encode

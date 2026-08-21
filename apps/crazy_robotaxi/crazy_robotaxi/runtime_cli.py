@@ -73,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Path to a .robotaxi.yaml game map.",
     )
+    parser.add_argument(
+        "--force-map-recompile",
+        action="store_true",
+        help="Rebuild each selected map's compiled cache once in this process.",
+    )
     # ``--backend`` exists primarily for the test suite, which exercises
     # the raster path (~30s warmup) instead of the full omnidreams pipeline
     # (~minutes of HF + compile). Suppress from --help so the user-facing
@@ -437,6 +442,7 @@ def prepare_config_and_backend(
         camera_name=args.camera,
         variant=args.variant,
         prompt_override=args.prompt,
+        force_map_recompile=bool(args.force_map_recompile),
         manifest_path=manifest_path,
         raster=replace(
             renderer_settings.raster,

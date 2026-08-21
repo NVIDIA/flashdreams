@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
         "compile", help="populate the private renderer cache"
     )
     compile_parser.add_argument("map", type=Path)
+    compile_parser.add_argument(
+        "--force-map-recompile",
+        action="store_true",
+        help="Rebuild the compiled archive even when its cache entry exists.",
+    )
     return parser
 
 
@@ -55,5 +60,5 @@ def main(argv: Sequence[str] | None = None) -> None:
             write_spawn_first_frame_preview(args.map, args.output, spawn_id=args.spawn)
         )
     else:
-        compiled = compile_game_map(args.map)
+        compiled = compile_game_map(args.map, force=args.force_map_recompile)
         print(compiled.archive_path)

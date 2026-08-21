@@ -32,6 +32,7 @@ from omnidreams_game_engine.application import (
 )
 from omnidreams_game_engine.backends.base import RenderBackend
 from omnidreams_game_engine.config import AppConfig
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinityResolver
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import (
     SceneBundle,
@@ -189,6 +190,7 @@ class CrazyRobotaxiApplication:
         self._reference_route_world: Any | None = None
         self._navigation_lanes: tuple[Any, ...] = ()
         self._fare_regions: tuple[Any, ...] = ()
+        self._vicinity_resolver: GameMapVicinityResolver | None = None
         self._ground_snapper: GroundSnapper | None = None
         self._curb_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._live_edit = live_edit or LiveEditConfig()
@@ -219,6 +221,8 @@ class CrazyRobotaxiApplication:
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
         self._fare_regions = scene_data.fare_regions
+        assert scene.game_map is not None
+        self._vicinity_resolver = GameMapVicinityResolver(scene.game_map)
         self._curb_segments_world = scene_data.curb_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene, self._config)
         if self._live_edit.coins.enabled or self._live_edit.items.enabled:
@@ -290,6 +294,7 @@ class CrazyRobotaxiApplication:
             initial_state=simulation.current_state,
             config=self._config,
             initial_camera=scene.selected_camera,
+            vicinity_resolver=self._vicinity_resolver,
         )
         coin_ability: CoinAbility | None = None
         if self._live_edit.coins.enabled and self._coin_lanes:

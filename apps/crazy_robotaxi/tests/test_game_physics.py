@@ -810,6 +810,33 @@ def test_physx_world_applies_incremental_graph_changes_in_stable_buffers() -> No
     world.close()
 
 
+def test_physx_world_uses_per_object_initial_track_timestamp() -> None:
+    ego_model = RigidBodyModel(1_550.0, (2.4, 1.0, 0.8))
+    world = PhysXWorld(PhysicsObjectGraph(), ego_model, capacity=8)
+    actor = SceneObject(
+        object_id="procedural-car",
+        object_type="Car",
+        model=rigid_body_model_for_object("Car", np.asarray([4.0, 1.9, 1.6])),
+        timestamps_us=np.asarray([0, 1_000_000], dtype=np.int64),
+        positions_m=np.asarray([[0.0, 0.0, 0.8], [10.0, 0.0, 0.8]]),
+        orientations_xyzw=np.asarray(
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
+        ),
+    )
+
+    world.synchronize(
+        PhysicsObjectGraph(objects=(actor,)),
+        timestamp_us=0,
+        initial_object_timestamps_us={actor.object_id: 1_000_000},
+    )
+
+    np.testing.assert_array_equal(
+        world.body_state(actor.object_id).position_m,
+        np.asarray([10.0, 0.0, 0.8], dtype=np.float32),
+    )
+    world.close()
+
+
 def test_game_world_reuses_native_track_samples_during_step() -> None:
     world = GamePhysicsWorld(_scene(_track()), VehicleConfig())
     parked_ego = VehicleState(

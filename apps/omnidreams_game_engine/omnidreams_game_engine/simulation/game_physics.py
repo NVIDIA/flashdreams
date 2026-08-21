@@ -34,6 +34,10 @@ from ludus_renderer import (
 )
 
 from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.game_map.vicinity import (
+    GameMapVicinity,
+    GameMapVicinityResolver,
+)
 from omnidreams_game_engine.simulation.components import (
     BoxColliderComponent,
     GameEntity,
@@ -288,7 +292,6 @@ class GamePhysicsWorld:
             vehicle,
         )
         objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
-        objects += self._map_traffic.objects
         if (
             vehicle.static_collision_enabled
             and static_barrier_segments_world is not None
@@ -321,12 +324,24 @@ class GamePhysicsWorld:
             else np.zeros(2, dtype=np.float32)
         )
         initial_timestamp_us = int(getattr(scene, "initial_timestamp_us", 0))
-        self._physics_graph = self.graph.copy_for_physx(
+        initial_yaw_rad = float(getattr(scene, "initial_yaw_rad", 0.0))
+        self._vicinity_resolver = (
+            None if game_map is None else GameMapVicinityResolver(game_map)
+        )
+        self._map_vicinity: GameMapVicinity | None = (
+            None
+            if self._vicinity_resolver is None
+            else self._vicinity_resolver.resolve(
+                float(initial_xy[0]), float(initial_xy[1]), initial_yaw_rad
+            )
+        )
+        self._map_traffic.set_vicinity(self._map_vicinity)
+        base_physics_graph = self.graph.copy_for_physx(
             initial_xy,
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=initial_timestamp_us,
         )
-        self._physics_graph = self._retain_map_traffic(self._physics_graph)
+        self._physics_graph = self._with_active_map_traffic(base_physics_graph)
         self._physics_center_xy = initial_xy.copy()
         self._physics_timestamp_us = initial_timestamp_us
         self._entities = [
@@ -344,11 +359,16 @@ class GamePhysicsWorld:
         self._pending_struck_vehicle_ids: set[str] = set()
         self._ego_model = adapt_model(_ego_model(vehicle))
         self._world = PhysXWorld(
-            self._physics_graph,
+            base_physics_graph,
             self._ego_model,
             actor_collision_enabled=vehicle.actor_collision_enabled,
             max_actor_drive_speed_mps=_NON_EGO_MAX_DRIVE_SPEED_MPS,
             max_actor_drive_speeds_mps=self._map_traffic.max_drive_speeds_mps,
+        )
+        self._world.synchronize(
+            self._physics_graph,
+            timestamp_us=initial_timestamp_us,
+            initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
         )
         self._traffic_ai = TrafficDriverAI()
         self._traffic_ai.synchronize(self._physics_graph.objects)
@@ -357,22 +377,22 @@ class GamePhysicsWorld:
             "[physics] PhysX graph ready in {:.1f} ms; objects={}/{} barriers={}/{} simulation_radius_m={:.0f}",
             (time.perf_counter() - started_at) * 1000.0,
             len(self._physics_graph.objects),
-            len(self.graph.objects),
+            len(self.graph.objects) + len(self._map_traffic.objects),
             len(self._physics_graph.barriers),
             len(self.graph.barriers),
             _PHYSX_SIMULATION_RADIUS_M,
         )
 
-    def _retain_map_traffic(
+    def _with_active_map_traffic(
         self, physics_graph: PhysicsObjectGraph
     ) -> PhysicsObjectGraph:
-        """Keep the small authored traffic fleet simulated across map windows."""
+        """Add only graph-nearby procedural traffic to a PhysX window."""
         incoming_ids = {
             scene_object.object_id for scene_object in physics_graph.objects
         }
         additions = tuple(
             scene_object
-            for scene_object in self._map_traffic.objects
+            for scene_object in self._map_traffic.active_objects
             if scene_object.object_id not in incoming_ids
         )
         if not additions:
@@ -472,12 +492,27 @@ class GamePhysicsWorld:
         return set(self._world.active_collider_ids)
 
     def synchronize_window(
-        self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+        self,
+        center_xy_m: np.ndarray,
+        timestamp_us: int | None = None,
+        *,
+        yaw_rad: float | None = None,
     ) -> bool:
         """Incrementally recenter active PhysX topology when the ego moves."""
         center = np.asarray(center_xy_m, dtype=np.float32)
         if center.shape != (2,):
             raise ValueError("center_xy_m must have shape (2,)")
+        traffic_topology_changed = False
+        if self._vicinity_resolver is not None and yaw_rad is not None:
+            self._map_vicinity = self._vicinity_resolver.resolve(
+                float(center[0]),
+                float(center[1]),
+                yaw_rad,
+                previous=self._map_vicinity,
+            )
+            traffic_topology_changed = self._map_traffic.set_vicinity(
+                self._map_vicinity
+            )
         center_is_current = (
             float(np.linalg.norm(center - self._physics_center_xy))
             < _PHYSX_RECENTER_DISTANCE_M
@@ -487,19 +522,23 @@ class GamePhysicsWorld:
             <= timestamp_us - self._physics_timestamp_us
             < _PHYSX_TOPOLOGY_REFRESH_INTERVAL_US
         )
-        if center_is_current and timestamp_is_current:
+        if center_is_current and timestamp_is_current and not traffic_topology_changed:
             return False
         physics_graph = self.graph.copy_for_physx(
             center,
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=timestamp_us,
         )
-        physics_graph = self._retain_map_traffic(physics_graph)
+        physics_graph = self._with_active_map_traffic(physics_graph)
         incoming_ids = {obj.object_id for obj in physics_graph.objects}
         retained_detached = tuple(
             obj
             for obj in self._physics_graph.objects
             if obj.object_id in self._detached_entity_ids
+            and (
+                obj.object_id not in self._map_traffic.object_ids
+                or obj.object_id in self._map_traffic.active_object_ids
+            )
             and obj.object_id not in incoming_ids
         )
         if retained_detached:
@@ -507,7 +546,11 @@ class GamePhysicsWorld:
                 objects=physics_graph.objects + retained_detached,
                 barriers=physics_graph.barriers,
             )
-        self._world.synchronize(physics_graph, timestamp_us=timestamp_us)
+        self._world.synchronize(
+            physics_graph,
+            timestamp_us=timestamp_us,
+            initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
+        )
         self._traffic_ai.synchronize(physics_graph.objects)
         existing_entities = {entity.entity_id: entity for entity in self._entities}
         self._entities = [
@@ -942,7 +985,9 @@ class GamePhysicsWorld:
         samples_by_frame: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]],
     ) -> tuple[DynamicActorTrajectory, ...]:
         """Pack PhysX object samples for Ludus RGB and BEV HD-map rendering."""
-        if not self.graph.objects or not samples_by_frame:
+        map_traffic = getattr(self, "_map_traffic", None)
+        active_map_objects = () if map_traffic is None else map_traffic.active_objects
+        if (not self.graph.objects and not active_map_objects) or not samples_by_frame:
             return ()
         result: list[DynamicActorTrajectory] = []
         simulated_timestamps = np.asarray(timestamps_us, dtype=np.int64)
@@ -952,7 +997,8 @@ class GamePhysicsWorld:
         simulated_ids = {
             object_id for frame in samples_by_id for object_id in frame.keys()
         }
-        for scene_object in self.graph.objects:
+        render_objects = (*self.graph.objects, *active_map_objects)
+        for scene_object in render_objects:
             physically_simulated = scene_object.object_id in simulated_ids
             if physically_simulated:
                 detached = any(

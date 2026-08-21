@@ -24,6 +24,7 @@ from crazy_robotaxi.physics import (
 from ludus_renderer import BodyState
 from omnidreams_game_engine.config import ChunkConfig, VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.simulation.components import (
     rigid_body_model_from_vehicle_config,
 )
@@ -93,10 +94,14 @@ def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
             start_distance_m=start_distance_m,
             centerline_world=centerline,
             speed_limits_mps=speed_limits,
+            route_element_ids=("test-road",) * (len(centerline) - 1),
         )
 
     controller = MapTrafficController(
         (definition("following", 0), definition("leading", 10)), VehicleConfig()
+    )
+    controller.set_vicinity(
+        GameMapVicinity("test-road", frozenset({"test-road"}), frozenset({"test-road"}))
     )
     assert controller.max_drive_speeds_mps == {
         "map-traffic:following": 10.0,
@@ -134,6 +139,68 @@ def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
     scales = {object_id: scale for object_id, _, scale in published[-1]}
     assert scales["map-traffic:following"] == 0.0
     assert scales["map-traffic:leading"] == 1.0
+
+
+def test_map_traffic_advances_inactive_car_without_publishing_it_to_physx() -> None:
+    centerline = np.asarray(
+        [[0, 0, 0], [100, 0, 0], [100, 50, 0], [0, 50, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    speed_limits = np.full(len(centerline), 10.0, dtype=np.float32)
+
+    def definition(vehicle_id: str, element_id: str, start_m: float):
+        return GameMapTrafficVehicle(
+            vehicle_id=vehicle_id,
+            node_ids=("a", "b"),
+            end_behavior="wrap",
+            vehicle_type="car",
+            dimensions_lwh_m=(4.5, 1.8, 1.5),
+            speed_mps=None,
+            start_distance_m=start_m,
+            centerline_world=centerline,
+            speed_limits_mps=speed_limits,
+            route_element_ids=(element_id,) * (len(centerline) - 1),
+        )
+
+    controller = MapTrafficController(
+        (definition("near", "near-road", 1.0), definition("far", "far-road", 20.0)),
+        VehicleConfig(),
+    )
+    controller.set_vicinity(
+        GameMapVicinity("near-road", frozenset({"near-road"}), frozenset({"near-road"}))
+    )
+    near_id = "map-traffic:near"
+    far_id = "map-traffic:far"
+    near_timestamp_before = controller._states_by_id[near_id].timestamp_us
+    far_timestamp_before = controller._states_by_id[far_id].timestamp_us
+    published: list[tuple[tuple[str, int, float], ...]] = []
+    near_position, near_orientation, _ = controller.active_objects[0].sample(
+        int(near_timestamp_before)
+    )
+    near_body = BodyState(
+        position_m=near_position,
+        orientation_xyzw=near_orientation,
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    world = SimpleNamespace(
+        body_state=lambda object_id: {near_id: near_body}[object_id],
+        ego_model=SimpleNamespace(half_extents_m=np.asarray([2.4, 1.0, 0.8])),
+        apply_track_progress=published.append,
+    )
+    ego = BodyState(
+        position_m=np.asarray([-100, -100, 0.8], dtype=np.float32),
+        orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+
+    controller.prepare_step(world, ego, 1.0 / 30.0)
+
+    assert controller.active_object_ids == {near_id}
+    assert tuple(item[0] for item in published[0]) == (near_id,)
+    assert controller._states_by_id[near_id].timestamp_us > near_timestamp_before
+    assert controller._states_by_id[far_id].timestamp_us > far_timestamp_before
 
 
 def test_taxi_curbs_are_physics_barriers_without_a_render_layer() -> None:
@@ -291,9 +358,13 @@ def test_taxi_physics_hook_receives_the_active_driver_command() -> None:
         last_step_timings = None
 
         def synchronize_window(
-            self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+            self,
+            center_xy_m: np.ndarray,
+            timestamp_us: int | None = None,
+            *,
+            yaw_rad: float | None = None,
         ) -> None:
-            del center_xy_m, timestamp_us
+            del center_xy_m, timestamp_us, yaw_rad
 
         def step(
             self, state: VehicleState, timestamp_us: int, dt_s: float

@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import math
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -493,13 +494,19 @@ class PhysXWorld:
         del self._barriers[barrier_id]
 
     def synchronize(
-        self, graph: PhysicsObjectGraph, *, timestamp_us: int | None = None
+        self,
+        graph: PhysicsObjectGraph,
+        *,
+        timestamp_us: int | None = None,
+        initial_object_timestamps_us: Mapping[str, int] | None = None,
     ) -> None:
         """Apply graph additions, replacements, and removals incrementally.
 
         Args:
             graph: Desired active topology.
             timestamp_us: Initial pose time for newly added objects.
+            initial_object_timestamps_us: Per-object initial track times that
+                override ``timestamp_us`` for newly added procedural actors.
         """
         incoming_objects = {value.object_id: value for value in graph.objects}
         for object_id in tuple(self._objects):
@@ -511,7 +518,17 @@ class PhysXWorld:
                 continue
             if current is not None:
                 self.remove_object(object_id)
-            self.add_object(scene_object, timestamp_us=timestamp_us)
+            initial_timestamp = (
+                None
+                if initial_object_timestamps_us is None
+                else initial_object_timestamps_us.get(object_id)
+            )
+            self.add_object(
+                scene_object,
+                timestamp_us=(
+                    timestamp_us if initial_timestamp is None else initial_timestamp
+                ),
+            )
 
         incoming_barriers = {
             barrier.barrier_id or f"barrier-{index}": barrier

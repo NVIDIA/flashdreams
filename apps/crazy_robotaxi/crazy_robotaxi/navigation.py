@@ -98,6 +98,9 @@ class NavigationLane:
     successor_ids: tuple[str, ...] | None = None
     """Explicit legal successors; ``None`` enables legacy endpoint inference."""
 
+    element_id: str | None = None
+    """Owning semantic road or node identifier when sourced from a game map."""
+
 
 @dataclass(frozen=True)
 class NavigationFareRegion:
@@ -140,6 +143,9 @@ class NavigationWaypoint:
 
     departure_anchors: tuple[LanePosition, ...] = ()
     """Possible road-graph origins used when routing away from this target."""
+
+    element_id: str | None = None
+    """Road or node whose vicinity controls passenger conditioning visibility."""
 
 
 @dataclass(frozen=True)
@@ -215,6 +221,7 @@ class TaxiNavigationMap:
                     lane.allows_taxi_stops,
                     lane.lane_id,
                     lane.successor_ids,
+                    lane.element_id,
                 )
             )
             cumulative_distances.append(cumulative)
@@ -319,6 +326,7 @@ class TaxiNavigationMap:
                         lane_index,
                         float(distance_m),
                         passenger_point,
+                        element_id=self._lanes[lane_index].element_id,
                     )
                 )
         if len(sampled) < 2:
@@ -432,6 +440,7 @@ class TaxiNavigationMap:
                     passenger_xyz_m=np.asarray(point, dtype=np.float32),
                     arrival_anchors=arrivals,
                     departure_anchors=departures,
+                    element_id=region.region_id,
                 )
                 for point in points
             )

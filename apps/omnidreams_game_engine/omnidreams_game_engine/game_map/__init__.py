@@ -34,9 +34,13 @@ from omnidreams_game_engine.game_map.types import (
     GameMapRoad,
     GameMapRoadBoundary,
     GameMapSpawn,
-    GameMapTrafficVehicle,
     GameMapTopology,
+    GameMapTrafficVehicle,
     ResolvedGameMap,
+)
+from omnidreams_game_engine.game_map.vicinity import (
+    GameMapVicinity,
+    GameMapVicinityResolver,
 )
 
 __all__ = [
@@ -58,6 +62,8 @@ __all__ = [
     "GameMapSpawn",
     "GameMapTrafficVehicle",
     "GameMapTopology",
+    "GameMapVicinity",
+    "GameMapVicinityResolver",
     "ResolvedGameMap",
     "SPAWN_RENDERER_VERSION",
     "compile_game_map",
