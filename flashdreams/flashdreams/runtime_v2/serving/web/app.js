@@ -5,9 +5,21 @@ const peer = new RTCPeerConnection();
 const controls = peer.createDataChannel("controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const newSessionButton = document.getElementById("new-session");
+let pendingNewSession = null;
+
+const send = payload => {
+  if (controls.readyState === "open") {
+    controls.send(JSON.stringify(payload));
+  }
+};
 
 controls.addEventListener("open", () => {
   newSessionButton.disabled = false;
+  if (pendingNewSession !== null) {
+    send(pendingNewSession);
+    pendingNewSession = null;
+  }
+  newSessionButton.textContent = "New session";
 });
 
 controls.addEventListener("close", () => {
@@ -17,12 +29,6 @@ controls.addEventListener("close", () => {
 peer.ontrack = event => {
   document.getElementById("video").srcObject =
     event.streams[0] ?? new MediaStream([event.track]);
-};
-
-const send = payload => {
-  if (controls.readyState === "open") {
-    controls.send(JSON.stringify(payload));
-  }
 };
 
 window.addEventListener("keydown", event => {
@@ -50,10 +56,16 @@ newSessionButton.onclick = () => {
   if (!promptInput.reportValidity()) {
     return;
   }
-  send({
+  const request = {
     type: "new_session",
     metadata: {prompt: promptInput.value},
-  });
+  };
+  if (controls.readyState === "open") {
+    send(request);
+  } else {
+    pendingNewSession = request;
+    newSessionButton.textContent = "Opening...";
+  }
 };
 
 window.addEventListener("beforeunload", () => send({type: "close"}));

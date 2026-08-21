@@ -99,7 +99,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert response.status == 200
                 assert 'id="activate"' in browser_page
                 assert 'id="prompt"' in browser_page
-                assert 'id="new-session" type="button" disabled' in browser_page
+                assert 'id="new-session" type="button">' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
@@ -107,6 +107,8 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'key: "r", pressed: activationPressed' in browser_script
                 assert 'type: "new_session"' in browser_script
                 assert "metadata: {prompt: promptInput.value}" in browser_script
+                assert "pendingNewSession = request" in browser_script
+                assert 'newSessionButton.textContent = "Opening..."' in browser_script
                 assert "response.status !== 409" in browser_script
 
         window.open(_session_desc())
