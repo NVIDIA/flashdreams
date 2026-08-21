@@ -136,7 +136,7 @@ class T2VApplication(IApplication):
             total_blocks=args.total_blocks,
         )
 
-    def session_desc(self) -> SessionDesc:
+    def default_session_desc(self) -> SessionDesc:
         """Return the description of a session this application uses.
 
         A model generates its best video at the size and rate it was trained

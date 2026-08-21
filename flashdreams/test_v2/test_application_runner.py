@@ -14,7 +14,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import SessionDesc, SessionDescRequest
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -136,8 +136,8 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
-def _session_desc() -> SessionDesc:
-    return SessionDesc(
+def _session_desc_request() -> SessionDescRequest:
+    return SessionDescRequest(
         output_layout=VideoTensorLayout.bcthw,
         frames_per_second_for_ui=100,
         frames_per_second_for_step=30,
@@ -146,45 +146,51 @@ def _session_desc() -> SessionDesc:
     )
 
 
-def test_application_runner_drives_complete_lifecycle() -> None:
+def test_application_runner_keeps_the_application_open_for_another_session() -> None:
     calls: list[str] = []
-    application = _Application(calls)
-    window = _Window(calls)
+    application = _Application(calls, session_length=1)
+    runner = ApplicationRunner(application)
+    first_window = _SilentWindow(calls)
+    second_window = _SilentWindow(calls)
 
-    ApplicationRunner(application, window).run(_session_desc(), ["--model-option"])
+    runner.init(["--model-option"])
+    runner.run_session(_session_desc_request(), first_window)
+    runner.run_session(_session_desc_request(), second_window)
 
-    assert window.results == []
+    assert [result.step_index for result in first_window.results] == [0]
+    assert [result.step_index for result in second_window.results] == [0]
+    assert calls.count("application.create_session") == 2
+    assert calls.count("application.close") == 0
     assert calls[0:3] == [
         "application.init(['--model-option'])",
         "application.create_session",
         "session.init",
     ]
-    assert calls[-3:] == ["window.close", "session.close", "application.close"]
+    runner.close()
+    assert calls[-1] == "application.close"
 
 
-def test_application_runner_closes_both_when_the_run_never_starts() -> None:
-    """The window is closed by the loop, which a failure here never reaches, and
-    a window may already be serving a client by then."""
+def test_application_runner_closes_the_window_when_a_session_cannot_start() -> None:
     calls: list[str] = []
-    application = _Application(calls, fail_to_init=True)
+    runner = ApplicationRunner(_Application(calls))
+    window = _Window(calls)
 
-    with pytest.raises(RuntimeError, match="application init failed"):
-        ApplicationRunner(application, _Window(calls)).run(_session_desc())
+    with pytest.raises(RuntimeError, match=r"init\(\) must run first"):
+        runner.run_session(_session_desc_request(), window)
 
-    assert calls == ["application.init([])", "window.close", "application.close"]
+    assert calls == ["window.close"]
 
 
-def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
-    """A window with no client never reports a close, so the session ends it."""
+def test_application_runner_rejects_a_second_initialization() -> None:
     calls: list[str] = []
-    window = _SilentWindow(calls)
+    runner = ApplicationRunner(_Application(calls))
 
-    ApplicationRunner(_Application(calls, session_length=3), window).run(
-        _session_desc()
-    )
+    runner.init()
+    with pytest.raises(RuntimeError, match="already initialized"):
+        runner.init()
+    runner.close()
 
-    assert [result.step_index for result in window.results] == [0, 1, 2]
-    assert calls[-3:] == ["window.close", "session.close", "application.close"]
+    assert calls == ["application.init([])", "application.close"]
 
 
 def test_application_runner_reports_the_run_rather_than_the_close(
@@ -192,9 +198,13 @@ def test_application_runner_reports_the_run_rather_than_the_close(
 ) -> None:
     calls: list[str] = []
     application = _Application(calls, fail_to_init=True, fail_to_close=True)
+    runner = ApplicationRunner(application)
 
     with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
         with pytest.raises(RuntimeError, match="application init failed"):
-            ApplicationRunner(application, _Window(calls)).run(_session_desc())
+            try:
+                runner.init()
+            finally:
+                runner.close()
 
     assert "application close failed" in caplog.text

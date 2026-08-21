@@ -9,7 +9,8 @@ from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.session_desc import SessionDesc, SessionDescRequest
 from flashdreams.runtime_v2.session_runner import run_session
 
 _LOGGER = logging.getLogger(__name__)
@@ -17,47 +18,90 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ApplicationRunner:
-    """Create and run one application session against one client window."""
+    """Hold one initialized application and run its sessions."""
 
-    def __init__(self, application: IApplication, client_window: IClientWindow) -> None:
+    def __init__(self, application: IApplication) -> None:
         """
         Args:
-            application: Long-lived application that creates the session.
-            client_window: Window that supplies input and presents generated output.
+            application: Long-lived application that creates sessions.
         """
         self._application = application
-        self._client_window = client_window
+        self._initialized = False
+        self._initialization_attempted = False
+        self._closed = False
 
-    def run(
-        self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
+    def init(self, commandline_args: Sequence[str] = ()) -> None:
+        """Initialize the application once.
+
+        Args:
+            commandline_args: Arguments owned and parsed by the application.
+
+        Raises:
+            RuntimeError: The application has already been initialized or closed.
+        """
+        if self._closed:
+            raise RuntimeError("ApplicationRunner is closed.")
+        if self._initialization_attempted:
+            raise RuntimeError("ApplicationRunner is already initialized.")
+        self._initialization_attempted = True
+        self._application.init(commandline_args)
+        self._initialized = True
+
+    def create_session(self, session_desc_request: SessionDescRequest) -> ISession:
+        """Create a session for one request against the initialized application.
+
+        Args:
+            session_desc_request: Explicit overrides to apply to the
+                application's initialized default description.
+
+        Returns:
+            A new, uninitialized session.
+
+        Raises:
+            RuntimeError: The application has not been initialized or is closed.
+        """
+        if self._closed:
+            raise RuntimeError("ApplicationRunner is closed.")
+        if not self._initialized:
+            raise RuntimeError("ApplicationRunner.init() must run first.")
+        default = self._application.default_session_desc() or SessionDesc()
+        return self._application.create_session(session_desc_request.resolve(default))
+
+    def run_session(
+        self,
+        session_desc_request: SessionDescRequest,
+        client_window: IClientWindow,
     ) -> None:
-        """Initialize the application, create one session, and run it.
+        """Create and run one session against ``client_window``.
 
         The run ends when the window reports a close or the session reports that
         it has finished.
 
-        The application is closed before this method returns or raises.
-
-        The window is closed too when the run never starts, since ``run_session``
-        is what otherwise owns it, and a window may already be serving a client
-        before the application has loaded anything.
+        The session and window are closed before this method returns or raises.
+        The application remains initialized, so callers can run another session
+        without reloading its shared state. Call :meth:`close` when no further
+        sessions are needed.
 
         Args:
-            session_desc: Output shape and timing requested for the session.
-            commandline_args: Arguments owned and parsed by the application.
+            session_desc_request: Explicit overrides to apply to the
+                application's initialized default description.
+            client_window: Window that supplies input and presents generated output.
         """
         run_started = False
         try:
-            self._application.init(commandline_args)
-            session = self._application.create_session(session_desc)
+            session = self.create_session(session_desc_request)
             run_started = True
-            run_session(session, self._client_window)
+            run_session(session, client_window)
         finally:
             if not run_started:
-                _close_client_window(self._client_window)
-            _close_application(
-                self._application, run_failed=sys.exc_info()[0] is not None
-            )
+                _close_client_window(client_window)
+
+    def close(self) -> None:
+        """Release the application and the state it shares across sessions."""
+        if self._closed:
+            return
+        self._closed = True
+        _close_application(self._application, run_failed=sys.exc_info()[0] is not None)
 
 
 def _close_client_window(client_window: IClientWindow) -> None:

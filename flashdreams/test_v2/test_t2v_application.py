@@ -136,7 +136,7 @@ def _rollout_length(app: T2VApplication) -> int:
     An application answers no such question: the length reaches a run through
     the session, which reports itself finished at the end of it.
     """
-    session = app.create_session(app.session_desc())
+    session = app.create_session(app.default_session_desc())
     assert isinstance(session, RecordingRollout)
     return session.blocks_to_generate
 
@@ -228,7 +228,7 @@ def test_a_model_describes_the_clip_it_was_trained_for_without_loading() -> None
     describe a session before it can ask for one."""
     app = T2VApplication(defaults=_defaults())
 
-    desc = app.session_desc()
+    desc = app.default_session_desc()
 
     assert desc == _session_desc()
     assert _pipeline_config(app).setup_count == 0

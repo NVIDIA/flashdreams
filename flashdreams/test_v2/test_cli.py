@@ -98,6 +98,28 @@ class UndescribedApplication(IApplication):
         return OneStepSession(session_desc)
 
 
+class InitializedDescriptionApplication(IApplication):
+    """Application whose default output width comes from its own arguments."""
+
+    def __init__(self) -> None:
+        self._width: int | None = None
+        self.asked_for: SessionDesc | None = None
+
+    def init(self, commandline_args: Sequence[str]) -> None:
+        if len(commandline_args) != 2 or commandline_args[0] != "--width":
+            raise ValueError("--width is required.")
+        self._width = int(commandline_args[1])
+
+    def default_session_desc(self) -> SessionDesc:
+        if self._width is None:
+            raise RuntimeError("init() must run before default_session_desc().")
+        return SessionDesc(video_width=self._width)
+
+    def create_session(self, session_desc: SessionDesc) -> ISession:
+        self.asked_for = session_desc
+        return OneStepSession(session_desc)
+
+
 class OneStepSession(ISession):
     """A session generating one frame and reporting itself finished."""
 
@@ -435,6 +457,18 @@ def test_a_model_generates_what_it_was_trained_for_unless_asked_otherwise(
     assert window.session_desc.video_width == 64
     # What nobody asked about is still the model's own.
     assert window.session_desc.video_height == pipeline.height
+
+
+def test_application_arguments_resolve_the_default_session_before_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = InitializedDescriptionApplication()
+    _install(monkeypatch, application, RecordingWindow())
+
+    cli.entrypoint(["stub", "--mode", "webrtc", "--", "--width", "64"])
+
+    assert application.asked_for is not None
+    assert application.asked_for.video_width == 64
 
 
 ## The command itself

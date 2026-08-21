@@ -14,7 +14,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.client_window_factory import create_client_window
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import SessionDesc, SessionDescRequest
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -205,6 +205,7 @@ def main(commandline_args: Sequence[str] | None = None) -> int:
 
     window = create_client_window(args)
     app = create_app()
+    runner = ApplicationRunner(app)
     if isinstance(window, WebRTCClientWindow):
         print(f"Open {window.server.url} in a browser.", flush=True)
     try:
@@ -213,20 +214,22 @@ def main(commandline_args: Sequence[str] | None = None) -> int:
 
         # TODO: in production, commandline argument parsing and IClientWindow creation should be done by flashdreams-run, a CLI tool
         # basically, we need to generailze this main function to be shared by all applications
-        ApplicationRunner(app, window).run(
-            SessionDesc(
+        runner.init(application_args)
+        runner.run_session(
+            SessionDescRequest(
                 output_layout=VideoTensorLayout.bcthw,
                 frames_per_second_for_ui=args.fps,
                 frames_per_second_for_step=args.fps,
                 video_width=args.width,
                 video_height=args.height,
             ),
-            application_args,
+            window,
         )
     except KeyboardInterrupt:
         return 130
     finally:
         window.close()
+        runner.close()
     return 0
 
 
