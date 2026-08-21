@@ -51,6 +51,8 @@ const frameTimes = []
 const pendingActions = []
 const maxPendingActions = 32
 const heartbeatIntervalMs = 2000
+const autoConnectMaxAttempts = 3
+const autoConnectRetryDelayMs = 750
 
 let allowedKeys = new Set()
 let controlButtons = []
@@ -294,6 +296,7 @@ const modelContext = {
 
 async function loadModelAdapter() {
   let adapter = {}
+  let serverAcceptedKeys = []
   const stylesheetHrefs = new Set()
   try {
     const response = await fetch("/api/ui/config")
@@ -301,6 +304,9 @@ async function loadModelAdapter() {
       const config = await response.json()
       if (typeof config.model_stylesheet === "string" && config.model_stylesheet) {
         stylesheetHrefs.add(config.model_stylesheet)
+      }
+      if (Array.isArray(config.accepted_keys)) {
+        serverAcceptedKeys = config.accepted_keys
       }
       if (typeof config.adapter_module === "string" && config.adapter_module) {
         const module = await import(config.adapter_module)
@@ -323,7 +329,12 @@ async function loadModelAdapter() {
     stylesheet.href = href
     document.head.append(stylesheet)
   }
-  const modelControls = Array.isArray(adapter.controls) ? adapter.controls : []
+  const genericControls = serverAcceptedKeys.length > 0
+    ? [{ label: "Controls", keys: serverAcceptedKeys }]
+    : []
+  const modelControls = Array.isArray(adapter.controls)
+    ? adapter.controls
+    : genericControls
   renderControls(modelControls)
   if (typeof adapter.modelName === "string") {
     modelContext.setModelName(adapter.modelName)
@@ -689,7 +700,11 @@ function handleControlMessage(rawMessage) {
       parts.push(`queue=${queueDepth}`)
     }
     logEvent(parts.join(", "))
-    setStatus(activeKeys.size > 0 ? "Generating" : "Waiting", activeKeys.size > 0 ? "generating" : "waiting")
+    const isGenerating = activeKeys.size > 0
+    setStatus(
+      isGenerating ? "Generating" : "Connected",
+      isGenerating ? "generating" : "connected"
+    )
     setFlow(`chunk ${payload.chunk_index} complete`)
     modelAdapter?.onControlMessage?.(payload, modelContext)
     return
@@ -705,7 +720,7 @@ function handleControlMessage(rawMessage) {
       promptGenerationControls.generate.disabled = false
       promptGenerationControls.download.disabled = false
     }
-    setStatus("Waiting", "waiting")
+    setStatus("Connected", "connected")
     setFlow("generation complete; ready for another prompt")
     logEvent("generation complete", { source: "server" })
     stopPromptRecording()
@@ -728,7 +743,7 @@ function handleControlMessage(rawMessage) {
 
   if (payload.type === "busy") {
     logEvent(`server busy: ${payload.message}`, { level: "error" })
-    setStatus("Waiting", "waiting")
+    setStatus("Connected", "connected")
     return
   }
 
@@ -874,6 +889,38 @@ function stopHeartbeat() {
   }
 }
 
+function wait(delayMs) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs))
+}
+
+function isTransientFetchError(error) {
+  return (
+    error instanceof TypeError
+    && /fetch|network|load failed/i.test(String(error.message || ""))
+  )
+}
+
+function markSessionConnected(pc, channel) {
+  if (
+    connected ||
+    peerConnection !== pc ||
+    controlChannel !== channel ||
+    pc.connectionState !== "connected" ||
+    channel.readyState !== "open"
+  ) {
+    return
+  }
+  connected = true
+  setStatus("Connected", "connected")
+  setFlow("waiting for input")
+  startHeartbeat()
+  startStatsPolling()
+  if (pendingPromptGeneration) {
+    pendingPromptGeneration = false
+    triggerPromptGeneration()
+  }
+}
+
 function disconnectSession({ notify = true } = {}) {
   if (disconnecting) {
     return
@@ -903,7 +950,7 @@ function disconnectSession({ notify = true } = {}) {
   resetPeerHandles()
 }
 
-async function connectSession() {
+async function connectSession({ attemptsRemaining = 1 } = {}) {
   if (connected || peerConnection) {
     return
   }
@@ -925,17 +972,13 @@ async function connectSession() {
     pc.addTransceiver("video", { direction: "recvonly" })
 
     channel.onopen = () => {
-      connected = true
-      setStatus("Waiting", "waiting")
-      setFlow("connected; waiting for input")
       logEvent("control data channel open")
-      startHeartbeat()
-      if (pendingPromptGeneration) {
-        pendingPromptGeneration = false
-        triggerPromptGeneration()
-      }
+      markSessionConnected(pc, channel)
     }
     channel.onclose = () => {
+      if (peerConnection !== pc || controlChannel !== channel) {
+        return
+      }
       connected = false
       setPostprocessDisabled(false)
       if (document.body.dataset.status !== "error") {
@@ -967,13 +1010,13 @@ async function connectSession() {
     }
 
     pc.onconnectionstatechange = () => {
+      if (peerConnection !== pc) {
+        return
+      }
       const state = pc.connectionState
       logEvent(`connection_state=${state}`, { source: "client" })
       if (state === "connected") {
-        connected = true
-        setStatus("Waiting", "waiting")
-        setFlow("connected; waiting for input")
-        startStatsPolling()
+        markSessionConnected(pc, channel)
         return
       }
       if (state === "connecting") {
@@ -1035,13 +1078,26 @@ async function connectSession() {
     }
     resetPeerHandles()
     connected = false
+    modelAdapter?.onDisconnect?.(modelContext)
+    if (attemptsRemaining > 1 && isTransientFetchError(error)) {
+      const attempt = autoConnectMaxAttempts - attemptsRemaining + 1
+      const delayMs = autoConnectRetryDelayMs * attempt
+      setStatus("Connecting", "connecting")
+      setFlow(`retrying in ${delayMs}ms`)
+      logEvent(`connect attempt failed: ${error.message}; retrying...`, {
+        source: "client",
+      })
+      await wait(delayMs)
+      return connectSession({ attemptsRemaining: attemptsRemaining - 1 })
+    }
     setStatus("Error", "error")
     setFlow("failed")
     logEvent(`connect failed: ${error.message}`, { source: "client", level: "error" })
     connectButton.disabled = false
     setPostprocessDisabled(false)
-    modelAdapter?.onDisconnect?.(modelContext)
+    return false
   }
+  return true
 }
 
 function handleKeyDown(event) {
@@ -1122,7 +1178,7 @@ async function initialize() {
   attachPointerControls()
   window.requestAnimationFrame(drawIdleScene)
   startVideoFrameMonitor()
-  connectButton.disabled = false
+  await connectSession({ attemptsRemaining: autoConnectMaxAttempts })
 }
 
 connectButton.addEventListener("click", () => {

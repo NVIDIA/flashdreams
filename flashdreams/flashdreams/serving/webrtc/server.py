@@ -91,11 +91,14 @@ def create_webrtc_app(
         )
 
     async def ui_config(_: web.Request) -> web.StreamResponse:
-        payload: dict[str, str | None] = {"adapter_module": None}
+        payload: dict[str, object] = {"adapter_module": None}
         if model_web_dir is not None and (model_web_dir / "adapter.js").is_file():
             payload["adapter_module"] = "/model-static/adapter.js?v=model-ui-v2"
         if model_web_dir is not None and (model_web_dir / "adapter.css").is_file():
             payload["model_stylesheet"] = "/model-static/adapter.css?v=model-ui-v2"
+        manager_config = getattr(session_manager, "browser_ui_config", None)
+        if callable(manager_config):
+            payload.update(manager_config())
         return web.json_response(payload)
 
     async def on_startup(app: web.Application) -> None:
@@ -169,3 +172,11 @@ def create_packaged_webrtc_app(
         resource_stack.close()
         raise
     return app
+
+
+__all__ = [
+    "SessionBusyError",
+    "WebRTCSessionManager",
+    "create_packaged_webrtc_app",
+    "create_webrtc_app",
+]

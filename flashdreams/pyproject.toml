@@ -71,6 +71,9 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+# The same idea on the v2 API, kept separate while both exist: v2 applications
+# implement a different contract, so one binary could not resolve both.
+flashdreams-run-v2 = "flashdreams.runtime_v2.cli:entrypoint"
 flashdreams-benchmark = "tools.benchmarks.cli:main"
 
 [project.entry-points."flashdreams.postprocess_presets"]
@@ -116,6 +119,10 @@ runners = [
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
+local-window = [
+    "slangpy==0.42.0",
+]
+
 # Optional NVIDIA VFX runtime used only by the RTX postprocess presets.
 # Kept out of the default install because it is proprietary and requires
 # supported NVIDIA RTX hardware.
@@ -139,6 +146,7 @@ exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 [tool.setuptools.package-data]
 "flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
+"flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js"]
 
 [dependency-groups]
 # Default CUDA 13 profile. No source binding -- Linux falls through to

@@ -135,7 +135,10 @@ uv run --no-sync python -m flashvsr.grpc.uplift_server \
     --sparse_ratio 1.5
 ```
 
-Then open `http://<server-host>:8080/` in a browser. The page shows received
+Then open `http://localhost:8080/` in a browser. The gRPC server and viewer bind
+to localhost by default; to access either from another machine, use an SSH tunnel
+(for example, `ssh -L 50051:127.0.0.1:50051 -L 8080:127.0.0.1:8080 user@server`).
+The page shows received
 input frames and upsampled frames side by side. By default, viewer mode omits
 raw output frame bytes from gRPC responses to keep server-to-client bandwidth
 low; pass `--viewer_return_grpc_frames` if a client also needs the RGB payloads.

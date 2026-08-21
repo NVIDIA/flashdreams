@@ -30,6 +30,7 @@ Usage::
     flashdreams-run wan21-t2v-1.3b-480p --postprocess.preset flashvsr-v1.1-sparse-2.0
     flashdreams-run lingbot-world-fast webrtc --host 0.0.0.0 --port 8080
     flashdreams-run omnidreams local-window
+    flashdreams-run t2v-causal-forcing --prompt "A forest waterfall."
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells
@@ -199,6 +200,18 @@ def entrypoint(argv: list[str] | None = None) -> None:
     """
     tyro.extras.set_accent_color("bright_yellow")
     raw_args = list(sys.argv[1:] if argv is None else argv)
+    from flashdreams.demo.application import (
+        entrypoint as application_entrypoint,
+    )
+    from flashdreams.demo.application import (
+        registered_application_slugs,
+    )
+
+    application_slugs = registered_application_slugs()
+    if raw_args and raw_args[0] in application_slugs:
+        application_entrypoint(raw_args)
+        return
+
     (
         normalized_args,
         runners,
@@ -286,7 +299,12 @@ def entrypoint(argv: list[str] | None = None) -> None:
         "FlashdreamsRunArgs",
         cli_fields,
     )
-    args_cls.__doc__ = (__doc__ or "") + help_suffix
+    application_help = ""
+    if application_slugs:
+        application_help = "\n\nInstalled application demo slugs:\n  " + "\n  ".join(
+            application_slugs
+        )
+    args_cls.__doc__ = (__doc__ or "") + help_suffix + application_help
 
     # Silence ``--help`` / parse-error banners on non-rank-0 ranks so
     # they print exactly once even though every rank parses argv. Every

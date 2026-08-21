@@ -10,6 +10,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from flashdreams.demo.io import SessionInfo
+from flashdreams.demo.outputs import build_benchmark_output_sink
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import InferenceInput
 from flashdreams.runtime.interfaces import InferenceRuntime, InferenceSession
@@ -24,7 +26,6 @@ from flashdreams.runtime.video_output import VideoWriter
 
 from .drivers import BatchSessionDriver, run_demo_session
 from .host import ModelWarmupPlan, RuntimeHost
-from .outputs import SessionInfo, build_benchmark_output_sink
 from .pipeline import StepPipeline
 from .run_modes import (
     AdmissionPolicy,

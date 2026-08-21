@@ -233,6 +233,11 @@ class VideoResultCollector:
         self._chunks: list[Tensor] = []
         self.stats_history: list[dict[str, object]] = []
 
+    @property
+    def has_video(self) -> bool:
+        """Whether at least one non-empty video chunk was collected."""
+        return bool(self._chunks)
+
     def add(self, result: StepResult) -> None:
         """Collect one video result and its serializable statistics."""
         if result.layout != self.output_layout:

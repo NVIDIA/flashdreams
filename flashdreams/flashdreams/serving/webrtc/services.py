@@ -18,11 +18,20 @@ import json
 import math
 import threading
 from collections import deque
-from collections.abc import Callable, Coroutine, Mapping, MutableSet, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Coroutine,
+    Mapping,
+    MutableSet,
+    Sequence,
+)
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from flashdreams.demo.outputs import WebRTCOutputSink
+from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
     StepRequirements,
     StepResult,
@@ -39,7 +48,6 @@ from flashdreams.runtime.demo import (
     InMemorySessionMetricsRecorder,
     ModelInputProvider,
     ModelWarmupPlan,
-    OutputDecision,
     PreparedScenario,
     RealtimeSessionDriver,
     RealtimeWindowResult,
@@ -272,12 +280,89 @@ class WebRTCTransportService:
             callback(reason)
 
 
+class WebRTCManagerLifecycle:
+    """Shared preload, admission, and client-liveness behavior for managers."""
+
+    def __init__(
+        self,
+        *,
+        busy_message: str,
+        client_liveness_timeout_s: float,
+        health_check: Callable[[], bool] | None = None,
+    ) -> None:
+        if client_liveness_timeout_s <= 0:
+            raise ValueError("client_liveness_timeout_s must be > 0")
+        self.busy_message = busy_message
+        self.client_liveness_timeout_s = float(client_liveness_timeout_s)
+        self.admission = SingleSessionAdmissionPolicy(health_check=health_check)
+        self._preload_lock = asyncio.Lock()
+        self._runtime_ready = False
+
+    @property
+    def runtime_ready(self) -> bool:
+        """Whether the one-time preload callback completed successfully."""
+        return self._runtime_ready
+
+    async def ensure_preloaded(
+        self,
+        initialize: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Run ``initialize`` exactly once, serializing concurrent callers."""
+        async with self._preload_lock:
+            if self._runtime_ready:
+                return
+            await initialize()
+            self._runtime_ready = True
+
+    def mark_ready(self) -> None:
+        """Mark the lifecycle ready for compatibility setup and test fixtures."""
+        self._runtime_ready = True
+
+    def mark_unready(self) -> None:
+        """Mark the lifecycle unavailable after manager shutdown."""
+        self._runtime_ready = False
+
+    def reserve(self) -> Any:
+        """Reserve the single peer slot or raise the manager's busy error."""
+        reservation = self.admission.try_reserve()
+        if reservation is None:
+            raise SessionBusyError(self.busy_message)
+        return reservation
+
+    async def watch_client_liveness(
+        self,
+        *,
+        is_closed: Callable[[], bool],
+        last_message_at: Callable[[], float],
+        close_session: Callable[[], Awaitable[None]],
+        check_interval_s: float = 1.0,
+    ) -> None:
+        """Close a peer whose control channel has exceeded the silence limit."""
+        if check_interval_s <= 0:
+            raise ValueError("check_interval_s must be > 0")
+        loop = asyncio.get_running_loop()
+        while not is_closed():
+            elapsed_s = loop.time() - last_message_at()
+            if elapsed_s >= self.client_liveness_timeout_s:
+                await close_session()
+                return
+            await asyncio.sleep(
+                min(
+                    check_interval_s,
+                    self.client_liveness_timeout_s - elapsed_s,
+                )
+            )
+
+
 @dataclass(slots=True)
 class WebRTCActivationPolicy:
     """Activate on the first browser action/event or stop on disconnect."""
 
     input_source: "WebRTCInputSource"
     transport: WebRTCTransportService
+    activate_without_input: bool = False
+    """Whether an active transport can start before a browser event arrives."""
+
     timeout_s: float | None = None
     timeout_reason: str = "activation timed out"
     anchor_clock: bool = True
@@ -292,6 +377,14 @@ class WebRTCActivationPolicy:
         self,
         clock: RealtimeClock | DeterministicClock,
     ) -> ActivationResult:
+        if self.activate_without_input:
+            if not self.transport.is_active():
+                return ActivationResult(
+                    activated=False,
+                    reason=self.transport.close_reason or "transport closed",
+                )
+            self._anchor(clock)
+            return ActivationResult(activated=True)
         if self.input_source.activation_signal.is_set():
             self._anchor(clock)
             return ActivationResult(activated=True)
@@ -341,7 +434,10 @@ class WebRTCActivationPolicy:
         now = getattr(clock, "now", None)
         anchor = getattr(clock, "anchor", None)
         if callable(now) and callable(anchor):
-            anchor(now())
+            activation_timestamp_s = self.input_source.activation_timestamp_s
+            if activation_timestamp_s is None:
+                activation_timestamp_s = now()
+            anchor(activation_timestamp_s)
 
 
 @dataclass(slots=True)
@@ -368,6 +464,11 @@ class WebRTCInputSource:
         init=False,
         repr=False,
     )
+    _activation_timestamp_s: float | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.max_lag_s is not None and (
@@ -383,6 +484,11 @@ class WebRTCInputSource:
     def activation_signal(self) -> "_ThreadSafeActivationSignal":
         return self._activation_signal
 
+    @property
+    def activation_timestamp_s(self) -> float | None:
+        """Return the timestamp of the event that first activated this run."""
+        return self._activation_timestamp_s
+
     def is_finished(self) -> bool:
         return False
 
@@ -391,6 +497,7 @@ class WebRTCInputSource:
         if self.legacy_segment_resampler is not None:
             self.legacy_segment_resampler.reset(start_v=start_v)
         self._events.clear()
+        self._activation_timestamp_s = None
         self._activation_signal.clear()
 
     def handle_browser_message(
@@ -465,7 +572,7 @@ class WebRTCInputSource:
         self.user_input_schema.validate_event(event)
         self._events.append(event)
         if activate:
-            self._activation_signal.set()
+            self._activate(timestamp_s)
 
     async def next_realtime_window(
         self,
@@ -530,7 +637,7 @@ class WebRTCInputSource:
     ) -> WebRTCMessageResult:
         event = str(payload.get("event", "")).strip().lower()
         if event == "step":
-            self._activation_signal.set()
+            self._activate(timestamp_s)
             return WebRTCMessageResult(kind="action", activated=True)
         if event not in {"keydown", "keyup"}:
             return WebRTCMessageResult(
@@ -555,6 +662,11 @@ class WebRTCInputSource:
             payload={"key": key},
         )
         return WebRTCMessageResult(kind="action", activated=True)
+
+    def _activate(self, timestamp_s: float) -> None:
+        if self._activation_timestamp_s is None:
+            self._activation_timestamp_s = timestamp_s
+        self._activation_signal.set()
 
     def _record_text_event(
         self,
@@ -602,62 +714,6 @@ class WebRTCInputSource:
         self._events = deque(
             event for event in self._events if event.timestamp_s >= before_s
         )
-
-
-class WebRTCOutputSink:
-    """Output sink that schedules WebRTC media delivery without blocking."""
-
-    produces_artifacts = False
-
-    def __init__(self, *, bridge: WebRTCOutputBridge) -> None:
-        self._bridge = bridge
-        self._opened = False
-        self._closed = True
-        self._bridge_closed = False
-        self._generation = 0
-        self._force_keyframe = False
-        self.session_info: SessionInfo | None = None
-
-    def open(self, session_info: SessionInfo) -> None:
-        self.session_info = session_info
-        self._opened = True
-        self._closed = False
-        self._generation = 0
-        self._force_keyframe = True
-        self._bridge.begin_generation(0)
-
-    def begin_generation(self, generation: int) -> None:
-        if generation < 0:
-            raise ValueError("generation must be >= 0.")
-        self._generation = generation
-        self._force_keyframe = True
-        self._bridge.begin_generation(generation)
-
-    def write(self, result: StepResult) -> OutputDecision:
-        if not self._opened or self._closed:
-            raise RuntimeError("Cannot write to a closed output sink.")
-        decision = self._bridge.submit_chunk(
-            result,
-            generation=self._generation,
-            force_keyframe=self._force_keyframe,
-        )
-        self._force_keyframe = False
-        return OutputDecision(
-            should_stop=decision.should_stop,
-            dropped=decision.dropped,
-            drop_policy=decision.drop_policy,
-            backpressure_s=decision.backpressure_s,
-            metadata=decision.metadata,
-        )
-
-    def close(self) -> Sequence[Any]:
-        if self._bridge_closed:
-            return ()
-        self._closed = True
-        self._opened = False
-        self._bridge.close()
-        self._bridge_closed = True
-        return ()
 
 
 class ThreadSafeWebRTCOutputBridge:
