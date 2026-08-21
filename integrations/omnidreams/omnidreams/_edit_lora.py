@@ -132,6 +132,34 @@ class TextEditLoRA:
             lin.weight.data.copy_(w)
         self.active = active
 
+    def release_targets(self, linears: list[nn.Linear]) -> list[Tensor]:
+        """Stop toggling the given live linears; return their fp32 deltas.
+
+        Composition seam for the fused drift-corrector dispatch
+        (:class:`omnidreams._drift_corrector.DriftCorrectorDispatch`): the
+        dispatch becomes the sole writer of the released projections and
+        folds the returned ``edit - base`` deltas into its per-state
+        pre-merged weight sets, while this hook keeps toggling only the
+        remaining (cross-attention) projections. Deltas are returned in
+        the order of ``linears``.
+        """
+        assert not self.active, "release targets while the base weights are live"
+        index = {id(lin): i for i, lin in enumerate(self._linears)}
+        drop: set[int] = set()
+        deltas: list[Tensor] = []
+        for lin in linears:
+            assert id(lin) in index, "linear is not one of this LoRA's targets"
+            i = index[id(lin)]
+            deltas.append(
+                self._edit[i].to(torch.float32) - self._base[i].to(torch.float32)
+            )
+            drop.add(i)
+        keep = [i for i in range(len(self._linears)) if i not in drop]
+        self._linears = [self._linears[i] for i in keep]
+        self._base = [self._base[i] for i in keep]
+        self._edit = [self._edit[i] for i in keep]
+        return deltas
+
     def describe(self) -> str:
         """One-line deploy description for startup logs."""
         return (
