@@ -20,7 +20,12 @@ from crazy_robotaxi.live_edit.config import (
     live_edit_config_from_args,
 )
 from crazy_robotaxi.live_edit.input_hooks import LiveEditRequests
-from crazy_robotaxi.live_edit.presenter import LiveEditPresenter, unsharp_rgb
+from crazy_robotaxi.live_edit.presenter import (
+    LiveEditPresenter,
+    procedural_coin_sprite,
+    scaled_sprite_size,
+    unsharp_rgb,
+)
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
 from omnidreams_game_engine.types import CameraCalibration, VehicleState
@@ -224,6 +229,72 @@ class TestPresenter:
         assert not np.array_equal(out, rgb)
         # Counter chip occupies the top-left corner.
         assert not np.array_equal(out[:40, :120], rgb[:40, :120])
+
+    def test_default_sprite_is_the_procedural_coin(self) -> None:
+        sprite = LiveEditPresenter._load_sprite(None)
+
+        reference = procedural_coin_sprite()
+        assert sprite.size == reference.size
+        assert sprite.mode == "RGBA"
+        assert np.array_equal(np.asarray(sprite), np.asarray(reference))
+
+    def test_explicit_sprite_path_overrides_the_procedural_coin(self, tmp_path) -> None:
+        from PIL import Image
+
+        path = tmp_path / "custom.png"
+        Image.new("RGBA", (10, 20), (1, 2, 3, 4)).save(path)
+
+        sprite = LiveEditPresenter._load_sprite(path)
+
+        assert sprite.size == (10, 20)
+
+    def test_sprite_scaling_preserves_aspect_and_applies_squash(self) -> None:
+        wide, tall = scaled_sprite_size((407, 491), height_px=50.0, squash=1.0)
+        assert tall == 50
+        assert wide == round(50.0 * 407 / 491)
+
+        squashed_w, squashed_h = scaled_sprite_size((407, 491), 50.0, 0.5)
+        assert squashed_h == 50
+        assert squashed_w == round(50.0 * 407 / 491 * 0.5)
+
+        # Tiny/edge cases stay drawable.
+        assert scaled_sprite_size((407, 491), 0.5, 0.3) == (2, 3)
+
+    def test_composites_a_coin_straddling_the_image_edge(self) -> None:
+        from dataclasses import dataclass, field
+        from typing import Any
+
+        from omnidreams_game_engine.types import PresentedFrame
+
+        @dataclass
+        class RecordingPresenter:
+            frames: list[Any] = field(default_factory=list)
+
+            def present_frame(self, frame: Any, view_mode: str) -> None:
+                self.frames.append(frame)
+
+        config = LiveEditConfig(coins=_coins_config(coin_diameter_m=8.0))
+        # Close and high coin: center projects in-image but the sprite
+        # extends past the top edge; must clip, not raise.
+        ability = CoinAbility(
+            np.array([[4.0, 0.0, 2.5]], dtype=np.float32), config.coins
+        )
+        inner = RecordingPresenter()
+        presenter = LiveEditPresenter(inner, config, coin_ability=ability)
+        presenter.configure_taxi_camera(_test_calibration())
+
+        rgb = np.full((704, 1280, 3), 90, dtype=np.uint8)
+        frame = PresentedFrame(
+            timestamp_us=1,
+            rgb_host_uint8=rgb,
+            depth_host_f32=None,
+            model_rgb_host_uint8=rgb.copy(),
+            rig_to_world=np.eye(4, dtype=np.float32),
+        )
+        presenter.present_frame(frame, "model_rgb")
+
+        out = np.asarray(inner.frames[0].model_rgb_host_uint8)
+        assert not np.array_equal(out, rgb)
 
     def test_passes_frames_through_untouched_when_nothing_is_enabled(self) -> None:
         from dataclasses import dataclass, field

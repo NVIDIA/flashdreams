@@ -42,6 +42,12 @@ _COUNTER_CHIP_RGBA = (30, 30, 30, 180)
 _COIN_GOLD = (250, 200, 40, 255)
 _COIN_RIM = (170, 120, 10, 255)
 
+# Soft contact-shadow tuning: kept light so the gold coin pops.
+_SHADOW_MAX_ALPHA = 60
+_SHADOW_WIDTH_FRACTION = 0.9
+_SHADOW_HEIGHT_FRACTION = 0.22
+_SHADOW_DROP_FRACTION = 0.62
+
 
 def unsharp_rgb(frame: np.ndarray, *, sigma: float, amount: float) -> np.ndarray:
     """Sharpen an HWC uint8 RGB frame with the validated cas-style mask.
@@ -61,7 +67,8 @@ def unsharp_rgb(frame: np.ndarray, *, sigma: float, amount: float) -> np.ndarray
 
 
 def procedural_coin_sprite(size_px: int = 96) -> Image.Image:
-    """Render a simple golden coin RGBA sprite (placeholder asset)."""
+    """Render a simple golden coin RGBA sprite (the default coin; a custom
+    sprite can be supplied via ``--live-edit-coin-sprite``)."""
     sprite = Image.new("RGBA", (size_px, size_px), (0, 0, 0, 0))
     draw = ImageDraw.Draw(sprite)
     margin = size_px // 12
@@ -229,8 +236,9 @@ class LiveEditPresenter:
         canvas = Image.fromarray(rgb, mode="RGB").convert("RGBA")
         for sprite in sprites:
             squash = coin_squash(sprite.spin_phase, self._frame_index)
-            sprite_h = max(3, round(sprite.height_px))
-            sprite_w = max(2, round(sprite.height_px * squash))
+            sprite_w, sprite_h = scaled_sprite_size(
+                self._coin_sprite.size, sprite.height_px, squash
+            )
             resized = self._coin_sprite.resize(
                 (sprite_w, sprite_h), Image.Resampling.LANCZOS
             )
@@ -240,16 +248,41 @@ class LiveEditPresenter:
                     faded[..., 3].astype(np.float32) * sprite.alpha
                 ).astype(np.uint8)
                 resized = Image.fromarray(faded)
-            # TODO: port luminance harmonization + contact shadows from
-            # composite_track_items.py once the look is reviewed on GPU runs.
-            canvas.alpha_composite(
+            self._composite_contact_shadow(
+                canvas, sprite.center_uv, sprite_w, sprite_h, sprite.alpha
+            )
+            _alpha_composite_clipped(
+                canvas,
                 resized,
-                (
-                    round(sprite.center_uv[0] - sprite_w / 2.0),
-                    round(sprite.center_uv[1] - sprite_h / 2.0),
-                ),
+                round(sprite.center_uv[0] - sprite_w / 2.0),
+                round(sprite.center_uv[1] - sprite_h / 2.0),
             )
         return np.asarray(canvas.convert("RGB"))
+
+    @staticmethod
+    def _composite_contact_shadow(
+        canvas: Image.Image,
+        center_uv: tuple[float, float],
+        sprite_w: int,
+        sprite_h: int,
+        alpha: float,
+    ) -> None:
+        """Blend a soft elliptical shadow under one coin (light on purpose)."""
+        shadow_w = max(2, round(sprite_w * _SHADOW_WIDTH_FRACTION))
+        shadow_h = max(1, round(sprite_h * _SHADOW_HEIGHT_FRACTION))
+        shadow = Image.new("RGBA", (shadow_w + 4, shadow_h + 4), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(shadow)
+        draw.ellipse(
+            [2, 2, shadow_w + 2, shadow_h + 2],
+            fill=(0, 0, 0, round(_SHADOW_MAX_ALPHA * alpha)),
+        )
+        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=max(1, shadow_h // 3)))
+        _alpha_composite_clipped(
+            canvas,
+            shadow,
+            round(center_uv[0] - shadow.width / 2.0),
+            round(center_uv[1] + sprite_h * _SHADOW_DROP_FRACTION),
+        )
 
     def _annotate_obstacle(self, rgb: np.ndarray, frame: PresentedFrame) -> np.ndarray:
         """Outline the obstacle clone's 3D box (evidence aid, flag-gated)."""
@@ -378,6 +411,37 @@ class LiveEditPresenter:
             return procedural_coin_sprite()
         with Image.open(sprite_path) as image:
             return image.convert("RGBA")
+
+
+def scaled_sprite_size(
+    sprite_wh: tuple[int, int], height_px: float, squash: float
+) -> tuple[int, int]:
+    """On-screen sprite size from the FTheta-projected vertical extent.
+
+    Height is authoritative (projected coin diameter); width preserves the
+    sprite's native aspect ratio and carries the spin squash.
+    """
+    native_w, native_h = sprite_wh
+    if native_w <= 0 or native_h <= 0:
+        raise ValueError("sprite dimensions must be positive")
+    sprite_h = max(3, round(height_px))
+    sprite_w = max(2, round(height_px * (native_w / native_h) * squash))
+    return sprite_w, sprite_h
+
+
+def _alpha_composite_clipped(
+    canvas: Image.Image, source: Image.Image, left: int, top: int
+) -> None:
+    """``alpha_composite`` that tolerates destinations off the canvas edge."""
+    crop_left = max(0, -left)
+    crop_top = max(0, -top)
+    crop_right = min(source.width, canvas.width - left)
+    crop_bottom = min(source.height, canvas.height - top)
+    if crop_left >= crop_right or crop_top >= crop_bottom:
+        return
+    if (crop_left, crop_top) != (0, 0) or (crop_right, crop_bottom) != source.size:
+        source = source.crop((crop_left, crop_top, crop_right, crop_bottom))
+    canvas.alpha_composite(source, (left + crop_left, top + crop_top))
 
 
 def _quat_to_matrix(quat_xyzw: np.ndarray) -> np.ndarray:
