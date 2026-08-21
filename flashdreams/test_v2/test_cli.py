@@ -277,9 +277,16 @@ def _write_application_module(
 class StubMode(ClientWindowMode):
     """A mode handing the command a window the test can look inside."""
 
-    def __init__(self, name: str, window: IClientWindow) -> None:
+    def __init__(
+        self,
+        name: str,
+        window: IClientWindow,
+        *,
+        serves_sessions: bool = False,
+    ) -> None:
         self.name = name
         self._window = window
+        self.serves_sessions = serves_sessions
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         del parsed_args
@@ -400,13 +407,42 @@ def test_nothing_is_measured_unless_a_run_asks(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_application_that_will_not_start_reports_why(
+def test_a_one_shot_run_without_a_prompt_reports_why(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install(monkeypatch, StubT2VApplication(_stand_in()), RecordingWindow())
 
-    with pytest.raises(ValueError, match="--prompt is required"):
+    with pytest.raises(ValueError, match="session prompt is required"):
         cli.entrypoint(["stub", "--mode", "webrtc"])
+
+
+def test_a_browser_server_starts_without_a_command_line_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InterruptingWindow(RecordingWindow):
+        def __init__(self) -> None:
+            super().__init__()
+            self.closed = False
+
+        def get_user_input_events(self) -> UserInputEvents:
+            raise KeyboardInterrupt
+
+        def close(self) -> None:
+            self.closed = True
+
+    pipeline = _stand_in()
+    window = InterruptingWindow()
+    _install(monkeypatch, StubT2VApplication(pipeline))
+    monkeypatch.setattr(
+        cli,
+        "client_window_mode",
+        lambda name: StubMode(name, window, serves_sessions=True),
+    )
+
+    cli.entrypoint(["stub", "--mode", "webrtc"])
+
+    assert window.closed
+    assert pipeline.device is None
 
 
 ## Describing the session to run

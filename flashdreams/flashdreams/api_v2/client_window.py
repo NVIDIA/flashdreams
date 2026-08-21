@@ -13,14 +13,17 @@ class IClientWindow(InputSource, OutputSink, ABC):
     """Handle application input and output for one client window.
 
     The runtime opens the window with the session's description, then reads input
-    and writes results until the run ends, and closes it then. A window stays open
-    across a session reset.
+    and writes results until the run ends. A window stays open across a session
+    reset. When the client asks for a replacement session, the runtime closes the
+    old session and opens the same window with the replacement's description. A
+    session-serving runner can also leave the window open between sessions while
+    it waits for another client request.
 
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.
 
-    One thread makes every call on a window, so an implementation needs no
-    locking except when its backend delivers input from another thread.
+    One I/O thread at a time makes every call on a window, so an implementation
+    needs no locking except when its backend delivers input from another thread.
 
     Created by the runtime, never by an application.
     """

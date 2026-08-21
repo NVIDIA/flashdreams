@@ -8,6 +8,7 @@ what an application refuses to generate, and when the model is loaded.
 """
 
 import argparse
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -88,6 +89,7 @@ class RecordingRollout(T2VSession):
         self, pipeline: Any, prompt: str, session_desc: SessionDesc, total_blocks: int
     ) -> None:
         super().__init__(pipeline, prompt, session_desc, total_blocks)
+        self.prompt = prompt
         self.blocks_to_generate = total_blocks
 
 
@@ -240,12 +242,18 @@ def test_the_rollout_length_can_be_overridden() -> None:
     assert _rollout_length(app) == 3
 
 
-def test_a_run_needs_something_to_generate_from() -> None:
+def test_an_application_can_initialize_before_a_session_has_a_prompt() -> None:
     app = T2VApplication(defaults=_defaults())
 
-    with pytest.raises(ValueError, match="--prompt is required"):
-        app.init([])
-    with pytest.raises(ValueError, match="--prompt is required"):
+    app.init([])
+    with pytest.raises(ValueError, match="session prompt is required"):
+        app.create_session(_session_desc())
+
+
+def test_an_explicit_command_line_prompt_cannot_be_empty() -> None:
+    app = T2VApplication(defaults=_defaults())
+
+    with pytest.raises(ValueError, match="--prompt cannot be empty"):
         app.init(["--prompt", "   "])
 
 
@@ -275,6 +283,27 @@ def test_the_model_loads_once_and_every_session_shares_it() -> None:
     assert config.pipeline.device == "cpu"
     assert config.pipeline.eval_count == 1
     assert first is not second
+
+
+def test_session_metadata_can_replace_the_command_line_prompt() -> None:
+    app = _application()
+
+    session = app.create_session(
+        replace(_session_desc(), metadata={"prompt": "A dog snowboarding"})
+    )
+
+    assert isinstance(session, RecordingRollout)
+    assert session.prompt == "A dog snowboarding"
+
+
+@pytest.mark.parametrize("prompt", ["", 7])
+def test_a_replacement_prompt_must_be_non_empty_text(prompt: object) -> None:
+    app = _application()
+
+    with pytest.raises(ValueError, match="session prompt is required"):
+        app.create_session(replace(_session_desc(), metadata={"prompt": prompt}))
+
+    assert _pipeline_config(app).setup_count == 0
 
 
 def test_closing_the_application_releases_the_model() -> None:

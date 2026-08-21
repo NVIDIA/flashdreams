@@ -5,6 +5,7 @@
 
 import logging
 import threading
+from dataclasses import replace
 
 import pytest
 import torch
@@ -19,6 +20,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
     KeyboardUserInputEventData,
+    NewSessionUserInputEventData,
     ResetUserInputEventData,
     UserInputEvent,
 )
@@ -326,6 +328,39 @@ def test_run_session_stops_when_the_window_reports_a_close() -> None:
     assert log.calls[-2:] == ["window.close", "session.close"]
 
 
+def test_run_session_returns_the_next_session_desc_after_cleanup() -> None:
+    log = CallLog()
+    session_desc = _session_desc()
+    session = FakeSession(session_desc, log)
+    request = NewSessionUserInputEventData(metadata={"prompt": "A cat surfing"})
+    window = RecordingClientWindow(log, [_lifecycle_event(request)])
+
+    returned = run_session(session, window, steps=None)
+
+    assert returned == replace(session_desc, metadata={"prompt": "A cat surfing"})
+    assert "session.close" in log.calls
+    assert "window.close" not in log.calls
+    assert "session.step(0)" not in log.calls
+
+
+def test_run_session_closes_the_window_when_replacement_cleanup_fails() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log, fail_to_close=True)
+    window = RecordingClientWindow(
+        log,
+        [
+            _lifecycle_event(
+                NewSessionUserInputEventData(metadata={"prompt": "A cat surfing"})
+            )
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="session close failed"):
+        run_session(session, window, steps=None)
+
+    assert log.calls[-2:] == ["session.close", "window.close"]
+
+
 def test_run_session_resets_the_session_and_the_step_index() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
@@ -352,6 +387,18 @@ def test_run_session_stops_when_the_session_says_it_has_finished() -> None:
     run_session(session, window, steps=None)
 
     assert [result.step_index for result in window.results] == [0, 1]
+
+
+def test_run_session_can_leave_the_window_open_after_completion() -> None:
+    log = CallLog()
+    session = FiniteSession(_session_desc(), log, length=1)
+    window = RecordingClientWindow(log)
+
+    returned = run_session(session, window, keep_window_open=True)
+
+    assert returned is None
+    assert "session.close" in log.calls
+    assert "window.close" not in log.calls
 
 
 def test_run_session_ends_at_whichever_comes_first() -> None:

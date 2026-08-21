@@ -47,7 +47,7 @@ class WebRTCClientWindow(IClientWindow):
         self.server.register_input_callback(handle_input)
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Implement ``OutputSink.open`` by configuring WebRTC output.
+        """Configure WebRTC output for waiting or running a session.
 
         Args:
             session_desc: Resolved dimensions, frame rate, and tensor layout.

@@ -4,6 +4,15 @@
 const peer = new RTCPeerConnection();
 const controls = peer.createDataChannel("controls");
 peer.addTransceiver("video", {direction: "recvonly"});
+const newSessionButton = document.getElementById("new-session");
+
+controls.addEventListener("open", () => {
+  newSessionButton.disabled = false;
+});
+
+controls.addEventListener("close", () => {
+  newSessionButton.disabled = true;
+});
 
 peer.ontrack = event => {
   document.getElementById("video").srcObject =
@@ -36,6 +45,17 @@ document.getElementById("reset").onclick = () => {
   send({type: "reset"});
 };
 
+newSessionButton.onclick = () => {
+  const promptInput = document.getElementById("prompt");
+  if (!promptInput.reportValidity()) {
+    return;
+  }
+  send({
+    type: "new_session",
+    metadata: {prompt: promptInput.value},
+  });
+};
+
 window.addEventListener("beforeunload", () => send({type: "close"}));
 
 async function connect() {
@@ -47,11 +67,18 @@ async function connect() {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   await peer.setLocalDescription(await peer.createOffer());
-  const response = await fetch("/api/webrtc/offer", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify(peer.localDescription),
-  });
+  let response;
+  while (true) {
+    response = await fetch("/api/webrtc/offer", {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify(peer.localDescription),
+    });
+    if (response.status !== 409) {
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
   if (!response.ok) {
     throw new Error(await response.text());
   }

@@ -23,8 +23,8 @@ _FRAMES_PER_SECOND_FOR_UI = 60
 class T2VSessionConfig:
     """What one command line resolved to, shared by every session it creates."""
 
-    prompt: str
-    """Text every session generates from."""
+    prompt: str | None
+    """Default text for a session, when its request does not provide one."""
 
     device: str
     """Device the pipeline is built on."""
@@ -65,21 +65,26 @@ class T2VApplication(IApplication):
         return self._pipeline_config
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse what to generate, how much of it, and where.
+        """Parse the default prompt, rollout length, and device.
 
         Not what size or rate to generate at: that describes the session, which
         the caller asks for. The model is not loaded here either.
 
         Raises:
-            ValueError: No prompt was given, or the rollout length is not one
-                this model can generate.
+            ValueError: An explicitly provided prompt is empty, or the rollout
+                length is not one this model can generate.
         """
         parser = argparse.ArgumentParser(
             prog="flashdreams-run-v2 SLUG --",
             description="Generate video from text.",
         )
         parser.add_argument(
-            "--prompt", default="", help="Text to generate from. Required."
+            "--prompt",
+            default=None,
+            help=(
+                "Default text to generate from. A client may instead provide "
+                "a prompt for each session."
+            ),
         )
         parser.add_argument(
             "--device",
@@ -117,8 +122,8 @@ class T2VApplication(IApplication):
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
-        if not args.prompt.strip():
-            raise ValueError("--prompt is required, and cannot be empty.")
+        if args.prompt is not None and not args.prompt.strip():
+            raise ValueError("--prompt cannot be empty.")
         self._validate_total_blocks(args.total_blocks)
         self._apply_parsed_arguments(args)
 
@@ -155,7 +160,8 @@ class T2VApplication(IApplication):
 
         Raises:
             RuntimeError: :meth:`init` has not run yet.
-            ValueError: The description asks for output this cannot generate.
+            ValueError: The description asks for output this cannot generate,
+                or its prompt metadata is not a non-empty string.
         """
         config = self._config
         if config is None:
@@ -165,11 +171,17 @@ class T2VApplication(IApplication):
         # Before loading rather than after: a checkpoint of several gigabytes is
         # a long wait for a layout this was never going to accept.
         self._validate_layout(session_desc)
+        prompt = session_desc.metadata.get("prompt", config.prompt)
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError(
+                "A session prompt is required: pass --prompt or set "
+                "SessionDesc.metadata['prompt'] to a non-empty string."
+            )
         if self._pipeline is None:
             self._pipeline = self._pipeline_config.setup().to(config.device).eval()
         self._validate_frame_size(session_desc, self._pipeline)
         return self.session_type(
-            self._pipeline, config.prompt, session_desc, config.total_blocks
+            self._pipeline, prompt, session_desc, config.total_blocks
         )
 
     def close(self) -> None:

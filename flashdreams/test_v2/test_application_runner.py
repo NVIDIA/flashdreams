@@ -4,6 +4,7 @@
 """CPU tests for the v2 application runner."""
 
 import logging
+import threading
 from collections.abc import Sequence
 
 import pytest
@@ -18,6 +19,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc, SessionDescRequest
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
+    NewSessionUserInputEventData,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -82,6 +84,7 @@ class _Application(IApplication):
         self._fail_to_init = fail_to_init
         self._fail_to_close = fail_to_close
         self._session_length = session_length
+        self.created_session_descs: list[SessionDesc] = []
 
     def init(self, commandline_args: Sequence[str]) -> None:
         self._calls.append(f"application.init({list(commandline_args)!r})")
@@ -90,6 +93,7 @@ class _Application(IApplication):
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         self._calls.append("application.create_session")
+        self.created_session_descs.append(session_desc)
         return _Session(session_desc, self._calls, length=self._session_length)
 
     def close(self) -> None:
@@ -136,6 +140,44 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
+class _ScriptedWindow(_Window):
+    """Report one scripted event batch each time the runner polls."""
+
+    def __init__(self, calls: list[str], events: list[UserInputEvents]) -> None:
+        super().__init__(calls)
+        self._events = list(events)
+
+    def get_user_input_events(self) -> UserInputEvents:
+        if self._events:
+            return self._events.pop(0)
+        return UserInputEvents([])
+
+
+class _ServingWindow(_Window):
+    """Request two sessions, then interrupt the persistent runner."""
+
+    def __init__(self, calls: list[str]) -> None:
+        super().__init__(calls)
+        self._prompts = ["A cat surfing", "A dog snowboarding"]
+
+    def get_user_input_events(self) -> UserInputEvents:
+        if threading.current_thread() is not threading.main_thread():
+            return UserInputEvents([])
+        completed_sessions = self._calls.count("session.close")
+        if completed_sessions == len(self._prompts):
+            raise KeyboardInterrupt
+        return UserInputEvents(
+            [
+                UserInputEvent(
+                    timestamp=uint64(completed_sessions),
+                    event_data=NewSessionUserInputEventData(
+                        metadata={"prompt": self._prompts[completed_sessions]}
+                    ),
+                )
+            ]
+        )
+
+
 def _session_desc_request() -> SessionDescRequest:
     return SessionDescRequest(
         output_layout=VideoTensorLayout.bcthw,
@@ -166,6 +208,69 @@ def test_application_runner_keeps_the_application_open_for_another_session() -> 
         "application.create_session",
         "session.init",
     ]
+    runner.close()
+    assert calls[-1] == "application.close"
+
+
+def test_application_runner_replaces_a_session_from_window_metadata() -> None:
+    calls: list[str] = []
+    application = _Application(calls)
+    runner = ApplicationRunner(application)
+    new_session = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(0),
+                event_data=NewSessionUserInputEventData(
+                    metadata={"prompt": "A dog snowboarding"}
+                ),
+            )
+        ]
+    )
+    close = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(1),
+                event_data=CloseUserInputEventData(),
+            )
+        ]
+    )
+    window = _ScriptedWindow(calls, [new_session, close])
+
+    runner.init()
+    runner.run_session(_session_desc_request(), window)
+    runner.close()
+
+    assert len(application.created_session_descs) == 2
+    assert application.created_session_descs[0].metadata == {}
+    assert application.created_session_descs[1].metadata == {
+        "prompt": "A dog snowboarding"
+    }
+    assert calls.count("session.close") == 2
+    assert calls.count("window.open") == 2
+    assert calls.count("window.close") == 1
+    first_creation = calls.index("application.create_session")
+    second_creation = calls.index("application.create_session", first_creation + 1)
+    assert calls.index("session.close") < second_creation
+
+
+def test_application_runner_serves_sessions_until_it_is_interrupted() -> None:
+    calls: list[str] = []
+    application = _Application(calls, session_length=1)
+    runner = ApplicationRunner(application)
+    window = _ServingWindow(calls)
+
+    runner.init()
+    with pytest.raises(KeyboardInterrupt):
+        runner.run_session(_session_desc_request(), window, serve_sessions=True)
+
+    assert [desc.metadata for desc in application.created_session_descs] == [
+        {"prompt": "A cat surfing"},
+        {"prompt": "A dog snowboarding"},
+    ]
+    assert calls.count("session.close") == 2
+    assert calls.count("window.open") == 3
+    assert calls.count("window.close") == 1
+    assert calls.count("application.close") == 0
     runner.close()
     assert calls[-1] == "application.close"
 

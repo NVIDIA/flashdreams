@@ -57,9 +57,16 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         runner.init(application_args)
         window = mode.create(parsed)
         _report(mode.starting(window))
-        # Nothing here says how long the run is: a session reports itself finished,
-        # and a window ends the run when its client goes away.
-        runner.run_session(_session_desc_request(parsed), window)
+        # Nothing here says how long a session is: the application reports that.
+        # A serving mode stays up between sessions; a file mode runs just one.
+        try:
+            runner.run_session(
+                _session_desc_request(parsed),
+                window,
+                serve_sessions=mode.serves_sessions,
+            )
+        except KeyboardInterrupt:
+            return
         _report(mode.finished(window))
     finally:
         runner.close()

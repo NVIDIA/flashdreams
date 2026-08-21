@@ -27,6 +27,9 @@ class ClientWindowMode(ABC):
     name: str
     """What ``--mode`` calls this."""
 
+    serves_sessions: bool = False
+    """Whether the window stays available between application sessions."""
+
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add the arguments this mode takes and no other does."""
 
@@ -98,6 +101,7 @@ class _WebRTCMode(ClientWindowMode):
     """Stream the run to a browser."""
 
     name = "webrtc"
+    serves_sessions = True
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(

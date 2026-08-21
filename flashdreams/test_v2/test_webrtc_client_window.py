@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 
 import pytest
 import torch
@@ -25,7 +26,10 @@ from av import VideoFrame
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardUserInputEventData,
+    NewSessionUserInputEventData,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
@@ -94,25 +98,38 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 browser_page = await response.text()
                 assert response.status == 200
                 assert 'id="activate"' in browser_page
+                assert 'id="prompt"' in browser_page
+                assert 'id="new-session" type="button" disabled' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
                 assert response.status == 200
                 assert 'key: "r", pressed: activationPressed' in browser_script
+                assert 'type: "new_session"' in browser_script
+                assert "metadata: {prompt: promptInput.value}" in browser_script
+                assert "response.status !== 409" in browser_script
 
         window.open(_session_desc())
         peer, channel, _ = await _connect_browser(window)
         channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": True}))
         channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": False}))
+        channel.send(
+            json.dumps(
+                {
+                    "type": "new_session",
+                    "metadata": {"prompt": "A dog snowboarding"},
+                }
+            )
+        )
 
         events = []
         for _ in range(100):
             events.extend(window.get_user_input_events().get_events())
-            if len(events) == 2:
+            if len(events) == 3:
                 break
             await asyncio.sleep(0.01)
 
-        assert len(events) == 2
+        assert len(events) == 3
         keyboard_events = [
             data
             for event in events
@@ -122,8 +139,51 @@ async def test_window_buffers_browser_events_until_drained() -> None:
             ("w", True),
             ("w", False),
         ]
+        new_session_events = [
+            data
+            for event in events
+            if isinstance(data := event.get_event_data(), NewSessionUserInputEventData)
+        ]
+        assert [event.metadata for event in new_session_events] == [
+            {"prompt": "A dog snowboarding"}
+        ]
         assert events[0].get_timestamp() <= events[1].get_timestamp()
         assert window.get_user_input_events().get_events() == []
+
+        await peer.close()
+        peer = None
+        async with ClientSession() as client:
+            for _ in range(100):
+                async with client.get(f"{window.server.url}healthz") as response:
+                    health = await response.json()
+                if not health["client_connected"]:
+                    break
+                await asyncio.sleep(0.01)
+        assert health == {"open": True, "client_connected": False}
+
+        peer, channel, _ = await _connect_browser(window)
+        channel.send(
+            json.dumps(
+                {
+                    "type": "new_session",
+                    "metadata": {"prompt": "A fox in a forest"},
+                }
+            )
+        )
+        refreshed_events = []
+        for _ in range(100):
+            refreshed_events.extend(window.get_user_input_events().get_events())
+            if any(
+                isinstance(event.get_event_data(), NewSessionUserInputEventData)
+                for event in refreshed_events
+            ):
+                break
+            await asyncio.sleep(0.01)
+        assert [
+            event.get_event_data().metadata
+            for event in refreshed_events
+            if isinstance(event.get_event_data(), NewSessionUserInputEventData)
+        ] == [{"prompt": "A fox in a forest"}]
     finally:
         if peer is not None:
             await peer.close()
@@ -154,6 +214,18 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         pixels = frame.to_ndarray(format="rgb24")
         assert pixels.shape == (16, 16, 3)
         assert abs(float(pixels.mean()) - 17.0) <= 2.0
+
+        window.open(replace(_session_desc(), metadata={"prompt": "replacement"}))
+        window.write(
+            StepResult(
+                step_index=0,
+                output=torch.full((2, 3, 16, 16), 211, dtype=torch.uint8),
+                frame_count=2,
+                output_layout=VideoTensorLayout.tchw,
+                metrics={},
+            )
+        )
+        assert peer.connectionState == "connected"
     finally:
         if peer is not None:
             await peer.close()
