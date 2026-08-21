@@ -277,16 +277,9 @@ def _write_application_module(
 class StubMode(ClientWindowMode):
     """A mode handing the command a window the test can look inside."""
 
-    def __init__(
-        self,
-        name: str,
-        window: IClientWindow,
-        *,
-        serves_sessions: bool = False,
-    ) -> None:
+    def __init__(self, name: str, window: IClientWindow) -> None:
         self.name = name
         self._window = window
-        self.serves_sessions = serves_sessions
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         del parsed_args
@@ -420,6 +413,8 @@ def test_a_browser_server_starts_without_a_command_line_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class InterruptingWindow(RecordingWindow):
+        keeps_open_between_sessions = True
+
         def __init__(self) -> None:
             super().__init__()
             self.closed = False
@@ -436,7 +431,7 @@ def test_a_browser_server_starts_without_a_command_line_prompt(
     monkeypatch.setattr(
         cli,
         "client_window_mode",
-        lambda name: StubMode(name, window, serves_sessions=True),
+        lambda name: StubMode(name, window),
     )
 
     cli.entrypoint(["stub", "--mode", "webrtc"])

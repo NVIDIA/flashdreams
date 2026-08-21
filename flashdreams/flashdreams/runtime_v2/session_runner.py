@@ -359,8 +359,20 @@ def run_session(
                 continue
         return 0
 
-    io_thread = threading.Thread(target=run_io, name="flashdreams-io")
-    io_thread.start()
+    try:
+        io_thread = threading.Thread(target=run_io, name="flashdreams-io")
+        io_thread.start()
+    except BaseException:
+        # Starting the I/O thread is part of starting the session. Nothing else
+        # can own either object when startup fails this early.
+        _close_session(session, run_failed=True)
+        try:
+            window.close()
+        except Exception:
+            _LOGGER.exception(
+                "The window failed to close after I/O thread startup failed."
+            )
+        raise
     try:
         opened.wait()
         step_index = 0

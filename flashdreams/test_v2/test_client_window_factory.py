@@ -36,7 +36,7 @@ def test_a_run_goes_to_a_file_unless_it_says_otherwise(tmp_path: Path) -> None:
 
     assert parsed.mode == "mp4"
     assert isinstance(window, Mp4ClientWindow)
-    assert client_window_mode("mp4").serves_sessions is False
+    assert window.keeps_open_between_sessions is False
 
 
 def test_a_file_run_with_nowhere_to_write_says_so() -> None:
@@ -75,6 +75,6 @@ class TestWebRTC:
         try:
             assert isinstance(window, WebRTCClientWindow)
             assert mode.starting(window) == f"Open {window.url} in a browser."
-            assert mode.serves_sessions is True
+            assert window.keeps_open_between_sessions is True
         finally:
             window.close()

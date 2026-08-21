@@ -16,12 +16,16 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 class WebRTCClientWindow(IClientWindow):
     """Implement ``IClientWindow`` with WebRTC input and presentation."""
 
+    keeps_open_between_sessions = False
+    """Default direct construction to one immediate session."""
+
     def __init__(
         self,
         *,
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
+        keeps_open_between_sessions: bool = False,
     ) -> None:
         """Create the WebRTC backend.
 
@@ -32,7 +36,10 @@ class WebRTCClientWindow(IClientWindow):
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
+            keeps_open_between_sessions: Wait for browser-requested sessions and
+                keep serving after each one. False runs one session immediately.
         """
+        self.keeps_open_between_sessions = keeps_open_between_sessions
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
         self._server = WebRTCServer(
             host=host,

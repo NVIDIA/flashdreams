@@ -549,6 +549,24 @@ def test_run_session_closes_a_session_whose_init_is_interrupted() -> None:
     assert log.calls == ["session.init", "session.close", "window.close"]
 
 
+def test_run_session_closes_the_session_when_the_io_thread_cannot_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_to_start(thread: threading.Thread) -> None:
+        del thread
+        raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_to_start)
+    log = CallLog()
+
+    with pytest.raises(RuntimeError, match="thread start failed"):
+        run_session(
+            FakeSession(_session_desc(), log), RecordingClientWindow(log), steps=1
+        )
+
+    assert log.calls == ["session.init", "session.close", "window.close"]
+
+
 def test_run_session_closes_the_session_when_io_shutdown_is_interrupted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

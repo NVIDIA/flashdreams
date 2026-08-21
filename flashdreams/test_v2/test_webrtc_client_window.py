@@ -100,6 +100,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
     window = WebRTCClientWindow()
     peer: RTCPeerConnection | None = None
     try:
+        assert window.keeps_open_between_sessions is False
         async with ClientSession() as client:
             async with client.get(f"{window.url}healthz") as response:
                 assert response.status == 200

@@ -32,12 +32,14 @@ remain available for the next request. Ctrl-C ends the application.
 | `T2VApplication` | The loaded model pipeline shared by every session | A rollout cache or browser connection |
 | `T2VSession` | One prompt and one rollout cache | Model loading or server lifetime |
 
-The CLI constructs the window, then transfers its cleanup responsibility to
-the runner. While the server is idle, the runner's calling thread opens and
-polls the window. During a session, `run_session()` gives the window to one
-dedicated I/O thread. The runner does not touch it again until that thread has
-stopped and the old session has closed. This is a sequential ownership
-handoff, not concurrent access.
+The CLI constructs the window, then transfers its lifetime cleanup
+responsibility to the runner. While the server is idle, the runner's calling
+thread opens and polls the window. During a session, `run_session()` lends the
+window to one dedicated I/O thread, which performs the meaningful close when
+the window should end. The runner does not touch it again until that thread has
+stopped and the old session has closed. Its final, idempotent close is a fallback
+for setup failures and interrupted handoffs. This is sequential access, not
+concurrent access.
 
 ## Data flow
 
@@ -49,9 +51,10 @@ handoff, not concurrent access.
    and exposes the browser URL.
 4. `ApplicationRunner.run()` resolves the CLI's partial `SessionDescRequest`
    against the initialized application's default `SessionDesc`.
-5. In serving mode, the runner opens the window with that resolved stream
-   format before a session exists. This lets the browser negotiate WebRTC and
-   send its first request without loading a session cache first.
+5. A window whose `keeps_open_between_sessions` capability is true opens with
+   that resolved stream format before a session exists. This lets the browser
+   negotiate WebRTC and send its first request without loading a session cache
+   first. Other windows start the resolved session immediately.
 6. The server validates every data-channel message and invokes the callback
    registered by `WebRTCClientWindow`. The callback only appends the event to a
    thread-safe queue.
@@ -67,7 +70,7 @@ handoff, not concurrent access.
    and writes completed results. The calling thread runs model steps.
 10. A new-session event stops that rollout and returns the requested next
     `SessionDesc`. A close or natural completion returns no replacement. In
-    serving mode the runner keeps the window open, closes the old session, and
+    a persistent window the runner keeps it open, closes the old session, and
     either starts the replacement or waits for another browser request.
 11. Ctrl-C closes the peer/server and then the application. Releasing the
     application drops the one resident pipeline after every session cache has

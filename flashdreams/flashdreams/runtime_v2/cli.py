@@ -69,14 +69,9 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
                     "The client window failed to close after startup failed."
                 )
             raise
-        # Nothing here says how long a session is: the application reports that.
-        # A serving mode stays up between sessions; a file mode runs just one.
+        # Nothing here says how long a session or window lives: each reports that.
         try:
-            runner.run(
-                _session_desc_request(parsed),
-                window,
-                serve_sessions=mode.serves_sessions,
-            )
+            runner.run(_session_desc_request(parsed), window)
         except KeyboardInterrupt:
             return
         _report(mode.finished(window))

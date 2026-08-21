@@ -27,9 +27,6 @@ class ClientWindowMode(ABC):
     name: str
     """What ``--mode`` calls this."""
 
-    serves_sessions: bool = False
-    """Whether the window stays available between application sessions."""
-
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add the arguments this mode takes and no other does."""
 
@@ -101,7 +98,6 @@ class _WebRTCMode(ClientWindowMode):
     """Stream the run to a browser."""
 
     name = "webrtc"
-    serves_sessions = True
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
@@ -113,7 +109,11 @@ class _WebRTCMode(ClientWindowMode):
         # Imported here so a run writing a file needs none of the serving stack.
         from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
-        return WebRTCClientWindow(host=parsed_args.host, port=parsed_args.port)
+        return WebRTCClientWindow(
+            host=parsed_args.host,
+            port=parsed_args.port,
+            keeps_open_between_sessions=True,
+        )
 
     def starting(self, client_window: IClientWindow) -> str | None:
         """Return where to connect, which nobody can guess when the port is free."""
