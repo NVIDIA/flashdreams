@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import time
 from collections import deque
 from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
@@ -23,10 +24,12 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.runtime.canonical import DeviceConverterSchema
 from flashdreams.runtime.demo import (
     DemoSpec,
     InMemorySessionMetricsRecorder,
     ModelInputProvider,
+    ModelWarmupPlan,
     PreparedScenario,
     PreparedStep,
     ProviderCapabilities,
@@ -84,6 +87,7 @@ from flashdreams.serving.webrtc.services import (
     WebRTCActivationPolicy,
     WebRTCChunkDelivery,
     WebRTCInputSource,
+    WebRTCManagerLifecycle,
     WebRTCOutputSink,
     WebRTCRunMode,
     WebRTCTransportService,
@@ -565,7 +569,7 @@ class _ManagedWebRTCSessionEdgeFactory:
             cleanup_tasks=context.cleanup_tasks,
             metrics=InMemorySessionMetricsRecorder(),
             error_policy=WebRTCErrorPolicy(),
-            transport=transport,
+            transport=_GenerationTransportView(transport),
             clock=ResamplerRealtimeClock(
                 resampler=self._managed_session.resampler,
                 now_fn=self._loop.time,
@@ -574,6 +578,7 @@ class _ManagedWebRTCSessionEdgeFactory:
             activation=WebRTCActivationPolicy(
                 input_source=input_source,
                 transport=transport,
+                activate_without_input=self._manager._activate_without_input,
             ),
         )
 
@@ -592,6 +597,49 @@ class _ManagedWebRTCSessionEdgeFactory:
             self._loop.call_soon_threadsafe(
                 lambda: asyncio.create_task(self._manager.close_active_session())
             )
+
+
+@dataclass(frozen=True, slots=True)
+class _GenerationTransportView:
+    """Expose peer liveness without transferring peer-close ownership."""
+
+    peer_transport: WebRTCTransportService
+    """Peer-scoped transport owned by the managed WebRTC session."""
+
+    def is_active(self) -> bool:
+        """Return whether the underlying peer transport remains active."""
+        return self.peer_transport.is_active()
+
+    def close(self) -> None:
+        """Release the generation view without closing the reusable peer."""
+
+
+async def _wait_for_next_generation_or_disconnect(
+    *,
+    input_source: WebRTCInputSource,
+    transport: WebRTCTransportService,
+) -> bool:
+    """Wait for another activation while draining both signal waiters.
+
+    Returns:
+        ``True`` when activation wins while the peer remains connected.
+    """
+    activated = asyncio.create_task(input_source.activation_signal.wait())
+    closed = asyncio.create_task(transport.closed_signal.wait())
+    waiters = (activated, closed)
+    try:
+        done, _ = await asyncio.wait(
+            waiters,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for waiter in done:
+            waiter.result()
+        return closed not in done and transport.is_active()
+    finally:
+        for waiter in waiters:
+            if not waiter.done():
+                waiter.cancel()
+        await asyncio.gather(*waiters, return_exceptions=True)
 
 
 @dataclass(slots=True)
@@ -675,6 +723,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         supported_control_keys: AbstractSet[str] | None = None,
         fatal_generation_errors: bool = False,
         client_liveness_timeout_s: float = DEFAULT_CLIENT_LIVENESS_TIMEOUT_S,
+        activate_without_input: bool = False,
+        model_warmup_plan: ModelWarmupPlan | None = None,
         shared_host: RuntimeHost | None = None,
         shared_adapter: Any | None = None,
         shared_spec: DemoSpec | None = None,
@@ -686,6 +736,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     ) -> None:
         if client_liveness_timeout_s <= 0:
             raise ValueError("client_liveness_timeout_s must be > 0")
+        if model_warmup_plan is not None and not isinstance(
+            model_warmup_plan, ModelWarmupPlan
+        ):
+            raise TypeError("model_warmup_plan must be a ModelWarmupPlan.")
         self.runtime_config = runtime_config
         self.fps = fps
         self.identity = identity
@@ -698,14 +752,17 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         )
         self.fatal_generation_errors = fatal_generation_errors
         self.client_liveness_timeout_s = client_liveness_timeout_s
+        self._activate_without_input = activate_without_input
         self._runtime = runtime
-        self._runtime_ready = False
         self._warmup_complete = False
         self._active_session: ManagedWebRTCSession | None = None
-        self._preload_lock = asyncio.Lock()
+        self._warmup_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
         self._pending_session_input: Any = None
         self._shared_runtime_adapter: _LegacyWebRTCRuntimeAdapter | None = None
+        self._model_warmup_plan = (
+            ModelWarmupPlan() if model_warmup_plan is None else model_warmup_plan
+        )
         self._shared_host: RuntimeHost | None = shared_host
         self._owns_shared_host = shared_host is not None
         self._shared_context: RunContext | None = None
@@ -717,6 +774,24 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._keep_connection_after_completed = keep_connection_after_completed
         self._shared_video_encoder: VideoEncoder | None = None
         self._legacy_segment_resampler_factory = legacy_segment_resampler_factory
+        self._lifecycle = WebRTCManagerLifecycle(
+            busy_message=busy_message,
+            client_liveness_timeout_s=client_liveness_timeout_s,
+            health_check=lambda: self._shared_host is None
+            or self._shared_host.is_healthy,
+        )
+
+    @property
+    def _runtime_ready(self) -> bool:
+        """Compatibility alias for readiness now owned by the lifecycle service."""
+        return self._lifecycle.runtime_ready
+
+    @_runtime_ready.setter
+    def _runtime_ready(self, value: bool) -> None:
+        if value:
+            self._lifecycle.mark_ready()
+        else:
+            self._lifecycle.mark_unready()
 
     @property
     def pending_session_input(self) -> Any:
@@ -727,6 +802,11 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def runtime(self) -> _RuntimeT:
         """Model runtime driven by this transport manager."""
         return self._runtime
+
+    def browser_ui_config(self) -> dict[str, object]:
+        """Return accepted control keys for the generic browser UI."""
+        accepted_keys = self._effective_supported_control_keys() or ()
+        return {"accepted_keys": sorted(accepted_keys)}
 
     def set_pending_session_input(self, session_input: Any) -> None:
         """Store validated model input for the next session."""
@@ -770,9 +850,29 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if supported_control_keys is not None:
             return frozenset(supported_control_keys)
         legacy_supported_keys = getattr(self, "_resampler_supported_keys", None)
-        if legacy_supported_keys is None:
-            return None
-        return frozenset(legacy_supported_keys)
+        if legacy_supported_keys is not None:
+            return frozenset(legacy_supported_keys)
+        return self._converter_supported_control_keys()
+
+    def _feedable_converter_schemas(self) -> tuple[DeviceConverterSchema, ...]:
+        scenario = self._shared_scenario
+        if scenario is None:
+            return ()
+        schemas: list[DeviceConverterSchema] = []
+        for converter in scenario.canonicalizer.converters_for(scenario.source_schema):
+            schema = converter.schema
+            if isinstance(schema, DeviceConverterSchema):
+                schemas.append(schema)
+        return tuple(schemas)
+
+    def _converter_supported_control_keys(self) -> frozenset[str] | None:
+        accepted_keys = frozenset(
+            key
+            for schema in self._feedable_converter_schemas()
+            if schema.accepted_keys is not None
+            for key in schema.accepted_keys
+        )
+        return accepted_keys or None
 
     @staticmethod
     def _positive_int_runtime_value(value: Any, *, label: str) -> int:
@@ -866,9 +966,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self._shared_context = RunContext(
             host=host,
             run_metrics=InMemorySessionMetricsRecorder(),
-            admission=SingleSessionAdmissionPolicy(
-                health_check=lambda: host.is_healthy
-            ),
+            admission=self._lifecycle.admission,
+            model_warmup_plan=self._model_warmup_plan,
         )
         return self._shared_context
 
@@ -1329,23 +1428,33 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         return self._active_session is not None and not self._active_session.closed
 
     def is_runtime_ready(self) -> bool:
-        return self._runtime_ready
+        return self._lifecycle.runtime_ready
 
     async def preload_runtime(self) -> None:
-        async with self._preload_lock:
-            if not self._runtime_ready:
-                initialize = getattr(self._runtime, "initialize", None)
-                if callable(initialize):
-                    result = initialize()
-                    if inspect.isawaitable(result):
-                        await result
-                elif self._shared_host is not None:
-                    await asyncio.to_thread(self._shared_host.preload)
-                self._runtime_ready = True
-                self._initialize_shared_video_encoder()
+        async def initialize_runtime() -> None:
+            initialize = getattr(self._runtime, "initialize", None)
+            if callable(initialize):
+                result = initialize()
+                if inspect.isawaitable(result):
+                    await result
+            elif self._shared_host is not None:
+                await asyncio.to_thread(self._shared_host.preload)
+            if self._model_warmup_plan.sessions:
+                host = self._shared_host
+                if host is None:
+                    host = self._shared_run_context(asyncio.get_running_loop()).host
+                await asyncio.to_thread(host.warmup, self._model_warmup_plan)
+            self._initialize_shared_video_encoder()
+
+        await self._lifecycle.ensure_preloaded(initialize_runtime)
+        async with self._warmup_lock:
             if not self._warmup_complete:
                 await self._run_loopback_warmup_session(
-                    num_chunks=self.runtime_config.warmup_chunks
+                    num_chunks=(
+                        0
+                        if self._model_warmup_plan.sessions
+                        else self.runtime_config.warmup_chunks
+                    )
                 )
                 self._warmup_complete = True
 
@@ -1375,7 +1484,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         )
 
     async def create_answer(self, *, offer_sdp: str, offer_type: str) -> dict[str, str]:
-        if not self._runtime_ready or not self._warmup_complete:
+        if not self._lifecycle.runtime_ready or not self._warmup_complete:
             await self.preload_runtime()
 
         async with self._session_lock:
@@ -1402,7 +1511,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     ) -> dict[str, str]:
         if self._active_session is not None and not self._active_session.closed:
             raise SessionBusyError(self.busy_message)
-        if not self._runtime_ready:
+        if not self._lifecycle.runtime_ready:
             raise RuntimeError("Runtime is not initialized.")
 
         loop = asyncio.get_running_loop()
@@ -1573,7 +1682,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             raise
 
     async def _run_loopback_warmup_session(self, *, num_chunks: int) -> None:
-        if not self._runtime_ready:
+        if not self._lifecycle.runtime_ready:
             raise RuntimeError("Runtime is not initialized.")
         await run_loopback_warmup_session(
             num_chunks=num_chunks,
@@ -1606,26 +1715,12 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     async def _client_liveness_watchdog(
         self, *, managed_session: ManagedWebRTCSession
     ) -> None:
-        loop = asyncio.get_running_loop()
-        try:
-            while not managed_session.closed:
-                elapsed_s = loop.time() - managed_session.last_client_message_at
-                if elapsed_s >= self.client_liveness_timeout_s:
-                    logger.warning(
-                        "No client heartbeat/control message for {:.1f}s; "
-                        "closing active session.",
-                        elapsed_s,
-                    )
-                    await self.close_active_session()
-                    return
-                await asyncio.sleep(
-                    min(
-                        _CLIENT_LIVENESS_CHECK_INTERVAL_S,
-                        self.client_liveness_timeout_s - elapsed_s,
-                    )
-                )
-        except asyncio.CancelledError:
-            raise
+        await self._lifecycle.watch_client_liveness(
+            is_closed=lambda: managed_session.closed,
+            last_message_at=lambda: managed_session.last_client_message_at,
+            close_session=self.close_active_session,
+            check_interval_s=_CLIENT_LIVENESS_CHECK_INTERVAL_S,
+        )
 
     async def shutdown(self) -> None:
         await self.close_active_session()
@@ -1645,7 +1740,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 result = close()
                 if inspect.isawaitable(result):
                     await result
-        self._runtime_ready = False
+        self._lifecycle.mark_unready()
         self._warmup_complete = False
 
     def wait_for_termination(self) -> None:
@@ -1690,6 +1785,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             self._send_json(
                 channel, make_error_payload("Payload must be a JSON object.")
             )
+            return
+        if self._is_filtered_key_action(payload):
             return
         if managed_session.input_source is not None:
             await self._handle_shared_datachannel_payload(
@@ -1774,6 +1871,22 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         # Releases the generation worker, which blocks on this until the
         # user actually interacts. Idempotent once already set.
         managed_session.first_action_received.set()
+
+    def _is_filtered_key_action(self, payload: dict[str, Any]) -> bool:
+        if str(payload.get("type", "")).strip().lower() != MESSAGE_TYPE_ACTION:
+            return False
+        action_payload = payload.get("action", payload)
+        if not isinstance(action_payload, dict):
+            return False
+        event = str(action_payload.get("event", "")).strip().lower()
+        if event not in {"keydown", "keyup"}:
+            return False
+        key = action_payload.get("key")
+        return (
+            isinstance(key, str)
+            and bool(key.strip())
+            and not self._supports_key_payload({"key": key})
+        )
 
     async def _handle_shared_datachannel_payload(
         self,
@@ -1950,15 +2063,10 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 # Do not construct another driver until the user submits the
                 # next prompt/generation. This keeps an idle T2V peer alive
                 # without surfacing an expected disconnect as a failed run.
-                activated = asyncio.create_task(input_source.activation_signal.wait())
-                closed = asyncio.create_task(transport.closed_signal.wait())
-                done, pending = await asyncio.wait(
-                    {activated, closed}, return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-                if closed in done or not transport.is_active():
+                if not await _wait_for_next_generation_or_disconnect(
+                    input_source=input_source,
+                    transport=transport,
+                ):
                     break
         finally:
             managed_session.reservation = None

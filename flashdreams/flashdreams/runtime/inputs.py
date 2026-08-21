@@ -405,6 +405,21 @@ class CanonicalInputs:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class CanonicalInputWindow(CanonicalInputs):
+    """Canonicalized user input associated with one session time window."""
+
+    __hash__ = None
+
+    window: TimeWindow
+    """Half-open interval covered by these canonical input values."""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.window, TimeWindow):
+            raise TypeError("CanonicalInputWindow.window must be a TimeWindow.")
+        CanonicalInputs.__post_init__(self)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class InferenceInput:
     """Encoded inputs for one :class:`InferenceSession` call.
 

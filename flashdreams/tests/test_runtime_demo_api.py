@@ -44,7 +44,6 @@ from flashdreams.runtime.demo import (
     OutputSink,
     OutputSpec,
     PreparedScenario,
-    RunResult,
     WebRTCAppResources,
     WebRTCOutputSpec,
     build_output_sink,
@@ -93,47 +92,6 @@ def test_replay_demo_uses_shared_batch_path_by_default() -> None:
     assert adapter.runtime.session is not None
     assert adapter.runtime.session.closed
     assert adapter.prepare_scenario_calls == [spec]
-
-
-def test_replay_demo_keeps_compat_runner_injection() -> None:
-    adapter = _FakeDemoAdapter()
-    output = _RecordingOutputTarget()
-    calls: list[dict[str, Any]] = []
-
-    def fake_runner(**kwargs: Any) -> Sequence[OutputArtifact]:
-        calls.append(kwargs)
-        return (OutputArtifact(kind="test/artifact", uri="memory://artifact"),)
-
-    spec = DemoSpec(
-        model_id="fake-demo",
-        scenario="valid-scenario",
-        input_mode="replay",
-        output=NullOutputSpec(),
-    )
-
-    result = run_replay_demo(
-        spec=spec,
-        adapter=adapter,
-        output_target_factory=lambda output_spec: output,
-        metrics=NullMetricsRecorder(),
-        runner=fake_runner,
-    )
-
-    assert result == RunResult(
-        status="completed",
-        artifacts=(OutputArtifact(kind="test/artifact", uri="memory://artifact"),),
-    )
-    assert len(calls) == 1
-    assert calls[0]["adapter"] is adapter
-    assert calls[0]["config"] == spec.config
-    assert calls[0]["mapping"] is adapter.prepared_scenario.mapping
-    assert calls[0]["canonicalizer"] is adapter.prepared_scenario.canonicalizer
-    assert calls[0]["source_schema"] is adapter.prepared_scenario.source_schema
-    assert calls[0]["user_inputs"] is adapter.prepared_scenario.user_inputs
-    assert calls[0]["initial_inputs"] is adapter.prepared_scenario.initial_inputs
-    assert calls[0]["output"] is output
-    assert adapter.prepare_scenario_calls == [spec]
-    assert not adapter.create_runtime_called
 
 
 def test_replay_demo_builds_output_sink_from_spec(tmp_path: Path) -> None:

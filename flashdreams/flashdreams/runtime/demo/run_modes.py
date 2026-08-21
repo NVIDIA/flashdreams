@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
+from flashdreams.demo.io import OutputSink
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.metrics import (
     InMemoryMetricsRecorder,
@@ -20,7 +21,6 @@ from flashdreams.runtime.metrics import (
 from flashdreams.runtime.output import OutputArtifact
 
 from .host import ModelWarmupPlan, WarmupSessionInputs
-from .outputs import OutputSink
 
 if TYPE_CHECKING:
     from .host import RuntimeHost
@@ -118,8 +118,8 @@ class NullErrorPolicy(DefaultErrorPolicy):
     """Abort headless/null sessions on setup or step errors."""
 
 
-class NativeWindowErrorPolicy(DefaultErrorPolicy):
-    """Abort native-window sessions unless a future UI policy overrides it."""
+class LocalWindowErrorPolicy(DefaultErrorPolicy):
+    """Abort local-window sessions unless a future UI policy overrides it."""
 
 
 class BenchmarkErrorPolicy(DefaultErrorPolicy):
@@ -513,7 +513,7 @@ __all__ = [
     "InMemorySessionMetricsRecorder",
     "MetricsSnapshot",
     "Mp4ErrorPolicy",
-    "NativeWindowErrorPolicy",
+    "LocalWindowErrorPolicy",
     "NoopTransportService",
     "NullErrorPolicy",
     "RunContext",

@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-color-fade"
+version = "0.1.0"
+description = "Red-to-green colour fade application for end-to-end FlashDreams v2 file output."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Integration packages depend on the public framework, never the reverse.
+    "flashdreams",
+]
+
+[tool.uv.sources]
+# Resolve the framework from this repository while developing the workspace.
+# A published integration would resolve its released FlashDreams dependency.
+flashdreams = { workspace = true }
+
+[tool.setuptools.packages.find]
+# Keep the distribution limited to the integration-owned Python package.
+include = ["color_fade*"]
+
+[tool.uv]
+managed = true

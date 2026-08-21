@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+from flashdreams.demo.io import OutputDecision, OutputSink
+from flashdreams.demo.outputs import build_output_sink
 from flashdreams.runtime.canonical import InputCanonicalizer
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.inputs import (
@@ -34,7 +36,6 @@ from flashdreams.runtime.types import (
 
 from .drivers import BatchSessionDriver, run_demo_session
 from .host import ModelWarmupPlan, RuntimeHost
-from .outputs import OutputDecision, OutputSink, build_output_sink, build_output_target
 from .pipeline import StepPipeline
 from .run_modes import (
     Mp4ErrorPolicy,
@@ -61,7 +62,6 @@ from .spec import (
 )
 
 OutputTargetFactory = Callable[[OutputSpec], OutputTarget]
-InferenceSessionRunner = Callable[..., Sequence[OutputArtifact]]
 OutputSinkFactory = Callable[[OutputSpec], OutputSink]
 
 
@@ -72,7 +72,6 @@ def run_replay_demo(
     output_target_factory: OutputTargetFactory | None = None,
     output_sink_factory: OutputSinkFactory = build_output_sink,
     metrics: MetricsRecorder | None = None,
-    runner: InferenceSessionRunner | None = None,
 ) -> RunResult:
     """Run one prepared replay scenario through the shared batch demo path."""
     _require_supported_mode(
@@ -98,18 +97,6 @@ def run_replay_demo(
     if spec.config is None:
         raise RuntimeError("DemoSpec.config was not initialized.")
 
-    if runner is not None:
-        mapping = _require_replay_mapping(mapping)
-        return _run_replay_demo_with_compat_runner(
-            spec=spec,
-            adapter=adapter,
-            prepared=prepared,
-            mapping=mapping,
-            output_target_factory=output_target_factory or build_output_target,
-            metrics=metrics,
-            runner=runner or _default_inference_session_runner(),
-        )
-
     if output_target_factory is not None:
         output_sink_factory = _output_target_sink_factory(output_target_factory)
 
@@ -132,7 +119,7 @@ def _output_target_sink_factory(
     return create_output_sink
 
 
-class _OutputTargetSink:
+class _OutputTargetSink(OutputSink):
     produces_artifacts = True
 
     def __init__(self, output: OutputTarget) -> None:
@@ -162,34 +149,6 @@ class _OutputTargetSink:
         self._closed = True
         self._artifacts = tuple(self._output.close())
         return self._artifacts
-
-
-def _run_replay_demo_with_compat_runner(
-    *,
-    spec: DemoSpec,
-    adapter: DemoAdapter,
-    prepared: "PreparedScenario",
-    mapping: InputMapping,
-    output_target_factory: OutputTargetFactory,
-    metrics: MetricsRecorder | None,
-    runner: InferenceSessionRunner,
-) -> RunResult:
-    output = output_target_factory(spec.output)
-    metrics_recorder = metrics or NullMetricsRecorder()
-    artifacts = tuple(
-        runner(
-            adapter=adapter,
-            config=_require_config(spec),
-            mapping=mapping,
-            canonicalizer=prepared.canonicalizer,
-            source_schema=prepared.source_schema,
-            user_inputs=prepared.user_inputs,
-            initial_inputs=prepared.initial_inputs,
-            output=output,
-            metrics=metrics_recorder,
-        )
-    )
-    return RunResult(status="completed", artifacts=artifacts)
 
 
 def _run_replay_demo_with_run_mode(
@@ -554,21 +513,6 @@ def _scenario_mapping(
     return default_input_mapping()
 
 
-def _require_replay_mapping(mapping: InputMapping | None) -> InputMapping:
-    if mapping is not None:
-        return mapping
-    raise ValueError(
-        "Compatibility replay runners require an input mapping; the prepared "
-        "scenario and adapter did not provide one."
-    )
-
-
-def _default_inference_session_runner() -> InferenceSessionRunner:
-    from flashdreams.runtime.runner import run_inference_session
-
-    return run_inference_session
-
-
 def _require_supported_mode(
     *,
     mode: str,
@@ -584,7 +528,6 @@ def _require_supported_mode(
 
 
 __all__ = [
-    "InferenceSessionRunner",
     "OutputSinkFactory",
     "OutputTargetFactory",
     "run_replay_demo",

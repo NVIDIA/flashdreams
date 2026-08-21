@@ -47,20 +47,24 @@ class StartSessionRequest(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., input_height: _Optional[int] = ..., input_width: _Optional[int] = ..., scale: _Optional[int] = ..., sparse_ratio: _Optional[float] = ...) -> None: ...
 
 class StartSessionResponse(_message.Message):
-    __slots__ = ("session_id", "success", "error")
+    __slots__ = ("session_id", "success", "error", "session_token")
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     SUCCESS_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    SESSION_TOKEN_FIELD_NUMBER: _ClassVar[int]
     session_id: str
     success: bool
     error: str
-    def __init__(self, session_id: _Optional[str] = ..., success: bool = ..., error: _Optional[str] = ...) -> None: ...
+    session_token: str
+    def __init__(self, session_id: _Optional[str] = ..., success: bool = ..., error: _Optional[str] = ..., session_token: _Optional[str] = ...) -> None: ...
 
 class EndSessionRequest(_message.Message):
-    __slots__ = ("session_id",)
+    __slots__ = ("session_id", "session_token")
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    SESSION_TOKEN_FIELD_NUMBER: _ClassVar[int]
     session_id: str
-    def __init__(self, session_id: _Optional[str] = ...) -> None: ...
+    session_token: str
+    def __init__(self, session_id: _Optional[str] = ..., session_token: _Optional[str] = ...) -> None: ...
 
 class EndSessionResponse(_message.Message):
     __slots__ = ("success",)
@@ -69,8 +73,9 @@ class EndSessionResponse(_message.Message):
     def __init__(self, success: bool = ...) -> None: ...
 
 class UpscaleChunkRequest(_message.Message):
-    __slots__ = ("session_id", "input_height", "input_width", "scale", "sparse_ratio", "frames_rgb", "num_frames", "height", "width", "chunk_index", "frame_encoding", "frames_jpeg", "display_only")
+    __slots__ = ("session_id", "session_token", "input_height", "input_width", "scale", "sparse_ratio", "frames_rgb", "num_frames", "height", "width", "chunk_index", "frame_encoding", "frames_jpeg", "display_only")
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    SESSION_TOKEN_FIELD_NUMBER: _ClassVar[int]
     INPUT_HEIGHT_FIELD_NUMBER: _ClassVar[int]
     INPUT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     SCALE_FIELD_NUMBER: _ClassVar[int]
@@ -84,6 +89,7 @@ class UpscaleChunkRequest(_message.Message):
     FRAMES_JPEG_FIELD_NUMBER: _ClassVar[int]
     DISPLAY_ONLY_FIELD_NUMBER: _ClassVar[int]
     session_id: str
+    session_token: str
     input_height: int
     input_width: int
     scale: int
@@ -96,7 +102,7 @@ class UpscaleChunkRequest(_message.Message):
     frame_encoding: FrameEncoding
     frames_jpeg: _containers.RepeatedScalarFieldContainer[bytes]
     display_only: bool
-    def __init__(self, session_id: _Optional[str] = ..., input_height: _Optional[int] = ..., input_width: _Optional[int] = ..., scale: _Optional[int] = ..., sparse_ratio: _Optional[float] = ..., frames_rgb: _Optional[bytes] = ..., num_frames: _Optional[int] = ..., height: _Optional[int] = ..., width: _Optional[int] = ..., chunk_index: _Optional[int] = ..., frame_encoding: _Optional[_Union[FrameEncoding, str]] = ..., frames_jpeg: _Optional[_Iterable[bytes]] = ..., display_only: bool = ...) -> None: ...
+    def __init__(self, session_id: _Optional[str] = ..., session_token: _Optional[str] = ..., input_height: _Optional[int] = ..., input_width: _Optional[int] = ..., scale: _Optional[int] = ..., sparse_ratio: _Optional[float] = ..., frames_rgb: _Optional[bytes] = ..., num_frames: _Optional[int] = ..., height: _Optional[int] = ..., width: _Optional[int] = ..., chunk_index: _Optional[int] = ..., frame_encoding: _Optional[_Union[FrameEncoding, str]] = ..., frames_jpeg: _Optional[_Iterable[bytes]] = ..., display_only: bool = ...) -> None: ...
 
 class UpscaleChunkResponse(_message.Message):
     __slots__ = ("session_id", "frames_rgb", "num_frames", "height", "width", "chunk_index", "elapsed_ms", "error", "frames_omitted")

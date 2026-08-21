@@ -12,12 +12,15 @@ from typing import Any
 import pytest
 import torch
 
+from flashdreams.demo import LocalWindowOutputSink
 from flashdreams.runtime import OutputArtifact, StepResult, TimeWindow
 from flashdreams.runtime.demo import (
     BenchmarkStatsOutputSink,
     CompositeOutputSink,
     CompositeOutputSinkError,
     DemoSpec,
+    IOFactoryOutputSpec,
+    LocalWindowOutputSpec,
     Mp4OutputSink,
     Mp4OutputSpec,
     NullOutputSink,
@@ -27,9 +30,18 @@ from flashdreams.runtime.demo import (
     WebRTCOutputSpec,
     build_benchmark_output_sink,
     build_output_sink,
+    build_output_target,
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_output_decision_validates_presentation_backpressure() -> None:
+    assert OutputDecision(backpressure_s=0.1).backpressure_s == pytest.approx(0.1)
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        OutputDecision(backpressure_s=-0.1)
+    with pytest.raises(ValueError, match="finite and >= 0"):
+        OutputDecision(backpressure_s=float("inf"))
 
 
 def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
@@ -109,6 +121,29 @@ def test_mp4_output_sink_writes_artifact_and_close_is_idempotent(
     ]
 
 
+def test_mp4_output_sink_closes_empty_collector_without_writing(
+    tmp_path: Path,
+) -> None:
+    writer_called = False
+
+    def fake_writer(*args: Any, **kwargs: Any) -> Path:
+        nonlocal writer_called
+        del args, kwargs
+        writer_called = True
+        return tmp_path / "out.mp4"
+
+    sink = Mp4OutputSink(
+        output_path=tmp_path / "out.mp4",
+        fps=24,
+        writer=fake_writer,
+    )
+    sink.open(SessionInfo(output_layout="tchw"))
+
+    assert tuple(sink.close()) == ()
+    assert tuple(sink.close()) == ()
+    assert not writer_called
+
+
 def test_output_sink_is_built_from_demo_spec(tmp_path: Path) -> None:
     def fake_writer(*args: Any, **kwargs: Any) -> Path:
         del args, kwargs
@@ -131,6 +166,40 @@ def test_output_sink_is_built_from_demo_spec(tmp_path: Path) -> None:
     assert null_sink.store_results
     with pytest.raises(ValueError, match="realtime transport sink"):
         build_output_sink(WebRTCOutputSpec())
+
+
+def test_application_output_specs_have_explicit_dispatch_boundaries(
+    tmp_path: Path,
+) -> None:
+    local_sink = build_output_sink(LocalWindowOutputSpec(title="Application", fps=24.0))
+    unresolved_mp4_sink = build_output_sink(
+        Mp4OutputSpec(
+            path=tmp_path / "application.mp4",
+            fps=None,
+            output_layout=None,
+        )
+    )
+
+    assert isinstance(local_sink, LocalWindowOutputSink)
+    assert local_sink.title == "Application"
+    assert local_sink.fps == 24.0
+    assert isinstance(unresolved_mp4_sink, Mp4OutputSink)
+    assert unresolved_mp4_sink.fps is None
+    assert unresolved_mp4_sink.output_layout is None
+    with pytest.raises(TypeError, match="IOFactory output cannot be built"):
+        build_output_sink(IOFactoryOutputSpec())
+    with pytest.raises(TypeError, match="does not create a replay OutputTarget"):
+        build_output_target(LocalWindowOutputSpec())
+    with pytest.raises(TypeError, match="does not create a replay OutputTarget"):
+        build_output_target(IOFactoryOutputSpec())
+    with pytest.raises(ValueError, match="requires explicit fps and output_layout"):
+        build_output_target(
+            Mp4OutputSpec(
+                path=tmp_path / "application.mp4",
+                fps=None,
+                output_layout=None,
+            )
+        )
 
 
 def test_sinks_do_not_retain_step_result_references(tmp_path: Path) -> None:

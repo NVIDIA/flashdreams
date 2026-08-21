@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from flashdreams.demo.io import OutputDecision, OutputSink
 from flashdreams.runtime.interfaces import InferenceSession
 from flashdreams.runtime.types import StepRequirements, StepResult
 
-from .outputs import OutputDecision, OutputSink
 from .run_modes import SessionMetricsRecorder
 from .session_inputs import ControlDecision, ModelInputProvider, UserInputWindow
 

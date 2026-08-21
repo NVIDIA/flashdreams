@@ -13,26 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Strict deterministic launcher for ``flashdreams-run`` benchmark scenarios.
+"""Strict deterministic launcher for FlashDreams benchmark scenarios.
 
 This mirrors the subprocess setup used by the Omnidreams same-seed CI test: set
-CUDA/PyTorch determinism knobs before the first CUDA context, then invoke the
-existing ``flashdreams-run`` entrypoint with the remaining arguments.
+CUDA/PyTorch determinism knobs before the first CUDA context, then invoke a
+FlashDreams runner entrypoint with the remaining arguments. Either API's
+entrypoint can be launched, a quality scenario wanting the same determinism
+whichever one generates the clip.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import sys
 from collections.abc import Sequence
 
 _DEFAULT_CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 _DEFAULT_PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
+_ENTRYPOINT_MODULES = {
+    "flashdreams-run": "flashdreams.scripts.cli",
+    "flashdreams-run-v2": "flashdreams.runtime_v2.cli",
+}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run ``flashdreams-run`` with deterministic CUDA/PyTorch settings."""
+    """Run a FlashDreams entrypoint with deterministic CUDA/PyTorch settings."""
 
     args = _parse_args(argv)
     configure_strict_determinism()
@@ -40,10 +47,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     original_argv = sys.argv
     try:
-        sys.argv = ["flashdreams-run", *args.runner_args]
-        from flashdreams.scripts.cli import entrypoint  # noqa: PLC0415
-
-        entrypoint()
+        # In-process rather than spawned, so the determinism above is already
+        # set when the runner opens its first CUDA context.
+        sys.argv = [args.entrypoint, *args.runner_args]
+        module = importlib.import_module(_ENTRYPOINT_MODULES[args.entrypoint])
+        module.entrypoint()
     finally:
         sys.argv = original_argv
     return 0
@@ -68,18 +76,27 @@ def _enable_torch_deterministic_algorithms() -> None:
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--entrypoint",
+        choices=tuple(_ENTRYPOINT_MODULES),
+        default="flashdreams-run",
+        help=(
+            "Runner to launch. Give it before the runner arguments, which are "
+            "everything after '--'. Default: %(default)s."
+        ),
+    )
+    parser.add_argument(
         "runner_args",
         nargs=argparse.REMAINDER,
         help=(
-            "Arguments passed to flashdreams-run. Prefix them with '--' when "
-            "the first runner argument is an option."
+            "Arguments passed to the runner. Prefix them with '--' when the "
+            "first runner argument is an option."
         ),
     )
     args = parser.parse_args(argv)
     if args.runner_args[:1] == ["--"]:
         args.runner_args = args.runner_args[1:]
     if not args.runner_args:
-        parser.error("pass a flashdreams-run scenario and arguments after '--'")
+        parser.error(f"pass {args.entrypoint} arguments after '--'")
     return args
 
 

@@ -5,25 +5,19 @@
 
 Lingbot's two live controls are a free camera driven from the keyboard and a
 catalog of server-owned text events. This module carries both across the
-``UserInputs -> CanonicalInputs -> InferenceInput`` boundary:
+``CanonicalInputs -> InferenceInput`` boundary:
 
-- :data:`CAMERA_COMMAND` and :class:`KeyboardToCameraCommand` turn raw key
-  edges into device-independent camera intent;
+- :data:`CAMERA_COMMAND` carries shared device-independent camera intent;
 - :data:`TEXT_EVENT` and :class:`TextEventSelection` track which text event is
   active;
 - :class:`LingbotInputMapping` turns that canonical intent into the per-step
   camera trajectory the session consumes, and requests a session-global prompt
   update when the active text event changes.
-
-The modalities live here rather than in ``flashdreams.runtime.canonical``
-because Lingbot is currently their only consumer. Both are plain
-``CanonicalModality`` values, so lifting them into the shared canonical layer
-later is a move plus an export, with no change to this mapping.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,7 +25,12 @@ from typing import Any
 import numpy as np
 import torch
 
-from flashdreams.runtime.canonical import DeviceConverterSchema
+from flashdreams.runtime.canonical import (
+    CAMERA_COMMAND,
+    DEFAULT_CAMERA_BINDINGS,
+    DeviceConverterSchema,
+    KeyboardToCameraCommand,
+)
 from flashdreams.runtime.inputs import (
     CanonicalInputs,
     CanonicalInputSchema,
@@ -43,7 +42,6 @@ from flashdreams.runtime.inputs import (
     UserInputCapability,
     UserInputs,
 )
-from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, KeyboardState
 from flashdreams.runtime.mapping import InputMappingSchema
 from flashdreams.runtime.types import StepRequest
 from lingbot.controls import (
@@ -69,33 +67,8 @@ _PASSTHROUGH_GLOBAL_FIELDS: tuple[InputField, ...] = (
 _CLEAR_STATES = frozenset({"clear", "release", "off", "none"})
 _TRIGGER_STATES = frozenset({"trigger", "hold", "on"})
 
-_AXES: tuple[str, ...] = ("move_forward", "move_right", "yaw", "pitch")
-
-_AXIS_KEYS: Mapping[str, tuple[str, str]] = {
-    # Axis -> (positive key, negative key) in CameraPoseIntegrator's vocabulary.
-    # Both directions of the keyboard/axis conversion are derived from this one
-    # table so a rebind cannot make them disagree.
-    "move_forward": ("w", "s"),
-    "move_right": ("e", "q"),
-    "yaw": ("a", "d"),
-    "pitch": ("i", "k"),
-}
-
-_KEY_ALIASES: Mapping[str, str] = {"j": "a", "l": "d"}
-"""Alternate yaw keys accepted by ``KeyboardState``, folded onto ``a``/``d``."""
-
-
-CAMERA_COMMAND = CanonicalModality(
-    name="camera_command",
-    payload_fields=frozenset({*_AXES, "segments"}),
-    description=(
-        "Free-camera intent. move_forward, move_right, yaw, and pitch are in "
-        "[-1, 1] and hold the level state at the end of the window. segments "
-        "carries the piecewise-constant timeline inside the window as "
-        "((start_s, end_s, axes), ...), so a consumer can integrate sub-window "
-        "timing instead of quantizing control to the chunk boundary."
-    ),
-)
+_AXIS_KEYS = DEFAULT_CAMERA_BINDINGS
+"""Axis bindings in :class:`CameraPoseIntegrator`'s key vocabulary."""
 
 TEXT_EVENT = CanonicalModality(
     name="text_event",
@@ -105,20 +78,6 @@ TEXT_EVENT = CanonicalModality(
         "event is active. Level-triggered: the value is held until cleared."
     ),
 )
-
-
-def _axes_from_keys(pressed: Iterable[str]) -> dict[str, float]:
-    """Return camera axis values for a resolved set of pressed keys."""
-    keys = {_KEY_ALIASES.get(key, key) for key in pressed}
-    axes: dict[str, float] = {}
-    for axis, (positive, negative) in _AXIS_KEYS.items():
-        value = 0.0
-        if positive in keys:
-            value += 1.0
-        if negative in keys:
-            value -= 1.0
-        axes[axis] = value
-    return axes
 
 
 def _keys_from_axes(axes: Mapping[str, float]) -> frozenset[str]:
@@ -137,73 +96,6 @@ def _keys_from_axes(axes: Mapping[str, float]) -> frozenset[str]:
         elif value < 0:
             keys.add(negative)
     return frozenset(keys)
-
-
-class KeyboardToCameraCommand:
-    """Convert keyboard edges into :data:`CAMERA_COMMAND` level state."""
-
-    def __init__(
-        self,
-        *,
-        name: str = "keyboard-to-camera-command",
-        supported_keys: frozenset[str] = DEFAULT_SUPPORTED_KEYS,
-        priority: int = 0,
-    ) -> None:
-        self._supported_keys = supported_keys
-        self._state = KeyboardState(supported_keys=supported_keys)
-        self._schema = DeviceConverterSchema(
-            name=name,
-            produces=CAMERA_COMMAND,
-            device_kind="keyboard",
-            priority=priority,
-            consumes=(
-                UserInputCapability(
-                    event_type="key_down",
-                    payload_fields=frozenset({"key"}),
-                ),
-                UserInputCapability(
-                    event_type="key_up",
-                    payload_fields=frozenset({"key"}),
-                ),
-            ),
-        )
-
-    @property
-    def schema(self) -> DeviceConverterSchema:
-        return self._schema
-
-    def reset(self) -> None:
-        self._state = KeyboardState(supported_keys=self._supported_keys)
-
-    def convert(
-        self,
-        user_inputs: UserInputs,
-        window: TimeWindow,
-    ) -> Mapping[str, Any] | None:
-        segments: list[tuple[float, float, dict[str, float]]] = []
-        segment_start = window.start_s
-        axes = _axes_from_keys(self._state.resolved_effective_keys())
-
-        for event in user_inputs.events:
-            if event.event_type not in {"key_down", "key_up"}:
-                continue
-            key = event.payload.get("key")
-            if not isinstance(key, str):
-                continue
-            edge_t = min(max(float(event.timestamp_s), window.start_s), window.end_s)
-            if edge_t > segment_start:
-                segments.append((segment_start, edge_t, axes))
-                segment_start = edge_t
-            self._state.apply_event(
-                event="keydown" if event.event_type == "key_down" else "keyup",
-                key=key,
-            )
-            axes = _axes_from_keys(self._state.resolved_effective_keys())
-
-        if window.end_s > segment_start or not segments:
-            segments.append((segment_start, window.end_s, axes))
-
-        return CAMERA_COMMAND.value({**axes, "segments": tuple(segments)})
 
 
 class TextEventSelection:
@@ -339,8 +231,7 @@ def load_camera_trace(
 class LingbotInputMapping:
     """Build Lingbot per-step camera inputs from canonical user input.
 
-    Two trajectory sources are supported through one mapping object, because
-    ``run_inference_session`` takes a single mapping:
+    One mapping object supports two trajectory sources:
 
     - a fixed :class:`LingbotCameraTrace`, sliced per step, which consumes no
       canonical modality and keeps MP4/benchmark runs deterministic;

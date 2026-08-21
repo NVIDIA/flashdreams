@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
 from collections.abc import Callable
@@ -91,8 +92,40 @@ def initialize_cuda_distributed(
     )
 
 
+def cleanup_cuda_distributed(
+    *,
+    world_rank: int | None = None,
+    synchronize_distributed: bool = True,
+    torch_module: Any = torch,
+    dist_module: Any = dist,
+) -> None:
+    """Release process-level CUDA and distributed state owned by demo serving."""
+    gc.collect()
+    cuda = torch_module.cuda
+    if cuda.is_available():
+        cuda.empty_cache()
+        cuda.synchronize()
+
+    is_available = getattr(dist_module, "is_available", None)
+    if callable(is_available) and not is_available():
+        return
+    if not dist_module.is_initialized():
+        return
+    if synchronize_distributed:
+        dist_module.barrier()
+    if world_rank is None:
+        logging.getLogger(__name__).info("Destroying process group.")
+    else:
+        logging.getLogger(__name__).info(
+            "[Rank %s] Destroying process group.",
+            world_rank,
+        )
+    dist_module.destroy_process_group()
+
+
 __all__ = [
     "DistributedDemoContext",
+    "cleanup_cuda_distributed",
     "configure_logging",
     "initialize_cuda_distributed",
 ]

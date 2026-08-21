@@ -35,6 +35,7 @@ import argparse
 import importlib
 import os
 import queue
+import secrets
 import signal
 import sys
 import threading
@@ -66,6 +67,7 @@ from flashvsr.grpc.streaming_view import (
 from flashvsr.pipeline import FlashVSRPipeline, FlashVSRPipelineCache
 
 DEFAULT_PORT = 50051
+DEFAULT_BIND_HOST = "127.0.0.1"
 DEFAULT_MAX_MESSAGE_MB = 512
 # upscale_video: bounded FIFO queues so receive / GPU / send can overlap (depth per stream).
 DEFAULT_STREAM_INBOUND_QUEUE_DEPTH = 16
@@ -77,6 +79,10 @@ _OUTBOUND_END = object()
 AttentionMode = Literal["sparse", "full"]
 RequestedAttentionMode = Literal["sparse", "full", "auto"]
 Scale = Literal[2, 4]
+
+
+def _grpc_listen_address(port: int) -> str:
+    return f"{DEFAULT_BIND_HOST}:{port}"
 
 
 def _default_model_cache_path() -> str:
@@ -125,6 +131,7 @@ class _UpscaleVideoReaderError:
 class _Session:
     key: tuple  # (input_H, input_W, scale, sparse_ratio, attention_mode)
     cache: FlashVSRPipelineCache
+    token: str
     created_at: float = field(default_factory=time.time)
 
 
@@ -484,6 +491,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
 
     def start_session(self, request, context):
         session_id = request.session_id or str(uuid.uuid4())
+        session_token = secrets.token_urlsafe(32)
         H = request.input_height or self._default_H
         W = request.input_width or self._default_W
         scale = request.scale or self._default_scale
@@ -504,6 +512,7 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 self._sessions[session_id] = _Session(
                     key=(H, W, scale, sparse_ratio, self._attention_mode),
                     cache=cache,
+                    token=session_token,
                 )
             logger.info(
                 "start_session {} ({}×{} scale={} sparse_ratio={:.3g} attention_mode={})",
@@ -514,14 +523,25 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
                 sparse_ratio,
                 self._attention_mode,
             )
-            return pb2.StartSessionResponse(session_id=session_id, success=True)
+            return pb2.StartSessionResponse(
+                session_id=session_id,
+                success=True,
+                session_token=session_token,
+            )
         except Exception as exc:
             logger.exception("start_session failed")
             return pb2.StartSessionResponse(success=False, error=str(exc))
 
     def end_session(self, request, context):
         with self._sessions_lock:
-            removed = self._sessions.pop(request.session_id, None)
+            session = self._sessions.get(request.session_id)
+            if session is None:
+                return pb2.EndSessionResponse(success=True)
+            if not secrets.compare_digest(request.session_token, session.token):
+                context.set_code(grpc.StatusCode.PERMISSION_DENIED)
+                context.set_details("invalid session token")
+                return pb2.EndSessionResponse(success=False)
+            removed = self._sessions.pop(request.session_id)
         if removed:
             logger.info("end_session {}", request.session_id)
             # FlashVSRPipelineCache holds GPU buffers via its sub-caches;
@@ -535,6 +555,11 @@ class FlashVSR(pb2_grpc.FlashVSRServicer):
         if session is None:
             msg = f"session '{request.session_id}' not found; call start_session first"
             context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(msg)
+            return pb2.UpscaleChunkResponse(error=msg)
+        if not secrets.compare_digest(request.session_token, session.token):
+            msg = "invalid session token"
+            context.set_code(grpc.StatusCode.PERMISSION_DENIED)
             context.set_details(msg)
             return pb2.UpscaleChunkResponse(error=msg)
 
@@ -1237,8 +1262,8 @@ def main():
     )
     parser.add_argument(
         "--viewer_host",
-        default="0.0.0.0",
-        help="HTTP viewer bind host when --viewer_port is set (default: 0.0.0.0).",
+        default=DEFAULT_BIND_HOST,
+        help="HTTP viewer bind host when --viewer_port is set (default: %(default)s).",
     )
     parser.add_argument(
         "--viewer_jpeg_quality",
@@ -1316,7 +1341,7 @@ def main():
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=args.workers), options=options
     )
-    addr = f"[::]:{args.port}"
+    addr = _grpc_listen_address(args.port)
     try:
         bound_port = server.add_insecure_port(addr)
     except RuntimeError as exc:
@@ -1365,7 +1390,8 @@ def main():
     _add_flash_vsr_servicer_to_server(servicer, server)
     server.start()
     logger.info(
-        "Server listening on [::]:{} (max msg {} MB)",
+        "Server listening on {}:{} (max msg {} MB)",
+        DEFAULT_BIND_HOST,
         bound_port,
         args.max_message_mb,
     )

@@ -1,12 +1,14 @@
 [tool.uv.workspace]
 members = [
     "flashdreams",
-    # Each populated subdir under ``integrations/`` is a standalone
-    # external integration repo (e.g. ``causal_forcing`` / ``self_forcing``
+    # Each populated subdir under ``integrations/`` or ``integrations_v2/``
+    # is a standalone external integration repo (e.g. ``causal_forcing`` /
+    # ``self_forcing``
     # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
     # folders alongside them are intentional placeholders for future
     # extractions and don't ship a ``pyproject.toml`` yet.
     "integrations/*",
+    "integrations_v2/*",
     "apps/*",
     # Nested sub-packages that the ``integrations/*`` glob does not reach.
     "integrations/omnidreams/ludus-renderer",
@@ -57,6 +59,14 @@ extraPaths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations_v2/color_fade",
+    "integrations_v2/null_model",
+    "integrations_v2/red_screen",
+    "integrations_v2/t2v_causal_forcing",
+    "integrations_v2/t2v_cosmos_predict2",
+    "integrations_v2/t2v_fastvideo_causal_wan22",
+    "integrations_v2/t2v_self_forcing",
+    "integrations_v2/t2v_wan21",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -82,6 +92,14 @@ extra-paths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations_v2/color_fade",
+    "integrations_v2/null_model",
+    "integrations_v2/red_screen",
+    "integrations_v2/t2v_causal_forcing",
+    "integrations_v2/t2v_cosmos_predict2",
+    "integrations_v2/t2v_fastvideo_causal_wan22",
+    "integrations_v2/t2v_self_forcing",
+    "integrations_v2/t2v_wan21",
 ]
 
 [tool.ty.src]
