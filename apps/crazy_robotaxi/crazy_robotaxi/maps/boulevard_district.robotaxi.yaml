@@ -51,7 +51,7 @@ nodes:
   - {id: central_north_end, type: cul_de_sac, pose: {x_m: 75, y_m: 260}, culdesac_radius_m: 9}
 
   - {id: west_south_crossing, type: intersection, pose: {x_m: -128, y_m: -84}}
-  - {id: west_lower_crossing, type: intersection, pose: {x_m: -128, y_m: -184}, lane_transition_length_m: 20}
+  - {id: west_lower_crossing, type: road_joint, pose: {x_m: -128, y_m: -184}, lane_transition_length_m: 20}
   - {id: west_south_end, type: cul_de_sac, pose: {x_m: -128, y_m: -235}, culdesac_radius_m: 9}
   - {id: southwest_crossing, type: intersection, pose: {x_m: -44, y_m: -84}}
   - {id: southwest_north_end, type: cul_de_sac, pose: {x_m: -44, y_m: -30}, culdesac_radius_m: 8}
@@ -76,7 +76,7 @@ nodes:
   - {id: north_end_470, type: cul_de_sac, pose: {x_m: 470, y_m: 220}, culdesac_radius_m: 9}
   - {id: north_crossing_550, type: intersection, pose: {x_m: 550, y_m: 130}}
   - {id: north_crossing_630, type: intersection, pose: {x_m: 630, y_m: 126}}
-  - {id: north_crossing_687, type: intersection, pose: {x_m: 687, y_m: 129}}
+  - {id: north_crossing_687, type: road_joint, pose: {x_m: 687, y_m: 129}}
 
   # Long eastern arterial.
   - {id: arterial_crossing_470, type: intersection, pose: {x_m: 470, y_m: -88}}
@@ -93,7 +93,7 @@ nodes:
   - {id: east_arterial_end, type: cul_de_sac, pose: {x_m: 1220, y_m: -88}, culdesac_radius_m: 12}
 
   # Southern commercial grid.
-  - {id: south_crossing_630, type: intersection, pose: {x_m: 630, y_m: -303}}
+  - {id: south_crossing_630, type: road_joint, pose: {x_m: 630, y_m: -303}, lane_transition_length_m: 20}
   - {id: south_crossing_710, type: intersection, pose: {x_m: 710, y_m: -176}}
   - {id: lower_crossing_710, type: intersection, pose: {x_m: 710, y_m: -262}, lane_transition_length_m: 20}
   - {id: south_end_710, type: cul_de_sac, pose: {x_m: 710, y_m: -310}, culdesac_radius_m: 9}
@@ -105,7 +105,7 @@ nodes:
   - {id: south_crossing_990, type: intersection, pose: {x_m: 990, y_m: -177}, lane_transition_length_m: 20}
   - {id: lower_crossing_990, type: intersection, pose: {x_m: 990, y_m: -265}}
   - {id: lower_lot_driveway, type: driveway, pose: {x_m: 785, y_m: -262}}
-  - {id: lower_crossing_1080, type: intersection, pose: {x_m: 1080, y_m: -267}}
+  - {id: lower_crossing_1080, type: road_joint, pose: {x_m: 1080, y_m: -267}}
   - {id: south_cul_de_sac_1080, type: cul_de_sac, pose: {x_m: 1082, y_m: -222}, culdesac_radius_m: 10}
   - {id: bottom_lot_driveway, type: driveway, pose: {x_m: 550, y_m: -310}}
   - {id: bottom_west_end, type: cul_de_sac, pose: {x_m: 470, y_m: -330}, culdesac_radius_m: 9}

@@ -954,6 +954,11 @@ def _validate_topology(topology: GameMapTopology) -> None:
         source_accesses[access.source_node_id].append(access)
         lot_accesses[access.parking_lot_node_id].append(access)
     for node in topology.nodes:
+        if node.node_type == "intersection" and road_degree[node.node_id] < 3:
+            raise GameMapError(
+                f"Intersection {node.node_id!r} must connect at least three road "
+                f"arms (found {road_degree[node.node_id]})"
+            )
         if node.node_type == "cul_de_sac" and road_degree[node.node_id] != 1:
             raise GameMapError(
                 f"Cul-de-sac {node.node_id!r} must terminate exactly one road"

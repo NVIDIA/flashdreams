@@ -331,6 +331,26 @@ def test_lane_transition_length_must_be_nonnegative(tmp_path: Path) -> None:
         load_game_map(_write_map(tmp_path, _intersection_transition_map(-1)))
 
 
+@pytest.mark.parametrize("road_count", [1, 2])
+def test_intersection_requires_at_least_three_road_arms(
+    tmp_path: Path,
+    road_count: int,
+) -> None:
+    source = _road_joint_map()
+    nodes = cast(list[dict[str, Any]], source["nodes"])
+    bend = next(node for node in nodes if node["id"] == "bend")
+    bend["type"] = "intersection"
+    roads = cast(list[dict[str, Any]], source["roads"])
+    del roads[road_count:]
+
+    with pytest.raises(
+        GameMapError,
+        match=rf"Intersection 'bend' must connect at least three road arms "
+        rf"\(found {road_count}\)",
+    ):
+        load_game_map(_write_map(tmp_path, source))
+
+
 def test_unknown_root_fields_are_rejected(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     source["unexpected"] = []

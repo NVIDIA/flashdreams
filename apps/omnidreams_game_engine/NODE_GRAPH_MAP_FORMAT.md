@@ -97,7 +97,8 @@ attributes may be supplied directly or by profile.
 
 ### Intersections
 
-An intersection has no required attributes beyond its identity and pose:
+An intersection connects at least three incident road arms and has no required
+attributes beyond its identity and pose:
 
 ```yaml
 - id: askew_junction
@@ -106,8 +107,10 @@ An intersection has no required attributes beyond its identity and pose:
   lane_transition_length_m: 20
 ```
 
-The compiler infers the intersection footprint from its incident roads and
-access paths. Each opening uses that element's paved width and endpoint tangent.
+Use a road joint for a degree-two connection and a cul-de-sac for a degree-one
+road ending; one- and two-arm intersections are rejected. The compiler infers
+the intersection footprint from its incident roads and access paths. Each
+opening uses that element's paved width and endpoint tangent.
 Adjacent road-edge lines determine how far each arm must reach, so orthogonal
 roads form a compact rectangular junction while acute approaches extend far
 enough to meet without gaps. Intersection dimensions and arm lengths are not
