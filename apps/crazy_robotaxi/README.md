@@ -56,10 +56,13 @@ group "live edit"):
   default 8) re-opens the window, so weather effectively stays at ~2x while
   active. Shorten the window (e.g. below the re-swap interval) to trade
   edit pressure for throughput.
-- **Obstacle** (`--live-edit-obstacle`, spawn with `O`): a cloned scene
-  vehicle. Conditioning-only unless `--live-edit-obstacle-guide-scale > 0`,
-  which adds a second forward per step while an event is active and forces
-  the graph-free pipeline.
+- **Obstacle / traffic** (`--live-edit-obstacle`, spawn with `O`): cloned
+  scene vehicles. `--live-edit-obstacle-count N` turns one key press into a
+  traffic burst of N distinct crossing/oncoming clones staggered ahead of
+  the ego (`--live-edit-obstacle-stagger-chunks` apart in time; each
+  despawns after its own pass). Conditioning-only unless
+  `--live-edit-obstacle-guide-scale > 0`, which adds a second forward per
+  step while an event is active and forces the graph-free pipeline.
 - **Drift correctors** (`--live-edit-style-corrector`,
   `--live-edit-base-corrector`, `--live-edit-weather-corrector`): optional
   per-state weight-merged correctors. `--live-edit-corrector-mode off`

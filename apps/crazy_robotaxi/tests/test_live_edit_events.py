@@ -328,7 +328,9 @@ def _track(
     )
 
 
-def _track_crossing(*, drift_m: float = 30.0, duration_s: float = 8.0) -> _FakeTrack:
+def _track_crossing(
+    *, drift_m: float = 30.0, duration_s: float = 8.0, length_m: float = 4.6
+) -> _FakeTrack:
     """A car-sized track moving along +y (perpendicular to an ego at yaw 0)."""
     samples = 24
     ts = np.linspace(0.0, duration_s * 1e6, samples).astype(np.int64)
@@ -341,7 +343,7 @@ def _track_crossing(*, drift_m: float = 30.0, duration_s: float = 8.0) -> _FakeT
         object_type="Vehicle",
         timestamps_us=ts,
         centers_world=centers,
-        dimensions_lwh=np.array([4.6, 2.0, 1.6], np.float32),
+        dimensions_lwh=np.array([length_m, 2.0, 1.6], np.float32),
         orientations_xyzw=np.tile(np.array([0, 0, 0, 1], np.float32), (samples, 1)),
     )
 
@@ -516,6 +518,169 @@ class TestObstacleAbility:
         ability.reset()
         assert not ability.active
         assert ability.advance_frames(_chunk(133_332)) == ()
+
+
+class TestTrafficBurst:
+    """Multi-clone traffic events (count > 1)."""
+
+    def _config(self, **overrides: Any) -> LiveEditObstacleConfig:
+        values: dict[str, Any] = dict(
+            enabled=True,
+            count=3,
+            spawn_ahead_m=20.0,
+            spacing_m=8.0,
+            stagger_chunks=1,
+            active_chunks=6,
+            min_drift_m=15.0,
+        )
+        values.update(overrides)
+        return LiveEditObstacleConfig(**values)
+
+    def _ability(self, config: LiveEditObstacleConfig) -> ObstacleAbility:
+        tracks = (
+            _track_crossing(length_m=4.2),
+            _track_crossing(length_m=4.5),
+            _track_crossing(length_m=4.8),
+        )
+        return ObstacleAbility(extract_moving_templates(tracks, config), config)
+
+    def test_one_request_spawns_count_clones_one_chunk_apart(self) -> None:
+        ability = self._ability(self._config())
+        ability.request_spawn()
+        assert len(ability.advance_frames(_chunk(0))) == 1
+        assert len(ability.advance_frames(_chunk(133_332))) == 2
+        assert len(ability.advance_frames(_chunk(266_664))) == 3
+
+    def test_zero_stagger_spawns_the_whole_burst_at_once(self) -> None:
+        ability = self._ability(self._config(stagger_chunks=0))
+        ability.request_spawn()
+        actors = ability.advance_frames(_chunk(0))
+        assert len(actors) == 3
+        ids = {actor.entity_id for actor in actors}
+        assert len(ids) == 3
+        assert all(entity.startswith(OBSTACLE_ENTITY_PREFIX) for entity in ids)
+
+    def test_clones_are_staggered_across_the_ahead_band(self) -> None:
+        ability = self._ability(self._config(stagger_chunks=0))
+        ability.request_spawn()
+        actors = ability.advance_frames(_chunk(0))
+        # Ego at origin heading +x: slots start 20, 28, 36 m ahead.
+        starts = sorted(float(a.translations_world[0, 0]) for a in actors)
+        assert starts == pytest.approx([20.0, 28.0, 36.0])
+
+    def test_burst_uses_distinct_templates(self) -> None:
+        ability = self._ability(self._config(stagger_chunks=0))
+        ability.request_spawn()
+        actors = ability.advance_frames(_chunk(0))
+        lengths = sorted(float(a.dimensions_lwh.max()) for a in actors)
+        assert lengths == pytest.approx([4.2, 4.5, 4.8])
+
+    def test_burst_prefers_crossing_over_pace_matched_templates(self) -> None:
+        # 2 crossing + 1 lead-car track, count=2: no clone paces the ego.
+        config = self._config(count=2, stagger_chunks=0)
+        tracks = (
+            _track(drift_m=30.0),  # moves along the ego +x heading
+            _track_crossing(length_m=4.2),
+            _track_crossing(length_m=4.8),
+        )
+        ability = ObstacleAbility(extract_moving_templates(tracks, config), config)
+        ability.request_spawn()
+        actors = ability.advance_frames(_chunk(0))
+        assert len(actors) == 2
+        for actor in actors:
+            motion = actor.translations_world[-1, :2] - actor.translations_world[0, :2]
+            assert abs(motion[1]) > abs(motion[0])
+
+    def test_each_clone_despawns_after_its_own_duration(self) -> None:
+        ability = self._ability(self._config(count=2, active_chunks=2))
+        ability.request_spawn()
+        assert len(ability.advance_frames(_chunk(0))) == 1
+        assert len(ability.advance_frames(_chunk(133_332))) == 2
+        # Clone 0 has served its 2 chunks; clone 1 has one chunk left.
+        actors = ability.advance_frames(_chunk(266_664))
+        assert len(actors) == 1
+        assert not ability.advance_frames(_chunk(400_000))
+        assert not ability.active
+
+    def test_second_request_is_ignored_while_a_burst_is_active(self) -> None:
+        ability = self._ability(self._config(stagger_chunks=0))
+        ability.request_spawn()
+        ability.advance_frames(_chunk(0))
+        ability.request_spawn()
+        assert len(ability.advance_frames(_chunk(133_332))) == 3
+
+    def test_events_exposes_all_active_clones(self) -> None:
+        ability = self._ability(self._config(stagger_chunks=0))
+        assert ability.events == ()
+        ability.request_spawn()
+        ability.advance_frames(_chunk(0))
+        assert len(ability.events) == 3
+        assert ability.event is ability.events[0]
+
+    def test_reset_clears_pending_spawns(self) -> None:
+        ability = self._ability(self._config())
+        ability.request_spawn()
+        ability.advance_frames(_chunk(0))
+        ability.reset()
+        assert not ability.active
+        assert ability.advance_frames(_chunk(133_332)) == ()
+
+    def test_count_must_be_positive(self) -> None:
+        with pytest.raises(ValueError):
+            LiveEditObstacleConfig(count=0)
+        with pytest.raises(ValueError):
+            LiveEditObstacleConfig(spacing_m=0.0)
+        with pytest.raises(ValueError):
+            LiveEditObstacleConfig(stagger_chunks=-1)
+
+    def test_count_and_stagger_flags_parse(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-obstacle",
+                "--live-edit-obstacle-count",
+                "4",
+                "--live-edit-obstacle-stagger-chunks",
+                "2",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.obstacle.count == 4
+        assert config.obstacle.stagger_chunks == 2
+
+    def test_alt_frames_strip_every_clone_of_the_burst(self) -> None:
+        @dataclass
+        class FakeRaster:
+            calls: list[dict] = field(default_factory=list)
+
+            def render_chunk(self, **kwargs: Any) -> Any:
+                self.calls.append(kwargs)
+
+                @dataclass
+                class Frame:
+                    rgb_host_uint8: str
+
+                @dataclass
+                class Chunk:
+                    frames: tuple
+
+                return Chunk(frames=(Frame("nobox"),))
+
+        from dataclasses import replace as dc_replace
+
+        ability = self._ability(self._config(stagger_chunks=0))
+        ability.request_spawn()
+        actors = ability.advance_frames(_chunk(0))
+        scene_actor = actors[0]
+        scene_actor = dc_replace(scene_actor, entity_id="scene-track-7")
+        trajectory = dc_replace(_chunk(0), dynamic_actors=(scene_actor, *actors))
+
+        guidance = ObstacleGuidance(2.0)
+        raster = FakeRaster()
+        guidance._stash_alt_frames(raster, trajectory)
+        assert guidance._alt_frames == ["nobox"]
+        assert raster.calls[0]["dynamic_actors"] == (scene_actor,)
 
 
 ## Obstacle guidance (model-free seams)

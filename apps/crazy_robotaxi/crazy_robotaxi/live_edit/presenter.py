@@ -488,41 +488,25 @@ class LiveEditPresenter:
         )
 
     def _annotate_obstacle(self, rgb: np.ndarray, frame: PresentedFrame) -> np.ndarray:
-        """Outline the obstacle clone's 3D box (evidence aid, flag-gated)."""
+        """Outline each obstacle clone's 3D box (evidence aid, flag-gated)."""
         obstacle = self._obstacle_ability
         if (
             not self._config.obstacle.annotate
             or obstacle is None
-            or obstacle.event is None
+            or not obstacle.events
             or frame.rig_to_world is None
         ):
-            return rgb
-        event = obstacle.event
-        center = event.center_at(int(frame.timestamp_us))
-        if center is None:
             return rgb
         height, width = rgb.shape[:2]
         camera_model = self._require_camera_model(width, height)
         if camera_model is None:
             return rgb
-        # Nearest-sample orientation is plenty for an annotation outline.
-        sample = int(
-            np.argmin(np.abs(event.timestamps_us - np.int64(frame.timestamp_us)))
-        )
-        rotation = _quat_to_matrix(event.orientations_xyzw[sample])
-        half = np.asarray(event.dimensions_lwh, dtype=np.float32) / 2.0
+        canvas: Image.Image | None = None
+        draw: ImageDraw.ImageDraw | None = None
         signs = np.array(
             [[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
             dtype=np.float32,
         )
-        corners = center[None, :] + (signs * half[None, :]) @ rotation.T
-        uv, _depth, forward = camera_model.project_world(
-            corners, np.asarray(frame.rig_to_world, dtype=np.float32)
-        )
-        if not forward.all():
-            return rgb
-        canvas = Image.fromarray(rgb, mode="RGB")
-        draw = ImageDraw.Draw(canvas)
         edges = (
             (0, 1),
             (0, 2),
@@ -537,13 +521,32 @@ class LiveEditPresenter:
             (2, 6),
             (3, 7),
         )
-        for a, b in edges:
-            draw.line(
-                [tuple(uv[a].tolist()), tuple(uv[b].tolist())],
-                fill=(255, 60, 60),
-                width=2,
+        for event in obstacle.events:
+            center = event.center_at(int(frame.timestamp_us))
+            if center is None:
+                continue
+            # Nearest-sample orientation is plenty for an annotation outline.
+            sample = int(
+                np.argmin(np.abs(event.timestamps_us - np.int64(frame.timestamp_us)))
             )
-        return np.asarray(canvas)
+            rotation = _quat_to_matrix(event.orientations_xyzw[sample])
+            half = np.asarray(event.dimensions_lwh, dtype=np.float32) / 2.0
+            corners = center[None, :] + (signs * half[None, :]) @ rotation.T
+            uv, _depth, forward = camera_model.project_world(
+                corners, np.asarray(frame.rig_to_world, dtype=np.float32)
+            )
+            if not forward.all():
+                continue
+            if canvas is None:
+                canvas = Image.fromarray(rgb, mode="RGB")
+                draw = ImageDraw.Draw(canvas)
+            for a, b in edges:
+                draw.line(
+                    [tuple(uv[a].tolist()), tuple(uv[b].tolist())],
+                    fill=(255, 60, 60),
+                    width=2,
+                )
+        return rgb if canvas is None else np.asarray(canvas)
 
     def _hud_labels(self) -> list[str]:
         """Chip labels for the current ability state (shared by both paths)."""
@@ -559,7 +562,8 @@ class LiveEditPresenter:
             labels.append(f"COINS {coins.collected_count}")
         obstacle = self._obstacle_ability
         if obstacle is not None and obstacle.active:
-            labels.append("OBSTACLE!")
+            n = len(obstacle.events)
+            labels.append("OBSTACLE!" if n <= 1 else f"TRAFFIC x{n}")
         if obstacle is not None and obstacle.hit_count:
             labels.append(f"HITS {obstacle.hit_count}")
         return labels

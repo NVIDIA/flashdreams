@@ -20,7 +20,10 @@ tracks do, and MOVING clones materialize solidly (probe_moving_clone.py,
 and renders at ghost strength (~40%). The spawn key therefore clones a
 moving vehicle track, retimes it to "now", and rigidly shifts it (XY only,
 plus a ground-height correction) so it starts ahead of the ego and replays
-its recorded motion there.
+its recorded motion there. With ``count`` > 1 one key press spawns a
+"traffic" burst: distinct crossing/oncoming templates staggered in distance
+(``spacing_m``) and time (``stagger_chunks``), each despawning after its
+own pass.
 
 Optional box-axis guidance (``guide_scale`` > 0, probe operating point 3.0)
 extrapolates the flow along the with-box/without-box conditioning direction:
@@ -188,20 +191,27 @@ def build_obstacle_event(
     config: LiveEditObstacleConfig,
     ground_vertices: npt.NDArray[np.floating] | None = None,
     entity_id: str = f"{OBSTACLE_ENTITY_PREFIX}-0",
+    ahead_m: float | None = None,
+    lateral_m: float | None = None,
 ) -> ObstacleEvent:
     """Retime a template to ``spawn_timestamp_us`` and shift it ahead of ego.
 
     Rigid XY translation only (orientation and per-frame jitter preserved —
     the statistics the model keys on); z is corrected by the ground-height
     delta between the source and target locations when the ground mesh
-    covers both.
+    covers both. ``ahead_m``/``lateral_m`` override the config placement
+    (per-clone slots of a traffic burst).
     """
+    if ahead_m is None:
+        ahead_m = config.spawn_ahead_m
+    if lateral_m is None:
+        lateral_m = config.lateral_m
     forward = np.array(
         [np.cos(ego_state.yaw_rad), np.sin(ego_state.yaw_rad)], dtype=np.float64
     )
     left = np.array([-forward[1], forward[0]])
     ego_xy = np.array([ego_state.x_m, ego_state.y_m], dtype=np.float64)
-    target_xy = ego_xy + config.spawn_ahead_m * forward + config.lateral_m * left
+    target_xy = ego_xy + ahead_m * forward + lateral_m * left
 
     centers = template.centers_world.copy()
     source_xy = centers[0, :2].astype(np.float64)
@@ -228,8 +238,24 @@ def build_obstacle_event(
     )
 
 
+@dataclass
+class _ActiveClone:
+    """Per-clone lifecycle state (each clone despawns independently)."""
+
+    event: ObstacleEvent
+    template_index: int
+    chunks: int = 0
+    hit_logged: bool = False
+
+
 class ObstacleAbility:
-    """Spawn, advance, and despawn obstacle events for one rollout."""
+    """Spawn, advance, and despawn obstacle events for one rollout.
+
+    One spawn request queues ``config.count`` clones (a "traffic" burst for
+    count > 1): distinct crossing/oncoming templates, staggered ahead of the
+    ego by ``spacing_m`` per slot and ``stagger_chunks`` chunks apart in
+    time. Each clone despawns on its own after its pass.
+    """
 
     def __init__(
         self,
@@ -241,11 +267,11 @@ class ObstacleAbility:
         self._templates = templates
         self._config = config
         self._ground_vertices = ground_vertices
-        self._spawn_requested = False
-        self._event: ObstacleEvent | None = None
-        self._event_chunks = 0
+        self._pending: list[tuple[int, int]] = []  # (slot, due chunk index)
+        self._clones: list[_ActiveClone] = []
+        self._chunk_index = 0
         self._event_count = 0
-        self._hit_logged = False
+        self._burst_count = 0
         self._hit_count = 0
 
     @classmethod
@@ -262,13 +288,18 @@ class ObstacleAbility:
 
     @property
     def active(self) -> bool:
-        """Return whether an obstacle event is currently on screen."""
-        return self._event is not None
+        """Return whether any obstacle clone is currently on screen."""
+        return bool(self._clones)
 
     @property
     def event(self) -> ObstacleEvent | None:
-        """Return the active event (presenter annotation hook)."""
-        return self._event
+        """Return the oldest active event (single-clone compatibility)."""
+        return self._clones[0].event if self._clones else None
+
+    @property
+    def events(self) -> tuple[ObstacleEvent, ...]:
+        """Return all active events (presenter annotation hook)."""
+        return tuple(clone.event for clone in self._clones)
 
     @property
     def hit_count(self) -> int:
@@ -276,66 +307,85 @@ class ObstacleAbility:
         return self._hit_count
 
     def request_spawn(self) -> None:
-        """Queue an obstacle spawn for the next simulation chunk."""
+        """Queue a burst of ``config.count`` clones for the next chunks."""
         if not self._templates:
             logger.warning("[live-edit] obstacle spawn requested but no templates")
             return
-        self._spawn_requested = True
+        if self._pending or self._clones:
+            return  # one burst at a time (matches the single-clone behavior)
+        base = self._chunk_index
+        self._pending = [
+            (slot, base + slot * self._config.stagger_chunks)
+            for slot in range(self._config.count)
+        ]
+        self._burst_count += 1
 
     def reset(self) -> None:
-        """Clear the active event (rollout restart)."""
-        self._spawn_requested = False
-        self._event = None
-        self._event_chunks = 0
-        self._hit_logged = False
+        """Clear pending and active clones (rollout restart)."""
+        self._pending = []
+        self._clones = []
+        self._chunk_index = 0
 
     def advance_frames(
         self, trajectory: TrajectoryChunk
     ) -> tuple[DynamicActorTrajectory, ...]:
-        """Advance the event state for one chunk; return actors to append."""
+        """Advance clone lifecycles for one chunk; return actors to append."""
         first_ts = int(trajectory.timestamps_us[0])
-        if self._spawn_requested and self._event is None:
-            self._spawn_requested = False
-            template = self._select_template(trajectory.vehicle_states[0])
-            self._event = build_obstacle_event(
-                template,
-                ego_state=trajectory.vehicle_states[0],
-                spawn_timestamp_us=first_ts,
-                config=self._config,
-                ground_vertices=self._ground_vertices,
-                entity_id=f"{OBSTACLE_ENTITY_PREFIX}-{self._event_count}",
-            )
-            self._event_count += 1
-            self._event_chunks = 0
-            self._hit_logged = False
-            start = self._event.translations_world[0]
-            logger.info(
-                f"[live-edit] obstacle spawned {self._event.entity_id} "
-                f"type={self._event.object_type} drift={template.drift_m:.1f}m "
-                f"at ({start[0]:.1f}, {start[1]:.1f}, {start[2]:.1f})"
-            )
-        elif self._spawn_requested:
-            self._spawn_requested = False  # one event at a time
+        due = [entry for entry in self._pending if entry[1] <= self._chunk_index]
+        self._pending = [
+            entry for entry in self._pending if entry[1] > self._chunk_index
+        ]
+        self._chunk_index += 1
+        for slot, _ in due:
+            self._spawn_clone(slot, trajectory, first_ts)
 
-        event = self._event
-        if event is None:
+        if not self._clones:
             return ()
 
-        self._event_chunks += 1
-        self._check_collision(event, trajectory)
-        track_exhausted = int(trajectory.timestamps_us[-1]) >= int(
-            event.timestamps_us[-1]
-        )
-        if self._event_chunks >= self._config.active_chunks or track_exhausted:
-            reason = "track exhausted" if track_exhausted else "duration reached"
-            logger.info(
-                f"[live-edit] obstacle despawned {event.entity_id} "
-                f"after {self._event_chunks} chunks ({reason})"
-            )
-            self._event = None
-        return (event.actor(),)
+        last_ts = int(trajectory.timestamps_us[-1])
+        survivors: list[_ActiveClone] = []
+        actors: list[DynamicActorTrajectory] = []
+        for clone in self._clones:
+            clone.chunks += 1
+            self._check_collision(clone, trajectory)
+            actors.append(clone.event.actor())
+            track_exhausted = last_ts >= int(clone.event.timestamps_us[-1])
+            if clone.chunks >= self._config.active_chunks or track_exhausted:
+                reason = "track exhausted" if track_exhausted else "duration reached"
+                logger.info(
+                    f"[live-edit] obstacle despawned {clone.event.entity_id} "
+                    f"after {clone.chunks} chunks ({reason})"
+                )
+            else:
+                survivors.append(clone)
+        self._clones = survivors
+        return tuple(actors)
 
-    def _select_template(self, ego_state: VehicleState) -> ObstacleTemplate:
+    def _spawn_clone(
+        self, slot: int, trajectory: TrajectoryChunk, spawn_timestamp_us: int
+    ) -> None:
+        """Materialize one burst slot: distinct template, staggered ahead."""
+        template_index = self._select_template_index(trajectory.vehicle_states[0])
+        event = build_obstacle_event(
+            self._templates[template_index],
+            ego_state=trajectory.vehicle_states[0],
+            spawn_timestamp_us=spawn_timestamp_us,
+            config=self._config,
+            ground_vertices=self._ground_vertices,
+            entity_id=f"{OBSTACLE_ENTITY_PREFIX}-{self._event_count}",
+            ahead_m=self._config.spawn_ahead_m + slot * self._config.spacing_m,
+        )
+        self._event_count += 1
+        self._clones.append(_ActiveClone(event=event, template_index=template_index))
+        start = event.translations_world[0]
+        template = self._templates[template_index]
+        logger.info(
+            f"[live-edit] obstacle spawned {event.entity_id} slot={slot} "
+            f"type={event.object_type} drift={template.drift_m:.1f}m "
+            f"at ({start[0]:.1f}, {start[1]:.1f}, {start[2]:.1f})"
+        )
+
+    def _select_template_index(self, ego_state: VehicleState) -> int:
         """Pick a template whose recorded motion crosses the ego heading.
 
         Materialization tracks relative screen motion: a clone that holds a
@@ -343,39 +393,47 @@ class ObstacleAbility:
         same contradicting history pixels for many chunks and renders at
         ghost strength, while crossing/oncoming clones sweep the frame and
         materialize (probe_moving_clone; in-game bring-up 2026-08-20). Rank
-        by |heading alignment| ascending (perpendicular first), cycle among
-        the best few so repeated events vary.
+        by |heading alignment| ascending (perpendicular first) and, within a
+        burst, take the most-crossing template not already on screen so one
+        traffic event shows DIFFERENT vehicles; rotate the pool start per
+        burst so repeated events vary.
         """
         forward = np.array([np.cos(ego_state.yaw_rad), np.sin(ego_state.yaw_rad)])
 
-        def crossness(template: ObstacleTemplate) -> float:
+        def crossness(index: int) -> float:
+            template = self._templates[index]
             motion = (
                 template.centers_world[-1, :2] - template.centers_world[0, :2]
             ).astype(np.float64)
             return abs(float(motion @ forward / (np.linalg.norm(motion) or 1.0)))
 
-        ranked = sorted(self._templates, key=crossness)
-        top = ranked[: max(1, min(4, len(ranked)))]
-        return top[self._event_count % len(top)]
+        ranked = sorted(range(len(self._templates)), key=crossness)
+        pool_size = max(1, min(max(4, self._config.count), len(ranked)))
+        top = ranked[:pool_size]
+        offset = (self._burst_count - 1) % len(top) if top else 0
+        rotated = top[offset:] + top[:offset]
+        in_use = {clone.template_index for clone in self._clones}
+        unused = [index for index in rotated if index not in in_use]
+        return (unused or rotated)[0]
 
     def _check_collision(
-        self, event: ObstacleEvent, trajectory: TrajectoryChunk
+        self, clone: _ActiveClone, trajectory: TrajectoryChunk
     ) -> None:
         """Log a hit when the ego passes within the collision radius."""
-        if self._hit_logged:
+        if clone.hit_logged:
             return
         for timestamp_us, state in zip(
             trajectory.timestamps_us, trajectory.vehicle_states, strict=True
         ):
-            center = event.center_at(int(timestamp_us))
+            center = clone.event.center_at(int(timestamp_us))
             if center is None:
                 continue
             distance = float(np.hypot(center[0] - state.x_m, center[1] - state.y_m))
             if distance <= self._config.collision_radius_m:
-                self._hit_logged = True
+                clone.hit_logged = True
                 self._hit_count += 1
                 logger.info(
-                    f"[live-edit] obstacle HIT {event.entity_id} "
+                    f"[live-edit] obstacle HIT {clone.event.entity_id} "
                     f"distance={distance:.1f}m"
                 )
                 return

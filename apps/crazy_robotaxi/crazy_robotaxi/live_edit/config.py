@@ -347,8 +347,25 @@ class LiveEditObstacleConfig:
     enabled: bool = False
     """Whether the obstacle ability responds to the spawn key."""
 
+    count: int = 1
+    """Clones per spawn request. ``1`` is the classic single obstacle; more
+    makes a "traffic" event: each clone uses a DIFFERENT crossing/oncoming
+    template track (never a pace-matched lead car — those render at ghost
+    strength) staggered ahead of the ego by :attr:`spacing_m`."""
+
     spawn_ahead_m: float = 16.0
-    """Meters ahead of the ego (along its heading) where the clone starts."""
+    """Meters ahead of the ego (along its heading) where the first clone
+    starts; clone ``i`` starts ``i * spacing_m`` further out."""
+
+    spacing_m: float = 8.0
+    """Extra ahead-distance per additional clone (count > 1). The default
+    puts a 4-clone burst across a 16-40 m band — the model's validated
+    materialization range."""
+
+    stagger_chunks: int = 1
+    """Chunks between consecutive clone spawns in one burst. ``0`` spawns
+    the whole burst in one chunk; a small stagger both eases the model into
+    the event and spreads the passes out on screen."""
 
     lateral_m: float = 0.0
     """Meters to the left (+) / right (-) of the ego heading at spawn."""
@@ -384,6 +401,12 @@ class LiveEditObstacleConfig:
 
     def __post_init__(self) -> None:
         """Validate obstacle values at configuration time."""
+        if self.count < 1:
+            raise ValueError("obstacle count must be at least 1")
+        if self.spacing_m <= 0.0:
+            raise ValueError("spacing_m must be positive")
+        if self.stagger_chunks < 0:
+            raise ValueError("stagger_chunks must be non-negative")
         if self.spawn_ahead_m <= 0.0:
             raise ValueError("spawn_ahead_m must be positive")
         if self.active_chunks <= 0:
@@ -643,6 +666,24 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Enable obstacle events (cloned moving scene vehicle; O key).",
     )
     group.add_argument(
+        "--live-edit-obstacle-count",
+        type=int,
+        default=1,
+        help=(
+            "Clones per obstacle spawn (1 = single obstacle; 3-5 makes a "
+            "traffic event of distinct crossing/oncoming vehicles staggered "
+            "ahead of the ego)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-obstacle-stagger-chunks",
+        type=int,
+        default=1,
+        help=(
+            "Chunks between consecutive clone spawns in one burst (0 = all at once)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-obstacle-ahead-m",
         type=float,
         default=16.0,
@@ -733,6 +774,8 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
         perf_log_every_frames=int(args.live_edit_perf_log),
         obstacle=LiveEditObstacleConfig(
             enabled=bool(args.live_edit_obstacle),
+            count=int(args.live_edit_obstacle_count),
+            stagger_chunks=int(args.live_edit_obstacle_stagger_chunks),
             spawn_ahead_m=float(args.live_edit_obstacle_ahead_m),
             active_chunks=int(args.live_edit_obstacle_chunks),
             guide_scale=float(args.live_edit_obstacle_guide_scale),
