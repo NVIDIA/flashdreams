@@ -20,6 +20,7 @@ from crazy_robotaxi.live_edit.config import (
     WeatherPreset,
     add_live_edit_args,
     live_edit_config_from_args,
+    weathers_starting_with,
 )
 from crazy_robotaxi.live_edit.input_hooks import LiveEditRequests
 from crazy_robotaxi.live_edit.obstacle_ability import (
@@ -631,6 +632,34 @@ class TestRequestsAndConfig:
         assert config.obstacle.guide_scale == 3.0
         assert config.obstacle.annotate
         assert config.any_enabled
+
+    def test_default_weather_cycle_is_rain_snow_storm(self) -> None:
+        assert [w.name for w in weathers_starting_with(None)] == [
+            "rain",
+            "snow",
+            "storm",
+        ]
+
+    def test_weather_first_rotates_the_cycle_for_direct_select(self) -> None:
+        rotated = weathers_starting_with("snow")
+        assert [w.name for w in rotated] == ["snow", "storm", "rain"]
+        # Rotation reorders, never rewrites, the presets.
+        assert {w.prompt for w in rotated} == {
+            w.prompt for w in weathers_starting_with(None)
+        }
+
+    def test_weather_first_rejects_unknown_presets(self) -> None:
+        with pytest.raises(ValueError, match="unknown weather preset"):
+            weathers_starting_with("volcano")
+
+    def test_weather_first_flag_reaches_the_config(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            ["--live-edit-weather", "--live-edit-weather-first", "storm"]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.weather.weathers[0].name == "storm"
 
     def test_runtime_drains_weather_and_obstacle_requests(self) -> None:
         from crazy_robotaxi.app import CrazyRobotaxiRuntime

@@ -138,7 +138,13 @@ class WeatherPreset:
 # visible-precipitation cues front-loaded (streaks in the air, droplets on
 # the windshield/lens, tire spray) — the 2026-08-20 recapture showed wording
 # that leans on wet-road looks alone reads as "no rain" to viewers. Snow
-# reuses the scene bundle's own snowstorm wording (strongest known phrasing).
+# extends the scene bundle's snowstorm wording with the same front-loaded
+# falling-precipitation cues (heavy snowfall, flakes in the air, accumulation
+# on the hood) after the 2.5-guidance capture read as a light dusting. Storm
+# is an experimental heavy-weather preset: appearance cues (dark sky,
+# torrential rain, fog, headlights) are expected to land; dynamic wind
+# effects (bending trees, flying debris) are unlikely to materialize in a
+# history-anchored world model and are included only as steering pressure.
 _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
     WeatherPreset(
         name="rain",
@@ -158,18 +164,57 @@ _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
         name="snow",
         prompt=(
             "A dashcam perspective from inside a vehicle driving down a "
-            "wide suburban residential street during a snowstorm. Thick "
-            "snowflakes fall visibly through the air across the whole "
-            "frame. The road is heavily covered in white snow with visible "
-            "parallel tire tracks. Vehicles parked along the curb are "
-            "coated in a layer of snow. The surrounding houses, lawns, and "
-            "large trees are completely blanketed in winter snow. The sky "
-            "is overcast and gray. In the foreground, the bottom of the "
-            "windshield and the car's hood are visible, with snowflakes "
-            "and snow accumulating around the windshield wipers."
+            "wide suburban residential street in heavy snowfall during a "
+            "snowstorm. Thick white snowflakes fall densely and visibly "
+            "through the air across the whole frame, streaking past the "
+            "windshield. The road is heavily covered in white snow with "
+            "visible parallel tire tracks, and fresh snow keeps "
+            "accumulating on the asphalt. Vehicles parked along the curb "
+            "and the roadsides are coated in a thick layer of snow. The "
+            "surrounding houses, lawns, and large trees are completely "
+            "blanketed in winter snow. The sky is a bright white-out "
+            "overcast winter sky. In the foreground, the bottom of the "
+            "windshield and the car's snow-dusted hood are visible, with "
+            "thick snowflakes and snow accumulating on the hood and around "
+            "the windshield wipers."
+        ),
+    ),
+    WeatherPreset(
+        name="storm",
+        prompt=(
+            "A dashcam perspective of a suburban street in a violent "
+            "hurricane-force storm. Torrential rain hammers down in dense "
+            "sheets, thick rain streaks slice through the air, and water "
+            "sprays across the windshield and camera lens. The sky is a "
+            "dark green-black wall of storm clouds, so dark that oncoming "
+            "vehicles have their headlights on. Low fog and wind-driven "
+            "mist blow across the road, trees bend hard in the violent "
+            "wind, and loose leaves and debris fly through the air. The "
+            "flooded asphalt sheets with water and heavy spray kicks up "
+            "from the tires. Photorealistic dashcam footage inside a "
+            "severe storm."
         ),
     ),
 )
+
+
+def weathers_starting_with(name: str | None) -> tuple[WeatherPreset, ...]:
+    """Rotate the default presets so ``name`` leads the V-key cycle.
+
+    The weather key steps clear -> presets in order -> clear, so putting a
+    preset first lets one confirmed key press select it directly (no brief
+    pass through the presets ahead of it in the default order).
+
+    Raises:
+        ValueError: ``name`` is not a known preset name.
+    """
+    if name is None:
+        return _DEFAULT_WEATHERS
+    names = [weather.name for weather in _DEFAULT_WEATHERS]
+    if name not in names:
+        raise ValueError(f"unknown weather preset {name!r}; choose from {names}")
+    index = names.index(name)
+    return _DEFAULT_WEATHERS[index:] + _DEFAULT_WEATHERS[:index]
 
 
 @dataclass(frozen=True)
@@ -201,7 +246,9 @@ class LiveEditWeatherConfig:
     such as 0.10 trades a possible mild wash for less late-run drift."""
 
     weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
-    """Selectable weathers, cycled clear -> rain -> snow -> clear."""
+    """Selectable weathers, cycled clear -> rain -> snow -> storm -> clear
+    by default; :func:`weathers_starting_with` rotates the order for direct
+    one-press selection."""
 
     def __post_init__(self) -> None:
         """Validate weather values at configuration time."""
@@ -425,6 +472,15 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     group.add_argument(
+        "--live-edit-weather-first",
+        type=str,
+        default=None,
+        help=(
+            "Rotate the weather cycle so this preset comes first (direct "
+            "one-press select, e.g. 'snow'; default keeps rain first)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-weather-corrector-gain",
         type=float,
         default=0.0,
@@ -499,6 +555,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             enabled=bool(args.live_edit_weather),
             guidance_scale=float(args.live_edit_weather_guidance),
             corrector_gain=float(args.live_edit_weather_corrector_gain),
+            weathers=weathers_starting_with(args.live_edit_weather_first),
         ),
         obstacle=LiveEditObstacleConfig(
             enabled=bool(args.live_edit_obstacle),
