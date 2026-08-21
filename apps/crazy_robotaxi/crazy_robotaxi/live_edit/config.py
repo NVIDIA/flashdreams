@@ -180,6 +180,10 @@ class WeatherPreset:
 # torrential rain, fog, headlights) are expected to land; dynamic wind
 # effects (bending trees, flying debris) are unlikely to materialize in a
 # history-anchored world model and are included only as steering pressure.
+# Hurricane escalates storm along the axes that DO land (2026-08-21 A/B):
+# visibility collapse, spray/mist walls, debris lying statically ON the
+# flooded road, black-green sky — no flying-debris or bending-tree wording,
+# which never materializes.
 _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
     WeatherPreset(
         name="rain",
@@ -228,6 +232,25 @@ _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
             "flooded asphalt sheets with water and heavy spray kicks up "
             "from the tires. Photorealistic dashcam footage inside a "
             "severe storm."
+        ),
+    ),
+    WeatherPreset(
+        name="hurricane",
+        prompt=(
+            "A dashcam perspective of a suburban street in the eyewall of "
+            "a landfalling hurricane, visibility collapsed to almost "
+            "nothing. Blinding torrential rain bands and solid walls of "
+            "white spray and mist swallow the street, so only the nearest "
+            "stretch of road is visible before everything dissolves into "
+            "gray-white murk. Fallen tree branches, palm fronds, leaves, "
+            "and scattered debris litter the flooded road surface, lying "
+            "across the lanes in standing water. The sky is an oppressive "
+            "black-green hurricane sky, dark as night at midday, and the "
+            "whole scene is drowned in emergency gloom. Oncoming headlights "
+            "smear into halos through the deluge, windshield wipers thrash "
+            "at full speed, and sheets of water crash over the windshield "
+            "and camera lens. Photorealistic dashcam footage inside a "
+            "catastrophic hurricane."
         ),
     ),
 )
@@ -293,8 +316,8 @@ class LiveEditWeatherConfig:
     ``None`` reuses the style corrector at :attr:`corrector_gain`."""
 
     weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
-    """Selectable weathers, cycled clear -> rain -> snow -> storm -> clear
-    by default; :func:`weathers_starting_with` rotates the order for direct
+    """Selectable weathers, cycled clear -> rain -> snow -> storm ->
+    hurricane -> clear by default; :func:`weathers_starting_with` rotates the order for direct
     one-press selection."""
 
     def __post_init__(self) -> None:

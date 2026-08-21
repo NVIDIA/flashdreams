@@ -633,20 +633,38 @@ class TestRequestsAndConfig:
         assert config.obstacle.annotate
         assert config.any_enabled
 
-    def test_default_weather_cycle_is_rain_snow_storm(self) -> None:
+    def test_default_weather_cycle_is_rain_snow_storm_hurricane(self) -> None:
         assert [w.name for w in weathers_starting_with(None)] == [
             "rain",
             "snow",
             "storm",
+            "hurricane",
         ]
 
     def test_weather_first_rotates_the_cycle_for_direct_select(self) -> None:
         rotated = weathers_starting_with("snow")
-        assert [w.name for w in rotated] == ["snow", "storm", "rain"]
+        assert [w.name for w in rotated] == ["snow", "storm", "hurricane", "rain"]
         # Rotation reorders, never rewrites, the presets.
         assert {w.prompt for w in rotated} == {
             w.prompt for w in weathers_starting_with(None)
         }
+
+    def test_hurricane_preset_escalates_storm_along_static_cues(self) -> None:
+        by_name = {w.name: w for w in weathers_starting_with(None)}
+        prompt = by_name["hurricane"].prompt
+        # The cues that materialize: visibility collapse, spray walls,
+        # debris lying on the road, black-green sky.
+        assert "visibility" in prompt
+        assert "walls of" in prompt
+        assert "debris litter the flooded road" in prompt
+        assert "black-green" in prompt
+        # Dynamic wind effects never materialize; keep them out.
+        assert "bend" not in prompt
+        assert "fly" not in prompt
+
+    def test_weather_first_direct_selects_hurricane(self) -> None:
+        rotated = weathers_starting_with("hurricane")
+        assert [w.name for w in rotated] == ["hurricane", "rain", "snow", "storm"]
 
     def test_weather_first_rejects_unknown_presets(self) -> None:
         with pytest.raises(ValueError, match="unknown weather preset"):
