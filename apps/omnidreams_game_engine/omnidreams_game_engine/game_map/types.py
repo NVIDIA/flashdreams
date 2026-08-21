@@ -168,13 +168,13 @@ class GameMapTopology:
 
 @dataclass(frozen=True)
 class GameMapVisualVariant:
-    """Seed image and prompt for one visual variant."""
+    """Optional seed image and prompt for one visual variant."""
 
     name: str
     """Variant slug used to select this visual conditioning."""
 
-    image: str
-    """Map-relative path or ``package://package/resource`` asset reference."""
+    image: str | None
+    """Optional map-relative or ``package://`` seed-image reference."""
 
     prompt: str
     """World-model text prompt paired with the seed image."""
@@ -732,7 +732,9 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             variants=tuple(
                 GameMapVisualVariant(
                     name=str(variant["name"]),
-                    image=str(variant["image"]),
+                    image=(
+                        None if variant.get("image") is None else str(variant["image"])
+                    ),
                     prompt=str(variant["prompt"]),
                 )
                 for variant in raw["variants"]

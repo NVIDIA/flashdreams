@@ -15,12 +15,14 @@ import pyarrow.parquet as pq
 import yaml
 from PIL import Image
 
+from omnidreams_game_engine.camera_defaults import (
+    DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
+    default_front_camera_rig,
+)
 from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 
 _SCENE_ID = "synthetic-test-scene"
-_CAMERA_CLIPGT_NAME = "camera:front:wide:120fov"
-_CAMERA_LOGICAL_NAME = "camera_front_wide_120fov"
 _FPS = 30
 # Default trajectory length: 180 frames (6 s @ 30 fps, ~60 m) is enough for the
 # scene-loader tests; the runtime helper passes a larger ``length_frames``.
@@ -550,63 +552,6 @@ def _obstacle_rows(
 
 
 def _calibration_row() -> list[dict[str, object]]:
-    # Pinned to the production `camera:front:wide:120fov` calibration extracted
-    # from the ClipGT sample scene so fixture renders exercise the same
-    # ftheta polynomial and mounting pose as real CI data.
-    rig = {
-        "rig": {
-            "properties": {},
-            "vehicle": {},
-            "vehicleio": {},
-            "sensors": [
-                {
-                    "name": _CAMERA_CLIPGT_NAME,
-                    "protocol": "camera.virtual",
-                    "parameter": "video=synthetic/camera_front_wide_120fov.mp4",
-                    "nominalSensor2Rig_FLU": {
-                        "roll-pitch-yaw": [
-                            0.292217969894409,
-                            0.464194804430008,
-                            -0.191304489970207,
-                        ],
-                        "t": [
-                            1.69035196304321,
-                            0.00553808081895113,
-                            1.45306670665741,
-                        ],
-                    },
-                    "correction_sensor_R_FLU": {
-                        "roll-pitch-yaw": [
-                            -0.1592078059911728,
-                            0.11539523303508759,
-                            0.5026581287384033,
-                        ],
-                    },
-                    "correction_rig_T": [
-                        -0.057110343128442764,
-                        -0.0032010308932513,
-                        0.008508340455591679,
-                    ],
-                    "properties": {
-                        "width": "3848",
-                        "height": "2168",
-                        "cx": "1921.318705874846",
-                        "cy": "1076.978854184438",
-                        "Model": "ftheta",
-                        "polynomial-type": "pixeldistance-to-angle",
-                        "polynomial": (
-                            "0 0.0005385247479413695 -1.598462177407655e-09 "
-                            "6.250864794463573e-12 -2.194585699335322e-15 "
-                            "4.525222700710391e-19"
-                        ),
-                        "linear-c": "1.000000",
-                        "linear-d": "0.000000",
-                        "linear-e": "0.000000",
-                    },
-                }
-            ],
-        }
-    }
     return [
         {
             "key": {
@@ -614,7 +559,10 @@ def _calibration_row() -> list[dict[str, object]]:
                 "timestamp_micros": int(_START_TIMESTAMP_US),
                 "label_class_id": "calibration",
             },
-            "calibration_estimate": {"name": "default", "rig_json": json.dumps(rig)},
+            "calibration_estimate": {
+                "name": "default",
+                "rig_json": json.dumps(default_front_camera_rig()),
+            },
             "version": 1,
         }
     ]
@@ -680,7 +628,10 @@ def _metadata_doc(num_frames: int = _DEFAULT_TRAJECTORY_FRAMES) -> dict[str, obj
         "scene_id": _SCENE_ID,
         "dataset_hash": "synthetic-dataset-hash",
         "is_resumable": False,
-        "sensors": {"camera_ids": [_CAMERA_LOGICAL_NAME], "lidar_ids": []},
+        "sensors": {
+            "camera_ids": [DEFAULT_FRONT_CAMERA_LOGICAL_NAME],
+            "lidar_ids": [],
+        },
         "time_range": {
             "start": int(_START_TIMESTAMP_US),
             "end": int(

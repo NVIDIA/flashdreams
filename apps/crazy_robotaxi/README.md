@@ -169,11 +169,14 @@ flashdreams-run crazy-robotaxi \
   --map /path/to/city.robotaxi.yaml
 ```
 
-Validate a map or produce a top-down SVG without loading a model:
+Validate a map or produce top-down and spawn-camera previews without loading a
+model:
 
 ```bash
 crazy-robotaxi-map validate /path/to/city.robotaxi.yaml
 crazy-robotaxi-map preview /path/to/city.robotaxi.yaml --output city.svg
+crazy-robotaxi-map preview-spawn /path/to/city.robotaxi.yaml \
+  --spawn taxi_start --output taxi_start.png
 ```
 
 The engine validates the topology, compiles roads and inferred parking-access
@@ -193,6 +196,13 @@ Parking-lot surfaces are emitted as green `ROI_POLYGON_ROADNET_MASK` regions.
 Parking-space dividers remain intentionally omitted because ClipGT would encode
 them as ordinary lane lines, which can condition the model to produce bike or
 turn lanes. Lots do not contain inferred navigation aisles or turnarounds.
+
+Each visual variant may omit `image`. In that case, map compilation and scene
+selection use a deterministic synthetic view projected from the spawn through
+the runtime front camera. It aligns roads, boundaries, curbs, and markings but
+does not synthesize buildings, vegetation, traffic, or other scenery. Authors
+can inspect that fallback with `preview-spawn` before choosing or generating a
+checked-in image.
 
 The bundled maps reuse the existing OmniDreams seed image. Their authored
 geometry is not expected to match that image exactly, so the first generated

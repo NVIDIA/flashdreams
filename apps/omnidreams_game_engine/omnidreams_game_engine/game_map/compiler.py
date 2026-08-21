@@ -21,6 +21,9 @@ import yaml
 from filelock import FileLock
 from PIL import Image
 
+from omnidreams_game_engine import camera_defaults
+from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
+from omnidreams_game_engine.game_map import spawn_render
 from omnidreams_game_engine.game_map._schema import resolve_seed_asset
 from omnidreams_game_engine.game_map.loader import load_game_map
 from omnidreams_game_engine.game_map.types import (
@@ -31,9 +34,8 @@ from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 
-_COMPILER_VERSION = "2"
+_COMPILER_VERSION = "3"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
-_CAMERA_NAME = "camera_front_wide_120fov"
 
 
 @dataclass(frozen=True)
@@ -75,10 +77,16 @@ def _digest(game_map: ResolvedGameMap) -> str:
     hasher.update(json.dumps(resolved, sort_keys=True, separators=(",", ":")).encode())
     for spawn in game_map.spawns:
         for variant in spawn.variants:
-            asset = resolve_seed_asset(game_map.source_path, variant.image)
             hasher.update(variant.name.encode())
             hasher.update(variant.prompt.encode())
-            hasher.update(asset.read_bytes())
+            if variant.image is None:
+                hasher.update(b"generated-spawn-first-frame")
+                hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
+                hasher.update(Path(spawn_render.__file__).read_bytes())
+                hasher.update(Path(camera_defaults.__file__).read_bytes())
+            else:
+                asset = resolve_seed_asset(game_map.source_path, variant.image)
+                hasher.update(asset.read_bytes())
     return hasher.hexdigest()
 
 
@@ -255,12 +263,23 @@ def _write_image(archive: zipfile.ZipFile, name: str, source: Path) -> None:
     archive.writestr(name, buffer.getvalue())
 
 
+def _write_image_array(
+    archive: zipfile.ZipFile, name: str, image_array: np.ndarray
+) -> None:
+    buffer = io.BytesIO()
+    Image.fromarray(image_array).save(buffer, format="PNG")
+    archive.writestr(name, buffer.getvalue())
+
+
 def _metadata(game_map: ResolvedGameMap) -> dict[str, object]:
     return {
         "scene_id": game_map.map_id,
         "dataset_hash": "semantic-game-map",
         "is_resumable": False,
-        "sensors": {"camera_ids": [_CAMERA_NAME], "lidar_ids": []},
+        "sensors": {
+            "camera_ids": [DEFAULT_FRONT_CAMERA_LOGICAL_NAME],
+            "lidar_ids": [],
+        },
         "time_range": {
             "start": _START_TIMESTAMP_US,
             "end": _START_TIMESTAMP_US + 33_333,
@@ -292,6 +311,7 @@ def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
 
 def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
     spawn = game_map.default_spawn
+    generated_image: np.ndarray | None = None
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "metadata.yaml", yaml.safe_dump(_metadata(game_map), sort_keys=True)
@@ -308,11 +328,23 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
         for variant in spawn.variants:
             suffix = "" if variant.name == "default" else f"_{variant.name}"
             archive.writestr(f"prompt{suffix}.txt", variant.prompt)
-            _write_image(
-                archive,
-                f"first_image{suffix}.png",
-                resolve_seed_asset(game_map.source_path, variant.image),
-            )
+            image_name = f"first_image{suffix}.png"
+            if variant.image is None:
+                if generated_image is None:
+                    generated_image = spawn_render.render_spawn_first_frame(
+                        game_map, spawn
+                    )
+                _write_image_array(
+                    archive,
+                    image_name,
+                    generated_image,
+                )
+            else:
+                _write_image(
+                    archive,
+                    image_name,
+                    resolve_seed_asset(game_map.source_path, variant.image),
+                )
         _write_parquet(
             archive, "clipgt/calibration_estimate.parquet", _calibration_row()
         )

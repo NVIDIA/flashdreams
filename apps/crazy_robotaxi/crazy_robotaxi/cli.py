@@ -22,7 +22,9 @@ from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.game_map import (
     GAME_MAP_SUFFIX,
+    load_game_map,
     load_game_map_header,
+    render_spawn_first_frame,
     resolve_seed_asset,
 )
 from omnidreams_game_engine.input.wheel_profiles import (
@@ -1087,7 +1089,19 @@ def _scene_option_for_game_map(path: Path) -> SceneOption:
     header = load_game_map_header(path)
     variants = tuple(variant.name for variant in header.variants)
     thumbnails: dict[str, Image.Image] = {}
+    generated_thumbnail: Image.Image | None = None
     for variant in header.variants:
+        if variant.image is None:
+            if generated_thumbnail is None:
+                game_map = load_game_map(path)
+                generated_thumbnail = _make_thumbnail(
+                    Image.fromarray(
+                        render_spawn_first_frame(game_map, game_map.default_spawn)
+                    ),
+                    SCENE_THUMB_SIZE,
+                )
+            thumbnails[variant.name] = generated_thumbnail.copy()
+            continue
         try:
             with Image.open(resolve_seed_asset(path, variant.image)) as image:
                 thumbnails[variant.name] = _make_thumbnail(

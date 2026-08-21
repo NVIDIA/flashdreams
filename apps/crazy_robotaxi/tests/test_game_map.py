@@ -23,7 +23,9 @@ from omnidreams_game_engine.game_map import (
     GameMapError,
     compile_game_map,
     load_game_map,
+    render_spawn_first_frame,
     write_game_map_preview,
+    write_spawn_first_frame_preview,
 )
 from omnidreams_game_engine.game_map import compiler as game_map_compiler
 from omnidreams_game_engine.game_map.types import (
@@ -33,6 +35,7 @@ from omnidreams_game_engine.game_map.types import (
 )
 from omnidreams_game_engine.scene_loader import load_scene_bundle
 from omnidreams_game_engine.types import VehicleState
+from PIL import Image
 from shapely.geometry import LineString, Point, Polygon
 
 pytestmark = pytest.mark.ci_cpu
@@ -1506,6 +1509,58 @@ def test_compiler_settings_remain_map_local(tmp_path: Path) -> None:
     assert np.ptp(modified.ground_vertices[:, 0]) == pytest.approx(
         np.ptp(baseline.ground_vertices[:, 0]) + 30
     )
+
+
+def test_missing_variant_image_uses_spawn_render(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    variant = source["spawns"][0]["variants"]["default"]
+    del variant["image"]
+    source_path = _write_map(tmp_path, source)
+
+    game_map = load_game_map(source_path)
+    assert game_map.default_spawn.variants[0].image is None
+    rendered = render_spawn_first_frame(
+        game_map, game_map.default_spawn, resolution_wh=(160, 88)
+    )
+    assert rendered.shape == (88, 160, 3)
+    assert rendered.dtype == np.uint8
+    assert len(np.unique(rendered.reshape(-1, 3), axis=0)) > 10
+
+    compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
+    with zipfile.ZipFile(compiled.archive_path) as archive:
+        with Image.open(io.BytesIO(archive.read("first_image.png"))) as image:
+            assert image.size == (1280, 704)
+            assert image.mode == "RGB"
+
+
+def test_null_variant_image_selects_spawn_render(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    source["spawns"][0]["variants"]["default"]["image"] = None
+
+    game_map = load_game_map(_write_map(tmp_path, source))
+
+    assert game_map.default_spawn.variants[0].image is None
+
+
+def test_spawn_preview_selects_authored_spawn(tmp_path: Path) -> None:
+    output = write_spawn_first_frame_preview(
+        _STARTER_MAP,
+        tmp_path / "spawn.png",
+        spawn_id="taxi_start",
+    )
+
+    assert output == (tmp_path / "spawn.png").resolve()
+    with Image.open(output) as image:
+        assert image.size == (1280, 704)
+
+
+def test_spawn_preview_rejects_unknown_spawn(tmp_path: Path) -> None:
+    with pytest.raises(GameMapError, match="Unknown spawn 'missing'"):
+        write_spawn_first_frame_preview(
+            _STARTER_MAP,
+            tmp_path / "spawn.png",
+            spawn_id="missing",
+        )
 
 
 def test_lane_graph_initializes_navigation_and_gameplay() -> None:

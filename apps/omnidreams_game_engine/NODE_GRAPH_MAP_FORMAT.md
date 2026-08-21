@@ -334,8 +334,15 @@ spawns:
         prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
 ```
 
-Every spawn requires a `default` variant. Images may be map-relative paths or
-`package://package/resource` references. Resolved geometry, compiler code, seed
+Every spawn requires a `default` variant. `image` is optional; when omitted (or
+set to `null`), the compiler generates a deterministic synthetic first-person
+view by projecting the semantic map from that spawn through the runtime front
+camera. This fallback shows aligned road surfaces, boundaries, curbs, and
+markings, but does not synthesize scenery. Use it as a robust placeholder, not
+as a photorealistic authoring result.
+
+Authored images may be map-relative paths or `package://package/resource`
+references. Resolved geometry, compiler and fallback-renderer code, seed
 images, and prompts participate in the compiled-map cache key.
 
 ## Validation summary

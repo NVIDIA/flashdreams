@@ -192,13 +192,18 @@ def _parse_variants(
     variants: list[GameMapVisualVariant] = []
     for name, raw_variant in variants_raw.items():
         variant = _mapping(raw_variant, f"variant {name!r}")
-        if set(variant) != {"image", "prompt"}:
-            raise GameMapError(f"Variant {name!r} requires exactly image and prompt")
-        image = str(variant.get("image", "")).strip()
+        unknown = set(variant) - {"image", "prompt"}
+        if unknown:
+            raise GameMapError(f"Variant {name!r} has unknown fields {sorted(unknown)}")
+        image_value = variant.get("image")
+        image = None if image_value is None else str(image_value).strip()
         prompt = str(variant.get("prompt", "")).strip()
-        if not image or not prompt:
-            raise GameMapError(f"Variant {name!r} requires image and prompt")
-        resolve_seed_asset(source_path, image)
+        if not prompt:
+            raise GameMapError(f"Variant {name!r} requires a non-empty prompt")
+        if image_value is not None and not image:
+            raise GameMapError(f"Variant {name!r} image must not be empty")
+        if image is not None:
+            resolve_seed_asset(source_path, image)
         variants.append(GameMapVisualVariant(name=name, image=image, prompt=prompt))
     variants.sort(key=lambda item: (item.name != "default", item.name))
     return tuple(variants)

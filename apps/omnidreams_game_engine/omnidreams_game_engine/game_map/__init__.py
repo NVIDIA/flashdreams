@@ -16,6 +16,11 @@ from omnidreams_game_engine.game_map.compiler import (
 )
 from omnidreams_game_engine.game_map.loader import load_game_map
 from omnidreams_game_engine.game_map.preview import write_game_map_preview
+from omnidreams_game_engine.game_map.spawn_render import (
+    SPAWN_RENDERER_VERSION,
+    render_spawn_first_frame,
+    write_spawn_first_frame_preview,
+)
 from omnidreams_game_engine.game_map.types import (
     GameMapBoundaryAttributes,
     GameMapCurb,
@@ -52,9 +57,12 @@ __all__ = [
     "GameMapSpawn",
     "GameMapTopology",
     "ResolvedGameMap",
+    "SPAWN_RENDERER_VERSION",
     "compile_game_map",
     "load_game_map",
     "load_game_map_header",
     "resolve_seed_asset",
+    "render_spawn_first_frame",
     "write_game_map_preview",
+    "write_spawn_first_frame_preview",
 ]

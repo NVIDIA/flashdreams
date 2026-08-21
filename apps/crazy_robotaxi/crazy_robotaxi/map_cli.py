@@ -13,6 +13,7 @@ from omnidreams_game_engine.game_map import (
     compile_game_map,
     load_game_map,
     write_game_map_preview,
+    write_spawn_first_frame_preview,
 )
 
 
@@ -25,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     preview = subparsers.add_parser("preview", help="write a top-down SVG preview")
     preview.add_argument("map", type=Path)
     preview.add_argument("--output", type=Path, required=True)
+    preview_spawn = subparsers.add_parser(
+        "preview-spawn", help="write a spawn-aligned synthetic first-frame PNG"
+    )
+    preview_spawn.add_argument("map", type=Path)
+    preview_spawn.add_argument("--output", type=Path, required=True)
+    preview_spawn.add_argument("--spawn", help="spawn id (defaults to the first)")
     compile_parser = subparsers.add_parser(
         "compile", help="populate the private renderer cache"
     )
@@ -43,6 +50,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     elif args.command == "preview":
         print(write_game_map_preview(args.map, args.output))
+    elif args.command == "preview-spawn":
+        print(
+            write_spawn_first_frame_preview(args.map, args.output, spawn_id=args.spawn)
+        )
     else:
         compiled = compile_game_map(args.map)
         print(compiled.archive_path)
