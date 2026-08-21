@@ -15,7 +15,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_CORRECTOR_MODES = ("fused", "unfused")
+_CORRECTOR_MODES = ("fused", "unfused", "off")
 
 
 @dataclass(frozen=True)
@@ -84,8 +84,10 @@ class LiveEditStyleConfig:
     per-state ``DriftCorrectorDispatch`` (compile_network + use_cuda_graph
     stay ON; validated 207 ms/chunk vs 203.9 no-corrector); ``unfused``
     falls back to the eager scale-gated path, which forces the graph-free
-    pipeline (~1.4 s/chunk in-game). ``LIVE_EDIT_CORRECTOR_MODE`` sets the
-    CLI default."""
+    pipeline (~1.4 s/chunk in-game); ``off`` disables every corrector even
+    when checkpoints are configured — no corrector machinery is built and
+    no transformer weights are snapshotted or copied.
+    ``LIVE_EDIT_CORRECTOR_MODE`` sets the CLI default."""
 
     base_corrector_checkpoint: Path | None = None
     """Optional photoreal drift corrector for the BASE world state (fused
@@ -105,8 +107,18 @@ class LiveEditStyleConfig:
     swap, which *deactivates* the LoRA. 2.5/20 is the validated skin
     deployment from the smoke harness."""
 
-    guidance_chunks: int = 20
-    """Number of chunks the LoRA edit window stays open after a swap."""
+    guidance_chunks: int = 6
+    """Number of chunks the LoRA edit window stays open after a swap.
+
+    With the pre-merged edit LoRA deployed this window is realized
+    single-branch (merged weights toggled at the boundaries), so its length
+    is NOT a per-chunk cost — only a stacked deployment without the LoRA
+    would fall back to the two-prompt guidance whose window doubles the
+    chunk cost. A/B on a cyberpunk swap (2026-08-21): 6 lands the style as
+    fast and as strong as the old 20 (the 8-chunk re-swap refresh re-opens
+    the window before long holds soften), so 6 is the default; it also caps
+    the exposure of any stacked no-LoRA deployment to the 2x window.
+    Exposed as ``--live-edit-skin-guidance-chunks``."""
 
     reswap_interval_chunks: int = 8
     """Re-issue the active skin's ``replace_text`` every N generated chunks.
@@ -260,7 +272,15 @@ class LiveEditWeatherConfig:
     so this is exposed as ``--live-edit-weather-guidance``."""
 
     guidance_chunks: int = 20
-    """Number of chunks the two-prompt guidance window stays open."""
+    """Number of chunks the two-prompt guidance window stays open.
+
+    TRANSIENT COST: weather has no LoRA, so every denoise step inside this
+    window runs a second network forward — a swap costs ~2x per chunk for
+    this many chunks. With the default 8-chunk re-swap refresh the window
+    is re-opened before it expires, so weather effectively stays at 2x
+    while active; shorten this (e.g. below the re-swap interval) to trade
+    edit pressure for throughput. Exposed as
+    ``--live-edit-weather-guidance-chunks``."""
 
     corrector_gain: float = 0.0
     """Absolute style-drift-corrector gain while weather is active. ``0``
@@ -476,7 +496,19 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "Drift-corrector deploy mode: 'fused' keeps CUDA graphs + "
             "compile_network on (real-time); 'unfused' is the old eager "
-            "fallback. Env default: LIVE_EDIT_CORRECTOR_MODE."
+            "fallback; 'off' disables every corrector (no transformer "
+            "weights are touched even if corrector checkpoints are given). "
+            "Env default: LIVE_EDIT_CORRECTOR_MODE."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-skin-guidance-chunks",
+        type=int,
+        default=6,
+        help=(
+            "Chunks the skin edit window stays open after a swap (the "
+            "pre-merged LoRA realizes it single-branch, so this is not a "
+            "per-chunk cost; the 8-chunk re-swap refresh re-opens it)."
         ),
     )
     group.add_argument(
@@ -522,6 +554,17 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "Two-prompt guidance scale for weather swaps (2.5 = validated "
             "default; snow needed 3.0 in earlier sweeps)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-weather-guidance-chunks",
+        type=int,
+        default=20,
+        help=(
+            "Chunks the two-prompt weather guidance window stays open. "
+            "Weather has no LoRA: a swap costs ~2x per chunk for this many "
+            "chunks (and the 8-chunk re-swap refresh re-opens the window, "
+            "so weather stays at ~2x while active unless this is shortened)."
         ),
     )
     group.add_argument(
@@ -610,6 +653,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             base_corrector_checkpoint=args.live_edit_base_corrector,
             base_corrector_gain=float(args.live_edit_base_corrector_gain),
             gate_alpha_json=args.live_edit_gate_alpha_json,
+            guidance_chunks=int(args.live_edit_skin_guidance_chunks),
             reswap_interval_chunks=int(args.live_edit_style_reswap_chunks),
         ),
         coins=LiveEditCoinsConfig(
@@ -619,6 +663,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
         weather=LiveEditWeatherConfig(
             enabled=bool(args.live_edit_weather),
             guidance_scale=float(args.live_edit_weather_guidance),
+            guidance_chunks=int(args.live_edit_weather_guidance_chunks),
             corrector_gain=float(args.live_edit_weather_corrector_gain),
             corrector_checkpoint=args.live_edit_weather_corrector,
             weathers=weathers_starting_with(args.live_edit_weather_first),

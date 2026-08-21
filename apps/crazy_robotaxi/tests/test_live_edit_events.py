@@ -706,7 +706,7 @@ class TestRequestsAndConfig:
 
 
 def _toy_attn_network():
-    import torch.nn as nn
+    from torch import nn
 
     class Block(nn.Module):
         def __init__(self) -> None:
@@ -822,7 +822,7 @@ class TestFusedCorrectorDispatch:
         from omnidreams._drift_corrector import _target_linears as corrector_targets
         from omnidreams._edit_lora import _target_linears as edit_targets
 
-        ability, _, transformer = _fused_ability(tmp_path)
+        _ability, _, transformer = _fused_ability(tmp_path)
         edit_lora = transformer._text_edit_lora
         assert edit_lora is not None
         self_attn = corrector_targets(transformer.network)
@@ -989,3 +989,122 @@ class TestCorrectorModeConfig:
     def test_unknown_mode_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="corrector_mode"):
             LiveEditStyleConfig(corrector_mode="turbo")
+
+
+class TestCorrectorModeOff:
+    """`--live-edit-corrector-mode off`: no corrector machinery at all."""
+
+    def _off_ability(
+        self, tmp_path
+    ) -> tuple[StyleAbility, _FakeSession, _ToyDeployTransformer]:
+        session, transformer = _fused_session()
+        lora_ckpt, corr_ckpt = _write_checkpoints(tmp_path, transformer.network)
+        style = LiveEditStyleConfig(
+            enabled=True,
+            lora_checkpoint=lora_ckpt,
+            corrector_checkpoint=corr_ckpt,
+            base_corrector_checkpoint=corr_ckpt,
+            corrector_mode="off",
+            reswap_interval_chunks=0,
+            skins=(StyleSkin("arcade", "arcade prompt"),),
+        )
+        weather = LiveEditWeatherConfig(
+            enabled=True,
+            corrector_gain=0.1,
+            corrector_checkpoint=corr_ckpt,
+            weathers=(WeatherPreset("rain", "rain prompt"),),
+        )
+        ability = StyleAbility(style, weather)
+        return ability, session, transformer
+
+    def test_off_ignores_configured_correctors_and_keeps_weights_pristine(
+        self, tmp_path
+    ) -> None:
+        import torch
+        from omnidreams._edit_lora import _target_linears as edit_targets
+
+        ability, session, transformer = self._off_ability(tmp_path)
+        before = [
+            lin.weight.detach().clone() for lin in edit_targets(transformer.network)
+        ]
+        ability.attach(session)
+
+        assert ability._dispatch is None
+        # No gate driver installed: the scheduler hook stays untouched.
+        assert session.pipeline.diffusion_model.scheduler.sample is None
+        for lin, weight in zip(edit_targets(transformer.network), before):
+            assert torch.equal(lin.weight, weight)
+        # The edit LoRA is still attached for skins, but inactive (base
+        # weights live) until a swap opens its window.
+        assert transformer._text_edit_lora is not None
+        assert not transformer._text_edit_lora.active
+
+    def test_off_state_machine_runs_without_a_corrector(self, tmp_path) -> None:
+        ability, session, _ = self._off_ability(tmp_path)
+        ability.attach(session)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability.active_skin_name == "arcade"
+        ((text, _),) = session.pipeline.replace_text_calls
+        assert text == [["arcade prompt"]]
+
+    def test_weather_only_without_corrector_touches_no_weights(self) -> None:
+        import torch
+
+        session, transformer = _fused_session()
+        weather = LiveEditWeatherConfig(
+            enabled=True, weathers=(WeatherPreset("rain", "rain prompt"),)
+        )
+        ability = StyleAbility(LiveEditStyleConfig(), weather)
+        before = [p.detach().clone() for p in transformer.network.parameters()]
+        ability.attach(session)
+        assert ability._dispatch is None
+        assert transformer._text_edit_lora is None
+        assert session.pipeline.diffusion_model.scheduler.sample is None
+        for parameter, weight in zip(transformer.network.parameters(), before):
+            assert torch.equal(parameter, weight)
+
+
+class TestNativeDitGuard:
+    """The native-DIT rejection is precise and actionable."""
+
+    def _native_session(self) -> tuple[_FakeSession, _ToyDeployTransformer]:
+        from types import SimpleNamespace
+
+        session, transformer = _fused_session()
+        session.manifest = SimpleNamespace(native_dit_acceleration="required")
+        return session, transformer
+
+    def test_prompt_swap_abilities_reject_native_dit_naming_the_flags(
+        self, tmp_path
+    ) -> None:
+        ability, session, _ = TestCorrectorModeOff()._off_ability(tmp_path)
+        from types import SimpleNamespace
+
+        session.manifest = SimpleNamespace(native_dit_acceleration="required")
+        with pytest.raises(RuntimeError) as excinfo:
+            ability.attach(session)
+        message = str(excinfo.value)
+        assert "--live-edit-style" in message
+        assert "--live-edit-weather" in message
+        assert "native_dit_acceleration: disabled" in message
+        # Corrector mode is off, so the error must not blame corrector flags.
+        assert "corrector" not in message.lower()
+
+    def test_enabled_corrector_adds_the_corrector_note(self, tmp_path) -> None:
+        session, transformer = self._native_session()
+        lora_ckpt, corr_ckpt = _write_checkpoints(tmp_path, transformer.network)
+        style = LiveEditStyleConfig(
+            enabled=True,
+            lora_checkpoint=lora_ckpt,
+            corrector_checkpoint=corr_ckpt,
+            corrector_mode="fused",
+            skins=(StyleSkin("arcade", "arcade prompt"),),
+        )
+        with pytest.raises(RuntimeError, match="--live-edit-corrector-mode off"):
+            StyleAbility(style).attach(session)
+
+    def test_disabled_native_dit_attaches_cleanly(self, tmp_path) -> None:
+        ability, session, _ = TestCorrectorModeOff()._off_ability(tmp_path)
+        ability.attach(session)  # manifest says disabled; must not raise

@@ -20,7 +20,9 @@ Ports the attach recipe from
   old last-writer-wins clash; the LoRA keeps toggling only the
   cross-attention projections. ``corrector_mode="unfused"`` (or
   ``LIVE_EDIT_CORRECTOR_MODE=unfused``) restores the eager scale-gated
-  fallback, which still forces the graph-free pipeline,
+  fallback, which still forces the graph-free pipeline;
+  ``corrector_mode="off"`` deploys no corrector at all (configured
+  corrector checkpoints are ignored and no weight sets are snapshotted),
 - prompt swaps applied strictly between chunks by wrapping the session's
   ``start`` / ``continue_generation``; corrector-state selection rides the
   same boundary.
@@ -105,15 +107,16 @@ class StyleAbility:
 
         Raises:
             RuntimeError: The manifest enables an acceleration mode the
-                unfused corrector path cannot ride.
+                prompt-swap machinery (or the configured corrector) cannot
+                ride; the message names the flags to drop.
         """
         self._guard_manifest(session.manifest)
         pipeline = session.pipeline
         transformer = pipeline.diffusion_model.transformer
         self._guard_transformer(transformer)
 
-        fused = self._config.corrector_mode == "fused"
-        if not fused and self._config.gate_alpha_json is not None:
+        mode = self._config.corrector_mode
+        if mode == "unfused" and self._config.gate_alpha_json is not None:
             # The unfused path reads GATE_ALPHA_JSON at _drift_corrector
             # import time; the fused dispatch takes per-state profiles
             # directly, leaving the module default (photoreal) for the
@@ -132,10 +135,16 @@ class StyleAbility:
             self._lora_attached = True
             logger.info(f"[live-edit] deployed {edit_lora.describe()}")
 
-        if fused and self._any_corrector_configured():
-            self._attach_corrector_fused(pipeline, transformer, edit_lora)
-        elif self._config.corrector_checkpoint is not None:
-            self._attach_corrector(pipeline, transformer)
+        if self._corrector_enabled():
+            if mode == "fused":
+                self._attach_corrector_fused(pipeline, transformer, edit_lora)
+            else:
+                self._attach_corrector(pipeline, transformer)
+        elif mode == "off" and self._any_corrector_configured():
+            logger.info(
+                "[live-edit] corrector mode 'off': configured corrector "
+                "checkpoints are ignored; transformer weights stay untouched"
+            )
 
         self.hook_session(session)
         skins = (
@@ -210,6 +219,21 @@ class StyleAbility:
         if self._pending_weather is _NO_PENDING:
             return self._active_weather
         return self._pending_weather  # type: ignore[return-value]
+
+    def _corrector_enabled(self) -> bool:
+        """Whether any drift corrector will actually attach to the session.
+
+        ``corrector_mode == "off"`` disables every corrector even when
+        checkpoints are configured; ``fused`` needs at least one registered
+        state beyond ``base``; ``unfused`` rides the single style
+        checkpoint.
+        """
+        mode = self._config.corrector_mode
+        if mode == "off":
+            return False
+        if mode == "fused":
+            return self._any_corrector_configured()
+        return self._config.corrector_checkpoint is not None
 
     def _any_corrector_configured(self) -> bool:
         """Whether any state of the fused dispatch would carry a corrector."""
@@ -532,24 +556,65 @@ class StyleAbility:
             if bypass_lora:
                 transformer.set_text_edit_lora(edit_lora)
 
-    @staticmethod
-    def _guard_manifest(manifest: Any) -> None:
-        if getattr(manifest, "native_dit_acceleration", "disabled") not in (
+    def _guard_manifest(self, manifest: Any) -> None:
+        """Reject native-DIT manifests with a message naming the fix.
+
+        Prompt-swap abilities fundamentally need the Python transformer
+        forward today, for two independent reasons (verified 2026-08-21):
+
+        - ``CosmosTransformer.replace_text_embeddings`` raises
+          ``NotImplementedError`` under the native optimized-DiT executor
+          (the cross-attention KV rebuild is not wired for it), and every
+          skin/weather swap goes through it;
+        - the pre-merged ``TextEditLoRA`` toggles by ``copy_``-ing into the
+          ``nn.Linear`` weights, but the native fp8 executor quantizes a
+          one-time weight snapshot (and then releases the PyTorch network),
+          so those toggles would silently never reach the native forward.
+
+        Correctors add a third reason (same snapshot bypass), but they are
+        gated separately: with no corrector enabled the message does not
+        ask the user to change corrector flags. Abilities that never touch
+        the model (coins, obstacle without ``--live-edit-obstacle-guide-scale``)
+        do not construct this ability and stay perf-neutral under native
+        DIT.
+        """
+        if getattr(manifest, "native_dit_acceleration", "disabled") in (
             "disabled",
             None,
             False,
         ):
-            raise RuntimeError(
-                "live_edit.style needs the Python transformer forward; run "
-                "with native DIT acceleration disabled for bring-up."
-            )
+            return
+        flags = []
+        if self._config.enabled:
+            flags.append("--live-edit-style")
+        if self._weather_config is not None:
+            flags.append("--live-edit-weather")
+        corrector_note = (
+            " The configured drift corrector also merges into the PyTorch "
+            "network's weights, which the native executor bypasses "
+            "(--live-edit-corrector-mode off would disable it, but the "
+            "prompt-swap limitation above still applies)."
+            if self._corrector_enabled()
+            else ""
+        )
+        raise RuntimeError(
+            "Prompt-swap live-edit abilities need the Python transformer "
+            "forward: replace_text_embeddings is not wired for the native "
+            "optimized-DiT executor, and the pre-merged text-edit LoRA "
+            "toggles weights the native fp8 snapshot never re-reads. Either "
+            f"drop {' / '.join(flags)} (coins and other pixel-only "
+            "abilities stay available and perf-neutral), or set "
+            "native_dit_acceleration: disabled in the world-model manifest."
+            + corrector_note
+        )
 
     def _guard_transformer(self, transformer: Any) -> None:
         """Reject built pipeline configs the unfused corrector cannot ride.
 
-        Fused mode needs no rejection: the per-state dispatch copies into
+        Fused mode needs no rejection (the per-state dispatch copies into
         fixed parameter storages, which captured CUDA graphs and the
-        compiled network read by address (the whole point of the mode).
+        compiled network read by address — the whole point of the mode),
+        and ``off`` deploys no corrector at all.
 
         The manifest only carries ``compile_net`` / ``native_dit_*``; the
         transformer's ``use_cuda_graph`` defaults to True in the recipe, so
@@ -558,7 +623,7 @@ class StyleAbility:
         runs outside any captured graph), and ``compile_network`` re-traces
         around the _LoRALinear wrap.
         """
-        if self._config.corrector_mode == "fused":
+        if self._config.corrector_mode != "unfused":
             return
         config = getattr(transformer, "config", None)
         if config is None:
@@ -640,7 +705,7 @@ def _corrector_safe_session(session: Any) -> Any:
 
         config = _build_pipeline_config(manifest, profile)
         config = derive_config(
-            config, diffusion_model=dict(transformer=dict(use_cuda_graph=False))
+            config, diffusion_model={"transformer": {"use_cuda_graph": False}}
         )
         return _setup_pipeline_from_config(config, manifest)
 
