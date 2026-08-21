@@ -62,9 +62,6 @@ class TaxiGameConfig:
     vehicle: TaxiVehicleConfig = TaxiVehicleConfig()
     """Taxi-only control and vehicle-dynamics configuration."""
 
-    traffic_density: float = 0.4
-    """Fraction of recorded motor traffic retained in Taxi mode."""
-
     seed: int | None = None
     """Debug seed mixed with the scene ID; ``None`` uses fresh entropy."""
 
@@ -136,8 +133,6 @@ class TaxiGameConfig:
 
     def __post_init__(self) -> None:
         """Validate Taxi-only values at configuration time."""
-        if not 0.0 < self.traffic_density <= 1.0:
-            raise ValueError("traffic_density must be greater than 0 and at most 1")
         if self.pickup_grid_spacing_m <= 0.0:
             raise ValueError("pickup_grid_spacing_m must be positive")
 

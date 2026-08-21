@@ -204,6 +204,38 @@ class GameMapSpawn:
 
 
 @dataclass(frozen=True)
+class GameMapTrafficVehicle:
+    """One map-authored vehicle and its compiled cyclic route."""
+
+    vehicle_id: str
+    """Stable author-defined traffic identifier."""
+
+    node_ids: tuple[str, ...]
+    """Ordered author-defined node waypoints."""
+
+    end_behavior: str
+    """Whether the waypoint list wraps or is traversed in reverse."""
+
+    vehicle_type: str
+    """Motor-vehicle category used by conditioning and physics."""
+
+    dimensions_lwh_m: tuple[float, float, float]
+    """Full vehicle length, width, and height in metres."""
+
+    speed_mps: float | None
+    """Optional maximum speed; ``None`` follows lane speed limits."""
+
+    start_distance_m: float
+    """Initial arc distance along the resolved cyclic route."""
+
+    centerline_world: FloatArray
+    """Closed, directed route centerline with shape ``[N, 3]``."""
+
+    speed_limits_mps: FloatArray
+    """Per-route-sample target speeds with shape ``[N]``."""
+
+
+@dataclass(frozen=True)
 class GameMapLane:
     """Explicit directed lane and its legal successors."""
 
@@ -387,6 +419,9 @@ class ResolvedGameMap:
     spawns: tuple[GameMapSpawn, ...]
     """Playable vehicle spawns."""
 
+    traffic: tuple[GameMapTrafficVehicle, ...] = ()
+    """Map-authored vehicles with compiled cyclic public-road routes."""
+
     @property
     def default_spawn(self) -> GameMapSpawn:
         """Return the first declared spawn."""
@@ -536,6 +571,20 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 ],
             }
             for spawn in game_map.spawns
+        ],
+        "traffic": [
+            {
+                "vehicle_id": vehicle.vehicle_id,
+                "node_ids": list(vehicle.node_ids),
+                "end_behavior": vehicle.end_behavior,
+                "vehicle_type": vehicle.vehicle_type,
+                "dimensions_lwh_m": list(vehicle.dimensions_lwh_m),
+                "speed_mps": vehicle.speed_mps,
+                "start_distance_m": vehicle.start_distance_m,
+                "centerline_world": vehicle.centerline_world.tolist(),
+                "speed_limits_mps": vehicle.speed_limits_mps.tolist(),
+            }
+            for vehicle in game_map.traffic
         ],
     }
 
@@ -742,6 +791,22 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         )
         for raw in value["spawns"]
     )
+    traffic = tuple(
+        GameMapTrafficVehicle(
+            vehicle_id=str(raw["vehicle_id"]),
+            node_ids=tuple(str(item) for item in raw["node_ids"]),
+            end_behavior=str(raw["end_behavior"]),
+            vehicle_type=str(raw["vehicle_type"]),
+            dimensions_lwh_m=tuple(float(item) for item in raw["dimensions_lwh_m"]),
+            speed_mps=(
+                None if raw.get("speed_mps") is None else float(raw["speed_mps"])
+            ),
+            start_distance_m=float(raw["start_distance_m"]),
+            centerline_world=np.asarray(raw["centerline_world"], dtype=np.float32),
+            speed_limits_mps=np.asarray(raw["speed_limits_mps"], dtype=np.float32),
+        )
+        for raw in value.get("traffic", [])
+    )
     return ResolvedGameMap(
         schema_version=int(value["schema_version"]),
         map_id=str(value["map_id"]),
@@ -770,4 +835,5 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         ground_vertices=np.asarray(value["ground_vertices"], dtype=np.float32),
         ground_faces=np.asarray(value["ground_faces"], dtype=np.int32),
         spawns=spawns,
+        traffic=traffic,
     )

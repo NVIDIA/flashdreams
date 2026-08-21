@@ -52,6 +52,7 @@ from omnidreams_game_engine.game_map.types import (
     GameMapTopology,
     ResolvedGameMap,
 )
+from omnidreams_game_engine.game_map.traffic import compile_traffic
 
 _POSITION_TOLERANCE_M = 0.05
 _AREA_TOLERANCE_M2 = 1.0e-4
@@ -2936,6 +2937,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         )
         for lane in lanes
     )
+    traffic = compile_traffic(doc.get("traffic"), topology, runtime_lanes)
     permitted_boundary_contacts = {
         tuple(sorted((access.access_id, road.road_id)))
         for access in parking_accesses
@@ -2994,4 +2996,5 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         ground_vertices=ground_vertices,
         ground_faces=np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32),
         spawns=spawns,
+        traffic=traffic,
     )

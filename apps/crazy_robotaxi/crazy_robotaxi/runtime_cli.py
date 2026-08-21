@@ -257,16 +257,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--traffic-density",
-        type=float,
-        default=None,
-        metavar="FRACTION",
-        help=(
-            "Fraction of recorded motor vehicles to retain in taxi-game mode "
-            "(default: 0.4). Pedestrians, cyclists, and motorcycles are unaffected."
-        ),
-    )
-    parser.add_argument(
         "--disable-visual-flare",
         action="store_true",
         help=("Keep the collision visual flare disabled (the default)."),

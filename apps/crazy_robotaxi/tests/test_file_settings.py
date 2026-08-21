@@ -27,7 +27,6 @@ def test_bundled_renderer_and_game_settings_are_complete() -> None:
     assert renderer.raster.line_width_px == pytest.approx(12.0)
     assert renderer.bev.width == 1024
     assert not renderer.visual_flare_enabled
-    assert game.traffic_density == pytest.approx(0.4)
     assert game.vehicle.aabb_width_m == pytest.approx(2.0)
     assert game.vehicle.curb_forward_momentum_retention == pytest.approx(0.85)
 

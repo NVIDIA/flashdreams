@@ -267,7 +267,6 @@ class CrazyRobotaxiApplication:
             physics_world_factory=lambda active_scene, vehicle: TaxiPhysicsWorld(
                 active_scene,
                 vehicle,
-                traffic_density=self._config.traffic_density,
                 curb_segments_world=self._curb_segments_world,
             ),
             physics_step_fn=step_taxi_physics_world,
@@ -444,11 +443,6 @@ def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
     )
     return replace(
         config,
-        traffic_density=(
-            config.traffic_density
-            if args.traffic_density is None
-            else float(args.traffic_density)
-        ),
         seed=None if args.taxi_seed is None else int(args.taxi_seed),
         high_scores_path=high_scores_path,
         alignment_diagnostics_enabled=(

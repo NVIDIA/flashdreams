@@ -295,6 +295,21 @@ def test_bundled_maps_use_schema_version_1() -> None:
     assert len(boulevard.topology.nodes) == 75
     assert len(boulevard.topology.roads) == 81
     assert len(boulevard.topology.parking_accesses) == 8
+    assert len(boulevard.traffic) == 12
+    assert {traffic.vehicle_id for traffic in boulevard.traffic} == {
+        "arterial_eastbound",
+        "arterial_westbound",
+        "northwest_clockwise",
+        "northwest_counterclockwise",
+        "diagonal_clockwise",
+        "diagonal_counterclockwise",
+        "southwest_clockwise",
+        "southwest_counterclockwise",
+        "south_grid_clockwise",
+        "south_grid_counterclockwise",
+        "far_east_clockwise",
+        "far_east_counterclockwise",
+    }
     assert boulevard.default_spawn.lane_id == "spawn_arterial:lane:2"
     for game_map in (starter, boulevard):
         for node in game_map.topology.nodes:
@@ -593,6 +608,54 @@ def test_topology_round_trip_is_lossless() -> None:
             np.testing.assert_array_equal(
                 restored_curb.polyline_world, original_curb.polyline_world
             )
+
+
+def test_traffic_compiles_and_round_trips(tmp_path: Path) -> None:
+    source = _road_joint_map()
+    source["traffic"] = [
+        {
+            "id": "local_car",
+            "nodes": ["west_end", "bend", "east_end"],
+            "end_behavior": "reverse",
+            "speed_mps": 7.5,
+            "start_distance_m": 4,
+        }
+    ]
+
+    source_path = _write_map(tmp_path, source)
+    original = load_game_map(source_path)
+    restored = game_map_from_dict(game_map_to_dict(original))
+    preview = write_game_map_preview(source_path, tmp_path / "traffic-preview.svg")
+
+    assert len(original.traffic) == 1
+    traffic = original.traffic[0]
+    assert traffic.vehicle_id == "local_car"
+    assert traffic.vehicle_type == "car"
+    assert traffic.end_behavior == "reverse"
+    assert traffic.dimensions_lwh_m == pytest.approx((4.5, 1.8, 1.5))
+    assert traffic.speed_mps == pytest.approx(7.5)
+    assert traffic.centerline_world.shape[1] == 3
+    assert np.all(traffic.speed_limits_mps <= 7.5)
+    np.testing.assert_array_equal(
+        restored.traffic[0].centerline_world, traffic.centerline_world
+    )
+    preview_text = preview.read_text(encoding="utf-8")
+    assert "#ef476f" in preview_text
+    assert "local_car" in preview_text
+
+
+def test_traffic_rejects_parking_lot_waypoint(tmp_path: Path) -> None:
+    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source["traffic"] = [
+        {
+            "id": "parking_car",
+            "nodes": ["hub", "neighborhood_lot"],
+            "end_behavior": "wrap",
+        }
+    ]
+
+    with pytest.raises(GameMapError, match="cannot visit parking-lot"):
+        load_game_map(_write_map(tmp_path, source))
 
 
 def test_legacy_serialized_curbs_supply_missing_road_boundaries() -> None:

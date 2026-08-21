@@ -19,10 +19,11 @@ from crazy_robotaxi.driving import (
 from crazy_robotaxi.physics import (
     TaxiPhysicsWorld,
     inset_vehicle_chassis,
-    select_traffic_tracks,
     step_taxi_physics_world,
 )
+from ludus_renderer import BodyState
 from omnidreams_game_engine.config import ChunkConfig, VehicleConfig
+from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.simulation.components import (
     rigid_body_model_from_vehicle_config,
 )
@@ -30,6 +31,7 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     sample_chunk_trajectory,
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
+from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     DriverCommand,
     PhysicsDebugFrame,
@@ -57,19 +59,6 @@ def _yaw_from_quaternion_xyzw(quaternion: np.ndarray) -> float:
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
-def test_taxi_traffic_filter_is_stable_and_keeps_non_motor_actors() -> None:
-    tracks = tuple(
-        SimpleNamespace(track_id=f"car-{index}", object_type="Car")
-        for index in range(10)
-    ) + (SimpleNamespace(track_id="person-1", object_type="Pedestrian"),)
-
-    selected = select_traffic_tracks(tracks, 0.4, "scene-a")
-
-    assert selected == select_traffic_tracks(tracks, 0.4, "scene-a")
-    assert len([track for track in selected if track.object_type == "Car"]) == 4
-    assert tracks[-1] in selected
-
-
 def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
     model = rigid_body_model_from_vehicle_config(TaxiVehicleConfig())
     assert model.vehicle is not None
@@ -86,6 +75,67 @@ def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
     )
 
 
+def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
+    centerline = np.asarray(
+        [[0, 0, 0], [100, 0, 0], [100, 50, 0], [0, 50, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    speed_limits = np.full(len(centerline), 10.0, dtype=np.float32)
+
+    def definition(vehicle_id: str, start_distance_m: float) -> GameMapTrafficVehicle:
+        return GameMapTrafficVehicle(
+            vehicle_id=vehicle_id,
+            node_ids=("a", "b"),
+            end_behavior="wrap",
+            vehicle_type="car",
+            dimensions_lwh_m=(4.5, 1.8, 1.5),
+            speed_mps=None,
+            start_distance_m=start_distance_m,
+            centerline_world=centerline,
+            speed_limits_mps=speed_limits,
+        )
+
+    controller = MapTrafficController(
+        (definition("following", 0), definition("leading", 10)), VehicleConfig()
+    )
+    assert controller.max_drive_speeds_mps == {
+        "map-traffic:following": 10.0,
+        "map-traffic:leading": 10.0,
+    }
+    bodies = {
+        "map-traffic:following": BodyState(
+            position_m=np.asarray([0, 0, 0.75], dtype=np.float32),
+            orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+            linear_velocity_mps=np.zeros(3, dtype=np.float32),
+            angular_velocity_radps=np.zeros(3, dtype=np.float32),
+        ),
+        "map-traffic:leading": BodyState(
+            position_m=np.asarray([10, 0, 0.75], dtype=np.float32),
+            orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+            linear_velocity_mps=np.zeros(3, dtype=np.float32),
+            angular_velocity_radps=np.zeros(3, dtype=np.float32),
+        ),
+    }
+    published: list[tuple[tuple[str, int, float], ...]] = []
+    world = SimpleNamespace(
+        body_state=lambda object_id: bodies[object_id],
+        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
+        apply_track_progress=published.append,
+    )
+    ego = BodyState(
+        position_m=np.asarray([-100, 0, 0.8], dtype=np.float32),
+        orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+
+    controller.prepare_step(world, ego, 0.0)  # type: ignore[arg-type]
+
+    scales = {object_id: scale for object_id, _, scale in published[-1]}
+    assert scales["map-traffic:following"] == 0.0
+    assert scales["map-traffic:leading"] == 1.0
+
+
 def test_taxi_curbs_are_physics_barriers_without_a_render_layer() -> None:
     scene = _scene()
     curbs = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
@@ -95,7 +145,6 @@ def test_taxi_curbs_are_physics_barriers_without_a_render_layer() -> None:
         TaxiPhysicsWorld(
             scene,
             config,
-            traffic_density=1.0,
             curb_segments_world=curbs,
         )
 
@@ -298,7 +347,6 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
     world = TaxiPhysicsWorld(
         _scene(line_layers=(boundary,)),
         config,
-        traffic_density=1.0,
         curb_segments_world=boundary.segments_world,
     )
     initial_yaw = math.radians(30.0)
@@ -351,7 +399,7 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
 
 def test_taxi_handbrake_turn_remains_bounded_through_physx() -> None:
     config = TaxiVehicleConfig(drag_mps2=0.0)
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(
         x_m=0.0,
         y_m=0.0,
@@ -394,7 +442,7 @@ def test_taxi_handbrake_turn_remains_bounded_through_physx() -> None:
 
 def test_taxi_normal_steering_tracks_arcade_heading_through_physx() -> None:
     config = TaxiVehicleConfig(drag_mps2=0.0)
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(
         x_m=0.0,
         y_m=0.0,
@@ -425,7 +473,7 @@ def test_taxi_normal_steering_tracks_arcade_heading_through_physx() -> None:
 
 def test_taxi_acceleration_and_braking_remain_arcade_responsive_through_physx() -> None:
     config = TaxiVehicleConfig()
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     throttle = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
 
@@ -462,7 +510,7 @@ def test_taxi_acceleration_and_braking_remain_arcade_responsive_through_physx() 
 
 def test_taxi_pedal_brake_builds_reverse_speed_through_physx() -> None:
     config = TaxiVehicleConfig()
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     reverse = DriverCommand(brake=1.0, steer_is_direct=True, manual_control=True)
 

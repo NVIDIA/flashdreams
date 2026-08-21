@@ -1,6 +1,5 @@
 schema_version: 1
 rules:
-  traffic_density: 0.4
   waypoint_spacing_m: 10.0
   pickup_grid_spacing_m: 60.0
   pickup_min_distance_m: 20.0

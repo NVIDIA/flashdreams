@@ -17,11 +17,12 @@ compiler:
 profiles: {}
 nodes: []
 roads: []
+traffic: []
 spawns: []
 ```
 
-`profiles` is optional. All other root fields are required, and unknown root
-fields are errors.
+`profiles` and `traffic` are optional. All other root fields are required, and
+unknown root fields are errors.
 
 The compiler settings control road sampling, ground extent, and routing-only
 turn-connector resolution. They do not configure the renderer archive.
@@ -316,6 +317,42 @@ opening width becomes two equal opposing lanes with no shoulder, virtual white
 markings, physical curbs, and a 5.5m/s speed limit. Intersection connections
 include the access as an inferred footprint arm. Access lanes end at the lot
 boundary; parking lots contain no internal routing lanes.
+
+## NPC traffic
+
+The optional `traffic` list defines vehicles that continuously follow the
+compiled public-road lane graph:
+
+```yaml
+traffic:
+  - id: neighborhood_car
+    nodes: [west_junction, central_intersection, east_junction]
+    end_behavior: reverse
+    vehicle_type: car
+    speed_mps: 11
+    start_distance_m: 20
+```
+
+`nodes` requires at least two non-parking nodes. Consecutive nodes do not need
+to be adjacent: the compiler selects the shortest routable sequence of public
+roads and rejects routes that cannot be connected. Parking accesses and
+parking-lot interiors are never considered. At each intersection, traffic uses
+the rightmost lane for right turns, the leftmost lane for left turns, and
+preserves its relative lane for straight travel. Lane-count changes are joined
+with a smooth lateral transition.
+
+`end_behavior: wrap` routes from the final node back to the first without
+teleporting. `reverse` traverses the waypoint list in the opposite order while
+the vehicle continues to drive forward; the resulting route must have a legal
+turnaround. A cul-de-sac endpoint supplies one automatically.
+
+`vehicle_type` is optional and defaults to `car`; accepted values are `car`,
+`truck`, and `bus`. Their dimensions can be overridden with
+`dimensions_lwh_m: [length, width, height]`. `speed_mps` is an optional cap on
+road speed limits. `start_distance_m` offsets the initial position along the
+compiled cyclic route and defaults to zero. Vehicles are physical, collidable,
+and maintain simple same-lane headway; traffic signals and right-of-way are not
+currently modeled.
 
 ## Spawns and visual variants
 

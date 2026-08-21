@@ -5,14 +5,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
 from dataclasses import replace
 
 import numpy as np
 from loguru import logger
 from ludus_renderer import RigidBodyModel
-from omnidreams_game_engine.simulation.components import canonical_object_type
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     DriverCommand,
@@ -23,41 +21,7 @@ from omnidreams_game_engine.types import (
 
 from crazy_robotaxi.driving import TaxiVehicleConfig
 
-_MOTOR_TRAFFIC_TYPES = frozenset({"car", "truck", "bus", "trailer"})
 _CHASSIS_INSET_M = 0.16
-
-
-def select_traffic_tracks(
-    tracks: tuple[object, ...], density: float, scene_id: str
-) -> tuple[object, ...]:
-    """Select a stable Taxi-only fraction of motor traffic."""
-    if not 0.0 < density <= 1.0:
-        raise ValueError("traffic density must be greater than 0 and at most 1")
-    if density >= 1.0:
-        return tracks
-    motor_tracks = tuple(
-        track
-        for track in tracks
-        if canonical_object_type(str(track.object_type)) in _MOTOR_TRAFFIC_TYPES
-    )
-    if not motor_tracks:
-        return tracks
-    retained_count = max(1, math.ceil(len(motor_tracks) * density))
-
-    def selection_key(track: object) -> bytes:
-        identity = f"{scene_id}:{track.track_id}".encode()
-        return hashlib.blake2b(identity, digest_size=8).digest()
-
-    retained_ids = {
-        str(track.track_id)
-        for track in sorted(motor_tracks, key=selection_key)[:retained_count]
-    }
-    return tuple(
-        track
-        for track in tracks
-        if canonical_object_type(str(track.object_type)) not in _MOTOR_TRAFFIC_TYPES
-        or str(track.track_id) in retained_ids
-    )
 
 
 def inset_vehicle_chassis(model: RigidBodyModel) -> RigidBodyModel:
@@ -84,12 +48,8 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         scene: SceneBundle,
         vehicle: TaxiVehicleConfig,
         *,
-        traffic_density: float,
         curb_segments_world: np.ndarray | None = None,
     ) -> None:
-        selected_tracks = select_traffic_tracks(
-            tuple(scene.vehicle_bbox_tracks), traffic_density, scene.scene_id
-        )
         curb_segments = np.asarray(
             curb_segments_world
             if curb_segments_world is not None
@@ -98,12 +58,8 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         )
         if curb_segments.ndim != 3 or curb_segments.shape[1:] != (2, 3):
             raise ValueError("Taxi curb segments must have shape (N, 2, 3).")
-        taxi_scene = replace(
-            scene,
-            vehicle_bbox_tracks=selected_tracks,
-        )
         super().__init__(
-            taxi_scene,
+            scene,
             vehicle,
             model_adapter=inset_vehicle_chassis,
             static_barrier_segments_world=(
@@ -116,8 +72,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         self._taxi_vehicle = vehicle
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
-            "arcade handbrake, inset chassis, traffic_density={:.2f}, curb_segments={}",
-            traffic_density,
+            "arcade handbrake, inset chassis, curb_segments={}",
             len(curb_segments),
         )
         self._last_contact_resolved_state: VehicleState | None = None

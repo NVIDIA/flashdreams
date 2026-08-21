@@ -44,6 +44,7 @@ from omnidreams_game_engine.simulation.components import (
     suspension_for_object,
     vehicle_dynamics_for_object,
 )
+from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.simulation.traffic_ai import TrafficDriverAI
 from omnidreams_game_engine.types import (
     DynamicActorTrajectory,
@@ -281,7 +282,13 @@ class GamePhysicsWorld:
             scene_object = self._object_from_track(track, vehicle)
             return replace(scene_object, model=adapt_model(scene_object.model))
 
+        game_map = getattr(scene, "game_map", None)
+        self._map_traffic = MapTrafficController(
+            () if game_map is None else game_map.traffic,
+            vehicle,
+        )
         objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
+        objects += self._map_traffic.objects
         if (
             vehicle.static_collision_enabled
             and static_barrier_segments_world is not None
@@ -319,6 +326,7 @@ class GamePhysicsWorld:
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=initial_timestamp_us,
         )
+        self._physics_graph = self._retain_map_traffic(self._physics_graph)
         self._physics_center_xy = initial_xy.copy()
         self._physics_timestamp_us = initial_timestamp_us
         self._entities = [
@@ -340,6 +348,7 @@ class GamePhysicsWorld:
             self._ego_model,
             actor_collision_enabled=vehicle.actor_collision_enabled,
             max_actor_drive_speed_mps=_NON_EGO_MAX_DRIVE_SPEED_MPS,
+            max_actor_drive_speeds_mps=self._map_traffic.max_drive_speeds_mps,
         )
         self._traffic_ai = TrafficDriverAI()
         self._traffic_ai.synchronize(self._physics_graph.objects)
@@ -352,6 +361,25 @@ class GamePhysicsWorld:
             len(self._physics_graph.barriers),
             len(self.graph.barriers),
             _PHYSX_SIMULATION_RADIUS_M,
+        )
+
+    def _retain_map_traffic(
+        self, physics_graph: PhysicsObjectGraph
+    ) -> PhysicsObjectGraph:
+        """Keep the small authored traffic fleet simulated across map windows."""
+        incoming_ids = {
+            scene_object.object_id for scene_object in physics_graph.objects
+        }
+        additions = tuple(
+            scene_object
+            for scene_object in self._map_traffic.objects
+            if scene_object.object_id not in incoming_ids
+        )
+        if not additions:
+            return physics_graph
+        return PhysicsObjectGraph(
+            objects=physics_graph.objects + additions,
+            barriers=physics_graph.barriers,
         )
 
     @staticmethod
@@ -466,6 +494,7 @@ class GamePhysicsWorld:
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=timestamp_us,
         )
+        physics_graph = self._retain_map_traffic(physics_graph)
         incoming_ids = {obj.object_id for obj in physics_graph.objects}
         retained_detached = tuple(
             obj
@@ -667,6 +696,7 @@ class GamePhysicsWorld:
         ego_before_step = _body_state_from_vehicle(
             state, self._ego_model.half_extents_m[2]
         )
+        self._map_traffic.prepare_step(self._world, ego_before_step, dt_s)
         physics_step = self._world.step_compact(
             ego_before_step,
             timestamp_us,

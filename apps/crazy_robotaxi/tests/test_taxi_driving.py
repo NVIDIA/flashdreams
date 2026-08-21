@@ -44,7 +44,7 @@ def test_taxi_config_does_not_enable_base_game_mode() -> None:
     assert config.vehicle == TaxiVehicleConfig()
 
 
-def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
+def test_taxi_cli_keeps_base_mode_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_kwargs: object())
@@ -55,8 +55,6 @@ def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
                 "--map",
                 "city.robotaxi.yaml",
                 "--taxi-game",
-                "--traffic-density",
-                "0.25",
             ]
         )
     )
@@ -66,7 +64,6 @@ def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
     assert config.vehicle.actor_collision_enabled is False
     assert config.visual_flare_enabled is False
     assert taxi_config.enabled is True
-    assert taxi_config.traffic_density == pytest.approx(0.25)
     assert taxi_config.vehicle.actor_collision_enabled is True
 
 
@@ -136,9 +133,3 @@ def test_space_remains_upstream_stop_until_taxi_controls_are_enabled() -> None:
 
     assert taxi_command.stop is False
     assert taxi_command.handbrake is True
-
-
-@pytest.mark.parametrize("density", [0.0, -0.1, 1.1])
-def test_taxi_config_rejects_invalid_traffic_density(density: float) -> None:
-    with pytest.raises(ValueError, match="traffic_density"):
-        TaxiGameConfig(traffic_density=density)

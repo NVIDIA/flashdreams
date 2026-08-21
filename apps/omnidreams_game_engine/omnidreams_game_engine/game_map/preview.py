@@ -28,6 +28,23 @@ def _label(text: str, point: np.ndarray, transform: object, color: str) -> str:
     )
 
 
+def _point_at_distance(
+    points: np.ndarray, distance_m: float
+) -> tuple[np.ndarray, np.ndarray]:
+    lengths = np.linalg.norm(np.diff(points[:, :2], axis=0), axis=1)
+    cumulative = np.concatenate((np.zeros(1), np.cumsum(lengths)))
+    index = min(
+        int(np.searchsorted(cumulative, distance_m, side="right") - 1),
+        len(lengths) - 1,
+    )
+    index = max(0, index)
+    alpha = (distance_m - cumulative[index]) / max(float(lengths[index]), 1.0e-9)
+    point = points[index] + alpha * (points[index + 1] - points[index])
+    tangent = points[index + 1, :2] - points[index, :2]
+    tangent /= max(float(np.linalg.norm(tangent)), 1.0e-9)
+    return point, tangent
+
+
 def write_game_map_preview(
     source: Path, destination: Path, *, include_annotations: bool = True
 ) -> Path:
@@ -87,6 +104,32 @@ def write_game_map_preview(
                 f'<polyline points="{_points(curb.polyline_world[:, :2], convert)}" '
                 'fill="none" stroke="#5f6673" stroke-width="2.5"/>'
             )
+    for traffic in game_map.traffic:
+        lines.append(
+            f'<polyline points="{_points(traffic.centerline_world[:, :2], convert)}" '
+            'fill="none" stroke="#ef476f" stroke-width="1.2" '
+            'stroke-dasharray="3 2" opacity="0.8"/>'
+        )
+        point, forward = _point_at_distance(
+            traffic.centerline_world, traffic.start_distance_m
+        )
+        left = np.asarray([-forward[1], forward[0]])
+        half_length = traffic.dimensions_lwh_m[0] * 0.5
+        half_width = traffic.dimensions_lwh_m[1] * 0.5
+        corners = np.asarray(
+            [
+                point[:2] + forward * half_length + left * half_width,
+                point[:2] + forward * half_length - left * half_width,
+                point[:2] - forward * half_length - left * half_width,
+                point[:2] - forward * half_length + left * half_width,
+            ]
+        )
+        lines.append(
+            f'<polygon points="{_points(corners, convert)}" fill="#ef476f" '
+            'stroke="#ffffff" stroke-width="0.8"/>'
+        )
+        if include_annotations:
+            lines.append(_label(traffic.vehicle_id, point, convert, "#9f1239"))
     if include_annotations:
         lane_by_element = {
             lane.element_id: lane

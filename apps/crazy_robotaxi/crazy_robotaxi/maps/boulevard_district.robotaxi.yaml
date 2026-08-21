@@ -349,6 +349,49 @@ roads:
   - {id: far_east_loop_west, from: far_east_bend_northwest, to: far_east_bend_southwest, profile: local}
   - {id: far_east_loop_exit, from: far_east_bend_southwest, to: far_east_north_crossing, profile: local}
 
+traffic:
+  - id: arterial_eastbound
+    nodes: [west_arterial_crossing, arterial_crossing_1170]
+    end_behavior: reverse
+  - id: arterial_westbound
+    nodes: [arterial_crossing_1170, west_arterial_crossing]
+    end_behavior: reverse
+
+  - id: northwest_clockwise
+    nodes: [west_arterial_crossing, west_north_crossing, west_upper_crossing, central_upper_crossing, central_north_crossing, central_arterial_crossing]
+    end_behavior: wrap
+  - id: northwest_counterclockwise
+    nodes: [central_upper_crossing, west_upper_crossing, west_north_crossing, west_arterial_crossing, central_arterial_crossing, central_north_crossing]
+    end_behavior: wrap
+
+  - id: diagonal_clockwise
+    nodes: [diagonal_arterial_crossing, diagonal_north_crossing, north_crossing_470, arterial_crossing_470, arterial_merge_crossing]
+    end_behavior: wrap
+  - id: diagonal_counterclockwise
+    nodes: [north_crossing_470, diagonal_north_crossing, diagonal_arterial_crossing, arterial_merge_crossing, arterial_crossing_470]
+    end_behavior: wrap
+
+  - id: southwest_clockwise
+    nodes: [west_arterial_crossing, west_south_crossing, southwest_crossing, southwest_lot_driveway, central_south_crossing, central_arterial_crossing]
+    end_behavior: wrap
+  - id: southwest_counterclockwise
+    nodes: [southwest_lot_driveway, southwest_crossing, west_south_crossing, west_arterial_crossing, central_arterial_crossing, central_south_crossing]
+    end_behavior: wrap
+
+  - id: south_grid_clockwise
+    nodes: [arterial_crossing_710, south_crossing_710, south_crossing_860, lower_crossing_860, lower_crossing_930, lower_crossing_990, south_crossing_990, arterial_crossing_990, arterial_crossing_860, arterial_crossing_800]
+    end_behavior: wrap
+  - id: south_grid_counterclockwise
+    nodes: [lower_crossing_930, lower_crossing_860, south_crossing_860, south_crossing_710, arterial_crossing_710, arterial_crossing_800, arterial_crossing_860, arterial_crossing_990, south_crossing_990, lower_crossing_990]
+    end_behavior: wrap
+
+  - id: far_east_clockwise
+    nodes: [arterial_crossing_1082, arterial_crossing_1170, far_east_bend_southeast, far_east_bend_northeast, far_east_bend_northwest, far_east_bend_southwest, far_east_north_crossing]
+    end_behavior: wrap
+  - id: far_east_counterclockwise
+    nodes: [far_east_bend_northwest, far_east_bend_northeast, far_east_bend_southeast, arterial_crossing_1170, arterial_crossing_1082, far_east_north_crossing, far_east_bend_southwest]
+    end_behavior: wrap
+
 spawns:
   - id: original_area_start
     road: spawn_arterial
@@ -356,7 +399,6 @@ spawns:
     distance_m: 128
     variants:
       default:
-        image: package://omnidreams_game_engine/screenshot.jpg
         prompt: >-
           A forward-facing view from a taxi moving through a quiet suburban
           district in daylight, with low commercial buildings, houses,
