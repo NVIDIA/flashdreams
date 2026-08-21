@@ -10,17 +10,22 @@ Ports the attach recipe from
 - a pre-merged :class:`omnidreams._edit_lora.TextEditLoRA` on the
   transformer (zero steady-state cost; ``replace_text`` opens its edit
   window automatically),
-- the rank-16 drift corrector via
-  :func:`omnidreams._drift_corrector.apply_drift_corrector` in **unfused**
-  mode (the two pre-merged fast paths fight over the same weight tensors),
-  dispatch-gated so the base world runs the unmodified forward,
+- the rank-16 drift corrector. Default (``corrector_mode="fused"``): the
+  CUDA-graph-safe per-state
+  :class:`omnidreams._drift_corrector.DriftCorrectorDispatch` — one
+  pre-merged weight-set family per (base | skin | weather) state,
+  ``compile_network`` and ``use_cuda_graph`` stay ON. The edit LoRA hands
+  its self-attention deltas to the dispatch (``release_targets``), whose
+  skin sets carry LoRA + corrector in one ``copy_`` source, resolving the
+  old last-writer-wins clash; the LoRA keeps toggling only the
+  cross-attention projections. ``corrector_mode="unfused"`` (or
+  ``LIVE_EDIT_CORRECTOR_MODE=unfused``) restores the eager scale-gated
+  fallback, which still forces the graph-free pipeline,
 - prompt swaps applied strictly between chunks by wrapping the session's
-  ``start`` / ``continue_generation``.
+  ``start`` / ``continue_generation``; corrector-state selection rides the
+  same boundary.
 
-Everything model-facing here is GPU-gated: the wiring compiles CPU-side but
-the LoRA/corrector math and the swap behavior need a bring-up run to verify
-(see TODOs). Vanilla behavior is untouched until :func:`attach_style_ability`
-runs.
+Vanilla behavior is untouched until :func:`attach_style_ability` runs.
 """
 
 from __future__ import annotations
@@ -74,6 +79,8 @@ class StyleAbility:
         self._pending_weather: int | None | object = _NO_PENDING
         self._chunks_since_swap = 0
         self._set_corrector_gain: Callable[[float], None] = lambda _: None
+        self._dispatch: Any | None = None
+        self._corrector_states: set[str] = set()
 
     @property
     def active_skin_name(self) -> str:
@@ -105,11 +112,16 @@ class StyleAbility:
         transformer = pipeline.diffusion_model.transformer
         self._guard_transformer(transformer)
 
-        if self._config.gate_alpha_json is not None:
-            # _drift_corrector reads GATE_ALPHA_JSON at import time.
+        fused = self._config.corrector_mode == "fused"
+        if not fused and self._config.gate_alpha_json is not None:
+            # The unfused path reads GATE_ALPHA_JSON at _drift_corrector
+            # import time; the fused dispatch takes per-state profiles
+            # directly, leaving the module default (photoreal) for the
+            # base-state corrector.
             os.environ["GATE_ALPHA_JSON"] = str(self._config.gate_alpha_json)
 
         self._transformer = transformer
+        edit_lora = None
         if self._config.enabled and self._config.lora_checkpoint is not None:
             from omnidreams._edit_lora import TextEditLoRA
 
@@ -120,7 +132,9 @@ class StyleAbility:
             self._lora_attached = True
             logger.info(f"[live-edit] deployed {edit_lora.describe()}")
 
-        if self._config.corrector_checkpoint is not None:
+        if fused and self._any_corrector_configured():
+            self._attach_corrector_fused(pipeline, transformer, edit_lora)
+        elif self._config.corrector_checkpoint is not None:
             self._attach_corrector(pipeline, transformer)
 
         self.hook_session(session)
@@ -197,8 +211,126 @@ class StyleAbility:
             return self._active_weather
         return self._pending_weather  # type: ignore[return-value]
 
+    def _any_corrector_configured(self) -> bool:
+        """Whether any state of the fused dispatch would carry a corrector."""
+        weather = self._weather_config
+        return (
+            self._config.corrector_checkpoint is not None
+            or self._config.base_corrector_checkpoint is not None
+            or (
+                weather is not None
+                and weather.corrector_gain > 0.0
+                and weather.corrector_checkpoint is not None
+            )
+        )
+
+    def _attach_corrector_fused(
+        self, pipeline: Any, transformer: Any, edit_lora: Any | None
+    ) -> None:
+        """Deploy the CUDA-graph-safe per-state corrector dispatch.
+
+        One pre-merged weight-set family per (base | skin | weather)
+        state; :meth:`_apply_pending` selects the state at chunk
+        boundaries. The edit LoRA releases its self-attention projections
+        to the dispatch, whose skin sets fold the LoRA delta into every
+        alpha set — one ``copy_`` source carries LoRA + corrector, so the
+        two mechanisms no longer race on the same weights; the LoRA keeps
+        toggling only the cross-attention projections. Consequence: while
+        a skin state is selected, the self-attention LoRA delta stays
+        applied even after the cross-attention edit window ages out
+        (the 8-chunk re-swap reopens the window well inside the 20-chunk
+        guidance budget, so the split is invisible in practice).
+        """
+        from types import SimpleNamespace
+
+        from omnidreams._drift_corrector import (
+            DriftCorrectorDispatch,
+            _target_linears,
+        )
+
+        dispatch = DriftCorrectorDispatch(SimpleNamespace(pipeline=pipeline))
+        lines: list[str] = []
+        lora_delta = None
+        if edit_lora is not None:
+            network = transformer.network
+            if hasattr(network, "_orig_mod"):  # unwrap torch.compile
+                network = network._orig_mod
+            lora_delta = edit_lora.release_targets(_target_linears(network))
+
+        config = self._config
+        if config.base_corrector_checkpoint is not None:
+            # Photoreal corrector over the base world, module-default gate.
+            lines.append(
+                dispatch.register_state(
+                    "base",
+                    checkpoint=config.base_corrector_checkpoint,
+                    gain=config.base_corrector_gain,
+                )
+            )
+        if config.enabled and (
+            config.corrector_checkpoint is not None or lora_delta is not None
+        ):
+            lines.append(
+                dispatch.register_state(
+                    "skin",
+                    checkpoint=config.corrector_checkpoint,
+                    gain=(
+                        config.corrector_gain
+                        if config.corrector_checkpoint is not None
+                        else 0.0
+                    ),
+                    gate_alpha=config.gate_alpha_json,
+                    lora_delta=lora_delta,
+                )
+            )
+            self._corrector_states.add("skin")
+        weather = self._weather_config
+        if weather is not None and weather.corrector_gain > 0.0:
+            ckpt = weather.corrector_checkpoint or config.corrector_checkpoint
+            if ckpt is not None:
+                lines.append(
+                    dispatch.register_state(
+                        "weather",
+                        checkpoint=ckpt,
+                        gain=weather.corrector_gain,
+                        gate_alpha=config.gate_alpha_json,
+                    )
+                )
+                self._corrector_states.add("weather")
+        self._corrector_states.add("base")
+        self._dispatch = dispatch
+        for line in lines:
+            logger.info(f"[live-edit] fused {line}")
+
+    def _update_corrector(
+        self, skin: int | None, weather: int | None, gain: float
+    ) -> None:
+        """Route the new (skin | weather) state to the corrector backend.
+
+        Fused: select the dispatch state (states without a registration
+        fall back to ``base``). Unfused: apply the absolute gain via the
+        scale-gated predict_flow dispatch.
+        """
+        if self._dispatch is not None:
+            name = (
+                "skin"
+                if skin is not None
+                else "weather"
+                if weather is not None
+                else "base"
+            )
+            if name not in self._corrector_states:
+                name = "base"
+            self._dispatch.set_active_corrector(name)
+        else:
+            self._set_corrector_gain(gain)
+
     def _attach_corrector(self, pipeline: Any, transformer: Any) -> None:
         """Deploy the unfused corrector behind a per-state gain dispatch.
+
+        Legacy fallback (``corrector_mode="unfused"``): requires the
+        graph-free pipeline; see :meth:`_attach_corrector_fused` for the
+        real-time path.
 
         The dispatch supports three regimes per (skin | weather) state:
         the configured style gain rides the validated ``gated_pf`` wrapper
@@ -275,7 +407,7 @@ class StyleAbility:
             self._active_weather = None
             self._pending_weather = _NO_PENDING
             self._chunks_since_swap = 0
-            self._set_corrector_gain(0.0)
+            self._update_corrector(None, None, 0.0)
             return original_start(initial_rgb, condition_frames, prompt)
 
         def continue_generation(condition_frames: Any) -> Any:
@@ -357,7 +489,7 @@ class StyleAbility:
         self._active_index = target_skin
         self._active_weather = target_weather
         self._chunks_since_swap = 0
-        self._set_corrector_gain(target.corrector_gain)
+        self._update_corrector(target_skin, target_weather, target.corrector_gain)
         logger.info(
             f"[live-edit] {verb} skin={self.active_skin_name} "
             f"weather={self.active_weather_name}"
@@ -415,6 +547,10 @@ class StyleAbility:
     def _guard_transformer(self, transformer: Any) -> None:
         """Reject built pipeline configs the unfused corrector cannot ride.
 
+        Fused mode needs no rejection: the per-state dispatch copies into
+        fixed parameter storages, which captured CUDA graphs and the
+        compiled network read by address (the whole point of the mode).
+
         The manifest only carries ``compile_net`` / ``native_dit_*``; the
         transformer's ``use_cuda_graph`` defaults to True in the recipe, so
         it must be checked on the live config. CUDA-graph capture would bake
@@ -422,6 +558,8 @@ class StyleAbility:
         runs outside any captured graph), and ``compile_network`` re-traces
         around the _LoRALinear wrap.
         """
+        if self._config.corrector_mode == "fused":
+            return
         config = getattr(transformer, "config", None)
         if config is None:
             return
@@ -452,10 +590,11 @@ def install_style_ability_on_backend(backend: Any, ability: StyleAbility) -> Non
 
     Called at the composition root BEFORE model warmup starts:
 
-    - when the drift corrector is configured, replaces the backend's session
-      with one whose pipeline factory disables CUDA graphs (the manifest has
-      no such knob, and the unfused corrector's scale gating is not
-      graph-safe);
+    - in ``unfused`` corrector mode only, replaces the backend's session
+      with one whose pipeline factory disables CUDA graphs (the manifest
+      has no such knob, and the unfused corrector's scale gating is not
+      graph-safe). The default ``fused`` mode keeps the accelerated
+      pipeline (compile_network + use_cuda_graph) untouched;
     - defers :meth:`StyleAbility.attach` until the session's own
       ``warmup_model`` has built the pipeline (attach needs the live
       transformer), by wrapping that method.
@@ -466,7 +605,10 @@ def install_style_ability_on_backend(backend: Any, ability: StyleAbility) -> Non
             "--live-edit-style requires the omnidreams world-model backend "
             "(the raster backend has no flashdreams session)."
         )
-    needs_graph_free = ability._config.corrector_checkpoint is not None
+    needs_graph_free = (
+        ability._config.corrector_checkpoint is not None
+        and ability._config.corrector_mode == "unfused"
+    )
     if needs_graph_free and not getattr(session, "_live_edit_cuda_graph_free", False):
         session = _corrector_safe_session(session)
         backend._session = session

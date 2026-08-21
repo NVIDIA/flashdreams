@@ -11,8 +11,11 @@ field, validation in ``__post_init__``) plus argparse helpers mirroring the
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_CORRECTOR_MODES = ("fused", "unfused")
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,22 @@ class LiveEditStyleConfig:
     corrector_gain: float = 0.15
     """Global corrector gain composed with the alpha*(t) gate profile."""
 
+    corrector_mode: str = "fused"
+    """Drift-corrector deploy mode. ``fused`` rides the CUDA-graph-safe
+    per-state ``DriftCorrectorDispatch`` (compile_network + use_cuda_graph
+    stay ON; validated 207 ms/chunk vs 203.9 no-corrector); ``unfused``
+    falls back to the eager scale-gated path, which forces the graph-free
+    pipeline (~1.4 s/chunk in-game). ``LIVE_EDIT_CORRECTOR_MODE`` sets the
+    CLI default."""
+
+    base_corrector_checkpoint: Path | None = None
+    """Optional photoreal drift corrector for the BASE world state (fused
+    mode only; the shipped ``lora_v2_v3_valpeak.pt`` deploy). ``None``
+    leaves the base world uncorrected."""
+
+    base_corrector_gain: float = 0.25
+    """Gain for the base-state photoreal corrector (``corrgate025``)."""
+
     gate_alpha_json: Path | None = None
     """Measured per-timestep gate profile (``edit_sft/gate_style.py`` output)."""
 
@@ -105,6 +124,10 @@ class LiveEditStyleConfig:
             raise ValueError("live_edit.style requires --live-edit-style-lora")
         if not 0.0 <= self.corrector_gain <= 1.0:
             raise ValueError("corrector_gain must be in [0, 1]")
+        if self.corrector_mode not in _CORRECTOR_MODES:
+            raise ValueError(f"corrector_mode must be one of {_CORRECTOR_MODES}")
+        if not 0.0 <= self.base_corrector_gain <= 1.0:
+            raise ValueError("base_corrector_gain must be in [0, 1]")
         if self.guidance_scale < 1.0:
             raise ValueError("guidance_scale must be at least 1.0")
         if self.guidance_chunks < 0:
@@ -244,6 +267,10 @@ class LiveEditWeatherConfig:
     keeps the corrector off during weather (its gate profile was calibrated
     on style v6, not weather, and base-world drift is mild); a small value
     such as 0.10 trades a possible mild wash for less late-run drift."""
+
+    corrector_checkpoint: Path | None = None
+    """Dedicated corrector checkpoint for the weather state (fused mode).
+    ``None`` reuses the style corrector at :attr:`corrector_gain`."""
 
     weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
     """Selectable weathers, cycled clear -> rain -> snow -> storm -> clear
@@ -442,6 +469,32 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Drift-corrector gain (composed with the gate profile).",
     )
     group.add_argument(
+        "--live-edit-corrector-mode",
+        type=str,
+        choices=_CORRECTOR_MODES,
+        default=os.environ.get("LIVE_EDIT_CORRECTOR_MODE", "fused"),
+        help=(
+            "Drift-corrector deploy mode: 'fused' keeps CUDA graphs + "
+            "compile_network on (real-time); 'unfused' is the old eager "
+            "fallback. Env default: LIVE_EDIT_CORRECTOR_MODE."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-base-corrector",
+        type=Path,
+        default=None,
+        help=(
+            "Photoreal drift-corrector checkpoint for the base world state "
+            "(fused mode only; omit to leave the base world uncorrected)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-base-corrector-gain",
+        type=float,
+        default=0.25,
+        help="Gain for the base-state photoreal corrector (shipped: 0.25).",
+    )
+    group.add_argument(
         "--live-edit-gate-alpha-json",
         type=Path,
         default=None,
@@ -487,6 +540,15 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "Absolute drift-corrector gain while weather is active "
             "(0 = corrector off during weather, the calibrated-safe default)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-weather-corrector",
+        type=Path,
+        default=None,
+        help=(
+            "Dedicated corrector checkpoint for the weather state (fused "
+            "mode; default reuses the style corrector)."
         ),
     )
     group.add_argument(
@@ -544,6 +606,9 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             lora_checkpoint=args.live_edit_style_lora,
             corrector_checkpoint=args.live_edit_style_corrector,
             corrector_gain=float(args.live_edit_style_gain),
+            corrector_mode=str(args.live_edit_corrector_mode),
+            base_corrector_checkpoint=args.live_edit_base_corrector,
+            base_corrector_gain=float(args.live_edit_base_corrector_gain),
             gate_alpha_json=args.live_edit_gate_alpha_json,
             reswap_interval_chunks=int(args.live_edit_style_reswap_chunks),
         ),
@@ -555,6 +620,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             enabled=bool(args.live_edit_weather),
             guidance_scale=float(args.live_edit_weather_guidance),
             corrector_gain=float(args.live_edit_weather_corrector_gain),
+            corrector_checkpoint=args.live_edit_weather_corrector,
             weathers=weathers_starting_with(args.live_edit_weather_first),
         ),
         obstacle=LiveEditObstacleConfig(

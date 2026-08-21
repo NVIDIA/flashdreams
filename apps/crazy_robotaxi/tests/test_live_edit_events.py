@@ -700,3 +700,292 @@ class TestRequestsAndConfig:
         runtime.process_events(state)
         assert style.weather_cycles == 1
         assert obstacle.spawns == 1
+
+
+## Fused per-state corrector dispatch (Task: real-time corrector in-game)
+
+
+def _toy_attn_network():
+    import torch.nn as nn
+
+    class Block(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.self_attn = nn.ModuleDict(
+                {
+                    n: nn.Linear(4, 4, bias=False)
+                    for n in ("q_proj", "k_proj", "v_proj", "output_proj")
+                }
+            )
+            self.cross_attn = nn.ModuleDict(
+                {
+                    n: nn.Linear(4, 4, bias=False)
+                    for n in ("q_proj", "k_proj", "v_proj", "output_proj")
+                }
+            )
+
+    return nn.Sequential(Block(), Block())
+
+
+class _ToyDeployTransformer:
+    """Deploy surface used by attach(): network + LoRA hook + finalize."""
+
+    def __init__(self) -> None:
+        import torch
+
+        torch.manual_seed(0)
+        self.network = _toy_attn_network()
+        self._text_edit_lora: object | None = None
+
+    def set_text_edit_lora(self, edit_lora: object | None) -> None:
+        self._text_edit_lora = edit_lora
+
+    def finalize_kv_cache(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
+def _fused_session() -> tuple[_FakeSession, _ToyDeployTransformer]:
+    from types import SimpleNamespace
+
+    import torch
+
+    transformer = _ToyDeployTransformer()
+    session = _FakeSession()
+    session.manifest = SimpleNamespace(native_dit_acceleration="disabled")
+    session.pipeline.diffusion_model = SimpleNamespace(
+        transformer=transformer,
+        scheduler=SimpleNamespace(
+            denoising_step_list=torch.tensor([1000.0, 803.0]), sample=None
+        ),
+        config=SimpleNamespace(context_noise=128),
+    )
+    return session, transformer
+
+
+def _write_checkpoints(tmp_path, network) -> tuple[Path, Path]:
+    import torch
+    from omnidreams._drift_corrector import _target_linears as corrector_targets
+    from omnidreams._edit_lora import _target_linears as edit_targets
+
+    torch.manual_seed(3)
+    lora_sd = {}
+    for i, lin in enumerate(edit_targets(network)):
+        lora_sd[2 * i] = 0.02 * torch.randn(2, lin.in_features)
+        lora_sd[2 * i + 1] = 0.02 * torch.randn(lin.out_features, 2)
+    lora_ckpt = tmp_path / "edit_lora.pt"
+    torch.save({"lora": lora_sd}, lora_ckpt)
+
+    corr_sd = {}
+    for i, lin in enumerate(corrector_targets(network)):
+        corr_sd[2 * i] = 0.02 * torch.randn(2, lin.in_features)
+        corr_sd[2 * i + 1] = 0.02 * torch.randn(lin.out_features, 2)
+    corr_ckpt = tmp_path / "corrector.pt"
+    torch.save({"lora": corr_sd}, corr_ckpt)
+    return lora_ckpt, corr_ckpt
+
+
+def _fused_ability(
+    tmp_path, *, weather_gain: float = 0.1
+) -> tuple[StyleAbility, _FakeSession, _ToyDeployTransformer]:
+    session, transformer = _fused_session()
+    lora_ckpt, corr_ckpt = _write_checkpoints(tmp_path, transformer.network)
+    style = LiveEditStyleConfig(
+        enabled=True,
+        lora_checkpoint=lora_ckpt,
+        corrector_checkpoint=corr_ckpt,
+        corrector_mode="fused",
+        reswap_interval_chunks=0,
+        skins=(StyleSkin("arcade", "arcade prompt"),),
+    )
+    weather = LiveEditWeatherConfig(
+        enabled=True,
+        corrector_gain=weather_gain,
+        weathers=(
+            WeatherPreset("rain", "rain prompt"),
+            WeatherPreset("snow", "snow prompt"),
+        ),
+    )
+    ability = StyleAbility(style, weather)
+    ability.attach(session)
+    return ability, session, transformer
+
+
+class TestFusedCorrectorDispatch:
+    def test_attach_registers_base_skin_and_weather_states(self, tmp_path) -> None:
+        ability, _, _ = _fused_ability(tmp_path)
+        assert ability._dispatch is not None
+        assert ability._corrector_states == {"base", "skin", "weather"}
+        assert ability._dispatch.active_state == "base"
+
+    def test_edit_lora_releases_the_self_attention_projections(self, tmp_path) -> None:
+        import torch
+        from omnidreams._drift_corrector import _target_linears as corrector_targets
+        from omnidreams._edit_lora import _target_linears as edit_targets
+
+        ability, _, transformer = _fused_ability(tmp_path)
+        edit_lora = transformer._text_edit_lora
+        assert edit_lora is not None
+        self_attn = corrector_targets(transformer.network)
+        cross_attn = [
+            lin for lin in edit_targets(transformer.network) if lin not in self_attn
+        ]
+        before_self = [lin.weight.detach().clone() for lin in self_attn]
+        before_cross = [lin.weight.detach().clone() for lin in cross_attn]
+        edit_lora.set_active(True)
+        for lin, w in zip(self_attn, before_self):
+            assert torch.equal(lin.weight, w)  # dispatch owns these now
+        assert any(
+            not torch.equal(lin.weight, w) for lin, w in zip(cross_attn, before_cross)
+        )
+        edit_lora.set_active(False)
+
+    def test_state_machine_selects_the_dispatch_state_at_boundaries(
+        self, tmp_path
+    ) -> None:
+        ability, session, _ = _fused_ability(tmp_path)
+        session.start(None, [], "scene prompt")
+        assert ability._dispatch.active_state == "base"
+
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "skin"
+
+        ability.request_cycle()  # single skin -> back to base
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "base"
+
+        ability.request_weather_cycle()
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "weather"
+        ability.request_weather_cycle()  # rain -> snow stays weather
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "weather"
+        ability.request_weather_cycle()  # snow -> clear
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "base"
+
+    def test_skin_activation_moves_weather_state_back_through_skin(
+        self, tmp_path
+    ) -> None:
+        ability, session, _ = _fused_ability(tmp_path)
+        session.start(None, [], "scene prompt")
+        ability.request_weather_cycle()
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "weather"
+        ability.request_cycle()  # skin clears weather (base-only rule)
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "skin"
+
+    def test_unregistered_weather_state_falls_back_to_base(self, tmp_path) -> None:
+        ability, session, _ = _fused_ability(tmp_path, weather_gain=0.0)
+        assert "weather" not in ability._corrector_states
+        session.start(None, [], "scene prompt")
+        ability.request_weather_cycle()
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "base"
+
+    def test_session_restart_resets_the_dispatch_to_base(self, tmp_path) -> None:
+        ability, session, _ = _fused_ability(tmp_path)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "skin"
+        session.start(None, [], "scene prompt")
+        assert ability._dispatch.active_state == "base"
+
+    def test_fused_mode_accepts_an_accelerated_transformer(self, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        session, transformer = _fused_session()
+        transformer.config = SimpleNamespace(use_cuda_graph=True, compile_network=True)
+        lora_ckpt, corr_ckpt = _write_checkpoints(tmp_path, transformer.network)
+        style = LiveEditStyleConfig(
+            enabled=True,
+            lora_checkpoint=lora_ckpt,
+            corrector_checkpoint=corr_ckpt,
+            corrector_mode="fused",
+            skins=(StyleSkin("arcade", "arcade prompt"),),
+        )
+        StyleAbility(style).attach(session)  # must not raise
+
+    def test_unfused_mode_still_rejects_cuda_graphs(self, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        session, transformer = _fused_session()
+        transformer.config = SimpleNamespace(use_cuda_graph=True, compile_network=False)
+        lora_ckpt, corr_ckpt = _write_checkpoints(tmp_path, transformer.network)
+        style = LiveEditStyleConfig(
+            enabled=True,
+            lora_checkpoint=lora_ckpt,
+            corrector_checkpoint=corr_ckpt,
+            corrector_mode="unfused",
+            skins=(StyleSkin("arcade", "arcade prompt"),),
+        )
+        with pytest.raises(RuntimeError, match="use_cuda_graph"):
+            StyleAbility(style).attach(session)
+
+    def test_backend_installer_keeps_the_accelerated_session_in_fused_mode(
+        self, tmp_path
+    ) -> None:
+        from types import SimpleNamespace
+
+        from crazy_robotaxi.live_edit.style_ability import (
+            install_style_ability_on_backend,
+        )
+
+        lora_ckpt, corr_ckpt = _write_checkpoints(
+            tmp_path, _ToyDeployTransformer().network
+        )
+        style = LiveEditStyleConfig(
+            enabled=True,
+            lora_checkpoint=lora_ckpt,
+            corrector_checkpoint=corr_ckpt,
+            corrector_mode="fused",
+            skins=(StyleSkin("arcade", "arcade prompt"),),
+        )
+        ability = StyleAbility(style)
+        session = SimpleNamespace(warmup_model=lambda: None)
+        backend = SimpleNamespace(_session=session)
+        install_style_ability_on_backend(backend, ability)
+        assert backend._session is session  # no graph-free rebuild
+
+
+class TestCorrectorModeConfig:
+    def test_mode_flag_round_trip_and_new_checkpoint_flags(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-style",
+                "--live-edit-style-lora",
+                "/tmp/lora.pt",
+                "--live-edit-corrector-mode",
+                "unfused",
+                "--live-edit-base-corrector",
+                "/tmp/photoreal.pt",
+                "--live-edit-base-corrector-gain",
+                "0.2",
+                "--live-edit-weather",
+                "--live-edit-weather-corrector",
+                "/tmp/weather.pt",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.style.corrector_mode == "unfused"
+        assert config.style.base_corrector_checkpoint == Path("/tmp/photoreal.pt")
+        assert config.style.base_corrector_gain == 0.2
+        assert config.weather.corrector_checkpoint == Path("/tmp/weather.pt")
+
+    def test_mode_defaults_to_fused_and_honors_the_env_fallback(
+        self, monkeypatch
+    ) -> None:
+        assert LiveEditStyleConfig().corrector_mode == "fused"
+        monkeypatch.setenv("LIVE_EDIT_CORRECTOR_MODE", "unfused")
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        config = live_edit_config_from_args(parser.parse_args([]))
+        assert config.style.corrector_mode == "unfused"
+
+    def test_unknown_mode_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="corrector_mode"):
+            LiveEditStyleConfig(corrector_mode="turbo")
