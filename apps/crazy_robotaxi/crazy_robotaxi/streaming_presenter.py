@@ -103,6 +103,33 @@ _BROWSER_KEY_TO_VIEW_MODE: dict[str, str] = {
     "3": "physx",
 }
 
+_RESERVED_BROWSER_KEYS = frozenset(
+    set(_BROWSER_KEY_TO_DRIVE_KEYSYM) | set(_BROWSER_KEY_TO_VIEW_MODE) | {"r", "R"}
+)
+"""Browser keys ``_apply_control`` dispatches itself; extras may not shadow them."""
+
+
+def _validate_extra_key_handlers(
+    handlers: dict[str, Callable[[], None]] | None,
+) -> dict[str, Callable[[], None]]:
+    """Reject handler keys that collide with the presenter's own bindings.
+
+    A shadowed registration would never fire (``_apply_control`` returns
+    before the extra-handler lookup), so failing loudly at construction
+    beats a silently dead key. Single-character keys are normalized to
+    lowercase because the browser posts ``e.key`` verbatim (``K`` when
+    Shift is held) while handlers are looked up case-insensitively.
+    """
+    validated: dict[str, Callable[[], None]] = {}
+    for key, handler in (handlers or {}).items():
+        validated[key.lower() if len(key) == 1 else key] = handler
+    conflicts = sorted(key for key in validated if key in _RESERVED_BROWSER_KEYS)
+    if conflicts:
+        raise ValueError(
+            f"extra_key_handlers may not rebind reserved keys: {conflicts}"
+        )
+    return validated
+
 
 class _KeyboardDriveSink:
     """In-process duck-typed ``ControlClient`` writing to ``KeyboardState``.
@@ -812,9 +839,15 @@ class MJPEGStreamingPresenter:
         jpeg_quality: int = 85,
         scenes: tuple[dict[str, object], ...] = (),
         thumbnails: dict[str, bytes] | None = None,
+        extra_key_handlers: dict[str, Callable[[], None]] | None = None,
     ) -> None:
         self._raster = raster
         self._keyboard = keyboard
+        # Composition-root key extensions (e.g. live-edit abilities): browser
+        # keysym (lowercase for letters) -> zero-arg callback, fired on
+        # keydown. Mirrors ``SlangPyHudPresenter``'s ``extra_key_handlers``
+        # so both transports expose the same hook.
+        self._extra_key_handlers = _validate_extra_key_handlers(extra_key_handlers)
         self._visual_flare = CollisionVisualFlare()
         self._taxi_enabled = False
         self._bev_config: BevConfig | None = None
@@ -1248,6 +1281,15 @@ class MJPEGStreamingPresenter:
             # holding the key doesn't trigger a cascade of resets.
             if key in ("r", "R"):
                 self._keyboard.request_reset()
+                return
+            # Composition-root key extensions; single characters were
+            # normalized to lowercase at registration, so fold case here to
+            # keep Shift-modified presses bound to the same handler.
+            handler = self._extra_key_handlers.get(
+                key.lower() if len(key) == 1 else key
+            )
+            if handler is not None:
+                handler()
 
     def _state_snapshot(self) -> dict[str, object]:
         """Return a JSON-serializable vehicle and taxi telemetry snapshot.

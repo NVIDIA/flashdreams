@@ -6,6 +6,7 @@ from __future__ import annotations
 import threading
 
 import numpy as np
+import pytest
 from crazy_robotaxi.game import TaxiGameSnapshot
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
@@ -15,6 +16,7 @@ from crazy_robotaxi.streaming_presenter import (
     MJPEGStreamingPresenter,
     _as_rgb_host_uint8,
     _publish_if_open,
+    _validate_extra_key_handlers,
     _wait_for_bus_frame,
 )
 from omnidreams_game_engine.camera import FThetaCameraModel
@@ -196,3 +198,21 @@ def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:
         "steer_rad": 0.25,
         "yaw_rad": 0.5,
     }
+
+
+def test_streaming_extra_key_handler_fires_on_keydown_case_insensitively() -> None:
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._keyboard = CrazyRobotaxiKeyboardState()
+    fired: list[str] = []
+    presenter._extra_key_handlers = {"k": lambda: fired.append("k")}
+
+    presenter._apply_control("k", True)
+    presenter._apply_control("K", True)  # Shift held: browser posts uppercase
+    presenter._apply_control("k", False)  # keyup must not re-fire
+
+    assert fired == ["k", "k"]
+
+
+def test_streaming_extra_key_handlers_reject_reserved_browser_keys() -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        _validate_extra_key_handlers({"R": lambda: None})
