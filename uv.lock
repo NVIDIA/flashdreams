@@ -29,6 +29,7 @@ members = [
     "flashdreams-lingbot",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
+    "flashdreams-omnidreams-v2",
     "flashdreams-red-screen",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
@@ -1399,6 +1400,21 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.0,<6" },
 ]
 provides-extras = ["interactive-drive", "rtx-postprocess", "dev"]
+
+[[package]]
+name = "flashdreams-omnidreams-v2"
+version = "0.1.0"
+source = { editable = "integrations_v2/omnidreams" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-omnidreams" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
+]
 
 [[package]]
 name = "flashdreams-red-screen"
