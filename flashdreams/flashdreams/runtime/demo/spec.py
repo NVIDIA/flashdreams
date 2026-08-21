@@ -34,15 +34,41 @@ class Mp4OutputSpec:
     """MP4 replay output."""
 
     path: str | Path
-    fps: int | float
+    fps: int | float | None = None
     mode: Literal["mp4"] = "mp4"
-    output_layout: VideoTensorLayout = "bvtchw"
+    output_layout: VideoTensorLayout | None = "bvtchw"
     move_to_cpu: bool = True
 
     def __post_init__(self) -> None:
-        if float(self.fps) <= 0:
-            raise ValueError("Mp4OutputSpec.fps must be > 0.")
+        if self.fps is not None and float(self.fps) <= 0:
+            raise ValueError("Mp4OutputSpec.fps must be > 0 when set.")
         object.__setattr__(self, "path", Path(self.path))
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class LocalWindowOutputSpec:
+    """Native local-window presentation output."""
+
+    mode: Literal["local-window"] = "local-window"
+
+    fps: float | None = None
+    """Presentation rate; ``None`` uses application session metadata."""
+
+    title: str = "FlashDreams"
+    """Native window title."""
+
+    def __post_init__(self) -> None:
+        if self.fps is not None and self.fps <= 0:
+            raise ValueError("LocalWindowOutputSpec.fps must be > 0 when set.")
+        if not self.title.strip():
+            raise ValueError("LocalWindowOutputSpec.title must be non-empty.")
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class IOFactoryOutputSpec:
+    """Opaque output owned by an application ``IOFactory``."""
+
+    mode: Literal["io-factory"] = "io-factory"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -85,7 +111,13 @@ class WebRTCOutputSpec:
             object.__setattr__(self, "web_dir", Path(self.web_dir))
 
 
-OutputSpec: TypeAlias = NullOutputSpec | Mp4OutputSpec | WebRTCOutputSpec
+OutputSpec: TypeAlias = (
+    NullOutputSpec
+    | Mp4OutputSpec
+    | LocalWindowOutputSpec
+    | IOFactoryOutputSpec
+    | WebRTCOutputSpec
+)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -187,11 +219,13 @@ class ModelWarmupAdapter(Protocol):
 __all__ = [
     "DemoAdapter",
     "DemoSpec",
+    "IOFactoryOutputSpec",
+    "LocalWindowOutputSpec",
     "ModelWarmupAdapter",
     "Mp4OutputSpec",
     "NullOutputSpec",
     "OutputSpec",
     "PreparedScenario",
-    "WebRTCOutputSpec",
     "WebRTCAppResources",
+    "WebRTCOutputSpec",
 ]

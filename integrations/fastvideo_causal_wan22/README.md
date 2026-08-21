@@ -13,6 +13,9 @@ developer-guide flow.
 | --- | --- |
 | `fastvideo-causal-wan2.2-t2v-14b` | FastVideo CausalWan 2.2 14B MoE T2V (Wan VAE decoder, 8-step). |
 
+The higher-level T2V application is registered as
+`t2v-fastvideo-causal-wan22`.
+
 The two MoE branches share every Wan 2.1 14B knob and only differ by
 checkpoint: `high_noise` runs above the boundary
 (`timestep / num_train_timesteps >= boundary_ratio`), `low_noise` runs
@@ -51,7 +54,53 @@ export HF_HOME=~/.cache/huggingface  # default
 
 ## Run
 
-Once installed, the slugs are discovered automatically by `flashdreams-run`:
+### T2V application
+
+The simplest application launch uses the default local window and model
+settings:
+
+```bash
+uv run --package flashdreams-fastvideo-causal-wan22 flashdreams-run \
+  t2v-fastvideo-causal-wan22 \
+  --prompt "A cat surfing."
+```
+
+Per-application help:
+
+```bash
+uv run --package flashdreams-fastvideo-causal-wan22 flashdreams-run \
+  t2v-fastvideo-causal-wan22 --help
+```
+
+Generate a shorter MP4 rollout by overriding the output and block count:
+
+```bash
+uv run --package flashdreams-fastvideo-causal-wan22 flashdreams-run \
+  t2v-fastvideo-causal-wan22 \
+  --output mp4 \
+  --output-path artifacts/t2v-fastvideo-causal-wan22.mp4 \
+  --total-blocks 7 \
+  --prompt "A cat surfing."
+```
+
+Serve the default rollout through WebRTC:
+
+```bash
+uv run --package flashdreams-fastvideo-causal-wan22 flashdreams-run \
+  t2v-fastvideo-causal-wan22 \
+  --output webrtc \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --prompt "A cat surfing."
+```
+
+Then open `http://localhost:8080/request_session`. See the
+[shared T2V application guide](../../apps/t2v/README.md) for all output modes.
+
+### Legacy runner
+
+The legacy runner slug is also discovered automatically by
+`flashdreams-run`:
 
 ```bash
 # List every registered runner (this plugin's slug appears under "fastvideo-causal-wan2.2-*").

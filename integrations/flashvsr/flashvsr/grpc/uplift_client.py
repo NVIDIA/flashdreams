@@ -22,8 +22,8 @@ Usage (from repo root):
     # Use unary chunk flow instead of streaming:
     uv run --no-sync python -m flashvsr.grpc.uplift_client --input clip.mp4 --output out.mp4 --unary
 
-    # Connect to a remote server:
-    uv run --no-sync python -m flashvsr.grpc.uplift_client --server my-host:50051 --input ...
+    # Connect through a local tunnel:
+    uv run --no-sync python -m flashvsr.grpc.uplift_client --server localhost:50051 --input ...
 
     # Send JPEG inputs and rely on the server browser viewer for output:
     uv run --no-sync python -m flashvsr.grpc.uplift_client --input clip.mp4 --input_format jpeg --display_only
@@ -289,6 +289,7 @@ def upsample_unary(
     if not resp.success:
         raise RuntimeError(f"start_session failed: {resp.error}")
     print(f"  Session: {resp.session_id}")
+    session_token = resp.session_token
 
     output_chunks = []
     t_start = time.time()
@@ -305,6 +306,7 @@ def upsample_unary(
                 display_only=display_only,
             )
             req.session_id = session_id
+            req.session_token = session_token
             response = stub.upscale_chunk(req)
             if response.error:
                 raise RuntimeError(
@@ -330,7 +332,9 @@ def upsample_unary(
                 f"  ({response.elapsed_ms:.0f} ms)"
             )
     finally:
-        stub.end_session(pb2.EndSessionRequest(session_id=session_id))
+        stub.end_session(
+            pb2.EndSessionRequest(session_id=session_id, session_token=session_token)
+        )
 
     total_ms = (time.time() - t_start) * 1000
     print(f"  Total: {total_ms:.0f} ms for {len(chunks)} chunks")

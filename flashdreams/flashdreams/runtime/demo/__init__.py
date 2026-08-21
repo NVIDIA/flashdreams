@@ -3,6 +3,17 @@
 
 """Experimental shared demo API above the inference runtime API."""
 
+from flashdreams.demo.io import OutputDecision, OutputSink, SessionInfo
+from flashdreams.demo.outputs import (
+    BenchmarkStatsOutputSink,
+    CompositeOutputSink,
+    CompositeOutputSinkError,
+    Mp4OutputSink,
+    NullOutputSink,
+    build_benchmark_output_sink,
+    build_output_sink,
+    build_output_target,
+)
 from flashdreams.runtime.demo.benchmark import (
     BenchmarkBatchInputSource,
     BenchmarkRunMode,
@@ -23,19 +34,6 @@ from flashdreams.runtime.demo.host import (
     RuntimeHost,
     WarmupSessionInputs,
 )
-from flashdreams.runtime.demo.outputs import (
-    BenchmarkStatsOutputSink,
-    CompositeOutputSink,
-    CompositeOutputSinkError,
-    Mp4OutputSink,
-    NullOutputSink,
-    OutputDecision,
-    OutputSink,
-    SessionInfo,
-    build_benchmark_output_sink,
-    build_output_sink,
-    build_output_target,
-)
 from flashdreams.runtime.demo.pipeline import StepOutcome, StepPipeline
 from flashdreams.runtime.demo.replay import OutputSinkFactory, run_replay_demo
 from flashdreams.runtime.demo.run_modes import (
@@ -44,9 +42,9 @@ from flashdreams.runtime.demo.run_modes import (
     DefaultErrorPolicy,
     ErrorAction,
     InMemorySessionMetricsRecorder,
+    LocalWindowErrorPolicy,
     MetricsSnapshot,
     Mp4ErrorPolicy,
-    NativeWindowErrorPolicy,
     NoopTransportService,
     NullErrorPolicy,
     RunContext,
@@ -80,6 +78,8 @@ from flashdreams.runtime.demo.session_inputs import (
 from flashdreams.runtime.demo.spec import (
     DemoAdapter,
     DemoSpec,
+    IOFactoryOutputSpec,
+    LocalWindowOutputSpec,
     ModelWarmupAdapter,
     Mp4OutputSpec,
     NullOutputSpec,
@@ -132,6 +132,7 @@ __all__ = [
     "BenchmarkRunMode",
     "BenchmarkErrorPolicy",
     "InMemorySessionMetricsRecorder",
+    "IOFactoryOutputSpec",
     "InputSource",
     "CatchUpDecision",
     "CatchUpPolicy",
@@ -145,7 +146,8 @@ __all__ = [
     "Mp4ErrorPolicy",
     "Mp4OutputSink",
     "Mp4OutputSpec",
-    "NativeWindowErrorPolicy",
+    "LocalWindowErrorPolicy",
+    "LocalWindowOutputSpec",
     "NoopTransportService",
     "NullOutputSpec",
     "NullOutputSink",

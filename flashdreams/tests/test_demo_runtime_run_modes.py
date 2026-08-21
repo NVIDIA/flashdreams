@@ -30,10 +30,10 @@ from flashdreams.runtime.demo import (
     DemoSpec,
     DriverInvariantError,
     InMemorySessionMetricsRecorder,
+    LocalWindowErrorPolicy,
     ModelWarmupPlan,
     Mp4ErrorPolicy,
     Mp4OutputSpec,
-    NativeWindowErrorPolicy,
     NullErrorPolicy,
     NullOutputSpec,
     OutputDecision,
@@ -281,7 +281,7 @@ def test_error_policy_implementations_keep_setup_failures_terminal() -> None:
         Mp4ErrorPolicy(),
         BenchmarkErrorPolicy(),
         WebRTCErrorPolicy(recoverable_exception_types=(RuntimeError,)),
-        NativeWindowErrorPolicy(),
+        LocalWindowErrorPolicy(),
         NullErrorPolicy(),
     )
 

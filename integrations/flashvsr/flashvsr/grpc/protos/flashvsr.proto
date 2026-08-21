@@ -81,10 +81,13 @@ message StartSessionResponse {
   string session_id = 1;  // the session ID to use in subsequent upscale_chunk calls
   bool   success    = 2;
   string error      = 3;  // non-empty on failure
+  // Unforgeable credential required by subsequent unary session calls.
+  string session_token = 4;
 }
 
 message EndSessionRequest {
   string session_id = 1;
+  string session_token = 2;
 }
 
 message EndSessionResponse {
@@ -108,6 +111,10 @@ message UpscaleChunkRequest {
   // For upscale_chunk (unary): the session ID from start_session.
   // For upscale_video (streaming): ignored after the first message.
   string session_id = 1;
+
+  // Required with session_id for unary upscale_chunk calls. Ignored by
+  // upscale_video, whose state is scoped to the stream itself.
+  string session_token = 14;
 
   // Session config — required in the first upscale_video message (or via
   // start_session for the unary flow).  Ignored on subsequent streaming msgs.

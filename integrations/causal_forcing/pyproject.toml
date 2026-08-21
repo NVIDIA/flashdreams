@@ -26,10 +26,12 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "mediapy>=1.1",
+    "flashdreams-t2v",
     "opencv-python-headless>=4.5",
 ]
 
 [tool.uv.sources]
+flashdreams-t2v = { workspace = true }
 flashdreams = { workspace = true }
 
 [project.optional-dependencies]
@@ -45,6 +47,9 @@ dev = [
 "causal-forcing-wan2.1-t2v-1.3b-chunkwise" = "causal_forcing.config:RUNNER_WAN21_T2V_1PT3B_CHUNKWISE"
 "causal-forcing-wan2.1-t2v-1.3b-framewise" = "causal_forcing.config:RUNNER_WAN21_T2V_1PT3B_FRAMEWISE"
 "causal-forcing-wan2.1-i2v-1.3b-framewise" = "causal_forcing.config:RUNNER_WAN21_I2V_1PT3B_FRAMEWISE"
+
+[project.entry-points."flashdreams.applications"]
+"t2v-causal-forcing" = "causal_forcing.t2v.app:create_app"
 
 [tool.setuptools.packages.find]
 include = ["causal_forcing*"]

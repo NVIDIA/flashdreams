@@ -175,10 +175,80 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_webrtc_output_sink_uses_nonblocking_threadsafe_bridge() -> None:
+async def test_webrtc_activation_anchors_to_first_input_event() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    transport = WebRTCTransportService()
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+    source.handle_browser_message(
+        json.dumps({"type": "action", "action": {"event": "keydown", "key": "w"}}),
+        timestamp_s=0.05,
+    )
+
+    result = await WebRTCActivationPolicy(
+        input_source=source,
+        transport=transport,
+    ).wait_until_active(clock)
+
+    assert result.activated
+    assert source.activation_timestamp_s == pytest.approx(0.05)
+    assert resampler.next_chunk_start_v == pytest.approx(0.05)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_activation_can_start_without_input() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    transport = WebRTCTransportService()
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+
+    result = await WebRTCActivationPolicy(
+        input_source=source,
+        transport=transport,
+        activate_without_input=True,
+    ).wait_until_active(clock)
+
+    assert result.activated
+    assert source.activation_timestamp_s is None
+    assert resampler.next_chunk_start_v == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_activation_without_input_still_honors_disconnect() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    transport = WebRTCTransportService()
+    transport.disconnect("browser disconnected")
+    clock = ResamplerRealtimeClock(
+        resampler=resampler,
+        now_fn=lambda: 0.2,
+        sleep_fn=_record_sleep,
+    )
+
+    result = await WebRTCActivationPolicy(
+        input_source=source,
+        transport=transport,
+        activate_without_input=True,
+    ).wait_until_active(clock)
+
+    assert not result.activated
+    assert result.reason == "browser disconnected"
+    assert resampler.next_chunk_start_v == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_output_sink_returns_presentation_backpressure() -> None:
     loop = asyncio.get_running_loop()
     encoder = _BlockingEncoder()
-    track = _FakeVideoTrack()
+    track = _FakeVideoTrack(queue_depth=3)
     deliveries: list[object] = []
     bridge = ThreadSafeWebRTCOutputBridge(
         loop=loop,
@@ -194,6 +264,7 @@ async def test_webrtc_output_sink_uses_nonblocking_threadsafe_bridge() -> None:
 
     assert isinstance(decision, OutputDecision)
     assert not decision.dropped
+    assert decision.backpressure_s == pytest.approx(0.1)
     assert encoder.prepared_payloads == [step_result.step_index]
     await asyncio.wait_for(encoder.started.wait(), timeout=1.0)
     assert not encoder.release.is_set()

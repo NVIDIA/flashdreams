@@ -299,53 +299,6 @@ def test_lingbot_replay_adapter_accepts_null_output(tmp_path: Path) -> None:
     assert PROVIDER_INPUTS_METADATA_KEY in prepared.metadata
 
 
-def test_lingbot_replay_demo_rejects_compat_runner_without_mapping(
-    tmp_path: Path,
-) -> None:
-    image = tmp_path / "image.jpg"
-    poses = tmp_path / "poses.npy"
-    intrinsics = tmp_path / "intrinsics.npy"
-    image.write_bytes(b"fake")
-    _write_camera_assets(poses, intrinsics)
-    pipeline_config = object()
-    adapter = LingbotDemoAdapter()
-    output = _RecordingOutputTarget()
-    calls: list[dict[str, Any]] = []
-
-    def fake_runner(**kwargs: Any) -> Sequence[OutputArtifact]:
-        calls.append(kwargs)
-        return (OutputArtifact(kind="video/mp4", uri="memory://lingbot"),)
-
-    spec = DemoSpec(
-        model_id=LINGBOT_MODEL_ID,
-        preset_id=DEFAULT_LINGBOT_PRESET,
-        input_mode="replay",
-        scenario={
-            "prompt": "drive through a city",
-            "image_path": image,
-            "pose_path": poses,
-            "intrinsic_path": intrinsics,
-            "total_blocks": 1,
-        },
-        output=Mp4OutputSpec(path=tmp_path / "demo.mp4", fps=16, output_layout="tchw"),
-        config=InferenceConfig(
-            model_id=LINGBOT_MODEL_ID,
-            preset_id=DEFAULT_LINGBOT_PRESET,
-            runtime_options={"pipeline_config": pipeline_config},
-        ),
-    )
-
-    with pytest.raises(ValueError, match="Compatibility replay runners require"):
-        run_replay_demo(
-            spec=spec,
-            adapter=adapter,
-            output_target_factory=lambda output_spec: output,
-            runner=fake_runner,
-        )
-
-    assert calls == []
-
-
 def test_lingbot_replay_demo_run_mode_uses_model_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -11,17 +11,34 @@ from typing import Any, cast
 import pytest
 import torch
 
+from flashdreams.demo.outputs import WebRTCOutputSink
 from flashdreams.runtime import (
+    DRIVER_COMMAND,
+    DRIVING_SUPPORTED_KEYS,
     InferenceInput,
+    InputCanonicalizer,
+    KeyboardToDriverCommand,
+    ScriptedModality,
     StepRequest,
     StepRequirements,
     StepResult,
     UserInputEvent,
     UserInputs,
+    UserInputSchema,
 )
-from flashdreams.runtime.demo import RunResult
+from flashdreams.runtime.demo import (
+    ModelInputProvider,
+    ModelWarmupPlan,
+    PreparedScenario,
+    ResamplerRealtimeClock,
+    RunResult,
+    RuntimeHost,
+    WarmupSessionInputs,
+    WebRTCErrorPolicy,
+)
 from flashdreams.runtime.keyboard import WSAD_SUPPORTED_KEYS
 from flashdreams.serving.webrtc import manager as manager_module
+from flashdreams.serving.webrtc import services as services_module
 from flashdreams.serving.webrtc.encoders import ChunkDeliveryResult
 from flashdreams.serving.webrtc.manager import (
     BaseWebRTCSessionManager,
@@ -31,7 +48,11 @@ from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
+    WEBRTC_USER_INPUT_SCHEMA,
+    ThreadSafeWebRTCOutputBridge,
+    WebRTCActivationPolicy,
     WebRTCInputSource,
+    WebRTCManagerLifecycle,
     WebRTCTransportService,
 )
 
@@ -44,6 +65,17 @@ def _runtime_config() -> SimpleNamespace:
         video_height=4,
         warmup_chunks=0,
         warmup_timeout_s=1.0,
+    )
+
+
+def _shared_scenario(
+    *converters: Any,
+    source_schema: UserInputSchema = WEBRTC_USER_INPUT_SCHEMA,
+) -> PreparedScenario:
+    return PreparedScenario(
+        initial_inputs=InferenceInput(),
+        source_schema=source_schema,
+        canonicalizer=InputCanonicalizer(converters),
     )
 
 
@@ -203,6 +235,56 @@ class _WOnlyTestManager(_BaseTestManager):
     _resampler_supported_keys = frozenset({"w"})
 
 
+class _RecordingWarmupSession:
+    def __init__(self, runtime: _RecordingWarmupRuntime) -> None:
+        self.runtime = runtime
+
+    def next_step_request(self) -> StepRequest:
+        return _step_request(step_index=len(self.runtime.warmup_step_inputs))
+
+    def step(self, inputs: InferenceInput) -> StepResult:
+        self.runtime.warmup_step_inputs.append(inputs)
+        return StepResult(
+            step_index=len(self.runtime.warmup_step_inputs) - 1,
+            output=object(),
+        )
+
+    def reset(self, inputs: InferenceInput | None = None) -> None:
+        del inputs
+
+    def close(self) -> None:
+        self.runtime.warmup_sessions_closed += 1
+
+
+class _RecordingWarmupRuntime:
+    def __init__(self) -> None:
+        self.preload_count = 0
+        self.warmup_initial_inputs: list[InferenceInput] = []
+        self.warmup_step_inputs: list[InferenceInput] = []
+        self.warmup_sessions_closed = 0
+
+    def preload(self) -> None:
+        self.preload_count += 1
+
+    def start_session(self, inputs: InferenceInput) -> _RecordingWarmupSession:
+        self.warmup_initial_inputs.append(inputs)
+        return _RecordingWarmupSession(self)
+
+    def close(self) -> None:
+        return
+
+
+class _SpyRuntimeHost(RuntimeHost):
+    def __init__(self, runtime: _RecordingWarmupRuntime) -> None:
+        super().__init__(runtime)
+        self.warmup_calls: list[ModelWarmupPlan] = []
+
+    def warmup(self, plan: ModelWarmupPlan | None = None) -> None:
+        resolved_plan = plan or ModelWarmupPlan()
+        self.warmup_calls.append(resolved_plan)
+        super().warmup(resolved_plan)
+
+
 def _make_manager(
     manager_cls: type[BaseWebRTCSessionManager], runtime: Any, **kwargs: Any
 ) -> BaseWebRTCSessionManager:
@@ -213,6 +295,133 @@ def _make_manager(
         identity="fake-model",
         **kwargs,
     )
+
+
+async def _close_test_manager(manager: BaseWebRTCSessionManager[Any, Any]) -> None:
+    """Close a manager without routing synchronous host teardown through a thread."""
+    await manager.close_active_session()
+    if manager._shared_context is not None:
+        await manager._shared_context.close_async()
+        manager._shared_context = None
+    if manager._shared_host is not None:
+        manager._shared_host.close()
+        manager._shared_host = None
+    await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_nonempty_model_warmup_plan_runs_once_for_server_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _RecordingWarmupRuntime()
+    host = _SpyRuntimeHost(runtime)
+    plan = ModelWarmupPlan(
+        sessions=(
+            WarmupSessionInputs(
+                initial_input=InferenceInput(metadata={"session": 0}),
+                step_inputs=(InferenceInput(step={"block": 0}),),
+            ),
+            WarmupSessionInputs(
+                initial_input=InferenceInput(metadata={"session": 1}),
+                step_inputs=(
+                    InferenceInput(step={"block": 1}),
+                    InferenceInput(step={"block": 6}),
+                ),
+            ),
+        ),
+    )
+    config = _runtime_config()
+    config.warmup_chunks = 5
+    manager = _BaseTestManager(
+        runtime=runtime,
+        runtime_config=config,
+        fps=30,
+        identity="fake-model",
+        model_warmup_plan=plan,
+        shared_host=host,
+    )
+    loopback_chunks: list[int] = []
+    offer_warmup_counts: list[int] = []
+
+    async def run_inline(function: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return function(*args, **kwargs)
+
+    async def record_loopback(*, num_chunks: int) -> None:
+        loopback_chunks.append(num_chunks)
+
+    async def fake_answer(**kwargs: Any) -> dict[str, str]:
+        del kwargs
+        offer_warmup_counts.append(len(host.warmup_calls))
+        return {"sdp": "answer", "type": "answer"}
+
+    monkeypatch.setattr(manager_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(manager, "_run_loopback_warmup_session", record_loopback)
+    monkeypatch.setattr(
+        manager,
+        "_create_answer_with_runtime_ready_locked",
+        fake_answer,
+    )
+
+    try:
+        await manager.preload_runtime()
+        context = manager._shared_run_context(asyncio.get_running_loop())
+        await manager.create_answer(offer_sdp="first", offer_type="offer")
+        await manager.create_answer(offer_sdp="later", offer_type="offer")
+        await manager.preload_runtime()
+
+        assert context.model_warmup_plan is plan
+        assert host.warmup_calls == [plan]
+        assert len(runtime.warmup_initial_inputs) == len(plan.sessions)
+        assert len(runtime.warmup_step_inputs) == 3
+        assert runtime.warmup_sessions_closed == len(plan.sessions)
+        assert runtime.preload_count == 1
+        assert loopback_chunks == [0]
+        assert offer_warmup_counts == [1, 1]
+    finally:
+        await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
+async def test_empty_model_warmup_plan_keeps_loopback_model_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _RecordingWarmupRuntime()
+    host = _SpyRuntimeHost(runtime)
+    plan = ModelWarmupPlan()
+    config = _runtime_config()
+    config.warmup_chunks = 4
+    manager = _BaseTestManager(
+        runtime=runtime,
+        runtime_config=config,
+        fps=30,
+        identity="fake-model",
+        model_warmup_plan=plan,
+        shared_host=host,
+    )
+    loopback_chunks: list[int] = []
+
+    async def run_inline(function: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return function(*args, **kwargs)
+
+    async def record_loopback(*, num_chunks: int) -> None:
+        loopback_chunks.append(num_chunks)
+
+    monkeypatch.setattr(manager_module.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(manager, "_run_loopback_warmup_session", record_loopback)
+
+    try:
+        await manager.preload_runtime()
+        context = manager._shared_run_context(asyncio.get_running_loop())
+        await manager.preload_runtime()
+
+        assert context.model_warmup_plan is plan
+        assert host.warmup_calls == []
+        assert runtime.warmup_initial_inputs == []
+        assert runtime.warmup_step_inputs == []
+        assert runtime.preload_count == 1
+        assert loopback_chunks == [4]
+    finally:
+        await _close_test_manager(manager)
 
 
 def test_drives_inference_session_detects_session_runtime() -> None:
@@ -1147,6 +1356,176 @@ async def test_realtime_driver_session_reports_non_completed_result(
 
 
 @pytest.mark.asyncio
+async def test_base_manager_accepts_sequential_completed_peers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_count = 0
+
+    async def fake_run_demo_session_async(**kwargs: Any) -> RunResult:
+        nonlocal run_count
+        run_count += 1
+        reservation = kwargs["reservation"]
+        assert reservation is not None
+        reservation.release()
+        return RunResult(status="completed")
+
+    monkeypatch.setattr(
+        manager_module,
+        "run_demo_session_async",
+        fake_run_demo_session_async,
+    )
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    peers: list[_FakePeerConnection] = []
+
+    for _ in range(2):
+        reservation = context.admission.try_reserve()
+        assert reservation is not None
+        managed, track, peer, _channel = _managed_session(runtime)
+        managed.reservation = reservation
+        manager._active_session = managed
+
+        await manager._run_realtime_driver_session(
+            managed_session=managed,
+            context=context,
+            session_input=None,
+        )
+
+        assert track.closed
+        assert peer.closed
+        assert not manager.has_active_session()
+        peers.append(peer)
+
+    assert run_count == 2
+    assert all(peer.closed for peer in peers)
+    await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
+async def test_keep_connection_starts_next_generation_before_track_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_count = 0
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        keep_connection_after_completed=True,
+    )
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    reservation = context.admission.try_reserve()
+    assert reservation is not None
+    managed, track, peer, channel = _managed_session(runtime)
+    input_source = WebRTCInputSource(resampler=managed.resampler)
+    transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    managed.input_source = input_source
+    managed.transport = transport
+    managed.reservation = reservation
+    manager._active_session = managed
+
+    async def fake_run_demo_session_async(**kwargs: Any) -> RunResult:
+        nonlocal run_count
+        run_count += 1
+        if run_count == 1:
+            first_reservation = kwargs["reservation"]
+            assert first_reservation is not None
+            first_reservation.release()
+            generation_edges = kwargs["run_mode"].create_session_edges(
+                context=kwargs["context"],
+                spec=kwargs["spec"],
+                scenario=kwargs["scenario"],
+                provider=cast(ModelInputProvider, SimpleNamespace()),
+                adapter=kwargs["adapter"],
+            )
+            result = generation_edges.close_result()
+            assert transport.is_active()
+
+            async def activate_next_generation() -> None:
+                await asyncio.sleep(0)
+                input_source.activation_signal.set()
+
+            asyncio.create_task(activate_next_generation())
+            return result
+        assert not track.closed
+        assert not peer.closed
+        transport.disconnect("transport closed")
+        return RunResult(status="not_activated", reason="transport closed")
+
+    monkeypatch.setattr(
+        manager_module,
+        "run_demo_session_async",
+        fake_run_demo_session_async,
+    )
+
+    await manager._run_realtime_driver_session(
+        managed_session=managed,
+        context=context,
+        session_input=None,
+    )
+
+    assert run_count == 2
+    assert any(
+        json.loads(message).get("type") == "generation_complete"
+        for message in channel.messages
+    )
+    assert track.closed
+    assert peer.closed
+    await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
+async def test_next_generation_wait_cancels_children_with_parent() -> None:
+    class _TrackingSignal:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+            self._event = asyncio.Event()
+
+        async def wait(self) -> None:
+            self.started.set()
+            try:
+                await self._event.wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+
+    activation_signal = _TrackingSignal()
+    closed_signal = _TrackingSignal()
+    input_source = cast(
+        WebRTCInputSource,
+        SimpleNamespace(activation_signal=activation_signal),
+    )
+    transport = cast(
+        WebRTCTransportService,
+        SimpleNamespace(
+            closed_signal=closed_signal,
+            is_active=lambda: True,
+        ),
+    )
+    parent = asyncio.create_task(
+        manager_module._wait_for_next_generation_or_disconnect(
+            input_source=input_source,
+            transport=transport,
+        )
+    )
+    await asyncio.wait_for(
+        asyncio.gather(
+            activation_signal.started.wait(),
+            closed_signal.started.wait(),
+        ),
+        timeout=1.0,
+    )
+
+    parent.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+
+    assert activation_signal.cancelled.is_set()
+    assert closed_signal.cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_create_answer_raises_busy_with_subclass_message() -> None:
     manager = _make_manager(
         _BaseTestManager,
@@ -1224,3 +1603,227 @@ def test_resolve_video_encoder_uses_runtime_encoder_when_present() -> None:
 
     manager = _make_manager(_BaseTestManager, _RuntimeWithEncoder())
     assert manager._resolve_video_encoder() is provided
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("keep_connection", "close_track"),
+    ((False, True), (True, False)),
+)
+async def test_shared_session_edges_use_base_webrtc_services(
+    keep_connection: bool,
+    close_track: bool,
+) -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        keep_connection_after_completed=keep_connection,
+        activate_without_input=True,
+    )
+    context = manager._shared_run_context(asyncio.get_running_loop())
+    managed, _track, _peer, _channel = _managed_session(runtime)
+    managed.input_source = WebRTCInputSource(resampler=managed.resampler)
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    manager._active_session = managed
+    edge_factory = manager_module._ManagedWebRTCSessionEdgeFactory(
+        manager=manager,
+        managed_session=managed,
+        loop=asyncio.get_running_loop(),
+    )
+
+    edges = edge_factory.create_session_edges(
+        context=context,
+        spec=SimpleNamespace(),
+        scenario=cast(PreparedScenario, SimpleNamespace()),
+        provider=cast(ModelInputProvider, SimpleNamespace()),
+        adapter=SimpleNamespace(),
+    )
+    output_sink = cast(WebRTCOutputSink, edges.output_sink)
+    bridge = output_sink._bridge
+
+    assert edges.transport is not managed.transport
+    assert isinstance(edges.transport, manager_module._GenerationTransportView)
+    assert edges.transport.peer_transport is managed.transport
+    assert isinstance(edges.error_policy, WebRTCErrorPolicy)
+    assert isinstance(edges.clock, ResamplerRealtimeClock)
+    assert isinstance(edges.activation, WebRTCActivationPolicy)
+    assert edges.activation.activate_without_input
+    assert isinstance(bridge, ThreadSafeWebRTCOutputBridge)
+    assert bridge._close_track is close_track
+
+    result = edges.close_result()
+    assert result.status == "completed"
+    assert managed.transport.is_active()
+    assert not managed.peer_connection.closed
+    await _close_test_manager(manager)
+
+
+@pytest.mark.asyncio
+async def test_application_liveness_policy_survives_old_ten_second_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle = WebRTCManagerLifecycle(
+        busy_message="busy",
+        client_liveness_timeout_s=30.0,
+    )
+    loop = asyncio.get_running_loop()
+    stopped = False
+    close_calls = 0
+
+    async def stop_after_first_check(delay_s: float) -> None:
+        nonlocal stopped
+        assert delay_s == pytest.approx(1.0)
+        stopped = True
+
+    async def close_session() -> None:
+        nonlocal close_calls
+        close_calls += 1
+
+    monkeypatch.setattr(services_module.asyncio, "sleep", stop_after_first_check)
+    await lifecycle.watch_client_liveness(
+        is_closed=lambda: stopped,
+        last_message_at=lambda: loop.time() - 11.0,
+        close_session=close_session,
+    )
+
+    assert close_calls == 0
+
+
+def test_base_manager_advertises_feedable_driver_keys() -> None:
+    manager = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+
+    assert manager.browser_ui_config() == {
+        "accepted_keys": [
+            "a",
+            "d",
+            "down",
+            "left",
+            "right",
+            "s",
+            "space",
+            "up",
+            "w",
+        ]
+    }
+    assert manager._effective_supported_control_keys() == DRIVING_SUPPORTED_KEYS
+
+
+def test_base_manager_omits_keys_without_feedable_advertisement() -> None:
+    no_scenario = _make_manager(_BaseTestManager, SimpleNamespace())
+    no_converter = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(),
+    )
+    unfeedable = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(
+            KeyboardToDriverCommand(),
+            source_schema=UserInputSchema(),
+        ),
+    )
+    no_advertisement = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(
+            ScriptedModality(modality=DRIVER_COMMAND, timeline=()),
+        ),
+    )
+
+    for manager in (no_scenario, no_converter, unfeedable, no_advertisement):
+        assert manager.browser_ui_config() == {"accepted_keys": []}
+    assert no_advertisement._effective_supported_control_keys() is None
+    assert no_advertisement._supports_key_payload({"key": "q"})
+
+
+def test_explicit_supported_keys_override_converter_metadata() -> None:
+    manager = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+        supported_control_keys=frozenset({"q"}),
+    )
+
+    assert manager._effective_supported_control_keys() == frozenset({"q"})
+    assert manager._supports_key_payload({"key": "q"})
+    assert not manager._supports_key_payload({"key": "space"})
+
+
+def test_legacy_supported_keys_override_converter_metadata() -> None:
+    manager = _make_manager(
+        _WOnlyTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+
+    assert manager._effective_supported_control_keys() == frozenset({"w"})
+    assert manager._supports_key_payload({"key": "w"})
+    assert not manager._supports_key_payload({"key": "space"})
+
+
+@pytest.mark.asyncio
+async def test_shared_key_filter_runs_before_activation() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+    managed, _track, _peer, channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    input_source = WebRTCInputSource(resampler=managed.resampler)
+    managed.input_source = input_source
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "action", "action": {"event": "keydown", "key": "q"}}
+        ),
+    )
+
+    assert not managed.first_action_received.is_set()
+    assert not input_source.activation_signal.is_set()
+    assert tuple(input_source._events) == ()
+    assert channel.messages == []
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {
+                "type": "action",
+                "action": {"event": "keydown", "key": "space"},
+            }
+        ),
+    )
+
+    assert managed.first_action_received.is_set()
+    assert input_source.activation_signal.is_set()
+    assert [event.payload for event in input_source._events] == [{"key": "space"}]
+
+
+@pytest.mark.asyncio
+async def test_legacy_key_filter_runs_before_activation() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_WOnlyTestManager, runtime)
+    managed, _track, _peer, channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    resampler = _RecordingLegacySegmentResampler()
+    managed.legacy_segment_resampler = resampler
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {"type": "action", "action": {"event": "keydown", "key": "q"}}
+        ),
+    )
+
+    assert not managed.first_action_received.is_set()
+    assert resampler.edges == []
+    assert len(managed.pending_action_arrivals) == 0
+    assert channel.messages == []
