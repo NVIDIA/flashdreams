@@ -512,6 +512,100 @@ class TestDutyCycledReswap:
         assert session.pipeline.replace_text_calls[-1][1] == [["comic prompt"]]
 
 
+class _FakeTextEncoder:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def __call__(self, prompts: list[str]) -> object:
+        import torch
+
+        self.calls.append(list(prompts))
+        return torch.full((len(prompts), 2, 2), float(len(self.calls)))
+
+
+class _EmbeddingPipeline(_FakePipeline):
+    """Fake pipeline with a resident text encoder + embedding swap path."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.text_encoder = _FakeTextEncoder()
+        self.embedding_calls: list[tuple] = []
+
+    def replace_text_from_embeddings(
+        self, cache: object, embeddings: object, **kwargs: object
+    ) -> None:
+        self.embedding_calls.append((cache, embeddings, kwargs))
+        self.call_order.append("replace_text_from_embeddings")
+
+
+def _embedding_style_ability() -> tuple[StyleAbility, _FakeSession]:
+    ability, session = _hooked_style_ability()
+    session.pipeline = _EmbeddingPipeline()
+    return ability, session
+
+
+class TestPreEncodedSwaps:
+    def test_precompute_encodes_each_configured_prompt_once(self) -> None:
+        ability, session = _embedding_style_ability()
+        ability._precompute_prompt_embeddings(session.pipeline)
+
+        assert session.pipeline.text_encoder.calls == [
+            ["arcade prompt"],
+            ["comic prompt"],
+        ]
+        ability._precompute_prompt_embeddings(session.pipeline)
+        assert len(session.pipeline.text_encoder.calls) == 2  # cache hit
+
+    def test_swap_injects_cached_embeddings_without_reencoding(self) -> None:
+        ability, session = _embedding_style_ability()
+        ability._precompute_prompt_embeddings(session.pipeline)
+        session.start(None, [], "scene prompt")  # also encodes the base prompt
+        encoder_calls = len(session.pipeline.text_encoder.calls)
+
+        ability.request_cycle()
+        session.continue_generation([])
+
+        assert session.pipeline.replace_text_calls == []
+        ((_, embeddings, kwargs),) = session.pipeline.embedding_calls
+        assert embeddings is ability._prompt_embeddings["arcade prompt"]
+        assert kwargs["guidance_scale"] == 2.5
+        assert len(session.pipeline.text_encoder.calls) == encoder_calls
+
+    def test_revert_to_base_uses_the_embedding_cached_at_start(self) -> None:
+        ability, session = _embedding_style_ability()
+        ability._precompute_prompt_embeddings(session.pipeline)
+        session.start(None, [], "scene prompt")
+        for _ in range(3):  # arcade -> comic -> base
+            ability.request_cycle()
+            session.continue_generation([])
+
+        assert session.pipeline.replace_text_calls == []
+        _, embeddings, kwargs = session.pipeline.embedding_calls[-1]
+        assert embeddings is ability._prompt_embeddings["scene prompt"]
+        assert kwargs["guidance_scale"] == 1.0
+
+    def test_uncached_prompt_falls_back_to_replace_text(self) -> None:
+        ability, session = _embedding_style_ability()
+        # No precompute and no encoder at start time -> nothing cached.
+        session.pipeline.text_encoder = None
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+
+        assert session.pipeline.embedding_calls == []
+        ((_, text, _),) = session.pipeline.replace_text_calls
+        assert text == [["arcade prompt"]]
+
+    def test_pipeline_without_embedding_api_falls_back(self) -> None:
+        ability, session = _hooked_style_ability()  # plain _FakePipeline
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+
+        ((_, text, _),) = session.pipeline.replace_text_calls
+        assert text == [["arcade prompt"]]
+
+
 class TestConfig:
     def test_style_requires_a_lora_checkpoint(self) -> None:
         with pytest.raises(ValueError):

@@ -33,6 +33,7 @@ Vanilla behavior is untouched until :func:`attach_style_ability` runs.
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
@@ -84,6 +85,7 @@ class StyleAbility:
         self._set_corrector_gain: Callable[[float], None] = lambda _: None
         self._dispatch: Any | None = None
         self._corrector_states: set[str] = set()
+        self._prompt_embeddings: dict[str, Any] = {}
 
     @property
     def active_skin_name(self) -> str:
@@ -147,6 +149,7 @@ class StyleAbility:
                 "checkpoints are ignored; transformer weights stay untouched"
             )
 
+        self._precompute_prompt_embeddings(pipeline)
         self.hook_session(session)
         skins = (
             [skin.name for skin in self._config.skins] if self._config.enabled else []
@@ -159,6 +162,52 @@ class StyleAbility:
         logger.info(
             f"[live-edit] style ability attached skins={skins} weathers={weathers}"
         )
+
+    def _precompute_prompt_embeddings(self, pipeline: Any) -> None:
+        """Encode every configured swap prompt once at session start.
+
+        A swap's dominant cost is the text-encoder forward inside
+        ``replace_text`` (450-930 ms at the chunk boundary); the prompts are
+        all known up front, so encoding them here lets ``_replace_text``
+        inject cached embeddings through the pipeline's
+        ``replace_text_from_embeddings`` and skip the encoder entirely.
+
+        No-op when the pipeline has no resident text encoder (the offload
+        path releases it); swaps then fall back to ``replace_text``, whose
+        own assertion reports the missing encoder.
+        """
+        text_encoder = getattr(pipeline, "text_encoder", None)
+        if text_encoder is None:
+            logger.warning(
+                "[live-edit] no resident text encoder; prompt swaps will "
+                "re-encode per swap (pre-encoding skipped)"
+            )
+            return
+        prompts: list[str] = []
+        if self._config.enabled:
+            prompts.extend(skin.prompt for skin in self._config.skins)
+        if self._weather_config is not None:
+            prompts.extend(weather.prompt for weather in self._weather_config.weathers)
+        start = time.perf_counter()
+        for prompt in prompts:
+            self._encode_prompt(pipeline, prompt)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            f"[live-edit] pre-encoded {len(prompts)} swap prompts in "
+            f"{elapsed_ms:.0f} ms (swaps now inject cached embeddings)"
+        )
+
+    def _encode_prompt(self, pipeline: Any, prompt: str) -> None:
+        """Cache the ``[B=1, V=1, L, D]`` embeddings of one prompt."""
+        if prompt in self._prompt_embeddings:
+            return
+        import torch
+
+        text_encoder = getattr(pipeline, "text_encoder", None)
+        if text_encoder is None:
+            return
+        with torch.no_grad():
+            self._prompt_embeddings[prompt] = text_encoder([prompt]).unsqueeze(0)
 
     def request_cycle(self) -> None:
         """Queue base -> skin[0] -> skin[1] -> ... -> base for the next chunk.
@@ -427,6 +476,9 @@ class StyleAbility:
 
         def start(initial_rgb: Any, condition_frames: Any, prompt: str) -> Any:
             self._base_prompt = prompt
+            # The base (revert) prompt is only known here; encode it once so
+            # reverting to base/clear is also an embedding injection.
+            self._encode_prompt(session.pipeline, prompt)
             self._active_index = None
             self._pending_index = _NO_PENDING
             self._active_weather = None
@@ -556,6 +608,12 @@ class StyleAbility:
         the two-prompt KV-snapshot guidance (the LoRA was trained on the
         style prompts), so the LoRA is detached around the call. Plain swaps
         (scale 1.0) never open a LoRA window and need no bypass.
+
+        Prompts pre-encoded at attach time (see
+        :meth:`_precompute_prompt_embeddings`) inject their cached
+        embeddings through ``replace_text_from_embeddings`` — no text
+        encoder forward at the boundary; anything else falls back to the
+        encode-per-swap ``replace_text``.
         """
         import torch
 
@@ -570,20 +628,40 @@ class StyleAbility:
         if bypass_lora:
             edit_lora = transformer._text_edit_lora
             transformer.set_text_edit_lora(None)
+        embeddings = self._prompt_embeddings.get(target.prompt)
+        replace_from_embeddings = getattr(
+            session.pipeline, "replace_text_from_embeddings", None
+        )
+        cached = embeddings is not None and callable(replace_from_embeddings)
+        start = time.perf_counter()
         try:
             # TODO(upstream): session._cache is private; ask for a public
             # replace_text passthrough on FlashdreamsWorldModelSession.
             with torch.no_grad():
-                session.pipeline.replace_text(
-                    session._cache,
-                    [[target.prompt]],
-                    guidance_scale=target.guidance_scale,
-                    guidance_chunks=target.guidance_chunks,
-                    recache_last_chunk=False,
-                )
+                if cached:
+                    replace_from_embeddings(
+                        session._cache,
+                        embeddings,
+                        guidance_scale=target.guidance_scale,
+                        guidance_chunks=target.guidance_chunks,
+                        recache_last_chunk=False,
+                    )
+                else:
+                    session.pipeline.replace_text(
+                        session._cache,
+                        [[target.prompt]],
+                        guidance_scale=target.guidance_scale,
+                        guidance_chunks=target.guidance_chunks,
+                        recache_last_chunk=False,
+                    )
         finally:
             if bypass_lora:
                 transformer.set_text_edit_lora(edit_lora)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            f"[live-edit] swap issued cached_embeddings={cached} "
+            f"swap_ms={elapsed_ms:.1f}"
+        )
 
     def _guard_manifest(self, manifest: Any) -> None:
         """Reject native-DIT manifests with a message naming the fix.

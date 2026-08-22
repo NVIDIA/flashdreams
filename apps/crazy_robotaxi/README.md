@@ -46,8 +46,10 @@ group "live edit"):
   `native_dit_acceleration`.
 - **Skins** (`--live-edit-style` + `--live-edit-style-lora`, cycle with
   `K`): prompt swaps realized by a pre-merged text-edit LoRA. The window
-  runs single-branch (no per-step extra forward); only the swap-boundary
-  chunk is slower (text re-encode, roughly 0.5-1 s once).
+  runs single-branch (no per-step extra forward). All skin/weather prompts
+  are pre-encoded once at session start, so a swap injects cached
+  embeddings — the swap-boundary chunk no longer pays the 0.5-1 s text
+  re-encode.
 - **Weather** (`--live-edit-weather`, cycle with `V`): guided prompt swaps
   with no LoRA, deployed land-then-release. **Transient cost: the landing
   window costs ~2x per chunk** (a second forward per denoise step) for
