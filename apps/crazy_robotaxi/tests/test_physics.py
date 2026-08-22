@@ -317,10 +317,8 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
             self,
             center_xy_m: np.ndarray,
             timestamp_us: int | None = None,
-            *,
-            yaw_rad: float | None = None,
         ) -> None:
-            del center_xy_m, timestamp_us, yaw_rad
+            del center_xy_m, timestamp_us
 
         def step(
             self,

@@ -336,29 +336,74 @@ def test_unreleased_map_compiler_stays_at_version_1() -> None:
     assert game_map_compiler._COMPILER_VERSION == "1"
 
 
-def test_boulevard_vicinity_follows_facing_direction_and_retains_offroad() -> None:
+def test_boulevard_road_vicinity_expands_from_both_endpoints() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
     resolver = GameMapVicinityResolver(game_map)
     spawn = game_map.default_spawn
 
-    forward = resolver.resolve(
+    vicinity = resolver.resolve(
         float(spawn.position_world[0]),
         float(spawn.position_world[1]),
-        spawn.yaw_rad,
-    )
-    reverse = resolver.resolve(
-        float(spawn.position_world[0]),
-        float(spawn.position_world[1]),
-        spawn.yaw_rad + np.pi,
     )
 
-    assert forward is not None
-    assert reverse is not None
-    assert forward.location_element_id == "spawn_arterial"
-    assert reverse.location_element_id == "spawn_arterial"
-    assert "central_arterial_crossing" in forward.traffic_element_ids
-    assert "west_arterial_crossing" in reverse.traffic_element_ids
-    assert resolver.resolve(1.0e6, 1.0e6, 0.0, previous=forward) is forward
+    assert vicinity is not None
+    assert vicinity.location_element_id == "spawn_arterial"
+    assert len(vicinity.traffic_element_ids) == 25
+    assert {
+        "west_arterial_crossing",
+        "central_arterial_crossing",
+        "west_arterial_end",
+        "west_north_crossing",
+        "west_south_crossing",
+        "diagonal_arterial_crossing",
+        "central_north_crossing",
+        "central_south_crossing",
+        "west_north_upper",
+        "north_cross_street",
+        "southwest_cross_west",
+        "arterial_sweep",
+        "central_north_upper",
+        "central_south_middle",
+    } <= vicinity.traffic_element_ids
+    assert {
+        "west_upper_crossing",
+        "central_upper_crossing",
+        "southwest_crossing",
+        "upper_cross_street",
+        "southwest_cross_center",
+    }.isdisjoint(vicinity.traffic_element_ids)
+    assert resolver.resolve(1.0e6, 1.0e6, previous=vicinity) is vicinity
+
+
+def test_boulevard_node_vicinity_adds_neighbor_nodes_and_their_roads() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    resolver = GameMapVicinityResolver(game_map)
+    node = next(
+        node
+        for node in game_map.topology.nodes
+        if node.node_id == "central_arterial_crossing"
+    )
+
+    vicinity = resolver.resolve(node.x_m, node.y_m)
+
+    assert vicinity is not None
+    assert vicinity.location_element_id == node.node_id
+    assert {
+        "central_arterial_crossing",
+        "west_arterial_crossing",
+        "diagonal_arterial_crossing",
+        "central_north_crossing",
+        "central_south_crossing",
+        "west_arterial_approach",
+        "arterial_sweep",
+        "central_north_upper",
+        "central_south_middle",
+    } <= vicinity.traffic_element_ids
+    assert {
+        "west_arterial_end",
+        "central_upper_crossing",
+        "central_lower_crossing",
+    }.isdisjoint(vicinity.traffic_element_ids)
 
 
 def test_boulevard_vicinity_rejects_distant_polygons_before_exact_tests(
@@ -382,7 +427,6 @@ def test_boulevard_vicinity_rejects_distant_polygons_before_exact_tests(
     vicinity = resolver.resolve(
         float(spawn.position_world[0]),
         float(spawn.position_world[1]),
-        spawn.yaw_rad,
     )
 
     assert vicinity is not None
@@ -390,19 +434,28 @@ def test_boulevard_vicinity_rejects_distant_polygons_before_exact_tests(
     assert exact_test_count == 1
 
 
-def test_vicinity_exposes_parking_lot_pedestrian_at_its_access_node() -> None:
+def test_vicinity_exposes_parking_lot_pedestrian_at_an_expanded_node() -> None:
     game_map = load_game_map(_BOULEVARD_MAP)
     resolver = GameMapVicinityResolver(game_map)
     access = game_map.topology.parking_accesses[0]
-    source = next(
-        node
-        for node in game_map.topology.nodes
-        if node.node_id == access.source_node_id
+    connecting_road = next(
+        road
+        for road in game_map.topology.roads
+        if access.source_node_id in {road.from_node_id, road.to_node_id}
+    )
+    neighboring_node_id = (
+        connecting_road.to_node_id
+        if connecting_road.from_node_id == access.source_node_id
+        else connecting_road.from_node_id
+    )
+    neighboring_node = next(
+        node for node in game_map.topology.nodes if node.node_id == neighboring_node_id
     )
 
-    vicinity = resolver.resolve(source.x_m, source.y_m, 0.0)
+    vicinity = resolver.resolve(neighboring_node.x_m, neighboring_node.y_m)
 
     assert vicinity is not None
+    assert vicinity.location_element_id == neighboring_node_id
     assert access.source_node_id in vicinity.traffic_element_ids
     assert access.parking_lot_node_id not in vicinity.traffic_element_ids
     assert access.parking_lot_node_id in vicinity.pedestrian_element_ids
@@ -854,7 +907,6 @@ def test_boulevard_large_logical_fleet_activates_only_graph_nearby_cars(
     vicinity = GameMapVicinityResolver(game_map).resolve(
         float(spawn.position_world[0]),
         float(spawn.position_world[1]),
-        spawn.yaw_rad,
     )
     controller = MapTrafficController(game_map.traffic, VehicleConfig())
 
@@ -862,7 +914,7 @@ def test_boulevard_large_logical_fleet_activates_only_graph_nearby_cars(
 
     assert len(game_map.traffic) == 100
     assert 0 < len(controller.active_objects) < len(game_map.traffic)
-    assert len(controller.active_objects) == 6
+    assert len(controller.active_objects) == 28
 
 
 @pytest.mark.parametrize("count", [-1, 1.5, True, "2"])

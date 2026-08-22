@@ -345,11 +345,13 @@ requested count cannot be placed.
 
 The compiled fleet advances logically across the full public-road graph, but
 only graph-nearby vehicles enter PhysX and HD-map conditioning. While the ego
-is on a road, nearby means that road, the next node in the ego's facing
-direction, and every public road attached to that node. While the ego is on a
-node, nearby means that node and its attached public roads. Leaving mapped
-road/node surfaces retains the last valid neighborhood. Invisible vehicles
-continue following their routes, speed limits, and same-direction headway.
+is on a road, nearby starts at both endpoint nodes; while the ego is on a node,
+it starts at that node. The neighborhood includes public roads attached to
+those nodes, the nodes at the other ends of those roads, and every public road
+attached to that expanded node set. It stops before adding otherwise-unreached
+nodes at the far ends of that final road ring. Leaving mapped road/node
+surfaces retains the last valid neighborhood. Invisible vehicles continue
+following their routes, speed limits, and same-direction headway.
 
 `nodes` requires at least two non-parking nodes. Consecutive nodes do not need
 to be adjacent: the compiler selects the shortest routable sequence of public

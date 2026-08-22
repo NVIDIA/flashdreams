@@ -324,7 +324,6 @@ class GamePhysicsWorld:
             else np.zeros(2, dtype=np.float32)
         )
         initial_timestamp_us = int(getattr(scene, "initial_timestamp_us", 0))
-        initial_yaw_rad = float(getattr(scene, "initial_yaw_rad", 0.0))
         self._vicinity_resolver = (
             None if game_map is None else GameMapVicinityResolver(game_map)
         )
@@ -332,7 +331,7 @@ class GamePhysicsWorld:
             None
             if self._vicinity_resolver is None
             else self._vicinity_resolver.resolve(
-                float(initial_xy[0]), float(initial_xy[1]), initial_yaw_rad
+                float(initial_xy[0]), float(initial_xy[1])
             )
         )
         self._map_traffic.set_vicinity(self._map_vicinity)
@@ -495,19 +494,16 @@ class GamePhysicsWorld:
         self,
         center_xy_m: np.ndarray,
         timestamp_us: int | None = None,
-        *,
-        yaw_rad: float | None = None,
     ) -> bool:
         """Incrementally recenter active PhysX topology when the ego moves."""
         center = np.asarray(center_xy_m, dtype=np.float32)
         if center.shape != (2,):
             raise ValueError("center_xy_m must have shape (2,)")
         traffic_topology_changed = False
-        if self._vicinity_resolver is not None and yaw_rad is not None:
+        if self._vicinity_resolver is not None:
             self._map_vicinity = self._vicinity_resolver.resolve(
                 float(center[0]),
                 float(center[1]),
-                yaw_rad,
                 previous=self._map_vicinity,
             )
             traffic_topology_changed = self._map_traffic.set_vicinity(

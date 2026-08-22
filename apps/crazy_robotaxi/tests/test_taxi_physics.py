@@ -361,10 +361,8 @@ def test_taxi_physics_hook_receives_the_active_driver_command() -> None:
             self,
             center_xy_m: np.ndarray,
             timestamp_us: int | None = None,
-            *,
-            yaw_rad: float | None = None,
         ) -> None:
-            del center_xy_m, timestamp_us, yaw_rad
+            del center_xy_m, timestamp_us
 
         def step(
             self, state: VehicleState, timestamp_us: int, dt_s: float

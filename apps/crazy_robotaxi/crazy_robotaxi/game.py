@@ -673,7 +673,6 @@ class TaxiGameController:
             self._vicinity = self._vicinity_resolver.resolve(
                 x_m,
                 y_m,
-                yaw_rad,
                 previous=self._vicinity,
             )
         target_index = (
