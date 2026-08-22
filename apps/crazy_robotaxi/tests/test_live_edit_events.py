@@ -134,7 +134,7 @@ class TestWeatherCycle:
 
         _, kwargs = session.pipeline.replace_text_calls[-1]
         assert kwargs["guidance_scale"] == 2.5
-        assert kwargs["guidance_chunks"] == 20
+        assert kwargs["guidance_chunks"] == 6
 
     def test_revert_to_clear_is_a_plain_swap(self) -> None:
         ability, session = _weather_ability()
@@ -220,20 +220,58 @@ class TestWeatherCycle:
         text, _ = session.pipeline.replace_text_calls[-1]
         assert text == [["rain prompt"]]
 
-    def test_reswap_refreshes_an_active_weather_window(self) -> None:
+    def test_weather_holds_unguided_without_reswaps(self) -> None:
+        # Land-then-release: the skin re-swap interval must NOT re-open the
+        # weather guidance window (a same-prompt re-swap has a zero guidance
+        # direction and would pay 2x per chunk for nothing).
         ability = StyleAbility(LiveEditStyleConfig(reswap_interval_chunks=2), _WEATHER)
         session = _FakeSession()
         ability.hook_session(session)
         session.start(None, [], "scene prompt")
         ability.request_weather_cycle()
         session.continue_generation([])
-        assert len(session.pipeline.replace_text_calls) == 1
-        session.continue_generation([])
-        session.continue_generation([])  # interval reached -> re-swap
+        for _ in range(6):
+            session.continue_generation([])
 
-        assert len(session.pipeline.replace_text_calls) == 2
-        text, _ = session.pipeline.replace_text_calls[-1]
-        assert text == [["rain prompt"]]
+        assert len(session.pipeline.replace_text_calls) == 1
+        assert ability.active_weather_name == "rain"
+
+    def test_maintenance_pulse_rebases_then_reguides(self) -> None:
+        weather = LiveEditWeatherConfig(
+            enabled=True,
+            maintain_interval_chunks=3,
+            maintain_chunks=2,
+            weathers=_WEATHER.weathers,
+        )
+        ability = StyleAbility(LiveEditStyleConfig(), weather)
+        session = _FakeSession()
+        ability.hook_session(session)
+        session.start(None, [], "scene prompt")
+        ability.request_weather_cycle()
+        session.continue_generation([])  # rain lands (landing window)
+        for _ in range(3):
+            session.continue_generation([])  # interval reached -> pulse
+
+        calls = session.pipeline.replace_text_calls
+        assert len(calls) == 3  # landing + (rebase, pulse)
+        rebase_text, rebase_kwargs = calls[1]
+        pulse_text, pulse_kwargs = calls[2]
+        assert rebase_text == [["scene prompt"]]
+        assert rebase_kwargs["guidance_scale"] == 1.0
+        assert rebase_kwargs["guidance_chunks"] == 0
+        assert pulse_text == [["rain prompt"]]
+        assert pulse_kwargs["guidance_scale"] == 2.5
+        assert pulse_kwargs["guidance_chunks"] == 2
+        assert ability.active_weather_name == "rain"
+
+    def test_zero_maintain_interval_never_pulses(self) -> None:
+        ability, session = _weather_ability()
+        ability.request_weather_cycle()
+        session.continue_generation([])
+        for _ in range(30):
+            session.continue_generation([])
+
+        assert len(session.pipeline.replace_text_calls) == 1
 
 
 class TestComposeSwapTarget:
@@ -757,7 +795,6 @@ class TestObstacleGuidance:
     def test_requires_a_positive_scale(self) -> None:
         with pytest.raises(ValueError):
             ObstacleGuidance(0.0)
-
 
 class TestRequestsAndConfig:
     def test_weather_and_obstacle_requests_are_one_shot(self) -> None:

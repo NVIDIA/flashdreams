@@ -294,16 +294,34 @@ class LiveEditWeatherConfig:
     is the validated skin deployment; earlier sweeps needed 3.0 for snow,
     so this is exposed as ``--live-edit-weather-guidance``."""
 
-    guidance_chunks: int = 20
-    """Number of chunks the two-prompt guidance window stays open.
+    guidance_chunks: int = 6
+    """Number of chunks the two-prompt LANDING window stays open.
 
     TRANSIENT COST: weather has no LoRA, so every denoise step inside this
     window runs a second network forward — a swap costs ~2x per chunk for
-    this many chunks. With the default 8-chunk re-swap refresh the window
-    is re-opened before it expires, so weather effectively stays at 2x
-    while active; shorten this (e.g. below the re-swap interval) to trade
-    edit pressure for throughput. Exposed as
+    this many chunks. Weather then persists through the KV history and the
+    swapped cross-attention text with NO guidance ("land-then-release",
+    A/B'd 2026-08-21: a 6-chunk landing matches the old always-guided 20
+    within noise over a 27-chunk hold), so the steady-state cost of an
+    active weather is ~1x. Exposed as
     ``--live-edit-weather-guidance-chunks``."""
+
+    maintain_interval_chunks: int = 0
+    """Re-open a short guidance window every N chunks while weather holds.
+
+    ``0`` (default) holds with no guidance at all — the validated
+    land-then-release policy. A positive interval issues a maintenance
+    pulse of :attr:`maintain_chunks` guided chunks every N chunks, REBASED
+    first (plain swap to the base prompt, then the guided weather swap):
+    a same-prompt re-swap snapshots its old KV from buffers that already
+    hold the weather text, making the guidance direction exactly zero —
+    pure wasted 2x (this is what the old style re-swap refresh did to
+    weather). Exposed as ``--live-edit-weather-maintain-interval``."""
+
+    maintain_chunks: int = 2
+    """Guided chunks per maintenance pulse (used when
+    :attr:`maintain_interval_chunks` > 0). Exposed as
+    ``--live-edit-weather-maintain-chunks``."""
 
     corrector_gain: float = 0.0
     """Absolute style-drift-corrector gain while weather is active. ``0``
@@ -326,6 +344,10 @@ class LiveEditWeatherConfig:
             raise ValueError("weather guidance_scale must be at least 1.0")
         if self.guidance_chunks < 0:
             raise ValueError("weather guidance_chunks must be non-negative")
+        if self.maintain_interval_chunks < 0:
+            raise ValueError("weather maintain_interval_chunks must be non-negative")
+        if self.maintain_chunks < 0:
+            raise ValueError("weather maintain_chunks must be non-negative")
         if not 0.0 <= self.corrector_gain <= 1.0:
             raise ValueError("weather corrector_gain must be in [0, 1]")
         if self.enabled and not self.weathers:
@@ -624,13 +646,27 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--live-edit-weather-guidance-chunks",
         type=int,
-        default=20,
+        default=6,
         help=(
-            "Chunks the two-prompt weather guidance window stays open. "
-            "Weather has no LoRA: a swap costs ~2x per chunk for this many "
-            "chunks (and the 8-chunk re-swap refresh re-opens the window, "
-            "so weather stays at ~2x while active unless this is shortened)."
+            "Chunks the two-prompt weather LANDING window stays open (2x "
+            "model cost per guided chunk). After the landing the weather "
+            "holds unguided at ~1x (land-then-release)."
         ),
+    )
+    group.add_argument(
+        "--live-edit-weather-maintain-interval",
+        type=int,
+        default=0,
+        help=(
+            "Re-open a short rebased guidance window every N chunks while "
+            "weather holds (0 = plain hold, the validated default)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-weather-maintain-chunks",
+        type=int,
+        default=2,
+        help="Guided chunks per weather maintenance pulse.",
     )
     group.add_argument(
         "--live-edit-weather-first",
@@ -767,6 +803,8 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             enabled=bool(args.live_edit_weather),
             guidance_scale=float(args.live_edit_weather_guidance),
             guidance_chunks=int(args.live_edit_weather_guidance_chunks),
+            maintain_interval_chunks=int(args.live_edit_weather_maintain_interval),
+            maintain_chunks=int(args.live_edit_weather_maintain_chunks),
             corrector_gain=float(args.live_edit_weather_corrector_gain),
             corrector_checkpoint=args.live_edit_weather_corrector,
             weathers=weathers_starting_with(args.live_edit_weather_first),

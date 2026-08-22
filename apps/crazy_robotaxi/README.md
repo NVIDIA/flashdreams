@@ -49,13 +49,14 @@ group "live edit"):
   runs single-branch (no per-step extra forward); only the swap-boundary
   chunk is slower (text re-encode, roughly 0.5-1 s once).
 - **Weather** (`--live-edit-weather`, cycle with `V`): guided prompt swaps
-  with no LoRA. **Transient cost: while the two-prompt guidance window is
-  open, every chunk costs ~2x** (a second forward per denoise step) for
-  `--live-edit-weather-guidance-chunks` chunks (default 20) after each
-  swap — and the periodic re-swap refresh (`--live-edit-style-reswap-chunks`,
-  default 8) re-opens the window, so weather effectively stays at ~2x while
-  active. Shorten the window (e.g. below the re-swap interval) to trade
-  edit pressure for throughput.
+  with no LoRA, deployed land-then-release. **Transient cost: the landing
+  window costs ~2x per chunk** (a second forward per denoise step) for
+  `--live-edit-weather-guidance-chunks` chunks (default 6); the weather
+  then holds unguided at ~1x — it persists through the KV history and the
+  swapped text (A/B'd: a 27-chunk unguided hold matches the always-guided
+  policy). `--live-edit-weather-maintain-interval N` optionally re-opens a
+  short rebased window (`--live-edit-weather-maintain-chunks`, default 2)
+  every N chunks; the default 0 never does (measured unnecessary).
 - **Obstacle / traffic** (`--live-edit-obstacle`, spawn with `O`): cloned
   scene vehicles. `--live-edit-obstacle-count N` turns one key press into a
   traffic burst of N distinct crossing/oncoming clones staggered ahead of

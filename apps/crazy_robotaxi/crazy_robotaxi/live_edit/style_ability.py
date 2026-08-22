@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from loguru import logger
@@ -262,8 +263,8 @@ class StyleAbility:
         toggling only the cross-attention projections. Consequence: while
         a skin state is selected, the self-attention LoRA delta stays
         applied even after the cross-attention edit window ages out
-        (the 8-chunk re-swap reopens the window well inside the 20-chunk
-        guidance budget, so the split is invisible in practice).
+        (the 8-chunk re-swap reopens the skin window before long holds
+        soften, so the split is invisible in practice).
         """
         from types import SimpleNamespace
 
@@ -464,13 +465,22 @@ class StyleAbility:
         session.continue_generation = continue_generation
 
     def _reswap_due(self) -> bool:
-        """Whether the active edit window is due a duty-cycle refresh."""
-        interval = self._config.reswap_interval_chunks
-        return (
-            (self._active_index is not None or self._active_weather is not None)
-            and interval > 0
-            and self._chunks_since_swap >= interval
-        )
+        """Whether the active edit window is due a duty-cycle refresh.
+
+        Skins refresh on the style ``reswap_interval_chunks`` (the LoRA
+        realizes the window single-branch, so a refresh is free per chunk).
+        Weather holds land-then-release: the landing window expires and the
+        state persists through KV history + the swapped text, so weather
+        only refreshes when a maintenance interval is explicitly configured
+        (each pulse costs ``maintain_chunks`` chunks at 2x).
+        """
+        if self._active_index is not None:
+            interval = self._config.reswap_interval_chunks
+        elif self._active_weather is not None and self._weather_config is not None:
+            interval = self._weather_config.maintain_interval_chunks
+        else:
+            return False
+        return interval > 0 and self._chunks_since_swap >= interval
 
     def _apply_pending(self, *, refresh: bool = False) -> None:
         """Swap the prompt between chunks when a request or refresh is due."""
@@ -508,6 +518,25 @@ class StyleAbility:
             weather_config=self._weather_config,
             lora_available=self._lora_attached,
         )
+        if not changed and target_weather is not None and target_skin is None:
+            # Weather maintenance pulse. A same-prompt re-swap would clone
+            # its "old" KV from buffers that already hold the weather text,
+            # collapsing the guidance direction to zero (paying 2x for
+            # nothing); rebase to the base prompt first so the pulse pushes
+            # weather-minus-base again, for maintain_chunks chunks only.
+            assert self._weather_config is not None
+            rebase = compose_swap_target(
+                base_prompt=self._base_prompt,
+                skin=None,
+                weather=None,
+                style_config=self._config,
+                weather_config=self._weather_config,
+                lora_available=self._lora_attached,
+            )
+            self._replace_text(session, rebase)
+            target = replace(
+                target, guidance_chunks=self._weather_config.maintain_chunks
+            )
         self._replace_text(session, target)
         verb = "re-swap" if not changed else "state ->"
         self._active_index = target_skin

@@ -705,14 +705,29 @@ class TestGuidanceChunkFlags:
         assert config.style.guidance_chunks == 4
         assert config.weather.guidance_chunks == 12
 
-    def test_skin_window_defaults_short_and_weather_default_stays_validated(
-        self,
-    ) -> None:
+    def test_skin_and_weather_landing_windows_default_short(self) -> None:
         parser = argparse.ArgumentParser()
         add_live_edit_args(parser)
         config = live_edit_config_from_args(parser.parse_args([]))
         assert config.style.guidance_chunks == 6
-        assert config.weather.guidance_chunks == 20
+        assert config.weather.guidance_chunks == 6
+        assert config.weather.maintain_interval_chunks == 0
+
+    def test_weather_maintenance_flags_round_trip(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-weather",
+                "--live-edit-weather-maintain-interval",
+                "16",
+                "--live-edit-weather-maintain-chunks",
+                "3",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.weather.maintain_interval_chunks == 16
+        assert config.weather.maintain_chunks == 3
 
     def test_corrector_mode_off_round_trips(self) -> None:
         parser = argparse.ArgumentParser()

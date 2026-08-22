@@ -5,8 +5,12 @@
 
 There is no weather LoRA. Weather uses the plain two-prompt edit-guidance
 mechanism (the PR #431 ``replace_text`` path: the old prompt anchors the
-scene, the flow is pushed along the new-minus-old text direction) with the
-2.5/20 kwargs validated for the skin deployment. Because the transformer
+scene, the flow is pushed along the new-minus-old text direction) to LAND
+the state (guidance scale 2.5 over a short landing window), then holds
+unguided: the weather persists through the KV history and the swapped
+cross-attention text, so the steady-state cost of an active weather is a
+single forward per step ("land-then-release", A/B'd 2026-08-21). Because
+the transformer
 routes any guided swap through the pre-merged text-edit LoRA when one is
 attached, weather swaps must *bypass* the LoRA (it was trained on the four
 style prompts, not weather); :class:`~.style_ability.StyleAbility` detaches
