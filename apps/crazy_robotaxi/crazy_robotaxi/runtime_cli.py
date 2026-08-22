@@ -242,6 +242,29 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--stream-jpeg-quality",
+        type=int,
+        default=85,
+        metavar="Q",
+        help=(
+            "JPEG quality for the MJPEG camera stream (1-100, default 85)."
+            " Lower values cut per-frame bytes roughly linearly; useful on"
+            " slow links (VPN / SSH tunnel) together with --stream-scale."
+        ),
+    )
+    parser.add_argument(
+        "--stream-scale",
+        type=float,
+        default=1.0,
+        metavar="S",
+        help=(
+            "Downscale factor for the MJPEG camera stream in (0.1, 1.0];"
+            " e.g. 0.5 sends 640x352 instead of 1280x704 (~4x fewer bytes)."
+            " Applied before JPEG encode, off the render thread. Only the"
+            " streamed pixels shrink; the model still renders full size."
+        ),
+    )
+    parser.add_argument(
         "--stop-after-chunks",
         type=int,
         default=None,

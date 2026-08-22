@@ -933,6 +933,14 @@ def _run_streaming(args: argparse.Namespace) -> None:
             "--stream-token requires the taxi-game streaming presenter; "
             "the upstream engine presenter would serve an ungated stream."
         )
+    stream_jpeg_quality = int(getattr(args, "stream_jpeg_quality", 85))
+    stream_scale = float(getattr(args, "stream_scale", 1.0))
+    if stream_scale != 1.0 and not getattr(args, "taxi_game", False):
+        # The upstream engine presenter has no scale knob; failing loudly
+        # beats silently streaming full-size frames the user asked to shrink.
+        raise SystemExit(
+            "--stream-scale requires the taxi-game streaming presenter."
+        )
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
@@ -991,8 +999,10 @@ def _run_streaming(args: argparse.Namespace) -> None:
         keyboard=placeholder_keyboard,
         bind_host=bind_host,
         bind_port=bind_port,
+        jpeg_quality=stream_jpeg_quality,
         scenes=scenes_payload,
         thumbnails=thumbnails,
+        **({"stream_scale": stream_scale} if stream_scale != 1.0 else {}),
         **({"stream_token": stream_token} if stream_token is not None else {}),
     )
 

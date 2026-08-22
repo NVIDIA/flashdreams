@@ -28,6 +28,7 @@ import hmac
 import json
 import math as _math
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -71,6 +72,71 @@ from flashdreams.serving.realtime.media import (
 # doesn't matter as long as it never appears inside a JPEG payload (they
 # start with the JPEG SOI marker 0xFFD8 so ``--interactive_drive`` is always safe).
 _MULTIPART_BOUNDARY = "interactive_drive"
+
+# Per-connection kernel send-buffer cap for the MJPEG streams. The
+# LatestFrameBus already drops to the newest frame at the application
+# level, but with the default SO_SNDBUF (often several MB) a slow client
+# (VPN / SSH tunnel) buffers seconds of already-encoded frames inside the
+# kernel and watches stale pixels. Capping the buffer to roughly two
+# frames' worth makes ``wfile.write`` block as soon as the link is
+# saturated, so the next bus read skips straight to the newest frame.
+_STREAM_SNDBUF_BYTES = 128 * 1024
+
+# How often each /stream connection logs its sent/dropped/bandwidth line.
+_STREAM_STATS_INTERVAL_S = 10.0
+
+
+class _StreamClientStats:
+    """Per-connection sent/dropped/bytes accounting for an MJPEG stream.
+
+    Dropped frames are inferred from the bus's monotonically increasing
+    publication counts: consuming count ``c`` after last seeing ``last``
+    means ``c - last - 1`` intermediate frames were skipped (drop-to-latest
+    behavior under backpressure). Pure bookkeeping so it is unit-testable
+    without sockets.
+    """
+
+    def __init__(
+        self,
+        label: str,
+        *,
+        log_interval_s: float = _STREAM_STATS_INTERVAL_S,
+    ) -> None:
+        self._label = label
+        self._log_interval_s = float(log_interval_s)
+        self.sent_frames = 0
+        self.dropped_frames = 0
+        self.sent_bytes = 0
+        self._started_at: float | None = None
+        self._last_logged_at: float | None = None
+
+    def record(
+        self, *, frame_count: int, last_seen_count: int, nbytes: int, now: float
+    ) -> str | None:
+        """Account one delivered frame; return a log line when one is due."""
+        if self._started_at is None:
+            self._started_at = now
+            self._last_logged_at = now
+        if last_seen_count > 0:
+            self.dropped_frames += max(0, frame_count - last_seen_count - 1)
+        self.sent_frames += 1
+        self.sent_bytes += int(nbytes)
+        assert self._last_logged_at is not None
+        if now - self._last_logged_at < self._log_interval_s:
+            return None
+        self._last_logged_at = now
+        return self.summary(now=now)
+
+    def summary(self, *, now: float) -> str:
+        """One-line sent/dropped/bandwidth summary for this connection."""
+        elapsed = max(1e-6, now - (self._started_at if self._started_at else now))
+        fps = self.sent_frames / elapsed
+        kbps = self.sent_bytes / elapsed / 1024.0
+        return (
+            f"[presenter] {self._label}: sent={self.sent_frames} "
+            f"dropped={self.dropped_frames} "
+            f"({fps:.1f} fps, {kbps:.0f} KiB/s over {elapsed:.1f}s)"
+        )
 
 # Browser ``event.key`` values to the keysym strings that
 # :meth:`KeyboardDriveState.set_key` (in ``demo.py``) recognises. The
@@ -822,6 +888,7 @@ class MJPEGStreamingPresenter:
         bind_port: int,
         *,
         jpeg_quality: int = 85,
+        stream_scale: float = 1.0,
         scenes: tuple[dict[str, object], ...] = (),
         thumbnails: dict[str, bytes] | None = None,
         stream_token: str | None = None,
@@ -839,6 +906,15 @@ class MJPEGStreamingPresenter:
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
         self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._jpeg_quality = int(jpeg_quality)
+        if not 1 <= self._jpeg_quality <= 100:
+            raise ValueError(
+                f"stream JPEG quality must be in [1, 100], got {jpeg_quality}"
+            )
+        self._stream_scale = float(stream_scale)
+        if not 0.1 <= self._stream_scale <= 1.0:
+            raise ValueError(
+                f"stream scale must be in [0.1, 1.0], got {stream_scale}"
+            )
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
         # BEV minimap stream lives on its own JPEG buffer so connected
@@ -1111,7 +1187,7 @@ class MJPEGStreamingPresenter:
 
     def _publish(self, rgb_host_uint8: object) -> None:
         jpeg = encode_rgb_frame_to_jpeg(
-            _as_rgb_host_uint8(rgb_host_uint8),
+            _downscale_rgb(_as_rgb_host_uint8(rgb_host_uint8), self._stream_scale),
             quality=self._jpeg_quality,
             value_range="uint8",
         )
@@ -1559,17 +1635,30 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.wfile.write(data)
 
         def _serve_stream(self) -> None:
-            self._serve_mjpeg(presenter._wait_for_new_frame)
+            self._serve_mjpeg(presenter._wait_for_new_frame, endpoint="/stream")
 
         def _serve_bev_stream(self) -> None:
-            self._serve_mjpeg(presenter._wait_for_new_bev_frame)
+            self._serve_mjpeg(
+                presenter._wait_for_new_bev_frame, endpoint="/bev_stream"
+            )
 
-        def _serve_mjpeg(self, wait_fn: _WaitForFrame) -> None:
+        def _serve_mjpeg(self, wait_fn: _WaitForFrame, *, endpoint: str) -> None:
             """Generic ``multipart/x-mixed-replace`` writer used by /stream and
             /bev_stream. ``wait_fn(last_seen)`` is the per-stream blocking
             getter that returns ``(jpeg, frame_count)`` or ``None`` on
             shutdown.
             """
+            # Cap the kernel send buffer so a slow client (VPN / tunnel)
+            # can't queue seconds of frames inside TCP: once the buffer is
+            # full ``wfile.write`` blocks, and the next ``wait_fn`` call
+            # jumps to the newest bus frame (dropping the stale ones).
+            try:
+                self.connection.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_SNDBUF, _STREAM_SNDBUF_BYTES
+                )
+            except OSError:
+                pass  # non-fatal: stream still works, just with more buffering
+            stats = _StreamClientStats(f"{endpoint} {self.client_address[0]}")
             self.send_response(HTTPStatus.OK)
             self.send_header(
                 "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
@@ -1591,7 +1680,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                     result = wait_fn(last_seen)
                     if result is None:
                         break
-                    jpeg, last_seen = result
+                    jpeg, frame_count = result
                     part = (
                         (
                             f"--{_MULTIPART_BOUNDARY}\r\n"
@@ -1603,9 +1692,20 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                     )
                     self.wfile.write(part)
                     self.wfile.flush()
+                    line = stats.record(
+                        frame_count=frame_count,
+                        last_seen_count=last_seen,
+                        nbytes=len(part),
+                        now=time.monotonic(),
+                    )
+                    last_seen = frame_count
+                    if line is not None:
+                        logger.info(line)
             except (BrokenPipeError, ConnectionResetError):
                 # Client disconnected; that's normal, not an error.
-                return
+                pass
+            if stats.sent_frames:
+                logger.info(stats.summary(now=time.monotonic()) + " (disconnected)")
 
         def _serve_control(self, query: dict[str, list[str]]) -> None:
             key = query.get("key", [""])[0]
@@ -1672,6 +1772,29 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     if array.ndim == 3 and array.shape[-1] > 3:
         array = array[..., :3]
     return rgb_frame_to_uint8(array, value_range="uint8")
+
+
+def _scaled_dims(width: int, height: int, scale: float) -> tuple[int, int]:
+    """Target (width, height) for a stream scale factor.
+
+    Rounded to even numbers so downstream video encoders (yuv420p) accept
+    captured frames without a resample; clamped to at least 2x2.
+    """
+    scaled_width = max(2, round(width * scale / 2.0) * 2)
+    scaled_height = max(2, round(height * scale / 2.0) * 2)
+    return scaled_width, scaled_height
+
+
+def _downscale_rgb(rgb_host_uint8: np.ndarray, scale: float) -> np.ndarray:
+    """Bilinear-downscale an ``(H, W, 3)`` uint8 frame; identity at scale 1.0."""
+    if scale >= 1.0:
+        return rgb_host_uint8
+    height, width = rgb_host_uint8.shape[:2]
+    target = _scaled_dims(width, height, scale)
+    if target == (width, height):
+        return rgb_host_uint8
+    image = Image.fromarray(rgb_host_uint8, mode="RGB")
+    return np.asarray(image.resize(target, Image.BILINEAR))
 
 
 def _publish_if_open(
