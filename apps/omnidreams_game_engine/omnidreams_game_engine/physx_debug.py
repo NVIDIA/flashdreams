@@ -282,6 +282,8 @@ def select_presented_rgb(
             raise RuntimeError("PhysX view requires a Ludus-rendered lazy debug frame")
         return frame.physx_rgb_host_uint8
     if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+        if frame.model_view_fallback_reason is not None:
+            return frame.rgb_host_uint8
         return frame.model_rgb_host_uint8
     return frame.rgb_host_uint8
 

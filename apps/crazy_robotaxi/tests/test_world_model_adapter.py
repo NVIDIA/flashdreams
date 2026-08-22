@@ -8,9 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import omnidreams_game_engine.backends.world_model as world_backend_module
 import omnidreams_game_engine.world_model.flashdreams_adapter as adapter_module
 import pytest
 import torch
+from omnidreams_game_engine._pipeline_fakes import make_trajectory
 from omnidreams_game_engine.backends.world_model import WorldModelRenderBackend
 from omnidreams_game_engine.config import WorldModelProfileConfig
 from omnidreams_game_engine.types import PresentedFrame
@@ -130,6 +132,77 @@ def test_world_model_merge_preserves_bev_source_pose() -> None:
     assert len(merged) == 1
     assert merged[0].bev_host_uint8 is raster_frame.bev_host_uint8
     assert merged[0].bev_rig_to_world is bev_pose
+
+
+def test_world_model_collision_falls_back_from_impact_and_arms_recovery() -> None:
+    backend = WorldModelRenderBackend.__new__(WorldModelRenderBackend)
+    trusted = np.full((2, 2, 3), 7, dtype=np.uint8)
+    backend._last_trusted_model_frame = trusted
+    backend._recovery_seed_frame = None
+    trajectory = replace(
+        make_trajectory(3),
+        static_collision_detected=True,
+        static_collision_frame_index=1,
+    )
+    model_frames = tuple(
+        np.full((2, 2, 3), index, dtype=np.uint8) for index in range(3)
+    )
+    merged = tuple(
+        PresentedFrame(
+            timestamp_us=index,
+            rgb_host_uint8=np.zeros((2, 2, 3), dtype=np.uint8),
+            depth_host_f32=None,
+            model_rgb_host_uint8=model_frames[index],
+        )
+        for index in range(3)
+    )
+
+    frames, recovery_required = backend._apply_conformance_policy(
+        trajectory=trajectory,
+        condition_frames=tuple(frame.rgb_host_uint8 for frame in merged),
+        model_frames=model_frames,
+        merged_frames=merged,
+    )
+
+    assert recovery_required is True
+    assert frames[0].model_view_fallback_reason is None
+    assert frames[1].model_view_fallback_reason == "physics_impact"
+    assert backend._recovery_seed_frame is model_frames[0]
+
+
+def test_world_model_motion_mismatch_falls_back_entire_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = WorldModelRenderBackend.__new__(WorldModelRenderBackend)
+    trusted = np.full((2, 2, 3), 9, dtype=np.uint8)
+    backend._last_trusted_model_frame = trusted
+    backend._recovery_seed_frame = None
+    mismatch = SimpleNamespace(
+        mismatched=True,
+        as_metrics=lambda: {"mismatched": True, "axis": "turn"},
+    )
+    monkeypatch.setattr(
+        world_backend_module, "compare_motion", lambda *a, **k: mismatch
+    )
+    trajectory = make_trajectory(3)
+    model_frames = tuple(np.zeros((2, 2, 3), dtype=np.uint8) for _ in range(3))
+    merged = tuple(
+        PresentedFrame(
+            index, model_frames[index], None, model_rgb_host_uint8=model_frames[index]
+        )
+        for index in range(3)
+    )
+
+    frames, recovery_required = backend._apply_conformance_policy(
+        trajectory=trajectory,
+        condition_frames=model_frames,
+        model_frames=model_frames,
+        merged_frames=merged,
+    )
+
+    assert recovery_required is True
+    assert {frame.model_view_fallback_reason for frame in frames} == {"motion_mismatch"}
+    assert backend._recovery_seed_frame is trusted
 
 
 def test_select_config_name_uses_omnidreams_recipe_slugs() -> None:

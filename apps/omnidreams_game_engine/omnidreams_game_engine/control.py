@@ -48,7 +48,7 @@ def iterate_frame_chunks(
         trajectory = sample_chunk_trajectory(
             start_state=state,
             start_timestamp_us=next_timestamp_us,
-            command=command_source(),
+            commands=tuple(command_source() for _ in range(chunk_size)),
             chunk_size=chunk_size,
             chunk_config=chunk_config,
             vehicle_config=vehicle_config,

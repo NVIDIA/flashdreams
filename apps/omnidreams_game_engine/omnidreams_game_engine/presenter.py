@@ -106,7 +106,15 @@ class SlangPyPresenter:
             and frame.model_rgb_host_uint8 is not None
             and self._cuda_rgb_interop is None
         ):
-            _prefetch_to_numpy(frame.model_rgb_host_uint8)
+            raster = getattr(self, "_raster", None)
+            _prefetch_to_numpy(
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=1 if raster is None else raster.width,
+                    height=1 if raster is None else raster.height,
+                )
+            )
             return
         if view_mode != "model_rgb":
             _prefetch_to_numpy(frame.rgb_host_uint8)
@@ -144,21 +152,28 @@ class SlangPyPresenter:
                 self._present_array(host_rgb)
             return
         if view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
+            raster = getattr(self, "_raster", None)
+            model_view = select_presented_rgb(
+                frame,
+                view_mode,
+                width=1 if raster is None else raster.width,
+                height=1 if raster is None else raster.height,
+            )
             cuda_presented = (
                 self._present_cuda_rgb(
-                    frame.model_rgb_host_uint8,
+                    model_view,
                     status_message=frame.status_message,
                     flare_opacity=flare_opacity,
                 )
                 if flare_opacity > 0.0
                 else self._present_cuda_rgb(
-                    frame.model_rgb_host_uint8,
+                    model_view,
                     status_message=frame.status_message,
                 )
             )
             if cuda_presented:
                 return
-            rgb = _with_status_overlay(frame.model_rgb_host_uint8, frame.status_message)
+            rgb = _with_status_overlay(model_view, frame.status_message)
             if flare_opacity > 0.0:
                 self._present_array(rgb, flare_opacity=flare_opacity)
             else:

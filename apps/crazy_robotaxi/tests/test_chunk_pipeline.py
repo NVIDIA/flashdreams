@@ -104,7 +104,10 @@ class _GatedBackend:
     def reset(self) -> None:
         self.reset_calls += 1
 
-    def render_chunk(self, trajectory: object) -> FrameChunk:
+    def render_chunk(
+        self, trajectory: object, *, starts_recovery: bool = False
+    ) -> FrameChunk:
+        del starts_recovery
         self.render_started.set()
         self.release.wait(timeout=5.0)
         frame = PresentedFrame(
@@ -140,7 +143,10 @@ class _GatedWarmupBackend:
     def reset(self) -> None:
         return
 
-    def render_chunk(self, trajectory: object) -> FrameChunk:
+    def render_chunk(
+        self, trajectory: object, *, starts_recovery: bool = False
+    ) -> FrameChunk:
+        del starts_recovery
         self.render_calls += 1
         frame = PresentedFrame(
             timestamp_us=0,
@@ -247,6 +253,38 @@ def test_chunk_pipeline_toggles_postprocess_on_worker() -> None:
     pipeline.shutdown()
 
     assert backend.postprocess_enabled_calls == [False, True]
+
+
+def test_chunk_pipeline_forwards_recovery_start_to_backend() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=1)
+    pipeline = ChunkPipeline(backend)
+    request = ChunkRequest(
+        trajectory=make_trajectory(1),
+        chunk_times=_chunk_times(chunk_size=1),
+        starts_recovery=True,
+    )
+
+    pipeline.request_pose_chunk(request)
+    pipeline.frame_queue.get(timeout=1.0)
+    pipeline.shutdown()
+
+    assert backend.recovery_flags == [True]
+
+
+def test_chunk_pipeline_carries_recovery_request_on_queued_frame() -> None:
+    backend = FakeVideoModelBackend(frames_per_render=1, recovery_required=True)
+    pipeline = ChunkPipeline(backend)
+
+    pipeline.request_pose_chunk(
+        ChunkRequest(
+            trajectory=make_trajectory(1),
+            chunk_times=_chunk_times(chunk_size=1),
+        )
+    )
+    queued = pipeline.frame_queue.get(timeout=1.0)
+    pipeline.shutdown()
+
+    assert queued.recovery_required is True
 
 
 def test_chunk_pipeline_reuses_model_across_scene_changes() -> None:

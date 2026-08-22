@@ -390,7 +390,7 @@ def test_taxi_physics_hook_receives_the_active_driver_command() -> None:
     sample_chunk_trajectory(
         start_state=VehicleState(0.0, 0.0, 0.0, 0.0, 5.0, 0.0),
         start_timestamp_us=0,
-        command=command,
+        commands=(command,) * 2,
         chunk_size=2,
         chunk_config=ChunkConfig(fps=30),
         vehicle_config=TaxiVehicleConfig(),

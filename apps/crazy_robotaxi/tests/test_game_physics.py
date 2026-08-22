@@ -1123,7 +1123,7 @@ def test_held_s_reverses_runtime_ego_through_physx_world() -> None:
     boundary_x = []
     for _ in range(16):
         chunk = simulation.pose_chunk(
-            command=input_backend.sample().command,
+            commands=(input_backend.sample().command,) * 8,
             chunk_size=8,
             frame_interval_s=1.0 / 30.0,
             extrapolation_offset_s=0.0,
@@ -1170,7 +1170,7 @@ def test_runtime_pose_chunks_keep_ground_anchored_ego_driving_forward() -> None:
     for _ in range(8):
         sampled = input_backend.sample()
         chunk = simulation.pose_chunk(
-            command=sampled.command,
+            commands=(sampled.command,) * 8,
             chunk_size=8,
             frame_interval_s=1.0 / 30.0,
             extrapolation_offset_s=0.0,
@@ -1298,6 +1298,22 @@ def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus()
     assert first is lazy_debug
     assert second is lazy_debug
     world.close()
+
+
+def test_model_view_fallback_selects_authoritative_raster() -> None:
+    raster = object()
+    model = object()
+    frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=raster,
+        depth_host_f32=None,
+        model_rgb_host_uint8=model,
+        model_view_fallback_reason="motion_mismatch",
+    )
+
+    selected = select_presented_rgb(frame, "model_rgb", width=320, height=180)
+
+    assert selected is raster
 
 
 def _debug_snapshot_at(

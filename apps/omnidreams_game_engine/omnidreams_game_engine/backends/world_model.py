@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +23,7 @@ from omnidreams_game_engine.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
+from omnidreams_game_engine.motion_conformance import compare_motion
 from omnidreams_game_engine.rasterizer import LudusConditionRasterizer
 from omnidreams_game_engine.types import (
     FrameChunk,
@@ -66,6 +69,8 @@ class WorldModelRenderBackend(RenderBackend):
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
+        self._last_trusted_model_frame: object | None = None
+        self._recovery_seed_frame: object | None = None
 
     @property
     def can_prewarm(self) -> bool:
@@ -193,6 +198,13 @@ class WorldModelRenderBackend(RenderBackend):
             model_frames,
             annotate_first_transition=True,
         )
+        merged_frames, recovery_required = self._apply_conformance_policy(
+            trajectory=trajectory,
+            condition_frames=condition_frames,
+            model_frames=model_frames,
+            merged_frames=merged_frames,
+            check_motion=False,
+        )
         merge_end = time.perf_counter()
         logger.info(
             "[world-model] first_chunk "
@@ -214,6 +226,7 @@ class WorldModelRenderBackend(RenderBackend):
                 merge_start_time=model_end,
                 merge_ready_time=merge_end,
             ),
+            recovery_required=recovery_required,
         )
 
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
@@ -230,6 +243,12 @@ class WorldModelRenderBackend(RenderBackend):
         model_frames = self._session.continue_generation(condition_frames)
         model_end = time.perf_counter()
         merged_frames = self._merge_frames(raster_chunk.frames, model_frames)
+        merged_frames, recovery_required = self._apply_conformance_policy(
+            trajectory=trajectory,
+            condition_frames=condition_frames,
+            model_frames=model_frames,
+            merged_frames=merged_frames,
+        )
         merge_end = time.perf_counter()
         self._next_chunk_count += 1
         total_ms = (merge_end - chunk_start) * 1000.0
@@ -278,11 +297,149 @@ class WorldModelRenderBackend(RenderBackend):
                 merge_start_time=model_end,
                 merge_ready_time=merge_end,
             ),
+            recovery_required=recovery_required,
+        )
+
+    def render_recovery_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        """Restart the AR cache while raster imagery remains authoritative."""
+        scene = self._require_scene()
+        if len(trajectory.timestamps_us) != self._chunk.initial_chunk_frames:
+            raise ValueError("Model recovery requires an initial-size trajectory")
+        chunk_start = time.perf_counter()
+        raster_chunk = self._rasterizer.render_chunk(
+            rig_poses_world=trajectory.rig_poses_world,
+            timestamps_us=trajectory.timestamps_us,
+            dynamic_actors=trajectory.dynamic_actors,
+            physics_debug_frames=trajectory.physics_debug_frames,
+        )
+        raster_end = time.perf_counter()
+        condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
+        self._session.reset()
+        seed = self._recovery_seed_frame
+        if seed is None:
+            seed = self._last_trusted_model_frame
+        if seed is None:
+            seed = scene.initial_rgb
+        model_frames = self._session.start(seed, condition_frames, scene.prompt)
+        model_end = time.perf_counter()
+        metrics: dict[str, float | str | bool] = {
+            "mismatched": False,
+            "axis": "recovery",
+        }
+        merged_frames = tuple(
+            replace(
+                frame,
+                model_view_fallback_reason="model_recovery",
+                model_motion_metrics=metrics,
+            )
+            for frame in self._merge_frames(raster_chunk.frames, model_frames)
+        )
+        merge_end = time.perf_counter()
+        self._last_trusted_model_frame = model_frames[-1] if model_frames else seed
+        self._recovery_seed_frame = None
+        self._next_chunk_count = 0
+        return FrameChunk(
+            frames=merged_frames,
+            boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
+            source_name="omnidreams-recovery",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
+        )
+
+    def _apply_conformance_policy(
+        self,
+        *,
+        trajectory: TrajectoryChunk,
+        condition_frames: Sequence[object],
+        model_frames: Sequence[object],
+        merged_frames: tuple[PresentedFrame, ...],
+        check_motion: bool = True,
+    ) -> tuple[tuple[PresentedFrame, ...], bool]:
+        impact_indices = [
+            index
+            for index in (
+                trajectory.actor_collision_frame_index,
+                trajectory.static_collision_frame_index,
+            )
+            if index is not None
+        ]
+        impact_index = min(impact_indices) if impact_indices else None
+        metrics: dict[str, float | str | bool]
+        fallback_reason: str | None = None
+        fallback_start = 0
+        if impact_index is not None:
+            fallback_reason = "physics_impact"
+            fallback_start = impact_index
+            metrics = {"mismatched": True, "axis": "impact"}
+        elif check_motion:
+            start = trajectory.vehicle_states[0]
+            end = trajectory.vehicle_states[-1]
+            yaw_delta = (end.yaw_rad - start.yaw_rad + math.pi) % (
+                2.0 * math.pi
+            ) - math.pi
+            longitudinal_delta = (end.x_m - start.x_m) * math.cos(start.yaw_rad) + (
+                end.y_m - start.y_m
+            ) * math.sin(start.yaw_rad)
+            try:
+                result = compare_motion(
+                    condition_frames,
+                    model_frames,
+                    yaw_delta_rad=yaw_delta,
+                    longitudinal_delta_m=longitudinal_delta,
+                )
+                metrics = result.as_metrics()
+                if result.mismatched:
+                    fallback_reason = "motion_mismatch"
+            except Exception as exc:  # noqa: BLE001 - diagnostics must not stop play
+                logger.warning(f"[world-model] motion conformance skipped: {exc!r}")
+                metrics = {"mismatched": False, "axis": "error"}
+        else:
+            metrics = {"mismatched": False, "axis": "warmup"}
+
+        if fallback_reason is None:
+            if model_frames:
+                self._last_trusted_model_frame = model_frames[-1]
+            return (
+                tuple(
+                    replace(frame, model_motion_metrics=metrics)
+                    for frame in merged_frames
+                ),
+                False,
+            )
+
+        if fallback_start > 0:
+            self._recovery_seed_frame = model_frames[fallback_start - 1]
+        else:
+            self._recovery_seed_frame = self._last_trusted_model_frame
+        logger.warning(
+            "[world-model] model view recovery "
+            f"reason={fallback_reason} frame={fallback_start} metrics={metrics}",
+        )
+        return (
+            tuple(
+                replace(
+                    frame,
+                    model_view_fallback_reason=(
+                        fallback_reason if index >= fallback_start else None
+                    ),
+                    model_motion_metrics=metrics,
+                )
+                for index, frame in enumerate(merged_frames)
+            ),
+            True,
         )
 
     def reset(self) -> None:
         self._session.reset()
         self._next_chunk_count = 0
+        self._last_trusted_model_frame = None
+        self._recovery_seed_frame = None
 
     def reset_scene_conditioning(self) -> None:
         self._session.reset(clear_precomputed_embeddings=True)

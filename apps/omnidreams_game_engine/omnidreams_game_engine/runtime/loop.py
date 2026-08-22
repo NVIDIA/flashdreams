@@ -7,7 +7,7 @@ import os
 import queue
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -121,6 +121,7 @@ class MainLoopState:
     frame_count: int
     chunks_outstanding: int
     last_consumed_chunk_index: int | None
+    recovery_pending: bool
 
     def __init__(self) -> None:
         self.next_present_time = time.perf_counter()
@@ -128,6 +129,70 @@ class MainLoopState:
         self.frame_count = 0
         self.chunks_outstanding = 0
         self.last_consumed_chunk_index = None
+        self.recovery_pending = False
+
+
+class CommandTimeline:
+    """Preserve control transitions observed between model chunk requests."""
+
+    def __init__(self) -> None:
+        self._latest = DriverCommand()
+        self._observed = False
+        self._pending: list[tuple[float, DriverCommand]] = []
+        self.overflow_count = 0
+
+    def observe(self, command: DriverCommand, sample_time: float) -> None:
+        if not self._observed or command != self._latest:
+            self._pending.append((float(sample_time), command))
+            self._latest = command
+            self._observed = True
+
+    def commands_for_chunk(
+        self, *, chunk_size: int, frame_interval_s: float
+    ) -> tuple[DriverCommand, ...]:
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        transitions = self._pending
+        self._pending = []
+        if not transitions:
+            return tuple(self._latest for _ in range(chunk_size))
+        if len(transitions) > chunk_size:
+            dropped = len(transitions) - chunk_size
+            self.overflow_count += dropped
+            logger.warning(
+                "Dropped {} oldest control transitions that could not fit in a "
+                "{}-frame model chunk ({} dropped total)",
+                dropped,
+                chunk_size,
+                self.overflow_count,
+            )
+            transitions = transitions[-chunk_size:]
+
+        scheduled: list[DriverCommand] = []
+        safe_frame_interval_s = max(float(frame_interval_s), 1e-9)
+        for index, (sample_time, command) in enumerate(transitions):
+            if index + 1 >= len(transitions):
+                break
+            duration_s = max(0.0, transitions[index + 1][0] - sample_time)
+            frame_count = max(1, round(duration_s / safe_frame_interval_s))
+            scheduled.extend(command for _ in range(frame_count))
+        scheduled.extend(
+            transitions[-1][1] for _ in range(max(1, chunk_size - len(scheduled)))
+        )
+        if len(scheduled) > chunk_size:
+            # Preserve the newest transitions when a long or noisy history cannot
+            # fit in one fixed-size model block.
+            dropped = len(scheduled) - chunk_size
+            self.overflow_count += dropped
+            logger.warning(
+                "Dropped {} oldest scheduled controls that could not fit in a "
+                "{}-frame model chunk ({} dropped total)",
+                dropped,
+                chunk_size,
+                self.overflow_count,
+            )
+            scheduled = scheduled[-chunk_size:]
+        return tuple(scheduled[:chunk_size])
 
 
 @dataclass(frozen=True)
@@ -169,7 +234,7 @@ def _advance_present_deadline(
 def make_chunk_request(
     state: MainLoopState,
     simulation: SimulationBackend,
-    command: DriverCommand,
+    commands: Sequence[DriverCommand],
     input_sample_time: float,
     chunk_history: ChunkHistory,
     config: LoopConfig,
@@ -186,12 +251,21 @@ def make_chunk_request(
         chunk_index=state.next_chunk_index,
     )
     chunk_index = state.next_chunk_index
-    chunk_size = config.initial_chunk_size if chunk_index == 0 else config.chunk_size
+    starts_recovery = state.recovery_pending
+    chunk_size = (
+        config.initial_chunk_size
+        if chunk_index == 0 or starts_recovery
+        else config.chunk_size
+    )
     set_physx_debug_enabled = getattr(simulation, "set_physx_debug_enabled", None)
     if callable(set_physx_debug_enabled):
         set_physx_debug_enabled(view_mode == "physx" or config.capture_physics_debug)
+    if len(commands) != chunk_size:
+        raise ValueError(
+            f"commands must match requested chunk size; got {len(commands)} for {chunk_size}"
+        )
     trajectory = simulation.pose_chunk(
-        command=command,
+        commands=commands,
         chunk_size=chunk_size,
         frame_interval_s=config.frame_interval_s,
         extrapolation_offset_s=0.0,
@@ -229,10 +303,12 @@ def make_chunk_request(
     chunk_history.append(chunk_times)
     state.next_chunk_index += 1
     state.chunks_outstanding += 1
+    state.recovery_pending = False
     return ChunkRequest(
         trajectory=trajectory,
         chunk_times=chunk_times,
         trace_dependency_event=simulation_event,
+        starts_recovery=starts_recovery,
     )
 
 
@@ -350,6 +426,7 @@ def run_main_loop(
     ready_frames: deque[QueuedFrame] = deque()
     chunk_history = ChunkHistory(config.history_capacity)
     visual_flare_events = VisualFlareEventQueue()
+    command_timeline = CommandTimeline()
     trigger_visual_flare_callback = getattr(
         presenter, "trigger_visual_flare", _noop_visual_flare
     )
@@ -374,6 +451,7 @@ def run_main_loop(
         )
         input_sample_begin = time.perf_counter()
         sampled = input_backend.sample()
+        command_timeline.observe(sampled.command, sampled.sample_time)
         input_sample_end = time.perf_counter()
         last_input_sample_event = _trace_main_range(
             active_trace,
@@ -390,10 +468,18 @@ def run_main_loop(
         if should_request_chunk(state) and (
             runtime_application is None or runtime_application.is_running
         ):
+            request_chunk_size = (
+                config.initial_chunk_size
+                if state.next_chunk_index == 0 or state.recovery_pending
+                else config.chunk_size
+            )
             chunk_request = make_chunk_request(
                 state=state,
                 simulation=simulation,
-                command=sampled.command,
+                commands=command_timeline.commands_for_chunk(
+                    chunk_size=request_chunk_size,
+                    frame_interval_s=config.frame_interval_s,
+                ),
                 input_sample_time=sampled.sample_time,
                 chunk_history=chunk_history,
                 config=config,
@@ -401,12 +487,20 @@ def run_main_loop(
                 trace_context=active_trace,
                 view_mode=view_mode,
             )
-            if (
-                config.visual_flare_enabled
-                and chunk_request.trajectory.actor_collision_detected
+            if config.visual_flare_enabled and (
+                chunk_request.trajectory.actor_collision_detected
+                or chunk_request.trajectory.static_collision_detected
             ):
+                collision_indices = [
+                    index
+                    for index in (
+                        chunk_request.trajectory.actor_collision_frame_index,
+                        chunk_request.trajectory.static_collision_frame_index,
+                    )
+                    if index is not None
+                ]
                 collision_frame_index = (
-                    chunk_request.trajectory.actor_collision_frame_index
+                    min(collision_indices) if collision_indices else 0
                 )
                 visual_flare_events.schedule(
                     chunk_index=chunk_request.chunk_times.chunk_index,
@@ -465,6 +559,8 @@ def run_main_loop(
             if queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index:
                 state.last_consumed_chunk_index = queued_frame.chunk_times.chunk_index
                 state.chunks_outstanding = max(0, state.chunks_outstanding - 1)
+                if queued_frame.recovery_required:
+                    state.recovery_pending = True
             present_trace = (
                 None
                 if is_warmup_index(queued_frame.chunk_times.chunk_index)

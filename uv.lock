@@ -3265,6 +3265,7 @@ dependencies = [
     { name = "filelock" },
     { name = "flashdreams", extra = ["serving"] },
     { name = "flashdreams-omnidreams" },
+    { name = "opencv-python-headless" },
     { name = "pyyaml" },
     { name = "shapely" },
 ]
@@ -3283,6 +3284,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=3" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
     { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
+    { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6" },

@@ -20,6 +20,10 @@ def _initial_state() -> VehicleState:
     )
 
 
+def _held(command: DriverCommand, frames: int) -> tuple[DriverCommand, ...]:
+    return tuple(command for _ in range(frames))
+
+
 def test_pose_chunk_rejects_nonzero_extrapolation_for_stage_one() -> None:
     simulation = EgoVehicleKinematics(
         initial_state=_initial_state(),
@@ -29,7 +33,7 @@ def test_pose_chunk_rejects_nonzero_extrapolation_for_stage_one() -> None:
     )
     with pytest.raises(NotImplementedError):
         simulation.pose_chunk(
-            command=DriverCommand(),
+            commands=_held(DriverCommand(), 4),
             chunk_size=4,
             frame_interval_s=1.0 / 30.0,
             extrapolation_offset_s=0.1,
@@ -51,7 +55,7 @@ def test_pose_chunk_advances_state_to_chunk_boundary() -> None:
         initial_timestamp_us=0,
     )
     chunk = simulation.pose_chunk(
-        command=DriverCommand(throttle=1.0),
+        commands=_held(DriverCommand(throttle=1.0), 4),
         chunk_size=4,
         frame_interval_s=1.0 / 30.0,
         extrapolation_offset_s=0.0,
@@ -72,13 +76,13 @@ def test_pose_chunk_can_align_first_frame_with_rollout_initial_state() -> None:
     command = DriverCommand(throttle=1.0)
 
     first = simulation.pose_chunk(
-        command=command,
+        commands=_held(command, 5),
         chunk_size=5,
         frame_interval_s=1.0 / 30.0,
         extrapolation_offset_s=0.0,
     )
     second = simulation.pose_chunk(
-        command=command,
+        commands=_held(command, 2),
         chunk_size=2,
         frame_interval_s=1.0 / 30.0,
         extrapolation_offset_s=0.0,
@@ -101,13 +105,35 @@ def test_pose_chunk_default_still_simulates_before_first_frame() -> None:
     )
 
     chunk = simulation.pose_chunk(
-        command=DriverCommand(throttle=1.0),
+        commands=_held(DriverCommand(throttle=1.0), 1),
         chunk_size=1,
         frame_interval_s=1.0 / 30.0,
         extrapolation_offset_s=0.0,
     )
 
     assert chunk.vehicle_states[0].speed_mps > 0.0
+
+
+def test_pose_chunk_applies_each_frame_command_in_order() -> None:
+    simulation = EgoVehicleKinematics(
+        initial_state=_initial_state(),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        initial_timestamp_us=0,
+    )
+    forward = DriverCommand(throttle=1.0)
+    reverse = DriverCommand(throttle=1.0, reverse=True)
+
+    chunk = simulation.pose_chunk(
+        commands=(forward, forward, reverse, reverse),
+        chunk_size=4,
+        frame_interval_s=0.1,
+        extrapolation_offset_s=0.0,
+    )
+
+    assert chunk.applied_commands == (forward, forward, reverse, reverse)
+    assert chunk.vehicle_states[1].speed_mps > chunk.vehicle_states[0].speed_mps
+    assert chunk.vehicle_states[-1].speed_mps < chunk.vehicle_states[1].speed_mps
 
 
 def test_pose_chunk_chains_across_calls() -> None:
@@ -127,13 +153,13 @@ def test_pose_chunk_chains_across_calls() -> None:
         initial_timestamp_us=0,
     )
     a.pose_chunk(
-        command=DriverCommand(throttle=1.0),
+        commands=_held(DriverCommand(throttle=1.0), chunk_size),
         chunk_size=chunk_size,
         frame_interval_s=frame_interval_s,
         extrapolation_offset_s=0.0,
     )
     a.pose_chunk(
-        command=DriverCommand(throttle=1.0),
+        commands=_held(DriverCommand(throttle=1.0), chunk_size),
         chunk_size=chunk_size,
         frame_interval_s=frame_interval_s,
         extrapolation_offset_s=0.0,
@@ -146,7 +172,7 @@ def test_pose_chunk_chains_across_calls() -> None:
         initial_timestamp_us=0,
     )
     b.pose_chunk(
-        command=DriverCommand(throttle=1.0),
+        commands=_held(DriverCommand(throttle=1.0), chunk_size * 2),
         chunk_size=chunk_size * 2,
         frame_interval_s=frame_interval_s,
         extrapolation_offset_s=0.0,

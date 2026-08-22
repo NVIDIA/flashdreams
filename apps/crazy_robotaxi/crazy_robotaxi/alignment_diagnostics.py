@@ -267,6 +267,8 @@ def _frame_telemetry(frame: PresentedFrame, sequence: int) -> dict[str, object]:
     physx_position = (
         np.full(3, np.nan, dtype=np.float32) if debug is None else debug.ego_position_m
     )
+    command = frame.driver_command
+    motion = frame.model_motion_metrics or {}
     return {
         "sequence": sequence,
         "timestamp_us": int(frame.timestamp_us),
@@ -295,6 +297,17 @@ def _frame_telemetry(frame: PresentedFrame, sequence: int) -> dict[str, object]:
             state.x_m - float(physx_position[0]),
             state.y_m - float(physx_position[1]),
         ),
+        "command_throttle": math.nan if command is None else command.throttle,
+        "command_brake": math.nan if command is None else command.brake,
+        "command_steer": math.nan if command is None else command.steer,
+        "command_reverse": False if command is None else command.reverse,
+        "impact_kind": frame.impact_kind or "",
+        "model_view_fallback_reason": frame.model_view_fallback_reason or "",
+        "motion_axis": motion.get("axis", ""),
+        "motion_mismatched": motion.get("mismatched", False),
+        "condition_motion_px": motion.get("condition_component_px", math.nan),
+        "generated_motion_px": motion.get("generated_component_px", math.nan),
+        "motion_check_ms": motion.get("elapsed_ms", math.nan),
     }
 
 

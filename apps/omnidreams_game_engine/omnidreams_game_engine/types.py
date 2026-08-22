@@ -320,6 +320,9 @@ class TrajectoryChunk:
     """Per-frame authoritative ego states matching ``timestamps_us``."""
 
     boundary_state_after_chunk: VehicleState
+    applied_commands: tuple[DriverCommand, ...] = ()
+    """Per-frame controls used to produce ``vehicle_states``."""
+
     dynamic_actors: tuple[DynamicActorTrajectory, ...] = ()
     physics_debug_frames: tuple[PhysicsDebugFrame, ...] = ()
     """Per-frame active collider snapshots for the optional debug view."""
@@ -330,6 +333,12 @@ class TrajectoryChunk:
     actor_collision_frame_index: int | None = None
     """First frame in this chunk whose physics step reported actor contact."""
 
+    static_collision_detected: bool = False
+    """Whether a new static-barrier impact began in this chunk."""
+
+    static_collision_frame_index: int | None = None
+    """First frame in this chunk whose physics step began static contact."""
+
     physx_elapsed_s: float | None = None
     """Wall time spent in PhysX synchronization and stepping for this chunk."""
 
@@ -339,6 +348,17 @@ class TrajectoryChunk:
     def __post_init__(self) -> None:
         """Reject trajectory fields that represent different simulation frames."""
         frame_count = len(self.timestamps_us)
+        if not self.applied_commands:
+            object.__setattr__(
+                self,
+                "applied_commands",
+                tuple(DriverCommand() for _ in range(frame_count)),
+            )
+        elif len(self.applied_commands) != frame_count:
+            raise ValueError(
+                "applied_commands must match timestamps_us; got "
+                f"{len(self.applied_commands)} commands for {frame_count} timestamps"
+            )
         if self.rig_poses_world.shape != (frame_count, 4, 4):
             raise ValueError(
                 "rig_poses_world must have shape "
@@ -403,6 +423,18 @@ class PresentedFrame:
     application_state: object | None = None
     """Opaque application state synchronized to this frame."""
 
+    driver_command: DriverCommand | None = None
+    """Control command used to produce this frame's authoritative pose."""
+
+    model_view_fallback_reason: str | None = None
+    """When set, model view presents the aligned raster instead of generated RGB."""
+
+    model_motion_metrics: dict[str, float | str | bool] | None = None
+    """Chunk-level generated/conditioning motion-conformance diagnostics."""
+
+    impact_kind: str | None = None
+    """Impact beginning on this frame: ``"actor"`` or ``"static"``."""
+
 
 @dataclass(frozen=True)
 class FrameChunk:
@@ -410,6 +442,8 @@ class FrameChunk:
     boundary_state_after_chunk: VehicleState
     source_name: str
     video_model_timings: VideoModelTimings | None = None
+    recovery_required: bool = False
+    """Whether the next request must restart the model with an initial-size chunk."""
 
 
 @dataclass(frozen=True)

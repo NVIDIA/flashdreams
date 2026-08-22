@@ -16,6 +16,7 @@ class _Backend:
         self.reset_scene_conditioning_calls = 0
         self.first_chunk_calls = 0
         self.next_chunk_calls = 0
+        self.recovery_chunk_calls = 0
 
     @property
     def can_prewarm(self) -> bool:
@@ -40,6 +41,10 @@ class _Backend:
 
     def render_next_chunk(self, trajectory: object) -> FrameChunk:
         self.next_chunk_calls += 1
+        return _frame_chunk(trajectory)
+
+    def render_recovery_chunk(self, trajectory: object) -> FrameChunk:
+        self.recovery_chunk_calls += 1
         return _frame_chunk(trajectory)
 
 
@@ -84,3 +89,15 @@ def test_scene_load_and_manual_reset_restart_first_chunk() -> None:
     assert backend.next_chunk_calls == 1
     assert backend.reset_calls == 1
     assert backend.reset_scene_conditioning_calls == 2
+
+
+def test_recovery_request_uses_backend_recovery_chunk() -> None:
+    backend = _Backend()
+    adapter = LocalVideoModelAdapter(backend)
+    adapter.load_scene(minimal_scene())
+
+    adapter.render_chunk(make_trajectory(1), starts_recovery=True)
+    adapter.render_chunk(make_trajectory(1))
+
+    assert backend.recovery_chunk_calls == 1
+    assert backend.next_chunk_calls == 1

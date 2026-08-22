@@ -3,7 +3,7 @@
 
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from loguru import logger
@@ -306,7 +306,7 @@ def integrate_vehicle(
 def sample_chunk_trajectory(
     start_state: VehicleState,
     start_timestamp_us: int,
-    command: DriverCommand,
+    commands: Sequence[DriverCommand],
     chunk_size: int,
     chunk_config: ChunkConfig,
     vehicle_config: VehicleConfig,
@@ -319,6 +319,10 @@ def sample_chunk_trajectory(
     physics_step_fn: PhysicsStepFn = step_physics_world,
     include_start_state: bool = False,
 ) -> TrajectoryChunk:
+    if len(commands) != chunk_size:
+        raise ValueError(
+            f"commands must match chunk_size; got {len(commands)} for {chunk_size}"
+        )
     timestamps = np.array(
         [
             start_timestamp_us + frame_idx * chunk_config.frame_interval_us
@@ -342,6 +346,8 @@ def sample_chunk_trajectory(
     max_detached_actors = 0
     actor_collision_detected = False
     actor_collision_frame_index: int | None = None
+    static_collision_detected = False
+    static_collision_frame_index: int | None = None
     if physics_world is not None:
         physx_started_at = time.perf_counter()
         physics_world.synchronize_window(
@@ -352,6 +358,7 @@ def sample_chunk_trajectory(
         physx_sync_s += sync_elapsed_s
         physx_elapsed_s += sync_elapsed_s
     for frame_idx in range(chunk_size):
+        command = commands[frame_idx]
         use_start_state = include_start_state and frame_idx == 0
         if not use_start_state:
             state = integrate_fn(
@@ -385,6 +392,12 @@ def sample_chunk_trajectory(
             actor_collision_detected |= actor_collision_this_frame
             if actor_collision_this_frame and actor_collision_frame_index is None:
                 actor_collision_frame_index = frame_idx
+            static_collision_this_frame = bool(
+                getattr(physics_world, "last_step_static_barrier_impact", False)
+            )
+            static_collision_detected |= static_collision_this_frame
+            if static_collision_this_frame and static_collision_frame_index is None:
+                static_collision_frame_index = frame_idx
             physx_elapsed_s += time.perf_counter() - physx_started_at
             step_timings = getattr(physics_world, "last_step_timings", None)
             if step_timings is not None:
@@ -416,10 +429,13 @@ def sample_chunk_trajectory(
         rig_poses_world=poses,
         vehicle_states=tuple(vehicle_states),
         boundary_state_after_chunk=state,
+        applied_commands=tuple(commands),
         dynamic_actors=dynamic_actors,
         physics_debug_frames=tuple(physics_debug_frames),
         actor_collision_detected=actor_collision_detected,
         actor_collision_frame_index=actor_collision_frame_index,
+        static_collision_detected=static_collision_detected,
+        static_collision_frame_index=static_collision_frame_index,
         physx_elapsed_s=physx_elapsed_s if physics_world is not None else None,
         physx_timings=(
             PhysXChunkTimings(
@@ -521,7 +537,7 @@ class EgoVehicleKinematics:
 
     def pose_chunk(
         self,
-        command: DriverCommand,
+        commands: Sequence[DriverCommand],
         chunk_size: int,
         frame_interval_s: float,
         extrapolation_offset_s: float,
@@ -538,7 +554,7 @@ class EgoVehicleKinematics:
         trajectory = sample_chunk_trajectory(
             start_state=self._state,
             start_timestamp_us=self._next_timestamp_us,
-            command=command,
+            commands=commands,
             chunk_size=chunk_size,
             chunk_config=chunk_config,
             vehicle_config=self._vehicle_config,

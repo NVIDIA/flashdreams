@@ -80,13 +80,21 @@ def make_trajectory(chunk_size: int) -> TrajectoryChunk:
 class FakeVideoModelBackend:
     """Deterministic backend stub used by pipeline and loop tests."""
 
-    def __init__(self, frames_per_render: int, rgb_value: int = 0) -> None:
+    def __init__(
+        self,
+        frames_per_render: int,
+        rgb_value: int = 0,
+        *,
+        recovery_required: bool = False,
+    ) -> None:
         self._frames_per_render = frames_per_render
         self._rgb_value = rgb_value
+        self._recovery_required = recovery_required
         self.warmup_model_calls = 0
         self.load_scene_calls = 0
         self.reset_calls = 0
         self.postprocess_enabled_calls: list[bool] = []
+        self.recovery_flags: list[bool] = []
 
     @property
     def can_prewarm(self) -> bool:
@@ -105,7 +113,10 @@ class FakeVideoModelBackend:
     def set_postprocess_enabled(self, enabled: bool) -> None:
         self.postprocess_enabled_calls.append(enabled)
 
-    def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+    def render_chunk(
+        self, trajectory: TrajectoryChunk, *, starts_recovery: bool = False
+    ) -> FrameChunk:
+        self.recovery_flags.append(starts_recovery)
         frames = tuple(
             PresentedFrame(
                 timestamp_us=int(trajectory.timestamps_us[idx]),
@@ -118,4 +129,5 @@ class FakeVideoModelBackend:
             frames=frames,
             boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
             source_name="fake",
+            recovery_required=self._recovery_required,
         )

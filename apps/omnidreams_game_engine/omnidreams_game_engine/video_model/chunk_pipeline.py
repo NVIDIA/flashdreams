@@ -43,7 +43,9 @@ class VideoModelBackend(Protocol):
 
     def load_scene(self, scene: SceneBundle) -> None: ...
 
-    def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk: ...
+    def render_chunk(
+        self, trajectory: TrajectoryChunk, *, starts_recovery: bool = False
+    ) -> FrameChunk: ...
 
     def reset(self) -> None: ...
 
@@ -66,6 +68,9 @@ class ChunkRequest:
     frame_application_states: tuple[object | None, ...] | None = None
     """Opaque application state synchronized to each requested frame."""
 
+    starts_recovery: bool = False
+    """Whether this initial-size request restarts a divergent model rollout."""
+
 
 @dataclass(frozen=True)
 class QueuedFrame:
@@ -77,6 +82,8 @@ class QueuedFrame:
     # no longer matches so stale rollout/scene frames aren't presented.
     generation: int = 0
     worker_ready_event_id: int | None = None
+    recovery_required: bool = False
+    """Whether the next model request must use the initial recovery size."""
 
 
 # Worker commands are closures that take the backend and return ``True`` to
@@ -209,6 +216,7 @@ class ChunkPipeline:
         trajectory = request.trajectory
         trace_dependency_event = request.trace_dependency_event
         frame_application_states = request.frame_application_states
+        starts_recovery = request.starts_recovery
         submit_generation = self.current_generation
 
         def render_command(backend: VideoModelBackend) -> bool:
@@ -235,7 +243,9 @@ class ChunkPipeline:
                     depends_on=event_dependencies(trace_dependency_event),
                     chunk_index=chunk_times.chunk_index,
                 )
-            frame_chunk = backend.render_chunk(trajectory)
+            frame_chunk = backend.render_chunk(
+                trajectory, starts_recovery=starts_recovery
+            )
             render_end = time.perf_counter()
             chunk_times.chunk_ready_time = render_end
             worker_ready_event_id = None
@@ -281,6 +291,16 @@ class ChunkPipeline:
                     frame,
                     rig_to_world=trajectory.rig_poses_world[frame_index].copy(),
                     vehicle_state=replace(trajectory.vehicle_states[frame_index]),
+                    driver_command=trajectory.applied_commands[frame_index],
+                    impact_kind=(
+                        "actor"
+                        if trajectory.actor_collision_frame_index == frame_index
+                        else (
+                            "static"
+                            if trajectory.static_collision_frame_index == frame_index
+                            else None
+                        )
+                    ),
                     application_state=application_state,
                 )
                 frame_times = chunk_times.frames[frame_index]
@@ -292,6 +312,7 @@ class ChunkPipeline:
                         frame_index=frame_index,
                         generation=submit_generation,
                         worker_ready_event_id=worker_ready_event_id,
+                        recovery_required=frame_chunk.recovery_required,
                     )
                 )
             return True

@@ -104,5 +104,10 @@ class RenderBackend(ABC):
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raise NotImplementedError
 
+    def render_recovery_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        """Restart rollout state and render an initial-size recovery chunk."""
+        self.reset()
+        return self.render_first_chunk(trajectory)
+
     def close(self) -> None:
         return

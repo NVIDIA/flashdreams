@@ -351,6 +351,8 @@ class GamePhysicsWorld:
         self.last_step_timings = None
         self.last_step_actor_collision = False
         self.last_step_static_barrier_collision = False
+        self.last_step_static_barrier_impact = False
+        self._static_barrier_contact_active = False
         self._visual_flare_collision_velocity_mps: np.ndarray | None = None
         self._visual_flare_driving_direction_xy: np.ndarray | None = None
         self._visual_flare_impact_normal_xy: np.ndarray | None = None
@@ -760,6 +762,11 @@ class GamePhysicsWorld:
                     linear_velocity_mps=reinforced_velocity,
                 ),
             )
+        self.last_step_static_barrier_impact = (
+            self.last_step_static_barrier_collision
+            and not self._static_barrier_contact_active
+        )
+        self._static_barrier_contact_active = self.last_step_static_barrier_collision
         active_objects = {
             scene_object.object_id: scene_object
             for scene_object in self._physics_graph.objects
