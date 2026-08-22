@@ -272,6 +272,25 @@ _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
 )
 
 
+def skins_starting_with(name: str | None) -> tuple[StyleSkin, ...]:
+    """Rotate the default skins so ``name`` leads the K-key cycle.
+
+    Mirrors :func:`weathers_starting_with`: one confirmed K press selects
+    the named skin directly — important for timed power-up demos where
+    cycling through the skins ahead of it would burn transitional chunks.
+
+    Raises:
+        ValueError: ``name`` is not a known skin name.
+    """
+    if name is None:
+        return _DEFAULT_SKINS
+    names = [skin.name for skin in _DEFAULT_SKINS]
+    if name not in names:
+        raise ValueError(f"unknown skin {name!r}; choose from {names}")
+    index = names.index(name)
+    return _DEFAULT_SKINS[index:] + _DEFAULT_SKINS[:index]
+
+
 def weathers_starting_with(name: str | None) -> tuple[WeatherPreset, ...]:
     """Rotate the default presets so ``name`` leads the V-key cycle.
 
@@ -648,6 +667,15 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     group.add_argument(
+        "--live-edit-skin-first",
+        type=str,
+        default=None,
+        help=(
+            "Rotate the skin cycle so this skin comes first (direct "
+            "one-press select, e.g. 'cyberpunk'; default keeps arcade first)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-skin-duration-chunks",
         type=int,
         default=0,
@@ -823,6 +851,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             guidance_chunks=int(args.live_edit_skin_guidance_chunks),
             reswap_interval_chunks=int(args.live_edit_style_reswap_chunks),
             skin_duration_chunks=int(args.live_edit_skin_duration_chunks),
+            skins=skins_starting_with(args.live_edit_skin_first),
         ),
         coins=LiveEditCoinsConfig(
             enabled=bool(args.live_edit_coins),

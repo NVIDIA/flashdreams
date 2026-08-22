@@ -693,6 +693,39 @@ class TestTimedSkinPowerUp:
     def test_duration_defaults_to_hold_forever(self) -> None:
         assert LiveEditStyleConfig().skin_duration_chunks == 0
 
+    def test_skin_first_rotates_the_cycle_for_direct_select(self) -> None:
+        from crazy_robotaxi.live_edit.config import skins_starting_with
+
+        rotated = skins_starting_with("cyberpunk")
+        assert [skin.name for skin in rotated] == [
+            "cyberpunk",
+            "pixel",
+            "arcade",
+            "comic",
+        ]
+        assert skins_starting_with(None)[0].name == "arcade"
+
+    def test_skin_first_rejects_unknown_skins(self) -> None:
+        from crazy_robotaxi.live_edit.config import skins_starting_with
+
+        with pytest.raises(ValueError):
+            skins_starting_with("vaporwave")
+
+    def test_skin_first_flag_reaches_the_config(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-style",
+                "--live-edit-style-lora",
+                "/tmp/lora.pt",
+                "--live-edit-skin-first",
+                "cyberpunk",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.style.skins[0].name == "cyberpunk"
+
     def test_negative_duration_is_rejected(self) -> None:
         with pytest.raises(ValueError):
             LiveEditStyleConfig(skin_duration_chunks=-1)

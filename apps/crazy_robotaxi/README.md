@@ -49,7 +49,11 @@ group "live edit"):
   runs single-branch (no per-step extra forward). All skin/weather prompts
   are pre-encoded once at session start, so a swap injects cached
   embeddings — the swap-boundary chunk no longer pays the 0.5-1 s text
-  re-encode.
+  re-encode. `--live-edit-skin-duration-chunks N` turns skins into timed
+  power-ups: an activation auto-reverts to the base world after N chunks
+  (11 ≈ 3 s), the HUD chip counts down the remaining time, and `K` keeps
+  its cycle semantics during an active power-up — next skin, fresh timer
+  (the default 0 holds a skin until cycled).
 - **Weather** (`--live-edit-weather`, cycle with `V`): guided prompt swaps
   with no LoRA, deployed land-then-release. **Transient cost: the landing
   window costs ~2x per chunk** (a second forward per denoise step) for
