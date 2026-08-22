@@ -109,7 +109,9 @@ class TextEditLoRA:
             a = sd[2 * i].to(lin.weight.device, torch.float32)
             b = sd[2 * i + 1].to(lin.weight.device, torch.float32)
             base = lin.weight.detach().clone()
-            w32 = base.to(torch.float32)
+            # copy=True: on an fp32 network ``.to`` would alias ``base`` and
+            # the in-place merge below would corrupt the cached base set.
+            w32 = base.to(torch.float32, copy=True)
             edit = w32.addmm_(b, a, alpha=scale).to(base.dtype)
             self._base.append(base)
             self._edit.append(edit)

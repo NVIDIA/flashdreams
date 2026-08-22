@@ -148,3 +148,31 @@ def test_release_targets_returns_deltas_and_stops_toggling_them(tmp_path):
     edit_lora.set_active(True)
     with pytest.raises(AssertionError, match="base weights"):
         edit_lora.release_targets([kept[0][1]])
+
+
+def test_fp32_network_restores_base_bit_exactly(tmp_path):
+    """Regression: ``base.to(float32)`` on an fp32 network aliased ``base``,
+    so the in-place merge corrupted the cached base set and deactivating
+    the edit could not restore the original weights."""
+    import torch.nn as nn
+
+    torch.manual_seed(0)
+    network = nn.ModuleDict(
+        {
+            "self_attn": nn.ModuleDict(
+                {n: nn.Linear(8, 8, bias=False) for n in ("q_proj", "k_proj")}
+            )
+        }
+    )
+    assert all(lin.weight.dtype == torch.float32 for lin in _target_linears(network))
+    ckpt = tmp_path / "edit_lora.pt"
+    linears, _ = _fake_checkpoint(network, path=ckpt)
+    base = [lin.weight.detach().clone() for lin in linears]
+
+    edit_lora = TextEditLoRA(network, ckpt)
+    edit_lora.set_active(True)
+    for lin, w in zip(linears, base):
+        assert not torch.equal(lin.weight, w)  # the merge actually applied
+    edit_lora.set_active(False)
+    for lin, w in zip(linears, base):
+        assert torch.equal(lin.weight, w)
