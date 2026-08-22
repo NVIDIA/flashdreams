@@ -100,7 +100,6 @@ def _frame() -> PresentedFrame:
         vehicle_state=state,
         driver_command=DriverCommand(throttle=1.0, steer=-0.5),
         impact_kind="static",
-        model_view_fallback_reason="physics_impact",
         model_motion_metrics={
             "axis": "impact",
             "mismatched": True,
@@ -140,7 +139,7 @@ def test_diagnostic_presenter_writes_synchronized_artifact(tmp_path: Path) -> No
     assert float(rows[0]["state_physx_xy_error_m"]) == pytest.approx(0.0)
     assert float(rows[0]["command_throttle"]) == pytest.approx(1.0)
     assert rows[0]["impact_kind"] == "static"
-    assert rows[0]["model_view_fallback_reason"] == "physics_impact"
+    assert rows[0]["motion_axis"] == "impact"
     assert diagnostic_frame.exists()
     with Image.open(diagnostic_frame) as image:
         assert image.width > image.height

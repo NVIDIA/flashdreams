@@ -501,6 +501,9 @@ def prepare_config_and_backend(
             offload_text_encoder=config.world_model_offload_text_encoder,
             postprocess=config.postprocess,
             synchronize_bev_with_rgb=bool(args.taxi_game),
+            motion_conformance_diagnostics_enabled=(
+                args.taxi_alignment_diagnostics is not None
+            ),
         )
     return config, backend
 

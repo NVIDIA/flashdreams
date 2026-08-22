@@ -404,31 +404,6 @@ def test_chunk_request_can_force_physx_debug_capture_for_diagnostics() -> None:
     assert simulation.physx_debug_requests == [True]
 
 
-def test_recovery_request_uses_initial_chunk_size_and_consumes_flag() -> None:
-    simulation = _FakeSimulation()
-    state = loop_module.MainLoopState()
-    state.next_chunk_index = 4
-    state.recovery_pending = True
-    config = replace(
-        _loop_config(frame_interval_s=1.0 / 30.0),
-        initial_chunk_size=5,
-        chunk_size=8,
-    )
-
-    request = loop_module.make_chunk_request(
-        state=state,
-        simulation=simulation,
-        commands=(DriverCommand(),) * 5,
-        input_sample_time=time.perf_counter(),
-        chunk_history=loop_module.ChunkHistory(4),
-        config=config,
-    )
-
-    assert len(request.trajectory.timestamps_us) == 5
-    assert request.starts_recovery is True
-    assert state.recovery_pending is False
-
-
 def _completed_fare_trajectory() -> TrajectoryChunk:
     states = (
         VehicleState(

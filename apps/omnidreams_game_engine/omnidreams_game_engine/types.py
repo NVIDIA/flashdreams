@@ -426,9 +426,6 @@ class PresentedFrame:
     driver_command: DriverCommand | None = None
     """Control command used to produce this frame's authoritative pose."""
 
-    model_view_fallback_reason: str | None = None
-    """When set, model view presents the aligned raster instead of generated RGB."""
-
     model_motion_metrics: dict[str, float | str | bool] | None = None
     """Chunk-level generated/conditioning motion-conformance diagnostics."""
 
@@ -442,8 +439,6 @@ class FrameChunk:
     boundary_state_after_chunk: VehicleState
     source_name: str
     video_model_timings: VideoModelTimings | None = None
-    recovery_required: bool = False
-    """Whether the next request must restart the model with an initial-size chunk."""
 
 
 @dataclass(frozen=True)

@@ -1300,7 +1300,7 @@ def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus()
     world.close()
 
 
-def test_model_view_fallback_selects_authoritative_raster() -> None:
+def test_model_view_selects_generated_frame_during_impact() -> None:
     raster = object()
     model = object()
     frame = PresentedFrame(
@@ -1308,12 +1308,12 @@ def test_model_view_fallback_selects_authoritative_raster() -> None:
         rgb_host_uint8=raster,
         depth_host_f32=None,
         model_rgb_host_uint8=model,
-        model_view_fallback_reason="motion_mismatch",
+        impact_kind="static",
     )
 
     selected = select_presented_rgb(frame, "model_rgb", width=320, height=180)
 
-    assert selected is raster
+    assert selected is model
 
 
 def _debug_snapshot_at(

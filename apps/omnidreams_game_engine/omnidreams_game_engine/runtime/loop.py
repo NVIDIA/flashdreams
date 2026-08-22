@@ -121,7 +121,6 @@ class MainLoopState:
     frame_count: int
     chunks_outstanding: int
     last_consumed_chunk_index: int | None
-    recovery_pending: bool
 
     def __init__(self) -> None:
         self.next_present_time = time.perf_counter()
@@ -129,7 +128,6 @@ class MainLoopState:
         self.frame_count = 0
         self.chunks_outstanding = 0
         self.last_consumed_chunk_index = None
-        self.recovery_pending = False
 
 
 class CommandTimeline:
@@ -251,12 +249,7 @@ def make_chunk_request(
         chunk_index=state.next_chunk_index,
     )
     chunk_index = state.next_chunk_index
-    starts_recovery = state.recovery_pending
-    chunk_size = (
-        config.initial_chunk_size
-        if chunk_index == 0 or starts_recovery
-        else config.chunk_size
-    )
+    chunk_size = config.initial_chunk_size if chunk_index == 0 else config.chunk_size
     set_physx_debug_enabled = getattr(simulation, "set_physx_debug_enabled", None)
     if callable(set_physx_debug_enabled):
         set_physx_debug_enabled(view_mode == "physx" or config.capture_physics_debug)
@@ -303,12 +296,10 @@ def make_chunk_request(
     chunk_history.append(chunk_times)
     state.next_chunk_index += 1
     state.chunks_outstanding += 1
-    state.recovery_pending = False
     return ChunkRequest(
         trajectory=trajectory,
         chunk_times=chunk_times,
         trace_dependency_event=simulation_event,
-        starts_recovery=starts_recovery,
     )
 
 
@@ -470,7 +461,7 @@ def run_main_loop(
         ):
             request_chunk_size = (
                 config.initial_chunk_size
-                if state.next_chunk_index == 0 or state.recovery_pending
+                if state.next_chunk_index == 0
                 else config.chunk_size
             )
             chunk_request = make_chunk_request(
@@ -559,8 +550,6 @@ def run_main_loop(
             if queued_frame.chunk_times.chunk_index != state.last_consumed_chunk_index:
                 state.last_consumed_chunk_index = queued_frame.chunk_times.chunk_index
                 state.chunks_outstanding = max(0, state.chunks_outstanding - 1)
-                if queued_frame.recovery_required:
-                    state.recovery_pending = True
             present_trace = (
                 None
                 if is_warmup_index(queued_frame.chunk_times.chunk_index)

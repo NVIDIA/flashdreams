@@ -141,6 +141,38 @@ def test_taxi_alignment_diagnostics_accepts_output_directory() -> None:
     assert args.taxi_alignment_diagnostics == Path("diagnostics")
 
 
+@pytest.mark.parametrize(
+    ("diagnostic_args", "expected_enabled"),
+    [([], False), (["--taxi-alignment-diagnostics", "diagnostics"], True)],
+)
+def test_taxi_alignment_diagnostics_gate_motion_conformance(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostic_args: list[str],
+    expected_enabled: bool,
+) -> None:
+    backend_kwargs: dict[str, object] = {}
+
+    def build_backend(**kwargs: object) -> object:
+        backend_kwargs.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(cli, "WorldModelRenderBackend", build_backend)
+    args = build_parser().parse_args(
+        [
+            *_MAP_ARGS,
+            "--backend",
+            "omnidreams",
+            "--manifest",
+            "example_world_model_synthetic.yaml",
+            *diagnostic_args,
+        ]
+    )
+
+    cli.prepare_config_and_backend(args)
+
+    assert backend_kwargs["motion_conformance_diagnostics_enabled"] is expected_enabled
+
+
 def test_postprocess_preset_defaults_disabled() -> None:
     args = build_parser().parse_args([])
 

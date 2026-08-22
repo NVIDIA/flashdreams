@@ -36,12 +36,7 @@ class LocalVideoModelAdapter:
         # from the new scene's initial frame and prompt.
         self._is_first_chunk = True
 
-    def render_chunk(
-        self, trajectory: TrajectoryChunk, *, starts_recovery: bool = False
-    ) -> FrameChunk:
-        if starts_recovery:
-            self._is_first_chunk = False
-            return self._backend.render_recovery_chunk(trajectory)
+    def render_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         if self._is_first_chunk:
             self._is_first_chunk = False
             return self._backend.render_first_chunk(trajectory)

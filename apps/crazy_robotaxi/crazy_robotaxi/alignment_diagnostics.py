@@ -302,7 +302,6 @@ def _frame_telemetry(frame: PresentedFrame, sequence: int) -> dict[str, object]:
         "command_steer": math.nan if command is None else command.steer,
         "command_reverse": False if command is None else command.reverse,
         "impact_kind": frame.impact_kind or "",
-        "model_view_fallback_reason": frame.model_view_fallback_reason or "",
         "motion_axis": motion.get("axis", ""),
         "motion_mismatched": motion.get("mismatched", False),
         "condition_motion_px": motion.get("condition_component_px", math.nan),
