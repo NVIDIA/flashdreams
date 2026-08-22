@@ -796,6 +796,48 @@ class TestObstacleGuidance:
         with pytest.raises(ValueError):
             ObstacleGuidance(0.0)
 
+    def test_guard_accepts_cuda_graph_transformers(self) -> None:
+        from types import SimpleNamespace
+
+        transformer = SimpleNamespace(
+            config=SimpleNamespace(use_cuda_graph=True, compile_network=True),
+            _optimized_dit_executor=None,
+        )
+        session = SimpleNamespace(
+            pipeline=SimpleNamespace(
+                diffusion_model=SimpleNamespace(transformer=transformer)
+            )
+        )
+        ObstacleGuidance._guard_transformer(session)  # must not raise
+
+    def test_guard_rejects_the_native_executor(self) -> None:
+        from types import SimpleNamespace
+
+        transformer = SimpleNamespace(_optimized_dit_executor=object())
+        session = SimpleNamespace(
+            pipeline=SimpleNamespace(
+                diffusion_model=SimpleNamespace(transformer=transformer)
+            )
+        )
+        with pytest.raises(RuntimeError, match="native optimized-DiT"):
+            ObstacleGuidance._guard_transformer(session)
+
+    def test_eager_vae_scope_toggles_and_restores_the_graph_flag(self) -> None:
+        from types import SimpleNamespace
+
+        from crazy_robotaxi.live_edit.obstacle_ability import _eager_vae_scope
+
+        vae = SimpleNamespace(_use_cuda_graph=True)
+        encoder = SimpleNamespace(vae=vae)
+        with _eager_vae_scope(encoder):
+            assert vae._use_cuda_graph is False
+        assert vae._use_cuda_graph is True
+
+        # No-op for encoders without the knob (pixel shuffle, fakes).
+        with _eager_vae_scope(SimpleNamespace()):
+            pass
+
+
 class TestRequestsAndConfig:
     def test_weather_and_obstacle_requests_are_one_shot(self) -> None:
         requests = LiveEditRequests()

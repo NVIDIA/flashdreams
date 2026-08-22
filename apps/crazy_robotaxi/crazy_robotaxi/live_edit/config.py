@@ -414,8 +414,11 @@ class LiveEditObstacleConfig:
     with-box/without-box conditioning direction). ``0`` disables the
     guidance hook entirely (clone renders at ghost strength); ``2.0`` is the
     validated in-game operating point (solid vehicle, in-box |diff| ~18 vs
-    ~7 unguided, out-box clean; ``3.0`` breaks up at near range). Requires
-    ``use_cuda_graph=False`` on the transformer."""
+    ~7 unguided, out-box clean; ``3.0`` breaks up at near range).
+    CUDA-graph safe (2026-08-21): during an event each denoise step replays
+    the captured graph twice with the box/no-box conditioning staged in, so
+    event chunks cost ~2x model time and non-event chunks are unchanged; no
+    graph-free rebuild. Not wired for the native optimized-DiT executor."""
 
     annotate: bool = False
     """Draw the clone's projected 3D box outline into presented frames

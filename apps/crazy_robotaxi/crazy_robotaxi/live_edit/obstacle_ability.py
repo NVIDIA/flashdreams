@@ -31,6 +31,19 @@ extrapolates the flow along the with-box/without-box conditioning direction:
 conditioning every chunk (identical frames while no event is active, an
 extra no-box raster during events) and doubles the ``predict_flow`` call
 while an event is on screen.
+
+CUDA-graph compatibility (2026-08-21): the guidance is graph-safe. The
+transformer's graph wrapper stages every top-level tensor kwarg — including
+the ``hdmap_condition`` input — into static buffers on each call, so the
+two forwards of a guided step are two REPLAYS of the same captured cond
+graph with different conditioning staged in (the exact mechanism the
+two-prompt text-edit guidance already rides). The ``predict_flow`` dispatch
+itself runs eagerly outside any graph. The one graph seam that must be
+bypassed is the ENCODER: the Wan VAE encoder's graph wrapper passes its
+streaming cache dict through verbatim, so captured kernels are bound to one
+cache's buffer addresses — replaying it against the shadow cache would
+silently read/write the real cache. Shadow encodes therefore run eagerly
+(:func:`_eager_vae_scope`).
 """
 
 from __future__ import annotations
@@ -531,6 +544,13 @@ class ObstacleGuidance:
         active) so the shadow cache's temporal state matches the real
         encoder's — an event can then start mid-run without a history
         mismatch between the two branches.
+
+        The encode runs EAGERLY (:func:`_eager_vae_scope`): the encoder's
+        CUDA-graph wrapper captures against one streaming cache's buffer
+        addresses, so a captured replay fed the shadow cache would silently
+        operate on the real cache's state. The eager shadow encode also
+        keeps the wrapper's warmup/capture stream fed by the real cache
+        only, so the real branch captures correctly.
         """
         import torch
 
@@ -543,11 +563,12 @@ class ObstacleGuidance:
         with torch.no_grad():
             hdmap = session._condition_tensor(frames)
             hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=pipeline.V_group)
-            encoded = pipeline.encoder(
-                input=hdmap,
-                autoregressive_index=self._ar_index,
-                cache=self._shadow_cache,
-            )
+            with _eager_vae_scope(pipeline.encoder):
+                encoded = pipeline.encoder(
+                    input=hdmap,
+                    autoregressive_index=self._ar_index,
+                    cache=self._shadow_cache,
+                )
             transformer = pipeline.diffusion_model.transformer
             self._alt_input = (
                 transformer.patchify_and_maybe_split_cp(encoded)
@@ -574,18 +595,51 @@ class ObstacleGuidance:
 
     @staticmethod
     def _guard_transformer(session: Any) -> None:
-        """Reject configs whose captured graphs would bake the dispatch."""
+        """Reject executors the predict_flow dispatch cannot intercept.
+
+        CUDA graphs and ``compile_network`` are fine: the dispatch wraps the
+        transformer's eager ``predict_flow`` (outside any capture), and the
+        graph wrapper stages the ``hdmap_condition`` kwarg into its static
+        buffers per call — the two forwards of a guided step are two replays
+        of the same captured graph with different conditioning staged in.
+        The native optimized-DiT executor is the one seam that bypasses the
+        Python conditioning path.
+        """
         transformer = session.pipeline.diffusion_model.transformer
-        config = getattr(transformer, "config", None)
-        if config is None:
-            return
-        if getattr(config, "use_cuda_graph", False):
+        if getattr(transformer, "_optimized_dit_executor", None) is not None:
             raise RuntimeError(
-                "obstacle guidance requires use_cuda_graph=False on the "
-                "transformer (predict_flow dispatch runs outside any graph)."
+                "obstacle guidance is not wired for the native optimized-DiT "
+                "executor; set native_dit_acceleration: disabled in the "
+                "world-model manifest."
             )
-        if getattr(config, "compile_network", False):
-            raise RuntimeError("obstacle guidance requires compile_network=False.")
+
+
+class _eager_vae_scope:
+    """Route a graph-wrapped Wan VAE's calls through its eager encoder.
+
+    The VAE's ``CUDAGraphWrapper`` passes the streaming cache dict through
+    verbatim, binding captured kernels to ONE cache's buffer addresses; a
+    replay fed a different cache would silently read/write the capture-time
+    cache. Flipping ``_use_cuda_graph`` off for the duration makes the
+    encode dispatch to the (possibly compiled) eager module with the cache
+    that was actually passed. No-op for encoders without the knob (pixel
+    shuffle, fakes).
+    """
+
+    def __init__(self, encoder: Any) -> None:
+        self._vae = getattr(encoder, "vae", None)
+        if self._vae is not None and not hasattr(self._vae, "_use_cuda_graph"):
+            self._vae = None
+        self._saved: bool | None = None
+
+    def __enter__(self) -> None:
+        if self._vae is not None:
+            self._saved = self._vae._use_cuda_graph
+            self._vae._use_cuda_graph = False
+
+    def __exit__(self, *exc: Any) -> None:
+        if self._vae is not None and self._saved is not None:
+            self._vae._use_cuda_graph = self._saved
 
 
 def install_obstacle_guidance_on_backend(
@@ -593,9 +647,10 @@ def install_obstacle_guidance_on_backend(
 ) -> None:
     """Arm box-axis guidance before model warmup starts.
 
-    Mirrors ``install_style_ability_on_backend``: ensures a CUDA-graph-free
-    session (unless the style corrector already swapped one in) and defers
-    the hook install until ``warmup_model`` has built the pipeline.
+    Mirrors ``install_style_ability_on_backend``'s deferred attach: the hook
+    install waits until ``warmup_model`` has built the pipeline. The session
+    keeps its accelerated pipeline — the guidance is CUDA-graph safe (see
+    :class:`ObstacleGuidance`), so no graph-free rebuild is needed.
     """
     if config.guide_scale <= 0.0:
         return
@@ -604,11 +659,6 @@ def install_obstacle_guidance_on_backend(
         raise ValueError(
             "--live-edit-obstacle guidance requires the omnidreams world-model backend."
         )
-    if not getattr(session, "_live_edit_cuda_graph_free", False):
-        from crazy_robotaxi.live_edit.style_ability import _corrector_safe_session
-
-        session = _corrector_safe_session(session)
-        backend._session = session
     guidance = ObstacleGuidance(config.guide_scale)
     original_warmup = session.warmup_model
 

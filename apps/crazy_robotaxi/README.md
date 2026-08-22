@@ -65,7 +65,10 @@ group "live edit"):
   the ego (`--live-edit-obstacle-stagger-chunks` apart in time; each
   despawns after its own pass). Conditioning-only unless
   `--live-edit-obstacle-guide-scale > 0`, which adds a second forward per
-  step while an event is active and forces the graph-free pipeline.
+  step while an event is active. The guidance is CUDA-graph safe (guided
+  steps replay the captured graph twice with box/no-box conditioning
+  staged in), so the accelerated pipeline stays on; event chunks cost ~2x
+  model time, non-event chunks are unchanged.
 - **Drift correctors** (`--live-edit-style-corrector`,
   `--live-edit-base-corrector`, `--live-edit-weather-corrector`): optional
   per-state weight-merged correctors. `--live-edit-corrector-mode off`
