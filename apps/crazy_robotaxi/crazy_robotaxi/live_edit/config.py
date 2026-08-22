@@ -125,7 +125,21 @@ class LiveEditStyleConfig:
 
     Long holds soften after ~8-10 chunks as the edit window ages out of the
     KV cache; a periodic duty-cycled re-swap keeps the style crisp. ``0``
-    disables the refresh."""
+    disables the refresh. Skipped entirely when a timed skin
+    (:attr:`skin_duration_chunks`) expires at or before the first refresh
+    would fire — the re-swap would land on an already-reverted world."""
+
+    skin_duration_chunks: int = 0
+    """Timed "power-up" mode: auto-revert an activated skin to the base
+    world after this many generated chunks (at a chunk boundary, through
+    the same plain-swap revert path the K cycle uses). ``0`` (default)
+    keeps the current hold-until-cycled behavior. 11 chunks is ~3 s at the
+    shipped 8-frames-per-chunk / 30 fps recipe. Pressing K while a timed
+    skin is active cycles to the NEXT skin with a fresh timer (same K
+    semantics as untimed mode; mashing K to extend simply re-lands the
+    cycle). Exposed as ``--live-edit-skin-duration-chunks``. Also holds
+    ~10+ chunk scene-content drift in check: the skin never outlives the
+    crisp window."""
 
     skins: tuple[StyleSkin, ...] = _DEFAULT_SKINS
     """Selectable skins, cycled by the switch-skin key."""
@@ -146,6 +160,8 @@ class LiveEditStyleConfig:
             raise ValueError("guidance_chunks must be non-negative")
         if self.reswap_interval_chunks < 0:
             raise ValueError("reswap_interval_chunks must be non-negative")
+        if self.skin_duration_chunks < 0:
+            raise ValueError("skin_duration_chunks must be non-negative")
         if self.enabled and not self.skins:
             raise ValueError("live_edit.style requires at least one skin")
 
@@ -632,6 +648,16 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     group.add_argument(
+        "--live-edit-skin-duration-chunks",
+        type=int,
+        default=0,
+        help=(
+            "Timed power-up mode: auto-revert an activated skin to the base "
+            "world after N generated chunks (0 = hold until cycled, the "
+            "default; 11 is ~3 s at 8 frames/chunk, 30 fps)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-weather",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -796,6 +822,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             gate_alpha_json=args.live_edit_gate_alpha_json,
             guidance_chunks=int(args.live_edit_skin_guidance_chunks),
             reswap_interval_chunks=int(args.live_edit_style_reswap_chunks),
+            skin_duration_chunks=int(args.live_edit_skin_duration_chunks),
         ),
         coins=LiveEditCoinsConfig(
             enabled=bool(args.live_edit_coins),

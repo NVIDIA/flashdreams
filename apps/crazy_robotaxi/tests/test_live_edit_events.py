@@ -206,6 +206,52 @@ class TestWeatherCycle:
 
         assert gains == [0.1, _STYLE.corrector_gain]
 
+    def test_weather_key_is_rejected_while_a_timed_skin_is_active(self) -> None:
+        from dataclasses import replace as dc_replace
+
+        ability, session = _weather_ability(dc_replace(_STYLE, skin_duration_chunks=3))
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability.active_skin_name == "arcade"
+
+        ability.request_weather_cycle()  # mid-power-up V press
+        session.continue_generation([])
+
+        assert ability.active_weather_name == "clear"
+
+    def test_weather_is_available_again_after_the_timed_skin_expires(self) -> None:
+        from dataclasses import replace as dc_replace
+
+        ability, session = _weather_ability(dc_replace(_STYLE, skin_duration_chunks=2))
+        ability.request_cycle()
+        session.continue_generation([])
+        session.continue_generation([])
+        session.continue_generation([])  # auto-revert to base
+        assert ability.active_skin_name == "base"
+
+        ability.request_weather_cycle()
+        session.continue_generation([])
+
+        assert ability.active_weather_name == "rain"
+
+    def test_timed_skin_activation_still_clears_an_active_weather(self) -> None:
+        from dataclasses import replace as dc_replace
+
+        ability, session = _weather_ability(dc_replace(_STYLE, skin_duration_chunks=2))
+        ability.request_weather_cycle()
+        session.continue_generation([])
+        assert ability.active_weather_name == "rain"
+
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability.active_skin_name == "arcade"
+        assert ability.active_weather_name == "clear"
+
+        session.continue_generation([])
+        session.continue_generation([])  # timer expires -> base, still clear
+        assert ability.active_skin_name == "base"
+        assert ability.active_weather_name == "clear"
+
     def test_weather_works_without_the_style_ability(self) -> None:
         ability = StyleAbility(LiveEditStyleConfig(), _WEATHER)
         session = _FakeSession()
@@ -1047,7 +1093,7 @@ def _write_checkpoints(tmp_path, network) -> tuple[Path, Path]:
 
 
 def _fused_ability(
-    tmp_path, *, weather_gain: float = 0.1
+    tmp_path, *, weather_gain: float = 0.1, skin_duration_chunks: int = 0
 ) -> tuple[StyleAbility, _FakeSession, _ToyDeployTransformer]:
     session, transformer = _fused_session()
     lora_ckpt, corr_ckpt = _write_checkpoints(tmp_path, transformer.network)
@@ -1057,6 +1103,7 @@ def _fused_ability(
         corrector_checkpoint=corr_ckpt,
         corrector_mode="fused",
         reswap_interval_chunks=0,
+        skin_duration_chunks=skin_duration_chunks,
         skins=(StyleSkin("arcade", "arcade prompt"),),
     )
     weather = LiveEditWeatherConfig(
@@ -1144,6 +1191,22 @@ class TestFusedCorrectorDispatch:
         session.start(None, [], "scene prompt")
         ability.request_weather_cycle()
         session.continue_generation([])
+        assert ability._dispatch.active_state == "base"
+
+    def test_timed_skin_auto_revert_returns_the_dispatch_to_base(
+        self, tmp_path
+    ) -> None:
+        ability, session, _ = _fused_ability(tmp_path, skin_duration_chunks=2)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "skin"
+        session.continue_generation([])
+        assert ability._dispatch.active_state == "skin"
+
+        session.continue_generation([])  # timer expires at this boundary
+
+        assert ability.active_skin_name == "base"
         assert ability._dispatch.active_state == "base"
 
     def test_session_restart_resets_the_dispatch_to_base(self, tmp_path) -> None:

@@ -350,12 +350,13 @@ class _FakeSession:
 
 
 def _hooked_style_ability(
-    *, reswap_interval_chunks: int = 0
+    *, reswap_interval_chunks: int = 0, skin_duration_chunks: int = 0
 ) -> tuple[StyleAbility, _FakeSession]:
     config = LiveEditStyleConfig(
         enabled=True,
         lora_checkpoint=Path("/dev/null"),
         reswap_interval_chunks=reswap_interval_chunks,
+        skin_duration_chunks=skin_duration_chunks,
         skins=(
             StyleSkin("arcade", "arcade prompt"),
             StyleSkin("comic", "comic prompt"),
@@ -510,6 +511,191 @@ class TestDutyCycledReswap:
         session.continue_generation([])
         assert len(session.pipeline.replace_text_calls) == 3
         assert session.pipeline.replace_text_calls[-1][1] == [["comic prompt"]]
+
+
+class TestTimedSkinPowerUp:
+    def test_auto_reverts_to_base_after_the_configured_duration(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=3)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])  # swap lands -> arcade, hold 1
+        session.continue_generation([])  # hold 2
+        session.continue_generation([])  # hold 3
+        assert ability.active_skin_name == "arcade"
+        assert len(session.pipeline.replace_text_calls) == 1
+
+        session.continue_generation([])  # expiry boundary -> revert swap
+
+        assert ability.active_skin_name == "base"
+        _, text, kwargs = session.pipeline.replace_text_calls[-1]
+        assert text == [["scene prompt"]]
+        assert kwargs["guidance_scale"] == 1.0
+        assert kwargs["guidance_chunks"] == 0
+
+    def test_zero_duration_holds_the_skin_forever(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=0)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+        for _ in range(20):
+            session.continue_generation([])
+
+        assert ability.active_skin_name == "arcade"
+        assert len(session.pipeline.replace_text_calls) == 1
+
+    def test_cycle_during_an_active_timed_skin_starts_a_fresh_timer(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=3)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])  # arcade, hold 1
+        session.continue_generation([])  # hold 2
+        ability.request_cycle()
+        session.continue_generation([])  # comic swap lands, fresh timer
+        assert ability.active_skin_name == "comic"
+        session.continue_generation([])  # comic hold 2
+        session.continue_generation([])  # comic hold 3
+        assert ability.active_skin_name == "comic"
+
+        session.continue_generation([])  # comic expires
+
+        assert ability.active_skin_name == "base"
+        assert session.pipeline.replace_text_calls[-1][1] == [["scene prompt"]]
+
+    def test_user_cycle_at_the_expiry_boundary_wins_over_the_auto_revert(
+        self,
+    ) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=2)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])  # arcade, hold 1
+        session.continue_generation([])  # hold 2 (expiry due next boundary)
+        ability.request_cycle()  # queued before the boundary
+        session.continue_generation([])
+
+        assert ability.active_skin_name == "comic"
+        assert session.pipeline.replace_text_calls[-1][1] == [["comic prompt"]]
+
+    def test_last_skin_still_cycles_to_base_early(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=10)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])  # arcade
+        ability.request_cycle()
+        session.continue_generation([])  # comic (last skin)
+        ability.request_cycle()
+        session.continue_generation([])  # -> base, before the timer runs out
+
+        assert ability.active_skin_name == "base"
+        assert session.pipeline.replace_text_calls[-1][1] == [["scene prompt"]]
+
+    def test_reactivation_after_expiry_gets_a_full_timer(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=2)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+        session.continue_generation([])
+        session.continue_generation([])  # auto-revert
+        assert ability.active_skin_name == "base"
+
+        ability.request_cycle()
+        session.continue_generation([])  # arcade again, hold 1
+        assert ability.active_skin_name == "arcade"
+        session.continue_generation([])  # hold 2
+        assert ability.active_skin_name == "arcade"
+        session.continue_generation([])  # expires again
+        assert ability.active_skin_name == "base"
+
+    def test_reswap_is_skipped_when_the_duration_fits_inside_the_interval(
+        self,
+    ) -> None:
+        ability, session = _hooked_style_ability(
+            reswap_interval_chunks=3, skin_duration_chunks=3
+        )
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+        for _ in range(3):
+            session.continue_generation([])
+
+        assert ability.active_skin_name == "base"
+        # Activation swap + revert swap only; no duty-cycle re-swap fired.
+        assert len(session.pipeline.replace_text_calls) == 2
+
+    def test_reswap_still_fires_when_the_duration_outlives_the_interval(
+        self,
+    ) -> None:
+        ability, session = _hooked_style_ability(
+            reswap_interval_chunks=2, skin_duration_chunks=5
+        )
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])  # activation swap, hold 1
+        session.continue_generation([])  # hold 2
+        session.continue_generation([])  # re-swap due (interval 2), hold 3
+        assert len(session.pipeline.replace_text_calls) == 2
+        assert session.pipeline.replace_text_calls[-1][1] == [["arcade prompt"]]
+
+        session.continue_generation([])  # hold 4
+        session.continue_generation([])  # re-swap again, hold 5
+        assert ability.active_skin_name == "arcade"
+        session.continue_generation([])  # timer (not reset by re-swaps) expires
+
+        assert ability.active_skin_name == "base"
+        assert session.pipeline.replace_text_calls[-1][1] == [["scene prompt"]]
+
+    def test_remaining_chunks_count_down_and_clear_on_revert(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=3)
+        session.start(None, [], "scene prompt")
+        assert ability.skin_chunks_remaining is None
+        ability.request_cycle()
+        session.continue_generation([])
+        assert ability.skin_chunks_remaining == 2
+        session.continue_generation([])
+        assert ability.skin_chunks_remaining == 1
+        session.continue_generation([])
+        assert ability.skin_chunks_remaining == 0
+        session.continue_generation([])  # auto-revert
+        assert ability.skin_chunks_remaining is None
+
+    def test_seconds_remaining_uses_the_chunk_length(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=11)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+
+        # Default 8 frames/chunk at 30 fps until attach() reads a manifest.
+        assert ability.skin_seconds_remaining == pytest.approx(10 * 8.0 / 30.0)
+
+    def test_untimed_mode_reports_no_remaining_time(self) -> None:
+        ability, session = _hooked_style_ability(skin_duration_chunks=0)
+        session.start(None, [], "scene prompt")
+        ability.request_cycle()
+        session.continue_generation([])
+
+        assert ability.skin_chunks_remaining is None
+        assert ability.skin_seconds_remaining is None
+
+    def test_duration_flag_round_trip(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-style",
+                "--live-edit-style-lora",
+                "/tmp/lora.pt",
+                "--live-edit-skin-duration-chunks",
+                "11",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+        assert config.style.skin_duration_chunks == 11
+
+    def test_duration_defaults_to_hold_forever(self) -> None:
+        assert LiveEditStyleConfig().skin_duration_chunks == 0
+
+    def test_negative_duration_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            LiveEditStyleConfig(skin_duration_chunks=-1)
 
 
 class _FakeTextEncoder:
@@ -683,6 +869,28 @@ class TestPresenterWiring:
         # Only the chip pixels differ (sharpen disabled for isolation).
         assert not np.array_equal(out[:40, :120], rgb[:40, :120])
         assert np.array_equal(out[100:, :], rgb[100:, :])
+
+    def test_skin_chip_shows_the_powerup_countdown(self) -> None:
+        class StyleStub:
+            active_skin_name = "cyberpunk"
+            active_weather_name = "clear"
+            skin_seconds_remaining = 2.13
+
+        presenter = LiveEditPresenter(
+            object(), LiveEditConfig(sharpen_amount=0.0), style_ability=StyleStub()
+        )
+        assert "SKIN CYBERPUNK 2.1s" in presenter._hud_labels()
+
+    def test_skin_chip_has_no_countdown_in_untimed_mode(self) -> None:
+        class StyleStub:
+            active_skin_name = "cyberpunk"
+            active_weather_name = "clear"
+            skin_seconds_remaining = None
+
+        presenter = LiveEditPresenter(
+            object(), LiveEditConfig(sharpen_amount=0.0), style_ability=StyleStub()
+        )
+        assert "SKIN CYBERPUNK" in presenter._hud_labels()
 
     def test_set_coin_ability_binds_a_new_course(self) -> None:
         class RecordingPresenter:

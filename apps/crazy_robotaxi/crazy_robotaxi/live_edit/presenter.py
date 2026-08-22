@@ -553,7 +553,12 @@ class LiveEditPresenter:
         labels: list[str] = []
         style = self._style_ability
         if style is not None:
-            labels.append(f"SKIN {style.active_skin_name.upper()}")
+            skin_label = f"SKIN {style.active_skin_name.upper()}"
+            remaining_s = getattr(style, "skin_seconds_remaining", None)
+            if remaining_s is not None:
+                # Timed power-up mode: countdown at chunk granularity.
+                skin_label += f" {remaining_s:.1f}s"
+            labels.append(skin_label)
             weather_name = getattr(style, "active_weather_name", "clear")
             if weather_name != "clear":
                 labels.append(f"WEATHER {weather_name.upper()}")
