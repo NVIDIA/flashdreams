@@ -86,7 +86,7 @@ def test_client_window_for_null_model() -> None:
         # InputSource.
         client_window.update_input_events(UserInputEvents([numeral_keypad_input]))
 
-        # This is the InputSource getting the user-inputs to send to our step/step_ui loops
+        # Model and UI threads share this input.
         get_user_input_events = client_window.get_user_input_events()
         assert get_user_input_events.get_events() == [numeral_keypad_input]
         event_data = get_user_input_events.get_events()[0].get_event_data()

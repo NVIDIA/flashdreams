@@ -25,11 +25,12 @@ from flashdreams.runtime_v2.application_registry import (
     registered_application_slugs,
 )
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.benchmark_output_sink import BenchmarkOutputSink
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
 )
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ARGUMENT_SEPARATOR = "--"
@@ -60,7 +61,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     _report(mode.starting(window))
     # Nothing here says how long the run is: a session reports itself finished,
     # and a window ends the run when its client goes away.
-    ApplicationRunner(application, window).run(session_desc, application_args)
+    benchmark_output_sink = (
+        None if parsed.stats_path is None else BenchmarkOutputSink(parsed.stats_path)
+    )
+    ApplicationRunner(
+        application,
+        window,
+        benchmark_output_sink=benchmark_output_sink,
+    ).run(session_desc, application_args)
     _report(mode.finished(window))
 
 
@@ -130,6 +138,14 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="{" + ",".join(layout.value for layout in VideoTensorLayout) + "}",
         help="Tensor layout to generate results in.",
     )
+    parser.add_argument(
+        "--presentation-mode",
+        type=PresentationMode,
+        choices=tuple(PresentationMode),
+        default=None,
+        metavar="{" + ",".join(mode.value for mode in PresentationMode) + "}",
+        help="Blocking, latest-frame, or lossless benchmark presentation.",
+    )
 
 
 def _session_desc(
@@ -144,6 +160,7 @@ def _session_desc(
         field: value
         for field, value in (
             ("output_layout", parsed_args.layout),
+            ("presentation_mode", parsed_args.presentation_mode),
             ("frames_per_second_for_step", parsed_args.fps),
             ("video_width", parsed_args.pixel_width),
             ("video_height", parsed_args.pixel_height),

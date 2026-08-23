@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -19,14 +20,22 @@ _LOGGER = logging.getLogger(__name__)
 class ApplicationRunner:
     """Create and run one application session against one client window."""
 
-    def __init__(self, application: IApplication, client_window: IClientWindow) -> None:
+    def __init__(
+        self,
+        application: IApplication,
+        client_window: IClientWindow,
+        *,
+        benchmark_output_sink: OutputSink | None = None,
+    ) -> None:
         """
         Args:
             application: Long-lived application that creates the session.
             client_window: Window that supplies input and presents generated output.
+            benchmark_output_sink: Optional sink for model-step benchmark data.
         """
         self._application = application
         self._client_window = client_window
+        self._benchmark_output_sink = benchmark_output_sink
 
     def run(
         self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
@@ -51,10 +60,16 @@ class ApplicationRunner:
             self._application.init(commandline_args)
             session = self._application.create_session(session_desc)
             run_started = True
-            run_session(session, self._client_window)
+            run_session(
+                session,
+                self._client_window,
+                benchmark_output_sink=self._benchmark_output_sink,
+            )
         finally:
             if not run_started:
                 _close_client_window(self._client_window)
+                if self._benchmark_output_sink is not None:
+                    _close_output_sink(self._benchmark_output_sink)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
@@ -71,6 +86,16 @@ def _close_client_window(client_window: IClientWindow) -> None:
     except Exception:
         _LOGGER.exception(
             "The client window failed to close after a run that never started."
+        )
+
+
+def _close_output_sink(output_sink: OutputSink) -> None:
+    """Close a benchmark sink after a run that never reached it."""
+    try:
+        output_sink.close()
+    except Exception:
+        _LOGGER.exception(
+            "The benchmark output sink failed to close after a run that never started."
         )
 
 

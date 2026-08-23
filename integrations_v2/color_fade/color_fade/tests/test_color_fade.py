@@ -99,11 +99,19 @@ def _colours(result: StepResult) -> list[tuple[float, float, float]]:
     return colours
 
 
+def _step(session: ISession, step_index: int) -> StepResult:
+    results = session.model_thread.step(step_index, UserInputEvents([]))
+    assert isinstance(results, list)
+    result = results[0]
+    assert isinstance(result, StepResult)
+    return result
+
+
 def _step_colours(session: ISession, steps: int) -> list[tuple[float, float, float]]:
     """Run ``steps`` steps and return every frame's colour, oldest first."""
     colours: list[tuple[float, float, float]] = []
     for step_index in range(steps):
-        colours.extend(_colours(session.step(step_index, UserInputEvents([]))))
+        colours.extend(_colours(_step(session, step_index)))
     return colours
 
 
@@ -179,7 +187,7 @@ def test_a_frames_colour_depends_on_when_it_plays_not_on_the_chunk_size() -> Non
 def test_frames_match_the_session_desc() -> None:
     session = _session(frames_per_step=4)
 
-    result = session.step(0, UserInputEvents([]))
+    result = _step(session, 0)
 
     assert result.output.shape == (1, 3, 4, _HEIGHT, _WIDTH)
     assert result.output.dtype is torch.float32
@@ -190,25 +198,25 @@ def test_frames_match_the_session_desc() -> None:
 
 def test_the_fade_ignores_input_and_repeats_after_a_reset() -> None:
     session = _session(frames_per_step=3)
-    first = _colours(session.step(0, UserInputEvents([])))
-    session.step(1, UserInputEvents([]))
+    first = _colours(_step(session, 0))
+    _step(session, 1)
 
-    session.reset()
+    session.model_thread.reset()
 
-    assert _colours(session.step(0, UserInputEvents([]))) == pytest.approx(first)
+    assert _colours(_step(session, 0)) == pytest.approx(first)
 
 
 def test_the_session_finishes_once_it_has_generated_the_fade() -> None:
     session = _session(frames_per_step=5)
 
-    assert not session.is_finished()
+    assert not session.model_thread.is_finished()
     for step_index in range(_STEPS_FOR_THE_FADE):
-        session.step(step_index, UserInputEvents([]))
+        _step(session, step_index)
 
-    assert session.is_finished()
+    assert session.model_thread.is_finished()
     # A client asking to start over gets the fade again, not a finished session.
-    session.reset()
-    assert not session.is_finished()
+    session.model_thread.reset()
+    assert not session.model_thread.is_finished()
 
 
 def test_session_desc_available_before_any_output_is_opened() -> None:

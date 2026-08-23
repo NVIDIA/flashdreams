@@ -2,3 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Runtime data types for FlashDreams v2."""
+
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+
+__all__ = ["PresentationMode", "SessionDesc"]

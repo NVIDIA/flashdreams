@@ -83,3 +83,13 @@ Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `co
 - Docs and CPU autodoc: `docs/README.md`
 - Tests and quality regressions: `tests/README.md`
 - Security reports: `SECURITY.md`
+
+## API Documentation
+
+### API v2
+
+#### Threading
+
+Only contains two threads during a program runtime:
+- model-thread: responsible for generating model output
+- ui-thread: responsible for compositing and presenting the model output to the user. Additionally manages the state of `run_session` which includes content such as user event collection, and client window management.

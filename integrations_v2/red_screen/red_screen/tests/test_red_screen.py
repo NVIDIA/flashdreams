@@ -12,10 +12,11 @@ from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import WhenFull, run_session
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
     KeyboardUserInputEventData,
     UserInputEvent,
 )
@@ -80,6 +81,7 @@ def _session_desc(
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
+        presentation_mode=PresentationMode.LOSSLESS,
         frames_per_second_for_ui=frames_per_second_for_ui,
         frames_per_second_for_step=1,
         video_width=_FRAME_SIZE,
@@ -92,7 +94,14 @@ def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
         [
             UserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(key=key, pressed=pressed),
+                event_data=KeyboardUserInputEventData(
+                    key=key,
+                    state=(
+                        KeyboardInputState.PRESSED
+                        if pressed
+                        else KeyboardInputState.RELEASED
+                    ),
+                ),
             )
         ]
     )
@@ -108,6 +117,14 @@ def _is_red(result: StepResult) -> bool:
 
 def _is_black(result: StepResult) -> bool:
     return bool(torch.all(result.output == -1.0))
+
+
+def _step(session: ISession, step_index: int, events: UserInputEvents) -> StepResult:
+    results = session.model_thread.step(step_index, events)
+    assert isinstance(results, list)
+    result = results[0]
+    assert isinstance(result, StepResult)
+    return result
 
 
 def _run(
@@ -141,10 +158,10 @@ def test_red_screen_holds_red_between_key_edges() -> None:
     session = _new_session()
 
     frames = [
-        session.step(0, _key_event(pressed=True)),
-        session.step(1, UserInputEvents([])),
-        session.step(2, _key_event(pressed=False)),
-        session.step(3, UserInputEvents([])),
+        _step(session, 0, _key_event(pressed=True)),
+        _step(session, 1, UserInputEvents([])),
+        _step(session, 2, _key_event(pressed=False)),
+        _step(session, 3, UserInputEvents([])),
     ]
 
     assert [_is_red(frame) for frame in frames] == [True, True, False, False]
@@ -153,24 +170,29 @@ def test_red_screen_holds_red_between_key_edges() -> None:
 def test_red_screen_ignores_other_keys() -> None:
     session = _new_session()
 
-    assert _is_black(session.step(0, _key_event(pressed=True, key="q")))
+    assert _is_black(_step(session, 0, _key_event(pressed=True, key="q")))
 
 
 def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
     session = _new_session()
 
-    increased = session.step(0, _key_event(pressed=True, key="w"))
-    last_event_decreases = session.step(
+    increased = _step(session, 0, _key_event(pressed=True, key="w"))
+    last_event_decreases = _step(
+        session,
         1,
         UserInputEvents(
             [
                 UserInputEvent(
                     timestamp=uint64(0),
-                    event_data=KeyboardUserInputEventData(key="w", pressed=True),
+                    event_data=KeyboardUserInputEventData(
+                        key="w", state=KeyboardInputState.PRESSED
+                    ),
                 ),
                 UserInputEvent(
                     timestamp=uint64(1),
-                    event_data=KeyboardUserInputEventData(key="s", pressed=True),
+                    event_data=KeyboardUserInputEventData(
+                        key="s", state=KeyboardInputState.PRESSED
+                    ),
                 ),
             ]
         ),
@@ -211,7 +233,7 @@ def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
     # previous one, and every tick polls input before it presents. That makes the
     # key reach a step rather than depending on how the threads are scheduled.
     try:
-        run_session(session, window, steps=3, max_pending=1, when_full=WhenFull.BLOCK)
+        run_session(session, window, steps=3, max_pending=1)
     finally:
         app.close()
 
@@ -261,8 +283,8 @@ def test_reset_releases_the_held_key() -> None:
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
-    assert _is_red(session.step(0, _key_event(pressed=True)))
+    assert _is_red(_step(session, 0, _key_event(pressed=True)))
 
-    session.reset()
+    session.model_thread.reset()
 
-    assert _is_black(session.step(0, UserInputEvents([])))
+    assert _is_black(_step(session, 0, UserInputEvents([])))

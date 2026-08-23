@@ -13,7 +13,6 @@ import json
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import pytest
 import torch
@@ -21,6 +20,7 @@ import torch
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2 import cli
 from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
@@ -28,7 +28,7 @@ from flashdreams.runtime_v2.application_registry import (
     registered_application_slugs,
 )
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -98,6 +98,14 @@ class UndescribedApplication(IApplication):
         return OneStepSession(session_desc)
 
 
+class OneStepModelThread(IThread["OneStepSession"]):
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        return [self.state.step(step_index, events)]
+
+    def is_finished(self) -> bool:
+        return self.state.is_finished()
+
+
 class OneStepSession(ISession):
     """A session generating one frame and reporting itself finished."""
 
@@ -106,7 +114,7 @@ class OneStepSession(ISession):
         self._generated = False
 
     def init(self) -> None:
-        return
+        self.register_model_thread(OneStepModelThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -115,11 +123,14 @@ class OneStepSession(ISession):
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         del events
         self._generated = True
+        output_shape = (
+            (1, 3, 1, self._session_desc.video_height, self._session_desc.video_width)
+            if self._session_desc.output_layout is VideoTensorLayout.bcthw
+            else (1, 3, self._session_desc.video_height, self._session_desc.video_width)
+        )
         return StepResult(
             step_index=step_index,
-            output=torch.zeros(
-                1, 3, self._session_desc.video_height, self._session_desc.video_width
-            ),
+            output=torch.zeros(output_shape),
             frame_count=1,
             output_layout=self._session_desc.output_layout,
         )
@@ -410,11 +421,14 @@ def test_an_application_with_no_session_of_its_own_is_described_by_the_arguments
             "12",
             "--layout",
             "bcthw",
+            "--presentation-mode",
+            "lossless",
         ]
     )
 
     assert application.asked_for == SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
+        presentation_mode=PresentationMode.LOSSLESS,
         frames_per_second_for_step=12,
         video_width=64,
         video_height=32,
@@ -456,8 +470,8 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
     cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])
 
     assert asked_for == ["webrtc"]
-    # And nothing counted the steps: the session reported itself finished.
-    assert len(window.results) == _TOTAL_BLOCKS
+    # Realtime output may repeat frames but must not skip them.
+    assert len(window.results) >= _TOTAL_BLOCKS * _BLOCK_FRAMES
 
 
 def test_the_command_needs_somewhere_to_write() -> None:

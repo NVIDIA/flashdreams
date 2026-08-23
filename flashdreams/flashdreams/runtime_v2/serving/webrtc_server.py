@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import socket
 import threading
 import time
@@ -26,7 +27,10 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
+    FocusUserInputEventData,
+    KeyboardInputState,
     KeyboardUserInputEventData,
+    MouseUserInputEventData,
     ResetUserInputEventData,
     UserInputEvent,
 )
@@ -384,21 +388,58 @@ class WebRTCServer:
                 raise ValueError("Keyboard event requires a non-empty key.")
             if not isinstance(pressed, bool):
                 raise ValueError("Keyboard event requires a boolean pressed value.")
-            event_data = KeyboardUserInputEventData(key=key, pressed=pressed)
+            event_data = KeyboardUserInputEventData(
+                key=key,
+                state=(
+                    KeyboardInputState.PRESSED
+                    if pressed
+                    else KeyboardInputState.RELEASED
+                ),
+            )
+        elif event_type == "mouse":
+            action = payload.get("action")
+            if action not in {"move", "button", "wheel"}:
+                raise ValueError(
+                    "Mouse event action must be 'move', 'button', or 'wheel'."
+                )
+            x = _normalized_coordinate(payload.get("x"), label="Mouse x")
+            y = _normalized_coordinate(payload.get("y"), label="Mouse y")
+            button = payload.get("button", 0)
+            pressed = payload.get("pressed", False)
+            wheel_x = _finite_number(payload.get("wheel_x", 0.0), label="wheel_x")
+            wheel_y = _finite_number(payload.get("wheel_y", 0.0), label="wheel_y")
+            if isinstance(button, bool) or not isinstance(button, int) or button < 0:
+                raise ValueError("Mouse button must be a non-negative integer.")
+            if not isinstance(pressed, bool):
+                raise ValueError("Mouse pressed must be a boolean.")
+            event_data = MouseUserInputEventData(
+                action=action,
+                x=x,
+                y=y,
+                button=button,
+                pressed=pressed,
+                wheel_x=wheel_x,
+                wheel_y=wheel_y,
+            )
+        elif event_type == "focus":
+            focused = payload.get("focused")
+            if not isinstance(focused, bool):
+                raise ValueError("Focus event requires a boolean focused value.")
+            event_data = FocusUserInputEventData(focused=focused)
         elif event_type == "reset":
             event_data = ResetUserInputEventData()
         elif event_type == "close":
             event_data = CloseUserInputEventData()
         else:
-            raise ValueError(
-                "Browser event type must be 'keyboard', 'reset', or 'close'."
-            )
+            raise ValueError("Unsupported browser event type.")
         self._append_event(event_data)
 
     def _append_event(
         self,
         event_data: (
             KeyboardUserInputEventData
+            | MouseUserInputEventData
+            | FocusUserInputEventData
             | ResetUserInputEventData
             | CloseUserInputEventData
         ),
@@ -446,6 +487,24 @@ class WebRTCServer:
         self._runner = None
         if runner is not None:
             await runner.cleanup()
+
+
+def _finite_number(value: object, *, label: str) -> float:
+    """Return a finite browser-input number."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{label} must be numeric.")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{label} must be finite.")
+    return result
+
+
+def _normalized_coordinate(value: object, *, label: str) -> float:
+    """Return a normalized browser pointer coordinate."""
+    result = _finite_number(value, label=label)
+    if result < 0.0 or result > 1.0:
+        raise ValueError(f"{label} must be between 0 and 1.")
+    return result
 
 
 def _result_to_rgb_frames(

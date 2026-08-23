@@ -3,13 +3,11 @@
 
 """CPU tests for the client window that writes an MP4.
 
-The window has two jobs: report no input, and write every result to the file or
-files a run asked for. Encoding is covered in ``test_mp4_output_sink.py``, what a
-stats file holds in ``test_metrics_output_sink.py``, and the loop in
-``test_session_runner.py``, so the runs here check that they meet.
+The window reports no input and writes every UI result to the video file.
+Encoding is covered in ``test_mp4_output_sink.py``; benchmark output remains a
+separate sink and is covered in ``test_benchmark_output_sink.py``.
 """
 
-import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +16,8 @@ import pytest
 import torch
 
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
+from flashdreams.runtime_v2.benchmark_output_sink import BenchmarkOutputSink
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
@@ -42,6 +42,14 @@ _FRAMES_PER_STEP = 2
 """Frames each step generates, above one so a frame count is not a step count."""
 
 
+class FakeModelThread(IThread["FakeSession"]):
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        return [self.state.step(step_index, events)]
+
+    def reset(self) -> None:
+        return
+
+
 class FakeSession(ISession):
     """Emit blank frames, recording the input each step was given."""
 
@@ -50,7 +58,7 @@ class FakeSession(ISession):
         self.observed_events: list[UserInputEvents] = []
 
     def init(self) -> None:
-        return
+        self.register_model_thread(FakeModelThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -128,17 +136,18 @@ def test_a_run_writing_a_file_encodes_a_step_at_a_time(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
-def test_a_run_can_be_asked_for_what_it_measured_as_well(tmp_path: Path) -> None:
-    """A benchmark asks for both files, and gets both from the one run."""
+def test_a_run_can_write_video_and_benchmark_measurements_separately(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "clip.mp4"
     stats_path = tmp_path / "stats.json"
 
     run_session(
         FakeSession(_session_desc()),
-        Mp4ClientWindow(path, stats_path=stats_path),
+        Mp4ClientWindow(path),
+        benchmark_output_sink=BenchmarkOutputSink(stats_path),
         steps=3,
     )
 
     assert _frame_count(path) == 3 * _FRAMES_PER_STEP
-    payload = json.loads(stats_path.read_text(encoding="utf-8"))
-    assert len(payload["samples"]) == 3
+    assert stats_path.is_file()

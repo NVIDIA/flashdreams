@@ -25,7 +25,12 @@ from av import VideoFrame
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEventData
+from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEventData,
+    KeyboardInputState,
+    KeyboardUserInputEventData,
+    MouseUserInputEventData,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
@@ -93,36 +98,62 @@ async def test_window_buffers_browser_events_until_drained() -> None:
             async with client.get(window.server.url) as response:
                 browser_page = await response.text()
                 assert response.status == 200
-                assert 'id="activate"' in browser_page
+                assert 'id="activate"' not in browser_page
+                assert 'id="reset"' not in browser_page
+                assert '<video id="video" autoplay muted playsinline>' in browser_page
+                assert 'id="status"' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
                 assert response.status == 200
-                assert 'key: "r", pressed: activationPressed' in browser_script
+                assert "activationPressed" not in browser_script
+                assert 'type: "reset"' not in browser_script
+                assert "waitForIceGatheringComplete" in browser_script
+                assert 'peer.iceGatheringState === "complete"' in browser_script
+                assert "Unable to start WebRTC" in browser_script
+                assert "renderedVideoBounds" in browser_script
+                assert "pressedKeys" in browser_script
+                assert "pointercancel" in browser_script
 
         window.open(_session_desc())
         peer, channel, _ = await _connect_browser(window)
         channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": True}))
         channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": False}))
+        channel.send(
+            json.dumps({"type": "mouse", "action": "move", "x": 0.25, "y": 0.75})
+        )
+        channel.send(json.dumps({"type": "focus", "focused": True}))
 
         events = []
         for _ in range(100):
             events.extend(window.get_user_input_events().get_events())
-            if len(events) == 2:
+            if len(events) == 4:
                 break
             await asyncio.sleep(0.01)
 
-        assert len(events) == 2
+        assert len(events) == 4
         keyboard_events = [
             data
             for event in events
             if isinstance(data := event.get_event_data(), KeyboardUserInputEventData)
         ]
-        assert [(event.key, event.pressed) for event in keyboard_events] == [
-            ("w", True),
-            ("w", False),
+        assert [(event.key, event.state) for event in keyboard_events] == [
+            ("w", KeyboardInputState.PRESSED),
+            ("w", KeyboardInputState.RELEASED),
         ]
         assert events[0].get_timestamp() <= events[1].get_timestamp()
+        mouse = next(
+            data
+            for event in events
+            if isinstance(data := event.get_event_data(), MouseUserInputEventData)
+        )
+        assert (mouse.action, mouse.x, mouse.y) == ("move", 0.25, 0.75)
+        focus = next(
+            data
+            for event in events
+            if isinstance(data := event.get_event_data(), FocusUserInputEventData)
+        )
+        assert focus.focused
         assert window.get_user_input_events().get_events() == []
     finally:
         if peer is not None:

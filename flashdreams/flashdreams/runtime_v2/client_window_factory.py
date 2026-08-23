@@ -69,15 +69,6 @@ class _Mp4Mode(ClientWindowMode):
         parser.add_argument(
             "--output-path", type=Path, help="MP4 file to write. Required for mp4."
         )
-        parser.add_argument(
-            "--stats-path",
-            type=Path,
-            default=None,
-            help=(
-                "JSON file to record what each step measured in, for a benchmark "
-                "to read. Nothing is measured unless this is asked for."
-            ),
-        )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
         if parsed_args.output_path is None:
@@ -85,9 +76,7 @@ class _Mp4Mode(ClientWindowMode):
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         self.check_arguments(parsed_args)
-        return Mp4ClientWindow(
-            parsed_args.output_path, stats_path=parsed_args.stats_path
-        )
+        return Mp4ClientWindow(parsed_args.output_path)
 
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
@@ -132,6 +121,15 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
         choices=tuple(mode.name for mode in _MODES),
         default=_MODES[0].name,
         help="Where the run goes. Default: %(default)s.",
+    )
+    parser.add_argument(
+        "--stats-path",
+        type=Path,
+        default=None,
+        help=(
+            "JSON file to record model-step measurements in, for a benchmark "
+            "to read. Nothing is measured unless this is asked for."
+        ),
     )
     for mode in _MODES:
         mode.add_arguments(parser)

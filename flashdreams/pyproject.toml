@@ -119,6 +119,9 @@ runners = [
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
+ui = [
+    "imgui-bundle>=1.92.601,<2",
+]
 local-window = [
     "slangpy==0.42.0",
 ]

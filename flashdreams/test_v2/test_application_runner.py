@@ -13,8 +13,9 @@ from numpy import uint64
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -26,6 +27,14 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 pytestmark = pytest.mark.ci_cpu
 
 _RUNNER_LOGGER = "flashdreams.runtime_v2.application_runner"
+
+
+class _ModelThread(IThread["_Session"]):
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        return [self.state.step(step_index, events)]
+
+    def is_finished(self) -> bool:
+        return self.state.is_finished()
 
 
 class _Session(ISession):
@@ -46,6 +55,7 @@ class _Session(ISession):
 
     def init(self) -> None:
         self._calls.append("session.init")
+        self.register_model_thread(_ModelThread, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -136,9 +146,29 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
+class _BenchmarkSink:
+    """Record model results delivered independently of the client window."""
+
+    def __init__(self, calls: list[str]) -> None:
+        self._calls = calls
+        self.results: list[StepResult] = []
+
+    def open(self, session_desc: SessionDesc) -> None:
+        del session_desc
+        self._calls.append("benchmark.open")
+
+    def write(self, result: StepResult) -> None:
+        self.results.append(result)
+        self._calls.append(f"benchmark.write({result.step_index})")
+
+    def close(self) -> None:
+        self._calls.append("benchmark.close")
+
+
 def _session_desc() -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
+        presentation_mode=PresentationMode.LOSSLESS,
         frames_per_second_for_ui=100,
         frames_per_second_for_step=30,
         video_width=2,
@@ -185,6 +215,23 @@ def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
 
     assert [result.step_index for result in window.results] == [0, 1, 2]
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+def test_application_runner_keeps_benchmark_output_separate_from_the_window() -> None:
+    calls: list[str] = []
+    window = _SilentWindow(calls)
+    benchmark = _BenchmarkSink(calls)
+
+    ApplicationRunner(
+        _Application(calls, session_length=2),
+        window,
+        benchmark_output_sink=benchmark,
+    ).run(_session_desc())
+
+    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in benchmark.results] == [0, 1]
+    assert calls.index("benchmark.open") < calls.index("benchmark.write(0)")
+    assert calls.index("benchmark.write(1)") < calls.index("benchmark.close")
 
 
 def test_application_runner_reports_the_run_rather_than_the_close(

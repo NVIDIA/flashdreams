@@ -1,120 +1,148 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Application session abstract interface."""
+"""Application sessions."""
 
 from abc import ABC, abstractmethod
+from functools import cached_property
+from typing import Any, final
 
+from flashdreams.api_v2.thread import (
+    BlitModelOutputToScreenThread,
+    IThread,
+    UIThread,
+)
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class ISession(ABC):
-    """One run of an application, and the state that run builds up.
+    """One application run with a model thread and a UI thread.
 
-    Created by :meth:`IApplication.create_session`. Holds the KV cache, game
-    state and anything else that must not carry into another run; anything shared
-    between runs belongs to the application. A session runs no loop of its own:
-    the runtime calls :meth:`step` once per step and decides when to stop.
-
-    Note:
-        Call order is :meth:`init`, then :meth:`step` per step from index zero.
-        :meth:`reset` can happen mid-run, after which the index starts again from
-        zero. :meth:`close` ends it.
+    Register the model thread in :meth:`init`. If no UI thread is registered,
+    the runtime uses :class:`BlitModelOutputToScreenThread`.
     """
+
+    _registered_ui_thread: UIThread[Any] | None = None
+    _registered_model_thread: IThread[Any] | None = None
+    _registrations_frozen = False
+
+    @cached_property
+    def _presentation_manager(self) -> PresentationManager:
+        """Return this session's model frame buffer."""
+        return PresentationManager()
 
     @abstractmethod
     def init(self) -> None:
-        """Load the model and anything else this run needs.
-
-        Must not do client I/O, since this can run before a client connects.
-        """
+        """Initialize state and register the UI and model threads."""
         ...
 
     @property
     @abstractmethod
     def session_desc(self) -> SessionDesc:
-        """Return the description used to create this session.
-
-        The runtime reads it before :meth:`init` runs, since it opens the client
-        window with it.
-        """
+        """Return the description used to configure the runtime."""
         ...
 
-    @abstractmethod
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Produce one result for ``step_index``.
+    @final
+    def register_ui_thread(
+        self,
+        thread_type: type[UIThread[Any]],
+        *,
+        state: Any = None,
+        **kwargs: Any,
+    ) -> UIThread[Any]:
+        """Create and register the UI thread.
 
-        Args:
-            step_index: Zero-based index of the step to produce.
-            events: User input events collected since the previous step.
-
-        Returns:
-            Result carrying ``step_index``.
+        Omit this call to use the default UI.
         """
-        ...
+        if self._registrations_frozen:
+            raise RuntimeError("Thread registrations are already in use.")
+        if self._registered_ui_thread is not None:
+            raise RuntimeError("The session already registered a UI thread.")
+        if not issubclass(thread_type, UIThread):
+            raise TypeError("The UI thread must derive from UIThread.")
+        thread = thread_type(
+            state=state,
+            frequency=self.session_desc.frames_per_second_for_ui,
+            output_layout=self.session_desc.output_layout,
+            presentation_manager=self._presentation_manager,
+            **kwargs,
+        )
+        self._registered_ui_thread = thread
+        return thread
 
-    def step_ui(self, events: UserInputEvents) -> None:
-        """React to input at the UI rate, faster than :meth:`step`.
+    @final
+    def register_model_thread(
+        self,
+        thread_type: type[IThread[Any]],
+        *,
+        state: Any,
+        **kwargs: Any,
+    ) -> IThread[Any]:
+        """Create and register the model thread."""
+        if self._registrations_frozen:
+            raise RuntimeError("Thread registrations are already in use.")
+        if self._registered_model_thread is not None:
+            raise RuntimeError("The session already registered a model thread.")
+        if not issubclass(thread_type, IThread):
+            raise TypeError("The model thread must derive from IThread.")
+        if issubclass(thread_type, UIThread):
+            raise TypeError("A UIThread cannot be registered as the model thread.")
+        thread = thread_type(
+            state=state,
+            frequency=self.session_desc.frames_per_second_for_step,
+            **kwargs,
+        )
+        self._registered_model_thread = thread
+        return thread
 
-        This exists so UI work is not held up by generation. ``run_session``
-        calls it on its I/O thread every tick, while :meth:`step` may still be
-        running, so a session implementing both must guard what they share. The
-        same events reach :meth:`step` in its next batch, so a session can
-        respond here and generate from them later.
+    @property
+    @final
+    def ui_thread(self) -> UIThread[Any]:
+        """Return the registered UI thread."""
+        if self._registered_ui_thread is None:
+            raise RuntimeError("The session has not registered a UI thread.")
+        return self._registered_ui_thread
 
-        It cannot produce output yet, so today it can only update state. The
-        default does nothing, and a session with nothing to do at this rate
-        leaves it alone.
-
-        Args:
-            events: User input events collected since the previous tick.
-        """
-        return
-
-    def is_finished(self) -> bool:
-        """Report whether this session has generated everything it has to.
-
-        ``run_session`` asks before every step and ends the run when the answer
-        is yes. A session that knows its own length says so here, rather than
-        the caller counting steps on its behalf: a fixed rollout knows how many
-        blocks it has, where a caller only knows what it was told.
-
-        The default never finishes, which is what an interactive session wants:
-        a run like that ends when its client goes away.
-
-        A reset is applied before this is asked, so a session starting over is
-        asked about the run it is starting, not the one it just finished.
-
-        Returns:
-            Whether the run should end rather than take another step.
-        """
-        return False
-
-    def reset(self) -> None:
-        """Reset per-generation state so the session can run again.
-
-        ``run_session`` calls this when a window reports a reset event, and then
-        steps from index zero again. A session that cannot start over should say
-        so rather than half-reset.
-
-        The next :meth:`step` still receives the batch the reset arrived in,
-        including the events before it, so a held key stays held across the
-        restart. Ignore the older events here if this session must not inherit
-        them.
-
-        Raises:
-            NotImplementedError: The session does not support reuse.
-        """
-        raise NotImplementedError(f"{type(self).__name__} does not support reset.")
+    @property
+    @final
+    def model_thread(self) -> IThread[Any]:
+        """Return the registered model-generation thread."""
+        if self._registered_model_thread is None:
+            raise RuntimeError("The session has not registered a model thread.")
+        return self._registered_model_thread
 
     def close(self) -> None:
-        """Release whatever this run holds.
-
-        Runs even when :meth:`init` raised, so an implementation releases what it
-        managed to acquire and tolerates being called on a session that never
-        finished starting. Not abstract, and does nothing by default, so a session
-        with nothing to release does not implement it.
-        """
+        """Release resources owned by the session."""
         return
+
+    @final
+    def _take_threads(self) -> tuple[UIThread[Any], IThread[Any]]:
+        """Return both threads and stop further registration."""
+        ui_thread = self._registered_ui_thread
+        if ui_thread is None:
+            ui_thread = self.register_ui_thread(BlitModelOutputToScreenThread)
+        model_thread = self._registered_model_thread
+        if model_thread is None:
+            raise RuntimeError("ISession.init() did not register a model thread.")
+        self._registrations_frozen = True
+        return ui_thread, model_thread
+
+    @final
+    def _shutdown_registered_threads(self) -> list[BaseException]:
+        """Close both threads and return any errors."""
+        failures: list[BaseException] = []
+        for thread in (
+            self._registered_model_thread,
+            self._registered_ui_thread,
+        ):
+            if thread is None:
+                continue
+            try:
+                thread._shutdown()
+            except BaseException as error:
+                failures.append(error)
+        return failures
+
+
+__all__ = ["ISession"]

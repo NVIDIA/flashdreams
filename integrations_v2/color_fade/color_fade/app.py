@@ -13,6 +13,7 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -52,6 +53,38 @@ class ColorFadeConfig:
 ## Session
 
 
+@dataclass(slots=True)
+class ColorFadeModelState:
+    """Mutable fade state owned by the model thread."""
+
+    config: ColorFadeConfig
+    session_desc: SessionDesc
+    total_steps: int
+    steps_generated: int = 0
+
+
+class ColorFadeModelThread(IThread[ColorFadeModelState]):
+    """Generate color-fade frames through the standard model loop."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        del events
+        self.state.steps_generated += 1
+        return [
+            StepResult(
+                step_index=step_index,
+                output=_frames(self.state, step_index),
+                frame_count=self.state.config.frames_per_step,
+                output_layout=self.state.session_desc.output_layout,
+            )
+        ]
+
+    def is_finished(self) -> bool:
+        return self.state.steps_generated >= self.state.total_steps
+
+    def reset(self) -> None:
+        self.state.steps_generated = 0
+
+
 class ColorFadeSession(ISession):
     """Emit solid frames fading from red to green, then stay green.
 
@@ -85,85 +118,54 @@ class ColorFadeSession(ISession):
             )
         self._config = config
         self._session_desc = session_desc
-        self._steps_generated = 0
         # One step past the fade's last whole frame, so the run ends on a frame
         # that is fully green rather than a shade short of it.
         frames = 1 + math.floor(
             config.seconds * session_desc.frames_per_second_for_step
         )
-        self._steps = math.ceil(frames / config.frames_per_step)
+        self._total_steps = math.ceil(frames / config.frames_per_step)
 
     def init(self) -> None:
-        """Do nothing: there is no model here to load."""
-        return
+        """Register the color-fade model thread; the default UI blits it."""
+        self.register_model_thread(
+            ColorFadeModelThread,
+            state=ColorFadeModelState(
+                config=self._config,
+                session_desc=self._session_desc,
+                total_steps=self._total_steps,
+            ),
+        )
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Emit the frames belonging to ``step_index``.
 
-        Args:
-            step_index: Zero-based index of this step.
-            events: Ignored. The fade responds to nothing, which is what makes
-                its output the same on every run.
+def _frames(state: ColorFadeModelState, step_index: int) -> Tensor:
+    frames_per_step = state.config.frames_per_step
+    seconds_per_frame = 1.0 / state.session_desc.frames_per_second_for_step
+    frame_times = (
+        torch.arange(frames_per_step, dtype=torch.float32)
+        + step_index * frames_per_step
+    ) * seconds_per_frame
+    progress = (frame_times / state.config.seconds).clamp(max=1.0)
 
-        Returns:
-            Result carrying ``[1, 3, frames_per_step, H, W]``.
-        """
-        self._steps_generated += 1
-        return StepResult(
-            step_index=step_index,
-            output=self._frames(step_index),
-            frame_count=self._config.frames_per_step,
-            output_layout=self._session_desc.output_layout,
+    channels = torch.full((3, frames_per_step), _NO_INTENSITY, dtype=torch.float32)
+    span = _FULL_INTENSITY - _NO_INTENSITY
+    channels[_RED_CHANNEL] = _FULL_INTENSITY - span * progress
+    channels[_GREEN_CHANNEL] = _NO_INTENSITY + span * progress
+    # Expand each frame's color over its height and width.
+    return (
+        channels.view(1, 3, frames_per_step, 1, 1)
+        .expand(
+            -1,
+            -1,
+            -1,
+            state.session_desc.video_height,
+            state.session_desc.video_width,
         )
-
-    def is_finished(self) -> bool:
-        """Report whether the whole fade has been generated.
-
-        Returns:
-            Whether the frames generated so far cover ``seconds`` of fade. The
-            last step may run a little past it, since a step generates whole
-            frames and the frames after the fade are green.
-        """
-        return self._steps_generated >= self._steps
-
-    def reset(self) -> None:
-        """Start the fade again.
-
-        Every frame is a function of its step index, so there is nothing else to
-        undo. Only the count of what has been generated goes back, which is what
-        makes this session unfinished again.
-        """
-        self._steps_generated = 0
-
-    def _frames(self, step_index: int) -> Tensor:
-        frames_per_step = self._config.frames_per_step
-        seconds_per_frame = 1.0 / self._session_desc.frames_per_second_for_step
-        frame_times = (
-            torch.arange(frames_per_step, dtype=torch.float32)
-            + step_index * frames_per_step
-        ) * seconds_per_frame
-        progress = (frame_times / self._config.seconds).clamp(max=1.0)
-
-        channels = torch.full((3, frames_per_step), _NO_INTENSITY, dtype=torch.float32)
-        span = _FULL_INTENSITY - _NO_INTENSITY
-        channels[_RED_CHANNEL] = _FULL_INTENSITY - span * progress
-        channels[_GREEN_CHANNEL] = _NO_INTENSITY + span * progress
-        # One colour per frame, spread over every pixel of that frame.
-        return (
-            channels.view(1, 3, frames_per_step, 1, 1)
-            .expand(
-                -1,
-                -1,
-                -1,
-                self._session_desc.video_height,
-                self._session_desc.video_width,
-            )
-            .contiguous()
-        )
+        .contiguous()
+    )
 
 
 ## Application

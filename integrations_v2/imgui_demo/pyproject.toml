@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-imgui-demo"
+version = "0.1.0"
+description = "Dear ImGui demos for the FlashDreams v2 threaded runtime."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams[local-window,serving,ui]",
+]
+
+[project.entry-points."flashdreams.applications_v2"]
+"imgui-text-input" = "imgui_demo.text_input_app:create_app"
+"imgui-model-output" = "imgui_demo.model_output_app:create_app"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["imgui_demo*"]
+
+[tool.uv]
+managed = true
