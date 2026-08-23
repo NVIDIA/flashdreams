@@ -4,7 +4,6 @@
 """User input events, each a timestamp plus the data for one input modality."""
 
 from dataclasses import dataclass
-from typing import ClassVar
 
 from numpy import uint64
 
@@ -40,11 +39,39 @@ class KeyboardUserInputEventData(UserInputEventData):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class CloseUserInputEventData(UserInputEventData):
-    """The client asked to end the run, or went away.
+class ActivationUserInputEventData(UserInputEventData):
+    """User input event data for an explicitly activated controller."""
 
-    A window reports this for its X button, a quit shortcut, or a client that
-    disconnected. ``run_session`` stops the run when it sees one.
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "activation"
+
+    active: bool = False
+    """Whether the browser currently owns active controls."""
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class MouseUserInputEventData(UserInputEventData):
+    """User input event data for relative mouse motion."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "mouse"
+
+    movement_x: float = 0.0
+    """Horizontal relative motion since the previous browser event."""
+    movement_y: float = 0.0
+    """Vertical relative motion since the previous browser event."""
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CloseUserInputEventData(UserInputEventData):
+    """The client explicitly asked to end the run.
+
+    A window reports this for its Stop button or a quit shortcut.
+    ``run_session`` stops the run when it sees one.
     """
 
     @classmethod
@@ -67,17 +94,7 @@ class ResetUserInputEventData(UserInputEventData):
         return "reset"
 
 
-# Below are stubbed input event data implementations for the sake of future implementation.
-@dataclass(frozen=True, slots=True, eq=False)
-class MouseUserInputEventData(UserInputEventData):
-    """User input event data for mouse."""
-
-    @classmethod
-    def get_type_name(cls) -> str:
-        """Return the event type name."""
-        return "mouse"
-
-
+# Below are stubbed input event data implementations for future implementation.
 @dataclass(frozen=True, slots=True, eq=False)
 class TouchUserInputEventData(UserInputEventData):
     """User input event data for touch."""

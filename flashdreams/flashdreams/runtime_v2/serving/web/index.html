@@ -7,12 +7,25 @@ SPDX-License-Identifier: Apache-2.0
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>FlashDreams WebRTC</title>
+    <style>
+      body { background: #111; color: #eee; font: 16px system-ui; margin: 0; }
+      main { margin: 1rem auto; max-width: 960px; padding: 0 1rem; }
+      video { background: #000; display: block; max-height: 75vh; width: 100%; }
+      button { font: inherit; margin: 0.75rem 0.5rem 0 0; padding: 0.6rem 1rem; }
+      #status { font-weight: 600; }
+    </style>
   </head>
   <body>
-    <video id="video" autoplay playsinline></video>
-    <button id="activate" type="button">Activate</button>
-    <button id="reset" type="button">Reset</button>
-    <script src="/app.js"></script>
+    <main>
+      <video id="video" autoplay playsinline></video>
+      <p id="status">Connecting…</p>
+      <button id="activate" type="button" disabled>Activate</button>
+      <button id="reset" type="button" disabled>Reset</button>
+      <button id="stop" type="button" disabled>Stop</button>
+      <p>Activate captures the pointer. Losing focus pauses controls; reconnecting does not end the session.</p>
+    </main>
+    <script src="app.js"></script>
   </body>
 </html>

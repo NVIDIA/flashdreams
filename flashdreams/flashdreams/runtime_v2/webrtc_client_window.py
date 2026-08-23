@@ -6,7 +6,10 @@
 import queue
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
+from flashdreams.runtime_v2.serving.webrtc_server import (
+    WebRTCServer,
+    WebRTCServerConfig,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import UserInputEvent
@@ -22,6 +25,7 @@ class WebRTCClientWindow(IClientWindow):
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
+        config: WebRTCServerConfig | None = None,
     ) -> None:
         """Create the WebRTC backend.
 
@@ -32,12 +36,14 @@ class WebRTCClientWindow(IClientWindow):
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
+            config: Optional security, transport, and interactive behavior.
         """
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
         self.server = WebRTCServer(
             host=host,
             port=port,
             startup_timeout_seconds=startup_timeout_seconds,
+            config=config,
         )
 
         def handle_input(event: UserInputEvent) -> None:
