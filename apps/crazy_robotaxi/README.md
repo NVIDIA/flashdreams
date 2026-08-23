@@ -63,6 +63,27 @@ group "live edit"):
   policy). `--live-edit-weather-maintain-interval N` optionally re-opens a
   short rebased window (`--live-edit-weather-maintain-chunks`, default 2)
   every N chunks; the default 0 never does (measured unnecessary).
+  Weather is timed by default: any activation (V key or item pickup)
+  auto-reverts to clear after `--live-edit-weather-duration-chunks` chunks
+  (default 90 ≈ 24 s; 0 holds until cycled), with a HUD countdown. The
+  revert lands GUIDED for `--live-edit-weather-clear-guidance-chunks`
+  chunks (default 8 — clear is itself a weather transition; a plain swap
+  leaves precipitation running on KV momentum). Accepted physics: the
+  revert stops new precipitation but does not undo accumulated scene
+  change — wet roads dry gradually and snow lingers then fades.
+- **Effect items** (`--live-edit-items`): sparse pickup items along the
+  lanes — rain/snow icons trigger that weather preset, a mystery box
+  grants a random timed skin burst (`--live-edit-item-mystery-burst-chunks`,
+  default 11 ≈ 3 s, even when the global skin duration is hold-forever;
+  `--live-edit-item-mystery-seed` makes the roll reproducible). Pickups
+  dispatch through the same state machines as the K/V keys at the next
+  chunk boundary, with a HUD flash; the keys stay fully live alongside.
+  Weather items obey the base-world-only rule — picking one up while a
+  skin is active shows a "BLOCKED" hint instead of queueing. Item sparsity
+  is global over the lane network (`--live-edit-item-spacing`, default one
+  item per 200 m neighborhood). Sprites are local-only paths
+  (`--live-edit-item-{rain,snow,mystery}-sprite`); without them the items
+  render procedural placeholder icons, like the coin sprite.
 - **Obstacle / traffic** (`--live-edit-obstacle`, spawn with `O`): cloned
   scene vehicles. `--live-edit-obstacle-count N` turns one key press into a
   traffic burst of N distinct crossing/oncoming clones staggered ahead of
