@@ -159,6 +159,21 @@ class TestItemCourse:
         )
         assert np.allclose(centers[:, 2], 1.5)
 
+    def test_short_lane_segments_still_get_items(self) -> None:
+        # Real maps chop lanes into segments shorter than the item spacing
+        # (the shipped suburb map): sparsity must be global, not per lane.
+        segments = []
+        for start in range(0, 1000, 40):
+            xs = np.linspace(start, start + 40, 41, dtype=np.float32)
+            centerline = np.stack([xs, np.zeros_like(xs), np.zeros_like(xs)], axis=1)
+            segments.append(NavigationLane(centerline_world=centerline))
+
+        centers, _ = build_item_course(segments, _items_config())
+
+        assert 4 <= len(centers) <= 6  # ~1000 m / 200 m spacing
+        order = np.sort(centers[:, 0])
+        assert (np.diff(order) >= 200.0 - 1e-3).all()
+
     def test_overlapping_lanes_do_not_stack_items(self) -> None:
         lane = _straight_lane()
         centers, _ = build_item_course([lane, lane], _items_config())

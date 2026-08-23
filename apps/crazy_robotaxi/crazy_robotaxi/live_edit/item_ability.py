@@ -29,6 +29,7 @@ drawn by the live-edit presenter next to the ability chips.
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -47,20 +48,25 @@ from crazy_robotaxi.live_edit.config import (
 )
 from crazy_robotaxi.navigation import NavigationLane
 
-_DEDUP_CELL_M = 8.0
-"""Occupied-cell edge for course dedup where lanes overlap or touch."""
+_CANDIDATE_STEP_CAP_M = 25.0
+"""Upper bound on the along-lane candidate step (matches the coin walk)."""
 
 
 def build_item_course(
     lanes: Sequence[NavigationLane],
     config: LiveEditItemsConfig,
 ) -> tuple[npt.NDArray[np.float32], tuple[str, ...]]:
-    """Lay out one effect item every ``spacing_m`` along the lane centers.
+    """Lay out effect items with GLOBAL ``spacing_m`` sparsity over the map.
 
-    Mirrors :func:`~.coin_ability.build_coin_course`'s lane walk with a
-    single centered item per interval; item types cycle through
-    :data:`~.config.ITEM_TYPES` in placement order, which keeps the mix
-    even and the layout deterministic for a given scene.
+    Rarity is a property of the whole lane network, not of each polyline:
+    real maps chop lanes into short segments (the shipped suburb map's
+    segments are mostly shorter than the item spacing), so a per-lane walk
+    at ``spacing_m`` intervals places almost nothing. Instead the walk
+    samples candidates every ~``spacing_m / 4`` (capped at the coin step)
+    and accepts one only when no already-accepted item lies within
+    ``spacing_m`` (spacing-sized spatial hash, 3x3 neighborhood check).
+    Deterministic for a given lane order; item types cycle through
+    :data:`~.config.ITEM_TYPES` in acceptance order.
 
     Returns:
         ``(centers [items, 3] world, types [items])``.
@@ -68,8 +74,10 @@ def build_item_course(
     Raises:
         ValueError: No lane yields a single item.
     """
+    step = min(config.spacing_m / 4.0, _CANDIDATE_STEP_CAP_M)
     centers: list[npt.NDArray[np.float32]] = []
-    occupied_cells: set[tuple[int, int]] = set()
+    cells: dict[tuple[int, int], list[int]] = {}
+    cell_m = config.spacing_m
     for lane in lanes:
         points = np.asarray(lane.centerline_world, dtype=np.float32)
         if len(points) < 2:
@@ -77,23 +85,28 @@ def build_item_course(
         segment_lengths = np.linalg.norm(np.diff(points[:, :2], axis=0), axis=1)
         cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
         total = float(cumulative[-1])
-        distance = config.spacing_m / 2.0
+        distance = step / 2.0
         while distance < total:
             index = int(np.searchsorted(cumulative, distance) - 1)
             index = max(0, min(index, len(points) - 2))
             span = float(cumulative[index + 1] - cumulative[index])
             fraction = 0.0 if span <= 0.0 else (distance - cumulative[index]) / span
             center = points[index] + fraction * (points[index + 1] - points[index])
-            cell = (
-                round(float(center[0]) / _DEDUP_CELL_M),
-                round(float(center[1]) / _DEDUP_CELL_M),
+            x, y = float(center[0]), float(center[1])
+            cell_x, cell_y = math.floor(x / cell_m), math.floor(y / cell_m)
+            too_close = any(
+                math.hypot(x - float(centers[i][0]), y - float(centers[i][1]))
+                < config.spacing_m
+                for nx in (cell_x - 1, cell_x, cell_x + 1)
+                for ny in (cell_y - 1, cell_y, cell_y + 1)
+                for i in cells.get((nx, ny), ())
             )
-            if cell not in occupied_cells:
-                occupied_cells.add(cell)
+            if not too_close:
                 item = center.copy()
                 item[2] += np.float32(config.hover_height_m)
+                cells.setdefault((cell_x, cell_y), []).append(len(centers))
                 centers.append(item)
-            distance += config.spacing_m
+            distance += step
     if not centers:
         raise ValueError("Item course requires at least one drivable lane sample.")
     types = tuple(ITEM_TYPES[i % len(ITEM_TYPES)] for i in range(len(centers)))
