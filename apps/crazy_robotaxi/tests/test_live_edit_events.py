@@ -136,15 +136,19 @@ class TestWeatherCycle:
         assert kwargs["guidance_scale"] == 2.5
         assert kwargs["guidance_chunks"] == 6
 
-    def test_revert_to_clear_is_a_plain_swap(self) -> None:
+    def test_revert_to_clear_lands_guided(self) -> None:
+        # Clear is itself a weather transition: a plain swap leaves the
+        # precipitation running on KV-history momentum, so the wrap to
+        # clear (and the timed auto-revert) uses the guided clear landing.
         ability, session = _weather_ability()
         for _ in range(3):
             ability.request_weather_cycle()
             session.continue_generation([])
 
-        _, kwargs = session.pipeline.replace_text_calls[-1]
-        assert kwargs["guidance_scale"] == 1.0
-        assert kwargs["guidance_chunks"] == 0
+        text, kwargs = session.pipeline.replace_text_calls[-1]
+        assert text == [["scene prompt"]]
+        assert kwargs["guidance_scale"] == _WEATHER.guidance_scale
+        assert kwargs["guidance_chunks"] == _WEATHER.clear_guidance_chunks
 
     def test_weather_only_swap_bypasses_the_edit_lora(self) -> None:
         transformer = _FakeTransformer()

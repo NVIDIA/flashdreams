@@ -19,6 +19,11 @@ abilities, each behind its own ``--live-edit-*`` flag:
   ``v``): clear -> rain -> snow -> clear via plain two-prompt-guided swaps
   (no LoRA; the style LoRA is bypassed for weather-only windows) issued
   through the same :class:`StyleAbility` prompt state machine.
+- **Effect items** (:mod:`crazy_robotaxi.live_edit.item_ability`): sparse
+  pickup items along the lanes (rain/snow icons, mystery boxes) that reuse
+  the coin course/projection/compositing machinery and trigger the
+  weather/skin state machines at the next chunk boundary — the same path
+  the key requests take (the keys stay live alongside).
 - **Obstacle events** (:mod:`crazy_robotaxi.live_edit.obstacle_ability`,
   key ``o``): a real moving scene-vehicle track cloned, retimed, and
   shifted ahead of the ego through the ``advance_frames`` dynamic-actor
@@ -50,6 +55,7 @@ Wiring map (composition-root seams, all live in ``crazy_robotaxi``):
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditItemsConfig,
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
@@ -60,6 +66,7 @@ from crazy_robotaxi.live_edit.config import (
 __all__ = [
     "LiveEditCoinsConfig",
     "LiveEditConfig",
+    "LiveEditItemsConfig",
     "LiveEditObstacleConfig",
     "LiveEditStyleConfig",
     "LiveEditWeatherConfig",

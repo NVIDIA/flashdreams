@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from flashdreams.serving.realtime.timing import TraceSink
 from loguru import logger
 from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.application import (
@@ -68,7 +69,6 @@ from crazy_robotaxi.physics import (
 from crazy_robotaxi.scene import (
     load_scene_data,
 )
-from flashdreams.serving.realtime.timing import TraceSink
 
 
 class CrazyRobotaxiRuntime:
@@ -82,12 +82,16 @@ class CrazyRobotaxiRuntime:
         style_ability: Any | None = None,
         coin_ability: CoinAbility | None = None,
         obstacle_ability: Any | None = None,
+        item_ability: Any | None = None,
+        item_effects: Any | None = None,
     ) -> None:
         self._controller = controller
         self._keyboard = keyboard
         self._style_ability = style_ability
         self._coin_ability = coin_ability
         self._obstacle_ability = obstacle_ability
+        self._item_ability = item_ability
+        self._item_effects = item_effects
 
     @property
     def is_running(self) -> bool:
@@ -133,6 +137,20 @@ class CrazyRobotaxiRuntime:
                     f"[live-edit] coin pickup +{picked} "
                     f"total={self._coin_ability.collected_count}"
                 )
+        if self._item_ability is not None and self._item_ability.enabled:
+            # Pickup-driven effects: each pickup queues its effect on the
+            # ability state machines, which land it at the next chunk
+            # boundary — the same path the K/V key requests take.
+            for item_type in self._item_ability.advance_frames(
+                trajectory.vehicle_states
+            ):
+                label = (
+                    self._item_effects.apply(item_type)
+                    if self._item_effects is not None
+                    else f"{item_type.upper()}!"
+                )
+                self._item_ability.flash(label)
+                logger.info(f"[live-edit] item pickup {item_type} -> {label}")
         passengers = build_pickup_passenger_trajectories(
             snapshots, trajectory.timestamps_us
         )
@@ -195,9 +213,9 @@ class CrazyRobotaxiApplication:
         self._enclosure_segments_world = scene_data.enclosure_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
         self._map_bounds = map_bounds
-        if self._live_edit.coins.enabled:
-            # Lay coins along the driving-lane graph; legacy scenes without
-            # mapped lanes fall back to the recorded ego route.
+        if self._live_edit.coins.enabled or self._live_edit.items.enabled:
+            # Lay coins/items along the driving-lane graph; legacy scenes
+            # without mapped lanes fall back to the recorded ego route.
             self._coin_lanes = scene_data.navigation_lanes or (
                 NavigationLane(
                     centerline_world=np.asarray(
@@ -269,6 +287,24 @@ class CrazyRobotaxiApplication:
             logger.info(
                 f"[live-edit] coin course laid out: {coin_ability.remaining_count} coins"
             )
+        item_ability: Any | None = None
+        item_effects: Any | None = None
+        if self._live_edit.items.enabled and self._coin_lanes:
+            from crazy_robotaxi.live_edit.item_ability import (
+                ItemAbility,
+                ItemEffects,
+            )
+
+            # Rebuilt per rollout: a reset restores the course and re-seeds
+            # the mystery RNG (reproducible captures).
+            item_ability = ItemAbility.from_lanes(
+                self._coin_lanes, self._live_edit.items
+            )
+            item_effects = ItemEffects(self._style_ability, self._live_edit.items)
+            logger.info(
+                f"[live-edit] item course laid out: "
+                f"{item_ability.remaining_count} items"
+            )
         obstacle_ability: Any | None = None
         if self._live_edit.obstacle.enabled:
             from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
@@ -280,12 +316,15 @@ class CrazyRobotaxiApplication:
         if self._live_edit_presenter is not None:
             self._live_edit_presenter.set_coin_ability(coin_ability)
             self._live_edit_presenter.set_obstacle_ability(obstacle_ability)
+            self._live_edit_presenter.set_item_ability(item_ability)
         return CrazyRobotaxiRuntime(
             controller,
             self._keyboard,
             style_ability=self._style_ability,
             coin_ability=coin_ability,
             obstacle_ability=obstacle_ability,
+            item_ability=item_ability,
+            item_effects=item_effects,
         )
 
 

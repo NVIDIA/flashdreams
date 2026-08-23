@@ -194,8 +194,21 @@ class LiveEditFrameCompositor:
     the code.
     """
 
-    def __init__(self, coin_sprite: Image.Image) -> None:
+    def __init__(
+        self,
+        coin_sprite: Image.Image,
+        sprite_bank: dict[str, Image.Image] | None = None,
+    ) -> None:
         self._coin_sprite_image = coin_sprite.convert("RGBA")
+        # Sprite bank: "coin" plus any effect-item sprites, selected per
+        # sprite by CoinSprite.sprite_key. Items reuse the whole texture
+        # pipeline (shadow, fade quantization, per-size cache).
+        self._sprite_images: dict[str, Image.Image] = {
+            "coin": self._coin_sprite_image,
+            **{
+                key: image.convert("RGBA") for key, image in (sprite_bank or {}).items()
+            },
+        }
         # A/B switch for remote perf triage (LIVE_EDIT_COMPOSITOR=roi):
         # "roi" keeps the frame uint8 and blends each sprite slice in place
         # (minimal GPU memory traffic, ~5 tiny kernels per coin); "float"
@@ -206,7 +219,7 @@ class LiveEditFrameCompositor:
         # full-frame traffic on the inference stream is the actual cost.
         # Pair with --live-edit-perf-log to compare.
         self._roi_blends = os.environ.get("LIVE_EDIT_COMPOSITOR", "float") == "roi"
-        self._sprite_cache: dict[torch.device, tuple[Tensor, Tensor]] = {}
+        self._sprite_cache: dict[tuple[str, torch.device], tuple[Tensor, Tensor]] = {}
         self._shadow_cache: dict[torch.device, Tensor] = {}
         self._chip_cache: OrderedDict[tuple[str, torch.device], tuple[Tensor, Tensor]]
         self._chip_cache = OrderedDict()
@@ -217,16 +230,20 @@ class LiveEditFrameCompositor:
         # the per-frame hot path is one dictionary lookup and ONE blend per
         # coin — no per-frame F.interpolate, no separate shadow pass.
         self._coin_texture_cache: OrderedDict[
-            tuple[torch.device, int, int, int], tuple[Tensor, Tensor, int]
+            tuple[str, torch.device, int, int, int], tuple[Tensor, Tensor, int]
         ] = OrderedDict()
 
     ## Texture caches
 
-    def _sprite(self, device: torch.device) -> tuple[Tensor, Tensor]:
-        cached = self._sprite_cache.get(device)
+    def sprite_image(self, key: str) -> Image.Image:
+        """The bank sprite for one key (unknown keys fall back to the coin)."""
+        return self._sprite_images.get(key, self._coin_sprite_image)
+
+    def _sprite(self, key: str, device: torch.device) -> tuple[Tensor, Tensor]:
+        cached = self._sprite_cache.get((key, device))
         if cached is None:
-            cached = _rgba_to_tensors(self._coin_sprite_image, device)
-            self._sprite_cache[device] = cached
+            cached = _rgba_to_tensors(self.sprite_image(key), device)
+            self._sprite_cache[(key, device)] = cached
         return cached
 
     def _shadow(self, device: torch.device) -> Tensor:
@@ -293,7 +310,12 @@ class LiveEditFrameCompositor:
         return cached
 
     def _coin_texture(
-        self, device: torch.device, width: int, height: int, alpha_q: int
+        self,
+        key: str,
+        device: torch.device,
+        width: int,
+        height: int,
+        alpha_q: int,
     ) -> tuple[Tensor, Tensor, int]:
         """Merged coin+shadow texture at one size and quantized fade.
 
@@ -307,14 +329,14 @@ class LiveEditFrameCompositor:
             where ``coin_left`` is the coin rect's x offset inside the
             texture (the texture is anchored at the coin's top edge).
         """
-        key = (device, width, height, alpha_q)
-        cached = self._coin_texture_cache.get(key)
+        cache_key = (key, device, width, height, alpha_q)
+        cached = self._coin_texture_cache.get(cache_key)
         if cached is not None:
-            self._coin_texture_cache.move_to_end(key)
+            self._coin_texture_cache.move_to_end(cache_key)
             return cached
         from crazy_robotaxi.live_edit.presenter import _SHADOW_DROP_FRACTION
 
-        sprite_rgb, sprite_alpha = self._sprite(device)
+        sprite_rgb, sprite_alpha = self._sprite(key, device)
         scaled = F.interpolate(
             torch.cat([sprite_rgb, sprite_alpha], dim=0).unsqueeze(0),
             size=(height, width),
@@ -347,7 +369,7 @@ class LiveEditFrameCompositor:
             (1.0 - alpha * fade).permute(1, 2, 0).contiguous(),
             coin_x,
         )
-        self._coin_texture_cache[key] = cached
+        self._coin_texture_cache[cache_key] = cached
         while len(self._coin_texture_cache) > _SCALED_CACHE_MAX:
             self._coin_texture_cache.popitem(last=False)
         return cached
@@ -455,12 +477,14 @@ class LiveEditFrameCompositor:
             alpha_q = min(_FADE_STEPS, round(sprite.alpha * _FADE_STEPS))
             if alpha_q <= 0:
                 continue
-            squash = coin_squash(sprite.spin_phase, frame_index)
+            key = getattr(sprite, "sprite_key", "coin")
+            spin = getattr(sprite, "spin", True)
+            squash = coin_squash(sprite.spin_phase, frame_index) if spin else 1.0
             sprite_w, sprite_h = scaled_sprite_size(
-                self._coin_sprite_image.size, sprite.height_px, squash
+                self.sprite_image(key).size, sprite.height_px, squash
             )
             premultiplied, one_minus, coin_x = self._coin_texture(
-                device, sprite_w, sprite_h, alpha_q
+                key, device, sprite_w, sprite_h, alpha_q
             )
             blend(
                 canvas_hwc,

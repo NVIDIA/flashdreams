@@ -358,11 +358,33 @@ class LiveEditWeatherConfig:
     :attr:`maintain_interval_chunks` > 0). Exposed as
     ``--live-edit-weather-maintain-chunks``."""
 
+    duration_chunks: int = 90
+    """Timed weather: auto-revert an active weather to clear after this many
+    generated chunks (~24 s at the shipped 8-frames-per-chunk / 30 fps
+    recipe). Applies to every activation path (V key and pickup items).
+    ``0`` holds until cycled. The revert lands GUIDED (see
+    :attr:`clear_guidance_chunks`): unlike a skin revert, clear is itself a
+    weather transition and a plain swap leaves the precipitation running on
+    KV-history momentum. Accepted physics: the revert stops NEW
+    precipitation but does not undo accumulated scene change — wet roads dry
+    gradually and snow lingers then fades, which reads as realistic weather
+    passing. Exposed as ``--live-edit-weather-duration-chunks``."""
+
+    clear_guidance_chunks: int = 8
+    """Guided chunks for the weather -> clear landing (both the timed
+    auto-revert and a V-cycle wrap to clear). Slightly longer than the
+    6-chunk activation landing because dense states (hurricane fog walls)
+    dissipate slower than they land. Exposed as
+    ``--live-edit-weather-clear-guidance-chunks``."""
+
     corrector_gain: float = 0.0
     """Absolute style-drift-corrector gain while weather is active. ``0``
-    keeps the corrector off during weather (its gate profile was calibrated
-    on style v6, not weather, and base-world drift is mild); a small value
-    such as 0.10 trades a possible mild wash for less late-run drift."""
+    (default) keeps the corrector off during weather — policy decision
+    2026-08-23: the clean-forcing corrector runs ONLY for game-skin states
+    (0.15), base and weather states stay uncorrected. A/B note: 0.10
+    measured slightly crisper late-run under long weather holds, but with
+    timed weather (~24 s default) the window is short, so the knob stays
+    for A/B while the default is off."""
 
     corrector_checkpoint: Path | None = None
     """Dedicated corrector checkpoint for the weather state (fused mode).
@@ -383,6 +405,10 @@ class LiveEditWeatherConfig:
             raise ValueError("weather maintain_interval_chunks must be non-negative")
         if self.maintain_chunks < 0:
             raise ValueError("weather maintain_chunks must be non-negative")
+        if self.duration_chunks < 0:
+            raise ValueError("weather duration_chunks must be non-negative")
+        if self.clear_guidance_chunks < 0:
+            raise ValueError("weather clear_guidance_chunks must be non-negative")
         if not 0.0 <= self.corrector_gain <= 1.0:
             raise ValueError("weather corrector_gain must be in [0, 1]")
         if self.enabled and not self.weathers:
@@ -538,6 +564,97 @@ class LiveEditCoinsConfig:
             raise ValueError("max_visible_sprites must be non-negative")
 
 
+ITEM_TYPES = ("rain", "snow", "mystery")
+"""Effect-item kinds, in course-layout cycle order."""
+
+
+@dataclass(frozen=True)
+class LiveEditItemsConfig:
+    """Sparse pickup items along the lanes that trigger live-edit effects.
+
+    Reuses the coin machinery (lane-course layout, FTheta projection,
+    proximity pickup, GPU compositing) but places one item every
+    :attr:`spacing_m` instead of a coin row every 25 m. Picking an item up
+    routes the effect through the existing ability state machines at the
+    next chunk boundary — the exact path the K/V key requests take; the
+    keys stay fully functional alongside.
+    """
+
+    enabled: bool = False
+    """Whether effect items are laid out, rendered, and collectible."""
+
+    spacing_m: float = 200.0
+    """Arc-length spacing between items along each navigation lane (items
+    are rare by design; 150-300 m is the intended range)."""
+
+    hover_height_m: float = 1.0
+    """Item center height above the waypoint ground point."""
+
+    item_diameter_m: float = 0.9
+    """World-space item height used for sprite scaling (bigger than a coin
+    so the rare pickups read from a distance)."""
+
+    pickup_radius_m: float = 2.5
+    """XY distance at which the ego collects an item."""
+
+    max_render_distance_m: float = 120.0
+    """Items farther than this are not composited."""
+
+    fade_start_distance_m: float = 100.0
+    """Alpha ramps to zero between this distance and the render limit."""
+
+    rain_sprite_path: Path | None = None
+    """RGBA rain-item sprite; ``None`` renders a procedural placeholder.
+    Sprite files are local-only paths, never bundled (coin-sprite pattern)."""
+
+    snow_sprite_path: Path | None = None
+    """RGBA snow-item sprite; ``None`` renders a procedural placeholder."""
+
+    mystery_sprite_path: Path | None = None
+    """RGBA mystery-box sprite; ``None`` renders a procedural '?' box."""
+
+    mystery_burst_chunks: int = 11
+    """Timed-skin duration granted by a mystery box (~3 s at the shipped
+    recipe). Overrides the global ``skin_duration_chunks`` per activation so
+    the box grants a burst even when the global mode is hold-forever (0);
+    ``0`` makes the granted skin untimed."""
+
+    mystery_seed: int | None = None
+    """Seed for the mystery-box skin roll (reproducible captures); ``None``
+    draws from the OS entropy pool. Re-seeded per rollout."""
+
+    flash_seconds: float = 2.5
+    """How long the pickup HUD flash chip stays up."""
+
+    def __post_init__(self) -> None:
+        """Validate item values at configuration time."""
+        if self.spacing_m <= 0.0:
+            raise ValueError("item spacing_m must be positive")
+        if self.pickup_radius_m <= 0.0:
+            raise ValueError("item pickup_radius_m must be positive")
+        if self.item_diameter_m <= 0.0:
+            raise ValueError("item_diameter_m must be positive")
+        if not 0.0 < self.fade_start_distance_m <= self.max_render_distance_m:
+            raise ValueError(
+                "item fade_start_distance_m must be in (0, max_render_distance_m]"
+            )
+        if self.mystery_burst_chunks < 0:
+            raise ValueError("mystery_burst_chunks must be non-negative")
+        if self.flash_seconds <= 0.0:
+            raise ValueError("flash_seconds must be positive")
+
+    def sprite_path(self, item_type: str) -> Path | None:
+        """Configured sprite path for one item type (``None`` = procedural)."""
+        paths = {
+            "rain": self.rain_sprite_path,
+            "snow": self.snow_sprite_path,
+            "mystery": self.mystery_sprite_path,
+        }
+        if item_type not in paths:
+            raise ValueError(f"unknown item type {item_type!r}")
+        return paths[item_type]
+
+
 @dataclass(frozen=True)
 class LiveEditConfig:
     """Top-level live-edit ability switchboard."""
@@ -547,6 +664,9 @@ class LiveEditConfig:
 
     coins: LiveEditCoinsConfig = field(default_factory=LiveEditCoinsConfig)
     """Coin-pickup ability."""
+
+    items: LiveEditItemsConfig = field(default_factory=LiveEditItemsConfig)
+    """Effect-item pickup ability."""
 
     weather: LiveEditWeatherConfig = field(default_factory=LiveEditWeatherConfig)
     """Weather-event ability."""
@@ -572,6 +692,7 @@ class LiveEditConfig:
         return (
             self.style.enabled
             or self.coins.enabled
+            or self.items.enabled
             or self.weather.enabled
             or self.obstacle.enabled
         )
@@ -726,6 +847,26 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Guided chunks per weather maintenance pulse.",
     )
     group.add_argument(
+        "--live-edit-weather-duration-chunks",
+        type=int,
+        default=90,
+        help=(
+            "Timed weather: auto-revert to clear after N generated chunks "
+            "via a guided clear landing (~24 s at 8 frames/chunk, 30 fps; "
+            "0 = hold until cycled). Applies to V-key and item pickups."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-weather-clear-guidance-chunks",
+        type=int,
+        default=8,
+        help=(
+            "Guided chunks for the weather->clear landing (auto-revert and "
+            "V-cycle wrap; a bit longer than the activation landing so "
+            "dense states like hurricane fog dissipate)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-weather-first",
         type=str,
         default=None,
@@ -739,8 +880,10 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=0.0,
         help=(
-            "Absolute drift-corrector gain while weather is active "
-            "(0 = corrector off during weather, the calibrated-safe default)."
+            "Absolute drift-corrector gain while weather is active. Default "
+            "0 = off (policy: the clean-forcing corrector runs only for "
+            "game-skin states; 0.10 was slightly crisper on long holds but "
+            "timed weather keeps windows short). Knob kept for A/B."
         ),
     )
     group.add_argument(
@@ -825,6 +968,54 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     group.add_argument(
+        "--live-edit-items",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable sparse effect-pickup items along the route (rain/snow "
+            "icons trigger weather, mystery boxes a random timed skin burst)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-item-spacing",
+        type=float,
+        default=200.0,
+        help="Arc-length spacing between effect items per lane, metres.",
+    )
+    group.add_argument(
+        "--live-edit-item-rain-sprite",
+        type=Path,
+        default=None,
+        help="RGBA rain-item sprite path (default: procedural placeholder).",
+    )
+    group.add_argument(
+        "--live-edit-item-snow-sprite",
+        type=Path,
+        default=None,
+        help="RGBA snow-item sprite path (default: procedural placeholder).",
+    )
+    group.add_argument(
+        "--live-edit-item-mystery-sprite",
+        type=Path,
+        default=None,
+        help="RGBA mystery-box sprite path (default: procedural '?' box).",
+    )
+    group.add_argument(
+        "--live-edit-item-mystery-burst-chunks",
+        type=int,
+        default=11,
+        help=(
+            "Timed-skin duration a mystery box grants (overrides the global "
+            "skin duration per activation; 0 = untimed)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-item-mystery-seed",
+        type=int,
+        default=None,
+        help="Seed for the mystery-box skin roll (reproducible captures).",
+    )
+    group.add_argument(
         "--live-edit-perf-log",
         type=int,
         default=int(os.environ.get("LIVE_EDIT_PERF_LOG", "0")),
@@ -858,12 +1049,27 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             sprite_path=args.live_edit_coin_sprite,
             max_visible_sprites=int(args.live_edit_coin_max_visible),
         ),
+        items=LiveEditItemsConfig(
+            enabled=bool(args.live_edit_items),
+            spacing_m=float(args.live_edit_item_spacing),
+            rain_sprite_path=args.live_edit_item_rain_sprite,
+            snow_sprite_path=args.live_edit_item_snow_sprite,
+            mystery_sprite_path=args.live_edit_item_mystery_sprite,
+            mystery_burst_chunks=int(args.live_edit_item_mystery_burst_chunks),
+            mystery_seed=(
+                None
+                if args.live_edit_item_mystery_seed is None
+                else int(args.live_edit_item_mystery_seed)
+            ),
+        ),
         weather=LiveEditWeatherConfig(
             enabled=bool(args.live_edit_weather),
             guidance_scale=float(args.live_edit_weather_guidance),
             guidance_chunks=int(args.live_edit_weather_guidance_chunks),
             maintain_interval_chunks=int(args.live_edit_weather_maintain_interval),
             maintain_chunks=int(args.live_edit_weather_maintain_chunks),
+            duration_chunks=int(args.live_edit_weather_duration_chunks),
+            clear_guidance_chunks=int(args.live_edit_weather_clear_guidance_chunks),
             corrector_gain=float(args.live_edit_weather_corrector_gain),
             corrector_checkpoint=args.live_edit_weather_corrector,
             weathers=weathers_starting_with(args.live_edit_weather_first),

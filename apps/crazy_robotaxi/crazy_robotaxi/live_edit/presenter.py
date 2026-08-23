@@ -100,6 +100,45 @@ def procedural_coin_sprite(size_px: int = 96) -> Image.Image:
     return sprite
 
 
+_ITEM_PLACEHOLDER_COLORS = {
+    "rain": ((70, 130, 240, 255), (20, 60, 160, 255), "R"),
+    "snow": ((235, 245, 255, 255), (120, 160, 210, 255), "S"),
+    "mystery": ((250, 170, 40, 255), (160, 90, 10, 255), "?"),
+}
+
+
+def procedural_item_sprite(item_type: str, size_px: int = 96) -> Image.Image:
+    """Render a placeholder RGBA icon for one effect-item type.
+
+    The default when no sprite path is configured (real item sprites are
+    local-only files, never bundled — same policy as the coin sprite):
+    a filled rounded square in a per-type color carrying its letter.
+    """
+    if item_type not in _ITEM_PLACEHOLDER_COLORS:
+        raise ValueError(f"unknown item type {item_type!r}")
+    fill, rim, letter = _ITEM_PLACEHOLDER_COLORS[item_type]
+    sprite = Image.new("RGBA", (size_px, size_px), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(sprite)
+    margin = size_px // 10
+    draw.rounded_rectangle(
+        [margin, margin, size_px - margin, size_px - margin],
+        radius=size_px // 6,
+        fill=fill,
+        outline=rim,
+        width=max(2, size_px // 16),
+    )
+    text_box = draw.textbbox((0, 0), letter)
+    draw.text(
+        (
+            (size_px - (text_box[2] - text_box[0])) / 2.0,
+            (size_px - (text_box[3] - text_box[1])) / 2.0 - text_box[1],
+        ),
+        letter,
+        fill=rim,
+    )
+    return sprite
+
+
 class _HostRGBFrame:
     """Composited host frame exposing the LazyRGBFrame duck-type."""
 
@@ -216,6 +255,10 @@ class LiveEditPresenter:
         self._last_timestamp_us: int | None = None
         self._last_processed: PresentedFrame | None = None
         self._coin_sprite = self._load_sprite(config.coins.sprite_path)
+        self._item_ability: Any | None = None
+        self._item_sprites: dict[str, Image.Image] = (
+            self._load_item_sprites(config.items) if config.items.enabled else {}
+        )
         self._gpu_compositor: Any | None = None
         self._perf_log = (
             _LiveEditPerfLog(config.perf_log_every_frames)
@@ -232,6 +275,10 @@ class LiveEditPresenter:
     def set_obstacle_ability(self, obstacle_ability: ObstacleAbility | None) -> None:
         """Bind the per-rollout obstacle ability (chips + box annotation)."""
         self._obstacle_ability = obstacle_ability
+
+    def set_item_ability(self, item_ability: Any | None) -> None:
+        """Bind the per-rollout effect-item ability (sprites + HUD flash)."""
+        self._item_ability = item_ability
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Intercept the scene camera and forward it down the chain."""
@@ -328,19 +375,9 @@ class LiveEditPresenter:
         style = self._style_ability
         sharpen = style is not None and style.active_skin_name != "base"
         perf = self._perf_log
-        sprites: Any = ()
         coin_start = time.perf_counter()
-        coins = self._coin_ability
-        if coins is not None and coins.enabled and frame.rig_to_world is not None:
-            height, width = source_tensor.shape[:2]
-            camera_model = self._require_camera_model(width, height)
-            if camera_model is not None:
-                sprites = coins.visible_sprites(
-                    np.asarray(frame.rig_to_world, dtype=np.float32),
-                    camera_model,
-                    image_width=width,
-                    image_height=height,
-                )
+        height, width = source_tensor.shape[:2]
+        sprites = self._gather_sprites(frame, width, height)
         enqueue_start = time.perf_counter()
         gpu_events = None
         if perf is not None and source_tensor.is_cuda:
@@ -392,11 +429,14 @@ class LiveEditPresenter:
                 LiveEditFrameCompositor,
             )
 
-            self._gpu_compositor = LiveEditFrameCompositor(self._coin_sprite)
+            self._gpu_compositor = LiveEditFrameCompositor(
+                self._coin_sprite, sprite_bank=self._item_sprites
+            )
         return self._gpu_compositor
 
     def _anything_active(self) -> bool:
         coins_active = self._coin_ability is not None and self._coin_ability.enabled
+        items_active = self._item_ability is not None and self._item_ability.enabled
         style_active = self._style_ability is not None and (
             self._style_ability.active_skin_name != "base"
             or getattr(self._style_ability, "active_weather_name", "clear") != "clear"
@@ -404,7 +444,7 @@ class LiveEditPresenter:
         obstacle_active = (
             self._obstacle_ability is not None and self._obstacle_ability.active
         )
-        return coins_active or style_active or obstacle_active
+        return coins_active or items_active or style_active or obstacle_active
 
     def _apply_style_filter(self, rgb: np.ndarray) -> np.ndarray:
         style = self._style_ability
@@ -416,29 +456,54 @@ class LiveEditPresenter:
             amount=self._config.sharpen_amount,
         )
 
-    def _composite_coins(self, rgb: np.ndarray, frame: PresentedFrame) -> np.ndarray:
-        coins = self._coin_ability
-        if coins is None or not coins.enabled or frame.rig_to_world is None:
-            return rgb
-        height, width = rgb.shape[:2]
+    def _gather_sprites(
+        self, frame: PresentedFrame, width: int, height: int
+    ) -> tuple[Any, ...]:
+        """Coin + effect-item sprites merged far-to-near for one frame."""
+        if frame.rig_to_world is None:
+            return ()
         camera_model = self._require_camera_model(width, height)
         if camera_model is None:
+            return ()
+        rig_to_world = np.asarray(frame.rig_to_world, dtype=np.float32)
+        sprites: list[Any] = []
+        for ability in (self._coin_ability, self._item_ability):
+            if ability is not None and ability.enabled:
+                sprites.extend(
+                    ability.visible_sprites(
+                        rig_to_world,
+                        camera_model,
+                        image_width=width,
+                        image_height=height,
+                    )
+                )
+        if self._coin_ability is not None and self._item_ability is not None:
+            # Each ability emits far-to-near; the merged painter's order
+            # must too.
+            sprites.sort(key=lambda sprite: -sprite.distance_m)
+        return tuple(sprites)
+
+    def _sprite_image(self, sprite_key: str) -> Image.Image:
+        """Bank sprite for one key on the host path (coin fallback)."""
+        return self._item_sprites.get(sprite_key, self._coin_sprite)
+
+    def _composite_coins(self, rgb: np.ndarray, frame: PresentedFrame) -> np.ndarray:
+        height, width = rgb.shape[:2]
+        sprites = self._gather_sprites(frame, width, height)
+        if not sprites:
             return rgb
-        sprites = coins.visible_sprites(
-            np.asarray(frame.rig_to_world, dtype=np.float32),
-            camera_model,
-            image_width=width,
-            image_height=height,
-        )
         canvas = Image.fromarray(rgb, mode="RGB").convert("RGBA")
         for sprite in sprites:
-            squash = coin_squash(sprite.spin_phase, self._frame_index)
+            image = self._sprite_image(sprite.sprite_key)
+            squash = (
+                coin_squash(sprite.spin_phase, self._frame_index)
+                if sprite.spin
+                else 1.0
+            )
             sprite_w, sprite_h = scaled_sprite_size(
-                self._coin_sprite.size, sprite.height_px, squash
+                image.size, sprite.height_px, squash
             )
-            resized = self._coin_sprite.resize(
-                (sprite_w, sprite_h), Image.Resampling.LANCZOS
-            )
+            resized = image.resize((sprite_w, sprite_h), Image.Resampling.LANCZOS)
             if sprite.alpha < 1.0:
                 faded = np.asarray(resized).copy()
                 faded[..., 3] = (
@@ -561,10 +626,20 @@ class LiveEditPresenter:
             labels.append(skin_label)
             weather_name = getattr(style, "active_weather_name", "clear")
             if weather_name != "clear":
-                labels.append(f"WEATHER {weather_name.upper()}")
+                weather_label = f"WEATHER {weather_name.upper()}"
+                weather_s = getattr(style, "weather_seconds_remaining", None)
+                if weather_s is not None:
+                    # Timed weather: countdown at chunk granularity.
+                    weather_label += f" {weather_s:.1f}s"
+                labels.append(weather_label)
         coins = self._coin_ability
         if coins is not None and coins.enabled:
             labels.append(f"COINS {coins.collected_count}")
+        items = self._item_ability
+        if items is not None and items.enabled:
+            flash = items.flash_label
+            if flash is not None:
+                labels.append(flash)
         obstacle = self._obstacle_ability
         if obstacle is not None and obstacle.active:
             n = len(obstacle.events)
@@ -628,6 +703,21 @@ class LiveEditPresenter:
             return procedural_coin_sprite()
         with Image.open(sprite_path) as image:
             return image.convert("RGBA")
+
+    @classmethod
+    def _load_item_sprites(cls, items_config: Any) -> dict[str, Image.Image]:
+        """Per-type effect-item sprites (procedural placeholders by default)."""
+        from crazy_robotaxi.live_edit.config import ITEM_TYPES
+
+        sprites: dict[str, Image.Image] = {}
+        for item_type in ITEM_TYPES:
+            path = items_config.sprite_path(item_type)
+            sprites[item_type] = (
+                procedural_item_sprite(item_type)
+                if path is None
+                else cls._load_sprite(path)
+            )
+        return sprites
 
 
 def scaled_sprite_size(

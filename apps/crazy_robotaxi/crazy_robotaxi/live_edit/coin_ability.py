@@ -48,6 +48,12 @@ class CoinSprite:
     spin_phase: float
     """Stable per-coin phase for the spin/squash animation."""
 
+    sprite_key: str = "coin"
+    """Compositor sprite-bank key (effect items carry their type here)."""
+
+    spin: bool = True
+    """Whether the spin/squash animation applies (items render static)."""
+
 
 def build_coin_course(
     lanes: Sequence[NavigationLane],
@@ -174,11 +180,18 @@ class CoinAbility:
         self,
         coins_world: npt.NDArray[np.float32],
         config: LiveEditCoinsConfig,
+        *,
+        sprite_keys: Sequence[str] | None = None,
+        spin: bool = True,
     ) -> None:
         if coins_world.ndim != 2 or coins_world.shape[1] != 3:
             raise ValueError("coins_world must have shape [coins, 3]")
+        if sprite_keys is not None and len(sprite_keys) != len(coins_world):
+            raise ValueError("sprite_keys must match coins_world length")
         self._coins_world = coins_world.astype(np.float32)
         self._config = config
+        self._sprite_keys = None if sprite_keys is None else tuple(sprite_keys)
+        self._spin = spin
         self._collected = np.zeros(len(coins_world), dtype=bool)
         self._grid = _CoinGrid(self._coins_world[:, :2])
         self.enabled = True
@@ -212,9 +225,17 @@ class CoinAbility:
 
     def advance_frames(self, vehicle_states: Iterable[VehicleState]) -> int:
         """Collect coins within pickup radius of any pose; return new pickups."""
+        return len(self.collect_near(vehicle_states))
+
+    def collect_near(self, vehicle_states: Iterable[VehicleState]) -> tuple[int, ...]:
+        """Collect coins within pickup radius; return their course indices.
+
+        The indices let item-typed courses (:mod:`~.item_ability`) map each
+        pickup back to its effect; plain coin callers only need the count.
+        """
         if not self.enabled:
-            return 0
-        newly_collected = 0
+            return ()
+        collected: list[int] = []
         radius = self._config.pickup_radius_m
         for state in vehicle_states:
             near = self._grid.near(state.x_m, state.y_m, radius)
@@ -229,8 +250,8 @@ class CoinAbility:
             hits = np.linalg.norm(deltas, axis=1) <= radius
             if hits.any():
                 self._collected[candidates[hits]] = True
-                newly_collected += int(hits.sum())
-        return newly_collected
+                collected.extend(int(i) for i in candidates[hits])
+        return tuple(collected)
 
     def visible_sprites(
         self,
@@ -298,6 +319,7 @@ class CoinAbility:
             # Far-to-near order: dropping the head keeps the nearest coins.
             order = order[-cap:]
         alphas = self._fade_array(distances)
+        keys = self._sprite_keys
         return tuple(
             CoinSprite(
                 center_uv=(float(center_uv[i, 0]), float(center_uv[i, 1])),
@@ -305,6 +327,8 @@ class CoinAbility:
                 alpha=float(alphas[i]),
                 distance_m=float(distances[i]),
                 spin_phase=float(indices[i]) * 0.61,
+                sprite_key="coin" if keys is None else keys[int(indices[i])],
+                spin=self._spin,
             )
             for i in order
         )

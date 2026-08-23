@@ -553,7 +553,6 @@ class ObstacleGuidance:
         only, so the real branch captures correctly.
         """
         import torch
-
         from flashdreams.core.distributed.context_parallel import split_inputs_cp
 
         pipeline = session.pipeline
@@ -637,7 +636,7 @@ class _eager_vae_scope:
             self._saved = self._vae._use_cuda_graph
             self._vae._use_cuda_graph = False
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         if self._vae is not None and self._saved is not None:
             self._vae._use_cuda_graph = self._saved
 
