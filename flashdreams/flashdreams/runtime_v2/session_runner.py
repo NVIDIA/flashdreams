@@ -104,13 +104,17 @@ def run_session(
         ui_thread._finish_run(result)
         return result
 
-    def tick_ui() -> None:
-        model_advanced, model_results = presentation_manager.advance(
-            event_buffer.generation
-        )
-        if benchmark_output_sink is not None and model_results is not None:
-            for result in model_results:
+    def publish_model_results(
+        generation: int,
+        results: list[StepResult],
+    ) -> None:
+        presentation_manager.publish(generation, results)
+        if benchmark_output_sink is not None:
+            for result in results:
                 benchmark_output_sink.write(result)
+
+    def tick_ui() -> None:
+        model_advanced, _ = presentation_manager.advance(event_buffer.generation)
         # Do not redraw the last frame while lossless mode waits for a new one.
         if (
             session_desc.presentation_mode is PresentationMode.LOSSLESS
@@ -146,7 +150,7 @@ def run_session(
                     "stop": stop,
                     "failures": failures,
                     "finished": model_finished,
-                    "publish": presentation_manager.publish,
+                    "publish": publish_model_results,
                     "max_steps": steps,
                 },
                 name=_MODEL_THREAD_NAME,
