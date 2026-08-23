@@ -63,9 +63,13 @@ def build_item_course(
     segments are mostly shorter than the item spacing), so a per-lane walk
     at ``spacing_m`` intervals places almost nothing. Instead the walk
     samples candidates every ~``spacing_m / 4`` (capped at the coin step)
-    and accepts one only when no already-accepted item lies within
-    ``spacing_m`` (spacing-sized spatial hash, 3x3 neighborhood check).
-    Deterministic for a given lane order; item types cycle through
+    and accepts one only when no already-accepted item WITH A SIMILAR
+    HEADING lies within ``spacing_m`` (spacing-sized spatial hash, 3x3
+    neighborhood check). The heading test keeps the two directions of a
+    road independent — without it, whichever directed lane is walked first
+    claims every spacing-disc along the whole road and drivers of the
+    opposite lane never pass within pickup radius of an item. Deterministic
+    for a given lane order; item types cycle through
     :data:`~.config.ITEM_TYPES` in acceptance order.
 
     Returns:
@@ -76,6 +80,7 @@ def build_item_course(
     """
     step = min(config.spacing_m / 4.0, _CANDIDATE_STEP_CAP_M)
     centers: list[npt.NDArray[np.float32]] = []
+    headings: list[tuple[float, float]] = []
     cells: dict[tuple[int, int], list[int]] = {}
     cell_m = config.spacing_m
     for lane in lanes:
@@ -92,11 +97,18 @@ def build_item_course(
             span = float(cumulative[index + 1] - cumulative[index])
             fraction = 0.0 if span <= 0.0 else (distance - cumulative[index]) / span
             center = points[index] + fraction * (points[index + 1] - points[index])
+            direction = points[index + 1, :2] - points[index, :2]
+            norm = float(np.linalg.norm(direction))
+            if norm <= 1.0e-6:
+                distance += step
+                continue
+            heading = (float(direction[0]) / norm, float(direction[1]) / norm)
             x, y = float(center[0]), float(center[1])
             cell_x, cell_y = math.floor(x / cell_m), math.floor(y / cell_m)
             too_close = any(
                 math.hypot(x - float(centers[i][0]), y - float(centers[i][1]))
                 < config.spacing_m
+                and heading[0] * headings[i][0] + heading[1] * headings[i][1] > 0.5
                 for nx in (cell_x - 1, cell_x, cell_x + 1)
                 for ny in (cell_y - 1, cell_y, cell_y + 1)
                 for i in cells.get((nx, ny), ())
@@ -106,6 +118,7 @@ def build_item_course(
                 item[2] += np.float32(config.hover_height_m)
                 cells.setdefault((cell_x, cell_y), []).append(len(centers))
                 centers.append(item)
+                headings.append(heading)
             distance += step
     if not centers:
         raise ValueError("Item course requires at least one drivable lane sample.")

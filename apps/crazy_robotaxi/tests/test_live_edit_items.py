@@ -174,6 +174,25 @@ class TestItemCourse:
         order = np.sort(centers[:, 0])
         assert (np.diff(order) >= 200.0 - 1e-3).all()
 
+    def test_each_driving_direction_gets_its_own_items(self) -> None:
+        # An adjacent opposite-direction lane must not swallow a road's
+        # items: drivers of either direction should encounter pickups.
+        xs = np.linspace(0.0, 1000.0, 1001, dtype=np.float32)
+        forward = np.stack([xs, np.zeros_like(xs), np.zeros_like(xs)], axis=1)
+        backward = np.stack(
+            [xs[::-1], np.full_like(xs, 3.5), np.zeros_like(xs)], axis=1
+        )
+        centers, _ = build_item_course(
+            [
+                NavigationLane(centerline_world=forward),
+                NavigationLane(centerline_world=backward),
+            ],
+            _items_config(),
+        )
+
+        per_lane = [int((centers[:, 1] < 1.0).sum()), int((centers[:, 1] > 1.0).sum())]
+        assert min(per_lane) >= 4  # ~5 each at 200 m spacing
+
     def test_overlapping_lanes_do_not_stack_items(self) -> None:
         lane = _straight_lane()
         centers, _ = build_item_course([lane, lane], _items_config())
