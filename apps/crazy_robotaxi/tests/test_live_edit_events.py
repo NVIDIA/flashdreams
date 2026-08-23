@@ -28,7 +28,9 @@ from crazy_robotaxi.live_edit.obstacle_ability import (
     ObstacleAbility,
     ObstacleGuidance,
     build_obstacle_event,
+    build_static_event,
     extract_moving_templates,
+    extract_parked_templates,
     local_ground_z,
 )
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
@@ -606,6 +608,96 @@ class TestObstacleAbility:
         ability.reset()
         assert not ability.active
         assert ability.advance_frames(_chunk(133_332)) == ()
+
+
+class TestStaticRoadblock:
+    """Parked-track clones placed midroad from the session's first chunk."""
+
+    def _ability(self, count: int = 2) -> ObstacleAbility:
+        config = LiveEditObstacleConfig(
+            enabled=True, static_count=count, static_ahead_m=28.0, spacing_m=8.0
+        )
+        parked = extract_parked_templates(
+            (_track(drift_m=0.5), _track(drift_m=1.0)), config
+        )
+        return ObstacleAbility((), config, parked_templates=parked)
+
+    def test_extract_parked_keeps_only_static_car_sized_vehicles(self) -> None:
+        config = LiveEditObstacleConfig(enabled=True, static_count=1)
+        templates = extract_parked_templates(
+            (
+                _track(drift_m=0.5),  # good
+                _track(drift_m=30.0),  # moving
+                _track(drift_m=0.5, object_type="Pedestrian"),  # wrong class
+                _track(drift_m=0.5, length_m=8.0),  # truck-sized
+                _track(drift_m=0.5, duration_s=1.0),  # too short
+            ),
+            config,
+        )
+        assert len(templates) == 1
+        assert templates[0].drift_m == pytest.approx(0.5)
+
+    def test_roadblock_spawns_at_chunk0_alternating_slots_and_persists(self) -> None:
+        ability = self._ability()
+        actors = ability.advance_frames(_chunk(0))
+        assert len(actors) == 2
+        assert all(
+            actor.entity_id.startswith(f"{OBSTACLE_ENTITY_PREFIX}-static")
+            for actor in actors
+        )
+        # Ego at origin heading +x: slots 28 m and 36 m out, laterals -/+.
+        starts = [actor.translations_world[0] for actor in actors]
+        assert starts[0][0] == pytest.approx(28.0)
+        assert starts[0][1] == pytest.approx(-2.8)
+        assert starts[1][0] == pytest.approx(36.0)
+        assert starts[1][1] == pytest.approx(2.8)
+        # Never despawns: still returned far past the template coverage.
+        later = ability.advance_frames(_chunk(60_000_000))
+        assert len(later) == 2
+        assert ability.active
+
+    def test_roadblock_track_faces_the_ego_heading(self) -> None:
+        config = LiveEditObstacleConfig(enabled=True, static_count=1)
+        parked = extract_parked_templates((_track(drift_m=0.5),), config)
+        ego = VehicleState(
+            x_m=0.0,
+            y_m=0.0,
+            z_m=0.0,
+            yaw_rad=np.pi / 2,
+            speed_mps=5.0,
+            steer_rad=0.0,
+        )
+        event = build_static_event(
+            parked[0], ego_state=ego, spawn_timestamp_us=0, ahead_m=28.0, lateral_m=0.0
+        )
+        # Template yaw 0 rotated by +90 degrees; quaternion stays normalized.
+        quat = event.orientations_xyzw[0]
+        assert np.linalg.norm(quat) == pytest.approx(1.0)
+        assert 2.0 * np.arctan2(quat[2], quat[3]) == pytest.approx(np.pi / 2)
+        # Placed along the ego heading (+y).
+        assert event.translations_world[0][1] == pytest.approx(28.0)
+        assert abs(event.translations_world[0][0]) < 1.0
+
+    def test_reset_reanchors_the_roadblock_to_the_new_spawn_pose(self) -> None:
+        ability = self._ability(count=1)
+        (before,) = ability.advance_frames(_chunk(0))
+        ability.reset()
+        assert not ability.active
+        (after,) = ability.advance_frames(_chunk(0, ego_x=100.0))
+        assert after.translations_world[0][0] == pytest.approx(
+            before.translations_world[0][0] + 100.0
+        )
+
+    def test_okey_burst_still_works_alongside_the_roadblock(self) -> None:
+        config = LiveEditObstacleConfig(
+            enabled=True, static_count=1, active_chunks=3, min_drift_m=15.0
+        )
+        parked = extract_parked_templates((_track(drift_m=0.5),), config)
+        moving = extract_moving_templates((_track_crossing(),), config)
+        ability = ObstacleAbility(moving, config, parked_templates=parked)
+        assert len(ability.advance_frames(_chunk(0))) == 1  # roadblock only
+        ability.request_spawn()
+        assert len(ability.advance_frames(_chunk(133_332))) == 2
 
 
 class TestTrafficBurst:

@@ -470,6 +470,25 @@ class LiveEditObstacleConfig:
     """Ego XY distance at which a hit is logged (visual/log only; the
     clone is not registered with PhysX)."""
 
+    static_count: int = 0
+    """Static roadblock: this many PARKED-track clones placed midroad ahead
+    of the spawn pose, in the conditioning from the session's first chunk,
+    persisting until a rollout reset (which re-anchors them). Slots start
+    ``static_ahead_m`` out, ``spacing_m`` apart, laterals alternating
+    right/left by ``static_lateral_m`` so the ego can weave between them.
+    Pair with ``guide_scale`` ~2.0: probed 2026-08-23 — unguided static
+    clones render at ghost strength even when present from chunk 0 (the
+    initial camera frame shows the road empty), s=2.0 materializes solid
+    stopped cars in the 5-25 m band; mid-stream static spawns at s=2.5
+    break up. ``0`` disables."""
+
+    static_ahead_m: float = 28.0
+    """Meters ahead of the spawn pose where the first static clone sits
+    (nearer slots fight the initial frame hardest and stay ghost)."""
+
+    static_lateral_m: float = 2.8
+    """Lateral offset magnitude of the alternating static-clone slots."""
+
     guide_scale: float = 0.0
     """Box-axis guidance strength (flow extrapolated along the
     with-box/without-box conditioning direction). ``0`` disables the
@@ -499,6 +518,10 @@ class LiveEditObstacleConfig:
             raise ValueError("active_chunks must be positive")
         if self.min_drift_m < 0.0:
             raise ValueError("min_drift_m must be non-negative")
+        if self.static_count < 0:
+            raise ValueError("static_count must be non-negative")
+        if self.static_ahead_m <= 0.0:
+            raise ValueError("static_ahead_m must be positive")
         if self.guide_scale < 0.0:
             raise ValueError("guide_scale must be non-negative")
         if not 0.0 < self.length_range_m[0] <= self.length_range_m[1]:
@@ -932,6 +955,22 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Chunks the obstacle event stays active before despawn.",
     )
     group.add_argument(
+        "--live-edit-obstacle-static-count",
+        type=int,
+        default=0,
+        help=(
+            "Static roadblock: N parked-track clones placed midroad from the "
+            "session's first chunk (alternating laterals; pair with "
+            "--live-edit-obstacle-guide-scale 2.0; 0 disables)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-obstacle-static-ahead-m",
+        type=float,
+        default=28.0,
+        help="Meters ahead of spawn where the first static clone sits.",
+    )
+    group.add_argument(
         "--live-edit-obstacle-guide-scale",
         type=float,
         default=0.0,
@@ -1081,6 +1120,8 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             stagger_chunks=int(args.live_edit_obstacle_stagger_chunks),
             spawn_ahead_m=float(args.live_edit_obstacle_ahead_m),
             active_chunks=int(args.live_edit_obstacle_chunks),
+            static_count=int(args.live_edit_obstacle_static_count),
+            static_ahead_m=float(args.live_edit_obstacle_static_ahead_m),
             guide_scale=float(args.live_edit_obstacle_guide_scale),
             annotate=bool(args.live_edit_obstacle_annotate),
         ),

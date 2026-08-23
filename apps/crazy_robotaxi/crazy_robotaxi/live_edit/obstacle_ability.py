@@ -121,6 +121,55 @@ class ObstacleEvent:
         )
 
 
+def extract_parked_templates(
+    tracks: tuple[Any, ...],
+    config: LiveEditObstacleConfig,
+) -> tuple[ObstacleTemplate, ...]:
+    """Extract car-sized PARKED tracks (static-roadblock templates).
+
+    A parked perception track carries the real per-frame jitter / dims / z
+    statistics the model keys on, with near-zero ground-plane drift — the
+    on-manifold source for a static midroad clone (probe_static_cars,
+    2026-08-23: parked clones + box-axis guidance s=2 from chunk 0
+    materialize solid stopped cars; synthetic static boxes never do).
+    Longest coverage first.
+    """
+    templates: list[ObstacleTemplate] = []
+    lo, hi = config.length_range_m
+    for track in tracks:
+        if getattr(track, "object_type", None) not in _VEHICLE_TYPES:
+            continue
+        timestamps = np.asarray(track.timestamps_us, dtype=np.int64)
+        if len(timestamps) < 8:
+            continue
+        duration_s = float(timestamps[-1] - timestamps[0]) * 1e-6
+        if duration_s < 3.0:
+            continue
+        dimensions = np.asarray(track.dimensions_lwh, dtype=np.float32)
+        if dimensions.ndim == 2:
+            dimensions = dimensions[0]
+        length = float(dimensions.max())
+        if not lo <= length <= hi:
+            continue
+        centers = np.asarray(track.centers_world, dtype=np.float32)
+        drift = float(np.linalg.norm(centers[-1, :2] - centers[0, :2]))
+        if drift >= 2.0:
+            continue
+        templates.append(
+            ObstacleTemplate(
+                object_type=str(track.object_type),
+                timestamps_us=timestamps,
+                centers_world=centers,
+                orientations_xyzw=np.asarray(track.orientations_xyzw, dtype=np.float32),
+                dimensions_lwh=dimensions,
+                drift_m=drift,
+                duration_s=duration_s,
+            )
+        )
+    templates.sort(key=lambda template: -template.duration_s)
+    return tuple(templates)
+
+
 def extract_moving_templates(
     tracks: tuple[Any, ...],
     config: LiveEditObstacleConfig,
@@ -251,6 +300,99 @@ def build_obstacle_event(
     )
 
 
+_STATIC_PERSIST_US = 10**13
+"""Static clones persist to this timestamp (effectively forever)."""
+
+
+def _quat_yaw(quat: npt.NDArray[np.floating]) -> float:
+    x, y, z, w = (float(v) for v in quat)
+    return float(np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+
+
+def _yaw_quat(yaw: float) -> npt.NDArray[np.float64]:
+    return np.array([0.0, 0.0, np.sin(yaw / 2.0), np.cos(yaw / 2.0)])
+
+
+def _quat_multiply(
+    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return np.array(
+        [
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz,
+        ]
+    )
+
+
+def build_static_event(
+    template: ObstacleTemplate,
+    *,
+    ego_state: VehicleState,
+    spawn_timestamp_us: int,
+    ahead_m: float,
+    lateral_m: float,
+    ground_vertices: npt.NDArray[np.floating] | None = None,
+    entity_id: str = f"{OBSTACLE_ENTITY_PREFIX}-static-0",
+) -> ObstacleEvent:
+    """Place a parked-template clone as a persistent midroad roadblock.
+
+    The whole track is rigidly rotated about its first center to face the
+    ego heading (a stopped car mid-lane points along the road), shifted so
+    that center lands ``ahead_m``/``lateral_m`` from the ego, ground-height
+    corrected like :func:`build_obstacle_event`, and extended to persist
+    indefinitely (a roadblock never despawns on its own).
+    """
+    yaw_delta = ego_state.yaw_rad - _quat_yaw(template.orientations_xyzw[0])
+    cos_d, sin_d = np.cos(yaw_delta), np.sin(yaw_delta)
+    rotation = np.array([[cos_d, -sin_d], [sin_d, cos_d]])
+    centers = template.centers_world.astype(np.float64).copy()
+    pivot = centers[0, :2].copy()
+    centers[:, :2] = (centers[:, :2] - pivot) @ rotation.T + pivot
+    delta_quat = _yaw_quat(yaw_delta)
+    quats = np.stack(
+        [
+            _quat_multiply(delta_quat, quat.astype(np.float64))
+            for quat in template.orientations_xyzw
+        ]
+    )
+    quats /= np.linalg.norm(quats, axis=-1, keepdims=True)
+
+    forward = np.array([np.cos(ego_state.yaw_rad), np.sin(ego_state.yaw_rad)])
+    left = np.array([-forward[1], forward[0]])
+    ego_xy = np.array([ego_state.x_m, ego_state.y_m], dtype=np.float64)
+    target_xy = ego_xy + ahead_m * forward + lateral_m * left
+    shift_xy = target_xy - centers[0, :2]
+    centers[:, 0] += shift_xy[0]
+    centers[:, 1] += shift_xy[1]
+    source_z = local_ground_z(ground_vertices, pivot)
+    target_z = local_ground_z(ground_vertices, target_xy)
+    if source_z is not None and target_z is not None:
+        centers[:, 2] += target_z - source_z
+
+    timestamps = (
+        template.timestamps_us
+        - template.timestamps_us[0]
+        + np.int64(spawn_timestamp_us)
+    )
+    timestamps = np.concatenate(
+        [timestamps, np.asarray([_STATIC_PERSIST_US], dtype=np.int64)]
+    )
+    centers = np.concatenate([centers, centers[-1:]], axis=0).astype(np.float32)
+    quats = np.concatenate([quats, quats[-1:]], axis=0).astype(np.float32)
+    return ObstacleEvent(
+        entity_id=entity_id,
+        object_type=template.object_type,
+        timestamps_us=timestamps,
+        translations_world=centers,
+        orientations_xyzw=quats,
+        dimensions_lwh=template.dimensions_lwh.copy(),
+    )
+
+
 @dataclass
 class _ActiveClone:
     """Per-clone lifecycle state (each clone despawns independently)."""
@@ -276,12 +418,15 @@ class ObstacleAbility:
         config: LiveEditObstacleConfig,
         *,
         ground_vertices: npt.NDArray[np.floating] | None = None,
+        parked_templates: tuple[ObstacleTemplate, ...] = (),
     ) -> None:
         self._templates = templates
+        self._parked_templates = parked_templates
         self._config = config
         self._ground_vertices = ground_vertices
         self._pending: list[tuple[int, int]] = []  # (slot, due chunk index)
         self._clones: list[_ActiveClone] = []
+        self._static_clones: list[_ActiveClone] = []
         self._chunk_index = 0
         self._event_count = 0
         self._burst_count = 0
@@ -293,16 +438,27 @@ class ObstacleAbility:
     ) -> ObstacleAbility:
         """Extract templates from the scene bundle's perception tracks."""
         templates = extract_moving_templates(scene.vehicle_bbox_tracks, config)
-        logger.info(
-            f"[live-edit] obstacle templates: {len(templates)} moving "
-            f"vehicle tracks (of {len(scene.vehicle_bbox_tracks)})"
+        parked = (
+            extract_parked_templates(scene.vehicle_bbox_tracks, config)
+            if config.static_count > 0
+            else ()
         )
-        return cls(templates, config, ground_vertices=scene.ground_mesh_vertices)
+        logger.info(
+            f"[live-edit] obstacle templates: {len(templates)} moving, "
+            f"{len(parked)} parked vehicle tracks "
+            f"(of {len(scene.vehicle_bbox_tracks)})"
+        )
+        return cls(
+            templates,
+            config,
+            ground_vertices=scene.ground_mesh_vertices,
+            parked_templates=parked,
+        )
 
     @property
     def active(self) -> bool:
         """Return whether any obstacle clone is currently on screen."""
-        return bool(self._clones)
+        return bool(self._clones) or bool(self._static_clones)
 
     @property
     def event(self) -> ObstacleEvent | None:
@@ -312,7 +468,9 @@ class ObstacleAbility:
     @property
     def events(self) -> tuple[ObstacleEvent, ...]:
         """Return all active events (presenter annotation hook)."""
-        return tuple(clone.event for clone in self._clones)
+        return tuple(
+            clone.event for clone in (*self._static_clones, *self._clones)
+        )
 
     @property
     def hit_count(self) -> int:
@@ -334,9 +492,14 @@ class ObstacleAbility:
         self._burst_count += 1
 
     def reset(self) -> None:
-        """Clear pending and active clones (rollout restart)."""
+        """Clear pending and active clones (rollout restart).
+
+        Static roadblock clones re-anchor to the new spawn pose on the
+        next :meth:`advance_frames` call.
+        """
         self._pending = []
         self._clones = []
+        self._static_clones = []
         self._chunk_index = 0
 
     def advance_frames(
@@ -344,6 +507,12 @@ class ObstacleAbility:
     ) -> tuple[DynamicActorTrajectory, ...]:
         """Advance clone lifecycles for one chunk; return actors to append."""
         first_ts = int(trajectory.timestamps_us[0])
+        if (
+            self._config.static_count > 0
+            and not self._static_clones
+            and self._chunk_index == 0
+        ):
+            self._spawn_static_roadblock(trajectory, first_ts)
         due = [entry for entry in self._pending if entry[1] <= self._chunk_index]
         self._pending = [
             entry for entry in self._pending if entry[1] > self._chunk_index
@@ -352,12 +521,16 @@ class ObstacleAbility:
         for slot, _ in due:
             self._spawn_clone(slot, trajectory, first_ts)
 
-        if not self._clones:
+        if not self._clones and not self._static_clones:
             return ()
 
         last_ts = int(trajectory.timestamps_us[-1])
         survivors: list[_ActiveClone] = []
         actors: list[DynamicActorTrajectory] = []
+        for clone in self._static_clones:
+            clone.chunks += 1
+            self._check_collision(clone, trajectory)
+            actors.append(clone.event.actor())
         for clone in self._clones:
             clone.chunks += 1
             self._check_collision(clone, trajectory)
@@ -373,6 +546,44 @@ class ObstacleAbility:
                 survivors.append(clone)
         self._clones = survivors
         return tuple(actors)
+
+    def _spawn_static_roadblock(
+        self, trajectory: TrajectoryChunk, spawn_timestamp_us: int
+    ) -> None:
+        """Lay out ``static_count`` parked clones ahead of the spawn pose.
+
+        Runs once at chunk 0 so the boxes are in the conditioning from the
+        session's very first render (the operating point probed 2026-08-23:
+        distinct parked templates, slots staggered ``spacing_m`` apart from
+        ``static_ahead_m``, laterals alternating right/left so the ego can
+        weave between them; pair with ``guide_scale`` ~2.0 — unguided
+        static clones stay at ghost strength).
+        """
+        if not self._parked_templates:
+            logger.warning(
+                "[live-edit] static roadblock requested but no parked templates"
+            )
+            return
+        ego_state = trajectory.vehicle_states[0]
+        for slot in range(self._config.static_count):
+            template = self._parked_templates[slot % len(self._parked_templates)]
+            lateral = self._config.static_lateral_m * (1 if slot % 2 else -1)
+            event = build_static_event(
+                template,
+                ego_state=ego_state,
+                spawn_timestamp_us=spawn_timestamp_us,
+                ahead_m=self._config.static_ahead_m + slot * self._config.spacing_m,
+                lateral_m=lateral,
+                ground_vertices=self._ground_vertices,
+                entity_id=f"{OBSTACLE_ENTITY_PREFIX}-static-{slot}",
+            )
+            self._static_clones.append(_ActiveClone(event=event, template_index=-1))
+            start = event.translations_world[0]
+            logger.info(
+                f"[live-edit] static roadblock {event.entity_id} "
+                f"type={event.object_type} at "
+                f"({start[0]:.1f}, {start[1]:.1f}, {start[2]:.1f})"
+            )
 
     def _spawn_clone(
         self, slot: int, trajectory: TrajectoryChunk, spawn_timestamp_us: int
