@@ -971,6 +971,15 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Meters ahead of spawn where the first static clone sits.",
     )
     group.add_argument(
+        "--live-edit-obstacle-static-lateral-m",
+        type=float,
+        default=2.8,
+        help=(
+            "Lateral offset magnitude of the alternating static-clone slots "
+            "(bigger leaves the ego a wider slalom line)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-obstacle-guide-scale",
         type=float,
         default=0.0,
@@ -1122,6 +1131,7 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             active_chunks=int(args.live_edit_obstacle_chunks),
             static_count=int(args.live_edit_obstacle_static_count),
             static_ahead_m=float(args.live_edit_obstacle_static_ahead_m),
+            static_lateral_m=float(args.live_edit_obstacle_static_lateral_m),
             guide_scale=float(args.live_edit_obstacle_guide_scale),
             annotate=bool(args.live_edit_obstacle_annotate),
         ),
