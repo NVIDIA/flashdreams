@@ -12,7 +12,7 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IModelLoop
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.client_window_factory import create_client_window
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -51,7 +51,7 @@ class RedScreenConfig:
 
 @dataclass(slots=True)
 class RedScreenModelState:
-    """Mutable key state owned by the model thread."""
+    """Mutable key state owned by the model loop."""
 
     config: RedScreenConfig
     session_desc: SessionDesc
@@ -59,7 +59,7 @@ class RedScreenModelState:
     color_intensity: float = 0.0
 
 
-class RedScreenModelThread(IThread[RedScreenModelState]):
+class RedScreenModelLoop(IModelLoop[RedScreenModelState]):
     """Generate key-controlled frames through the standard model loop."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
@@ -101,8 +101,8 @@ class RedScreenSession(ISession):
 
     def init(self) -> None:
         """Reset key state and color intensity to start on a black frame."""
-        self.register_model_thread(
-            RedScreenModelThread,
+        self.register_model_loop(
+            RedScreenModelLoop,
             state=RedScreenModelState(
                 config=self._config,
                 session_desc=self._session_desc,

@@ -100,7 +100,7 @@ def _colours(result: StepResult) -> list[tuple[float, float, float]]:
 
 
 def _step(session: ISession, step_index: int) -> StepResult:
-    results = session.model_thread.step(step_index, UserInputEvents([]))
+    results = session.model_loop.step(step_index, UserInputEvents([]))
     assert isinstance(results, list)
     result = results[0]
     assert isinstance(result, StepResult)
@@ -201,7 +201,7 @@ def test_the_fade_ignores_input_and_repeats_after_a_reset() -> None:
     first = _colours(_step(session, 0))
     _step(session, 1)
 
-    session.model_thread.reset()
+    session.model_loop.reset()
 
     assert _colours(_step(session, 0)) == pytest.approx(first)
 
@@ -209,14 +209,14 @@ def test_the_fade_ignores_input_and_repeats_after_a_reset() -> None:
 def test_the_session_finishes_once_it_has_generated_the_fade() -> None:
     session = _session(frames_per_step=5)
 
-    assert not session.model_thread.is_finished()
+    assert not session.model_loop.is_finished()
     for step_index in range(_STEPS_FOR_THE_FADE):
         _step(session, step_index)
 
-    assert session.model_thread.is_finished()
+    assert session.model_loop.is_finished()
     # A client asking to start over gets the fade again, not a finished session.
-    session.model_thread.reset()
-    assert not session.model_thread.is_finished()
+    session.model_loop.reset()
+    assert not session.model_loop.is_finished()
 
 
 def test_session_desc_available_before_any_output_is_opened() -> None:

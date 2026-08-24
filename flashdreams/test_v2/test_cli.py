@@ -20,7 +20,7 @@ import torch
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IModelLoop
 from flashdreams.runtime_v2 import cli
 from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
@@ -98,7 +98,7 @@ class UndescribedApplication(IApplication):
         return OneStepSession(session_desc)
 
 
-class OneStepModelThread(IThread["OneStepSession"]):
+class OneStepModelLoop(IModelLoop["OneStepSession"]):
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         return [self.state.step(step_index, events)]
 
@@ -114,7 +114,7 @@ class OneStepSession(ISession):
         self._generated = False
 
     def init(self) -> None:
-        self.register_model_thread(OneStepModelThread, state=self)
+        self.register_model_loop(OneStepModelLoop, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:

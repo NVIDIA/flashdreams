@@ -43,7 +43,7 @@ class SessionDesc:
     """Rate to read input and present finished results at, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Maximum model-thread iterations per second."""
+    """Maximum model-loop iterations per second."""
 
     video_width: int = 1280
     """Output video width in pixels."""

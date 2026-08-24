@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Model and UI threads for a session."""
+"""Model and UI loops for a session."""
 
 from __future__ import annotations
 
@@ -30,17 +30,17 @@ StateT = TypeVar("StateT")
 @dataclass(slots=True)
 class _Message(Generic[StateT]):
     operation: Callable[[StateT], None]
-    """Operation to run before the thread's next step."""
+    """Operation to run before the loop's next step."""
 
 
-class IThread(ABC, Generic[StateT]):
-    """Base class for model and UI work."""
+class ILoop(ABC, Generic[StateT]):
+    """Shared state, messaging, and lifecycle for a session loop."""
 
     def __init__(self, *, state: StateT, frequency: int) -> None:
-        """Store the thread's state and rate.
+        """Store the loop's state, rate, and lifecycle events.
 
         Args:
-            state: State used by this thread.
+            state: State used by this loop.
             frequency: Maximum steps per second; zero disables pacing.
 
         Raises:
@@ -61,6 +61,25 @@ class IThread(ABC, Generic[StateT]):
         self._accepting_messages = True
         self._closed = False
         self._lifecycle_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
+        self._finished_event = threading.Event()
+        self._failure_queue: queue.Queue[BaseException] = queue.Queue()
+
+    @final
+    def _attach_runtime(
+        self,
+        *,
+        shutdown_event: threading.Event,
+        finished_event: threading.Event,
+        failure_queue: queue.Queue[BaseException],
+    ) -> None:
+        """Attach runtime state allocated during loop registration."""
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("Cannot attach runtime state to a closed loop.")
+            self._shutdown_event = shutdown_event
+            self._finished_event = finished_event
+            self._failure_queue = failure_queue
 
     @abstractmethod
     def step(
@@ -70,7 +89,7 @@ class IThread(ABC, Generic[StateT]):
 
         Args:
             step_index: Zero-based index since the latest reset.
-            events: Input events not seen by this thread before.
+            events: Input events not seen by this loop before.
 
         Returns:
             Model channels, one UI frame, or ``None``.
@@ -78,19 +97,19 @@ class IThread(ABC, Generic[StateT]):
         ...
 
     def is_finished(self) -> bool:
-        """Return whether this thread has completed its workload."""
+        """Return whether this loop has completed its workload."""
         return False
 
     def reset(self) -> None:
-        """Reset thread-owned state for a new session generation.
+        """Reset loop-owned state for a new session generation.
 
         Raises:
-            NotImplementedError: This thread does not support reset.
+            NotImplementedError: This loop does not support reset.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support reset.")
 
     def close(self) -> None:
-        """Release resources owned by this thread."""
+        """Release resources owned by this loop."""
         return
 
     @final
@@ -98,76 +117,27 @@ class IThread(ABC, Generic[StateT]):
         """Queue a state operation before the next :meth:`step` call.
 
         Args:
-            operation: Callable receiving the thread-owned state.
+            operation: Callable receiving the loop-owned state.
 
         Raises:
-            RuntimeError: The thread is shutting down.
+            RuntimeError: The loop is shutting down.
         """
         with self._lifecycle_lock:
             if not self._accepting_messages:
-                raise RuntimeError("Thread is shutting down.")
+                raise RuntimeError("Loop is shutting down.")
             self._message_queue.put(_Message(operation))
-
-    @final
-    def _run_loop(
-        self,
-        *,
-        event_buffer: EventBuffer,
-        reader_id: int,
-        stop: threading.Event,
-        failures: queue.Queue[BaseException],
-        finished: threading.Event,
-        publish: Callable[[int, list[StepResult]], None],
-        max_steps: int | None = None,
-    ) -> None:
-        """Run model steps until stopped or finished.
-
-        Args:
-            event_buffer: Client input shared with the UI thread.
-            reader_id: This thread's event reader ID.
-            stop: Set when the session must stop.
-            failures: Queue for uncaught errors.
-            finished: Set after this method finishes.
-            publish: Function called with each model result.
-            max_steps: Maximum steps; ``None`` runs until stopped.
-        """
-        steps_run = 0
-        last_run_started: float | None = None
-        try:
-            while not stop.is_set() and (max_steps is None or steps_run < max_steps):
-                events, generation = event_buffer.read(reader_id)
-                step_index = self._begin_run(events, generation, stop)
-                if step_index is None:
-                    break
-                last_run_started = self._pace(last_run_started, stop)
-                if stop.is_set():
-                    break
-                result = _model_results(self.step(step_index, events))
-                self._finish_run(result)
-                publish(generation, result)
-                steps_run += 1
-        except BaseException as error:
-            failures.put(error)
-            stop.set()
-        finally:
-            try:
-                self._shutdown()
-            except BaseException as error:
-                failures.put(error)
-                stop.set()
 
     @final
     def _begin_run(
         self,
         events: UserInputEvents,
         generation: int,
-        stop: threading.Event,
     ) -> int | None:
         """Prepare one call to :meth:`step`."""
         self._run_message_batch()
         self.user_events = events
         if _contains_close(events):
-            stop.set()
+            self._shutdown_event.set()
             return None
         if generation != self._generation:
             self.reset()
@@ -186,7 +156,7 @@ class IThread(ABC, Generic[StateT]):
 
     @final
     def _shutdown(self) -> None:
-        """Stop messages and close the thread once."""
+        """Stop messages and close the loop once."""
         with self._lifecycle_lock:
             self._accepting_messages = False
             if self._closed:
@@ -196,8 +166,7 @@ class IThread(ABC, Generic[StateT]):
             self.close()
         finally:
             self._empty_message_queue()
-            self.event_buffer.unregister(self.reader_id)
-            self.finished.set()
+            self._finished_event.set()
 
     def _run_message_batch(self) -> None:
         batch: list[_Message[StateT]] = []
@@ -212,11 +181,11 @@ class IThread(ABC, Generic[StateT]):
             if result is not None:
                 raise TypeError("Message operations must return None.")
 
-    def _pace(self, last_run_started: float | None, stop: threading.Event) -> float:
+    def _pace(self, last_run_started: float | None) -> float:
         if self.frequency == 0 or last_run_started is None:
             return time.monotonic()
         earliest_start = last_run_started + 1.0 / self.frequency
-        stop.wait(max(0.0, earliest_start - time.monotonic()))
+        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
         return time.monotonic()
 
     def _empty_message_queue(self) -> None:
@@ -227,8 +196,56 @@ class IThread(ABC, Generic[StateT]):
                 return
 
 
-class UIThread(IThread[StateT], ABC):
-    """Thread whose output is sent to the client window."""
+class IModelLoop(ILoop[StateT], ABC):
+    """Loop that generates model results on the model thread."""
+
+    @final
+    def _run_model_loop(
+        self,
+        *,
+        event_buffer: EventBuffer,
+        reader_id: int,
+        publish: Callable[[int, list[StepResult]], None],
+        max_steps: int | None = None,
+    ) -> None:
+        """Run model steps until shutdown or completion.
+
+        Args:
+            event_buffer: Client input shared by both loops.
+            reader_id: This loop's event reader ID.
+            publish: Function called with each model result.
+            max_steps: Maximum steps; ``None`` runs until stopped.
+        """
+        steps_run = 0
+        last_run_started: float | None = None
+        try:
+            while not self._shutdown_event.is_set() and (
+                max_steps is None or steps_run < max_steps
+            ):
+                events, generation = event_buffer.read(reader_id)
+                step_index = self._begin_run(events, generation)
+                if step_index is None:
+                    break
+                last_run_started = self._pace(last_run_started)
+                if self._shutdown_event.is_set():
+                    break
+                result = _model_results(self.step(step_index, events))
+                self._finish_run(result)
+                publish(generation, result)
+                steps_run += 1
+        except BaseException as error:
+            self._failure_queue.put(error)
+            self._shutdown_event.set()
+        finally:
+            try:
+                self._shutdown()
+            except BaseException as error:
+                self._failure_queue.put(error)
+                self._shutdown_event.set()
+
+
+class IUILoop(ILoop[StateT], ABC):
+    """Loop whose output is sent to the client window."""
 
     def __init__(
         self,
@@ -242,16 +259,6 @@ class UIThread(IThread[StateT], ABC):
         self.output_layout = output_layout
         self._presentation_manager = presentation_manager
 
-    @abstractmethod
-    def step_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-        """Return the result to present for this UI iteration."""
-        ...
-
-    @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-        """Return the result produced by :meth:`step_ui`."""
-        return self.step_ui(step_index, events)
-
     @final
     def presented_model_frame(self, channel_index: int = 0) -> Tensor | None:
         """Return the current frame from one model-result channel."""
@@ -263,10 +270,11 @@ class UIThread(IThread[StateT], ABC):
         return self._presentation_manager.presented_frames()
 
 
-class BlitModelOutputToScreenThread(UIThread[None]):
+class BlitModelOutputToScreenLoop(IUILoop[None]):
     """Draw every model channel into one UI frame."""
 
-    def step_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    @final
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
         """Draw the model channels in list order."""
         del events
         output = None
@@ -296,7 +304,7 @@ def _model_results(
     result: StepResult | list[StepResult] | None,
 ) -> list[StepResult]:
     if result is None or isinstance(result, StepResult):
-        raise TypeError("A model-generation thread must return a list of StepResult.")
+        raise TypeError("A model loop must return a list of StepResult.")
     return result
 
 
@@ -313,14 +321,15 @@ def _frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:
     raise ValueError(f"Unsupported presentation layout: {layout}.")
 
 
-def invoke_async(thread: IThread[StateT], operation: Callable[[StateT], None]) -> None:
-    """Queue ``operation`` against ``thread`` state before its next step."""
-    thread._invoke_async(operation)
+def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> None:
+    """Queue ``operation`` against ``loop`` state before its next step."""
+    loop._invoke_async(operation)
 
 
 __all__ = [
-    "BlitModelOutputToScreenThread",
-    "IThread",
-    "UIThread",
+    "BlitModelOutputToScreenLoop",
+    "ILoop",
+    "IModelLoop",
+    "IUILoop",
     "invoke_async",
 ]

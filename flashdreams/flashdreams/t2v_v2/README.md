@@ -56,8 +56,8 @@ answers with.
   every session. `_configure_argument_parser` and `_apply_parsed_arguments` are
   where a model adds a flag of its own.
 - `session.py`: one rollout. It omits custom UI registration so the default
-  model-output blitter is used, and registers a `T2VModelThread`; the model
-  thread owns the prompt cache, generates one block per `step`, and finishes
+  model-output blitter is used, and registers a `T2VModelLoop`; the model loop
+  owns the prompt cache, generates one block per `step`, and finishes
   after `--total-blocks` blocks.
 - `testing.py`: the check an integration's tests run, and the stand-in model
   they run it against on a CPU.
@@ -65,7 +65,7 @@ answers with.
 ## Adding a model
 
 Subclass `T2VApplication` with defaults from the integration's runner config.
-The shared session supplies the registered-thread runtime contract for all five
+The shared session supplies the registered-loop runtime contract for all five
 packages. Override
 `_validate_total_blocks` for a model that generates its whole clip in one
 bidirectional block, and `_apply_compile_override` for one whose transformers

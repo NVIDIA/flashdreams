@@ -17,7 +17,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
-from flashdreams.t2v_v2.session import T2VModelThread
+from flashdreams.t2v_v2.session import T2VModelLoop
 from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
@@ -96,14 +96,14 @@ def _application() -> tuple[T2VApplication, FakeT2VPipeline]:
     return app, pipeline
 
 
-def _model_thread(session: ISession) -> T2VModelThread:
-    thread = session.model_thread
-    assert isinstance(thread, T2VModelThread)
-    return thread
+def _model_loop(session: ISession) -> T2VModelLoop:
+    loop = session.model_loop
+    assert isinstance(loop, T2VModelLoop)
+    return loop
 
 
 def _step(session: ISession, step_index: int) -> StepResult:
-    return _model_thread(session).step(step_index, _NO_EVENTS)[0]
+    return _model_loop(session).step(step_index, _NO_EVENTS)[0]
 
 
 ## One rollout
@@ -125,11 +125,11 @@ def test_a_rollout_starts_from_the_prompt_at_the_requested_size() -> None:
     ]
 
 
-def test_model_thread_is_registered_when_the_rollout_starts() -> None:
+def test_model_loop_is_registered_when_the_rollout_starts() -> None:
     app, _ = _application()
     session = app.create_session(_session_desc())
     with pytest.raises(RuntimeError, match="not registered"):
-        _model_thread(session)
+        _model_loop(session)
 
 
 def test_a_step_generates_a_block_and_advances_the_rollout() -> None:
@@ -166,9 +166,9 @@ def test_resetting_starts_the_rollout_again_from_the_same_prompt() -> None:
     app, pipeline = _application()
     session = app.create_session(_session_desc())
     session.init()
-    _model_thread(session).step(0, _NO_EVENTS)
+    _model_loop(session).step(0, _NO_EVENTS)
 
-    _model_thread(session).reset()
+    _model_loop(session).reset()
 
     assert len(pipeline.caches) == 2
     assert pipeline.caches[0] == pipeline.caches[1]
@@ -181,10 +181,10 @@ def test_a_rollout_finishes_once_it_has_generated_its_blocks() -> None:
     session.init()
 
     for step_index in range(_TOTAL_BLOCKS):
-        assert not _model_thread(session).is_finished()
-        _model_thread(session).step(step_index, _NO_EVENTS)
+        assert not _model_loop(session).is_finished()
+        _model_loop(session).step(step_index, _NO_EVENTS)
 
-    assert _model_thread(session).is_finished()
+    assert _model_loop(session).is_finished()
 
 
 def test_a_reset_rollout_has_its_whole_length_again() -> None:
@@ -192,11 +192,11 @@ def test_a_reset_rollout_has_its_whole_length_again() -> None:
     session = app.create_session(_session_desc())
     session.init()
     for step_index in range(_TOTAL_BLOCKS):
-        _model_thread(session).step(step_index, _NO_EVENTS)
+        _model_loop(session).step(step_index, _NO_EVENTS)
 
-    _model_thread(session).reset()
+    _model_loop(session).reset()
 
-    assert not _model_thread(session).is_finished()
+    assert not _model_loop(session).is_finished()
 
 
 def test_closing_a_session_leaves_the_model_for_the_next_one() -> None:
@@ -204,8 +204,8 @@ def test_closing_a_session_leaves_the_model_for_the_next_one() -> None:
     session = app.create_session(_session_desc())
     session.init()
 
-    _model_thread(session).close()
+    _model_loop(session).close()
 
     assert not pipeline.closed
     with pytest.raises(RuntimeError, match="init.. must run before step"):
-        _model_thread(session).step(0, _NO_EVENTS)
+        _model_loop(session).step(0, _NO_EVENTS)

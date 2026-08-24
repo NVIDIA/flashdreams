@@ -3,29 +3,41 @@
 
 """Application sessions."""
 
+import queue
+import threading
 from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import Any, final
 
 from flashdreams.api_v2.thread import (
-    BlitModelOutputToScreenThread,
-    IThread,
-    UIThread,
+    BlitModelOutputToScreenLoop,
+    IModelLoop,
+    IUILoop,
 )
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 
 
 class ISession(ABC):
-    """One application run with a model thread and a UI thread.
+    """One application run with a model loop and a UI loop.
 
-    Register the model thread in :meth:`init`. If no UI thread is registered,
-    the runtime uses :class:`BlitModelOutputToScreenThread`.
+    Register the model loop in :meth:`init`. If no UI loop is registered,
+    the runtime uses :class:`BlitModelOutputToScreenLoop`.
     """
 
-    _registered_ui_thread: UIThread[Any] | None = None
-    _registered_model_thread: IThread[Any] | None = None
+    _registered_ui_loop: IUILoop[Any] | None = None
+    _registered_model_loop: IModelLoop[Any] | None = None
     _registrations_frozen = False
+
+    @cached_property
+    def _shutdown_event(self) -> threading.Event:
+        """Return the event shared by all registered loops."""
+        return threading.Event()
+
+    @cached_property
+    def _failure_queue(self) -> queue.Queue[BaseException]:
+        """Return the failure queue shared by all registered loops."""
+        return queue.Queue()
 
     @cached_property
     def _presentation_manager(self) -> PresentationManager:
@@ -34,7 +46,7 @@ class ISession(ABC):
 
     @abstractmethod
     def init(self) -> None:
-        """Initialize state and register the UI and model threads."""
+        """Initialize state and register the UI and model loops."""
         ...
 
     @property
@@ -44,102 +56,115 @@ class ISession(ABC):
         ...
 
     @final
-    def register_ui_thread(
+    def register_ui_loop(
         self,
-        thread_type: type[UIThread[Any]],
+        loop_type: type[IUILoop[Any]],
         *,
         state: Any = None,
         **kwargs: Any,
-    ) -> UIThread[Any]:
-        """Create and register the UI thread.
+    ) -> IUILoop[Any]:
+        """Create and register the UI loop.
 
         Omit this call to use the default UI.
         """
         if self._registrations_frozen:
-            raise RuntimeError("Thread registrations are already in use.")
-        if self._registered_ui_thread is not None:
-            raise RuntimeError("The session already registered a UI thread.")
-        if not issubclass(thread_type, UIThread):
-            raise TypeError("The UI thread must derive from UIThread.")
-        thread = thread_type(
+            raise RuntimeError("Loop registrations are already in use.")
+        if self._registered_ui_loop is not None:
+            raise RuntimeError("The session already registered a UI loop.")
+        if not issubclass(loop_type, IUILoop):
+            raise TypeError("The UI loop must derive from IUILoop.")
+        loop = loop_type(
             state=state,
             frequency=self.session_desc.frames_per_second_for_ui,
             output_layout=self.session_desc.output_layout,
             presentation_manager=self._presentation_manager,
             **kwargs,
         )
-        self._registered_ui_thread = thread
-        return thread
+
+        # Seperate so user args do not pass to the 'runtime management' members
+        loop._attach_runtime(
+            shutdown_event=self._shutdown_event,
+            finished_event=threading.Event(),
+            failure_queue=self._failure_queue,
+        )
+        self._registered_ui_loop = loop
+        return loop
 
     @final
-    def register_model_thread(
+    def register_model_loop(
         self,
-        thread_type: type[IThread[Any]],
+        loop_type: type[IModelLoop[Any]],
         *,
         state: Any,
         **kwargs: Any,
-    ) -> IThread[Any]:
-        """Create and register the model thread."""
+    ) -> IModelLoop[Any]:
+        """Create and register the model loop."""
         if self._registrations_frozen:
-            raise RuntimeError("Thread registrations are already in use.")
-        if self._registered_model_thread is not None:
-            raise RuntimeError("The session already registered a model thread.")
-        if not issubclass(thread_type, IThread):
-            raise TypeError("The model thread must derive from IThread.")
-        if issubclass(thread_type, UIThread):
-            raise TypeError("A UIThread cannot be registered as the model thread.")
-        thread = thread_type(
+            raise RuntimeError("Loop registrations are already in use.")
+        if self._registered_model_loop is not None:
+            raise RuntimeError("The session already registered a model loop.")
+        if not issubclass(loop_type, IModelLoop):
+            raise TypeError("The model loop must derive from IModelLoop.")
+        loop = loop_type(
             state=state,
             frequency=self.session_desc.frames_per_second_for_step,
             **kwargs,
         )
-        self._registered_model_thread = thread
-        return thread
+
+        # Seperate so user args do not pass to the 'runtime management' members
+        loop._attach_runtime(
+            shutdown_event=self._shutdown_event,
+            finished_event=threading.Event(),
+            failure_queue=self._failure_queue,
+        )
+        self._registered_model_loop = loop
+        return loop
 
     @property
     @final
-    def ui_thread(self) -> UIThread[Any]:
-        """Return the registered UI thread."""
-        if self._registered_ui_thread is None:
-            raise RuntimeError("The session has not registered a UI thread.")
-        return self._registered_ui_thread
+    def ui_loop(self) -> IUILoop[Any]:
+        """Return the registered UI loop."""
+        if self._registered_ui_loop is None:
+            raise RuntimeError("The session has not registered a UI loop.")
+        return self._registered_ui_loop
 
     @property
     @final
-    def model_thread(self) -> IThread[Any]:
-        """Return the registered model-generation thread."""
-        if self._registered_model_thread is None:
-            raise RuntimeError("The session has not registered a model thread.")
-        return self._registered_model_thread
+    def model_loop(self) -> IModelLoop[Any]:
+        """Return the registered model-generation loop."""
+        if self._registered_model_loop is None:
+            raise RuntimeError("The session has not registered a model loop.")
+        return self._registered_model_loop
 
     def close(self) -> None:
         """Release resources owned by the session."""
         return
 
     @final
-    def _take_threads(self) -> tuple[UIThread[Any], IThread[Any]]:
-        """Return both threads and stop further registration."""
-        ui_thread = self._registered_ui_thread
-        if ui_thread is None:
-            ui_thread = self.register_ui_thread(BlitModelOutputToScreenThread)
-        model_thread = self._registered_model_thread
-        if model_thread is None:
-            raise RuntimeError("ISession.init() did not register a model thread.")
+    def _take_loops(self) -> tuple[IUILoop[Any], IModelLoop[Any]]:
+        """Return both loops and stop further registration."""
+        ui_loop = self._registered_ui_loop
+        if ui_loop is None:
+            ui_loop = self.register_ui_loop(BlitModelOutputToScreenLoop)
+        model_loop = self._registered_model_loop
+        if model_loop is None:
+            raise RuntimeError("ISession.init() did not register a model loop.")
         self._registrations_frozen = True
-        return ui_thread, model_thread
+        return ui_loop, model_loop
 
     @final
-    def _shutdown_registered_threads(self) -> list[BaseException]:
-        """Close both threads and return any errors."""
+    def _shutdown_registered_loops(self) -> list[BaseException]:
+        """Request shutdown, close every registered loop, and return errors."""
+        self._shutdown_event.set()
         failures: list[BaseException] = []
-        for thread in (
-            self._registered_model_thread,
-            self._registered_ui_thread,
+        for loop in (
+            self._registered_model_loop,
+            self._registered_ui_loop,
         ):
-            if thread is None:
+            if loop is None:
                 continue
             try:
-                thread._shutdown()
+                loop._shutdown()
             except BaseException as error:
                 failures.append(error)
         return failures

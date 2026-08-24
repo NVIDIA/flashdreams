@@ -25,7 +25,7 @@ class _UIRenderer(Protocol):
         self,
         step_index: int,
         events: UserInputEvents,
-        draw_ui: Callable[[Any, int, UserInputEvents], None],
+        step_ui: Callable[[Any, int, UserInputEvents], None],
     ) -> Tensor:
         """Render one UI frame as normalized ``[C, H, W]`` output."""
         ...
@@ -78,7 +78,7 @@ class _SlangPyUIRenderer:
         self,
         step_index: int,
         events: UserInputEvents,
-        draw_ui: Callable[[Any, int, UserInputEvents], None],
+        step_ui: Callable[[Any, int, UserInputEvents], None],
     ) -> Tensor:
         """Queue input and render one SlangPy UI frame into shared RGBA storage."""
         self._ensure_initialized()
@@ -99,7 +99,7 @@ class _SlangPyUIRenderer:
             width=self.width,
             height=self.height,
         )
-        draw_ui(self._ui, step_index, events)
+        step_ui(self._ui, step_index, events)
         self._ui_context.begin_frame(self.width, self.height)
 
         encoder = self._device.create_command_encoder()

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IModelLoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -15,7 +15,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 @dataclass(slots=True)
 class T2VModelState:
-    """Mutable rollout state owned by the model thread."""
+    """Mutable rollout state owned by the model loop."""
 
     pipeline: Any
     prompt: str
@@ -25,8 +25,8 @@ class T2VModelState:
     cache: Any = None
 
 
-class T2VModelThread(IThread[T2VModelState]):
-    """Run one autoregressive block per model-thread iteration."""
+class T2VModelLoop(IModelLoop[T2VModelState]):
+    """Run one autoregressive block per model-loop iteration."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Generate and finalize one autoregressive block."""
@@ -107,7 +107,7 @@ class T2VSession(ISession):
             total_blocks=self._total_blocks,
         )
         state.cache = _new_cache(state)
-        self.register_model_thread(T2VModelThread, state=state)
+        self.register_model_loop(T2VModelLoop, state=state)
 
     @property
     def session_desc(self) -> SessionDesc:

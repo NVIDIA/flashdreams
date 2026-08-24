@@ -13,7 +13,7 @@ from numpy import uint64
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IModelLoop
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.ci_cpu
 _RUNNER_LOGGER = "flashdreams.runtime_v2.application_runner"
 
 
-class _ModelThread(IThread["_Session"]):
+class _ModelLoop(IModelLoop["_Session"]):
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         return [self.state.step(step_index, events)]
 
@@ -55,7 +55,7 @@ class _Session(ISession):
 
     def init(self) -> None:
         self._calls.append("session.init")
-        self.register_model_thread(_ModelThread, state=self)
+        self.register_model_loop(_ModelLoop, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:

@@ -120,7 +120,7 @@ def _is_black(result: StepResult) -> bool:
 
 
 def _step(session: ISession, step_index: int, events: UserInputEvents) -> StepResult:
-    results = session.model_thread.step(step_index, events)
+    results = session.model_loop.step(step_index, events)
     assert isinstance(results, list)
     result = results[0]
     assert isinstance(result, StepResult)
@@ -285,6 +285,6 @@ def test_reset_releases_the_held_key() -> None:
     session.init()
     assert _is_red(_step(session, 0, _key_event(pressed=True)))
 
-    session.model_thread.reset()
+    session.model_loop.reset()
 
     assert _is_black(_step(session, 0, UserInputEvents([])))

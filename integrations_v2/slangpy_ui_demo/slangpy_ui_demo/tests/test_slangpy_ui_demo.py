@@ -8,13 +8,19 @@ from unittest.mock import Mock
 
 import pytest
 import torch
-from slangpy_ui_demo.model_output_app import (
-    ModelOutputSlangPyUIThread,
-    ModelOutputSession,
-    ModelOutputThread,
-)
-from slangpy_ui_demo.text_input_app import TextInputSlangPyUIThread, TextInputState
 from numpy import uint64
+from slangpy_ui_demo.invoke_async_app import (
+    ColorToggleModelLoop,
+    ColorToggleModelState,
+    ColorToggleSlangPyUILoop,
+    ColorToggleUIState,
+)
+from slangpy_ui_demo.model_output_app import (
+    ModelOutputLoop,
+    ModelOutputSession,
+    ModelOutputSlangPyUILoop,
+)
+from slangpy_ui_demo.text_input_app import TextInputSlangPyUILoop, TextInputState
 
 from flashdreams.runtime_v2._slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
@@ -29,9 +35,57 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 pytestmark = pytest.mark.ci_cpu
 
 
+def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
+    desc = SessionDesc(video_width=4, video_height=3)
+    model_state = ColorToggleModelState(session_desc=desc, device="cpu")
+    model_loop = ColorToggleModelLoop(state=model_state, frequency=30)
+    ui_loop = ColorToggleSlangPyUILoop(
+        state=ColorToggleUIState(model_loop=model_loop),
+        frequency=60,
+        output_layout=desc.output_layout,
+        presentation_manager=PresentationManager(),
+        renderer=Mock(),
+    )
+    ui = SimpleNamespace(
+        screen=object(),
+        Window=Mock(return_value=object()),
+        Text=Mock(return_value=object()),
+    )
+    w_pressed = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(0),
+                event_data=KeyboardUserInputEventData(
+                    key="W", state=KeyboardInputState.PRESSED
+                ),
+            )
+        ]
+    )
+
+    red = model_loop.step(0, UserInputEvents([]))[0].output
+    ui_loop.step_ui(ui, 0, w_pressed)
+    assert not model_state.blue
+
+    step_index = model_loop._begin_run(UserInputEvents([]), generation=0)
+    assert step_index == 0
+    blue_results = model_loop.step(step_index, UserInputEvents([]))
+    blue = blue_results[0].output
+    model_loop._finish_run(blue_results)
+
+    ui_loop.step_ui(ui, 1, w_pressed)
+    step_index = model_loop._begin_run(UserInputEvents([]), generation=0)
+    assert step_index == 1
+    red_again = model_loop.step(step_index, UserInputEvents([]))[0].output
+
+    assert not model_state.blue
+    assert torch.equal(red[0, :, 0, 0], torch.tensor([1.0, -1.0, -1.0]))
+    assert torch.equal(blue[0, :, 0, 0], torch.tensor([-1.0, -1.0, 1.0]))
+    assert torch.equal(red_again, red)
+
+
 def test_text_input_updates_ui_owned_state() -> None:
     state = TextInputState()
-    thread = TextInputSlangPyUIThread(
+    loop = TextInputSlangPyUILoop(
         state=state,
         frequency=60,
         output_layout=SessionDesc().output_layout,
@@ -45,7 +99,7 @@ def test_text_input_updates_ui_owned_state() -> None:
         InputText=Mock(return_value=SimpleNamespace(value="")),
     )
 
-    thread.draw_ui(ui, 0, UserInputEvents([]))
+    loop.step_ui(ui, 0, UserInputEvents([]))
     callback = ui.InputText.call_args.args[3]
     callback("hello world")
 
@@ -98,13 +152,13 @@ def test_model_output_emits_repeating_selectable_fade_channels() -> None:
         SessionDesc(video_width=4, video_height=3), device="cpu"
     )
     session.init()
-    model_thread = session.model_thread
-    ui_thread = session.ui_thread
-    assert isinstance(model_thread, ModelOutputThread)
-    assert isinstance(ui_thread, ModelOutputSlangPyUIThread)
+    model_loop = session.model_loop
+    ui_loop = session.ui_loop
+    assert isinstance(model_loop, ModelOutputLoop)
+    assert isinstance(ui_loop, ModelOutputSlangPyUILoop)
 
-    chunk = model_thread.step(0, UserInputEvents([]))
-    repeated = model_thread.step(1, UserInputEvents([]))
+    chunk = model_loop.step(0, UserInputEvents([]))
+    repeated = model_loop.step(1, UserInputEvents([]))
     assert isinstance(chunk, list) and isinstance(repeated, list)
     assert len(chunk) == 3
     expected = torch.linspace(255, 0, 60).round().to(torch.uint8)
@@ -117,6 +171,6 @@ def test_model_output_emits_repeating_selectable_fade_channels() -> None:
 
     session._presentation_manager.publish(0, chunk)
     assert session._presentation_manager.advance(0)[0]
-    frame = ui_thread.presented_model_frame(1)
+    frame = ui_loop.presented_model_frame(1)
     assert frame is not None
     assert frame.data_ptr() == chunk[1].output[0].data_ptr()

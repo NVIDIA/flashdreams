@@ -13,7 +13,7 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IModelLoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -55,7 +55,7 @@ class ColorFadeConfig:
 
 @dataclass(slots=True)
 class ColorFadeModelState:
-    """Mutable fade state owned by the model thread."""
+    """Mutable fade state owned by the model loop."""
 
     config: ColorFadeConfig
     session_desc: SessionDesc
@@ -63,7 +63,7 @@ class ColorFadeModelState:
     steps_generated: int = 0
 
 
-class ColorFadeModelThread(IThread[ColorFadeModelState]):
+class ColorFadeModelLoop(IModelLoop[ColorFadeModelState]):
     """Generate color-fade frames through the standard model loop."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
@@ -126,9 +126,9 @@ class ColorFadeSession(ISession):
         self._total_steps = math.ceil(frames / config.frames_per_step)
 
     def init(self) -> None:
-        """Register the color-fade model thread; the default UI blits it."""
-        self.register_model_thread(
-            ColorFadeModelThread,
+        """Register the color-fade model loop; the default UI blits it."""
+        self.register_model_loop(
+            ColorFadeModelLoop,
             state=ColorFadeModelState(
                 config=self._config,
                 session_desc=self._session_desc,

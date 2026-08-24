@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Input events shared by the model and UI threads."""
+"""Input events shared by the model and UI loops."""
 
 import threading
 
@@ -13,7 +13,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class EventBuffer:
-    """Keep input events until every thread has read them."""
+    """Keep input events until every loop has read them."""
 
     def __init__(self) -> None:
         self._events: list[UserInputEvent] = []

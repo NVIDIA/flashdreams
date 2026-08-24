@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""SlangPy UI text-input application for the v2 threaded runtime."""
+"""SlangPy UI text-input application for the v2 loop runtime."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -12,15 +12,15 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.slangpy_ui_thread import SlangPyUIThread
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IModelLoop
+from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
-class BackgroundModelThread(IThread[tuple[SessionDesc, torch.device | str]]):
+class BackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
     """Generate a dark background beneath the text-input UI layer."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
@@ -47,7 +47,7 @@ class BackgroundModelThread(IThread[tuple[SessionDesc, torch.device | str]]):
 
 @dataclass(slots=True)
 class TextInputState:
-    """Editable state owned by the SlangPy UI thread."""
+    """Editable state owned by the SlangPy UI loop."""
 
     text: str = ""
     """Current contents of the input widget."""
@@ -59,10 +59,10 @@ class TextInputState:
     """Retained SlangPy text widget showing the current value."""
 
 
-class TextInputSlangPyUIThread(SlangPyUIThread[TextInputState]):
-    """Draw an editable text field from UI-thread-owned state."""
+class TextInputSlangPyUILoop(SlangPyUILoop[TextInputState]):
+    """Draw an editable text field from UI-loop-owned state."""
 
-    def draw_ui(
+    def step_ui(
         self,
         ui: Any,
         step_index: int,
@@ -114,7 +114,7 @@ class TextInputSession(ISession):
         """Configure one text-input session.
 
         Args:
-            session_desc: Output dimensions and thread frequencies.
+            session_desc: Output dimensions and loop frequencies.
             device: Device used for the background model frame.
         """
         if session_desc.output_layout is not VideoTensorLayout.tchw:
@@ -131,15 +131,15 @@ class TextInputSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Register the text UI and background model threads."""
-        self.register_ui_thread(
-            TextInputSlangPyUIThread,
+        """Register the text UI and background model loops."""
+        self.register_ui_loop(
+            TextInputSlangPyUILoop,
             state=TextInputState(),
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
-        self.register_model_thread(
-            BackgroundModelThread,
+        self.register_model_loop(
+            BackgroundModelLoop,
             state=(self._session_desc, self._device),
         )
 

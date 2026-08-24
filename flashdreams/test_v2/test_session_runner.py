@@ -13,9 +13,9 @@ from numpy import uint64
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import (
-    BlitModelOutputToScreenThread,
-    IThread,
-    UIThread,
+    BlitModelOutputToScreenLoop,
+    IModelLoop,
+    IUILoop,
     invoke_async,
 )
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
@@ -75,7 +75,7 @@ class CallLog:
             return {thread for made, thread in self._calls if made == call}
 
 
-class FakeModelThread(IThread["FakeSession"]):
+class FakeModelLoop(IModelLoop["FakeSession"]):
     """Delegate standard model-loop hooks to the test session."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
@@ -88,10 +88,10 @@ class FakeModelThread(IThread["FakeSession"]):
         self.state.reset()
 
 
-class FakeUIThread(UIThread["FakeSession"]):
+class FakeUILoop(IUILoop["FakeSession"]):
     """Delegate direct UI rendering to the test session."""
 
-    def step_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
         return self.state.run_ui(step_index, events)
 
     def reset(self) -> None:
@@ -132,8 +132,8 @@ class FakeSession(ISession):
 
     def init(self) -> None:
         self._log.record("session.init")
-        self.register_ui_thread(FakeUIThread, state=self)
-        self.register_model_thread(FakeModelThread, state=self)
+        self.register_ui_loop(FakeUILoop, state=self)
+        self.register_model_loop(FakeModelLoop, state=self)
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -155,7 +155,7 @@ class FakeSession(ISession):
 
     def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
         del events
-        self._log.record("ui_thread.step")
+        self._log.record("ui_loop.step")
         frame = self._presentation_manager.presented_frame(0)
         if frame is None:
             return None
@@ -177,6 +177,48 @@ class FakeSession(ISession):
         self._log.record("session.close")
         if self._fail_to_close:
             raise RuntimeError("session close failed")
+
+
+def test_registration_attaches_loop_lifecycle_events() -> None:
+    session = FakeSession(_session_desc(), CallLog())
+
+    session.init()
+
+    assert session.model_loop._shutdown_event is session._shutdown_event
+    assert session.ui_loop._shutdown_event is session._shutdown_event
+    assert session.model_loop._finished_event is not session.ui_loop._finished_event
+    assert session.model_loop._failure_queue is session._failure_queue
+    assert session.ui_loop._failure_queue is session._failure_queue
+
+
+def test_session_shutdown_closes_every_registered_loop() -> None:
+    closed: list[str] = []
+
+    class FailingModelLoop(FakeModelLoop):
+        def close(self) -> None:
+            closed.append("model")
+            raise RuntimeError("model close failed")
+
+    class ClosingUILoop(FakeUILoop):
+        def close(self) -> None:
+            closed.append("ui")
+
+    class ShutdownSession(FakeSession):
+        def init(self) -> None:
+            self.register_model_loop(FailingModelLoop, state=self)
+            self.register_ui_loop(ClosingUILoop, state=self)
+
+    session = ShutdownSession(_session_desc(), CallLog())
+    session.init()
+
+    failures = session._shutdown_registered_loops()
+
+    assert closed == ["model", "ui"]
+    assert len(failures) == 1
+    assert str(failures[0]) == "model close failed"
+    assert session._shutdown_event.is_set()
+    assert session.model_loop._finished_event.is_set()
+    assert session.ui_loop._finished_event.is_set()
 
 
 class FiniteSession(FakeSession):
@@ -313,7 +355,7 @@ def test_run_session_presents_every_step_in_order() -> None:
     run_session(session, window, steps=3)
 
     assert [result.step_index for result in window.results] == [0, 1, 2]
-    assert window.results[-1] is session.ui_thread.latest_result
+    assert window.results[-1] is session.ui_loop.latest_result
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
 
@@ -353,7 +395,7 @@ def test_run_session_calls_ui_run_on_the_io_thread() -> None:
 
     run_session(session, window, steps=2)
 
-    assert log.threads_for("ui_thread.step") == {threading.current_thread().name}
+    assert log.threads_for("ui_loop.step") == {threading.current_thread().name}
     assert log.threads_for("session.step(0)") == {_STEP_THREAD_NAME}
 
 
@@ -365,25 +407,25 @@ def test_each_message_queue_runs_on_its_owning_thread() -> None:
             super().init()
 
             def model_message(state: FakeSession) -> None:
-                state._log.record("model_thread.message")
+                state._log.record("model_loop.message")
                 invoke_async(
-                    self.model_thread,
-                    lambda owner: owner._log.record("model_thread.self_message"),
+                    self.model_loop,
+                    lambda owner: owner._log.record("model_loop.self_message"),
                 )
 
             invoke_async(
-                self.ui_thread, lambda state: state._log.record("ui_thread.message")
+                self.ui_loop, lambda state: state._log.record("ui_loop.message")
             )
-            invoke_async(self.model_thread, model_message)
+            invoke_async(self.model_loop, model_message)
 
     run_session(
         MessageSession(_session_desc(), log), RecordingClientWindow(log), steps=2
     )
 
-    assert log.threads_for("ui_thread.message") == {threading.current_thread().name}
-    assert log.threads_for("model_thread.message") == {_STEP_THREAD_NAME}
-    assert log.threads_for("model_thread.self_message") == {_STEP_THREAD_NAME}
-    assert log.calls.index("model_thread.self_message") > log.calls.index(
+    assert log.threads_for("ui_loop.message") == {threading.current_thread().name}
+    assert log.threads_for("model_loop.message") == {_STEP_THREAD_NAME}
+    assert log.threads_for("model_loop.self_message") == {_STEP_THREAD_NAME}
+    assert log.calls.index("model_loop.self_message") > log.calls.index(
         "session.step(0)"
     )
 
@@ -407,7 +449,7 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
             for color in colors
         ],
     )
-    ui = BlitModelOutputToScreenThread(
+    ui = BlitModelOutputToScreenLoop(
         state=None,
         frequency=60,
         output_layout=VideoTensorLayout.tchw,
@@ -704,7 +746,7 @@ def test_benchmark_ui_runs_once_per_new_frame_when_ui_is_faster() -> None:
     window = RecordingClientWindow(log)
     run_session(session, window, steps=3)
 
-    assert log.calls.count("ui_thread.step") == 3
+    assert log.calls.count("ui_loop.step") == 3
     assert [result.output[0, 0, 0, 0, 0].item() for result in window.results] == [
         0,
         1,

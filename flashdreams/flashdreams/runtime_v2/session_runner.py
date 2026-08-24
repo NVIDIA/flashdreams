@@ -4,13 +4,12 @@
 """Run a session with a client window."""
 
 import logging
-import queue
 import threading
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread, UIThread
+from flashdreams.api_v2.thread import IModelLoop, IUILoop
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
@@ -44,7 +43,7 @@ def run_session(
     steps: int | None = None,
     max_pending: int = 2,
 ) -> None:
-    """Run a session's UI and model threads.
+    """Run a session's UI and model loops.
 
     The calling thread handles the window and UI. The model runs on a separate
     Python thread.
@@ -67,8 +66,7 @@ def run_session(
     session_desc = session.session_desc
     tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
     event_buffer = EventBuffer()
-    failures: queue.Queue[BaseException] = queue.Queue()
-    stop = threading.Event()
+    stop = session._shutdown_event
     presentation_manager = session._presentation_manager
     presentation_manager.configure(
         max_pending=max_pending,
@@ -76,11 +74,10 @@ def run_session(
         stop=stop,
         put_timeout=tick_seconds,
     )
-    model_finished = threading.Event()
     model_thread_handle: threading.Thread | None = None
-    ui_thread: UIThread[object] | None = None
-    model_thread: IThread[object] | None = None
-    run_failure: BaseException | None = None
+    ui_loop: IUILoop[object] | None = None
+    model_loop: IModelLoop[object] | None = None
+    high_level_failures: BaseException | None = None
     cleanup_failures: list[BaseException] = []
     attempted_output_sinks: list[OutputSink] = []
 
@@ -92,16 +89,16 @@ def run_session(
         return events
 
     def run_ui_once() -> StepResult | None:
-        if ui_thread is None:
+        if ui_loop is None:
             return None
         events, generation = event_buffer.read(_UI_READER_ID)
-        step_index = ui_thread._begin_run(events, generation, stop)
+        step_index = ui_loop._begin_run(events, generation)
         if step_index is None or stop.is_set():
             return None
-        result = ui_thread.step(step_index, events)
+        result = ui_loop.step(step_index, events)
         if result is not None and not isinstance(result, StepResult):
-            raise TypeError("A UI thread must return StepResult or None.")
-        ui_thread._finish_run(result)
+            raise TypeError("A UI loop must return StepResult or None.")
+        ui_loop._finish_run(result)
         return result
 
     def publish_model_results(
@@ -127,9 +124,9 @@ def run_session(
 
     try:
         session.init()
-        registered_ui, registered_model = session._take_threads()
-        ui_thread = registered_ui
-        model_thread = registered_model
+        registered_ui, registered_model = session._take_loops()
+        ui_loop = registered_ui
+        model_loop = registered_model
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
@@ -143,22 +140,23 @@ def run_session(
 
         if not stop.is_set():
             model_thread_handle = threading.Thread(
-                target=model_thread._run_loop,
+                target=model_loop._run_model_loop,
                 kwargs={
                     "event_buffer": event_buffer,
                     "reader_id": _MODEL_READER_ID,
-                    "stop": stop,
-                    "failures": failures,
-                    "finished": model_finished,
                     "publish": publish_model_results,
                     "max_steps": steps,
                 },
                 name=_MODEL_THREAD_NAME,
             )
             model_thread_handle.start()
+
+            # Once the model thread is stopped, we assume program is over.
+            # If UI-Thread is stopped we just don't output any new frames
+            # for our client-window.
             while not stop.is_set():
                 if (
-                    model_finished.is_set()
+                    model_loop._finished_event.is_set()
                     and not presentation_manager.has_pending_frames()
                 ):
                     break
@@ -170,7 +168,7 @@ def run_session(
                 tick_ui()
                 event_buffer.collect_garbage()
     except BaseException as error:
-        run_failure = error
+        high_level_failures = error
     finally:
         stop.set()
         if model_thread_handle is not None:
@@ -179,11 +177,11 @@ def run_session(
             except BaseException as error:
                 cleanup_failures.append(error)
 
-        cleanup_failures.extend(session._shutdown_registered_threads())
+        cleanup_failures.extend(session._shutdown_registered_loops())
+        presentation_manager.clear()
         event_buffer.unregister(_UI_READER_ID)
         event_buffer.unregister(_MODEL_READER_ID)
         event_buffer.clear()
-        presentation_manager.clear()
 
         for output_sink in attempted_output_sinks:
             try:
@@ -195,8 +193,10 @@ def run_session(
         except BaseException as error:
             cleanup_failures.append(error)
 
-    model_failure = None if failures.empty() else failures.get()
-    primary_failure = model_failure or run_failure
+    loop_failures = (
+        None if session._failure_queue.empty() else session._failure_queue.get()
+    )
+    primary_failure = loop_failures or high_level_failures
     if primary_failure is None and cleanup_failures:
         primary_failure = cleanup_failures.pop(0)
     for error in cleanup_failures:
