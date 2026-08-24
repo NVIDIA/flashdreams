@@ -50,10 +50,10 @@ class SessionDesc:
     """What the UI thread does when no new model frame is ready."""
 
     frames_per_second_for_ui: int = 60
-    """Rate to read input and present finished results at, in frames per second."""
+    """Rate to read input and run continuous UI redraws, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Maximum model-loop iterations per second."""
+    """Generated-video rate and maximum model-loop iterations per second."""
 
     video_width: int = 1280
     """Output video width in pixels."""

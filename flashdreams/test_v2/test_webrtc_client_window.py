@@ -223,3 +223,40 @@ async def test_video_track_resolves_pending_cuda_transfer_without_blocking() -> 
         assert abs(float(pixels.mean()) - 23.0) <= 2.0
     finally:
         await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_does_not_burst_to_catch_up_after_a_stall() -> None:
+    track = _VideoTrack(frames_per_second=30)
+    frame = torch.zeros((16, 16, 3), dtype=torch.uint8).numpy()
+    try:
+        await track.enqueue((frame, frame, frame))
+        await track.recv()
+        await asyncio.sleep(0.1)
+
+        await track.recv()
+        resumed_at = asyncio.get_running_loop().time()
+        await track.recv()
+        next_frame_at = asyncio.get_running_loop().time()
+
+        assert next_frame_at - resumed_at >= 0.02
+    finally:
+        await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_timestamps_sparse_frames_at_their_source_cadence() -> None:
+    track = _VideoTrack(frames_per_second=30)
+    frame = torch.zeros((16, 16, 3), dtype=torch.uint8).numpy()
+    try:
+        await track.enqueue((frame,))
+        first = await track.recv()
+        await asyncio.sleep(0.1)
+        await track.enqueue((frame,))
+        second = await track.recv()
+
+        assert first.pts == 0
+        assert second.pts is not None
+        assert second.pts >= 2
+    finally:
+        await track.close()

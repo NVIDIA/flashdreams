@@ -5,6 +5,7 @@
 
 import logging
 import threading
+import time
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -21,6 +22,30 @@ _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
 _UI_READER_ID = 0
 _MODEL_READER_ID = 1
+
+
+class _PresentationClock:
+    """Schedule model-frame advances independently of UI redraws."""
+
+    def __init__(self, frames_per_second: int) -> None:
+        self._frame_interval = 1.0 / frames_per_second
+        self._next_frame_at: float | None = None
+        self._generation: int | None = None
+
+    def is_due(self, now: float, generation: int) -> bool:
+        """Return whether the next model frame may be selected."""
+        if generation != self._generation:
+            self._generation = generation
+            self._next_frame_at = None
+        return self._next_frame_at is None or now >= self._next_frame_at
+
+    def mark_advanced(self, now: float) -> None:
+        """Record one selected frame without catching up after a long stall."""
+        next_frame_at = self._next_frame_at
+        if next_frame_at is None or now - next_frame_at >= self._frame_interval:
+            self._next_frame_at = now + self._frame_interval
+        else:
+            self._next_frame_at = next_frame_at + self._frame_interval
 
 
 def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> bool:
@@ -74,6 +99,7 @@ def run_session(
 
     session_desc = session.session_desc
     tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
+    presentation_clock = _PresentationClock(session_desc.frames_per_second_for_step)
     event_buffer = EventBuffer()
     stop = session._shutdown_event
     presentation_manager = session._presentation_manager
@@ -120,8 +146,14 @@ def run_session(
                 metrics_output_sink.write(result)
 
     def tick_ui() -> None:
-        model_advanced, _ = presentation_manager.advance(event_buffer.generation)
-        # Safe presentation does not redraw a frame the UI already consumed.
+        assert ui_loop is not None
+        generation = event_buffer.generation
+        now = time.monotonic()
+        model_advanced = False
+        if presentation_clock.is_due(now, generation):
+            model_advanced, _ = presentation_manager.advance(generation)
+            if model_advanced:
+                presentation_clock.mark_advanced(now)
         if (
             session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
             and not model_advanced

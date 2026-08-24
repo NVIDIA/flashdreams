@@ -23,7 +23,7 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -55,6 +55,20 @@ def test_session_modes_are_independent() -> None:
     ]
     assert SessionDesc().backpressure_mode is BackpressureMode.BLOCK
     assert SessionDesc().presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
+
+
+def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
+    clock = _PresentationClock(frames_per_second=4)
+
+    assert clock.is_due(now=1.0, generation=0)
+    clock.mark_advanced(now=1.0)
+    assert not clock.is_due(now=1.24, generation=0)
+    assert clock.is_due(now=1.25, generation=0)
+
+    clock.mark_advanced(now=2.0)
+    assert not clock.is_due(now=2.24, generation=0)
+    assert clock.is_due(now=2.25, generation=0)
+    assert clock.is_due(now=2.0, generation=1)
 
 
 class CallLog:
@@ -517,6 +531,29 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     ]
     assert len(metrics.results) == 1
     assert metrics.results[0].metrics == {"total_ms": 1.5}
+
+
+def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
+    log = CallLog()
+
+    class DefaultUISession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_thread(FakeModelThread, state=self)
+
+    session = DefaultUISession(
+        _session_desc(
+            presentation_mode=PresentationMode.BLOCK,
+            ui_fps=100,
+            model_fps=30,
+        ),
+        log,
+    )
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=3)
+
+    assert [result.step_index for result in window.results] == [0, 1, 2]
 
 
 def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:

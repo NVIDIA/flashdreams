@@ -70,6 +70,17 @@ class _PendingRGBFrame:
 _QueuedRGBFrame: TypeAlias = _RGBArray | _PendingRGBFrame
 
 
+@dataclass(frozen=True, slots=True)
+class _PresentedRGBFrame:
+    """One prepared frame with its io-thread presentation time."""
+
+    frame: _QueuedRGBFrame
+    """RGB pixels, possibly awaiting an asynchronous CUDA transfer."""
+
+    presented_at: float
+    """Event-loop timestamp at which the io-thread submitted this frame."""
+
+
 class _VideoTrack(MediaStreamTrack):
     """Video track whose frames are supplied by the server."""
 
@@ -78,26 +89,36 @@ class _VideoTrack(MediaStreamTrack):
     def __init__(self, frames_per_second: int) -> None:
         super().__init__()
         self._frames_per_second = frames_per_second
+        self._frame_interval = 1.0 / frames_per_second
         self._time_base = Fraction(1, frames_per_second)
-        self._frames: asyncio.Queue[_QueuedRGBFrame | None] = asyncio.Queue()
-        self._next_frame_time: float | None = None
-        self._pts = 0
+        self._frames: asyncio.Queue[_PresentedRGBFrame | None] = asyncio.Queue()
+        self._last_presented_at: float | None = None
+        self._last_sent_at: float | None = None
+        self._presentation_started_at: float | None = None
+        self._next_pts = 0
         self._closed = False
 
     async def enqueue(self, frames: tuple[_QueuedRGBFrame, ...]) -> None:
         """Append generated RGB frames for the WebRTC sender."""
         if self._closed:
             return
-        for frame in frames:
-            await self._frames.put(frame)
+        presented_at = asyncio.get_running_loop().time()
+        for frame_index, frame in enumerate(frames):
+            await self._frames.put(
+                _PresentedRGBFrame(
+                    frame=frame,
+                    presented_at=presented_at + frame_index * self._frame_interval,
+                )
+            )
 
     async def recv(self) -> VideoFrame:
         """Return the next generated frame when aiortc requests one."""
         if self._closed:
             raise MediaStreamError
-        queued_frame = await self._frames.get()
-        if queued_frame is None:
+        presented_frame = await self._frames.get()
+        if presented_frame is None:
             raise MediaStreamError
+        queued_frame = presented_frame.frame
         frame = (
             await queued_frame.resolve()
             if isinstance(queued_frame, _PendingRGBFrame)
@@ -106,16 +127,26 @@ class _VideoTrack(MediaStreamTrack):
 
         loop = asyncio.get_running_loop()
         now = loop.time()
-        if self._next_frame_time is None:
-            self._next_frame_time = now
-        else:
-            self._next_frame_time += 1.0 / self._frames_per_second
-            await asyncio.sleep(max(0.0, self._next_frame_time - now))
+        if self._last_presented_at is not None and self._last_sent_at is not None:
+            source_interval = max(
+                self._frame_interval,
+                presented_frame.presented_at - self._last_presented_at,
+            )
+            wait_seconds = self._last_sent_at + source_interval - now
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
+        self._last_sent_at = loop.time()
+        self._last_presented_at = presented_frame.presented_at
+
+        if self._presentation_started_at is None:
+            self._presentation_started_at = presented_frame.presented_at
+        elapsed = presented_frame.presented_at - self._presentation_started_at
+        pts = max(self._next_pts, round(elapsed * self._frames_per_second))
 
         video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
-        video_frame.pts = self._pts
+        video_frame.pts = pts
         video_frame.time_base = self._time_base
-        self._pts += 1
+        self._next_pts = pts + 1
         return video_frame
 
     async def close(self) -> None:
