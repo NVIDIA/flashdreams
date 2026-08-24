@@ -14,9 +14,9 @@ Two small v2 examples:
 ## Usage
 
 ```bash
-uv sync --package flashdreams-imgui-demo --inexact
-uv run --no-sync flashdreams-run-v2 imgui-text-input --mode webrtc
-uv run --no-sync flashdreams-run-v2 imgui-model-output --mode webrtc
+uv sync --package flashdreams-imgui-demo
+uv run flashdreams-run-v2 imgui-text-input --mode webrtc
+uv run flashdreams-run-v2 imgui-model-output --mode webrtc
 ```
 
 Open the URL printed by the WebRTC window. The live renderer requires CUDA,
