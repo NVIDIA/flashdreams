@@ -349,6 +349,8 @@ roads:
   - {id: far_east_loop_west, from: far_east_bend_northwest, to: far_east_bend_southwest, profile: local}
   - {id: far_east_loop_exit, from: far_east_bend_southwest, to: far_east_north_crossing, profile: local}
 
+traffic_count: 100
+
 traffic:
   - id: arterial_eastbound
     nodes: [west_arterial_crossing, arterial_crossing_1170]
@@ -399,6 +401,7 @@ spawns:
     distance_m: 128
     variants:
       default:
+        image: package://omnidreams_game_engine/screenshot.jpg
         prompt: >-
           A forward-facing view from a taxi moving through a quiet suburban
           district in daylight, with low commercial buildings, houses,
