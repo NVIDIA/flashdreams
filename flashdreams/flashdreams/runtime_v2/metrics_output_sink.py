@@ -19,7 +19,7 @@ _SCHEMA_VERSION = 1
 """Benchmark artifact schema version."""
 
 
-class BenchmarkOutputSink(OutputSink):
+class MetricsOutputSink(OutputSink):
     """Write model metrics to a benchmark JSON file.
 
     Each result records its frame count and finite numeric metrics. Metric names
@@ -51,7 +51,7 @@ class BenchmarkOutputSink(OutputSink):
             RuntimeError: Called before :meth:`open`.
         """
         if self._session_desc is None:
-            raise RuntimeError("BenchmarkOutputSink.open() must run before write().")
+            raise RuntimeError("MetricsOutputSink.open() must run before write().")
         samples = _samples_from(result)
         self._samples.extend(samples)
         self._steps.append(

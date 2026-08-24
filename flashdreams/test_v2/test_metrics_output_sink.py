@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 import torch
 
-from flashdreams.runtime_v2.benchmark_output_sink import BenchmarkOutputSink
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -64,7 +64,7 @@ def _result(
 
 def _write_run(path: Path, results: list[StepResult]) -> dict[str, Any]:
     """Run a whole session's worth of results through a sink and read it back."""
-    sink = BenchmarkOutputSink(path)
+    sink = MetricsOutputSink(path)
     sink.open(_session_desc())
     for result in results:
         sink.write(result)
@@ -195,14 +195,14 @@ def test_the_file_is_written_where_it_was_asked_for(tmp_path: Path) -> None:
 def test_a_run_that_generated_nothing_leaves_no_file(tmp_path: Path) -> None:
     path = tmp_path / "stats_run.json"
 
-    BenchmarkOutputSink(path).close()
+    MetricsOutputSink(path).close()
 
     assert not path.exists()
 
 
 def test_closing_twice_writes_once(tmp_path: Path) -> None:
     path = tmp_path / "stats_run.json"
-    sink = BenchmarkOutputSink(path)
+    sink = MetricsOutputSink(path)
     sink.open(_session_desc())
     sink.write(_result(0, {"total_ms": 10.0}))
 
@@ -215,4 +215,4 @@ def test_closing_twice_writes_once(tmp_path: Path) -> None:
 
 def test_nothing_can_be_recorded_before_a_session_is_open(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="open.. must run before write"):
-        BenchmarkOutputSink(tmp_path / "stats_run.json").write(_result())
+        MetricsOutputSink(tmp_path / "stats_run.json").write(_result())

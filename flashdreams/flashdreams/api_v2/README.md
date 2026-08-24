@@ -29,7 +29,7 @@ is finished, or a model-thread step limit is reached. `run_session` presents
 any queued frames before returning. An MP4 window never sends a close event, so
 its model-thread must finish on its own.
 
-`--stats-path` adds a `BenchmarkOutputSink`. Allows writing measurements as provided in a `StepResult` object returned via `step`. The client window still receives only the ui-thread's output. Benchmark collection
+`--stats-path` adds a `MetricsOutputSink`. Allows writing measurements as provided in a `StepResult` object returned via `step`. The client window still receives only the ui-thread's output. Metrics collection
 does not change `SessionDesc.presentation_mode`, users must opt into `PresentationMode.BENCHMARK` if they want lossless presentation.
 
 See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
@@ -77,7 +77,7 @@ clears its `latest_result`, and restarts a thread's `step_index` to zero.
 ### Thread Output
 
 All output from your model-thread's `step` method returns a list of
-`StepResult` channels. The metrics inisde this `StepResult` are recorded immediately by a benchmark output sink; the actual full `StepResult` is passed along to a presentation manager. 
+`StepResult` channels. The metrics inside this `StepResult` are recorded immediately by a metrics output sink; the actual full `StepResult` is passed along to a presentation manager.
 
 The ui-thread has the job of pulling from the presentation manager and sending the results to the client window. `presented_model_frame` or `presented_model_frames` can be used to draw the model output.
 

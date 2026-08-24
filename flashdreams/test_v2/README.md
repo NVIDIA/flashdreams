@@ -43,7 +43,7 @@ CPU-only tests for the v2 protocols themselves:
   and running one into a real MP4 with a stand-in for a model. An application
   that describes no session of its own is run there too, since running more than
   text-to-video is the point of the command.
-- `test_benchmark_output_sink.py` covers the sink that records what a run
+- `test_metrics_output_sink.py` covers the sink that records what a run
   measured, which is a file another tool reads: what a benchmark expects of it
   is checked against the reader itself in
   `flashdreams/tests/test_benchmark_harness.py`.

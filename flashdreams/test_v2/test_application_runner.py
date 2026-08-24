@@ -146,7 +146,7 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
-class _BenchmarkSink:
+class _MetricsSink:
     """Record model results delivered independently of the client window."""
 
     def __init__(self, calls: list[str]) -> None:
@@ -155,14 +155,14 @@ class _BenchmarkSink:
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc
-        self._calls.append("benchmark.open")
+        self._calls.append("metrics.open")
 
     def write(self, result: StepResult) -> None:
         self.results.append(result)
-        self._calls.append(f"benchmark.write({result.step_index})")
+        self._calls.append(f"metrics.write({result.step_index})")
 
     def close(self) -> None:
-        self._calls.append("benchmark.close")
+        self._calls.append("metrics.close")
 
 
 def _session_desc() -> SessionDesc:
@@ -217,21 +217,21 @@ def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
 
 
-def test_application_runner_keeps_benchmark_output_separate_from_the_window() -> None:
+def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:
     calls: list[str] = []
     window = _SilentWindow(calls)
-    benchmark = _BenchmarkSink(calls)
+    metrics = _MetricsSink(calls)
 
     ApplicationRunner(
         _Application(calls, session_length=2),
         window,
-        benchmark_output_sink=benchmark,
+        metrics_output_sink=metrics,
     ).run(_session_desc())
 
     assert [result.step_index for result in window.results] == [0, 1]
-    assert [result.step_index for result in benchmark.results] == [0, 1]
-    assert calls.index("benchmark.open") < calls.index("benchmark.write(0)")
-    assert calls.index("benchmark.write(1)") < calls.index("benchmark.close")
+    assert [result.step_index for result in metrics.results] == [0, 1]
+    assert calls.index("metrics.open") < calls.index("metrics.write(0)")
+    assert calls.index("metrics.write(1)") < calls.index("metrics.close")
 
 
 def test_application_runner_reports_the_run_rather_than_the_close(

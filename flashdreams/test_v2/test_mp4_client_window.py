@@ -4,8 +4,8 @@
 """CPU tests for the client window that writes an MP4.
 
 The window reports no input and writes every UI result to the video file.
-Encoding is covered in ``test_mp4_output_sink.py``; benchmark output remains a
-separate sink and is covered in ``test_benchmark_output_sink.py``.
+Encoding is covered in ``test_mp4_output_sink.py``; metrics output remains a
+separate sink and is covered in ``test_metrics_output_sink.py``.
 """
 
 import shutil
@@ -17,7 +17,7 @@ import torch
 
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread
-from flashdreams.runtime_v2.benchmark_output_sink import BenchmarkOutputSink
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
@@ -136,7 +136,7 @@ def test_a_run_writing_a_file_encodes_a_step_at_a_time(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
-def test_a_run_can_write_video_and_benchmark_measurements_separately(
+def test_a_run_can_write_video_and_metrics_separately(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "clip.mp4"
@@ -145,7 +145,7 @@ def test_a_run_can_write_video_and_benchmark_measurements_separately(
     run_session(
         FakeSession(_session_desc()),
         Mp4ClientWindow(path),
-        benchmark_output_sink=BenchmarkOutputSink(stats_path),
+        metrics_output_sink=MetricsOutputSink(stats_path),
         steps=3,
     )
 

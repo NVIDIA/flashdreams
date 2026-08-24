@@ -40,7 +40,7 @@ def run_session(
     session: ISession,
     window: IClientWindow,
     *,
-    benchmark_output_sink: OutputSink | None = None,
+    metrics_output_sink: OutputSink | None = None,
     steps: int | None = None,
     max_pending: int = 2,
 ) -> None:
@@ -52,7 +52,7 @@ def run_session(
     Args:
         session: Session to run.
         window: Source of input and destination for UI output.
-        benchmark_output_sink: Sink for model measurements, if requested.
+        metrics_output_sink: Sink for model measurements, if requested.
         steps: Maximum model steps; ``None`` runs until stopped.
         max_pending: Maximum model steps waiting to be shown.
 
@@ -109,9 +109,9 @@ def run_session(
         results: list[StepResult],
     ) -> None:
         presentation_manager.publish(generation, results)
-        if benchmark_output_sink is not None:
+        if metrics_output_sink is not None:
             for result in results:
-                benchmark_output_sink.write(result)
+                metrics_output_sink.write(result)
 
     def tick_ui() -> None:
         model_advanced, _ = presentation_manager.advance(event_buffer.generation)
@@ -135,9 +135,9 @@ def run_session(
 
         attempted_output_sinks.append(window)
         window.open(session_desc)
-        if benchmark_output_sink is not None:
-            attempted_output_sinks.append(benchmark_output_sink)
-            benchmark_output_sink.open(session_desc)
+        if metrics_output_sink is not None:
+            attempted_output_sinks.append(metrics_output_sink)
+            metrics_output_sink.open(session_desc)
         collect_input()
         tick_ui()
 

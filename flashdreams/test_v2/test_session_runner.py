@@ -441,7 +441,7 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
                 metrics={"total_ms": 1.5},
             )
 
-    class RecordingBenchmarkSink:
+    class RecordingMetricsSink:
         def __init__(self) -> None:
             self.results: list[StepResult] = []
 
@@ -455,11 +455,11 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
             return
 
     window = RecordingClientWindow(log)
-    benchmark = RecordingBenchmarkSink()
+    metrics = RecordingMetricsSink()
     run_session(
         MultiFrameSession(_session_desc(), log),
         window,
-        benchmark_output_sink=benchmark,
+        metrics_output_sink=metrics,
         steps=1,
     )
 
@@ -469,8 +469,8 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
         {"ui_ms": 0.25},
         {"ui_ms": 0.25},
     ]
-    assert len(benchmark.results) == 1
-    assert benchmark.results[0].metrics == {"total_ms": 1.5}
+    assert len(metrics.results) == 1
+    assert metrics.results[0].metrics == {"total_ms": 1.5}
 
 
 def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:

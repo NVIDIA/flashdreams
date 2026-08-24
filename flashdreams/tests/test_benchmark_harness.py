@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 import torch
 
-from flashdreams.runtime_v2.benchmark_output_sink import BenchmarkOutputSink
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -249,7 +249,7 @@ def test_runtime_benchmark_stats_written_by_the_v2_sink_are_read(
         video_width=128,
         video_height=64,
     )
-    sink = BenchmarkOutputSink(stats_path)
+    sink = MetricsOutputSink(stats_path)
     sink.open(session_desc)
     sink.write(
         StepResult(

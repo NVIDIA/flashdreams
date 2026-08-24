@@ -25,11 +25,11 @@ from flashdreams.runtime_v2.application_registry import (
     registered_application_slugs,
 )
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.benchmark_output_sink import BenchmarkOutputSink
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
 )
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -61,13 +61,13 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     _report(mode.starting(window))
     # Nothing here says how long the run is: a session reports itself finished,
     # and a window ends the run when its client goes away.
-    benchmark_output_sink = (
-        None if parsed.stats_path is None else BenchmarkOutputSink(parsed.stats_path)
+    metrics_output_sink = (
+        None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )
     ApplicationRunner(
         application,
         window,
-        benchmark_output_sink=benchmark_output_sink,
+        metrics_output_sink=metrics_output_sink,
     ).run(session_desc, application_args)
     _report(mode.finished(window))
 
