@@ -32,7 +32,7 @@ any queued frames before returning. An MP4 window never sends a close event, so
 its model-thread must finish on its own.
 
 `--stats-path` adds a `MetricsOutputSink`. Allows writing measurements as provided in a `StepResult` object returned via `step`. The client window still receives only the ui-thread's output. Metrics collection
-does not change `SessionDesc.presentation_mode`, users must opt into `PresentationMode.BENCHMARK` if they want lossless presentation.
+does not change `SessionDesc.presentation_mode`, users must opt into `PresentationMode.LOSSLESS` if they want lossless presentation.
 
 See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
 and the [benchmark README](../../tools/benchmarks/README.md) for the benchmark
