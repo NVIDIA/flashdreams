@@ -22,6 +22,13 @@ pickups and both trigger paths share one set of state-machine rules:
   which skin; ``mystery_burst_chunks`` overrides the global skin duration
   per activation, so the box grants a burst even in hold-forever mode). A
   burst during a key-held skin behaves like a K cycle: switch, fresh timer.
+- ``nitro`` items are the exception to the boundary rule: the effect is a
+  timed speed boost inside the app-authoritative physics tick
+  (:class:`~.nitro_ability.NitroAbility`), physics-only with no world-model
+  state to swap, so it activates immediately — the next sampled physics
+  tick drives faster. It composes with every skin/weather/obstacle state
+  and never touches the StyleAbility state machine. A second nitro while
+  boosted resets the timer (no stacking).
 
 Every pickup raises a short HUD flash ("RAIN!", "? PIXEL BURST!", ...)
 drawn by the live-edit presenter next to the ability chips.
@@ -69,8 +76,8 @@ def build_item_course(
     road independent — without it, whichever directed lane is walked first
     claims every spacing-disc along the whole road and drivers of the
     opposite lane never pass within pickup radius of an item. Deterministic
-    for a given lane order; item types cycle through
-    :data:`~.config.ITEM_TYPES` in acceptance order.
+    for a given lane order; item types cycle through the configured
+    ``item_types`` mix in acceptance order (equal rarity per kind).
 
     Returns:
         ``(centers [items, 3] world, types [items])``.
@@ -122,7 +129,8 @@ def build_item_course(
             distance += step
     if not centers:
         raise ValueError("Item course requires at least one drivable lane sample.")
-    types = tuple(ITEM_TYPES[i % len(ITEM_TYPES)] for i in range(len(centers)))
+    mix = config.item_types
+    types = tuple(mix[i % len(mix)] for i in range(len(centers)))
     return np.stack(centers).astype(np.float32), types
 
 
@@ -251,8 +259,11 @@ class ItemEffects:
         self,
         style_ability: object | None,
         config: LiveEditItemsConfig,
+        *,
+        nitro_ability: object | None = None,
     ) -> None:
         self._style = style_ability
+        self._nitro = nitro_ability
         self._config = config
         self._rng = random.Random(config.mystery_seed)
 
@@ -262,8 +273,19 @@ class ItemEffects:
             return self._apply_weather(item_type)
         if item_type == "mystery":
             return self._apply_mystery()
+        if item_type == "nitro":
+            return self._apply_nitro()
         logger.warning(f"[live-edit] unknown item pickup {item_type!r}")
         return f"{item_type.upper()}?"
+
+    def _apply_nitro(self) -> str:
+        # Physics-only: activates immediately (next sampled physics tick),
+        # no chunk-boundary handshake and no StyleAbility coupling.
+        activate = getattr(self._nitro, "activate", None)
+        if activate is None:
+            return "NITRO N/A"
+        activate()
+        return "NITRO!"
 
     def _apply_weather(self, name: str) -> str:
         style = self._style

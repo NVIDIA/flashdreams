@@ -82,8 +82,20 @@ group "live edit"):
   skin is active shows a "BLOCKED" hint instead of queueing. Item sparsity
   is global over the lane network (`--live-edit-item-spacing`, default one
   item per 200 m neighborhood). Sprites are local-only paths
-  (`--live-edit-item-{rain,snow,mystery}-sprite`); without them the items
-  render procedural placeholder icons, like the coin sprite.
+  (`--live-edit-item-{rain,snow,mystery,nitro}-sprite`); without them the
+  items render procedural placeholder icons, like the coin sprite.
+  A **nitro** item is the physics-only exception: it applies an INSTANT
+  timed speed boost inside the app-authoritative taxi integrator (no
+  chunk-boundary wait, no state-machine coupling — it composes with any
+  skin/weather/obstacle state). `--live-edit-nitro-boost` (default 1.6)
+  multiplies max speed and max acceleration for
+  `--live-edit-nitro-duration-s` (default 4 s game time; a re-pickup
+  resets the timer, no stacking), with the boosted max speed hard-capped
+  at `--live-edit-nitro-max-speed` (default 16 m/s) so the ego does not
+  outrun the world model's manifold on the suburb map. A "NITRO x1.6"
+  chip counts the boost down next to the other ability chips.
+  `--live-edit-item-types` restricts the course mix (e.g. `nitro` for a
+  single-effect capture course; default cycles all kinds equally).
 - **Obstacle / traffic** (`--live-edit-obstacle`, spawn with `O`): cloned
   scene vehicles. `--live-edit-obstacle-count N` turns one key press into a
   traffic burst of N distinct crossing/oncoming clones staggered ahead of

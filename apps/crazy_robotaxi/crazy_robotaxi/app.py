@@ -194,6 +194,13 @@ class CrazyRobotaxiApplication:
         self._style_ability = style_ability
         self._live_edit_presenter: Any | None = None
         self._coin_lanes: tuple[NavigationLane, ...] = ()
+        self._nitro_ability: Any | None = None
+        if self._live_edit.items.enabled:
+            from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+
+            # Application-lifetime (the integrate seam outlives one
+            # rollout); reset per rollout in create_runtime.
+            self._nitro_ability = NitroAbility(self._live_edit.items)
 
     def attach_live_edit_presenter(self, presenter: Any) -> None:
         """Bind the live-edit presenter so coin abilities reach the pixels."""
@@ -246,10 +253,19 @@ class CrazyRobotaxiApplication:
     ) -> RolloutSpec:
         """Return Crazy Robotaxi simulation policy for one rollout."""
         del default_vehicle, default_visual_flare_enabled
+        integrate_fn = integrate_taxi_vehicle
+        if self._nitro_ability is not None:
+            from crazy_robotaxi.live_edit.nitro_ability import integrate_with_nitro
+
+            # Nitro's physics seam: boost each tick's vehicle config while
+            # a pickup is active (instant, no chunk-boundary handshake).
+            integrate_fn = integrate_with_nitro(
+                self._nitro_ability, integrate_taxi_vehicle
+            )
         return RolloutSpec(
             vehicle_config=self._config.vehicle,
             initial_speed_mps=0.0,
-            integrate_fn=integrate_taxi_vehicle,
+            integrate_fn=integrate_fn,
             physics_world_factory=lambda active_scene, vehicle: TaxiPhysicsWorld(
                 active_scene,
                 vehicle,
@@ -300,7 +316,14 @@ class CrazyRobotaxiApplication:
             item_ability = ItemAbility.from_lanes(
                 self._coin_lanes, self._live_edit.items
             )
-            item_effects = ItemEffects(self._style_ability, self._live_edit.items)
+            item_effects = ItemEffects(
+                self._style_ability,
+                self._live_edit.items,
+                nitro_ability=self._nitro_ability,
+            )
+        if self._nitro_ability is not None:
+            # A rollout reset always starts unboosted.
+            self._nitro_ability.reset()
             logger.info(
                 f"[live-edit] item course laid out: "
                 f"{item_ability.remaining_count} items"
@@ -317,6 +340,7 @@ class CrazyRobotaxiApplication:
             self._live_edit_presenter.set_coin_ability(coin_ability)
             self._live_edit_presenter.set_obstacle_ability(obstacle_ability)
             self._live_edit_presenter.set_item_ability(item_ability)
+            self._live_edit_presenter.set_nitro_ability(self._nitro_ability)
         return CrazyRobotaxiRuntime(
             controller,
             self._keyboard,

@@ -587,7 +587,7 @@ class LiveEditCoinsConfig:
             raise ValueError("max_visible_sprites must be non-negative")
 
 
-ITEM_TYPES = ("rain", "snow", "mystery")
+ITEM_TYPES = ("rain", "snow", "mystery", "nitro")
 """Effect-item kinds, in course-layout cycle order."""
 
 
@@ -636,6 +636,34 @@ class LiveEditItemsConfig:
     mystery_sprite_path: Path | None = None
     """RGBA mystery-box sprite; ``None`` renders a procedural '?' box."""
 
+    nitro_sprite_path: Path | None = None
+    """RGBA nitro-item sprite; ``None`` renders a procedural placeholder."""
+
+    item_types: tuple[str, ...] = ITEM_TYPES
+    """Item kinds included in the course mix, cycled in this order by the
+    layout walk (equal rarity per kind). A subset (e.g. ``("nitro",)``)
+    makes a single-effect course for scripted captures; the default mixes
+    every kind. Exposed as ``--live-edit-item-types``."""
+
+    nitro_boost: float = 1.6
+    """Nitro speed-boost multiplier applied to BOTH the vehicle's max speed
+    and its max acceleration inside the app-authoritative physics tick
+    while a nitro pickup is active (>= 1). 1.6 reads punchy without
+    outrunning the world model at the default ceiling."""
+
+    nitro_duration_s: float = 4.0
+    """Nitro boost duration in game time (simulated seconds, accumulated
+    from the physics-tick dt, which is wall time at the shipped realtime
+    recipe). Picking a second nitro while boosted RESETS the timer to this
+    value — no multiplicative stacking."""
+
+    nitro_max_speed_mps: float = 16.0
+    """Hard ceiling on the boosted max speed. Safety knob: the world model
+    sees the faster ego through the conditioning, which stays plausible up
+    to highway speeds, but the scene must not outrun the model's manifold —
+    ~16 m/s is the validated comfort zone on the shipped suburb map. Raise
+    it cautiously on faster maps."""
+
     mystery_burst_chunks: int = 11
     """Timed-skin duration granted by a mystery box (~3 s at the shipped
     recipe). Overrides the global ``skin_duration_chunks`` per activation so
@@ -665,6 +693,19 @@ class LiveEditItemsConfig:
             raise ValueError("mystery_burst_chunks must be non-negative")
         if self.flash_seconds <= 0.0:
             raise ValueError("flash_seconds must be positive")
+        if not self.item_types:
+            raise ValueError("item_types must name at least one item kind")
+        unknown = set(self.item_types) - set(ITEM_TYPES)
+        if unknown:
+            raise ValueError(
+                f"unknown item types {sorted(unknown)}; choose from {ITEM_TYPES}"
+            )
+        if self.nitro_boost < 1.0:
+            raise ValueError("nitro_boost must be at least 1.0")
+        if self.nitro_duration_s <= 0.0:
+            raise ValueError("nitro_duration_s must be positive")
+        if self.nitro_max_speed_mps <= 0.0:
+            raise ValueError("nitro_max_speed_mps must be positive")
 
     def sprite_path(self, item_type: str) -> Path | None:
         """Configured sprite path for one item type (``None`` = procedural)."""
@@ -672,6 +713,7 @@ class LiveEditItemsConfig:
             "rain": self.rain_sprite_path,
             "snow": self.snow_sprite_path,
             "mystery": self.mystery_sprite_path,
+            "nitro": self.nitro_sprite_path,
         }
         if item_type not in paths:
             raise ValueError(f"unknown item type {item_type!r}")
@@ -1049,6 +1091,49 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="RGBA mystery-box sprite path (default: procedural '?' box).",
     )
     group.add_argument(
+        "--live-edit-item-nitro-sprite",
+        type=Path,
+        default=None,
+        help="RGBA nitro-item sprite path (default: procedural placeholder).",
+    )
+    group.add_argument(
+        "--live-edit-item-types",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated item kinds in the course mix (default: all of "
+            f"{','.join(ITEM_TYPES)}; e.g. 'nitro' lays a single-effect "
+            "course for scripted captures)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-nitro-boost",
+        type=float,
+        default=1.6,
+        help=(
+            "Nitro multiplier on max speed AND max acceleration while a "
+            "nitro pickup is active (>= 1)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-nitro-duration-s",
+        type=float,
+        default=4.0,
+        help=(
+            "Nitro boost duration in game seconds (a second pickup while "
+            "boosted resets the timer; no stacking)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-nitro-max-speed",
+        type=float,
+        default=16.0,
+        help=(
+            "Ceiling on the boosted max speed, m/s (keeps the ego inside "
+            "the world model's manifold; ~16 validated on the suburb map)."
+        ),
+    )
+    group.add_argument(
         "--live-edit-item-mystery-burst-chunks",
         type=int,
         default=11,
@@ -1103,6 +1188,19 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             rain_sprite_path=args.live_edit_item_rain_sprite,
             snow_sprite_path=args.live_edit_item_snow_sprite,
             mystery_sprite_path=args.live_edit_item_mystery_sprite,
+            nitro_sprite_path=args.live_edit_item_nitro_sprite,
+            item_types=(
+                ITEM_TYPES
+                if args.live_edit_item_types is None
+                else tuple(
+                    name.strip()
+                    for name in str(args.live_edit_item_types).split(",")
+                    if name.strip()
+                )
+            ),
+            nitro_boost=float(args.live_edit_nitro_boost),
+            nitro_duration_s=float(args.live_edit_nitro_duration_s),
+            nitro_max_speed_mps=float(args.live_edit_nitro_max_speed),
             mystery_burst_chunks=int(args.live_edit_item_mystery_burst_chunks),
             mystery_seed=(
                 None

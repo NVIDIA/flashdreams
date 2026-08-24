@@ -104,6 +104,7 @@ _ITEM_PLACEHOLDER_COLORS = {
     "rain": ((70, 130, 240, 255), (20, 60, 160, 255), "R"),
     "snow": ((235, 245, 255, 255), (120, 160, 210, 255), "S"),
     "mystery": ((250, 170, 40, 255), (160, 90, 10, 255), "?"),
+    "nitro": ((90, 225, 110, 255), (20, 120, 40, 255), "N"),
 }
 
 
@@ -256,6 +257,7 @@ class LiveEditPresenter:
         self._last_processed: PresentedFrame | None = None
         self._coin_sprite = self._load_sprite(config.coins.sprite_path)
         self._item_ability: Any | None = None
+        self._nitro_ability: Any | None = None
         self._item_sprites: dict[str, Image.Image] = (
             self._load_item_sprites(config.items) if config.items.enabled else {}
         )
@@ -279,6 +281,10 @@ class LiveEditPresenter:
     def set_item_ability(self, item_ability: Any | None) -> None:
         """Bind the per-rollout effect-item ability (sprites + HUD flash)."""
         self._item_ability = item_ability
+
+    def set_nitro_ability(self, nitro_ability: Any | None) -> None:
+        """Bind the nitro ability (boost chip with countdown)."""
+        self._nitro_ability = nitro_ability
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Intercept the scene camera and forward it down the chain."""
@@ -640,6 +646,10 @@ class LiveEditPresenter:
             flash = items.flash_label
             if flash is not None:
                 labels.append(flash)
+        nitro = self._nitro_ability
+        if nitro is not None and nitro.active:
+            # Boost chip with countdown (game-time seconds, 0.1 s steps).
+            labels.append(f"NITRO x{nitro.boost:.1f} {nitro.seconds_remaining:.1f}s")
         obstacle = self._obstacle_ability
         if obstacle is not None and obstacle.active:
             n = len(obstacle.events)

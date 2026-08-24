@@ -27,6 +27,7 @@ from crazy_robotaxi.live_edit.item_ability import (
 )
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
+from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.types import CameraCalibration, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
@@ -717,3 +718,247 @@ class TestItemPresenterWiring:
 
         assert sprites["rain"].size == (12, 34)
         assert sprites["snow"].size != (12, 34)
+
+
+class TestNitroAbility:
+    def _nitro(self, **overrides: object):
+        from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+
+        return NitroAbility(_items_config(**overrides))
+
+    def test_activation_starts_the_boost_and_counts_down_game_time(self) -> None:
+        nitro = self._nitro(nitro_duration_s=1.0)
+        vehicle = VehicleConfig()
+
+        assert not nitro.active
+        nitro.activate()
+        assert nitro.active
+        assert nitro.seconds_remaining == pytest.approx(1.0)
+        for _ in range(10):
+            nitro.vehicle_for_tick(vehicle, 0.1)
+        assert not nitro.active
+        assert nitro.seconds_remaining == 0.0
+
+    def test_repickup_resets_the_timer_without_stacking(self) -> None:
+        nitro = self._nitro(nitro_duration_s=4.0)
+        vehicle = VehicleConfig()
+
+        nitro.activate()
+        for _ in range(20):
+            nitro.vehicle_for_tick(vehicle, 0.1)  # burn 2 s
+        assert nitro.seconds_remaining == pytest.approx(2.0)
+        nitro.activate()
+        assert nitro.seconds_remaining == pytest.approx(4.0)
+
+    def test_boost_multiplies_accel_and_caps_max_speed_at_the_ceiling(self) -> None:
+        nitro = self._nitro(nitro_boost=1.6, nitro_max_speed_mps=16.0)
+        vehicle = VehicleConfig(max_speed_mps=31.2928, max_accel_mps2=10.0)
+
+        boosted = nitro.boosted_vehicle(vehicle)
+
+        assert boosted.max_accel_mps2 == pytest.approx(16.0)
+        assert boosted.max_speed_mps == pytest.approx(16.0)  # ceiling binds
+
+    def test_ceiling_yields_when_the_boosted_max_is_smaller(self) -> None:
+        nitro = self._nitro(nitro_boost=1.5, nitro_max_speed_mps=100.0)
+        vehicle = VehicleConfig(max_speed_mps=10.0)
+
+        assert nitro.boosted_vehicle(vehicle).max_speed_mps == pytest.approx(15.0)
+
+    def test_ticks_apply_and_revert_the_multiplier_exactly(self) -> None:
+        nitro = self._nitro(nitro_boost=1.6, nitro_duration_s=0.2)
+        vehicle = VehicleConfig()
+
+        assert nitro.vehicle_for_tick(vehicle, 0.1) is vehicle  # inactive
+        nitro.activate()
+        boosted = nitro.vehicle_for_tick(vehicle, 0.1)
+        assert boosted.max_accel_mps2 == pytest.approx(vehicle.max_accel_mps2 * 1.6)
+        nitro.vehicle_for_tick(vehicle, 0.1)  # expires here
+        after = nitro.vehicle_for_tick(vehicle, 0.1)
+        assert after is vehicle  # exact base config, not a copy
+
+    def test_reset_drops_an_active_boost(self) -> None:
+        nitro = self._nitro()
+        nitro.activate()
+        nitro.reset()
+        assert not nitro.active
+
+    def test_integrated_speed_boosts_then_respects_the_ceiling(self) -> None:
+        from crazy_robotaxi.driving import TaxiVehicleConfig, integrate_taxi_vehicle
+        from crazy_robotaxi.live_edit.nitro_ability import integrate_with_nitro
+        from omnidreams_game_engine.types import DriverCommand
+
+        nitro = self._nitro(
+            nitro_boost=1.6, nitro_duration_s=4.0, nitro_max_speed_mps=16.0
+        )
+        integrate = integrate_with_nitro(nitro, integrate_taxi_vehicle)
+        vehicle = TaxiVehicleConfig()
+        throttle = DriverCommand(throttle=1.0)
+
+        state = _ego_at(0.0)
+        state = integrate(state, throttle, 1.0 / 30.0, vehicle)
+        base_gain = state.speed_mps - 5.0
+
+        nitro.activate()
+        boosted_state = integrate(_ego_at(0.0), throttle, 1.0 / 30.0, vehicle)
+        assert boosted_state.speed_mps - 5.0 == pytest.approx(base_gain * 1.6)
+
+        # Full throttle through the boost window never exceeds the ceiling.
+        state = _ego_at(0.0)
+        nitro.activate()
+        top = 0.0
+        while nitro.active:
+            state = integrate(state, throttle, 1.0 / 30.0, vehicle)
+            top = max(top, state.speed_mps)
+        assert top <= 16.0 + 1e-6
+        assert top > 10.0  # the boost actually reached past base speeds
+
+
+class TestNitroDispatch:
+    def test_nitro_pickup_activates_the_boost_immediately(self) -> None:
+        from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+
+        config = _items_config()
+        nitro = NitroAbility(config)
+        effects = ItemEffects(None, config, nitro_ability=nitro)
+
+        assert not nitro.active
+        assert effects.apply("nitro") == "NITRO!"
+        assert nitro.active  # no chunk-boundary wait
+
+    def test_nitro_without_an_ability_degrades_to_a_hint(self) -> None:
+        effects = ItemEffects(None, _items_config())
+        assert effects.apply("nitro") == "NITRO N/A"
+
+    def test_nitro_composes_with_a_skin_burst(self) -> None:
+        from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+
+        style, session = _hooked_style_ability()
+        config = _items_config(mystery_seed=7)
+        nitro = NitroAbility(config)
+        effects = ItemEffects(style, config, nitro_ability=nitro)
+
+        effects.apply("mystery")
+        session.continue_generation([])
+        skin = style.active_skin_name
+        assert skin in style.skin_names
+
+        assert effects.apply("nitro") == "NITRO!"
+        session.continue_generation([])
+        # Physics-only: the skin state machine is untouched by nitro.
+        assert style.active_skin_name == skin
+        assert nitro.active
+
+    def test_runtime_pickup_dispatches_nitro(self) -> None:
+        from types import SimpleNamespace
+
+        from crazy_robotaxi.app import CrazyRobotaxiRuntime
+        from crazy_robotaxi.input import CrazyRobotaxiKeyboardState
+        from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+        from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
+        from omnidreams_game_engine.types import TrajectoryChunk
+
+        config = _items_config()
+        nitro = NitroAbility(config)
+        items = ItemAbility(
+            np.array([[10.0, 0.0, 1.0]], dtype=np.float32), ("nitro",), config
+        )
+
+        class FakeController:
+            is_playing = True
+
+            def advance_frames(self, trajectory, interval: float) -> tuple:
+                return tuple(
+                    SimpleNamespace(session_state="menu")
+                    for _ in trajectory.timestamps_us
+                )
+
+        runtime = CrazyRobotaxiRuntime(
+            FakeController(),
+            CrazyRobotaxiKeyboardState(),
+            item_ability=items,
+            item_effects=ItemEffects(None, config, nitro_ability=nitro),
+        )
+        state = _ego_at(10.0)
+        trajectory = TrajectoryChunk(
+            timestamps_us=np.array([0], dtype=np.int64),
+            rig_poses_world=rig_pose_from_vehicle_state(state)[None],
+            vehicle_states=(state,),
+            boundary_state_after_chunk=state,
+        )
+
+        runtime.advance_frames(trajectory, 1.0 / 30.0)
+
+        assert items.flash_label == "NITRO!"
+        assert nitro.active
+
+
+class TestNitroConfig:
+    def test_nitro_cli_round_trip(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        args = parser.parse_args(
+            [
+                "--live-edit-items",
+                "--live-edit-item-nitro-sprite",
+                "/tmp/gpu.png",
+                "--live-edit-nitro-boost",
+                "2.0",
+                "--live-edit-nitro-duration-s",
+                "6.5",
+                "--live-edit-nitro-max-speed",
+                "18.0",
+                "--live-edit-item-types",
+                "nitro,rain",
+            ]
+        )
+        config = live_edit_config_from_args(args)
+
+        assert config.items.nitro_sprite_path == Path("/tmp/gpu.png")
+        assert config.items.nitro_boost == 2.0
+        assert config.items.nitro_duration_s == 6.5
+        assert config.items.nitro_max_speed_mps == 18.0
+        assert config.items.item_types == ("nitro", "rain")
+
+    def test_nitro_defaults(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_live_edit_args(parser)
+        config = live_edit_config_from_args(parser.parse_args([]))
+
+        assert config.items.nitro_boost == 1.6
+        assert config.items.nitro_duration_s == 4.0
+        assert config.items.nitro_max_speed_mps == 16.0
+        assert config.items.item_types == ITEM_TYPES
+        assert "nitro" in ITEM_TYPES
+
+    def test_nitro_validation_rejects_bad_values(self) -> None:
+        with pytest.raises(ValueError):
+            LiveEditItemsConfig(nitro_boost=0.9)
+        with pytest.raises(ValueError):
+            LiveEditItemsConfig(nitro_duration_s=0.0)
+        with pytest.raises(ValueError):
+            LiveEditItemsConfig(nitro_max_speed_mps=0.0)
+        with pytest.raises(ValueError):
+            LiveEditItemsConfig(item_types=("lava",))
+        with pytest.raises(ValueError):
+            LiveEditItemsConfig(item_types=())
+
+    def test_course_mix_can_be_restricted_to_one_kind(self) -> None:
+        _, types = build_item_course(
+            [_straight_lane(1400.0)], _items_config(item_types=("nitro",))
+        )
+        assert types and set(types) == {"nitro"}
+
+    def test_nitro_chip_shows_boost_and_countdown(self) -> None:
+        from crazy_robotaxi.live_edit.config import LiveEditConfig
+        from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+        from crazy_robotaxi.live_edit.presenter import LiveEditPresenter
+
+        config = LiveEditConfig(items=_items_config())
+        nitro = NitroAbility(config.items)
+        presenter = LiveEditPresenter(object(), config)
+        presenter.set_nitro_ability(nitro)
+
+        assert not any("NITRO" in label for label in presenter._hud_labels())
+        nitro.activate()
+        assert "NITRO x1.6 4.0s" in presenter._hud_labels()
