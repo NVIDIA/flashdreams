@@ -44,7 +44,7 @@ Threading
 
 An application lives for the length of the parent process. A
 session (stored in `IApplication`) lives for one run and owns two `IThread` objects, a model-thread and a ui-thread. In `ISession.init`,
-it must call `register_model_thread` and may call `register_ui_thread`. 
+it must call `register_model_thread` and may call `register_ui_thread`.
 
 | Runs on | Calls | Owns | Frame rate |
 | --- | --- | --- | --- |
@@ -66,7 +66,7 @@ invoke_async(
 )
 ```
 
-The call returns immediately, sending the operation to the target threads message queue (`self.state.model_thread`). 
+The call returns immediately, sending the operation to the target threads message queue (`self.state.model_thread`).
 The target thread runs the operation in its next `step`. It takes a snapshot of queued operations first and only processes this snapshot until next `step` is completed. Operations from `invoke_async` must return `None`. Queued operations that have not run are dropped during shutdown since otherwise two threads could hit an endless loop of ping-ponging messages to each other.
 
 ### Thread Reset
