@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import io
+import math
 import zipfile
 from pathlib import Path
 from typing import Any, cast
@@ -793,6 +794,73 @@ def test_traffic_compiles_and_round_trips(tmp_path: Path) -> None:
     assert "local_car" in preview_text
 
 
+def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    node_types = {node.node_id: node.node_type for node in game_map.topology.nodes}
+
+    for connector in (
+        lane
+        for lane in game_map.lanes
+        if ":connector:" in lane.lane_id and node_types[lane.element_id] != "cul_de_sac"
+    ):
+        sources = [
+            lane for lane in game_map.lanes if connector.lane_id in lane.successor_ids
+        ]
+        assert len(sources) == 1
+        target = lanes[connector.successor_ids[0]]
+        tangent_pairs = (
+            (
+                sources[0].centerline_world[-1, :2]
+                - sources[0].centerline_world[-2, :2],
+                connector.centerline_world[1, :2] - connector.centerline_world[0, :2],
+            ),
+            (
+                connector.centerline_world[-1, :2] - connector.centerline_world[-2, :2],
+                target.centerline_world[1, :2] - target.centerline_world[0, :2],
+            ),
+        )
+        for first, second in tangent_pairs:
+            cosine = float(
+                np.dot(first, second) / (np.linalg.norm(first) * np.linalg.norm(second))
+            )
+            assert cosine >= 0.97, connector.lane_id
+
+    cul_de_sacs = {
+        node.node_id
+        for node in game_map.topology.nodes
+        if node.node_type == "cul_de_sac"
+    }
+    for vehicle in game_map.traffic:
+        segments = np.diff(vehicle.centerline_world[:, :2], axis=0)
+        lengths = np.linalg.norm(segments, axis=1)
+        assert np.all(lengths >= 0.25 - 1.0e-5), vehicle.vehicle_id
+
+        headings = np.arctan2(segments[:, 1], segments[:, 0])
+        heading_changes = np.abs(
+            (headings - np.roll(headings, 1) + np.pi) % (2.0 * np.pi) - np.pi
+        )
+        previous_lengths = np.roll(lengths, 1)
+        previous_speeds = np.roll(vehicle.speed_limits_mps[:-1], 1)
+        segment_speeds = np.maximum(
+            np.minimum(previous_speeds, vehicle.speed_limits_mps[:-1]), 0.1
+        )
+        yaw_rates = heading_changes * segment_speeds / previous_lengths
+        assert np.max(yaw_rates) <= 1.201, vehicle.vehicle_id
+
+        for index, heading_change in enumerate(heading_changes):
+            previous = (index - 1) % len(vehicle.route_element_ids)
+            current = index % len(vehicle.route_element_ids)
+            if {
+                vehicle.route_element_ids[previous],
+                vehicle.route_element_ids[current],
+            }.isdisjoint(cul_de_sacs):
+                assert heading_change <= math.radians(30.0), (
+                    vehicle.vehicle_id,
+                    index,
+                )
+
+
 def test_traffic_rejects_parking_lot_waypoint(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     source["traffic"] = [
@@ -914,7 +982,7 @@ def test_boulevard_large_logical_fleet_activates_only_graph_nearby_cars(
 
     assert len(game_map.traffic) == 100
     assert 0 < len(controller.active_objects) < len(game_map.traffic)
-    assert len(controller.active_objects) == 28
+    assert len(controller.active_objects) == 27
 
 
 @pytest.mark.parametrize("count", [-1, 1.5, True, "2"])

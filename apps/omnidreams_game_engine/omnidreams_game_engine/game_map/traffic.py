@@ -34,6 +34,12 @@ _HEADWAY_MIN_CLEARANCE_M = 2.0
 _HEADWAY_TIME_S = 1.25
 _HEADWAY_LANE_CORRIDOR_M = 2.25
 _HEADWAY_MAX_ANGLE_RAD = math.radians(40.0)
+_MIN_ROUTE_POINT_SPACING_M = 0.25
+_LANE_SEAM_TOLERANCE_M = 0.05
+_MAX_ROUTE_YAW_RATE_RADPS = 1.2
+_MAX_ROUTE_LATERAL_ACCEL_MPS2 = 2.5
+_MAX_ROUTE_ACCEL_MPS2 = 2.5
+_MAX_ROUTE_BRAKING_MPS2 = 4.0
 
 
 @dataclass(frozen=True)
@@ -86,13 +92,78 @@ def _append_path(
     element_id: str,
 ) -> None:
     for point in path:
-        if points and float(np.linalg.norm(points[-1][:2] - point[:2])) <= 1.0e-4:
+        if (
+            points
+            and float(np.linalg.norm(points[-1][:2] - point[:2]))
+            <= _MIN_ROUTE_POINT_SPACING_M
+        ):
             speeds[-1] = min(speeds[-1], speed_mps)
             continue
         if points:
             element_ids.append(element_id)
         points.append(np.asarray(point, dtype=np.float64))
         speeds.append(speed_mps)
+
+
+def _curve_limited_speeds(points: np.ndarray, speeds: np.ndarray) -> np.ndarray:
+    """Limit a closed route to speeds its physical follower can turn through."""
+    if len(points) < 4:
+        return speeds
+    closed = float(np.linalg.norm(points[-1, :2] - points[0, :2])) <= 1.0e-4
+    if not closed:
+        return speeds
+    route_points = points[:-1]
+    route_speeds = speeds[:-1].astype(np.float64, copy=True)
+    count = len(route_points)
+    if count < 3:
+        return speeds
+
+    segment_vectors = np.roll(route_points[:, :2], -1, axis=0) - route_points[:, :2]
+    segment_lengths = np.linalg.norm(segment_vectors, axis=1)
+    headings = np.arctan2(segment_vectors[:, 1], segment_vectors[:, 0])
+    heading_changes = np.abs(
+        (headings - np.roll(headings, 1) + math.pi) % (2.0 * math.pi) - math.pi
+    )
+    previous_lengths = np.roll(segment_lengths, 1)
+    local_lengths = np.maximum(
+        0.5 * (previous_lengths + segment_lengths), _MIN_ROUTE_POINT_SPACING_M
+    )
+    curvature = heading_changes / local_lengths
+    turning = curvature > 1.0e-9
+    lateral_caps = np.full(count, math.inf, dtype=np.float64)
+    lateral_caps[turning] = np.sqrt(_MAX_ROUTE_LATERAL_ACCEL_MPS2 / curvature[turning])
+    yaw_caps = np.full(count, math.inf, dtype=np.float64)
+    changing_heading = heading_changes > 1.0e-9
+    yaw_caps[changing_heading] = (
+        _MAX_ROUTE_YAW_RATE_RADPS
+        * previous_lengths[changing_heading]
+        / heading_changes[changing_heading]
+    )
+    route_speeds = np.minimum(route_speeds, np.minimum(lateral_caps, yaw_caps))
+
+    # Propagate each turn's limit backward through its braking distance and
+    # forward through acceleration, including across the cyclic route seam.
+    for _ in range(count):
+        previous_speeds = route_speeds.copy()
+        for index in range(count):
+            following = (index + 1) % count
+            acceleration_cap = math.sqrt(
+                route_speeds[index] ** 2
+                + 2.0 * _MAX_ROUTE_ACCEL_MPS2 * segment_lengths[index]
+            )
+            route_speeds[following] = min(route_speeds[following], acceleration_cap)
+        for index in range(count - 1, -1, -1):
+            following = (index + 1) % count
+            braking_cap = math.sqrt(
+                route_speeds[following] ** 2
+                + 2.0 * _MAX_ROUTE_BRAKING_MPS2 * segment_lengths[index]
+            )
+            route_speeds[index] = min(route_speeds[index], braking_cap)
+        if np.array_equal(route_speeds, previous_speeds):
+            break
+
+    route_speeds = np.concatenate((route_speeds, route_speeds[:1]))
+    return route_speeds.astype(np.float32)
 
 
 def _directed_road_lanes(
@@ -205,22 +276,53 @@ def _connector_path(
     public_road_ids: set[str],
     parking_access_ids: set[str],
 ) -> list[GameMapLane]:
-    queue: deque[tuple[str, list[str]]] = deque([(source_id, [source_id])])
-    visited = {source_id}
+    queue: list[tuple[float, float, float, str, tuple[str, ...]]] = [
+        (0.0, 0.0, 0.0, source_id, (source_id,))
+    ]
+    best = {source_id: (0.0, 0.0, 0.0)}
     while queue:
-        lane_id, path = queue.popleft()
+        seam_cost, heading_cost, length_cost, lane_id, path = heapq.heappop(queue)
+        if (seam_cost, heading_cost, length_cost) != best.get(lane_id):
+            continue
         if lane_id == target_id:
             return [lane_by_id[item] for item in path]
-        for successor in lane_by_id[lane_id].successor_ids:
-            if successor in visited or successor not in lane_by_id:
+        lane = lane_by_id[lane_id]
+        source_tangent = lane.centerline_world[-1, :2] - lane.centerline_world[-2, :2]
+        source_tangent /= max(float(np.linalg.norm(source_tangent)), 1.0e-9)
+        for successor in lane.successor_ids:
+            if successor not in lane_by_id:
                 continue
-            lane = lane_by_id[successor]
-            if lane.element_id in public_road_ids and successor != target_id:
+            following = lane_by_id[successor]
+            if following.element_id in public_road_ids and successor != target_id:
                 continue
-            if lane.element_id in parking_access_ids:
+            if following.element_id in parking_access_ids:
                 continue
-            visited.add(successor)
-            queue.append((successor, [*path, successor]))
+            seam_distance = float(
+                np.linalg.norm(
+                    lane.centerline_world[-1, :2] - following.centerline_world[0, :2]
+                )
+            )
+            target_tangent = (
+                following.centerline_world[1, :2] - following.centerline_world[0, :2]
+            )
+            target_tangent /= max(float(np.linalg.norm(target_tangent)), 1.0e-9)
+            heading_delta = math.acos(
+                float(np.clip(np.dot(source_tangent, target_tangent), -1.0, 1.0))
+            )
+            cost = (
+                seam_cost + max(0.0, seam_distance - _LANE_SEAM_TOLERANCE_M),
+                heading_cost + heading_delta,
+                length_cost
+                + (
+                    0.0
+                    if successor == target_id
+                    else _polyline_length(following.centerline_world)
+                ),
+            )
+            if cost >= best.get(successor, (math.inf, math.inf, math.inf)):
+                continue
+            best[successor] = cost
+            heapq.heappush(queue, (*cost, successor, (*path, successor)))
     raise GameMapError(
         f"Traffic route has no legal lane connection from {source_id!r} to {target_id!r}"
     )
@@ -318,19 +420,23 @@ def _compile_route(
                 connector_speed,
                 lane.element_id,
             )
-    if float(np.linalg.norm(points[-1][:2] - points[0][:2])) > 1.0e-4:
+    closure_distance = float(np.linalg.norm(points[-1][:2] - points[0][:2]))
+    if closure_distance > _MIN_ROUTE_POINT_SPACING_M:
         element_ids.append(element_ids[-1])
         points.append(points[0].copy())
         speeds.append(speeds[0])
+    elif closure_distance > 1.0e-4:
+        points[-1] = points[0].copy()
+        speeds[-1] = min(speeds[-1], speeds[0])
     if len(points) < 3 or _polyline_length(np.asarray(points)) <= 1.0:
         raise GameMapError("Traffic route resolves to degenerate geometry")
     if len(element_ids) != len(points) - 1:
         raise GameMapError("Traffic route element metadata is misaligned")
-    return (
-        np.asarray(points, dtype=np.float32),
-        np.asarray(speeds, dtype=np.float32),
-        tuple(element_ids),
+    route_points = np.asarray(points, dtype=np.float32)
+    route_speeds = _curve_limited_speeds(
+        route_points, np.asarray(speeds, dtype=np.float32)
     )
+    return route_points, route_speeds, tuple(element_ids)
 
 
 def _insert_turnarounds(

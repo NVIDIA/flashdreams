@@ -63,6 +63,9 @@ _OPENING_TOLERANCE_M = 1.0e-2
 _BOUNDARY_CLEARANCE_M = 1.0e-2
 """Outward clearance that keeps sampled roadside corners behind their openings."""
 
+_INTERSECTION_TURN_HANDLE_RATIO = 0.4
+"""Cubic handle length as a fraction of the connector endpoint chord."""
+
 _LINEAR_ATTRIBUTE_FIELDS = frozenset(
     {
         "lane_width_m",
@@ -2503,12 +2506,31 @@ def _wire_node(
                 source.lane.successors.append(target.lane.lane_id)
                 continue
             center = np.asarray([node.x_m, node.y_m, 0.0], dtype=np.float32)
-            centerline = _bezier(
-                source.lane.centerline[-1],
-                center,
-                target.lane.centerline[0],
-                connector_samples,
-            )
+            if node.node_type == "cul_de_sac":
+                centerline = _bezier(
+                    source.lane.centerline[-1],
+                    center,
+                    target.lane.centerline[0],
+                    connector_samples,
+                )
+            else:
+                start = source.lane.centerline[-1]
+                end = target.lane.centerline[0]
+                incoming_tangent = start - source.lane.centerline[-2]
+                outgoing_tangent = target.lane.centerline[1] - end
+                incoming_tangent /= max(float(np.linalg.norm(incoming_tangent)), 1.0e-9)
+                outgoing_tangent /= max(float(np.linalg.norm(outgoing_tangent)), 1.0e-9)
+                chord_length = float(np.linalg.norm(end - start))
+                handle_length = chord_length * _INTERSECTION_TURN_HANDLE_RATIO
+                first_control = start + incoming_tangent * handle_length
+                second_control = end - outgoing_tangent * handle_length
+                t = np.linspace(0.0, 1.0, connector_samples, dtype=np.float32)[:, None]
+                centerline = (
+                    (1.0 - t) ** 3 * start
+                    + 3.0 * (1.0 - t) ** 2 * t * first_control
+                    + 3.0 * (1.0 - t) * t**2 * second_control
+                    + t**3 * end
+                ).astype(np.float32)
             width = float(
                 np.linalg.norm(source.lane.left_edge[-1] - source.lane.right_edge[-1])
             )
