@@ -38,7 +38,8 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             python3 python3-dev python3-venv \
             git curl ca-certificates \
-            libgl1-mesa-dev
+            libgl1-mesa-dev \
+            libxrandr libxrandr-dev
 
       - name: Checkout
         uses: actions/checkout@v4
