@@ -20,6 +20,7 @@ conflicts = [[
 [manifest]
 members = [
     "flashdreams",
+    "flashdreams-cam2v",
     "flashdreams-causal-forcing",
     "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
@@ -1121,6 +1122,17 @@ cuda13 = [
 ]
 
 [[package]]
+name = "flashdreams-cam2v"
+version = "0.1.0"
+source = { editable = "apps/cam2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+
+[[package]]
 name = "flashdreams-causal-forcing"
 version = "0.1.0"
 source = { editable = "integrations/causal_forcing" }
@@ -1283,6 +1295,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiortc" },
     { name = "flashdreams" },
+    { name = "flashdreams-cam2v" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1301,6 +1314,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "aiortc", specifier = ">=1.9" },
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from cam2v.controls import CameraPoseIntegrator, PoseSegment
 
 from flashdreams.runtime import (
     InferenceInput,
@@ -31,7 +32,6 @@ from flashdreams.serving.webrtc.services import (
     WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     WEBRTC_SKIPPED_WINDOW_METADATA_KEY,
 )
-from lingbot.controls import CameraPoseIntegrator, PoseSegment
 from lingbot.runtime import (
     FIELD_PROMPT,
     FIELD_WORLD_SCALE,

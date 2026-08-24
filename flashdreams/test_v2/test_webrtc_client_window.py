@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+from typing import Any, cast
 
 import pytest
 import torch
@@ -23,6 +24,10 @@ from aiortc import (
 )
 from av import VideoFrame
 
+from flashdreams.runtime_v2.serving.webrtc_server import (
+    _PendingRGBFrame,
+    _VideoTrack,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -189,3 +194,32 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         if peer is not None:
             await peer.close()
         window.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_resolves_pending_cuda_transfer_without_blocking() -> None:
+    class FakeCUDAEvent:
+        def __init__(self) -> None:
+            self.queries = 0
+
+        def query(self) -> bool:
+            self.queries += 1
+            return self.queries >= 3
+
+    ready_event = FakeCUDAEvent()
+    pending = _PendingRGBFrame(
+        host_frames=torch.full((1, 16, 16, 3), 23, dtype=torch.uint8),
+        frame_index=0,
+        ready_event=cast(Any, ready_event),
+    )
+    track = _VideoTrack(frames_per_second=30)
+    try:
+        await track.enqueue((pending,))
+        frame = await asyncio.wait_for(track.recv(), timeout=1)
+
+        assert ready_event.queries == 3
+        pixels = frame.to_ndarray(format="rgb24")
+        assert pixels.shape == (16, 16, 3)
+        assert abs(float(pixels.mean()) - 23.0) <= 2.0
+    finally:
+        await track.close()

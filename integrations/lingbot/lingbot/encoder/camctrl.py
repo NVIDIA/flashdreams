@@ -21,6 +21,7 @@ import math
 from dataclasses import dataclass, field
 
 import torch
+from cam2v import CameraControlInput
 from einops import rearrange
 from torch import Tensor
 
@@ -41,19 +42,8 @@ from .utils import (
     get_plucker_embeddings,
 )
 
-
-@dataclass(kw_only=True)
-class CamCtrlInput:
-    """Per-AR-step camera payload."""
-
-    intrinsics: Tensor
-    """Per-frame camera intrinsics of shape ``[..., T, 4]`` (fx, fy, cx, cy)."""
-
-    poses: Tensor
-    """Per-frame camera-to-world poses of shape ``[..., T, 4, 4]``."""
-
-    world_scale: float
-    """Scalar applied to translations when normalizing world coordinates."""
+CamCtrlInput = CameraControlInput
+"""Compatibility name for the camera payload now owned by ``cam2v``."""
 
 
 @dataclass(kw_only=True)

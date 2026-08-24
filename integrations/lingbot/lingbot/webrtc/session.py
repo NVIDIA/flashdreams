@@ -33,6 +33,7 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed as dist
+from cam2v.controls import CameraPoseIntegrator, PoseSegment
 from loguru import logger
 
 from flashdreams.core.distributed.rank_orchestration import distributed_op
@@ -56,7 +57,6 @@ from flashdreams.serving.webrtc.runtime import (
     ThreadAffineDistributedWebRTCRuntime,
 )
 from flashdreams.serving.webrtc.server import SessionBusyError
-from lingbot.controls import CameraPoseIntegrator, PoseSegment
 from lingbot.encoder.utils import preprocess_example_poses
 from lingbot.input_mapping import (
     FIELD_CAMERA_INTRINSICS,

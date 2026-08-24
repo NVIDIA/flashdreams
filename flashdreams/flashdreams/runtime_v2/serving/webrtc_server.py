@@ -12,9 +12,10 @@ import socket
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import torch
@@ -40,6 +41,34 @@ _WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
 _BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
 _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
+_CUDA_EVENT_POLL_SECONDS = 0.001
+"""Polling interval that keeps CUDA waits off the WebRTC event-loop thread."""
+
+_RGBArray: TypeAlias = np.ndarray[Any, np.dtype[np.uint8]]
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingRGBFrame:
+    """Pinned host frame whose asynchronous CUDA transfer is in flight."""
+
+    host_frames: torch.Tensor
+    """Pinned ``[T, H, W, C]`` uint8 storage shared by one result."""
+
+    frame_index: int
+    """Frame selected from ``host_frames`` after the transfer completes."""
+
+    ready_event: torch.cuda.Event
+    """Event recorded after the device-to-host transfer."""
+
+    async def resolve(self) -> _RGBArray:
+        """Wait without blocking the event loop and return the host array."""
+        while not self.ready_event.query():
+            await asyncio.sleep(_CUDA_EVENT_POLL_SECONDS)
+        return np.asarray(self.host_frames[self.frame_index].numpy())
+
+
+_QueuedRGBFrame: TypeAlias = _RGBArray | _PendingRGBFrame
+
 
 class _VideoTrack(MediaStreamTrack):
     """Video track whose frames are supplied by the server."""
@@ -50,16 +79,12 @@ class _VideoTrack(MediaStreamTrack):
         super().__init__()
         self._frames_per_second = frames_per_second
         self._time_base = Fraction(1, frames_per_second)
-        self._frames: asyncio.Queue[np.ndarray[Any, np.dtype[np.uint8]] | None] = (
-            asyncio.Queue()
-        )
+        self._frames: asyncio.Queue[_QueuedRGBFrame | None] = asyncio.Queue()
         self._next_frame_time: float | None = None
         self._pts = 0
         self._closed = False
 
-    async def enqueue(
-        self, frames: tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]
-    ) -> None:
+    async def enqueue(self, frames: tuple[_QueuedRGBFrame, ...]) -> None:
         """Append generated RGB frames for the WebRTC sender."""
         if self._closed:
             return
@@ -70,9 +95,14 @@ class _VideoTrack(MediaStreamTrack):
         """Return the next generated frame when aiortc requests one."""
         if self._closed:
             raise MediaStreamError
-        frame = await self._frames.get()
-        if frame is None:
+        queued_frame = await self._frames.get()
+        if queued_frame is None:
             raise MediaStreamError
+        frame = (
+            await queued_frame.resolve()
+            if isinstance(queued_frame, _PendingRGBFrame)
+            else queued_frame
+        )
 
         loop = asyncio.get_running_loop()
         now = loop.time()
@@ -215,11 +245,16 @@ class WebRTCServer:
         session_desc = self._session_desc
         if session_desc is None:
             raise RuntimeError("Open the WebRTC server before writing.")
-        frames = _result_to_rgb_frames(result, session_desc)
+        frames = _validated_result_frames(result, session_desc)
+        if self._video_track is None:
+            return
+        queued_frames = _prepare_rgb_frames(frames)
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
-        future = asyncio.run_coroutine_threadsafe(self._enqueue_frames(frames), loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._enqueue_frames(queued_frames), loop
+        )
         future.result()
 
     def close(self) -> None:
@@ -465,9 +500,7 @@ class WebRTCServer:
         if not self._closed:
             self._append_event(CloseUserInputEventData())
 
-    async def _enqueue_frames(
-        self, frames: tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]
-    ) -> None:
+    async def _enqueue_frames(self, frames: tuple[_QueuedRGBFrame, ...]) -> None:
         """Append frames to the active media track, if connected."""
         track = self._video_track
         if track is not None:
@@ -507,10 +540,10 @@ def _normalized_coordinate(value: object, *, label: str) -> float:
     return result
 
 
-def _result_to_rgb_frames(
+def _validated_result_frames(
     result: StepResult, session_desc: SessionDesc
-) -> tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]:
-    """Convert one result to time-major RGB uint8 frames."""
+) -> torch.Tensor:
+    """Return validated time-major frames without materializing them on the host."""
     output = result.output.detach()
     if result.output_layout == VideoTensorLayout.tchw:
         frames = output
@@ -542,10 +575,48 @@ def _result_to_rgb_frames(
     if result.output_layout != session_desc.output_layout:
         raise ValueError("StepResult.output_layout does not match SessionDesc.")
 
+    return frames
+
+
+def _rgb_uint8_thwc(frames: torch.Tensor) -> torch.Tensor:
+    """Convert validated frames to contiguous ``[T, H, W, C]`` uint8 storage."""
+
     if frames.shape[1] == 1:
         frames = frames.repeat(1, 3, 1, 1)
     if frames.is_floating_point():
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
-    frames = frames.permute(0, 2, 3, 1).contiguous().cpu()
+    return frames.permute(0, 2, 3, 1).contiguous()
+
+
+def _prepare_rgb_frames(frames: torch.Tensor) -> tuple[_QueuedRGBFrame, ...]:
+    """Prepare RGB frames without synchronizing the calling thread on CUDA work."""
+    frames = _rgb_uint8_thwc(frames)
+    if not frames.is_cuda:
+        return tuple(np.asarray(frame.numpy()) for frame in frames.cpu())
+
+    host_frames = torch.empty(
+        frames.shape,
+        dtype=torch.uint8,
+        device="cpu",
+        pin_memory=True,
+    )
+    host_frames.copy_(frames, non_blocking=True)
+    ready_event = torch.cuda.Event()
+    ready_event.record(torch.cuda.current_stream(frames.device))
+    return tuple(
+        _PendingRGBFrame(
+            host_frames=host_frames,
+            frame_index=frame_index,
+            ready_event=ready_event,
+        )
+        for frame_index in range(frames.shape[0])
+    )
+
+
+def _result_to_rgb_frames(
+    result: StepResult, session_desc: SessionDesc
+) -> tuple[_RGBArray, ...]:
+    """Synchronously convert one result to time-major RGB uint8 frames."""
+    frames = _rgb_uint8_thwc(_validated_result_frames(result, session_desc)).cpu()
     return tuple(np.asarray(frame.numpy()) for frame in frames)
