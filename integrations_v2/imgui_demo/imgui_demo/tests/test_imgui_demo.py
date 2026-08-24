@@ -4,12 +4,11 @@
 """CPU smoke tests for the v2 ImGui demos."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 
 import pytest
 import torch
 from imgui_demo.model_output_app import (
-    ModelOutputApplication,
     ModelOutputImGUIThread,
     ModelOutputSession,
     ModelOutputThread,
@@ -17,7 +16,6 @@ from imgui_demo.model_output_app import (
 from imgui_demo.text_input_app import TextInputImGUIThread, TextInputState
 from numpy import uint64
 
-from flashdreams.api_v2.thread import BlitModelOutputToScreenThread
 from flashdreams.runtime_v2.imgui_thread import _route_input_events
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -40,17 +38,34 @@ def test_text_input_updates_ui_owned_state() -> None:
         presentation_manager=PresentationManager(),
         renderer=Mock(),
     )
-    imgui = Mock()
-    imgui.input_text.return_value = (True, "hello world")
+    ui = SimpleNamespace(
+        screen=object(),
+        Window=Mock(return_value=object()),
+        Text=Mock(side_effect=(object(), SimpleNamespace(text=""))),
+        InputText=Mock(return_value=SimpleNamespace(value="")),
+    )
 
-    thread.draw_ui(imgui, 0, UserInputEvents([]))
+    thread.draw_ui(ui, 0, UserInputEvents([]))
+    callback = ui.InputText.call_args.args[3]
+    callback("hello world")
 
     assert state.text == "hello world"
-    assert not state.request_focus
+    assert state.value_widget is not None
+    assert state.value_widget.text == "Value: hello world"
 
 
 def test_imgui_routes_pressed_and_released_key_edges() -> None:
-    io = Mock()
+    ui_context = Mock()
+    slangpy = SimpleNamespace(
+        KeyboardEvent=lambda: SimpleNamespace(),
+        KeyboardEventType=SimpleNamespace(
+            key_press="press",
+            key_release="release",
+            input="input",
+        ),
+        KeyCode=SimpleNamespace(left="left"),
+        KeyModifierFlags=SimpleNamespace(none="none"),
+    )
     events = UserInputEvents(
         [
             UserInputEvent(
@@ -65,13 +80,17 @@ def test_imgui_routes_pressed_and_released_key_edges() -> None:
 
     _route_input_events(
         events,
-        io=io,
-        imgui=SimpleNamespace(Key=SimpleNamespace(left_arrow="left")),
+        ui_context=ui_context,
+        slangpy=slangpy,
         width=1,
         height=1,
     )
 
-    assert io.add_key_event.call_args_list == [call("left", True), call("left", False)]
+    routed = [call.args[0] for call in ui_context.handle_keyboard_event.call_args_list]
+    assert [(event.type, event.key) for event in routed] == [
+        ("press", "left"),
+        ("release", "left"),
+    ]
 
 
 def test_model_output_emits_repeating_selectable_fade_channels() -> None:
@@ -101,26 +120,3 @@ def test_model_output_emits_repeating_selectable_fade_channels() -> None:
     frame = ui_thread.presented_model_frame(1)
     assert frame is not None
     assert frame.data_ptr() == chunk[1].output[0].data_ptr()
-
-
-def test_model_output_demo_can_omit_ui_registration() -> None:
-    application = ModelOutputApplication(device="cpu")
-    application.init(["--no-ui"])
-    session = application.create_session(SessionDesc(video_width=4, video_height=3))
-    assert isinstance(session, ModelOutputSession)
-    session.init()
-
-    ui_thread, model_thread = session._take_threads()
-    assert isinstance(ui_thread, BlitModelOutputToScreenThread)
-    assert ui_thread._presentation_manager is session._presentation_manager
-    chunk = model_thread.step(0, UserInputEvents([]))
-    assert isinstance(chunk, list)
-    session._presentation_manager.publish(0, chunk)
-    assert session._presentation_manager.advance(0)[0]
-    presented = ui_thread.step(0, UserInputEvents([]))
-    assert presented is not None
-    expected = None
-    for result in chunk:
-        expected = session._presentation_manager.composite(expected, result.output[0])
-    assert expected is not None
-    assert torch.equal(presented.output[0], expected)

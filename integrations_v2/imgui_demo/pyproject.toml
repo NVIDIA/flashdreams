@@ -12,7 +12,7 @@ description = "Dear ImGui demos for the FlashDreams v2 threaded runtime."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flashdreams[local-window,serving,ui]",
+    "flashdreams[local-window,serving]",
 ]
 
 [project.entry-points."flashdreams.applications_v2"]

@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""ImGui application displaying output produced by its model thread."""
+"""SlangPy ImGui application displaying model-thread output."""
 
-import argparse
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
@@ -17,8 +17,7 @@ from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-
-from .common import DEFAULT_SESSION_DESC, require_tchw
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _COLORS = (
     (1.0, -1.0, -1.0, 1.0),
@@ -38,11 +37,14 @@ _FADE_FRAME_COUNT = 60
 class ModelOutputUIState:
     """Model-channel selection owned by the UI thread."""
 
-    image_size: tuple[float, float]
-    """Width and height used inside the ImGui window."""
-
     channel_index: int = 0
-    """Index of the model result channel drawn in the window."""
+    """Index of the model result channel composited beneath the UI."""
+
+    selector: Any | None = field(default=None, init=False, repr=False)
+    """Retained SlangPy channel selector."""
+
+    status: Any | None = field(default=None, init=False, repr=False)
+    """Retained SlangPy waiting-status text."""
 
 
 class ModelOutputImGUIThread(ImGUIThread[ModelOutputUIState]):
@@ -50,33 +52,34 @@ class ModelOutputImGUIThread(ImGUIThread[ModelOutputUIState]):
 
     def draw_ui(
         self,
-        imgui: Any,
+        ui: Any,
         step_index: int,
         events: UserInputEvents,
-    ) -> None:
+    ) -> Tensor | None:
         """Draw the latest model output when one is available."""
         del step_index, events
-        image_width, image_height = self.state.image_size
-        imgui.set_next_window_pos((16, 16), imgui.Cond_.once)
-        imgui.set_next_window_size(
-            (image_width + 32, image_height + 64),
-            imgui.Cond_.once,
-        )
-        imgui.begin("Model output channels")
-        changed, channel_index = imgui.combo(
-            "Channel",
-            self.state.channel_index,
-            _CHANNEL_NAMES,
-        )
-        if changed:
-            self.state.channel_index = channel_index
-        if not self.draw_presented_model_frame(
-            self.state.channel_index,
-            image_width,
-            image_height,
-        ):
-            imgui.text("Waiting for model generation...")
-        imgui.end()
+        if self.state.selector is None:
+            window = ui.Window(
+                ui.screen,
+                "Model output channels",
+                position=(16, 16),
+                size=(300, 100),
+            )
+            self.state.selector = ui.ComboBox(
+                window,
+                "Channel",
+                self.state.channel_index,
+                self._select_channel,
+                _CHANNEL_NAMES,
+            )
+            self.state.status = ui.Text(window, "Waiting for model generation...")
+        frame = self.presented_model_frame(self.state.channel_index)
+        assert self.state.status is not None
+        self.state.status.visible = frame is None
+        return frame
+
+    def _select_channel(self, channel_index: int) -> None:
+        self.state.channel_index = channel_index
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,19 +167,20 @@ class ModelOutputSession(ISession):
         session_desc: SessionDesc,
         *,
         device: torch.device | str = "cuda",
-        use_imgui: bool = True,
     ) -> None:
         """Configure one model-output session.
 
         Args:
             session_desc: Output dimensions and thread frequencies.
             device: Device used for model output.
-            use_imgui: Whether to register the channel-selecting ImGui UI.
         """
-        require_tchw(session_desc, "model-output")
+        if session_desc.output_layout is not VideoTensorLayout.tchw:
+            raise ValueError(
+                "The model-output demo requires tchw output, got "
+                f"{session_desc.output_layout.value}."
+            )
         self._session_desc = session_desc
         self._device = device
-        self._use_imgui = use_imgui
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -185,13 +189,12 @@ class ModelOutputSession(ISession):
 
     def init(self) -> None:
         """Register the frame-displaying UI and model threads."""
-        if self._use_imgui:
-            self.register_ui_thread(
-                ModelOutputImGUIThread,
-                state=ModelOutputUIState(image_size=_image_size(self._session_desc)),
-                width=self._session_desc.video_width,
-                height=self._session_desc.video_height,
-            )
+        self.register_ui_thread(
+            ModelOutputImGUIThread,
+            state=ModelOutputUIState(),
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
         self.register_model_thread(
             ModelOutputThread,
             state=ModelOutputState(
@@ -207,36 +210,22 @@ class ModelOutputApplication(IApplication):
     def __init__(self, *, device: torch.device | str = "cuda") -> None:
         """Configure the device used by model-output sessions."""
         self._device = device
-        self._use_imgui = True
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Select ImGui or the session's default model-output blitter."""
-        parser = argparse.ArgumentParser(prog="imgui-model-output")
-        parser.add_argument(
-            "--no-ui",
-            action="store_true",
-            help="Omit UI registration and use the default all-channel blitter.",
-        )
-        self._use_imgui = not parser.parse_args(list(commandline_args)).no_ui
+        """Reject application-specific arguments."""
+        if commandline_args:
+            raise ValueError("The model-output demo takes no application arguments.")
 
     def session_desc(self) -> SessionDesc:
         """Return the demo's established dimensions and rates."""
-        return DEFAULT_SESSION_DESC
+        return SessionDesc(video_width=640, video_height=480)
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one uninitialized model-output session."""
         return ModelOutputSession(
             session_desc,
             device=self._device,
-            use_imgui=self._use_imgui,
         )
-
-
-def _image_size(session_desc: SessionDesc) -> tuple[float, float]:
-    width = session_desc.video_width
-    height = session_desc.video_height
-    scale = min(max(1, width - 64) / width, max(1, height - 96) / height)
-    return width * scale, height * scale
 
 
 def create_app() -> IApplication:

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""ImGui UI thread and SlangPy renderer."""
+"""SlangPy ImGui UI thread and renderer."""
 
 import importlib
 from abc import ABC, abstractmethod
@@ -15,7 +15,6 @@ from flashdreams.api_v2.thread import UIThread
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
     KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
@@ -36,10 +35,6 @@ class ImGUIRenderer(Protocol):
         draw_ui: Callable[[Any, int, UserInputEvents], None],
     ) -> Tensor:
         """Render one UI frame as normalized ``[C, H, W]`` output."""
-        ...
-
-    def draw_frame(self, imgui: Any, frame: Tensor, size: tuple[float, float]) -> None:
-        """Draw a generated frame inside the active ImGui frame."""
         ...
 
     def reset(self) -> None:
@@ -95,11 +90,10 @@ class ImGUIThread(UIThread[StateT], ABC, Generic[StateT]):
                 )
             renderer = SlangPyImGUIRenderer(width=width, height=height)
         self.renderer = renderer
-        self._active_imgui: Any | None = None
 
     @abstractmethod
     def draw_ui(
-        self, imgui: Any, step_index: int, events: UserInputEvents
+        self, ui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw widgets and optionally return the frame beneath them."""
         ...
@@ -109,13 +103,9 @@ class ImGUIThread(UIThread[StateT], ABC, Generic[StateT]):
         """Render ImGui over the optional back-buffer returned by :meth:`draw_ui`."""
         back_buffer: Tensor | None = None
 
-        def draw(imgui: Any, index: int, current_events: UserInputEvents) -> None:
+        def draw(ui: Any, index: int, current_events: UserInputEvents) -> None:
             nonlocal back_buffer
-            self._active_imgui = imgui
-            try:
-                back_buffer = self.draw_ui(imgui, index, current_events)
-            finally:
-                self._active_imgui = None
+            back_buffer = self.draw_ui(ui, index, current_events)
 
         overlay = self.renderer.render(step_index, events, draw)
         frame = self._presentation_manager.composite(back_buffer, overlay)
@@ -125,29 +115,6 @@ class ImGUIThread(UIThread[StateT], ABC, Generic[StateT]):
             frame_count=1,
             output_layout=self.output_layout,
         )
-
-    @final
-    def draw_presented_model_frame(
-        self,
-        channel_index: int,
-        width: float,
-        height: float,
-    ) -> bool:
-        """Draw the current frame from one presented model channel."""
-        if self._active_imgui is None:
-            raise RuntimeError(
-                "draw_presented_model_frame() must be called from draw_ui()."
-            )
-        frame = self.presented_model_frame(channel_index)
-        if frame is None:
-            return False
-        self.renderer.draw_frame(self._active_imgui, frame, (width, height))
-        return True
-
-    @final
-    def draw_frame(self, imgui: Any, frame: Tensor, size: tuple[float, float]) -> None:
-        """Draw a generated frame through the configured renderer."""
-        self.renderer.draw_frame(imgui, frame, size)
 
     def reset(self) -> None:
         """Reset renderer state after a session reset event."""
@@ -159,7 +126,7 @@ class ImGUIThread(UIThread[StateT], ABC, Generic[StateT]):
 
 
 class SlangPyImGUIRenderer:
-    """Render Dear ImGui draw data through SlangPy and CUDA interop."""
+    """Render SlangPy's native ImGui widgets through CUDA interop."""
 
     def __init__(
         self,
@@ -167,7 +134,6 @@ class SlangPyImGUIRenderer:
         width: int,
         height: int,
         slangpy_module: Any | None = None,
-        imgui_module: Any | None = None,
     ) -> None:
         """Configure a renderer whose native resources are created lazily.
 
@@ -175,7 +141,6 @@ class SlangPyImGUIRenderer:
             width: Render-target width in pixels.
             height: Render-target height in pixels.
             slangpy_module: Injected SlangPy module for tests.
-            imgui_module: Injected ``imgui_bundle.imgui`` module for tests.
 
         Raises:
             ValueError: A render dimension is not positive.
@@ -185,18 +150,14 @@ class SlangPyImGUIRenderer:
         self.width = int(width)
         self.height = int(height)
         self._slangpy = slangpy_module
-        self._imgui = imgui_module
-        self._imgui_backend: Any | None = None
+        self._ui: _SlangPyUI | None = None
         self._device: Any | None = None
         self._ui_context: Any | None = None
-        self._imgui_context: Any | None = None
         self._target: Any | None = None
         self._rgba_buffer: Any | None = None
         self._rgba_tensor: Tensor | None = None
         self._rgba_buffer_size = 0
         self._rgba_row_pitch = 0
-        self._image_texture: Any | None = None
-        self._image_texture_ref: Any | None = None
         self._has_rendered = False
 
     def render(
@@ -208,45 +169,31 @@ class SlangPyImGUIRenderer:
         """Queue input and render one ImGui frame into shared RGBA storage."""
         self._ensure_initialized()
         assert self._device is not None
-        assert self._imgui is not None
-        assert self._imgui_backend is not None
+        assert self._slangpy is not None
+        assert self._ui is not None
         assert self._ui_context is not None
-        assert self._imgui_context is not None
         assert self._target is not None
         assert self._rgba_buffer is not None
         assert self._rgba_tensor is not None
 
-        self._imgui.set_current_context(self._imgui_context)
         if self._has_rendered:
             self._device.sync_to_cuda(_current_cuda_stream())
         _route_input_events(
             events,
-            io=self._imgui.get_io(),
-            imgui=self._imgui,
+            ui_context=self._ui_context,
+            slangpy=self._slangpy,
             width=self.width,
             height=self.height,
         )
-        self._imgui.new_frame()
-        draw_ui(self._imgui, step_index, events)
-        self._imgui.render()
-        draw_data = self._imgui.get_draw_data()
-        self._imgui_backend.sync_draw_data_textures(
-            self._device,
-            self._ui_context,
-            draw_data,
-        )
+        draw_ui(self._ui, step_index, events)
+        self._ui_context.begin_frame(self.width, self.height)
 
         encoder = self._device.create_command_encoder()
         encoder.clear_texture_float(
             self._target,
             clear_value=(0.0, 0.0, 0.0, 0.0),
         )
-        self._imgui_backend.render_imgui_draw_data(
-            self._ui_context,
-            draw_data,
-            self._target,
-            encoder,
-        )
+        self._ui_context.end_frame(self._target, encoder)
         encoder.copy_texture_to_buffer(
             self._rgba_buffer,
             0,
@@ -263,63 +210,15 @@ class SlangPyImGUIRenderer:
         self._device.sync_to_device(_current_cuda_stream())
         return _rgba8_to_compositing_frame(self._rgba_tensor)
 
-    def draw_frame(
-        self,
-        imgui: Any,
-        frame: Tensor,
-        size: tuple[float, float],
-    ) -> None:
-        """Draw a normalized video frame as a Dear ImGui image.
-
-        Args:
-            imgui: Dear ImGui module used by the active render callback.
-            frame: Read-only ``[C, H, W]`` frame with color in ``[-1, 1]``.
-            size: Display width and height in pixels.
-
-        Raises:
-            RuntimeError: Called outside an active renderer callback.
-            ValueError: ``frame`` is not a supported image shape.
-        """
-        if self._device is None or self._imgui_backend is None:
-            raise RuntimeError("draw_frame() must be called from draw_ui().")
-        rgba = _frame_to_rgba8(frame)
-        height, width = rgba.shape[:2]
-        texture = self._image_texture
-        if texture is None or (texture.width, texture.height) != (width, height):
-            self._release_image_texture()
-            assert self._slangpy is not None
-            texture = self._device.create_texture(
-                format=self._slangpy.Format.rgba8_unorm,
-                width=width,
-                height=height,
-                usage=self._slangpy.TextureUsage.shader_resource,
-                data=rgba.numpy(),
-                label="flashdreams_imgui_image",
-            )
-            self._image_texture = texture
-            self._image_texture_ref = self._imgui_backend.texture_ref(texture)
-        else:
-            texture.copy_from_numpy(rgba.numpy())
-        imgui.image(self._image_texture_ref, size)
-
     def reset(self) -> None:
-        """Release held keyboard state before the next generation."""
-        if self._imgui is None or self._imgui_context is None:
-            return
-        self._imgui.set_current_context(self._imgui_context)
-        io = self._imgui.get_io()
-        io.add_focus_event(False)
-        io.add_focus_event(True)
+        """Keep the retained SlangPy widget tree for the next generation."""
 
     def close(self) -> None:
-        """Destroy the ImGui context after pending GPU work completes."""
+        """Release native UI and GPU resources after pending work completes."""
         if self._device is not None:
             torch.cuda.current_stream().synchronize()
             self._device.wait_for_idle()
-        if self._imgui is not None and self._imgui_context is not None:
-            self._imgui.destroy_context(self._imgui_context)
-        self._release_image_texture()
-        self._imgui_context = None
+        self._ui = None
         self._rgba_tensor = None
         self._rgba_buffer = None
         self._rgba_buffer_size = 0
@@ -327,12 +226,6 @@ class SlangPyImGUIRenderer:
         self._target = None
         self._ui_context = None
         self._device = None
-
-    def _release_image_texture(self) -> None:
-        if self._image_texture_ref is not None and self._imgui_backend is not None:
-            self._imgui_backend._release_texture(self._image_texture_ref.get_tex_id())
-        self._image_texture_ref = None
-        self._image_texture = None
 
     def _ensure_initialized(self) -> None:
         if self._device is not None:
@@ -346,17 +239,6 @@ class SlangPyImGUIRenderer:
                     "ImGui rendering requires the FlashDreams 'local-window' extra."
                 ) from error
             self._slangpy = slangpy
-        imgui = self._imgui
-        if imgui is None:
-            try:
-                imgui = importlib.import_module("imgui_bundle").imgui
-            except ImportError as error:
-                raise RuntimeError(
-                    "ImGui rendering requires the FlashDreams 'ui' extra."
-                ) from error
-            self._imgui = imgui
-        self._imgui_backend = importlib.import_module("slangpy.ui.imgui_bundle")
-
         if not torch.cuda.is_available():
             raise RuntimeError("SlangPy ImGui rendering requires CUDA.")
         if not torch.cuda.is_initialized():
@@ -405,14 +287,11 @@ class SlangPyImGUIRenderer:
             ),
         )
 
+        ui_context = slangpy.ui.Context(device)
+
         self._device = device
-        self._ui_context = slangpy.ui.Context(device)
-        self._imgui_context = self._imgui_backend.create_imgui_context(
-            self.width,
-            self.height,
-        )
-        assert self._imgui is not None
-        self._imgui.get_io().set_ini_filename("")
+        self._ui_context = ui_context
+        self._ui = _SlangPyUI(slangpy.ui, ui_context.screen)
         self._target = target
         self._rgba_buffer = rgba_buffer
         self._rgba_tensor = rgba_tensor
@@ -420,32 +299,71 @@ class SlangPyImGUIRenderer:
         self._rgba_row_pitch = row_pitch
 
 
+class _SlangPyUI:
+    """Expose native SlangPy widget types with their root screen."""
+
+    def __init__(self, module: Any, screen: Any) -> None:
+        self.screen = screen
+        self._module = module
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._module, name)
+
+
 def _route_input_events(
     events: UserInputEvents,
     *,
-    io: Any,
-    imgui: Any,
+    ui_context: Any,
+    slangpy: Any,
     width: int,
     height: int,
 ) -> None:
-    """Route supported runtime input events into Dear ImGui IO."""
+    """Route supported runtime input events into SlangPy's UI context."""
     for event in events.get_events():
         data = event.get_event_data()
         if isinstance(data, KeyboardUserInputEventData):
             pressed = data.state is KeyboardInputState.PRESSED
-            key = _resolve_imgui_key(imgui, data.key)
+            key = _resolve_slangpy_key(slangpy, data.key)
             if key is not None:
-                io.add_key_event(key, pressed)
+                key_event = slangpy.KeyboardEvent()
+                key_event.type = (
+                    slangpy.KeyboardEventType.key_press
+                    if pressed
+                    else slangpy.KeyboardEventType.key_release
+                )
+                key_event.key = key
+                key_event.mods = slangpy.KeyModifierFlags.none
+                ui_context.handle_keyboard_event(key_event)
             if pressed and len(data.key) == 1:
-                io.add_input_characters_utf8(data.key)
-        elif isinstance(data, FocusUserInputEventData):
-            io.add_focus_event(data.focused)
+                text_event = slangpy.KeyboardEvent()
+                text_event.type = slangpy.KeyboardEventType.input
+                text_event.codepoint = ord(data.key)
+                text_event.mods = slangpy.KeyModifierFlags.none
+                ui_context.handle_keyboard_event(text_event)
         elif isinstance(data, MouseUserInputEventData):
-            io.add_mouse_pos_event(data.x * width, data.y * height)
+            mouse_event = slangpy.MouseEvent()
+            mouse_event.pos = (data.x * width, data.y * height)
+            mouse_event.mods = slangpy.KeyModifierFlags.none
             if data.action == "button":
-                io.add_mouse_button_event(data.button, data.pressed)
+                buttons = (
+                    slangpy.MouseButton.left,
+                    slangpy.MouseButton.middle,
+                    slangpy.MouseButton.right,
+                )
+                if not 0 <= data.button < len(buttons):
+                    continue
+                mouse_event.type = (
+                    slangpy.MouseEventType.button_down
+                    if data.pressed
+                    else slangpy.MouseEventType.button_up
+                )
+                mouse_event.button = buttons[data.button]
             elif data.action == "wheel":
-                io.add_mouse_wheel_event(data.wheel_x, data.wheel_y)
+                mouse_event.type = slangpy.MouseEventType.scroll
+                mouse_event.scroll = (data.wheel_x, data.wheel_y)
+            else:
+                mouse_event.type = slangpy.MouseEventType.move
+            ui_context.handle_mouse_event(mouse_event)
 
 
 def _rgba8_to_compositing_frame(frame: Tensor) -> Tensor:
@@ -456,38 +374,17 @@ def _rgba8_to_compositing_frame(frame: Tensor) -> Tensor:
     return torch.cat((color, alpha), dim=0)
 
 
-def _frame_to_rgba8(frame: Tensor) -> Tensor:
-    """Convert one normalized video frame to CPU ``[H, W, 4]`` bytes."""
-    if frame.ndim != 3 or frame.shape[0] not in (1, 3, 4):
-        raise ValueError("An ImGui image must have shape [C, H, W] for C in {1, 3, 4}.")
-    color = frame[:3]
-    if color.shape[0] == 1:
-        color = color.repeat(3, 1, 1)
-    color = color.to(torch.float32).clamp(-1.0, 1.0).add(1.0).mul(127.5)
-    if frame.shape[0] == 4:
-        alpha = frame[3:4].to(torch.float32).clamp(0.0, 1.0).mul(255.0)
-    else:
-        alpha = torch.full_like(color[:1], 255.0)
-    return (
-        torch.cat((color, alpha), dim=0)
-        .permute(1, 2, 0)
-        .round_()
-        .to(device="cpu", dtype=torch.uint8)
-        .contiguous()
-    )
-
-
-def _resolve_imgui_key(imgui: Any, key: str) -> Any | None:
+def _resolve_slangpy_key(slangpy: Any, key: str) -> Any | None:
     normalized = key.strip().lower().replace("-", "_").replace(" ", "_")
     aliases = {
         " ": "space",
         "alt": "left_alt",
-        "arrowdown": "down_arrow",
-        "arrowleft": "left_arrow",
-        "arrowright": "right_arrow",
-        "arrowup": "up_arrow",
-        "control": "left_ctrl",
-        "ctrl": "left_ctrl",
+        "arrowdown": "down",
+        "arrowleft": "left",
+        "arrowright": "right",
+        "arrowup": "up",
+        "control": "left_control",
+        "ctrl": "left_control",
         "esc": "escape",
         "meta": "left_super",
         "return": "enter",
@@ -508,8 +405,8 @@ def _resolve_imgui_key(imgui: Any, key: str) -> Any | None:
     normalized = aliases.get(key.lower(), aliases.get(normalized, normalized))
     normalized = punctuation.get(key, normalized)
     if len(normalized) == 1 and normalized.isdigit():
-        normalized = f"_{normalized}"
-    return getattr(imgui.Key, normalized, None)
+        normalized = f"key{normalized}"
+    return getattr(slangpy.KeyCode, normalized, None)
 
 
 def _current_cuda_stream() -> int:
