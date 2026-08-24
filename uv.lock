@@ -1126,11 +1126,11 @@ name = "flashdreams-cam2v"
 version = "0.1.0"
 source = { editable = "apps/cam2v" }
 dependencies = [
-    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "flashdreams", extra = ["local-window", "serving", "ui"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving", "ui"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-causal-forcing"

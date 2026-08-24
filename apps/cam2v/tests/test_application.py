@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -15,14 +16,21 @@ from cam2v import (
     Cam2VApplication,
     Cam2VApplicationDefaults,
     Cam2VConditioning,
+    Cam2VImGUIThread,
     Cam2VModelState,
     Cam2VModelThread,
+    Cam2VSession,
     Cam2VSessionConfig,
+    Cam2VUIState,
+    Cam2VUIStatus,
     CameraControlInput,
 )
 from numpy import uint64
 
+from flashdreams.api_v2.thread import BlitModelOutputToScreenThread
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEventData,
@@ -111,6 +119,14 @@ def _conditioning() -> Cam2VConditioning:
 def test_model_thread_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     """Keep keyboard-to-pose conversion outside concrete integrations."""
     pipeline = _Pipeline()
+    ui_state = Cam2VUIState(total_blocks=1, target_fps=16, warmup_blocks=0)
+    ui_thread = Cam2VImGUIThread(
+        state=ui_state,
+        frequency=60,
+        output_layout=VideoTensorLayout.tchw,
+        presentation_manager=PresentationManager(),
+        renderer=Mock(),
+    )
     state = Cam2VModelState(
         pipeline=pipeline,
         session_desc=SessionDesc(
@@ -127,6 +143,7 @@ def test_model_thread_maps_wasd_to_shared_camera_input_and_metrics() -> None:
             warmup_blocks=0,
         ),
         cache=object(),
+        ui_thread=ui_thread,
     )
     thread = Cam2VModelThread(state=state, frequency=16)
     events = UserInputEvents(
@@ -147,10 +164,94 @@ def test_model_thread_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     assert result.metrics["model_step_s"] == 1.0
     assert result.metrics["steady_state_fps"] > 0
     assert result.metrics["model_step_wall_s"] > 0
+    ui_thread._run_message_batch()
+    assert ui_state.status is not None
+    assert ui_state.status.completed_blocks == 1
+    assert ui_state.status.frames_generated == 2
     assert pipeline.camera_input is not None
     assert pipeline.camera_input.poses.shape == (2, 4, 4)
     assert pipeline.camera_input.poses[-1, 2, 3] > 0
     assert thread.is_finished()
+
+
+def test_imgui_overlay_tracks_controls_and_model_status() -> None:
+    """Keep immediate input display in UI-thread-owned state."""
+    state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=1)
+    presentation_manager = PresentationManager()
+    presentation_manager.publish(
+        0,
+        [
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 2, 2), dtype=torch.bfloat16),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        ],
+    )
+    assert presentation_manager.advance(0)[0]
+    thread = Cam2VImGUIThread(
+        state=state,
+        frequency=60,
+        output_layout=VideoTensorLayout.tchw,
+        presentation_manager=presentation_manager,
+        renderer=Mock(),
+    )
+    imgui = Mock()
+    events = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(0),
+                event_data=KeyboardUserInputEventData(
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
+                ),
+            )
+        ]
+    )
+    state.update_status(
+        Cam2VUIStatus(
+            completed_blocks=2,
+            frames_generated=24,
+            chunk_fps=13.5,
+            steady_state_fps=13.25,
+            model_step_wall_s=0.89,
+        )
+    )
+
+    back_buffer = thread.draw_ui(imgui, 0, events)
+
+    assert back_buffer is not None
+    assert back_buffer.dtype is torch.float32
+    displayed = [call.args[0] for call in imgui.text.call_args_list]
+    assert "Rollout: 2/4 blocks" in displayed
+    assert "Latest model rate: 13.50 FPS" in displayed
+    assert "Active keys: W" in displayed
+
+
+def test_cam2v_session_registers_the_shared_imgui_thread() -> None:
+    """Construct the overlay at the shared session boundary."""
+    session = Cam2VSession(
+        pipeline=_Pipeline(),
+        session_desc=SessionDesc(
+            output_layout=VideoTensorLayout.tchw,
+            frames_per_second_for_step=16,
+            video_width=8,
+            video_height=4,
+        ),
+        config=Cam2VSessionConfig(
+            conditioning=_conditioning(),
+            total_blocks=2,
+            device=torch.device("cpu"),
+            log_every_blocks=1,
+            warmup_blocks=0,
+        ),
+    )
+
+    session.init()
+
+    assert isinstance(session.ui_thread, Cam2VImGUIThread)
+    assert session.ui_thread.state.total_blocks == 2
 
 
 def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> None:
@@ -173,11 +274,15 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
             fps=16,
         )
     )
-    app.init(["--total-blocks", "2", "--warmup-blocks", "0"])
+    app.init(["--total-blocks", "2", "--warmup-blocks", "0", "--no-ui"])
 
     session = app.create_session(app.session_desc())
 
+    assert isinstance(session, Cam2VSession)
+    session.init()
+    ui_thread, _ = session._take_threads()
     assert session.session_desc.video_width == 8
+    assert isinstance(ui_thread, BlitModelOutputToScreenThread)
     assert seen[0]["pixel_width"] == 8
     assert seen[0]["pixel_height"] == 4
     assert seen[0]["fps"] == 16

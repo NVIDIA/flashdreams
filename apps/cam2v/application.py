@@ -16,6 +16,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .defaults import Cam2VApplicationDefaults, Cam2VConditioning
 from .session import Cam2VSession, Cam2VSessionConfig
@@ -40,6 +41,7 @@ class Cam2VApplication(IApplication):
         self._total_blocks = defaults.total_blocks
         self._log_every_blocks = defaults.log_every_blocks
         self._warmup_blocks = defaults.warmup_blocks
+        self._use_imgui = True
         self._input_values: dict[str, Any] | None = None
         self._pipeline: Any | None = None
 
@@ -115,6 +117,12 @@ class Cam2VApplication(IApplication):
             help="Leading chunks excluded from steady-state FPS.",
         )
         parser.add_argument(
+            "--ui",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Render the shared camera controls and timing overlay.",
+        )
+        parser.add_argument(
             "--compile",
             action=argparse.BooleanOptionalAction,
             default=None,
@@ -140,6 +148,7 @@ class Cam2VApplication(IApplication):
         self._total_blocks = args.total_blocks
         self._log_every_blocks = args.log_every_blocks
         self._warmup_blocks = args.warmup_blocks
+        self._use_imgui = args.ui
         self._input_values = {
             "prompt": args.prompt,
             "prompt_path": args.prompt_path,
@@ -199,6 +208,7 @@ class Cam2VApplication(IApplication):
                 warmup_blocks=self._warmup_blocks,
                 install_hint=self.defaults.install_hint,
             ),
+            use_imgui=self._use_imgui,
         )
 
     def close(self) -> None:
@@ -246,6 +256,8 @@ class Cam2VApplication(IApplication):
                 f"{self.defaults.output_layout.value} output, got "
                 f"{session_desc.output_layout.value}."
             )
+        if self._use_imgui and session_desc.output_layout is not VideoTensorLayout.tchw:
+            raise ValueError("The Cam2V ImGui overlay requires tchw output.")
 
     def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
         """Reject frame dimensions that cannot map to integral latents."""

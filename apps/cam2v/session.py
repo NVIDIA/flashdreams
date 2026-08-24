@@ -15,7 +15,7 @@ import torch
 from loguru import logger
 
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IThread, invoke_async
 from flashdreams.infra.runner_io import load_first_frame_tensor
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -27,6 +27,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 from .controls import CameraPoseIntegrator
 from .defaults import Cam2VConditioning
+from .ui import Cam2VImGUIThread, Cam2VUIState, Cam2VUIStatus
 
 
 @dataclass(kw_only=True, slots=True)
@@ -110,6 +111,9 @@ class Cam2VModelState:
 
     steady_frames_generated: int = 0
     """Frames generated since :attr:`steady_started_at`."""
+
+    ui_thread: Cam2VImGUIThread | None = None
+    """Registered UI-thread handle used only through ``invoke_async``."""
 
 
 class _GPUStageTimer:
@@ -258,6 +262,7 @@ class Cam2VModelThread(IThread[Cam2VModelState]):
                 frame_count=frame_count,
                 metrics=metrics,
             )
+        _publish_ui_status(state, metrics)
         return [
             StepResult(
                 step_index=step_index,
@@ -302,10 +307,20 @@ class Cam2VSession(ISession):
         pipeline: Any,
         config: Cam2VSessionConfig,
         session_desc: SessionDesc,
+        use_imgui: bool = True,
     ) -> None:
+        """Configure one rollout without initializing model or UI resources.
+
+        Args:
+            pipeline: Application-owned model pipeline.
+            config: Resolved inputs and rollout controls.
+            session_desc: Output dimensions, layout, and thread rates.
+            use_imgui: Whether to register the shared Cam2V overlay.
+        """
         self._pipeline = pipeline
         self._config = config
         self._session_desc = session_desc
+        self._use_imgui = use_imgui
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -313,13 +328,28 @@ class Cam2VSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        """Register the model-generation-thread with isolated rollout state."""
+        """Register the UI and model-generation threads with isolated state."""
+        ui_thread = None
+        if self._use_imgui:
+            registered_ui = self.register_ui_thread(
+                Cam2VImGUIThread,
+                state=Cam2VUIState(
+                    total_blocks=self._config.total_blocks,
+                    target_fps=self._session_desc.frames_per_second_for_step,
+                    warmup_blocks=self._config.warmup_blocks,
+                ),
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
+            assert isinstance(registered_ui, Cam2VImGUIThread)
+            ui_thread = registered_ui
         self.register_model_thread(
             self.model_thread_type,
             state=Cam2VModelState(
                 pipeline=self._pipeline,
                 session_desc=self._session_desc,
                 config=self._config,
+                ui_thread=ui_thread,
             ),
         )
 
@@ -351,6 +381,30 @@ def _ensure_rollout_initialized(state: Cam2VModelState) -> None:
     state.cache = state.pipeline.initialize_cache(
         text=[conditioning.prompt],
         image=state.first_frame,
+    )
+
+
+def _publish_ui_status(
+    state: Cam2VModelState,
+    metrics: Mapping[str, float | int],
+) -> None:
+    """Send immutable model status to the UI thread without sharing state."""
+    ui_thread = state.ui_thread
+    if ui_thread is None:
+        return
+    steady_state_fps = metrics.get("steady_state_fps")
+    status = Cam2VUIStatus(
+        completed_blocks=state.blocks_generated,
+        frames_generated=state.frames_generated,
+        chunk_fps=float(metrics["chunk_fps"]),
+        steady_state_fps=(
+            None if steady_state_fps is None else float(steady_state_fps)
+        ),
+        model_step_wall_s=float(metrics["model_step_wall_s"]),
+    )
+    invoke_async(
+        ui_thread,
+        lambda ui_state, status=status: ui_state.update_status(status),
     )
 
 

@@ -11,7 +11,7 @@ version = "0.1.0"
 description = "Reusable interactive FlashDreams camera-to-video application primitives"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["flashdreams[local-window,serving]"]
+dependencies = ["flashdreams[local-window,serving,ui]"]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
