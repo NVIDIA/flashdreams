@@ -30,6 +30,7 @@ _STOPPED_ANGULAR_SPEED_RADPS = 0.10
 _RECOVERED_POSITION_ERROR_M = 0.60
 _RECOVERED_HEADING_ERROR_RAD = math.radians(8.0)
 _RECOVERED_VELOCITY_ERROR_MPS = 0.75
+_TRACK_LOOKAHEAD_S = 0.35
 
 
 def _yaw_from_quaternion_xyzw(quaternion: np.ndarray) -> float:
@@ -267,6 +268,14 @@ class MapTrafficController:
         _, _, velocity = state.scene_object.sample(int(state.timestamp_us))
         return velocity
 
+    @staticmethod
+    def _drive_target_timestamp_us(state: MapTrafficVehicleState) -> int:
+        """Return a bounded actuator target derived from physical route progress."""
+        if state.phase is not MapTrafficPhase.TRAVERSING:
+            return int(state.timestamp_us)
+        lookahead_us = _TRACK_LOOKAHEAD_S * 1_000_000.0 * state.velocity_scale
+        return int((state.timestamp_us + lookahead_us) % state.duration_us)
+
     def _observation(
         self, state: MapTrafficVehicleState, world: PhysXWorld
     ) -> _TrafficObservation:
@@ -456,10 +465,19 @@ class MapTrafficController:
         """Advance all logical cars and publish active tracks in one native batch."""
         for state in self._states:
             if state.phase is MapTrafficPhase.TRAVERSING:
-                state.timestamp_us = (
-                    state.timestamp_us + dt_s * 1_000_000.0 * state.velocity_scale
-                ) % state.duration_us
-                if state.object_id not in self._active_ids:
+                if state.object_id in self._active_ids:
+                    body = world.body_state(state.object_id)
+                    state.timestamp_us = self._nearest_route_timestamp(
+                        state, body.position_m[:2]
+                    )
+                    state.position_m = body.position_m.copy()
+                    state.orientation_xyzw = body.orientation_xyzw.copy()
+                    state.linear_velocity_mps = body.linear_velocity_mps.copy()
+                    state.angular_velocity_radps = body.angular_velocity_radps.copy()
+                else:
+                    state.timestamp_us = (
+                        state.timestamp_us + dt_s * 1_000_000.0 * state.velocity_scale
+                    ) % state.duration_us
                     self._set_route_snapshot(state)
         observations = {
             state.object_id: self._observation(state, world) for state in self._states
@@ -490,7 +508,11 @@ class MapTrafficController:
             )
         world.apply_track_progress(
             tuple(
-                (state.object_id, int(state.timestamp_us), state.velocity_scale)
+                (
+                    state.object_id,
+                    self._drive_target_timestamp_us(state),
+                    state.velocity_scale,
+                )
                 for state in self._states
                 if state.object_id in self._active_ids
             )

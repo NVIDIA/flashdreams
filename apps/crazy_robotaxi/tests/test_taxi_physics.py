@@ -143,7 +143,7 @@ def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
     assert scales["map-traffic:leading"] == 1.0
 
 
-def test_map_traffic_advances_inactive_car_without_publishing_it_to_physx() -> None:
+def test_map_traffic_advances_only_inactive_car_without_publishing_it() -> None:
     centerline = np.asarray(
         [[0, 0, 0], [100, 0, 0], [100, 50, 0], [0, 50, 0], [0, 0, 0]],
         dtype=np.float32,
@@ -201,7 +201,9 @@ def test_map_traffic_advances_inactive_car_without_publishing_it_to_physx() -> N
 
     assert controller.active_object_ids == {near_id}
     assert tuple(item[0] for item in published[0]) == (near_id,)
-    assert controller._states_by_id[near_id].timestamp_us > near_timestamp_before
+    assert controller._states_by_id[near_id].timestamp_us == pytest.approx(
+        near_timestamp_before, abs=1.0
+    )
     assert controller._states_by_id[far_id].timestamp_us > far_timestamp_before
 
 
@@ -251,6 +253,41 @@ def _body_at(
             [0.0, 0.0, angular_speed_radps], dtype=np.float32
         ),
     )
+
+
+def test_active_map_traffic_progress_is_anchored_to_its_physical_body() -> None:
+    controller, object_id = _recovery_controller()
+    state = controller.state(object_id)
+    assert state is not None
+    initial_timestamp_us = state.timestamp_us
+    initial_position, initial_orientation, _ = state.scene_object.sample(
+        int(initial_timestamp_us)
+    )
+    body = BodyState(
+        position_m=initial_position.copy(),
+        orientation_xyzw=initial_orientation.copy(),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    published: list[tuple[tuple[str, int, float], ...]] = []
+    world = SimpleNamespace(
+        body_state=lambda _: body,
+        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
+        apply_track_progress=published.append,
+    )
+    ego = _body_at((-100.0, -100.0))
+
+    for _ in range(10):
+        controller.prepare_step(world, ego, 1.0)  # type: ignore[arg-type]
+
+    assert state.timestamp_us == pytest.approx(initial_timestamp_us, abs=1.0)
+    assert {batch[0][1] for batch in published} == {int(initial_timestamp_us + 350_000)}
+
+    body.position_m[:2] = (5.0, 0.0)
+    controller.prepare_step(world, ego, 10.0)  # type: ignore[arg-type]
+
+    assert state.timestamp_us == pytest.approx(500_000, abs=1.0)
+    assert published[-1][0][1] == pytest.approx(850_000, abs=1.0)
 
 
 def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> None:
