@@ -26,13 +26,13 @@ members = [
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
-    "flashdreams-imgui-demo",
     "flashdreams-lingbot",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-red-screen",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
+    "flashdreams-slangpy-ui-demo",
     "flashdreams-t2v",
     "flashdreams-t2v-causal-forcing",
     "flashdreams-t2v-cosmos-predict2",
@@ -1276,17 +1276,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-imgui-demo"
-version = "0.1.0"
-source = { editable = "integrations_v2/imgui_demo" }
-dependencies = [
-    { name = "flashdreams", extra = ["local-window", "serving"] },
-]
-
-[package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
-
-[[package]]
 name = "flashdreams-lingbot"
 version = "0.1.0"
 source = { editable = "integrations/lingbot" }
@@ -1486,6 +1475,17 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-slangpy-ui-demo"
+version = "0.1.0"
+source = { editable = "integrations_v2/slangpy_ui_demo" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-t2v"

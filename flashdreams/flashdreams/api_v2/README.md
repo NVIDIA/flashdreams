@@ -7,6 +7,8 @@ Protocols for the FlashDreams v2 API.
 
 - `application.py`: `IApplication` loads shared state and creates sessions.
 - `session.py`: `ISession` represents one session and runs via two threads: model-thread and ui-thread.
+- `slangpy_ui_thread.py`: `SlangPyUIThread` is the user-facing SlangPy UI
+  implementation.
 - `thread.py`: `IThread` and `UIThread` hold per-thread state and work.
 - `input_source.py` / `output_sink.py` / `client_window.py`: `IClientWindow`
   groups one client's input and output.
@@ -81,7 +83,21 @@ All output from your model-thread's `step` method returns a list of
 
 The ui-thread has the job of pulling from the presentation manager and sending the results to the client window. `presented_model_frame` or `presented_model_frames` can be used to draw the model output.
 
-For simplicity, `ImGUIThread` is provided to make drawing the model output more ergonomic and familiar.
+Import `SlangPyUIThread` from `flashdreams.api_v2.slangpy_ui_thread`, subclass
+it, and implement `draw_ui(ui, step_index, events)`. The `ui` argument exposes:
+
+- `ui.screen`, the root [`slangpy.ui.Screen`](https://slangpy.shader-slang.org/en/stable/src/api_reference.html#slangpy.ui.Screen)
+  that receives top-level widgets.
+- Every public type from `slangpy.ui`, including widget constructors such as
+  `Window`, `Group`, `Text`, `Button`, `ComboBox`, sliders, drag controls, and
+  input controls.
+
+The [SlangPy UI API reference](https://slangpy.shader-slang.org/en/stable/src/api_reference.html#ui)
+is the source of truth for every available widget constructor, method,
+property, flag, and callback. FlashDreams delegates these names directly to
+`slangpy.ui`; it does not maintain a smaller wrapper API. See the
+[`slangpy_ui_demo` examples](../../../integrations_v2/slangpy_ui_demo/README.md)
+for examples and utilizing model-thread outputs as a part of the UI.
 
 If a ui-thread is not registered, the runtime uses a default `UIThread` implementation (`BlitModelOutputToScreenThread`) that simply blits the model output to the screen (flattening channels into a single frame as if they were image layers).
 

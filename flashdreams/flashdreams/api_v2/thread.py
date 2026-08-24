@@ -155,8 +155,6 @@ class IThread(ABC, Generic[StateT]):
             except BaseException as error:
                 failures.put(error)
                 stop.set()
-            event_buffer.unregister(reader_id)
-            finished.set()
 
     @final
     def _begin_run(
@@ -198,6 +196,8 @@ class IThread(ABC, Generic[StateT]):
             self.close()
         finally:
             self._empty_message_queue()
+            self.event_buffer.unregister(self.reader_id)
+            self.finished.set()
 
     def _run_message_batch(self) -> None:
         batch: list[_Message[StateT]] = []

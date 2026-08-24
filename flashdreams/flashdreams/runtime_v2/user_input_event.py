@@ -94,7 +94,7 @@ class MouseUserInputEventData(UserInputEventData):
     y: float = 0.0
     """Vertical pointer coordinate normalized to the video viewport."""
     button: int = 0
-    """ImGui-compatible mouse button index for a button action."""
+    """SlangPy-compatible mouse button index for a button action."""
     pressed: bool = False
     """Whether ``button`` is down for a button action."""
     wheel_x: float = 0.0

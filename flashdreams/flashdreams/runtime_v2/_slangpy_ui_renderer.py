@@ -1,32 +1,25 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""SlangPy ImGui UI thread and renderer."""
+"""SlangPy UI rendering and input routing."""
 
 import importlib
-from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any, Generic, Protocol, TypeVar, cast, final
+from typing import Any, Protocol, cast
 
 import torch
 from torch import Tensor
 
-from flashdreams.api_v2.thread import UIThread
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-
-StateT = TypeVar("StateT")
 
 
-class ImGUIRenderer(Protocol):
-    """Rendering backend needed by :class:`ImGUIThread`."""
+class _UIRenderer(Protocol):
+    """Rendering backend needed by the public SlangPy UI thread."""
 
     def render(
         self,
@@ -46,87 +39,8 @@ class ImGUIRenderer(Protocol):
         ...
 
 
-class ImGUIThread(UIThread[StateT], ABC, Generic[StateT]):
-    """Render an ImGui UI over an optional model frame."""
-
-    def __init__(
-        self,
-        *,
-        state: StateT,
-        frequency: int,
-        output_layout: VideoTensorLayout,
-        presentation_manager: PresentationManager,
-        renderer: ImGUIRenderer | None = None,
-        width: int | None = None,
-        height: int | None = None,
-    ) -> None:
-        """Configure an ImGui thread without creating GPU resources.
-
-        Args:
-            state: State used by the UI thread.
-            frequency: Maximum UI iterations per second.
-            output_layout: Layout used for the compositing result.
-            presentation_manager: Buffer containing model frames.
-            renderer: Rendering backend; ``None`` creates the SlangPy backend.
-            width: Render-target width, required for the default renderer.
-            height: Render-target height, required for the default renderer.
-
-        Raises:
-            ValueError: ``output_layout`` is not ``tchw``, or the default
-                renderer has no output dimensions.
-        """
-        if output_layout is not VideoTensorLayout.tchw:
-            raise ValueError("ImGui rendering requires tchw output.")
-        super().__init__(
-            state=state,
-            frequency=frequency,
-            output_layout=output_layout,
-            presentation_manager=presentation_manager,
-        )
-        if renderer is None:
-            if width is None or height is None:
-                raise ValueError(
-                    "width and height are required when renderer is not supplied."
-                )
-            renderer = SlangPyImGUIRenderer(width=width, height=height)
-        self.renderer = renderer
-
-    @abstractmethod
-    def draw_ui(
-        self, ui: Any, step_index: int, events: UserInputEvents
-    ) -> Tensor | None:
-        """Draw widgets and optionally return the frame beneath them."""
-        ...
-
-    @final
-    def step_ui(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Render ImGui over the optional back-buffer returned by :meth:`draw_ui`."""
-        back_buffer: Tensor | None = None
-
-        def draw(ui: Any, index: int, current_events: UserInputEvents) -> None:
-            nonlocal back_buffer
-            back_buffer = self.draw_ui(ui, index, current_events)
-
-        overlay = self.renderer.render(step_index, events, draw)
-        frame = self._presentation_manager.composite(back_buffer, overlay)
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
-
-    def reset(self) -> None:
-        """Reset renderer state after a session reset event."""
-        self.renderer.reset()
-
-    def close(self) -> None:
-        """Release the renderer."""
-        self.renderer.close()
-
-
-class SlangPyImGUIRenderer:
-    """Render SlangPy's native ImGui widgets through CUDA interop."""
+class _SlangPyUIRenderer:
+    """Render SlangPy's native widgets through CUDA interop."""
 
     def __init__(
         self,
@@ -146,7 +60,7 @@ class SlangPyImGUIRenderer:
             ValueError: A render dimension is not positive.
         """
         if width <= 0 or height <= 0:
-            raise ValueError("ImGui render dimensions must be > 0.")
+            raise ValueError("SlangPy UI render dimensions must be > 0.")
         self.width = int(width)
         self.height = int(height)
         self._slangpy = slangpy_module
@@ -166,7 +80,7 @@ class SlangPyImGUIRenderer:
         events: UserInputEvents,
         draw_ui: Callable[[Any, int, UserInputEvents], None],
     ) -> Tensor:
-        """Queue input and render one ImGui frame into shared RGBA storage."""
+        """Queue input and render one SlangPy UI frame into shared RGBA storage."""
         self._ensure_initialized()
         assert self._device is not None
         assert self._slangpy is not None
@@ -236,11 +150,12 @@ class SlangPyImGUIRenderer:
                 slangpy = importlib.import_module("slangpy")
             except ImportError as error:
                 raise RuntimeError(
-                    "ImGui rendering requires the FlashDreams 'local-window' extra."
+                    "SlangPy UI rendering requires the FlashDreams 'local-window' "
+                    "extra."
                 ) from error
             self._slangpy = slangpy
         if not torch.cuda.is_available():
-            raise RuntimeError("SlangPy ImGui rendering requires CUDA.")
+            raise RuntimeError("SlangPy UI rendering requires CUDA.")
         if not torch.cuda.is_initialized():
             torch.cuda.init()
         torch.cuda.set_device(torch.cuda.current_device())
@@ -268,7 +183,7 @@ class SlangPyImGUIRenderer:
                 | slangpy.TextureUsage.shader_resource
                 | slangpy.TextureUsage.copy_source
             ),
-            label="flashdreams_imgui_target",
+            label="flashdreams_slangpy_ui_target",
         )
         layout = target.get_subresource_layout(0)
         size_bytes = int(layout.size_in_bytes)
@@ -276,7 +191,7 @@ class SlangPyImGUIRenderer:
         rgba_buffer = device.create_buffer(
             size=size_bytes,
             usage=slangpy.BufferUsage.shared | slangpy.BufferUsage.copy_destination,
-            label="flashdreams_imgui_rgba",
+            label="flashdreams_slangpy_ui_rgba",
         )
         rgba_tensor = cast(
             Tensor,
@@ -412,6 +327,3 @@ def _resolve_slangpy_key(slangpy: Any, key: str) -> Any | None:
 def _current_cuda_stream() -> int:
     """Return the current PyTorch CUDA stream handle."""
     return int(torch.cuda.current_stream().cuda_stream)
-
-
-__all__ = ["ImGUIRenderer", "ImGUIThread", "SlangPyImGUIRenderer"]

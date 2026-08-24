@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU tests for the v2 SlangPy ImGui renderer."""
+"""CPU tests for the v2 SlangPy UI renderer."""
 
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -21,7 +21,7 @@ from unittest.mock import Mock
 import pytest
 from numpy import uint64
 
-from flashdreams.runtime_v2.imgui_thread import _route_input_events
+from flashdreams.runtime_v2._slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEventData,
     UserInputEvent,

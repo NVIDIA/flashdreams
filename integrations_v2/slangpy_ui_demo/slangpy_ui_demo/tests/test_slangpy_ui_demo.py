@@ -1,22 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU smoke tests for the v2 ImGui demos."""
+"""CPU smoke tests for the v2 SlangPy UI demos."""
 
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 import torch
-from imgui_demo.model_output_app import (
-    ModelOutputImGUIThread,
+from slangpy_ui_demo.model_output_app import (
+    ModelOutputSlangPyUIThread,
     ModelOutputSession,
     ModelOutputThread,
 )
-from imgui_demo.text_input_app import TextInputImGUIThread, TextInputState
+from slangpy_ui_demo.text_input_app import TextInputSlangPyUIThread, TextInputState
 from numpy import uint64
 
-from flashdreams.runtime_v2.imgui_thread import _route_input_events
+from flashdreams.runtime_v2._slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.ci_cpu
 
 def test_text_input_updates_ui_owned_state() -> None:
     state = TextInputState()
-    thread = TextInputImGUIThread(
+    thread = TextInputSlangPyUIThread(
         state=state,
         frequency=60,
         output_layout=SessionDesc().output_layout,
@@ -54,7 +54,7 @@ def test_text_input_updates_ui_owned_state() -> None:
     assert state.value_widget.text == "Value: hello world"
 
 
-def test_imgui_routes_pressed_and_released_key_edges() -> None:
+def test_slangpy_ui_routes_pressed_and_released_key_edges() -> None:
     ui_context = Mock()
     slangpy = SimpleNamespace(
         KeyboardEvent=lambda: SimpleNamespace(),
@@ -101,7 +101,7 @@ def test_model_output_emits_repeating_selectable_fade_channels() -> None:
     model_thread = session.model_thread
     ui_thread = session.ui_thread
     assert isinstance(model_thread, ModelOutputThread)
-    assert isinstance(ui_thread, ModelOutputImGUIThread)
+    assert isinstance(ui_thread, ModelOutputSlangPyUIThread)
 
     chunk = model_thread.step(0, UserInputEvents([]))
     repeated = model_thread.step(1, UserInputEvents([]))

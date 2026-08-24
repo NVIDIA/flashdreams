@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""SlangPy ImGui text-input application for the v2 threaded runtime."""
+"""SlangPy UI text-input application for the v2 threaded runtime."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -12,8 +12,8 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.slangpy_ui_thread import SlangPyUIThread
 from flashdreams.api_v2.thread import IThread
-from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -47,7 +47,7 @@ class BackgroundModelThread(IThread[tuple[SessionDesc, torch.device | str]]):
 
 @dataclass(slots=True)
 class TextInputState:
-    """Editable state owned by the ImGui UI thread."""
+    """Editable state owned by the SlangPy UI thread."""
 
     text: str = ""
     """Current contents of the input widget."""
@@ -59,7 +59,7 @@ class TextInputState:
     """Retained SlangPy text widget showing the current value."""
 
 
-class TextInputImGUIThread(ImGUIThread[TextInputState]):
+class TextInputSlangPyUIThread(SlangPyUIThread[TextInputState]):
     """Draw an editable text field from UI-thread-owned state."""
 
     def draw_ui(
@@ -103,7 +103,7 @@ class TextInputImGUIThread(ImGUIThread[TextInputState]):
 
 
 class TextInputSession(ISession):
-    """Run an ImGui text field over a generated background."""
+    """Run a SlangPy text field over a generated background."""
 
     def __init__(
         self,
@@ -133,7 +133,7 @@ class TextInputSession(ISession):
     def init(self) -> None:
         """Register the text UI and background model threads."""
         self.register_ui_thread(
-            TextInputImGUIThread,
+            TextInputSlangPyUIThread,
             state=TextInputState(),
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
@@ -145,7 +145,7 @@ class TextInputSession(ISession):
 
 
 class TextInputApplication(IApplication):
-    """Create ImGui text-input sessions."""
+    """Create SlangPy UI text-input sessions."""
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Reject application-specific arguments."""

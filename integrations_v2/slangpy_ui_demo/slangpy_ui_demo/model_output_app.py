@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""SlangPy ImGui application displaying model-thread output."""
+"""SlangPy UI application displaying model-thread output."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -12,8 +12,8 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.slangpy_ui_thread import SlangPyUIThread
 from flashdreams.api_v2.thread import IThread
-from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -47,8 +47,8 @@ class ModelOutputUIState:
     """Retained SlangPy waiting-status text."""
 
 
-class ModelOutputImGUIThread(ImGUIThread[ModelOutputUIState]):
-    """Draw the newest model-thread frame in an ImGui window."""
+class ModelOutputSlangPyUIThread(SlangPyUIThread[ModelOutputUIState]):
+    """Draw the newest model-thread frame in a SlangPy window."""
 
     def draw_ui(
         self,
@@ -190,7 +190,7 @@ class ModelOutputSession(ISession):
     def init(self) -> None:
         """Register the frame-displaying UI and model threads."""
         self.register_ui_thread(
-            ModelOutputImGUIThread,
+            ModelOutputSlangPyUIThread,
             state=ModelOutputUIState(),
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
@@ -205,7 +205,7 @@ class ModelOutputSession(ISession):
 
 
 class ModelOutputApplication(IApplication):
-    """Create sessions that display model output through ImGui."""
+    """Create sessions that display model output through SlangPy UI."""
 
     def __init__(self, *, device: torch.device | str = "cuda") -> None:
         """Configure the device used by model-output sessions."""
