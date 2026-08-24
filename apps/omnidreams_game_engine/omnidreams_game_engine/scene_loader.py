@@ -25,7 +25,6 @@ from omnidreams.scenes import (
 from PIL import Image
 
 from omnidreams_game_engine.colors import (
-    BBOX_V3_COLORS,
     HDMAP_V3_COLORS,
     LANE_LINE_STYLE_CONFIG,
 )
@@ -54,7 +53,6 @@ from omnidreams_game_engine.types import (
     WorldLineSegments,
     WorldPolygonList,
     WorldTriangleList,
-    WorldVehicleBBoxTrack,
 )
 
 _GROUND_MESH_NAME = "mesh_ground.ply"
@@ -650,95 +648,6 @@ def _build_polygon_loop_layer(
     )
 
 
-def _map_obstacle_category_to_bbox_type(category: str) -> str:
-    normalized = category.replace("_", " ").replace("-", " ").title().replace(" ", "_")
-    if normalized in {
-        "Bus",
-        "Heavy_Truck",
-        "Train_Or_Tram_Car",
-        "Trolley_Bus",
-        "Trailer",
-        "Truck",
-    }:
-        return "Truck"
-    if normalized in {"Vehicle", "Automobile", "Other_Vehicle", "Car"}:
-        return "Car"
-    if normalized in {"Person", "Pedestrian"}:
-        return "Pedestrian"
-    if normalized in {"Rider", "Cyclist", "Motorcycle", "Bicycle"}:
-        return "Cyclist"
-    return "Others"
-
-
-def _load_vehicle_bbox_tracks(zf: zipfile.ZipFile) -> tuple[WorldVehicleBBoxTrack, ...]:
-    if "clipgt/obstacle.parquet" not in zf.namelist():
-        return tuple()
-
-    obstacle_rows = _read_parquet_records(zf, "clipgt/obstacle.parquet")
-    grouped_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in obstacle_rows:
-        obstacle_payload = row["obstacle"]
-        track_id = str(obstacle_payload.get("trackline_id", ""))
-        if track_id == "":
-            continue
-        grouped_rows[track_id].append(row)
-
-    tracks: list[WorldVehicleBBoxTrack] = []
-    for track_id in sorted(grouped_rows.keys()):
-        observations = sorted(
-            grouped_rows[track_id], key=lambda obs: int(obs["key"]["timestamp_micros"])
-        )
-        timestamps_us: list[int] = []
-        centers_world: list[list[float]] = []
-        dimensions_lwh: list[list[float]] = []
-        orientations_xyzw: list[list[float]] = []
-        for observation in observations:
-            obstacle_payload = observation["obstacle"]
-            center = obstacle_payload["center"]
-            size = obstacle_payload["size"]
-            orientation = obstacle_payload["orientation"]
-            quaternion = np.array(
-                [
-                    float(orientation["x"]),
-                    float(orientation["y"]),
-                    float(orientation["z"]),
-                    float(orientation["w"]),
-                ],
-                dtype=np.float32,
-            )
-            if float(np.linalg.norm(quaternion)) <= 1e-8:
-                continue
-            timestamps_us.append(int(observation["key"]["timestamp_micros"]))
-            centers_world.append(
-                [float(center["x"]), float(center["y"]), float(center["z"])]
-            )
-            dimensions_lwh.append(
-                [float(size["x"]), float(size["y"]), float(size["z"])]
-            )
-            orientations_xyzw.append(quaternion.tolist())
-
-        if len(timestamps_us) < 2:
-            continue
-        object_type = _map_obstacle_category_to_bbox_type(
-            str(observations[0]["obstacle"].get("category", "Others"))
-        )
-        if object_type not in BBOX_V3_COLORS:
-            object_type = "Others"
-        tracks.append(
-            WorldVehicleBBoxTrack(
-                track_id=track_id,
-                object_type=object_type,
-                timestamps_us=np.asarray(timestamps_us, dtype=np.int64),
-                centers_world=np.asarray(centers_world, dtype=np.float32),
-                dimensions_lwh=np.asarray(dimensions_lwh, dtype=np.float32),
-                orientations_xyzw=np.asarray(orientations_xyzw, dtype=np.float32),
-                # TODO: Excluding ego obstacle requires metadata not currently parsed here.
-                max_extrapolation_us=500_000.0,
-            )
-        )
-    return tuple(tracks)
-
-
 def _load_map_layers(
     zf: zipfile.ZipFile,
     raster: RasterConfig,
@@ -897,7 +806,6 @@ def load_scene_bundle(
         initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
         prompt = _load_prompt(zf, variant, prompt_override)
         line_layers, triangle_layers, polygon_layers = _load_map_layers(zf, raster)
-        vehicle_bbox_tracks = _load_vehicle_bbox_tracks(zf)
         ground_mesh_vertices, ground_mesh_faces = _load_ground_mesh(zf)
         game_map = (
             game_map_from_dict(json.loads(zf.read("game_map.json")))
@@ -919,7 +827,6 @@ def load_scene_bundle(
         line_layers=line_layers,
         triangle_layers=triangle_layers,
         polygon_layers=polygon_layers,
-        vehicle_bbox_tracks=vehicle_bbox_tracks,
         ground_mesh_vertices=ground_mesh_vertices,
         ground_mesh_faces=ground_mesh_faces,
         game_map=game_map,

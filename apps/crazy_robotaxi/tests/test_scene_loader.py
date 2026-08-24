@@ -8,7 +8,6 @@ import zipfile
 
 import pytest
 from omnidreams_game_engine._sample_assets import SAMPLE_SCENE
-from omnidreams_game_engine.colors import BBOX_V3_COLORS
 from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.scene_loader import (
     _discover_prompts,
@@ -61,10 +60,4 @@ def test_internal_scene_bundle_loader_reads_recorded_archive() -> None:
     assert any(
         layer.layer_name == "crosswalks" and len(layer.polygons_world) > 0
         for layer in bundle.polygon_layers
-    )
-    assert len(bundle.vehicle_bbox_tracks) > 0
-    sample_track = bundle.vehicle_bbox_tracks[0]
-    assert sample_track.object_type in BBOX_V3_COLORS
-    assert (
-        sample_track.interpolate_at_timestamp(bundle.initial_timestamp_us) is not None
     )

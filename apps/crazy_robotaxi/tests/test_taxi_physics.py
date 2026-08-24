@@ -32,7 +32,10 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     sample_chunk_trajectory,
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
-from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
+from omnidreams_game_engine.simulation.map_traffic import (
+    MapTrafficController,
+    MapTrafficPhase,
+)
 from omnidreams_game_engine.types import (
     DriverCommand,
     PhysicsDebugFrame,
@@ -46,7 +49,6 @@ pytestmark = pytest.mark.ci_cpu
 @dataclass(frozen=True)
 class _Scene:
     scene_id: str = "taxi-physics-test"
-    vehicle_bbox_tracks: tuple[object, ...] = ()
     line_layers: tuple[WorldLineSegments, ...] = ()
     polygon_layers: tuple[object, ...] = ()
 
@@ -201,6 +203,155 @@ def test_map_traffic_advances_inactive_car_without_publishing_it_to_physx() -> N
     assert tuple(item[0] for item in published[0]) == (near_id,)
     assert controller._states_by_id[near_id].timestamp_us > near_timestamp_before
     assert controller._states_by_id[far_id].timestamp_us > far_timestamp_before
+
+
+def _recovery_controller() -> tuple[MapTrafficController, str]:
+    centerline = np.asarray(
+        [[0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    definition = GameMapTrafficVehicle(
+        vehicle_id="recovering",
+        node_ids=("a", "b"),
+        end_behavior="wrap",
+        vehicle_type="car",
+        dimensions_lwh_m=(4.5, 1.8, 1.5),
+        speed_mps=None,
+        start_distance_m=2.0,
+        centerline_world=centerline,
+        speed_limits_mps=np.full(len(centerline), 10.0, dtype=np.float32),
+        route_element_ids=("south", "east", "north", "west"),
+    )
+    controller = MapTrafficController((definition,), VehicleConfig())
+    controller.set_vicinity(
+        GameMapVicinity(
+            "south",
+            frozenset({"south", "east", "north", "west"}),
+            frozenset({"south", "east", "north", "west"}),
+        )
+    )
+    return controller, "map-traffic:recovering"
+
+
+def _body_at(
+    position_xy: tuple[float, float],
+    *,
+    yaw_rad: float = 0.0,
+    linear_velocity_xy: tuple[float, float] = (0.0, 0.0),
+    angular_speed_radps: float = 0.0,
+) -> BodyState:
+    return BodyState(
+        position_m=np.asarray([*position_xy, 0.75], dtype=np.float32),
+        orientation_xyzw=np.asarray(
+            [0.0, 0.0, math.sin(yaw_rad * 0.5), math.cos(yaw_rad * 0.5)],
+            dtype=np.float32,
+        ),
+        linear_velocity_mps=np.asarray([*linear_velocity_xy, 0.0], dtype=np.float32),
+        angular_velocity_radps=np.asarray(
+            [0.0, 0.0, angular_speed_radps], dtype=np.float32
+        ),
+    )
+
+
+def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> None:
+    controller, object_id = _recovery_controller()
+    state = controller.state(object_id)
+    assert state is not None
+    frozen_timestamp_us = state.timestamp_us
+
+    decision = controller.observe_physics(
+        object_id,
+        struck=True,
+        body=_body_at((18.0, 8.0), yaw_rad=math.pi),
+        dt_s=0.25,
+    )
+    assert decision is not None
+    assert decision.drive_enabled is False
+    assert decision.detached_from_track is True
+    assert state.phase is MapTrafficPhase.COLLISION
+
+    published: list[tuple[tuple[str, int, float], ...]] = []
+    world = SimpleNamespace(
+        body_state=lambda _: _body_at((18.0, 8.0), yaw_rad=math.pi),
+        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
+        apply_track_progress=published.append,
+    )
+    controller.prepare_step(
+        world,  # type: ignore[arg-type]
+        _body_at((-100.0, -100.0)),
+        0.5,
+    )
+    assert state.timestamp_us == frozen_timestamp_us
+    assert published[-1][0][2] == 0.0
+
+    stopped = _body_at((18.0, 8.0), yaw_rad=math.pi)
+    for _ in range(4):
+        decision = controller.observe_physics(
+            object_id, struck=False, body=stopped, dt_s=0.25
+        )
+    assert decision is not None
+    assert decision.drive_enabled is True
+    assert decision.detached_from_track is True
+    assert state.phase is MapTrafficPhase.RECOVERING
+    projected_position, projected_orientation, projected_velocity = (
+        state.scene_object.sample(int(state.timestamp_us))
+    )
+    np.testing.assert_allclose(projected_position[:2], [20.0, 8.0], atol=1.0e-4)
+
+    # A car facing backward remains physically detached; recovery does not snap it.
+    controller.observe_physics(
+        object_id,
+        struck=False,
+        body=_body_at(tuple(projected_position[:2]), yaw_rad=math.pi),
+        dt_s=0.25,
+    )
+    assert state.phase is MapTrafficPhase.RECOVERING
+    np.testing.assert_allclose(state.position_m[:2], projected_position[:2])
+
+    recovered = BodyState(
+        position_m=projected_position.copy(),
+        orientation_xyzw=projected_orientation.copy(),
+        linear_velocity_mps=projected_velocity.copy(),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    decision = controller.observe_physics(
+        object_id, struck=False, body=recovered, dt_s=0.25
+    )
+    assert decision is not None
+    assert decision.detached_from_track is False
+    assert state.phase is MapTrafficPhase.TRAVERSING
+
+
+def test_map_traffic_recollision_and_offscreen_reset_share_one_state() -> None:
+    controller, object_id = _recovery_controller()
+    state = controller.state(object_id)
+    assert state is not None
+    displaced = _body_at((19.0, 9.0))
+    controller.observe_physics(object_id, struck=True, body=displaced, dt_s=0.25)
+    for _ in range(4):
+        controller.observe_physics(object_id, struck=False, body=displaced, dt_s=0.25)
+    assert state.phase is MapTrafficPhase.RECOVERING
+
+    decision = controller.observe_physics(
+        object_id, struck=True, body=_body_at((17.0, 10.0)), dt_s=0.25
+    )
+    assert decision is not None
+    assert decision.drive_enabled is False
+    assert state.phase is MapTrafficPhase.COLLISION
+
+    changed = controller.set_vicinity(
+        GameMapVicinity("other", frozenset({"other"}), frozenset({"other"}))
+    )
+    assert changed is True
+    assert controller.active_object_ids == frozenset()
+    assert state.phase is MapTrafficPhase.TRAVERSING
+    assert state.decision.detached_from_track is False
+    route_position, route_orientation, route_velocity = state.scene_object.sample(
+        int(state.timestamp_us)
+    )
+    np.testing.assert_array_equal(state.position_m, route_position)
+    np.testing.assert_array_equal(state.orientation_xyzw, route_orientation)
+    np.testing.assert_array_equal(state.linear_velocity_mps, route_velocity)
 
 
 def test_taxi_curbs_are_physics_barriers_without_a_render_layer() -> None:

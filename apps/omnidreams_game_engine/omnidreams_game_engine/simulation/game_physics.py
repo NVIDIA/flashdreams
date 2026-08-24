@@ -49,7 +49,6 @@ from omnidreams_game_engine.simulation.components import (
     vehicle_dynamics_for_object,
 )
 from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
-from omnidreams_game_engine.simulation.traffic_ai import TrafficDriverAI
 from omnidreams_game_engine.types import (
     DynamicActorTrajectory,
     PhysicsDebugFrame,
@@ -72,7 +71,6 @@ _PHYSX_DEBUG_LATERAL_M = 100.0
 _VISUAL_FLARE_MIN_SPEED_DELTA_MPS = 5.0 * 0.44704
 _VISUAL_FLARE_COLLISION_WINDOW_US = 500_000
 _NON_EGO_MAX_DRIVE_SPEED_MPS = 15.0 * 0.44704
-_PERSISTENT_TRACK_TIMESTAMP_US = np.iinfo(np.int64).max // 4
 _PHYSX_SIMULATION_RADIUS_M = 96.0
 """Collision horizon around the last recenter point.
 
@@ -156,28 +154,6 @@ def _is_visual_flare_impact(
 
 def _ego_model(vehicle: VehicleConfig) -> RigidBodyModel:
     return rigid_body_model_from_vehicle_config(vehicle)
-
-
-def _recorded_actor_trajectory(scene_object: SceneObject) -> DynamicActorTrajectory:
-    """Build one reusable renderer track that holds its final pose indefinitely."""
-    timestamps = scene_object.timestamps_us
-    positions = scene_object.positions_m
-    orientations = scene_object.orientations_xyzw
-    if int(timestamps[-1]) < _PERSISTENT_TRACK_TIMESTAMP_US:
-        timestamps = np.concatenate(
-            (timestamps, np.asarray([_PERSISTENT_TRACK_TIMESTAMP_US], dtype=np.int64))
-        )
-        positions = np.concatenate((positions, positions[-1:]), axis=0)
-        orientations = np.concatenate((orientations, orientations[-1:]), axis=0)
-    return DynamicActorTrajectory(
-        entity_id=scene_object.object_id,
-        object_type=scene_object.object_type,
-        timestamps_us=timestamps,
-        translations_world=positions,
-        orientations_xyzw=orientations,
-        dimensions_lwh=np.asarray(scene_object.model.half_extents_m, dtype=np.float32)
-        * 2.0,
-    )
 
 
 def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -282,16 +258,11 @@ class GamePhysicsWorld:
         self._static_barrier_restitution = static_barrier_restitution
         adapt_model = model_adapter or (lambda model: model)
 
-        def adapted_object(track: object) -> SceneObject:
-            scene_object = self._object_from_track(track, vehicle)
-            return replace(scene_object, model=adapt_model(scene_object.model))
-
         game_map = getattr(scene, "game_map", None)
         self._map_traffic = MapTrafficController(
             () if game_map is None else game_map.traffic,
             vehicle,
         )
-        objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
         if (
             vehicle.static_collision_enabled
             and static_barrier_segments_world is not None
@@ -313,10 +284,7 @@ class GamePhysicsWorld:
             barriers = (
                 self._build_barriers(scene) if vehicle.static_collision_enabled else ()
             )
-        self.graph = PhysicsObjectGraph(objects=objects, barriers=barriers)
-        self._recorded_trajectories_by_id = {
-            obj.object_id: _recorded_actor_trajectory(obj) for obj in objects
-        }
+        self.graph = PhysicsObjectGraph(objects=(), barriers=barriers)
         initial_transform = getattr(scene, "initial_rig_to_world", None)
         initial_xy = (
             np.asarray(initial_transform[:2, 3], dtype=np.float32)
@@ -371,8 +339,6 @@ class GamePhysicsWorld:
             timestamp_us=initial_timestamp_us,
             initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
         )
-        self._traffic_ai = TrafficDriverAI()
-        self._traffic_ai.synchronize(self._physics_graph.objects)
         self._refresh_debug_barriers()
         logger.info(
             "[physics] PhysX graph ready in {:.1f} ms; objects={}/{} barriers={}/{} simulation_radius_m={:.0f}",
@@ -401,24 +367,6 @@ class GamePhysicsWorld:
         return PhysicsObjectGraph(
             objects=physics_graph.objects + additions,
             barriers=physics_graph.barriers,
-        )
-
-    @staticmethod
-    def _object_from_track(track: object, vehicle: VehicleConfig) -> SceneObject:
-        dimensions = np.asarray(track.dimensions_lwh[0], dtype=np.float32)
-        return SceneObject(
-            object_id=track.track_id,
-            object_type=track.object_type,
-            model=rigid_body_model_for_object(
-                track.object_type,
-                dimensions,
-                restitution=vehicle.collision_restitution,
-                friction=vehicle.collision_friction,
-            ),
-            timestamps_us=np.asarray(track.timestamps_us, dtype=np.int64),
-            positions_m=np.asarray(track.centers_world, dtype=np.float32),
-            orientations_xyzw=np.asarray(track.orientations_xyzw, dtype=np.float32),
-            max_extrapolation_us=track.max_extrapolation_us,
         )
 
     @staticmethod
@@ -549,7 +497,6 @@ class GamePhysicsWorld:
             timestamp_us=timestamp_us,
             initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
         )
-        self._traffic_ai.synchronize(physics_graph.objects)
         existing_entities = {entity.entity_id: entity for entity in self._entities}
         self._entities = [
             existing_entities.get(scene_object.object_id)
@@ -794,7 +741,12 @@ class GamePhysicsWorld:
                 if separation_m <= 1e-6:
                     continue
                 impact_normal_xy = separation_xy / separation_m
-                _, _, track_velocity_mps = scene_object.sample(timestamp_us)
+                traffic_state = self._map_traffic.state(object_id)
+                if traffic_state is None:
+                    continue
+                _, _, track_velocity_mps = scene_object.sample(
+                    int(traffic_state.timestamp_us)
+                )
                 relative_velocity_xy = (
                     track_velocity_mps[:2] - ego_before_step.linear_velocity_mps[:2]
                 )
@@ -826,11 +778,6 @@ class GamePhysicsWorld:
             flare_driving_direction,
             self._visual_flare_impact_normal_xy,
         )
-        significant_struck_vehicle_ids = (
-            self._pending_struck_vehicle_ids.copy()
-            if self.last_step_actor_collision
-            else set()
-        )
         collision_window_expired = (
             self._visual_flare_collision_deadline_us is not None
             and timestamp_us > self._visual_flare_collision_deadline_us
@@ -843,46 +790,17 @@ class GamePhysicsWorld:
             self._pending_struck_vehicle_ids.clear()
         actor_samples = []
         pending_controls = []
-        native_track_samples = getattr(physics_step, "track_samples", ())
-        for actor_index, (object_id, body, native_detached) in enumerate(
-            physics_step.actor_samples
-        ):
-            scene_object = active_objects[object_id]
-            if actor_index < len(native_track_samples):
-                (
-                    track_object_id,
-                    track_position,
-                    track_orientation,
-                    track_velocity,
-                ) = native_track_samples[actor_index]
-                if track_object_id != object_id:
-                    raise RuntimeError("native actor and track samples are misaligned")
-            else:
-                # Compatibility path for light-weight test doubles and older
-                # native modules while their timestamp sampling remains Python-side.
-                track_position, track_orientation, track_velocity = scene_object.sample(
-                    timestamp_us
-                )
-            decision = self._traffic_ai.update(
+        for object_id, body, _native_detached in physics_step.actor_samples:
+            decision = self._map_traffic.observe_physics(
                 object_id,
-                struck=object_id in significant_struck_vehicle_ids,
+                struck=object_id in physics_step.struck_object_ids,
                 body=body,
-                track_position=track_position,
-                track_orientation_xyzw=track_orientation,
-                track_velocity_mps=track_velocity,
                 dt_s=dt_s,
             )
             if decision is None:
-                detached = native_detached
-            else:
-                detached = decision.detached_from_track
-                # Do not let the track motor erase momentum while the visual
-                # effect's short impact-measurement window is still open.
-                drive_enabled = (
-                    decision.drive_enabled
-                    and object_id not in self._pending_struck_vehicle_ids
-                )
-                pending_controls.append((object_id, drive_enabled, detached))
+                raise RuntimeError(f"PhysX returned unmanaged NPC {object_id!r}")
+            detached = decision.detached_from_track
+            pending_controls.append((object_id, decision.drive_enabled, detached))
             actor_samples.append(
                 (object_id, body.position_m, body.orientation_xyzw, detached)
             )
@@ -895,6 +813,15 @@ class GamePhysicsWorld:
             entity = self._entities_by_id[object_id]
             entity.transform.position_m = position.copy()
             entity.transform.orientation_xyzw = orientation.copy()
+            traffic_state = self._map_traffic.state(object_id)
+            if traffic_state is None:
+                raise RuntimeError(f"Missing state for managed NPC {object_id!r}")
+            entity.rigid_body.linear_velocity_mps = (
+                traffic_state.linear_velocity_mps.copy()
+            )
+            entity.rigid_body.angular_velocity_radps = (
+                traffic_state.angular_velocity_radps.copy()
+            )
             entity.detached_from_track = detached
         self._detached_entity_ids = detached_ids
 
@@ -1027,7 +954,6 @@ class GamePhysicsWorld:
                 )
                 trajectory_timestamps = simulated_timestamps
             else:
-                result.append(self._recorded_trajectories_by_id[scene_object.object_id])
                 continue
             result.append(
                 DynamicActorTrajectory(

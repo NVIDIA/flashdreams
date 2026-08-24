@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 from ludus_renderer import BodyState, PhysXWorld, SceneObject
@@ -23,17 +24,60 @@ _BRAKING_MARGIN_M = 8.0
 _LANE_CORRIDOR_M = 2.25
 _MAX_HEADING_DELTA_RAD = math.radians(40.0)
 _HEADWAY_GRID_CELL_M = 64.0
+_RESTART_AFTER_STOPPED_S = 1.0
+_STOPPED_LINEAR_SPEED_MPS = 0.10
+_STOPPED_ANGULAR_SPEED_RADPS = 0.10
+_RECOVERED_POSITION_ERROR_M = 0.60
+_RECOVERED_HEADING_ERROR_RAD = math.radians(8.0)
+_RECOVERED_VELOCITY_ERROR_MPS = 0.75
+
+
+def _yaw_from_quaternion_xyzw(quaternion: np.ndarray) -> float:
+    x, y, z, w = (float(value) for value in quaternion)
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+class MapTrafficPhase(str, Enum):
+    """Authoritative gameplay phase for a map traffic vehicle."""
+
+    TRAVERSING = "traversing"
+    COLLISION = "collision"
+    RECOVERING = "recovering"
+
+
+@dataclass(frozen=True)
+class MapTrafficDecision:
+    """Native actuator and renderer state derived from an NPC's phase."""
+
+    drive_enabled: bool
+    detached_from_track: bool
 
 
 @dataclass
-class _RouteState:
+class MapTrafficVehicleState:
+    """Single gameplay-owned state for one map traffic vehicle."""
+
     object_id: str
     scene_object: SceneObject
     timestamp_us: float
     duration_us: int
     max_speed_mps: float
     route_element_ids: tuple[str, ...]
+    position_m: np.ndarray
+    orientation_xyzw: np.ndarray
+    linear_velocity_mps: np.ndarray
+    angular_velocity_radps: np.ndarray
     velocity_scale: float = 1.0
+    phase: MapTrafficPhase = MapTrafficPhase.TRAVERSING
+    stopped_duration_s: float = 0.0
+
+    @property
+    def decision(self) -> MapTrafficDecision:
+        """Return control outputs derived solely from the gameplay phase."""
+        return MapTrafficDecision(
+            drive_enabled=self.phase is not MapTrafficPhase.COLLISION,
+            detached_from_track=self.phase is not MapTrafficPhase.TRAVERSING,
+        )
 
     @property
     def element_id(self) -> str:
@@ -110,26 +154,31 @@ def _route_track(
 
 
 class MapTrafficController:
-    """Advance looping map tracks and maintain same-direction headway."""
+    """Own route, collision, recovery, and physical snapshots for map traffic."""
 
     def __init__(
         self,
         traffic: tuple[GameMapTrafficVehicle, ...],
         vehicle: VehicleConfig,
     ) -> None:
-        states: list[_RouteState] = []
+        states: list[MapTrafficVehicleState] = []
         for definition in traffic:
             scene_object, start_timestamp_us, duration_us = _route_track(
                 definition, vehicle
             )
+            position, orientation, velocity = scene_object.sample(start_timestamp_us)
             states.append(
-                _RouteState(
+                MapTrafficVehicleState(
                     object_id=scene_object.object_id,
                     scene_object=scene_object,
                     timestamp_us=float(start_timestamp_us),
                     duration_us=duration_us,
                     max_speed_mps=float(np.max(definition.speed_limits_mps)),
                     route_element_ids=definition.route_element_ids,
+                    position_m=position.copy(),
+                    orientation_xyzw=orientation.copy(),
+                    linear_velocity_mps=velocity.copy(),
+                    angular_velocity_radps=np.zeros(3, dtype=np.float32),
                 )
             )
         self._states = tuple(states)
@@ -173,11 +222,38 @@ class MapTrafficController:
         """Return per-object actuator caps derived from compiled route speeds."""
         return {state.object_id: state.max_speed_mps for state in self._states}
 
+    def state(self, object_id: str) -> MapTrafficVehicleState | None:
+        """Return the authoritative state for a map NPC, if owned here."""
+        return self._states_by_id.get(object_id)
+
+    @staticmethod
+    def _set_route_snapshot(state: MapTrafficVehicleState) -> None:
+        position, orientation, velocity = state.scene_object.sample(
+            int(state.timestamp_us)
+        )
+        state.position_m = position.copy()
+        state.orientation_xyzw = orientation.copy()
+        state.linear_velocity_mps = velocity.copy()
+        state.angular_velocity_radps = np.zeros(3, dtype=np.float32)
+
+    @classmethod
+    def _reset_offscreen(cls, state: MapTrafficVehicleState) -> None:
+        state.phase = MapTrafficPhase.TRAVERSING
+        state.stopped_duration_s = 0.0
+        state.velocity_scale = 1.0
+        cls._set_route_snapshot(state)
+
     def set_vicinity(self, vicinity: GameMapVicinity | None) -> bool:
-        """Select the logical cars whose route elements are graph-nearby."""
+        """Select nearby cars and reset displaced cars once the player leaves."""
         visible_elements = (
             frozenset() if vicinity is None else vicinity.traffic_element_ids
         )
+        for state in self._states:
+            if (
+                state.phase is not MapTrafficPhase.TRAVERSING
+                and state.element_id not in visible_elements
+            ):
+                self._reset_offscreen(state)
         active_ids = frozenset(
             state.object_id
             for state in self._states
@@ -187,12 +263,12 @@ class MapTrafficController:
         self._active_ids = active_ids
         return changed
 
-    def _target_velocity(self, state: _RouteState) -> np.ndarray:
+    def _target_velocity(self, state: MapTrafficVehicleState) -> np.ndarray:
         _, _, velocity = state.scene_object.sample(int(state.timestamp_us))
         return velocity
 
     def _observation(
-        self, state: _RouteState, world: PhysXWorld
+        self, state: MapTrafficVehicleState, world: PhysXWorld
     ) -> _TrafficObservation:
         velocity = self._target_velocity(state)
         if state.object_id in self._active_ids:
@@ -205,6 +281,127 @@ class MapTrafficController:
             velocity_xy=np.asarray(velocity[:2], dtype=np.float32),
             half_length_m=float(state.scene_object.model.half_extents_m[0]),
         )
+
+    @staticmethod
+    def _cyclic_timestamp_distance(
+        timestamp_us: float, reference_us: float, duration_us: int
+    ) -> float:
+        delta = abs(timestamp_us - reference_us) % duration_us
+        return min(delta, duration_us - delta)
+
+    @classmethod
+    def _nearest_route_timestamp(
+        cls, state: MapTrafficVehicleState, position_xy: np.ndarray
+    ) -> float:
+        positions = state.scene_object.positions_m[:, :2]
+        timestamps = state.scene_object.timestamps_us
+        best_distance_sq = math.inf
+        best_progress_distance = math.inf
+        best_timestamp_us = state.timestamp_us
+        for index, (start, end) in enumerate(
+            zip(positions[:-1], positions[1:], strict=True)
+        ):
+            segment = end - start
+            length_sq = float(np.dot(segment, segment))
+            alpha = (
+                0.0
+                if length_sq <= 1.0e-12
+                else float(
+                    np.clip(np.dot(position_xy - start, segment) / length_sq, 0, 1)
+                )
+            )
+            projection = start + alpha * segment
+            distance_sq = float(
+                np.dot(position_xy - projection, position_xy - projection)
+            )
+            timestamp_us = (
+                float(
+                    timestamps[index]
+                    + alpha * (timestamps[index + 1] - timestamps[index])
+                )
+                % state.duration_us
+            )
+            progress_distance = cls._cyclic_timestamp_distance(
+                timestamp_us, state.timestamp_us, state.duration_us
+            )
+            if distance_sq < best_distance_sq - 1.0e-8 or (
+                abs(distance_sq - best_distance_sq) <= 1.0e-8
+                and progress_distance < best_progress_distance
+            ):
+                best_distance_sq = distance_sq
+                best_progress_distance = progress_distance
+                best_timestamp_us = timestamp_us
+        return best_timestamp_us
+
+    @staticmethod
+    def _is_recovered(state: MapTrafficVehicleState, body: BodyState) -> bool:
+        track_position, track_orientation, track_velocity = state.scene_object.sample(
+            int(state.timestamp_us)
+        )
+        track_velocity = track_velocity * state.velocity_scale
+        heading_error = math.atan2(
+            math.sin(
+                _yaw_from_quaternion_xyzw(track_orientation)
+                - _yaw_from_quaternion_xyzw(body.orientation_xyzw)
+            ),
+            math.cos(
+                _yaw_from_quaternion_xyzw(track_orientation)
+                - _yaw_from_quaternion_xyzw(body.orientation_xyzw)
+            ),
+        )
+        return (
+            float(np.linalg.norm(track_position[:2] - body.position_m[:2]))
+            <= _RECOVERED_POSITION_ERROR_M
+            and abs(heading_error) <= _RECOVERED_HEADING_ERROR_RAD
+            and float(np.linalg.norm(track_velocity[:2] - body.linear_velocity_mps[:2]))
+            <= _RECOVERED_VELOCITY_ERROR_MPS
+        )
+
+    def observe_physics(
+        self,
+        object_id: str,
+        *,
+        struck: bool,
+        body: BodyState,
+        dt_s: float,
+    ) -> MapTrafficDecision | None:
+        """Update one NPC from PhysX and advance its collision state machine."""
+        state = self._states_by_id.get(object_id)
+        if state is None:
+            return None
+        state.position_m = body.position_m.copy()
+        state.orientation_xyzw = body.orientation_xyzw.copy()
+        state.linear_velocity_mps = body.linear_velocity_mps.copy()
+        state.angular_velocity_radps = body.angular_velocity_radps.copy()
+
+        if struck:
+            state.phase = MapTrafficPhase.COLLISION
+            state.stopped_duration_s = 0.0
+            return state.decision
+
+        if state.phase is MapTrafficPhase.COLLISION:
+            linear_speed = float(np.linalg.norm(body.linear_velocity_mps[:2]))
+            angular_speed = float(np.linalg.norm(body.angular_velocity_radps))
+            stopped = (
+                linear_speed <= _STOPPED_LINEAR_SPEED_MPS
+                and angular_speed <= _STOPPED_ANGULAR_SPEED_RADPS
+            )
+            state.stopped_duration_s = (
+                state.stopped_duration_s + dt_s if stopped else 0.0
+            )
+            if state.stopped_duration_s >= _RESTART_AFTER_STOPPED_S:
+                state.timestamp_us = self._nearest_route_timestamp(
+                    state, body.position_m[:2]
+                )
+                state.phase = MapTrafficPhase.RECOVERING
+                state.stopped_duration_s = 0.0
+                state.velocity_scale = 1.0
+        elif state.phase is MapTrafficPhase.RECOVERING and self._is_recovered(
+            state, body
+        ):
+            state.phase = MapTrafficPhase.TRAVERSING
+
+        return state.decision
 
     @staticmethod
     def _grid_cell(position_xy: np.ndarray) -> tuple[int, int]:
@@ -258,9 +455,12 @@ class MapTrafficController:
     def prepare_step(self, world: PhysXWorld, ego: BodyState, dt_s: float) -> None:
         """Advance all logical cars and publish active tracks in one native batch."""
         for state in self._states:
-            state.timestamp_us = (
-                state.timestamp_us + dt_s * 1_000_000.0 * state.velocity_scale
-            ) % state.duration_us
+            if state.phase is MapTrafficPhase.TRAVERSING:
+                state.timestamp_us = (
+                    state.timestamp_us + dt_s * 1_000_000.0 * state.velocity_scale
+                ) % state.duration_us
+                if state.object_id not in self._active_ids:
+                    self._set_route_snapshot(state)
         observations = {
             state.object_id: self._observation(state, world) for state in self._states
         }
@@ -283,7 +483,11 @@ class MapTrafficController:
                 for offset_y in (-1, 0, 1)
                 for candidate in buckets.get((cell_x + offset_x, cell_y + offset_y), ())
             )
-            state.velocity_scale = self._headway_scale(observation, candidates)
+            state.velocity_scale = (
+                0.0
+                if state.phase is MapTrafficPhase.COLLISION
+                else self._headway_scale(observation, candidates)
+            )
         world.apply_track_progress(
             tuple(
                 (state.object_id, int(state.timestamp_us), state.velocity_scale)
@@ -293,4 +497,9 @@ class MapTrafficController:
         )
 
 
-__all__ = ["MapTrafficController"]
+__all__ = [
+    "MapTrafficController",
+    "MapTrafficDecision",
+    "MapTrafficPhase",
+    "MapTrafficVehicleState",
+]

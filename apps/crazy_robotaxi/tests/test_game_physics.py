@@ -64,11 +64,9 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
 from omnidreams_game_engine.simulation.game_physics import (
     GamePhysicsWorld,
     _is_visual_flare_impact,
-    _recorded_actor_trajectory,
     _simplify_barrier_segments,
     _yaw_from_quaternion_xyzw,
 )
-from omnidreams_game_engine.simulation.traffic_ai import TrafficDriverAI
 from omnidreams_game_engine.types import (
     DriverCommand,
     DynamicActorTrajectory,
@@ -76,69 +74,28 @@ from omnidreams_game_engine.types import (
     PresentedFrame,
     VehicleState,
     WorldLineSegments,
-    WorldVehicleBBoxTrack,
 )
 
 pytestmark = pytest.mark.ci_cpu
 
 
-def _track(
-    object_type: str = "Car", *, x_m: float = 5.0, y_m: float = 0.0
-) -> WorldVehicleBBoxTrack:
-    timestamps = np.asarray([-1_000_000, 1_000_000], dtype=np.int64)
-    return WorldVehicleBBoxTrack(
-        track_id=f"{object_type.lower()}-1",
-        object_type=object_type,
-        timestamps_us=timestamps,
-        centers_world=np.asarray([[x_m, y_m, 0.8], [x_m, y_m, 0.8]], dtype=np.float32),
-        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
-        orientations_xyzw=np.asarray(
-            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
-        ),
-        max_extrapolation_us=2_000_000.0,
-    )
-
-
-def _moving_track() -> WorldVehicleBBoxTrack:
-    timestamps = np.asarray([-1_000_000, 12_000_000], dtype=np.int64)
-    return WorldVehicleBBoxTrack(
-        track_id="car-moving",
-        object_type="Car",
-        timestamps_us=timestamps,
-        centers_world=np.asarray([[5.0, 0.0, 0.8], [18.0, 0.0, 0.8]], dtype=np.float32),
-        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
-        orientations_xyzw=np.asarray(
-            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
-        ),
-        max_extrapolation_us=2_000_000.0,
-    )
-
-
-def _fast_moving_track() -> WorldVehicleBBoxTrack:
-    timestamps = np.asarray([-1_000_000, 9_000_000], dtype=np.int64)
-    return WorldVehicleBBoxTrack(
-        track_id="car-fast",
-        object_type="Car",
-        timestamps_us=timestamps,
-        centers_world=np.asarray(
-            [[20.0, 0.0, 0.8], [220.0, 0.0, 0.8]], dtype=np.float32
-        ),
-        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
-        orientations_xyzw=np.asarray(
-            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
-        ),
-        max_extrapolation_us=2_000_000.0,
-    )
-
-
-def _scene(
-    *tracks: WorldVehicleBBoxTrack,
-    line_layers: tuple[WorldLineSegments, ...] = (),
-) -> SimpleNamespace:
+def _scene(*, line_layers: tuple[WorldLineSegments, ...] = ()) -> SimpleNamespace:
     return SimpleNamespace(
-        vehicle_bbox_tracks=tracks,
         line_layers=line_layers,
         polygon_layers=(),
+    )
+
+
+def _test_scene_object() -> SceneObject:
+    return SceneObject(
+        object_id="test-car",
+        object_type="Car",
+        model=rigid_body_model_for_object("Car", np.asarray([4.0, 1.9, 1.6])),
+        timestamps_us=np.asarray([-1_000_000, 1_000_000], dtype=np.int64),
+        positions_m=np.asarray([[5.0, 0.0, 0.8], [5.0, 0.0, 0.8]], dtype=np.float32),
+        orientations_xyzw=np.asarray(
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
+        ),
     )
 
 
@@ -224,138 +181,6 @@ def test_visual_flare_counts_external_hit_across_driving_direction() -> None:
     )
 
 
-def test_collision_detaches_actor_and_applies_physics_response() -> None:
-    world = GamePhysicsWorld(_scene(_track()), VehicleConfig())
-    state = _moving_ego()
-    try:
-        for frame_index in range(16):
-            state, first_samples = world.step(
-                state,
-                timestamp_us=frame_index * 33_333,
-                dt_s=1.0 / 30.0,
-            )
-            if world.last_step_actor_collision:
-                break
-
-        actor = world.entities[0]
-        assert world.last_step_actor_collision is True
-        assert actor.detached_from_track is True
-        assert state.ragdoll_active is True
-        assert first_samples[0][3] is True
-        assert world._world._track_drive_enabled["car-1"] is False
-        impact_position = actor.transform.position_m.copy()
-
-        next_timestamp_us = (frame_index + 1) * 33_333
-        _, second_samples = world.step(
-            state, timestamp_us=next_timestamp_us, dt_s=1.0 / 30.0
-        )
-
-        assert second_samples[0][3] is True
-        assert actor.transform.position_m[0] > impact_position[0]
-        trajectory = world.build_trajectories(
-            np.asarray([frame_index * 33_333, next_timestamp_us], dtype=np.int64),
-            [first_samples, second_samples],
-        )[0]
-        np.testing.assert_array_equal(
-            trajectory.timestamps_us, [frame_index * 33_333, next_timestamp_us]
-        )
-        assert trajectory.detached_from_track is True
-        assert trajectory.is_simulated is True
-    finally:
-        world.close()
-
-
-def test_minor_collision_does_not_latch_vehicle_drive_off() -> None:
-    world = GamePhysicsWorld(_scene(_track()), VehicleConfig())
-    state = VehicleState(
-        x_m=2.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=1.0,
-        steer_rad=0.0,
-        velocity_x_mps=1.0,
-        velocity_y_mps=0.0,
-    )
-
-    try:
-        for frame_index in range(17):
-            state, samples = world.step(
-                state,
-                timestamp_us=frame_index * 33_333,
-                dt_s=1.0 / 30.0,
-            )
-            assert world.last_step_actor_collision is False
-            assert samples[0][3] is False
-            if frame_index == 0:
-                assert world._world._track_drive_enabled["car-1"] is False
-        assert world._traffic_ai._states["car-1"].drive_enabled is True
-        assert world._world._track_drive_enabled["car-1"] is True
-    finally:
-        world.close()
-
-
-def test_recorded_renderer_trajectory_is_cached_and_holds_final_pose() -> None:
-    scene_object = GamePhysicsWorld._object_from_track(
-        _track(x_m=500.0), VehicleConfig()
-    )
-    cached = _recorded_actor_trajectory(scene_object)
-    world = object.__new__(GamePhysicsWorld)
-    world.graph = PhysicsObjectGraph(objects=(scene_object,))
-    world._recorded_trajectories_by_id = {scene_object.object_id: cached}
-    timestamps = np.asarray([0, 33_333], dtype=np.int64)
-
-    first = world.build_trajectories(timestamps, [(), ()])[0]
-    second = world.build_trajectories(timestamps, [(), ()])[0]
-
-    assert first is second
-    assert first.is_simulated is False
-    assert int(first.timestamps_us[-1]) > int(timestamps[-1])
-    np.testing.assert_array_equal(
-        first.translations_world[-1], first.translations_world[-2]
-    )
-    np.testing.assert_array_equal(
-        first.orientations_xyzw[-1], first.orientations_xyzw[-2]
-    )
-
-
-def test_side_impact_is_resolved_by_physx_contact() -> None:
-    world = GamePhysicsWorld(_scene(_track(x_m=0.0, y_m=3.0)), VehicleConfig())
-    state = VehicleState(
-        x_m=0.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=np.pi / 2.0,
-        speed_mps=10.0,
-        steer_rad=0.0,
-        velocity_x_mps=0.0,
-        velocity_y_mps=10.0,
-    )
-
-    resolved, samples = world.step(state, timestamp_us=0, dt_s=1.0 / 30.0)
-    actor = world._world.body_state("car-1")
-
-    assert samples[0][3] is True
-    assert resolved.ragdoll_active is True
-    assert actor.linear_velocity_mps[1] > 0.0
-    actor_heights = [float(actor.position_m[2])]
-    actor_tilts = [float(np.linalg.norm(actor.orientation_xyzw[:2]))]
-    for frame_index in range(1, 121):
-        resolved, _ = world.step(
-            resolved,
-            timestamp_us=frame_index * 33_333,
-            dt_s=1.0 / 30.0,
-        )
-        actor = world._world.body_state("car-1")
-        actor_heights.append(float(actor.position_m[2]))
-        actor_tilts.append(float(np.linalg.norm(actor.orientation_xyzw[:2])))
-
-    assert max(actor_heights) < 1.6
-    assert max(actor_tilts) < 0.5
-    assert actor_heights[-1] == pytest.approx(0.8, abs=0.08)
-    world.close()
-
-
 def test_physx_vehicle_yaw_is_free_away_from_road_boundaries() -> None:
     config = VehicleConfig()
     world = PhysXWorld(
@@ -413,290 +238,6 @@ def test_physx_vehicle_yaw_is_limited_at_road_boundary() -> None:
         <= math.radians(25.0) + 1.0e-5
     )
     assert resolved.angular_velocity_radps[2] <= 1.0e-5
-
-
-def test_collision_yaw_impulse_stays_within_camera_continuity_envelope() -> None:
-    config = VehicleConfig(max_collision_yaw_rate_radps=0.35)
-    world = GamePhysicsWorld(_scene(_track(x_m=5.0, y_m=0.75)), config)
-    before = _moving_ego()
-    dt_s = 1.0 / 30.0
-
-    resolved, _ = world.step(before, timestamp_us=0, dt_s=dt_s)
-
-    yaw_delta = math.atan2(
-        math.sin(resolved.yaw_rad - before.yaw_rad),
-        math.cos(resolved.yaw_rad - before.yaw_rad),
-    )
-    assert resolved.ragdoll_active is True
-    assert abs(yaw_delta) <= config.max_collision_yaw_rate_radps * dt_s
-    assert abs(resolved.yaw_rate_radps) <= config.max_collision_yaw_rate_radps
-    world.close()
-
-
-def test_held_throttle_cannot_drive_ego_inside_another_vehicle() -> None:
-    config = VehicleConfig()
-    ego_model = rigid_body_model_from_vehicle_config(config)
-    actor_model = rigid_body_model_for_object("Car", (4.0, 1.9, 1.6))
-    assert ego_model.vehicle is not None
-    assert actor_model.vehicle is not None
-    chassis_contact_distance = (
-        ego_model.vehicle.chassis_half_extents_m[0]
-        + actor_model.vehicle.chassis_half_extents_m[0]
-    )
-    world = GamePhysicsWorld(_scene(_track(x_m=8.0)), config)
-    state = VehicleState(
-        x_m=0.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=10.0,
-        steer_rad=0.0,
-        velocity_x_mps=10.0,
-        velocity_y_mps=0.0,
-    )
-    command = DriverCommand(throttle=1.0, manual_control=True)
-    actor_slot = world._world._object_slots["car-1"]
-    minimum_center_separation = float("inf")
-
-    try:
-        for frame_index in range(180):
-            state = integrate_vehicle(state, command, 1.0 / 30.0, config)
-            state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
-            actor_x = float(world._world.state_buffer[actor_slot, 0])
-            center_separation = actor_x - state.x_m
-            minimum_center_separation = min(
-                minimum_center_separation, center_separation
-            )
-            assert state.x_m < actor_x
-    finally:
-        world.close()
-
-    assert minimum_center_separation >= chassis_contact_distance - 0.08
-
-
-def test_recorded_track_applies_force_without_prescribing_actor_pose() -> None:
-    track = _moving_track()
-    world = GamePhysicsWorld(_scene(track), VehicleConfig())
-    parked_ego = VehicleState(
-        x_m=-20.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=0.0,
-        steer_rad=0.0,
-    )
-    timestamp_us = 5_000_000
-    target_x = track.centers_world[0, 0] + (
-        (track.centers_world[1, 0] - track.centers_world[0, 0])
-        * (timestamp_us - track.timestamps_us[0])
-        / (track.timestamps_us[1] - track.timestamps_us[0])
-    )
-    _, first_samples = world.step(parked_ego, timestamp_us, 1.0 / 30.0)
-    _, second_samples = world.step(parked_ego, timestamp_us + 33_333, 1.0 / 30.0)
-
-    first_x = float(first_samples[0][1][0])
-    second_x = float(second_samples[0][1][0])
-    assert first_samples[0][3] is False
-    assert first_x < target_x - 1.0
-    assert second_x > first_x
-
-    trajectory = world.build_trajectories(
-        np.asarray([timestamp_us, timestamp_us + 33_333], dtype=np.int64),
-        [first_samples, second_samples],
-    )[0]
-    np.testing.assert_allclose(trajectory.translations_world[:, 0], [first_x, second_x])
-    world.close()
-
-
-def test_non_ego_track_drive_is_limited_to_fifteen_mph() -> None:
-    world = GamePhysicsWorld(_scene(_fast_moving_track()), VehicleConfig())
-    parked_ego = VehicleState(
-        x_m=-100.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=0.0,
-        steer_rad=0.0,
-    )
-    actor_speeds_mps = []
-
-    try:
-        for frame_index in range(180):
-            world.step(parked_ego, frame_index * 33_333, 1.0 / 30.0)
-            actor_velocity = world._world.body_state("car-fast").linear_velocity_mps
-            actor_speeds_mps.append(float(np.linalg.norm(actor_velocity[:2])))
-    finally:
-        world.close()
-
-    max_drive_speed_mps = 15.0 * 0.44704
-    assert max(actor_speeds_mps) <= max_drive_speed_mps + 0.05
-    assert actor_speeds_mps[-1] == pytest.approx(max_drive_speed_mps, abs=0.20)
-
-
-def test_struck_vehicle_ai_waits_until_stopped_for_one_second() -> None:
-    track = _track()
-    scene_object = GamePhysicsWorld._object_from_track(track, VehicleConfig())
-    traffic_ai = TrafficDriverAI()
-    traffic_ai.synchronize((scene_object,))
-    track_position, track_orientation, track_velocity = scene_object.sample(0)
-
-    moving = BodyState(
-        position_m=track_position.copy(),
-        orientation_xyzw=track_orientation.copy(),
-        linear_velocity_mps=np.asarray([2.0, 0.0, 0.0], dtype=np.float32),
-        angular_velocity_radps=np.zeros(3, dtype=np.float32),
-    )
-    decision = traffic_ai.update(
-        scene_object.object_id,
-        struck=True,
-        body=moving,
-        track_position=track_position,
-        track_orientation_xyzw=track_orientation,
-        track_velocity_mps=track_velocity,
-        dt_s=0.25,
-    )
-    assert decision is not None
-    assert decision.drive_enabled is False
-
-    stopped = BodyState(
-        position_m=track_position.copy(),
-        orientation_xyzw=track_orientation.copy(),
-        linear_velocity_mps=np.zeros(3, dtype=np.float32),
-        angular_velocity_radps=np.zeros(3, dtype=np.float32),
-    )
-    for _ in range(2):
-        decision = traffic_ai.update(
-            scene_object.object_id,
-            struck=False,
-            body=stopped,
-            track_position=track_position,
-            track_orientation_xyzw=track_orientation,
-            track_velocity_mps=track_velocity,
-            dt_s=0.25,
-        )
-        assert decision is not None
-        assert decision.drive_enabled is False
-
-    decision = traffic_ai.update(
-        scene_object.object_id,
-        struck=False,
-        body=moving,
-        track_position=track_position,
-        track_orientation_xyzw=track_orientation,
-        track_velocity_mps=track_velocity,
-        dt_s=0.25,
-    )
-    assert decision is not None
-    assert decision.drive_enabled is False
-
-    for _ in range(3):
-        decision = traffic_ai.update(
-            scene_object.object_id,
-            struck=False,
-            body=stopped,
-            track_position=track_position,
-            track_orientation_xyzw=track_orientation,
-            track_velocity_mps=track_velocity,
-            dt_s=0.25,
-        )
-        assert decision is not None
-        assert decision.drive_enabled is False
-
-    decision = traffic_ai.update(
-        scene_object.object_id,
-        struck=False,
-        body=stopped,
-        track_position=track_position,
-        track_orientation_xyzw=track_orientation,
-        track_velocity_mps=track_velocity,
-        dt_s=0.25,
-    )
-    assert decision is not None
-    assert decision.drive_enabled is True
-    assert decision.detached_from_track is True
-
-    decision = traffic_ai.update(
-        scene_object.object_id,
-        struck=False,
-        body=stopped,
-        track_position=track_position,
-        track_orientation_xyzw=track_orientation,
-        track_velocity_mps=track_velocity,
-        dt_s=0.25,
-    )
-    assert decision is not None
-    assert decision.detached_from_track is False
-
-
-def test_ego_remains_driveable_after_collision_physics_takes_authority() -> None:
-    config = VehicleConfig()
-    world = GamePhysicsWorld(_scene(_track()), config)
-    state, _ = world.step(_moving_ego(), timestamp_us=0, dt_s=1.0 / 30.0)
-    impact_position = np.asarray([state.x_m, state.y_m])
-    command = DriverCommand(
-        throttle=1.0,
-        steer=0.5,
-        steer_is_direct=True,
-        manual_control=True,
-    )
-
-    for frame_index in range(1, 61):
-        state = integrate_vehicle(state, command, 1.0 / 30.0, config)
-        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
-
-    assert state.ragdoll_active is False
-    assert np.linalg.norm(np.asarray([state.x_m, state.y_m]) - impact_position) > 3.0
-    assert abs(state.y_m - impact_position[1]) > 0.5
-    world.close()
-
-
-def test_approaching_truck_triggers_flare_and_allows_reverse_after_impact() -> None:
-    config = VehicleConfig()
-    world = GamePhysicsWorld(_scene(_track("Truck", x_m=15.0)), config)
-    state = VehicleState(
-        x_m=0.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=10.0,
-        steer_rad=0.0,
-        velocity_x_mps=10.0,
-        velocity_y_mps=0.0,
-    )
-    forward = DriverCommand(
-        throttle=1.0,
-        steer_is_direct=True,
-        manual_control=True,
-    )
-    collision_detected = False
-    frame_index = 0
-    for frame_index in range(90):
-        state = integrate_vehicle(state, forward, 1.0 / 30.0, config)
-        state, _ = world.step(state, frame_index * 33_333, 1.0 / 30.0)
-        collision_detected |= world.last_step_actor_collision
-        if state.ragdoll_active:
-            break
-
-    impact_x = state.x_m
-    reverse = DriverCommand(
-        throttle=1.0,
-        reverse=True,
-        steer_is_direct=True,
-        manual_control=True,
-    )
-    for reverse_frame in range(120):
-        state = integrate_vehicle(state, reverse, 1.0 / 30.0, config)
-        state, _ = world.step(
-            state,
-            (frame_index + reverse_frame + 1) * 33_333,
-            1.0 / 30.0,
-        )
-        collision_detected |= world.last_step_actor_collision
-
-    assert collision_detected is True
-    assert state.speed_mps < -1.0
-    assert state.x_m < impact_x - 1.0
-    world.close()
 
 
 def test_vehicle_instances_have_dimensioned_wheels_and_suspension() -> None:
@@ -777,15 +318,7 @@ def test_physx_world_applies_incremental_graph_changes_in_stable_buffers() -> No
     state_pointer = world.state_buffer.__array_interface__["data"][0]
     track_state_pointer = world._track_state_buffer.__array_interface__["data"][0]
     active_pointer = world.active_buffer.__array_interface__["data"][0]
-    track = _track()
-    actor = SceneObject(
-        object_id=track.track_id,
-        object_type=track.object_type,
-        model=rigid_body_model_for_object(track.object_type, track.dimensions_lwh[0]),
-        timestamps_us=track.timestamps_us,
-        positions_m=track.centers_world,
-        orientations_xyzw=track.orientations_xyzw,
-    )
+    actor = _test_scene_object()
 
     graph.upsert_object(actor)
     graph.upsert_barrier("road-edge", InvisibleBarrier((2.0, -5.0), (2.0, 5.0)))
@@ -837,76 +370,15 @@ def test_physx_world_uses_per_object_initial_track_timestamp() -> None:
     world.close()
 
 
-def test_game_world_reuses_native_track_samples_during_step() -> None:
-    world = GamePhysicsWorld(_scene(_track()), VehicleConfig())
-    parked_ego = VehicleState(
-        x_m=-20.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=0.0,
-        steer_rad=0.0,
-    )
-
-    try:
-        with patch.object(
-            SceneObject,
-            "sample",
-            side_effect=AssertionError("track was sampled again in Python"),
-        ):
-            _, samples = world.step(parked_ego, timestamp_us=0, dt_s=1.0 / 30.0)
-
-        assert len(samples) == 1
-    finally:
-        world.close()
-
-
-def test_game_world_recenters_topology_without_reallocating_state_buffers() -> None:
-    world = GamePhysicsWorld(
-        _scene(_track("Car", x_m=5.0), _track("Truck", x_m=500.0)),
-        VehicleConfig(),
-    )
-    state_pointer = world._world.state_buffer.__array_interface__["data"][0]
-
-    assert [entity.entity_id for entity in world.entities] == ["car-1"]
-    assert world.synchronize_window(np.asarray([500.0, 0.0], dtype=np.float32))
-    assert [entity.entity_id for entity in world.entities] == ["truck-1"]
-    assert world._world.state_buffer.__array_interface__["data"][0] == state_pointer
-    assert not world.synchronize_window(np.asarray([501.0, 0.0], dtype=np.float32))
-    world.close()
-
-
-def test_game_world_bounds_physics_topology_around_ego() -> None:
-    world = GamePhysicsWorld(
-        _scene(
-            _track("Car", x_m=95.0),
-            _track("Truck", x_m=100.0),
-        ),
-        VehicleConfig(),
-    )
-
-    assert [entity.entity_id for entity in world.entities] == ["car-1"]
-    assert world.synchronize_window(np.asarray([32.0, 0.0], dtype=np.float32))
-    assert [entity.entity_id for entity in world.entities] == ["car-1", "truck-1"]
-    world.close()
-
-
-def test_physics_topology_keeps_collider_crossing_window_boundary() -> None:
-    world = GamePhysicsWorld(_scene(_track("Truck", x_m=97.0)), VehicleConfig())
-
-    assert [entity.entity_id for entity in world.entities] == ["truck-1"]
-    world.close()
-
-
 def test_physics_topology_indexes_sparse_track_segments() -> None:
-    track = _track()
+    source = _test_scene_object()
     actor = SceneObject(
-        object_id=track.track_id,
-        object_type=track.object_type,
-        model=rigid_body_model_for_object(track.object_type, track.dimensions_lwh[0]),
+        object_id=source.object_id,
+        object_type=source.object_type,
+        model=source.model,
         timestamps_us=np.asarray([0, 1_000_000], dtype=np.int64),
         positions_m=np.asarray([[-200.0, 0.0, 0.8], [200.0, 0.0, 0.8]]),
-        orientations_xyzw=track.orientations_xyzw,
+        orientations_xyzw=source.orientations_xyzw,
     )
 
     culled = PhysicsObjectGraph(objects=(actor,)).copy_for_physx(
@@ -914,166 +386,6 @@ def test_physics_topology_indexes_sparse_track_segments() -> None:
     )
 
     assert culled.objects == (actor,)
-
-
-def test_game_world_activates_actor_at_current_track_pose() -> None:
-    timestamps_us = np.asarray([0, 2_000_000], dtype=np.int64)
-    approaching_track = WorldVehicleBBoxTrack(
-        track_id="car-approaching",
-        object_type="Car",
-        timestamps_us=timestamps_us,
-        centers_world=np.asarray(
-            [[120.0, 0.0, 0.8], [90.0, 0.0, 0.8]], dtype=np.float32
-        ),
-        dimensions_lwh=np.asarray([[4.0, 1.9, 1.6], [4.0, 1.9, 1.6]], dtype=np.float32),
-        orientations_xyzw=np.asarray(
-            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
-        ),
-        max_extrapolation_us=2_000_000.0,
-    )
-    world = GamePhysicsWorld(_scene(approaching_track), VehicleConfig())
-
-    assert world.entities == ()
-    assert world.synchronize_window(
-        np.asarray([0.0, 0.0], dtype=np.float32), timestamp_us=2_000_000
-    )
-    np.testing.assert_array_equal(
-        world._world.body_state("car-approaching").position_m,
-        np.asarray([90.0, 0.0, 0.8], dtype=np.float32),
-    )
-    world.close()
-
-
-def test_game_world_keeps_out_of_window_actor_on_recorded_trajectory() -> None:
-    world = GamePhysicsWorld(
-        _scene(
-            _track("Car", x_m=5.0),
-            _track("Truck", x_m=100.0),
-        ),
-        VehicleConfig(),
-    )
-    _, samples = world.step(_moving_ego(), timestamp_us=0, dt_s=1.0 / 30.0)
-
-    trajectories = {
-        trajectory.entity_id: trajectory
-        for trajectory in world.build_trajectories(
-            np.asarray([0], dtype=np.int64), [samples]
-        )
-    }
-
-    assert trajectories["car-1"].is_simulated is True
-    assert trajectories["truck-1"].is_simulated is False
-    np.testing.assert_array_equal(
-        trajectories["truck-1"].translations_world[0],
-        np.asarray([100.0, 0.0, 0.8], dtype=np.float32),
-    )
-    world.close()
-
-
-def test_actor_collision_can_be_disabled() -> None:
-    world = GamePhysicsWorld(
-        _scene(_track()), VehicleConfig(actor_collision_enabled=False)
-    )
-
-    state, samples = world.step(_moving_ego(), timestamp_us=0, dt_s=1.0 / 30.0)
-
-    assert state.ragdoll_active is False
-    assert len(samples) == 1
-    assert samples[0][3] is False
-    world.close()
-
-
-def test_actor_collider_stays_enabled_while_hdmap_track_is_visible() -> None:
-    track = _track()
-    track = WorldVehicleBBoxTrack(
-        track_id=track.track_id,
-        object_type=track.object_type,
-        timestamps_us=track.timestamps_us,
-        centers_world=track.centers_world,
-        dimensions_lwh=track.dimensions_lwh,
-        orientations_xyzw=track.orientations_xyzw,
-        max_extrapolation_us=500_000.0,
-    )
-    world = GamePhysicsWorld(_scene(track), VehicleConfig())
-
-    state, _ = world.step(
-        _moving_ego(),
-        timestamp_us=1_500_000,
-        dt_s=1.0 / 30.0,
-    )
-
-    assert state.ragdoll_active is True
-    assert world._active_collider_ids == {track.track_id}
-    assert world.debug_frame(state).actor_positions_m.shape == (1, 3)
-    world.close()
-
-
-def test_actor_and_hdmap_hold_final_pose_after_track_ends() -> None:
-    track = _track()
-    track = WorldVehicleBBoxTrack(
-        track_id=track.track_id,
-        object_type=track.object_type,
-        timestamps_us=track.timestamps_us,
-        centers_world=track.centers_world,
-        dimensions_lwh=track.dimensions_lwh,
-        orientations_xyzw=track.orientations_xyzw,
-        max_extrapolation_us=500_000.0,
-    )
-    world = GamePhysicsWorld(_scene(track), VehicleConfig())
-
-    parked_ego = VehicleState(
-        x_m=-20.0,
-        y_m=0.0,
-        z_m=0.0,
-        yaw_rad=0.0,
-        speed_mps=0.0,
-        steer_rad=0.0,
-    )
-    state, first_samples = world.step(
-        parked_ego,
-        timestamp_us=1_500_001,
-        dt_s=1.0 / 30.0,
-    )
-    _, second_samples = world.step(
-        state,
-        timestamp_us=1_533_334,
-        dt_s=1.0 / 30.0,
-    )
-
-    assert state.ragdoll_active is False
-    assert len(first_samples) == 1
-    assert len(second_samples) == 1
-    assert world._active_collider_ids == {track.track_id}
-    debug_frame = world.debug_frame(state)
-    assert debug_frame.actor_positions_m.shape == (1, 3)
-    np.testing.assert_allclose(
-        debug_frame.actor_positions_m[0], track.centers_world[-1], atol=0.05
-    )
-    trajectory = world.build_trajectories(
-        np.asarray([1_500_001, 1_533_334], dtype=np.int64),
-        [first_samples, second_samples],
-    )[0]
-    np.testing.assert_array_equal(trajectory.timestamps_us, [1_500_001, 1_533_334])
-    np.testing.assert_allclose(
-        trajectory.translations_world,
-        np.stack((first_samples[0][1], second_samples[0][1])),
-    )
-    assert trajectory.detached_from_track is False
-    world.close()
-
-    collision_world = GamePhysicsWorld(_scene(track), VehicleConfig())
-    collision_state, _ = collision_world.step(
-        _moving_ego(),
-        timestamp_us=3_000_000,
-        dt_s=1.0 / 30.0,
-    )
-    assert collision_state.ragdoll_active is True
-    assert collision_world._active_collider_ids == {track.track_id}
-    assert collision_world.debug_frame(collision_state).actor_positions_m.shape == (
-        1,
-        3,
-    )
-    collision_world.close()
 
 
 def test_held_throttle_advances_ego_through_physx_world() -> None:
@@ -1258,11 +570,7 @@ def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus()
         layer_name="road_boundaries",
     )
     world = GamePhysicsWorld(
-        _scene(
-            _track(),
-            _track("Truck", x_m=250.0),
-            line_layers=(boundary,),
-        ),
+        _scene(line_layers=(boundary,)),
         VehicleConfig(),
     )
     state, _ = world.step(_moving_ego(), timestamp_us=0, dt_s=1.0 / 30.0)
@@ -1272,17 +580,13 @@ def test_physx_debug_view_packs_active_colliders_and_invisible_walls_for_ludus()
         (snapshot,), np.asarray([0], dtype=np.int64), device=torch.device("cpu")
     )
 
-    assert snapshot.actor_positions_m.shape == (1, 3)
+    assert snapshot.actor_positions_m.shape == (0, 3)
     assert snapshot.barrier_segments_xy_m.shape == (1, 2, 2)
     assert snapshot.barrier_thicknesses_m.tolist() == pytest.approx([0.3])
     assert snapshot.barrier_heights_m.tolist() == pytest.approx([3.0])
-    assert pool.translations.shape == (2, 3)
-    assert pool.quaternions.shape == (2, 4)
-    assert pool.scales.shape == (2, 3)
-    np.testing.assert_allclose(
-        pool.translations[0].numpy(), snapshot.actor_positions_m[0]
-    )
-    np.testing.assert_allclose(pool.scales[0].numpy(), snapshot.actor_dimensions_lwh[0])
+    assert pool.translations.shape == (1, 3)
+    assert pool.quaternions.shape == (1, 4)
+    assert pool.scales.shape == (1, 3)
     assert pool.render_flags == 0
 
     lazy_debug = object()
@@ -1595,7 +899,7 @@ def _cube_pool(prim_type_id: int) -> CubePool:
     )
 
 
-def test_ludus_replacement_removes_recorded_actor_without_dropping_static_pools() -> (
+def test_ludus_replacement_removes_dynamic_actors_without_dropping_static_pools() -> (
     None
 ):
     context = _FakeLudusContext()
@@ -1624,8 +928,8 @@ def test_ludus_replacement_removes_recorded_actor_without_dropping_static_pools(
         detached_from_track=True,
         is_simulated=True,
     )
-    recorded_actor = DynamicActorTrajectory(
-        entity_id="car-recorded",
+    second_actor = DynamicActorTrajectory(
+        entity_id="car-2",
         object_type="Car",
         timestamps_us=actor.timestamps_us,
         translations_world=actor.translations_world
@@ -1634,7 +938,7 @@ def test_ludus_replacement_removes_recorded_actor_without_dropping_static_pools(
         dimensions_lwh=actor.dimensions_lwh,
     )
 
-    renderer._replace_dynamic_actor_scene((recorded_actor, actor))
+    renderer._replace_dynamic_actor_scene((second_actor, actor))
 
     assert context.clear_count == 0
     assert context.replace_count == 1
@@ -1648,13 +952,13 @@ def test_ludus_replacement_removes_recorded_actor_without_dropping_static_pools(
     ]
     assert len(obstacle_pools) == 2
     np.testing.assert_allclose(
-        obstacle_pools[0].translations.numpy(), recorded_actor.translations_world
+        obstacle_pools[0].translations.numpy(), second_actor.translations_world
     )
     np.testing.assert_allclose(
         obstacle_pools[1].translations.numpy(), actor.translations_world
     )
 
-    renderer._replace_dynamic_actor_scene((recorded_actor, actor))
+    renderer._replace_dynamic_actor_scene((second_actor, actor))
 
     assert context.replace_count == 1
     assert context.update_count == 1

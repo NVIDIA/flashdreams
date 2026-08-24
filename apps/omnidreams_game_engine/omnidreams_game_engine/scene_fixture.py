@@ -40,11 +40,8 @@ _FORWARD_SPEED_MPS = 10.0
 _LANE_LINE_OFFSET_M = 1.8
 _ROAD_BOUNDARY_OFFSET_M = 9.0
 _POLE_OFFSET_M = 9.5
-# Periodic roadside furniture spacing (poles ~50 m like streetlamps, plus parked
-# cars / signs on alternating shoulders), anchored to the wavy centerline.
+# Periodic roadside furniture spacing, anchored to the wavy centerline.
 _POLE_PERIOD_M = 50.0
-_PARKED_CAR_PERIOD_M = 150.0
-_PARKED_CAR_LATERAL_M = 5.0
 _TRAFFIC_SIGN_PERIOD_M = 200.0
 _TRAFFIC_SIGN_LATERAL_M = 7.0
 _TRAFFIC_SIGN_HEIGHT_M = 2.5
@@ -298,40 +295,6 @@ def _traffic_light_rows() -> list[dict[str, object]]:
     ]
 
 
-_OBSTACLE_TRACKS: tuple[dict[str, object], ...] = (
-    {
-        "trackline_id": "car-001",
-        "category": "Automobile",  # -> Car bbox color
-        "center": (25.0, -1.8, 0.8),
-        "size": (4.7, 2.0, 1.6),
-    },
-    {
-        "trackline_id": "truck-001",
-        "category": "Heavy_Truck",  # -> Truck bbox color
-        "center": (48.0, 2.0, 1.75),
-        "size": (9.0, 2.6, 3.5),
-    },
-    {
-        "trackline_id": "pedestrian-001",
-        "category": "Pedestrian",
-        "center": (18.0, 4.0, 0.9),
-        "size": (0.6, 0.6, 1.8),
-    },
-    {
-        "trackline_id": "cyclist-001",
-        "category": "Cyclist",
-        "center": (23.0, -3.5, 0.9),
-        "size": (1.8, 0.5, 1.5),
-    },
-    {
-        "trackline_id": "debris-001",
-        "category": "Debris",  # -> Others bbox color
-        "center": (43.0, -5.0, 0.35),
-        "size": (0.8, 0.8, 0.7),
-    },
-)
-
-
 def _periodic_poles(
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -471,86 +434,6 @@ def _periodic_traffic_signs(
     return rows
 
 
-def _periodic_parked_cars(
-    x_m: np.ndarray,
-    y_m: np.ndarray,
-    yaw_rad: np.ndarray,
-    *,
-    period_m: float = _PARKED_CAR_PERIOD_M,
-    lateral_offset_m: float = _PARKED_CAR_LATERAL_M,
-) -> list[dict[str, object]]:
-    """Emit parked-car obstacle definitions on alternating shoulders along
-    the trajectory.
-
-    Each entry has the same shape as ``_OBSTACLE_TRACKS`` so the existing
-    ``_obstacle_rows`` plumbing can append them. The car's yaw is set to
-    the centerline yaw so cars look parked parallel to the road, not
-    randomly oriented.
-    """
-    if len(x_m) == 0:
-        return []
-    tracks: list[dict[str, object]] = []
-    next_x = period_m
-    side_idx = 0
-    while next_x < float(x_m[-1]):
-        # Find the trajectory frame closest to ``next_x``.
-        i = int(np.searchsorted(x_m, next_x))
-        if i >= len(x_m):
-            break
-        side = 1.0 if side_idx % 2 == 0 else -1.0
-        cx = float(x_m[i])
-        cy = float(y_m[i])
-        cyaw = float(yaw_rad[i])
-        dx = -math.sin(cyaw) * lateral_offset_m * side
-        dy = math.cos(cyaw) * lateral_offset_m * side
-        tracks.append(
-            {
-                "trackline_id": f"parked-car-{side_idx:04d}",
-                "category": "Automobile",
-                "center": (cx + dx, cy + dy, 0.8),
-                "size": (4.7, 2.0, 1.6),
-                "yaw_rad": cyaw,
-            }
-        )
-        next_x += period_m
-        side_idx += 1
-    return tracks
-
-
-def _obstacle_rows(
-    timestamps_us: np.ndarray, extra_tracks: tuple[dict[str, object], ...] = ()
-) -> list[dict[str, object]]:
-    """Emit two stationary samples per track at the first and last trajectory
-    timestamps so ``WorldVehicleBBoxTrack.interpolate_at_timestamp`` resolves at
-    every render frame without needing extrapolation."""
-    sample_frames = (0, int(len(timestamps_us)) - 1)
-    rows: list[dict[str, object]] = []
-    for track in (*_OBSTACLE_TRACKS, *extra_tracks):
-        center_xyz = track["center"]
-        size_xyz = track["size"]
-        assert isinstance(center_xyz, tuple) and isinstance(size_xyz, tuple)
-        track_yaw = float(track.get("yaw_rad", 0.0))  # type: ignore[arg-type]
-        for sample_idx, frame_idx in enumerate(sample_frames):
-            rows.append(
-                {
-                    "key": {
-                        "clip_id": _SCENE_ID,
-                        "timestamp_micros": int(timestamps_us[frame_idx]),
-                        "label_class_id": f"{track['trackline_id']}_s{sample_idx}",
-                    },
-                    "obstacle": {
-                        "trackline_id": track["trackline_id"],
-                        "center": _point_xyz(*center_xyz),
-                        "size": _point_xyz(*size_xyz),
-                        "orientation": _orientation_from_yaw(track_yaw),
-                        "category": track["category"],
-                    },
-                    "version": 1,
-                }
-            )
-    return rows
-
-
 def _calibration_row() -> list[dict[str, object]]:
     return [
         {
@@ -683,7 +566,7 @@ def build_synthetic_scene_usdz(
     """Build a procedural USDZ that the scene loader can ingest unchanged.
 
     The geometry (trajectory, lane lines, road boundary, intersection,
-    crosswalk, poles, signs, lights, obstacles) is fixed and deterministic.
+    crosswalk, poles, signs, and lights) is fixed and deterministic.
     Args:
         path: Destination USDZ file.
         initial_rgb: ``(H, W, 3)`` ``uint8`` RGB image to embed as
@@ -694,9 +577,9 @@ def build_synthetic_scene_usdz(
         prompt: Default text prompt embedded as ``prompt.txt``. Defaults to a
             generic forward-driving description.
         length_frames: How many trajectory frames the synthetic road carries.
-            Lane lines, road boundaries, and obstacle tracks are all spec'd
-            along this trajectory, so larger values produce more drivable
-            road. Default 180 (~6 s, 60 m at the default 10 m/s) keeps the
+            Lane lines and road boundaries are spec'd along this trajectory,
+            so larger values produce more drivable road. Default 180
+            (~6 s, 60 m at the default 10 m/s) keeps the
             test fixture small. The
             single intersection / crosswalk / road-island stay anchored at
             their original near-start coordinates regardless of length.
@@ -750,10 +633,6 @@ def build_synthetic_scene_usdz(
     # past the road boundary. The world model needs *some* visible
     # structure to condition on; black HDMap frames produce drift.
     pole_polylines.extend(_off_road_poles(x_m, y_m, yaw_rad))
-    # Periodic parked cars on alternating shoulders so the sides of the
-    # road don't read as empty over multi-km drives.
-    extra_obstacles = tuple(_periodic_parked_cars(x_m, y_m, yaw_rad))
-
     base_rgb = _initial_rgb() if initial_rgb is None else _normalise_rgb(initial_rgb)
     variant1_rgb = _first_image_variant(base_rgb, shift_px=16)
     variant2_rgb = _first_image_variant(base_rgb, shift_px=48)
@@ -884,10 +763,4 @@ def build_synthetic_scene_usdz(
                 ],
             ),
         )
-        _write_parquet_entry(
-            zf,
-            "clipgt/obstacle.parquet",
-            _obstacle_rows(timestamps_us, extra_tracks=extra_obstacles),
-        )
-
     return path

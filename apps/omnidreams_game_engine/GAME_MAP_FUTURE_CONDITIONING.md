@@ -25,8 +25,8 @@ They are not committed additions to the format.
   classes.
 - Rules for connecting authored traffic to lane successors, signals, and game
   difficulty settings.
-- A generated runtime representation that can drive `TrafficDriverAI` without
-  requiring recorded obstacle tracks in the map source.
+- A controller-owned runtime representation shared by routing, physics, and
+  rendering.
 
 Each addition should define authoring semantics first, then specify validation,
 compiled conditioning output, preview rendering, collision behavior, and
