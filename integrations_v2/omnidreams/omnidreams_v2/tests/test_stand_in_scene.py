@@ -216,12 +216,72 @@ def test_a_prompt_on_the_command_line_beats_the_scenes_own(
     assert _config_of(app).prompt == "Heavy rain."
 
 
+def test_a_drawn_run_can_continue_from_a_frame_of_your_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Which is what drives the one road under a sky it never recorded: the
+    layout is still drawn, only the picture the model continues from changes."""
+    monkeypatch.setattr(omnidreams.scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "cache")
+    archive = _a_scene(tmp_path)
+    mine = _a_png(tmp_path, 6, 4)
+    app = OmnidreamsApplication(pipeline_config=object())
+
+    app.init(["--scene", str(archive), "--first-frame", str(mine), "--device", "cpu"])
+
+    scene = _config_of(app).scene
+    assert scene is not None
+    assert scene.first_frame_path == mine
+    # Still drawn, and still drawn from the moment the scene recorded: a frame
+    # of your own says nothing about where along the road it was taken.
+    assert scene.view_start_us == _CAPTURED_US
+
+
+def test_a_frame_of_your_own_is_enough_to_ask_for_a_drawn_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Naming a frame is not asking to replay anything, so it leaves the default
+    scene being drawn rather than demanding a recording to go with it."""
+    monkeypatch.setattr(omnidreams.scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "cache")
+    archive = _a_scene(tmp_path)
+    monkeypatch.setattr(app_module, "fetch_scene", lambda scene: archive)
+    mine = _a_png(tmp_path, 6, 4)
+    app = OmnidreamsApplication(pipeline_config=object())
+
+    app.init(["--first-frame", str(mine), "--device", "cpu"])
+
+    scene = _config_of(app).scene
+    assert scene is not None
+    assert scene.first_frame_path == mine
+
+
+def test_a_drawn_run_cannot_continue_from_more_frames_than_it_draws(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One camera is drawn, so a second frame is a camera that never gets one."""
+    monkeypatch.setattr(omnidreams.scenes, "FLASHDREAMS_CACHE_DIR", tmp_path / "cache")
+    archive = _a_scene(tmp_path)
+    app = OmnidreamsApplication(pipeline_config=object())
+
+    with pytest.raises(ValueError, match="Pass one"):
+        app.init(
+            [
+                "--scene",
+                str(archive),
+                "--first-frame",
+                "a.png",
+                "b.png",
+                "--device",
+                "cpu",
+            ]
+        )
+
+
 @pytest.mark.parametrize(
     "replaying",
     [
         ["--hdmap"],
         ["--hdmap", "road.mp4"],
-        ["--first-frame", "road.png"],
+        ["--hdmap", "a-recorded-drive"],
     ],
 )
 def test_a_scene_and_a_recording_cannot_both_say_where_the_layout_comes_from(

@@ -47,6 +47,11 @@ Ludus rasterizer draw the road layout while the run generates. Everything else
 has a default too, including the frame the run continues from and the prompt,
 both of which come out of the scene.
 
+Writing to a file, the runner says nothing until it is done, when it prints the
+path. So a run is silent through the download, the checkpoint, the rasterizer
+build and the generating, and only the model's own output breaks that up. Start
+with `--max-blocks 8 --no-compile`, below, to keep the silence short.
+
 `uv run --no-sync` is what reaches the command, which the sync installed into
 the workspace `.venv` rather than onto your `PATH`. Run
 `source .venv/bin/activate` once instead and `flashdreams-run-v2` works on its
@@ -59,8 +64,21 @@ the runner insists on an output path before it will get that far:
 uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 -- --help
 ```
 
-`--scene <id-or-path>` picks a different scene, either an id to download or a
-path to an archive of your own.
+`--scene` drives a road other than the default, taking either an id to download
+or a path to an archive of your own. This lists the ids the scenes dataset has:
+
+```bash
+uv run --no-sync python -c 'from omnidreams.scenes import list_available_scene_uuids; print("\n".join(list_available_scene_uuids()))'
+```
+
+Any of them goes straight after `--scene`:
+
+```bash
+uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
+    -- --scene 0d404ff7-2b66-498c-b047-1ed8cded60d4
+```
+
+That particular id is the default, named explicitly.
 
 ## Where the road comes from
 
@@ -74,10 +92,48 @@ renderer changes.
 A scene carries more than the layout. The frame the run continues from is the
 one its front camera actually captured, and the drawing starts at that same
 moment rather than at the top of the scene, so the model is shown the road it is
-looking at. The scene's own description of the road becomes the prompt unless
-`--prompt` says otherwise. The recorded drive is sampled at 10Hz where the model
-generates at 30fps, so the layout is resampled onto the generated rate. The
-default scene is 100 seconds of road.
+looking at. The scene's own description of the road becomes the prompt. The
+recorded drive is sampled at 10Hz where the model generates at 30fps, so the
+layout is resampled onto the generated rate. The default scene is 100 seconds of
+road.
+
+## Something to point the examples at
+
+The examples below take a frame and a video of your own. If you have none to
+hand, the bundled sample carries both, and this puts them in your shell:
+
+```bash
+eval "$(uv run --no-sync python -c 'from omnidreams_v2.samples import DEFAULT_HDMAP_SAMPLE, fetch_hdmap_sample; v, f = fetch_hdmap_sample(DEFAULT_HDMAP_SAMPLE); print(f"export HDMAP_VIDEO={v}"); print(f"export HDMAP_FRAME={f}")')"
+echo "$HDMAP_VIDEO" "$HDMAP_FRAME"
+```
+
+It prints nothing itself -- `eval` eats what it printed, which is the point --
+so the `echo` is how you see it worked. Give it a moment either way: importing
+reaches the model package, and the files download the first time.
+
+## Drive the same road differently
+
+`--first-frame` and `--prompt` each replace what the scene supplied without
+giving up the drawing, which is how one road is driven under weather it never
+recorded:
+
+```bash
+uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
+    -- --first-frame "$HDMAP_FRAME" --prompt "The same street after dark."
+```
+
+The layout is still drawn from the scene, and still drawn from the moment the
+scene recorded, since a frame of your own says nothing about where along the road
+it was taken. Only the picture the model continues from changes. Naming a frame
+is not asking to replay anything, so the default scene keeps being drawn when
+`--scene` says nothing -- as above.
+
+The two are worth changing together. A first frame showing a different road than
+the layout describes hands the model a contradiction, and a prompt still
+describing the scene's own weather works against a frame that shows other
+weather. The sample's frame above is a different road from the default scene, so
+that command shows the path working rather than showing it working well; a frame
+of the same road under other conditions is what this is for.
 
 The first drawn run pauses a few minutes to build the rasterizer's CUDA
 extension, which needs `nvcc` new enough for your GPU on `PATH` or at
@@ -96,17 +152,24 @@ uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
 ```
 
 Bare, that fetches the default recording from the `nvidia/omni-dreams-samples`
-dataset. `--hdmap <uuid>` picks another, and they are listed
-[here](https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view).
-A sample carries the frame to continue from as well as the layout, so it needs
-nothing else said about it.
+dataset. A sample carries the frame to continue from as well as the layout, so
+it needs nothing else said about it. Naming an id picks another, and they are
+listed
+[here](https://huggingface.co/datasets/nvidia/omni-dreams-samples/tree/main/data/single_view):
+
+```bash
+uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
+    -- --hdmap 239560dc-33d1-11ef-9720-00044bcbccac
+```
+
+That one is the default again, named rather than left unsaid.
 
 Point `--hdmap` at files instead to replay a recording of your own, one video
 per camera, alongside the frame each continues from:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
-    -- --hdmap road_hdmap.mp4 --first-frame road_first_frame.png
+    -- --hdmap "$HDMAP_VIDEO" --first-frame "$HDMAP_FRAME"
 ```
 
 Which of the two you meant is read off the file extension, the way the samples
@@ -115,6 +178,8 @@ a file to read, so a misspelled path is reported as the missing file it is.
 
 Naming a recording and a scene at once is refused rather than resolved, since
 they are two answers to the one question of where the layout comes from.
+`--first-frame` is not one of those answers, which is why it works either way:
+it says what the run continues from, and a drawn run answers that too.
 
 ## How long a run is
 
@@ -134,7 +199,13 @@ uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
 
 `--max-blocks 0` drives to the end of the road however long that takes, which is
 what an interactive session wants and what the default minute would otherwise
-cut off.
+cut off. On the default scene that is 100 seconds of video, so it is a longer
+wait than anything else here:
+
+```bash
+uv run --no-sync flashdreams-run-v2 omnidreams --output-path drive.mp4 \
+    -- --max-blocks 0
+```
 
 Either way the road can end first, and the run stops on a block boundary rather
 than on a block it has only part of the layout for. The first block decodes 5

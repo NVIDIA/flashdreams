@@ -59,10 +59,12 @@ class SceneDrive:
     """Camera to draw from, spelled the way the scene spells it."""
 
     first_frame_path: Path
-    """Recorded frame the run continues from, unpacked from the scene."""
+    """Frame the run continues from: the one unpacked from the scene, or one the
+    command line named in its place."""
 
     view_start_us: int
-    """When that frame was captured, which is where the drawing starts."""
+    """When the scene's own frame was captured, which is where the drawing
+    starts whichever frame the run continues from."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -106,6 +108,11 @@ class OmnidreamsApplication(IApplication):
     needs: a recording cannot show a road nobody drove down. Nothing steers
     yet, so a drawn run follows the drive its scene recorded, which is as
     repeatable as replaying a video of it.
+
+    A scene supplies the frame to continue from and the prompt as well as the
+    layout, and ``--first-frame`` and ``--prompt`` each replace what it supplied
+    without giving up the drawing. That is how the one road is driven under a
+    sky or a season the scene never recorded.
 
     The model is loaded once, on the first session, and shared by every session
     after it, since loading reads a checkpoint of several gigabytes.
@@ -185,8 +192,9 @@ class OmnidreamsApplication(IApplication):
             metavar="PATH",
             help=(
                 "Image or video to continue from, one per camera. Frame zero of "
-                "a video is taken. Needed alongside HDMap videos of your own; a "
-                "sample and a scene each carry their own."
+                "a video is taken. Default: the frame the scene recorded, or "
+                "the one a sample carries. Required alongside HDMap videos of "
+                "your own, which carry none."
             ),
         )
         parser.add_argument(
@@ -433,31 +441,38 @@ def _resolve_scene(args: argparse.Namespace) -> SceneDrive | None:
     the source that has a road in it rather than a picture of one, and so the
     only one a run could eventually be steered through.
 
+    ``--first-frame`` is not what decides: it says what the run continues from,
+    which is a question a drawn run answers too, and answering it with a frame
+    of your own is how a scene's road is driven under a sky it never saw.
+
     Raises:
         ValueError: A scene was named alongside a recording, which are two
-            answers to the one question of where the layout comes from.
+            answers to the one question of where the layout comes from. Or more
+            than one frame was named for the one camera drawn.
     """
-    replaying = {
-        "--hdmap": args.hdmap is not None,
-        "--first-frame": bool(args.first_frame),
-    }
-    named = [flag for flag, given in replaying.items() if given]
-    if named:
+    if args.hdmap is not None:
         if args.scene is not None:
             raise ValueError(
                 "--scene draws the road layout as the run goes, so it cannot "
-                f"be combined with {', '.join(named)}, which replay a "
-                "recording of one."
+                "be combined with --hdmap, which replays a recording of one."
             )
         return None
+    first_frames = tuple(args.first_frame)
+    if len(first_frames) > 1:
+        raise ValueError(
+            f"Got {len(first_frames)} first frames for a drawn run, which draws "
+            "the one camera the scene is drawn from. Pass one."
+        )
     archive = fetch_scene(args.scene or DEFAULT_SCENE)
-    first_frame_path, view_start_us = read_seed_frame(
+    # Read even when overridden: the timestamp is where the drawing starts, and
+    # a frame of your own carries no such moment of its own.
+    recorded_frame, view_start_us = read_seed_frame(
         archive, camera=DEFAULT_SCENE_CAMERA
     )
     return SceneDrive(
         archive=archive,
         camera=DEFAULT_SCENE_CAMERA,
-        first_frame_path=first_frame_path,
+        first_frame_path=first_frames[0] if first_frames else recorded_frame,
         view_start_us=view_start_us,
     )
 
@@ -505,14 +520,15 @@ def _blocks_for_seconds(pipeline: Any, *, frames_per_second: int, seconds: int) 
 
 
 def _resolve_conditioning(
-    hdmap: list[str] | None,
+    hdmap: list[str],
     first_frames: tuple[Path, ...],
 ) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
     """Return the recording and the frame to continue from, per camera.
 
-    Only reached by a run that asked to replay something. What ``--hdmap`` was
-    given decides which kind: nothing at all is the default sample, a lone bare
-    id is a sample to download, and anything else is one video per camera.
+    Only reached by a run that named ``--hdmap``, which is what asking to replay
+    something means. What it was given decides which kind: nothing at all is the
+    default sample, a lone bare id is a sample to download, and anything else is
+    one video per camera.
 
     Raises:
         ValueError: A sample was named alongside a frame it already carries, or
@@ -523,8 +539,6 @@ def _resolve_conditioning(
         FileNotFoundError: A lone ``--hdmap`` word is neither a path nor a
             sample the dataset has.
     """
-    if hdmap is None:
-        raise ValueError("--hdmap is required alongside --first-frame.")
     sample = _named_sample(hdmap)
     if sample is not None:
         if first_frames:

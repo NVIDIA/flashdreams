@@ -145,7 +145,6 @@ def test_a_reset_drives_the_same_route_again_from_the_start() -> None:
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
-        (["--first-frame", "a.png"], "--hdmap is required"),
         (["--hdmap", "a.mp4"], "--first-frame is required"),
         (
             ["--hdmap", "a.mp4", "b.mp4", "--first-frame", "a.png"],
