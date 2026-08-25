@@ -30,6 +30,7 @@ members = [
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
     "flashdreams-lingbot-va",
+    "flashdreams-lingbot-va-v2",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-red-screen",
@@ -1375,6 +1376,21 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.0,<6" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-lingbot-va-v2"
+version = "0.1.0"
+source = { editable = "integrations_v2/lingbot_va" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-lingbot-va" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-lingbot-va", editable = "integrations/lingbot_va" },
+]
 
 [[package]]
 name = "flashdreams-null-model"

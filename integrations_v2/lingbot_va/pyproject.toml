@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-lingbot-va-v2"
+version = "0.1.0"
+description = "LingBot-VA Robotwin I2AV application for the FlashDreams V2 API."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-lingbot-va",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-lingbot-va = { workspace = true }
+
+[project.entry-points."flashdreams.applications_v2"]
+"lingbot-va-robotwin-i2av" = "lingbot_va_v2.app:create_app"
+
+[tool.setuptools.packages.find]
+include = ["lingbot_va_v2*"]
+
+[tool.uv]
+managed = true
