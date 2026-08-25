@@ -6,6 +6,7 @@
 import asyncio
 import json
 from typing import Any, cast
+from unittest.mock import ANY, Mock, call
 
 import pytest
 import torch
@@ -24,6 +25,7 @@ from aiortc import (
 )
 from av import VideoFrame
 
+from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import (
     _PendingRGBFrame,
     _VideoTrack,
@@ -89,7 +91,9 @@ async def _connect_browser(
 
 
 @pytest.mark.asyncio
-async def test_window_buffers_browser_events_until_drained() -> None:
+async def test_window_buffers_browser_events_until_drained(monkeypatch: Any) -> None:
+    logger = Mock()
+    monkeypatch.setattr(webrtc_server, "logger", logger)
     window = WebRTCClientWindow()
     peer: RTCPeerConnection | None = None
     try:
@@ -146,6 +150,24 @@ async def test_window_buffers_browser_events_until_drained() -> None:
             ("w", KeyboardInputState.PRESSED),
             ("w", KeyboardInputState.RELEASED),
         ]
+        assert (
+            call(
+                "WebRTC received keyboard event key={} state={} timestamp_us={}",
+                "w",
+                "Pressed",
+                ANY,
+            )
+            in logger.info.call_args_list
+        )
+        assert (
+            call(
+                "WebRTC received keyboard event key={} state={} timestamp_us={}",
+                "w",
+                "Released",
+                ANY,
+            )
+            in logger.info.call_args_list
+        )
         assert events[0].get_timestamp() <= events[1].get_timestamp()
         mouse = next(
             data

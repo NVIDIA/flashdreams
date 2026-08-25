@@ -23,6 +23,7 @@ from aiohttp import web
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+from loguru import logger
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -516,6 +517,13 @@ class WebRTCServer:
             return
         timestamp_us = np.uint64((time.monotonic_ns() - session_start_ns) // 1_000)
         event = UserInputEvent(timestamp=timestamp_us, event_data=event_data)
+        if isinstance(event_data, KeyboardUserInputEventData):
+            logger.info(
+                "WebRTC received keyboard event key={} state={} timestamp_us={}",
+                event_data.key,
+                event_data.state.value,
+                int(timestamp_us),
+            )
         callback = self._input_callback
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")

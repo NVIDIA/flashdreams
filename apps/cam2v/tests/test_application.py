@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
+import cam2v.ui as cam2v_ui
 import pytest
 import torch
 from cam2v import (
@@ -174,8 +175,10 @@ def test_model_thread_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     assert thread.is_finished()
 
 
-def test_imgui_overlay_tracks_controls_and_model_status() -> None:
+def test_imgui_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> None:
     """Keep immediate input display in UI-thread-owned state."""
+    logger = Mock()
+    monkeypatch.setattr(cam2v_ui, "logger", logger)
     state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=1)
     presentation_manager = PresentationManager()
     presentation_manager.publish(
@@ -227,6 +230,14 @@ def test_imgui_overlay_tracks_controls_and_model_status() -> None:
     assert "Rollout: 2/4 blocks" in displayed
     assert "Latest model rate: 13.50 FPS" in displayed
     assert "Active keys: W" in displayed
+    logger.info.assert_called_once_with(
+        "Cam2V ImGui UI-thread processed keyboard event "
+        "key={} state={} timestamp_us={} held_keys={}",
+        "w",
+        "Pressed",
+        0,
+        "w",
+    )
 
 
 def test_cam2v_session_registers_the_shared_imgui_thread() -> None:

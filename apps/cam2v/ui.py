@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+from loguru import logger
 from torch import Tensor
 
 from flashdreams.runtime_v2.imgui_thread import ImGUIThread
@@ -145,11 +146,29 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
             continue
         key = data.key.lower()
         if key not in _CAMERA_KEYS:
+            logger.info(
+                "Cam2V ImGui UI-thread ignored keyboard event "
+                "key={} state={} timestamp_us={} reason=unsupported",
+                data.key,
+                data.state.value,
+                int(event.get_timestamp()),
+            )
             continue
         if data.state is KeyboardInputState.PRESSED:
             state.held_keys.add(key)
         else:
             state.held_keys.discard(key)
+        held_keys = ",".join(
+            item for item in _CAMERA_KEY_ORDER if item in state.held_keys
+        )
+        logger.info(
+            "Cam2V ImGui UI-thread processed keyboard event "
+            "key={} state={} timestamp_us={} held_keys={}",
+            key,
+            data.state.value,
+            int(event.get_timestamp()),
+            held_keys or "none",
+        )
 
 
 __all__ = ["Cam2VImGUIThread", "Cam2VUIState", "Cam2VUIStatus"]
