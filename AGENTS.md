@@ -91,5 +91,5 @@ Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `co
 #### Threading
 
 Only contains two threads during a program runtime:
-- model-thread: responsible for generating model output
-- ui-thread: responsible for compositing and presenting the model output to the user. Additionally manages the state of `run_session` which includes content such as user event collection, and client window management.
+- model-thread: responsible for generating model output. Drives model loop.
+- ui-thread: responsible for compositing and presenting the model output to the user. Additionally manages the state of `run_session` which includes content such as user event collection, and client window management. Drives ui loop.
