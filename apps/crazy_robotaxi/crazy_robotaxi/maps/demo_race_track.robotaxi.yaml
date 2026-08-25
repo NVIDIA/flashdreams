@@ -16,7 +16,7 @@ profiles:
     lane_marking: {style: DASHED_SINGLE, color: WHITE}
     divider_markings:
       - {style: DASHED_SINGLE, color: WHITE}
-      - {style: SOLID_GROUP, color: YELLOW}
+      - {style: DASHED_SINGLE, color: WHITE}
       - {style: DASHED_SINGLE, color: WHITE}
 
 nodes:

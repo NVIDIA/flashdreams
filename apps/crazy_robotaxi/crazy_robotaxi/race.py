@@ -206,6 +206,14 @@ class RaceController:
             for element in game_map.elements
             if element.element_id in self._surfaces
         }
+        self._centerlines = {
+            element_id: tuple(
+                np.asarray(lane.centerline_world[:, :2], dtype=np.float64)
+                for lane in game_map.lanes
+                if lane.element_id == element_id
+            )
+            for element_id in element_ids
+        }
         self._gates = self._build_gates()
         self._session_state: RaceSessionState = "awaiting_start"
         self._target_kind: RaceTargetKind = "start"
@@ -354,7 +362,7 @@ class RaceController:
     def _target_hit(self, x_m: float, y_m: float) -> bool:
         gate = self._gates[self._target_element_id]
         current = Point(x_m, y_m)
-        if gate.covers(current):
+        if gate.distance(current) <= 1.0e-6:
             return True
         if self._previous_xy == (x_m, y_m):
             return False
@@ -365,6 +373,7 @@ class RaceController:
             self._course.start_element_id: _cross_course_gate(
                 self._surfaces[self._course.start_element_id],
                 self._surfaces[self._course.checkpoint_element_ids[0]],
+                self._centerlines[self._course.start_element_id],
             )
         }
         previous_id = self._course.start_element_id
@@ -372,6 +381,7 @@ class RaceController:
             gates[checkpoint_id] = _cross_course_gate(
                 self._surfaces[checkpoint_id],
                 self._surfaces[previous_id],
+                self._centerlines[checkpoint_id],
             )
             previous_id = checkpoint_id
         return gates
@@ -390,13 +400,18 @@ class RaceController:
         self._event = "race_complete"
 
 
-def _cross_course_gate(surface: Polygon, adjacent_surface: Polygon) -> LineString:
+def _cross_course_gate(
+    surface: Polygon,
+    adjacent_surface: Polygon,
+    centerlines: tuple[npt.NDArray[np.float64], ...],
+) -> LineString:
     """Build a fixed line across the side facing an adjacent course element.
 
     Args:
         surface: Surface on which to place the gate.
         adjacent_surface: Adjacent course surface used to select the relevant
             entrance or exit and infer travel direction.
+        centerlines: Directed lane centerlines owned by the target element.
 
     Returns:
         A line spanning the target surface perpendicular to travel.
@@ -404,35 +419,23 @@ def _cross_course_gate(surface: Polygon, adjacent_surface: Polygon) -> LineStrin
     target = surface.representative_point()
     approach = adjacent_surface.representative_point()
     approach_xy = np.asarray([approach.x, approach.y], dtype=np.float64)
-    direction = np.asarray(
-        [target.x - approach.x, target.y - approach.y], dtype=np.float64
-    )
-    norm = float(np.linalg.norm(direction))
-    if norm <= 1.0e-6:
-        direction = np.asarray([1.0, 0.0], dtype=np.float64)
+    frame = _nearest_centerline_entry(centerlines, approach_xy)
+    if frame is None:
+        anchor = np.asarray([target.x, target.y], dtype=np.float64)
+        direction = anchor - approach_xy
+        norm = float(np.linalg.norm(direction))
+        direction = (
+            np.asarray([1.0, 0.0], dtype=np.float64)
+            if norm <= 1.0e-6
+            else direction / norm
+        )
     else:
-        direction /= norm
+        anchor, direction = frame
     span = max(
         surface.bounds[2] - surface.bounds[0],
         surface.bounds[3] - surface.bounds[1],
     )
     span = max(10.0, span * 4.0)
-    anchor = np.asarray([target.x, target.y], dtype=np.float64)
-    ray = LineString(
-        (
-            (approach.x, approach.y),
-            tuple(anchor + direction * span),
-        )
-    )
-    path_parts = _line_parts(ray.intersection(surface))
-    if path_parts:
-        path = min(path_parts, key=lambda part: part.distance(approach))
-        endpoints = (np.asarray(path.coords[0]), np.asarray(path.coords[-1]))
-        entry = min(
-            endpoints,
-            key=lambda point: np.linalg.norm(point - approach_xy),
-        )
-        anchor = entry + direction * min(1.0, path.length * 0.15)
     perpendicular = np.asarray([-direction[1], direction[0]], dtype=np.float64)
     cross_line = LineString(
         (tuple(anchor - perpendicular * span), tuple(anchor + perpendicular * span))
@@ -443,6 +446,45 @@ def _cross_course_gate(surface: Polygon, adjacent_surface: Polygon) -> LineStrin
             (tuple(anchor - perpendicular), tuple(anchor + perpendicular))
         )
     return max(cross_parts, key=lambda part: part.length)
+
+
+def _nearest_centerline_entry(
+    centerlines: tuple[npt.NDArray[np.float64], ...],
+    approach_xy: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None:
+    """Return the closest lane endpoint and its inward local tangent."""
+    frames: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]] = []
+    for centerline in centerlines:
+        if centerline.shape[0] < 2:
+            continue
+        oriented = (
+            centerline
+            if np.linalg.norm(centerline[0] - approach_xy)
+            <= np.linalg.norm(centerline[-1] - approach_xy)
+            else centerline[::-1]
+        )
+        segments = np.diff(oriented, axis=0)
+        lengths = np.linalg.norm(segments, axis=1)
+        total_length = float(lengths.sum())
+        if total_length <= 1.0e-6:
+            continue
+        remaining = min(0.25, total_length * 0.5)
+        for index, length in enumerate(lengths):
+            if length <= 1.0e-6:
+                continue
+            direction = segments[index] / length
+            if remaining <= length:
+                frames.append((oriented[index] + direction * remaining, direction))
+                break
+            remaining -= float(length)
+    if not frames:
+        return None
+    anchor = np.mean([frame[0] for frame in frames], axis=0)
+    direction = np.mean([frame[1] for frame in frames], axis=0)
+    norm = float(np.linalg.norm(direction))
+    if norm <= 1.0e-6:
+        return None
+    return anchor, direction / norm
 
 
 def _line_parts(geometry: object) -> tuple[LineString, ...]:

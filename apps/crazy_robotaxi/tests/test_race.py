@@ -209,6 +209,20 @@ def test_start_gate_is_near_course_exit_instead_of_element_midpoint(
     )
 
 
+def test_course_gates_span_the_full_road_surface(tmp_path: Path) -> None:
+    game_map = load_game_map(_MAP)
+    course = game_map.race_courses[0]
+    controller = RaceController(
+        game_map,
+        course,
+        _state(-300.0, -300.0),
+        RaceTimeStore(tmp_path / "times.csv"),
+    )
+
+    for element_id in (course.start_element_id, *course.checkpoint_element_ids):
+        assert controller._gates[element_id].length == pytest.approx(8.4, abs=0.15)
+
+
 def test_race_times_are_isolated_by_map_and_course(tmp_path: Path) -> None:
     store = RaceTimeStore(tmp_path / "times.csv", limit=2)
     store.record("map-a", "course-a", "Slow", 4_000_000)
