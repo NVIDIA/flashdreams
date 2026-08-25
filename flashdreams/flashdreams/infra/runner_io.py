@@ -177,10 +177,56 @@ def read_audio_f32(
         ValueError: The output format or decoded samples are invalid.
         RuntimeError: Host FFmpeg is absent or cannot decode an audio stream.
     """
+    _validate_audio_output_format(sample_rate=sample_rate, channels=channels)
+    return _decode_audio_f32(path, sample_rate=sample_rate, channels=channels)
+
+
+def read_optional_audio_f32(
+    path: str | Path,
+    *,
+    sample_rate: int,
+    channels: int = 2,
+) -> np.ndarray | None:
+    """Decode a first audio stream when an input contains one.
+
+    FFprobe distinguishes a genuinely absent stream from a malformed or
+    unreadable input. FFmpeg then performs the same finite float32 decode as
+    :func:`read_audio_f32`.
+
+    Args:
+        path: Input audio file or optionally audio-bearing video file.
+        sample_rate: Positive output sampling rate.
+        channels: Output channel count, currently mono or stereo.
+
+    Returns:
+        Contiguous ``[channels, samples]`` float32 audio, or ``None`` when no
+        audio stream is present.
+
+    Raises:
+        ValueError: The output format or decoded samples are invalid.
+        RuntimeError: Host tools are absent, probing fails, or decoding fails.
+    """
+    _validate_audio_output_format(sample_rate=sample_rate, channels=channels)
+    if not _has_audio_stream(path):
+        return None
+    return _decode_audio_f32(path, sample_rate=sample_rate, channels=channels)
+
+
+def _validate_audio_output_format(*, sample_rate: int, channels: int) -> None:
+    """Validate shared host-decoder output format options."""
     if type(sample_rate) is not int or sample_rate <= 0:
         raise ValueError("sample_rate must be a positive integer")
     if type(channels) is not int or channels not in (1, 2):
         raise ValueError("channels must be 1 or 2")
+
+
+def _decode_audio_f32(
+    path: str | Path,
+    *,
+    sample_rate: int,
+    channels: int,
+) -> np.ndarray:
+    """Decode a known audio stream through host FFmpeg."""
     command = [
         _find_ffmpeg_binary(),
         "-nostdin",
@@ -223,6 +269,30 @@ def read_audio_f32(
     if not np.isfinite(samples).all():
         raise ValueError(f"decoded audio contains non-finite samples: {path}")
     return samples
+
+
+def _has_audio_stream(path: str | Path) -> bool:
+    """Return whether host FFprobe reports a first audio stream."""
+    command = [
+        _find_ffprobe_binary(),
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=index",
+        "-of",
+        "csv=p=0",
+        str(path),
+    ]
+    process = subprocess.run(command, capture_output=True, check=False)
+    if process.returncode != 0:
+        diagnostic = process.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"ffprobe could not inspect audio streams in {path}: "
+            f"{diagnostic or 'no diagnostic output'}"
+        )
+    return bool(process.stdout.strip())
 
 
 def read_first_frame_rgb(
@@ -489,6 +559,17 @@ def _find_ffmpeg_binary() -> str:
             "on the host and available on PATH."
         )
     return ffmpeg_bin
+
+
+def _find_ffprobe_binary() -> str:
+    """Find host FFprobe or fail without discovering a bundled replacement."""
+    ffprobe_bin = shutil.which("ffprobe")
+    if ffprobe_bin is None:
+        raise RuntimeError(
+            "Inspecting optional input audio requires an ffprobe executable "
+            "installed on the host and available on PATH."
+        )
+    return ffprobe_bin
 
 
 def _import_mediapy(action: str, *, install_hint: str) -> Any:

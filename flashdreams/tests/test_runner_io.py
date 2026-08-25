@@ -34,6 +34,7 @@ from flashdreams.infra.runner_io import (
     load_first_frame_tensor,
     read_audio_f32,
     read_first_frame_rgb,
+    read_optional_audio_f32,
     read_video_fps,
     resolve_input_path,
     resolve_prompt_value,
@@ -314,6 +315,76 @@ def test_read_audio_f32_surfaces_host_decode_failure(
     )
     with pytest.raises(RuntimeError, match="matches no streams"):
         read_audio_f32("silent.mp4", sample_rate=32000)
+
+
+@pytest.mark.parametrize(
+    ("probe_stdout", "expected"),
+    [(b"", None), (b"1\n", np.array([[0.25], [-0.25]], dtype=np.float32))],
+)
+def test_read_optional_audio_f32_distinguishes_absent_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_stdout: bytes,
+    expected: np.ndarray | None,
+) -> None:
+    """Probe absence explicitly and decode only a present audio stream."""
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        commands.append(command)
+        assert kwargs == {"capture_output": True, "check": False}
+        if command[0] == "/host/ffprobe":
+            return types.SimpleNamespace(
+                returncode=0, stdout=probe_stdout, stderr=b""
+            )
+        stdout = np.array([0.25, -0.25], dtype="<f4").tobytes()
+        return types.SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
+
+    monkeypatch.setattr(runner_io, "_find_ffprobe_binary", lambda: "/host/ffprobe")
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "/host/ffmpeg")
+    monkeypatch.setattr(runner_io.subprocess, "run", run)
+
+    actual = read_optional_audio_f32(
+        "reference.mp4", sample_rate=32000, channels=2
+    )
+
+    if expected is None:
+        assert actual is None
+        assert len(commands) == 1
+    else:
+        assert actual is not None
+        np.testing.assert_array_equal(actual, expected)
+        assert len(commands) == 2
+    assert commands[0] == [
+        "/host/ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=index",
+        "-of",
+        "csv=p=0",
+        "reference.mp4",
+    ]
+
+
+def test_read_optional_audio_f32_surfaces_probe_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not misreport unreadable input as a video without audio."""
+    monkeypatch.setattr(runner_io, "_find_ffprobe_binary", lambda: "ffprobe")
+    monkeypatch.setattr(
+        runner_io.subprocess,
+        "run",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            returncode=1,
+            stdout=b"",
+            stderr=b"invalid data",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid data"):
+        read_optional_audio_f32("broken.mp4", sample_rate=32000)
 
 
 @pytest.mark.parametrize(
