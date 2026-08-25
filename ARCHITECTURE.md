@@ -38,7 +38,7 @@ flowchart TB
     UI["IUILoop, optional, decides what is shown"]
   end
 
-  subgraph api [flashdreams.api_v2, the protocols and nothing else]
+  subgraph api [flashdreams.api_v2, the protocols an integration implements]
     Protocols["IApplication, ISession, ILoop, IClientWindow, InputSource, OutputSink"]
   end
 
@@ -48,6 +48,7 @@ flowchart TB
     RunSession["run_session, owns the two threads"]
     Meet["EventBuffer, PresentationManager, where the threads meet"]
     Default["BlitModelOutputToScreenLoop, the UI loop nothing has to write"]
+    Types["SessionDesc, StepResult, UserInputEvents, VideoTensorLayout"]
   end
 
   subgraph windows [A client window, the runtime's rather than the application's]

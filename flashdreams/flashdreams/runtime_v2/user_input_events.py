@@ -28,7 +28,8 @@ class UserInputEvents:
     """Immutable event collection data."""
 
     def __init__(self, events: list[UserInputEvent]) -> None:
-        """
+        """Sort the events by timestamp and hold them.
+
         Args:
             events: Events to hold, in any order.
         """

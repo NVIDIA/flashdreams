@@ -22,7 +22,7 @@ flashdreams-run-v2 t2v-fastvideo-causal-wan22 --output-path clip.mp4 \
 
 Streaming, so `--total-blocks` is how long the clip is. The first block decodes 9
 frames and every block after it 12, at 16 frames per second, so seven blocks is
-about four and a half seconds.
+about five seconds.
 
 832x480, `tchw`. It denoises with two transformers rather than one, a high-noise
 branch and a low-noise branch, so it holds two 14B checkpoints and wants a GPU to

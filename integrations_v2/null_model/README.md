@@ -26,7 +26,7 @@ For a v2 application to copy, use
 
 ## Files
 
-| File | |
+| File | What it does |
 | --- | --- |
 | `config.py` | Defines the null-model pipeline. |
 | `encoder.py` | Adds 100 to the input, as minor obfuscation. |

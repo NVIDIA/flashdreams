@@ -61,7 +61,8 @@ answers with.
 
 ## What a t2v run generates
 
-`[-1, 1]` floats on the GPU, in the layout the model's runner config declares —
+`[-1, 1]` floats on whichever device `--device` loaded the model onto, in the
+layout the model's runner config declares,
 `tchw` for all five today. The frame size and rate are the checkpoint's, read off
 that runner config rather than written down in the integration.
 
@@ -229,10 +230,10 @@ T2V_WAN21_REAL_MODEL_RUN=1 uv run --no-sync pytest \
 vlc "$HOME"/t2v-out/*current/clip.mp4
 ```
 
-`--inexact` stops `uv` from uninstalling the workspace members it was not asked
-about, which the framework tests import. `--basetemp` under your home rather than
-`/tmp` is so a sandboxed player can see the file, since pytest's real `/tmp` is
-private to the test process.
+`--basetemp` under your home rather than `/tmp` is so a sandboxed player can see
+the file, since pytest's real `/tmp` is private to the test process. The
+[integration guide](../../../integrations_v2/README.md#testing-it) covers
+`--inexact` and the markers.
 
 How a t2v application behaves in general is covered once, in
 `flashdreams/test_v2`, and a run reaching a real file once, in the Self-Forcing

@@ -9,6 +9,8 @@ of reference that can be checked mechanically: relative links, and backticked
 file names.
 """
 
+import functools
+import os
 import re
 from pathlib import Path
 
@@ -32,6 +34,16 @@ _BACKTICKED = re.compile(r"`([^`\n]+)`")
 _FILE_SUFFIXES = (".py", ".md", ".json", ".toml", ".yml", ".sh")
 """Suffixes that make a backticked span worth resolving as a file."""
 
+_IGNORED_DIRECTORIES = frozenset(
+    {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "node_modules"}
+)
+"""Directories to keep out of the file index, alongside any ``.egg-info``.
+
+Build output is skipped so that a package left half-installed cannot make a
+reference to it resolve. ``integrations_v2/omnidreams`` is the live example: an
+``egg-info`` and stale bytecode with no source beside them.
+"""
+
 
 def _repository_root() -> Path:
     """Return the repository root, found by looking for ``integrations_v2``."""
@@ -48,6 +60,8 @@ _DOCUMENTS = (
     "flashdreams/flashdreams/api_v2/README.md",
     "flashdreams/flashdreams/runtime_v2/README.md",
     "flashdreams/flashdreams/t2v_v2/README.md",
+    "flashdreams/test_v2/README.md",
+    "flashdreams/tools/benchmarks/README.md",
     "integrations_v2/README.md",
     *sorted(
         str(path.relative_to(_ROOT))
@@ -75,19 +89,37 @@ def _link_resolves(target: str, document: Path) -> bool:
     return destination.is_relative_to(_ROOT) and destination.exists()
 
 
+@functools.lru_cache(maxsize=1)
+def _repository_paths() -> tuple[str, ...]:
+    """Return every file in the repository, relative to its root.
+
+    Built once and scanned per reference, rather than walking the tree once per
+    reference.
+    """
+    paths: list[str] = []
+    for directory, subdirectories, file_names in os.walk(_ROOT):
+        subdirectories[:] = [
+            name
+            for name in subdirectories
+            if name not in _IGNORED_DIRECTORIES and not name.endswith(".egg-info")
+        ]
+        relative = Path(directory).relative_to(_ROOT)
+        paths.extend(str(relative / name) for name in file_names)
+    return tuple(paths)
+
+
 def _file_name_resolves(span: str) -> bool:
     """Return whether a backticked file name matches something that exists.
 
     Looser than a link, deliberately. Prose names a file the way the sentence
     around it reads rather than relative to the document, so
     ``runtime_v2/client_window_factory.py`` appears in documents at three
-    different depths and none of them mean it as a path. Anything whose path
-    ends with the span therefore counts, which still catches the thing these
-    get wrong: a module renamed, or never written.
+    different depths and none of them mean it as a path. A whole path segment
+    has to match, so ``session.py`` does not resolve through
+    ``my_session.py``, but which ``session.py`` it meant is not checked.
     """
     return any(
-        str(path.relative_to(_ROOT)).endswith(span)
-        for path in _ROOT.rglob(span.rsplit("/", 1)[-1])
+        path == span or path.endswith(f"/{span}") for path in _repository_paths()
     )
 
 
@@ -116,6 +148,22 @@ def test_every_v2_document_exists(relative_path: str) -> None:
     """The documents this checks are the documents that are there."""
     assert (_ROOT / relative_path).is_file(), (
         f"{relative_path} is listed here but not in the repository."
+    )
+
+
+@pytest.mark.parametrize("relative_path", _DOCUMENTS)
+def test_v2_documentation_fences_are_balanced(relative_path: str) -> None:
+    """Fences pair up, so stripping code blocks cannot swallow a document.
+
+    ``_FENCED_BLOCK`` pairs fences in order. An odd one out would silently take
+    the rest of the file with it, and every reference after it would go
+    unchecked.
+    """
+    document = _ROOT / relative_path
+    fences = re.findall(r"^```", document.read_text(encoding="utf-8"), re.MULTILINE)
+
+    assert len(fences) % 2 == 0, (
+        f"{relative_path} has {len(fences)} code fences, so one is unclosed."
     )
 
 

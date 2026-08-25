@@ -28,8 +28,9 @@ model here.
 `_validate_total_blocks` to refuse a rollout. One block decodes 93 frames at 16
 frames per second, so a clip is about six seconds.
 
-1280x720, `tchw`, and the only 720p model of the five, which is why its frames
-per second are not comparable with theirs.
+1280x720, `tchw`, and the only 720p model of the five. It plays back at 16
+frames per second like the rest, but it is generating four times the pixels per
+frame, so the rate it generates them at is not comparable with theirs.
 
 ## Tests
 

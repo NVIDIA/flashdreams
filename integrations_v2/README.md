@@ -37,9 +37,11 @@ integrations_v2/<name>/
       test_<name>.py
 ```
 
-Nothing enforces this shape, but every integration follows it, and the workspace
-glob in the root `pyproject.toml` picks up any directory here that has a
-`pyproject.toml`.
+Nothing enforces this shape, and it bends where a package has more than one
+application: `slangpy_ui_demo` names a module per application rather than
+`app.py`, and the t2v integrations split their tests into
+`test_stand_in_model.py` and `test_real_model.py`. The workspace glob in the
+root `pyproject.toml` picks up any directory here that has a `pyproject.toml`.
 
 ## The package metadata
 
@@ -53,22 +55,24 @@ name = "flashdreams-color-fade"
 requires-python = ">=3.10"
 dependencies = ["flashdreams"]
 
-[project.entry-points."flashdreams.applications_v2"]
-"color-fade" = "color_fade.app:create_app"
-
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
 [tool.setuptools.packages.find]
 include = ["color_fade*"]
+
+# color_fade registers no entry point and is found by the module fallback below.
+# Anything real should register one, the way t2v_self_forcing does:
+[project.entry-points."flashdreams.applications_v2"]
+"t2v-self-forcing" = "t2v_self_forcing.app:create_app"
 ```
 
 An integration depends on the framework and never the reverse. `tool.uv.sources`
 resolves `flashdreams` from this repository while developing; a published
 integration would resolve a released version instead. A real model adds its
-model package alongside, also as a workspace source, and the browser
-integrations depend on `flashdreams[local-window,serving]` rather than plain
-`flashdreams`.
+model package alongside, also as a workspace source. An integration that streams
+to a browser depends on `flashdreams[serving]`, and `slangpy_ui_demo` adds
+`local-window` on top of that for its renderer.
 
 ## Being found
 
@@ -189,8 +193,8 @@ ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(session_desc, args)
 
 ## Testing it
 
-Every test carries exactly one of the `ci_cpu`, `ci_gpu` or `manual` markers,
-enforced by a pytest plugin, so a file usually sets `pytestmark` once:
+Every test carries a `ci_cpu`, `ci_gpu` or `manual` marker, enforced by a pytest
+plugin, so a file usually sets `pytestmark` once:
 
 ```python
 pytestmark = pytest.mark.ci_cpu

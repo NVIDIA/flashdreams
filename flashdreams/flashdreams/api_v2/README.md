@@ -38,9 +38,8 @@ It can also answer `session_desc` before `init` runs, so a caller can ask what
 this application would generate without paying to start it. Returning `None`
 means it will generate whatever it is asked for.
 
-Reject a description you cannot honour, from `create_session`. A session that
-quietly ignores the layout it was asked for produces tensors an output sink then
-refuses, much further along and much harder to place.
+Reject a description you cannot honour, from `create_session`, rather than
+generating something else instead.
 
 ## `ISession`
 
@@ -55,9 +54,9 @@ Each loop is registered with the state it owns, and the call returns the loop:
 self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 ```
 
-`state` is required for a model loop and optional for a UI loop. Registration
-also fixes each loop's rate — the model loop at the session's
-`frames_per_second_for_step`, the UI loop at its `frames_per_second_for_ui`.
+`state` is required for a model loop and optional for a UI loop. Each loop's rate
+comes from the session description: the model loop steps at
+`frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
 ## Loops
 
@@ -84,9 +83,9 @@ window never sends a close event, so nothing else will stop it.
 
 `ILoop.reset` raises `NotImplementedError` by default. A reset arrives as a
 client event, and when one does, every loop's `reset` is called, its
-`latest_result` is cleared, and its `step_index` restarts at zero. A loop that
-does not override `reset` therefore fails the first time a client asks for one,
-implement it, even if the body is `return`.
+`latest_result` is cleared, and the `step_index` handed to `step` starts again
+at zero. A loop that does not override `reset` therefore fails the first time a
+client asks for one, implement it, even if the body is `return`.
 
 ## What a step returns
 
@@ -96,9 +95,9 @@ The two loops have different return contracts, and the runtime enforces both:
   `StepResult` or `None` raises `TypeError`.
 - A UI loop returns one `StepResult`, or `None` to present nothing this tick.
 
-Every channel in one model step must report the same `frame_count`. A step may
-generate several frames at once; the runtime presents them one per UI tick
-rather than dropping all but the last.
+Every channel in one model step must report the same `frame_count`, and a
+mismatch raises `ValueError`. A step may generate several frames at once; the
+runtime presents them one per UI tick rather than dropping all but the last.
 
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or

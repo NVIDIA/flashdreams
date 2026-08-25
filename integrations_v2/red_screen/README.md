@@ -16,9 +16,8 @@ uv sync --package flashdreams-red-screen --inexact
 uv run --no-sync red-screen-webrtc
 ```
 
-Open the URL it prints. Hold `r` to turn the generated video red, or click
-**Activate** to send the same keyboard event. Press `w` to raise the red
-intensity by 0.1 and `s` to lower it.
+Open the URL it prints. Hold `r` to turn the generated video red, `w` to raise
+the red intensity by 0.1, and `s` to lower it.
 
 This integration ships its own launcher rather than relying on
 `flashdreams-run-v2`, which is why the session arguments are spelled differently

@@ -117,10 +117,9 @@ class FocusUserInputEventData(UserInputEventData):
     """Whether the video viewport owns keyboard focus."""
 
 
-## Stubs for input modalities no client produces yet
-#
-# Named so that a client gaining one of these has somewhere to put it. Nothing
-# creates or reads them today, and none carries any data.
+# Stubs for input modalities no client produces yet. Named so that a client
+# gaining one of these has somewhere to put it. Nothing creates or reads them
+# today, and none carries any data.
 
 
 @dataclass(frozen=True, slots=True, eq=False)

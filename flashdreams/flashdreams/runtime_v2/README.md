@@ -28,7 +28,8 @@ Finding and starting an application:
 Running a session:
 
 - `session_runner.py` is `run_session`, which everything above ends up calling.
-  It is the only place that starts a thread.
+  It is the only place that starts a generation thread; the WebRTC server and
+  the video encoder run threads of their own, but neither touches a loop.
 - `event_buffer.py` holds client input until both loops have read it.
 - `presentation_manager.py` buffers generated frames between the two threads and
   decides which one the UI sees.
@@ -181,8 +182,8 @@ focus events into input and a disconnecting browser into a close; because those
 arrive on the server's own thread, it queues them and hands them over in batches
 when the session asks.
 
-Output sinks read floating-point frames as `[-1, 1]` and integer frames as
-`[0, 255]`. Nothing remaps this.
+What a sink expects of the pixel values it is handed is part of the result
+contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).
 
 ## Adding a mode
 
