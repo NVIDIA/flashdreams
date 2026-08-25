@@ -20,12 +20,13 @@ from flashdreams.infra.runner_io import load_first_frame_tensor
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEventData,
     KeyboardInputState,
     KeyboardUserInputEventData,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
-from .controls import CameraPoseIntegrator
+from .controls import CameraPoseIntegrator, KeyboardResampler
 from .defaults import Cam2VConditioning
 from .ui import Cam2VSlangPyUILoop, Cam2VUIState, Cam2VUIStatus
 
@@ -88,6 +89,9 @@ class Cam2VModelState:
     config: Cam2VSessionConfig
     """Resolved inputs and rollout controls."""
 
+    keyboard_resampler: KeyboardResampler
+    """Timestamped camera-control state sampled on the model frame clock."""
+
     cache: Any | None = None
     """Session-local autoregressive model cache."""
 
@@ -99,9 +103,6 @@ class Cam2VModelState:
 
     frames_generated: int = 0
     """Number of generated video frames on the virtual camera clock."""
-
-    held_keys: set[str] = field(default_factory=set)
-    """Camera-control keys currently held by the WebRTC client."""
 
     pose_integrator: CameraPoseIntegrator = field(default_factory=CameraPoseIntegrator)
     """Session-local continuous camera state."""
@@ -176,7 +177,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         if state.blocks_generated == state.config.warmup_blocks:
             state.steady_started_at = step_started_at
 
-        _apply_keyboard_events(state.held_keys, events)
         _ensure_rollout_initialized(state)
         assert state.cache is not None
 
@@ -185,14 +185,16 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             raise ValueError(
                 "Cam2V pipelines must generate at least one frame per step."
             )
-        fps = state.session_desc.frames_per_second_for_step
-        start_s = state.frames_generated / fps
-        end_s = (state.frames_generated + frame_count) / fps
+        event_times = _buffer_keyboard_events(state.keyboard_resampler, events)
+        _catch_up_keyboard_timeline(
+            state.keyboard_resampler,
+            frame_count=frame_count,
+            event_times=event_times,
+        )
+        segments, frame_times = state.keyboard_resampler.sample_chunk(frame_count)
         poses = state.pose_integrator.integrate_chunk(
-            segments=[(start_s, end_s, frozenset(state.held_keys))],
-            frame_times=[
-                start_s + (frame_index + 1) / fps for frame_index in range(frame_count)
-            ],
+            segments=segments,
+            frame_times=frame_times,
         )
         conditioning = state.config.conditioning
         camera_input = CameraControlInput(
@@ -284,7 +286,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.first_frame = None
         state.blocks_generated = 0
         state.frames_generated = 0
-        state.held_keys.clear()
+        state.keyboard_resampler.reset(start_v=0.0)
         state.pose_integrator.reset()
         state.steady_started_at = None
         state.steady_frames_generated = 0
@@ -349,22 +351,65 @@ class Cam2VSession(ISession):
                 pipeline=self._pipeline,
                 session_desc=self._session_desc,
                 config=self._config,
+                keyboard_resampler=KeyboardResampler(
+                    fps=self._session_desc.frames_per_second_for_step,
+                ),
                 ui_loop=ui_loop,
             ),
         )
 
 
-def _apply_keyboard_events(held_keys: set[str], events: UserInputEvents) -> None:
-    """Update held camera keys from new WebRTC keyboard edges."""
+def _buffer_keyboard_events(
+    keyboard_resampler: KeyboardResampler,
+    events: UserInputEvents,
+) -> list[float]:
+    """Queue timestamped WebRTC keyboard and focus edges for resampling."""
+    event_times: list[float] = []
     for event in events.get_events():
         data = event.get_event_data()
+        event_t = float(event.get_timestamp()) / 1_000_000.0
+        if isinstance(data, FocusUserInputEventData):
+            if not data.focused:
+                keyboard_resampler.release_all(arrival_t=event_t)
+                event_times.append(event_t)
+            continue
         if not isinstance(data, KeyboardUserInputEventData):
             continue
-        key = data.key.lower()
-        if data.state is KeyboardInputState.PRESSED:
-            held_keys.add(key)
-        else:
-            held_keys.discard(key)
+        keyboard_resampler.on_edge(
+            arrival_t=event_t,
+            event=("keydown" if data.state is KeyboardInputState.PRESSED else "keyup"),
+            key=data.key,
+        )
+        event_times.append(event_t)
+    return event_times
+
+
+def _catch_up_keyboard_timeline(
+    keyboard_resampler: KeyboardResampler,
+    *,
+    frame_count: int,
+    event_times: list[float],
+) -> None:
+    """Keep stale wall-clock input from waiting behind the model clock.
+
+    Model warm-up and slow generation can leave the virtual camera timeline
+    behind WebRTC's session clock. If the newest unread edge lies beyond the
+    next chunk, skip only stale virtual time and retain up to one chunk of the
+    batch's original edge timing.
+    """
+    if not event_times:
+        return
+    chunk_duration = frame_count * keyboard_resampler.dt
+    chunk_end = keyboard_resampler.next_chunk_start_v + chunk_duration
+    latest_event_t = max(event_times)
+    if latest_event_t <= chunk_end:
+        return
+    earliest_event_t = min(event_times)
+    keyboard_resampler.next_chunk_start_v = max(
+        keyboard_resampler.next_chunk_start_v,
+        earliest_event_t,
+        latest_event_t - chunk_duration,
+    )
 
 
 def _ensure_rollout_initialized(state: Cam2VModelState) -> None:

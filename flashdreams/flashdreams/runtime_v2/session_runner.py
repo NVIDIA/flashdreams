@@ -137,6 +137,19 @@ def _log_secondary_failure(message: str, error: BaseException) -> None:
     _LOGGER.error(message, exc_info=error)
 
 
+def _next_tick_deadline(
+    previous_deadline: float,
+    *,
+    completed_at: float,
+    interval: float,
+) -> float:
+    """Return the next absolute io-thread deadline without catch-up bursts."""
+    next_deadline = previous_deadline + interval
+    if next_deadline <= completed_at:
+        return completed_at + interval
+    return next_deadline
+
+
 def run_session(
     session: ISession,
     window: IClientWindow,
@@ -274,6 +287,7 @@ def run_session(
                 name=_MODEL_THREAD_NAME,
             )
             model_thread_handle.start()
+            next_tick_at = time.monotonic() + tick_seconds
 
             # Keep servicing input and presenting queued frames until shutdown,
             # or until the model finishes and no generated frames remain.
@@ -284,13 +298,19 @@ def run_session(
                     and not presentation_manager.has_pending_frames()
                 ):
                     break
-                if stop.wait(tick_seconds):
+                wait_seconds = max(0.0, next_tick_at - time.monotonic())
+                if stop.wait(wait_seconds):
                     break
                 collect_input()
                 if stop.is_set():
                     break
                 tick_ui()
                 event_buffer.collect_garbage()
+                next_tick_at = _next_tick_deadline(
+                    next_tick_at,
+                    completed_at=time.monotonic(),
+                    interval=tick_seconds,
+                )
     except BaseException as error:
         high_level_failures = error
     finally:

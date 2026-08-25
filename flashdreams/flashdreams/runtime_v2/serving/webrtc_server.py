@@ -85,6 +85,39 @@ class _PresentedRGBFrame:
     """Event-loop timestamp at which the io-thread submitted this frame."""
 
 
+class _FramePacer:
+    """Pace source frames against drift-free absolute deadlines."""
+
+    def __init__(self, frames_per_second: int) -> None:
+        self._minimum_interval = 1.0 / frames_per_second
+        self._last_source_at: float | None = None
+        self._next_frame_at: float | None = None
+
+    def delay_seconds(self, *, now: float, source_at: float) -> float:
+        """Return the delay before presenting one source frame.
+
+        Small scheduling overruns are recovered by the next absolute deadline
+        instead of accumulating. A stall of at least one frame interval
+        reanchors the schedule so queued frames are not emitted in a burst.
+        """
+        last_source_at = self._last_source_at
+        next_frame_at = self._next_frame_at
+        self._last_source_at = source_at
+        if last_source_at is None or next_frame_at is None:
+            self._next_frame_at = now
+            return 0.0
+
+        source_interval = max(
+            self._minimum_interval,
+            source_at - last_source_at,
+        )
+        next_frame_at += source_interval
+        if now - next_frame_at >= self._minimum_interval:
+            next_frame_at = now
+        self._next_frame_at = next_frame_at
+        return max(0.0, next_frame_at - now)
+
+
 class _VideoTrack(MediaStreamTrack):
     """Video track whose frames are supplied by the server."""
 
@@ -107,8 +140,7 @@ class _VideoTrack(MediaStreamTrack):
         )
         self._retired_pending_frames: list[_PendingRGBFrame] = []
         self._dropped_for_lag = 0
-        self._last_presented_at: float | None = None
-        self._last_sent_at: float | None = None
+        self._pacer = _FramePacer(frames_per_second)
         self._presentation_started_at: float | None = None
         self._next_pts = 0
         self._closed = False
@@ -156,16 +188,12 @@ class _VideoTrack(MediaStreamTrack):
 
         loop = asyncio.get_running_loop()
         now = loop.time()
-        if self._last_presented_at is not None and self._last_sent_at is not None:
-            source_interval = max(
-                self._frame_interval,
-                presented_frame.presented_at - self._last_presented_at,
-            )
-            wait_seconds = self._last_sent_at + source_interval - now
-            if wait_seconds > 0:
-                await asyncio.sleep(wait_seconds)
-        self._last_sent_at = loop.time()
-        self._last_presented_at = presented_frame.presented_at
+        wait_seconds = self._pacer.delay_seconds(
+            now=now,
+            source_at=presented_frame.presented_at,
+        )
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
 
         if self._presentation_started_at is None:
             self._presentation_started_at = presented_frame.presented_at

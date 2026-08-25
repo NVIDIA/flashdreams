@@ -27,6 +27,7 @@ from av import VideoFrame
 
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import (
+    _FramePacer,
     _PendingRGBFrame,
     _VideoTrack,
 )
@@ -265,6 +266,27 @@ async def test_video_track_does_not_burst_to_catch_up_after_a_stall() -> None:
         assert next_frame_at - resumed_at >= 0.02
     finally:
         await track.close()
+
+
+def test_video_track_pacer_does_not_accumulate_wakeup_delay() -> None:
+    """Keep repeated scheduler overshoot out of subsequent frame deadlines."""
+    pacer = _FramePacer(frames_per_second=60)
+    now = 0.0
+    sent_at: list[float] = []
+    overshoot = 0.001
+
+    for frame_index in range(240):
+        delay = pacer.delay_seconds(
+            now=now,
+            source_at=frame_index / 120.0,
+        )
+        now += delay
+        if delay > 0.0:
+            now += overshoot
+        sent_at.append(now)
+
+    ideal_last_frame_at = (len(sent_at) - 1) / 60.0
+    assert sent_at[-1] - ideal_last_frame_at == pytest.approx(overshoot)
 
 
 @pytest.mark.asyncio

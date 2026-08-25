@@ -66,6 +66,9 @@ class Cam2VUIState:
     status: Cam2VUIStatus | None = None
     """Latest model status received from the model-generation loop."""
 
+    frames_presented: int = 0
+    """Number of model frames selected by the io-thread in this rollout."""
+
     window: Any | None = field(default=None, init=False, repr=False)
     """Retained SlangPy controls window."""
 
@@ -83,6 +86,7 @@ class Cam2VUIState:
         """Clear transient controls and model status for a new generation."""
         self.held_keys.clear()
         self.status = None
+        self.frames_presented = 0
 
 
 class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
@@ -97,10 +101,11 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         """Update retained widgets and return the current model frame."""
         del step_index
         _apply_ui_input(self.state, events)
+        frame = self.presented_model_frame()
+        self.state.frames_presented = self._presentation_manager.presented_frame_count
         _ensure_widgets(ui, self.state)
         _refresh_widgets(self.state)
 
-        frame = self.presented_model_frame()
         if frame is None:
             return None
         if frame.is_floating_point():
@@ -147,7 +152,7 @@ def _status_lines(state: Cam2VUIState) -> tuple[str, ...]:
     if status is None:
         return (
             "Waiting for the first generated chunk...",
-            "Generated: 0 frames",
+            f"Presented: {state.frames_presented} frames",
             "Latest model rate: waiting",
             f"Steady state: warming up (0/{state.warmup_blocks})",
             f"Target video rate: {state.target_fps} FPS",
@@ -161,7 +166,8 @@ def _status_lines(state: Cam2VUIState) -> tuple[str, ...]:
         steady_state = f"Steady-state model rate: {status.steady_state_fps:.2f} FPS"
     return (
         f"Rollout: {status.completed_blocks}/{state.total_blocks} blocks",
-        f"Generated: {status.frames_generated} frames",
+        f"Presented: {state.frames_presented} frames "
+        f"({status.frames_generated} generated)",
         f"Latest model rate: {status.chunk_fps:.2f} FPS",
         steady_state,
         f"Target video rate: {state.target_fps} FPS",

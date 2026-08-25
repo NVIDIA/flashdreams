@@ -23,7 +23,11 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
+from flashdreams.runtime_v2.session_runner import (
+    _next_tick_deadline,
+    _PresentationClock,
+    run_session,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -111,6 +115,24 @@ def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
 
     clock.observe_model_output(now=2.2, generation=0, frame_count=120)
     assert clock.frames_per_second == 16
+
+
+def test_io_tick_deadline_excludes_work_and_reanchors_after_an_overrun() -> None:
+    interval = 1.0 / 60.0
+
+    next_deadline = _next_tick_deadline(
+        1.0,
+        completed_at=1.005,
+        interval=interval,
+    )
+    assert next_deadline == pytest.approx(1.0 + interval)
+
+    reanchored = _next_tick_deadline(
+        next_deadline,
+        completed_at=1.1,
+        interval=interval,
+    )
+    assert reanchored == pytest.approx(1.1 + interval)
 
 
 class CallLog:
@@ -559,6 +581,7 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert held is not None
     assert torch.equal(held.output, first.output)
     assert not manager.advance(1)[0]
+    assert manager.presented_frame_count == 0
     assert ui.step(2, UserInputEvents([])) is None
 
 
@@ -571,8 +594,8 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
             self._log.record(f"session.step({step_index})")
             return StepResult(
                 step_index=step_index,
-                output=torch.arange(6, dtype=torch.float32).reshape(1, 3, 2, 1, 1),
-                frame_count=2,
+                output=torch.arange(36, dtype=torch.float32).reshape(1, 3, 12, 1, 1),
+                frame_count=12,
                 output_layout=self.session_desc.output_layout,
                 metrics={"total_ms": 1.5},
             )
@@ -599,12 +622,11 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
         steps=1,
     )
 
-    assert [result.frame_count for result in window.results] == [1, 1]
-    assert [result.output[0, 0, 0, 0, 0].item() for result in window.results] == [0, 1]
-    assert [result.metrics for result in window.results] == [
-        {"ui_ms": 0.25},
-        {"ui_ms": 0.25},
-    ]
+    assert [result.frame_count for result in window.results] == [1] * 12
+    assert [result.output[0, 0, 0, 0, 0].item() for result in window.results] == list(
+        range(12)
+    )
+    assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
     assert len(metrics.results) == 1
     assert metrics.results[0].metrics == {"total_ms": 1.5}
 
@@ -632,7 +654,7 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
     assert [result.step_index for result in window.results] == [0, 1, 2]
 
 
-def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:
+def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
     manager = PresentationManager()
     manager.configure(
         max_pending=1,
@@ -644,18 +666,38 @@ def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:
     def result(step_index: int, frames: int) -> StepResult:
         return StepResult(
             step_index=step_index,
-            output=torch.full((frames, 3, 1, 1), float(step_index)),
+            output=(
+                torch.arange(frames, dtype=torch.float32).reshape(frames, 1, 1, 1)
+                + step_index * 10
+            ).expand(-1, 3, -1, -1),
             frame_count=frames,
             output_layout=VideoTensorLayout.tchw,
         )
 
-    manager.publish(0, [result(0, 2)])
+    manager.publish(0, [result(0, 3)])
     assert manager.advance(0)[0]
+    assert manager.presented_frame_count == 1
     manager.publish(0, [result(1, 1)])
+    manager.publish(0, [result(2, 1)])
+
+    assert manager.advance(0)[0]
+    second = manager.presented_frame(0)
+    assert second is not None
+    assert second[0, 0, 0] == 1
+    assert manager.presented_frame_count == 2
+
+    assert manager.advance(0)[0]
+    third = manager.presented_frame(0)
+    assert third is not None
+    assert third[0, 0, 0] == 2
+    assert manager.presented_frame_count == 3
+
     assert manager.advance(0)[0]
     newest = manager.presented_frame(0)
     assert newest is not None
-    assert newest[0, 0, 0] == 1
+    assert newest[0, 0, 0] == 20
+    assert manager.presented_frame_count == 4
+    assert manager.dropped_for_space == 1
 
 
 def test_run_session_opens_window_with_the_resolved_session_desc() -> None:

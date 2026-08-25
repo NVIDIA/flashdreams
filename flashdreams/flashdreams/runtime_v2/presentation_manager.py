@@ -37,6 +37,7 @@ class PresentationManager:
         self._generation = 0
         self._presented_chunk: list[StepResult] | None = None
         self._frame_index = -1
+        self._presented_frame_count = 0
         self.dropped_for_space = 0
         """Chunks dropped because the UI could not keep up with the model."""
 
@@ -131,32 +132,31 @@ class PresentationManager:
             self._generation = generation
             self._presented_chunk = None
             self._frame_index = -1
-
-        if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
-            chunk = self._take_buffered_chunk(generation, latest=True)
-            if chunk is not None:
-                if (
-                    self._presented_chunk is not None
-                    and self._frame_index + 1 < self._presented_chunk[0].frame_count
-                ):
-                    self.dropped_for_space += 1
-                self._presented_chunk = chunk
-                self._frame_index = 0
-                return True, chunk
+            self._presented_frame_count = 0
 
         if (
             self._presented_chunk is not None
             and self._frame_index + 1 < self._presented_chunk[0].frame_count
         ):
             self._frame_index += 1
+            self._presented_frame_count += 1
             return True, None
 
-        chunk = self._take_buffered_chunk(generation, latest=False)
+        chunk = self._take_buffered_chunk(
+            generation,
+            latest=self._backpressure_mode is BackpressureMode.DROP_OLDEST,
+        )
         if chunk is None:
             return False, None
         self._presented_chunk = chunk
         self._frame_index = 0
+        self._presented_frame_count += 1
         return True, chunk
+
+    @property
+    def presented_frame_count(self) -> int:
+        """Return frames selected one-by-one in the current generation."""
+        return self._presented_frame_count
 
     def presented_frame(self, channel_index: int) -> Tensor | None:
         """Return the current ``[C, H, W]`` frame from one model channel."""
@@ -210,6 +210,7 @@ class PresentationManager:
         """Discard buffered and currently presented model results."""
         self._presented_chunk = None
         self._frame_index = -1
+        self._presented_frame_count = 0
         while True:
             try:
                 self._buffer.get_nowait()

@@ -17,6 +17,20 @@ PoseSegment = tuple[float, float, frozenset[str]]
 """One time interval and the camera-control keys held throughout it."""
 
 
+@dataclass(frozen=True, slots=True)
+class _KeyboardEdge:
+    """One timestamped keyboard state transition."""
+
+    arrival_t: float
+    """Seconds since the WebRTC session began."""
+
+    event: str
+    """KeyboardState transition or the internal ``release_all`` action."""
+
+    key: str | None = None
+    """Browser key identifier, or ``None`` for ``release_all``."""
+
+
 class KeyboardResampler:
     """Resample sparse key-down/key-up edges into a camera-control timeline."""
 
@@ -33,7 +47,7 @@ class KeyboardResampler:
         self._dt = 1.0 / self._fps
         self._supported_keys = supported_keys
         self.next_chunk_start_v = start_v
-        self._event_log: deque[tuple[float, dict[str, str]]] = deque()
+        self._event_log: deque[_KeyboardEdge] = deque()
         self._carried_state = KeyboardState(supported_keys=supported_keys)
 
     @property
@@ -48,15 +62,32 @@ class KeyboardResampler:
 
     def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
         """Record one keyboard edge in timestamp order."""
-        entry = (arrival_t, {"event": event, "key": key})
-        if not self._event_log or arrival_t >= self._event_log[-1][0]:
-            self._event_log.append(entry)
+        self._record_edge(_KeyboardEdge(arrival_t, event, key))
+
+    def release_all(self, *, arrival_t: float) -> None:
+        """Release every held key at ``arrival_t``, such as on focus loss."""
+        self._record_edge(_KeyboardEdge(arrival_t, "release_all"))
+
+    def _record_edge(self, edge: _KeyboardEdge) -> None:
+        """Insert ``edge`` while preserving timestamp order."""
+        if not self._event_log or edge.arrival_t >= self._event_log[-1].arrival_t:
+            self._event_log.append(edge)
             return
-        for index, (event_t, _) in enumerate(self._event_log):
-            if arrival_t < event_t:
-                self._event_log.insert(index, entry)
+        for index, queued_edge in enumerate(self._event_log):
+            if edge.arrival_t < queued_edge.arrival_t:
+                self._event_log.insert(index, edge)
                 return
-        self._event_log.append(entry)
+        self._event_log.append(edge)
+
+    def _apply_edge(self, edge: _KeyboardEdge) -> None:
+        """Apply one queued edge to the carried keyboard state."""
+        if edge.event == "release_all":
+            self._carried_state = KeyboardState(
+                supported_keys=self._supported_keys,
+            )
+            return
+        assert edge.key is not None
+        self._carried_state.apply_event(event=edge.event, key=edge.key)
 
     def sample_chunk(self, num_frames: int) -> tuple[list[PoseSegment], list[float]]:
         """Return key-state segments and sample times for one model chunk."""
@@ -65,18 +96,18 @@ class KeyboardResampler:
 
         chunk_start_v = self.next_chunk_start_v
         chunk_end_v = chunk_start_v + num_frames * self._dt
-        while self._event_log and self._event_log[0][0] < chunk_start_v:
-            _, payload = self._event_log.popleft()
-            self._carried_state.apply_event(**payload)
+        while self._event_log and self._event_log[0].arrival_t < chunk_start_v:
+            self._apply_edge(self._event_log.popleft())
 
         segments: list[PoseSegment] = []
         previous_t = chunk_start_v
         previous_state = self._carried_state.resolved_effective_keys()
-        while self._event_log and self._event_log[0][0] <= chunk_end_v:
-            event_t, payload = self._event_log.popleft()
+        while self._event_log and self._event_log[0].arrival_t <= chunk_end_v:
+            edge = self._event_log.popleft()
+            event_t = edge.arrival_t
             if event_t > previous_t:
                 segments.append((previous_t, event_t, previous_state))
-            self._carried_state.apply_event(**payload)
+            self._apply_edge(edge)
             previous_state = self._carried_state.resolved_effective_keys()
             previous_t = event_t
         if previous_t < chunk_end_v:

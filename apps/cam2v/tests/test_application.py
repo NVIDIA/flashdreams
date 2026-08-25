@@ -29,6 +29,7 @@ from cam2v import (
     Cam2VUIState,
     Cam2VUIStatus,
     CameraControlInput,
+    KeyboardResampler,
 )
 from cam2v.dummy import DummyCam2VPipelineConfig
 from cam2v.dummy import create_app as create_dummy_app
@@ -38,9 +39,14 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEventData,
     KeyboardInputState,
     KeyboardUserInputEventData,
     UserInputEvent,
@@ -158,6 +164,7 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
             log_every_blocks=1,
             warmup_blocks=0,
         ),
+        keyboard_resampler=KeyboardResampler(fps=16),
         cache=object(),
         ui_loop=ui_loop,
     )
@@ -196,6 +203,114 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     assert model_loop.is_finished()
 
 
+def _input_test_model_loop() -> tuple[Cam2VModelLoop, Cam2VModelState, _Pipeline]:
+    """Return a registered CPU model loop for camera-input tests."""
+    pipeline = _Pipeline()
+    state = Cam2VModelState(
+        pipeline=pipeline,
+        session_desc=SessionDesc(
+            output_layout=VideoTensorLayout.tchw,
+            frames_per_second_for_step=16,
+            video_width=1,
+            video_height=1,
+        ),
+        config=Cam2VSessionConfig(
+            conditioning=_conditioning(),
+            total_blocks=4,
+            device=torch.device("cpu"),
+            log_every_blocks=1,
+            warmup_blocks=4,
+        ),
+        keyboard_resampler=KeyboardResampler(fps=16),
+        cache=object(),
+    )
+    model_loop = Cam2VModelLoop()
+    model_loop.register_session_loop_objects(
+        state=state,
+        frequency=16,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    return model_loop, state, pipeline
+
+
+def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:
+    """Apply a short press in the next chunk even when the model clock lags."""
+    model_loop, state, pipeline = _input_test_model_loop()
+    events = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(10_000_000),
+                event_data=KeyboardUserInputEventData(
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
+                ),
+            ),
+            UserInputEvent(
+                timestamp=uint64(10_080_000),
+                event_data=KeyboardUserInputEventData(
+                    key="w",
+                    state=KeyboardInputState.RELEASED,
+                ),
+            ),
+        ]
+    )
+
+    model_loop.step(0, events)
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[-1, 2, 3].item() == pytest.approx(0.064)
+    assert state.keyboard_resampler.next_chunk_start_v == pytest.approx(10.125)
+
+
+def test_model_loop_releases_camera_controls_when_browser_loses_focus() -> None:
+    """Stop retained movement at the timestamped browser focus-loss edge."""
+    model_loop, _, pipeline = _input_test_model_loop()
+    events = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(0),
+                event_data=KeyboardUserInputEventData(
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
+                ),
+            ),
+            UserInputEvent(
+                timestamp=uint64(50_000),
+                event_data=FocusUserInputEventData(focused=False),
+            ),
+        ]
+    )
+
+    model_loop.step(0, events)
+
+    assert pipeline.camera_input is not None
+    poses = pipeline.camera_input.poses
+    assert poses[0, 2, 3].item() == pytest.approx(0.04)
+    assert poses[1, 2, 3].item() == pytest.approx(0.04)
+
+
+def test_model_loop_normalizes_browser_arrow_keys() -> None:
+    """Use the shared keyboard normalization without an input registry."""
+    model_loop, _, pipeline = _input_test_model_loop()
+    events = UserInputEvents(
+        [
+            UserInputEvent(
+                timestamp=uint64(0),
+                event_data=KeyboardUserInputEventData(
+                    key="ArrowUp",
+                    state=KeyboardInputState.PRESSED,
+                ),
+            )
+        ]
+    )
+
+    model_loop.step(0, events)
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[-1, 2, 3].item() == pytest.approx(0.1)
+
+
 def test_slangpy_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> None:
     """Keep immediate input display in UI-loop-owned state."""
     logger = Mock()
@@ -207,8 +322,8 @@ def test_slangpy_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> N
         [
             StepResult(
                 step_index=0,
-                output=torch.zeros((1, 3, 2, 2), dtype=torch.bfloat16),
-                frame_count=1,
+                output=torch.zeros((3, 3, 2, 2), dtype=torch.bfloat16),
+                frame_count=3,
                 output_layout=VideoTensorLayout.tchw,
             )
         ],
@@ -257,6 +372,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> N
     assert back_buffer.dtype is torch.float32
     displayed = [widget.text for widget in state.status_widgets]
     assert "Rollout: 2/4 blocks" in displayed
+    assert "Presented: 1 frames (24 generated)" in displayed
     assert "Latest model rate: 13.50 FPS" in displayed
     assert state.active_keys_widget is not None
     assert state.active_keys_widget.text == "Active keys: W"
@@ -269,6 +385,11 @@ def test_slangpy_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> N
         "w",
     )
 
+    assert presentation_manager.advance(0)[0]
+    ui_loop.step_ui(ui, 1, UserInputEvents([]))
+    displayed = [widget.text for widget in state.status_widgets]
+    assert "Presented: 2 frames (24 generated)" in displayed
+
 
 def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
     """Construct the overlay at the shared session boundary."""
@@ -276,6 +397,7 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
         pipeline=_Pipeline(),
         session_desc=SessionDesc(
             output_layout=VideoTensorLayout.tchw,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
             frames_per_second_for_step=16,
             video_width=8,
             video_height=4,
@@ -293,6 +415,9 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
 
     assert isinstance(session.ui_loop, Cam2VSlangPyUILoop)
     assert session.ui_loop.state.total_blocks == 2
+    assert session.model_loop.state.keyboard_resampler.fps == 16
+    assert session.session_desc.backpressure_mode is BackpressureMode.BLOCK
+    assert session.session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
 
 
 def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> None:
@@ -388,6 +513,8 @@ def test_dummy_cam2v_application_exposes_slow_step_controls() -> None:
     )
 
     assert isinstance(app, Cam2VApplication)
+    assert app.session_desc().backpressure_mode is BackpressureMode.BLOCK
+    assert app.session_desc().presentation_mode is PresentationMode.ONLY_PRESENT_NEW
     assert app.pipeline_config == DummyCam2VPipelineConfig(
         step_wait_seconds=0.25,
         frames_per_chunk=3,
