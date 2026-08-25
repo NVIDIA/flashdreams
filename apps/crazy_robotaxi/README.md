@@ -193,7 +193,8 @@ The complete, authoritative format is documented in
 The bundled `minimal_loop.robotaxi.yaml` is a compact working example,
 `race_track_minimal.robotaxi.yaml` is a wide stadium oval,
 `demo_race_track.robotaxi.yaml` is a technical one-lap Grand Prix circuit with
-sweeping Bézier corners and a two-part chicane, and
+varied-radius Bézier corners, two hairpins, descending esses, and a final
+chicane, and
 `boulevard_district.robotaxi.yaml` recreates the original scene's surface-street
 layout at its source scale, including the curved arterial split, neighborhood
 grid, eastern commercial loops, cul-de-sacs, and parking lots.
