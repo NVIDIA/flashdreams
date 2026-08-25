@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import sys
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -915,7 +916,23 @@ def test_race_hud_bev_always_draws_thick_red_gate() -> None:
 
     pixels = np.asarray(canvas)
     assert np.any(np.all(pixels == np.array([230, 45, 45, 255]), axis=-1))
-    assert np.any(np.all(pixels == np.array([200, 150, 50, 255]), axis=-1))
+    assert not np.any(np.all(pixels == np.array([200, 150, 50, 255]), axis=-1))
+
+    presenter._latest_presented_frame.application_state = replace(
+        snapshot,
+        target_xyz_m=(1000.0, 0.0, 0.0),
+        gate_start_xyz_m=(1000.0, -2.0, 0.0),
+        gate_end_xyz_m=(1000.0, 2.0, 0.0),
+    )
+    distant_canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+
+    presenter._draw_bev_taxi_target(
+        ImageDraw.Draw(distant_canvas), (20, 10, 80, 70), marker_size=10
+    )
+
+    distant_pixels = np.asarray(distant_canvas)
+    assert np.any(np.all(distant_pixels == np.array([230, 45, 45, 255]), axis=-1))
+    assert not np.any(np.all(distant_pixels == np.array([200, 150, 50, 255]), axis=-1))
 
 
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:

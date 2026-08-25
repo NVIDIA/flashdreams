@@ -70,7 +70,9 @@ def test_streaming_page_contains_taxi_name_and_leaderboard_controls() -> None:
     assert 'id="new-game"' in _INDEX_HTML
     assert "race-gate" in _INDEX_HTML
     assert "bev-edge-arrow" in _INDEX_HTML
-    assert "appendBevEdgeArrow(taxi.bev_arrow)" in _INDEX_HTML
+    assert "appendBevEdgeArrow(taxi.bev_arrow, true)" in _INDEX_HTML
+    assert "appendBevEdgeArrow(taxi.bev_arrow, false)" in _INDEX_HTML
+    assert ".bev-edge-arrow.race path { fill: #e62d2d; }" in _INDEX_HTML
     assert "taxi.elapsed_time}" in _INDEX_HTML
     assert "entry.elapsed_time" in _INDEX_HTML
     assert "taxi.elapsed_time_s.toFixed(3)" not in _INDEX_HTML
@@ -252,7 +254,20 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     )
     dropoff_snapshot = presenter._state_snapshot()
 
-    assert dropoff_snapshot["taxi"]["bev_arrow"] == {"u": 0.5, "v": 0.0}
+    assert "bev_arrow" not in dropoff_snapshot["taxi"]
+
+    presenter._latest_presented_frame.application_state = replace(
+        taxi,
+        phase="to_dropoff",
+        target_xyz_m=(1000.0, 0.0, 0.0),
+        distance_m=1000.0,
+        remaining_time_s=20.0,
+        pickup_targets_xyz_m=(),
+    )
+    distant_dropoff_snapshot = presenter._state_snapshot()
+
+    assert distant_dropoff_snapshot["taxi"]["bev_arrow"]["u"] == pytest.approx(0.5)
+    assert distant_dropoff_snapshot["taxi"]["bev_arrow"]["v"] == pytest.approx(0.0)
 
 
 def test_streaming_state_always_includes_race_bev_gate() -> None:
@@ -277,9 +292,22 @@ def test_streaming_state_always_includes_race_bev_gate() -> None:
     assert snapshot["taxi"]["checkpoint_markers"] is False
     assert snapshot["taxi"]["target_label"] == "CHECKPOINT"
     assert snapshot["taxi"]["elapsed_time"] == "0:01.000"
-    assert snapshot["taxi"]["bev_arrow"] == {"u": 0.5, "v": 0.0}
+    assert "bev_arrow" not in snapshot["taxi"]
     assert snapshot["taxi"]["bev_gate"]["start"]["visible"] is True
     assert snapshot["taxi"]["bev_gate"]["end"]["visible"] is True
+
+    presenter._latest_presented_frame.application_state = replace(
+        race,
+        target_xyz_m=(1000.0, 0.0, 0.0),
+        gate_start_xyz_m=(1000.0, -2.0, 0.0),
+        gate_end_xyz_m=(1000.0, 2.0, 0.0),
+    )
+    distant_snapshot = presenter._state_snapshot()
+
+    assert distant_snapshot["taxi"]["bev_arrow"]["u"] == pytest.approx(0.5)
+    assert distant_snapshot["taxi"]["bev_arrow"]["v"] == pytest.approx(0.0)
+    assert distant_snapshot["taxi"]["bev_gate"]["start"]["visible"] is False
+    assert distant_snapshot["taxi"]["bev_gate"]["end"]["visible"] is False
 
 
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:

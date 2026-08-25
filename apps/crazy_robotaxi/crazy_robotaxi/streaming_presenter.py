@@ -59,6 +59,7 @@ from PIL import Image, ImageDraw
 
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
+    project_segment_pose_to_bev,
     project_target_to_bev,
     project_target_to_bev_edge,
     project_taxi_markers_to_camera,
@@ -368,6 +369,7 @@ _INDEX_HTML = """<!doctype html>
   .bev-edge-arrow path {
     fill: #c89632; stroke: white; stroke-width: 2.5px; stroke-linejoin: round;
   }
+  .bev-edge-arrow.race path { fill: #e62d2d; }
   .game-over {
     position: fixed; inset: 0; display: flex; align-items: center;
     justify-content: center; background: rgba(0, 0, 0, 0.72);
@@ -591,7 +593,7 @@ function paintGameOver(taxi) {
   }
   previousTaxiSession = state;
 }
-function appendBevEdgeArrow(spec) {
+function appendBevEdgeArrow(spec, race) {
   if (!spec) return;
   const width = taxiMapEl.clientWidth;
   const height = taxiMapEl.clientHeight;
@@ -604,7 +606,7 @@ function appendBevEdgeArrow(spec) {
   if (length <= 0.001) return;
   const inset = 16;
   const arrow = document.createElement('div');
-  arrow.className = 'bev-edge-arrow';
+  arrow.className = `bev-edge-arrow${race ? ' race' : ''}`;
   arrow.style.left = `${edgeX - dx / length * inset}px`;
   arrow.style.top = `${edgeY - dy / length * inset}px`;
   arrow.style.transform = `translate(-50%, -50%) rotate(${Math.atan2(dy, dx)}rad)`;
@@ -679,7 +681,7 @@ function paintTaxi(taxi) {
       gate.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
       taxiPinsEl.appendChild(gate);
     }
-    appendBevEdgeArrow(taxi.bev_arrow);
+    appendBevEdgeArrow(taxi.bev_arrow, true);
     return;
   }
   markers.filter(marker => marker.visible).forEach(marker => {
@@ -689,7 +691,7 @@ function paintTaxi(taxi) {
     pin.style.top = `${marker.v * 100}%`;
     taxiPinsEl.appendChild(pin);
   });
-  appendBevEdgeArrow(taxi.bev_arrow);
+  appendBevEdgeArrow(taxi.bev_arrow, false);
 }
 nameEntryEl.addEventListener('submit', async event => {
   event.preventDefault();
@@ -1249,31 +1251,54 @@ class MJPEGStreamingPresenter:
             )
             if vehicle_state is not None and self._bev_config is not None:
                 if isinstance(taxi_state, RaceGameSnapshot):
-                    start_u, start_v, start_visible = project_target_to_bev(
-                        taxi_state.gate_start_xyz_m,
-                        vehicle_state,
-                        self._bev_config,
+                    visible_gate = (
+                        project_segment_pose_to_bev(
+                            np.asarray(
+                                [
+                                    taxi_state.gate_start_xyz_m,
+                                    taxi_state.gate_end_xyz_m,
+                                ],
+                                dtype=np.float32,
+                            ),
+                            frame.bev_rig_to_world,
+                            self._bev_config,
+                        )
+                        if frame is not None and frame.bev_rig_to_world is not None
+                        else None
                     )
-                    end_u, end_v, end_visible = project_target_to_bev(
-                        taxi_state.gate_end_xyz_m,
-                        vehicle_state,
-                        self._bev_config,
-                    )
+                    if visible_gate is None:
+                        start_u, start_v, _ = project_target_to_bev(
+                            taxi_state.gate_start_xyz_m,
+                            vehicle_state,
+                            self._bev_config,
+                        )
+                        end_u, end_v, _ = project_target_to_bev(
+                            taxi_state.gate_end_xyz_m,
+                            vehicle_state,
+                            self._bev_config,
+                        )
+                    else:
+                        (start_u, start_v), (end_u, end_v) = visible_gate
                     taxi_payload["bev_gate"] = {
                         "start": {
                             "u": start_u,
                             "v": start_v,
-                            "visible": start_visible,
+                            "visible": visible_gate is not None,
                         },
-                        "end": {"u": end_u, "v": end_v, "visible": end_visible},
+                        "end": {
+                            "u": end_u,
+                            "v": end_v,
+                            "visible": visible_gate is not None,
+                        },
                     }
-                    edge = project_target_to_bev_edge(
-                        taxi_state.target_xyz_m,
-                        vehicle_state,
-                        self._bev_config,
-                    )
-                    if edge is not None:
-                        taxi_payload["bev_arrow"] = {"u": edge[0], "v": edge[1]}
+                    if visible_gate is None:
+                        edge = project_target_to_bev_edge(
+                            taxi_state.target_xyz_m,
+                            vehicle_state,
+                            self._bev_config,
+                        )
+                        if edge is not None:
+                            taxi_payload["bev_arrow"] = {"u": edge[0], "v": edge[1]}
                     taxi_payload["bev_targets"] = []
                     result["taxi"] = taxi_payload
                     return result
@@ -1290,7 +1315,9 @@ class MJPEGStreamingPresenter:
                     )
                     bev_targets.append({"u": u, "v": v, "visible": visible})
                 taxi_payload["bev_targets"] = bev_targets
-                if taxi_state.phase == "to_dropoff":
+                if taxi_state.phase == "to_dropoff" and not any(
+                    target["visible"] for target in bev_targets
+                ):
                     edge = project_target_to_bev_edge(
                         taxi_state.target_xyz_m,
                         vehicle_state,

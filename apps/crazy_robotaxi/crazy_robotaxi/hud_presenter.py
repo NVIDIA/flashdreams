@@ -63,6 +63,7 @@ from PIL import Image, ImageDraw, ImageFont
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     TaxiGameSnapshot,
+    project_segment_pose_to_bev,
     project_target_pose_to_bev,
     project_target_pose_to_bev_edge,
     project_taxi_markers_to_camera,
@@ -82,6 +83,7 @@ HEADER_BG: tuple[int, int, int] = (35, 35, 50)
 HOVER_BG: tuple[int, int, int] = (50, 60, 80)
 ACTIVE_BG: tuple[int, int, int] = (30, 80, 30)
 ACCENT_AMBER: tuple[int, int, int] = (200, 150, 50)
+RACE_RED: tuple[int, int, int] = (230, 45, 45)
 GMAPS_LAND_RGB: tuple[int, int, int] = (234, 226, 209)
 
 # Initial windowed dimensions and minimum size.
@@ -2670,13 +2672,16 @@ class SlangPyHudPresenter:
         if content_w <= 0 or content_h <= 0:
             return
         if isinstance(snapshot, RaceGameSnapshot):
-            start_u, start_v, start_visible = project_target_pose_to_bev(
-                snapshot.gate_start_xyz_m, bev_pose, bev
+            visible_gate = project_segment_pose_to_bev(
+                np.asarray(
+                    [snapshot.gate_start_xyz_m, snapshot.gate_end_xyz_m],
+                    dtype=np.float32,
+                ),
+                bev_pose,
+                bev,
             )
-            end_u, end_v, end_visible = project_target_pose_to_bev(
-                snapshot.gate_end_xyz_m, bev_pose, bev
-            )
-            if start_visible or end_visible:
+            if visible_gate is not None:
+                (start_u, start_v), (end_u, end_v) = visible_gate
                 line = (
                     (
                         round(left + start_u * content_w),
@@ -2685,15 +2690,17 @@ class SlangPyHudPresenter:
                     (round(left + end_u * content_w), round(top + end_v * content_h)),
                 )
                 draw.line(line, fill=(255, 255, 255, 255), width=13)
-                draw.line(line, fill=(230, 45, 45, 255), width=9)
-            self._draw_bev_edge_arrow(
-                draw,
-                content_rect,
-                marker_size,
-                snapshot.target_xyz_m,
-                bev_pose,
-                bev,
-            )
+                draw.line(line, fill=RACE_RED + (255,), width=9)
+            else:
+                self._draw_bev_edge_arrow(
+                    draw,
+                    content_rect,
+                    marker_size,
+                    snapshot.target_xyz_m,
+                    bev_pose,
+                    bev,
+                    RACE_RED,
+                )
             return
         color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
         radius = max(8, marker_size - 2)
@@ -2702,10 +2709,12 @@ class SlangPyHudPresenter:
             if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
             else (snapshot.target_xyz_m,)
         )
+        target_visible = False
         for target in targets:
             u, v, visible = project_target_pose_to_bev(target, bev_pose, bev)
             if not visible:
                 continue
+            target_visible = True
             cx = round(left + u * content_w)
             cy = round(top + v * content_h)
             draw.ellipse(
@@ -2723,7 +2732,7 @@ class SlangPyHudPresenter:
                 outline=(20, 20, 30, 255),
                 width=2,
             )
-        if snapshot.phase == "to_dropoff":
+        if snapshot.phase == "to_dropoff" and not target_visible:
             self._draw_bev_edge_arrow(
                 draw,
                 content_rect,
@@ -2731,6 +2740,7 @@ class SlangPyHudPresenter:
                 snapshot.target_xyz_m,
                 bev_pose,
                 bev,
+                ACCENT_AMBER,
             )
 
     @staticmethod
@@ -2741,6 +2751,7 @@ class SlangPyHudPresenter:
         target_xyz_m: tuple[float, float, float],
         bev_pose: npt.NDArray[np.float32],
         bev: BevConfig,
+        color: tuple[int, int, int],
     ) -> None:
         """Draw an inward-offset arrow where the target ray meets the BEV edge."""
         projected = project_target_pose_to_bev_edge(target_xyz_m, bev_pose, bev)
@@ -2779,7 +2790,7 @@ class SlangPyHudPresenter:
             ]
 
         draw.polygon(arrow(1.0), fill=(255, 255, 255, 255))
-        draw.polygon(arrow(0.68), fill=ACCENT_AMBER + (255,))
+        draw.polygon(arrow(0.68), fill=color + (255,))
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
