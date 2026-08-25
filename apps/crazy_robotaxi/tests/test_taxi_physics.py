@@ -380,7 +380,7 @@ def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> N
         )
     assert decision is not None
     assert decision.drive_enabled is True
-    assert decision.detached_from_track is True
+    assert decision.detached_from_track is False
     assert state.phase is MapTrafficPhase.RECOVERING
     projected_position, projected_orientation, projected_velocity = (
         state.scene_object.sample(int(state.timestamp_us))
@@ -388,13 +388,16 @@ def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> N
     np.testing.assert_allclose(projected_position[:2], [20.0, 8.0], atol=1.0e-4)
     assert state.route_segment_index == 1
 
-    # A car facing backward remains physically detached; recovery does not snap it.
-    controller.observe_physics(
+    # Track stabilization is reattached, but gameplay recovery continues until the
+    # physical pose and velocity match the route.
+    decision = controller.observe_physics(
         object_id,
         struck=False,
         body=_body_at(tuple(projected_position[:2]), yaw_rad=math.pi),
         dt_s=0.25,
     )
+    assert decision is not None
+    assert decision.detached_from_track is False
     assert state.phase is MapTrafficPhase.RECOVERING
     np.testing.assert_allclose(state.position_m[:2], projected_position[:2])
 
@@ -410,6 +413,42 @@ def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> N
     assert decision is not None
     assert decision.detached_from_track is False
     assert state.phase is MapTrafficPhase.TRAVERSING
+
+
+def test_map_traffic_collision_settling_has_a_maximum_duration() -> None:
+    controller, object_id = _recovery_controller()
+    unsettled = _body_at((18.0, 8.0), angular_speed_radps=1.0)
+    controller.observe_physics(
+        object_id,
+        struck=True,
+        body=unsettled,
+        dt_s=0.25,
+    )
+
+    for _ in range(11):
+        decision = controller.observe_physics(
+            object_id,
+            struck=False,
+            body=unsettled,
+            dt_s=0.25,
+        )
+        assert decision is not None
+        assert decision.drive_enabled is False
+        assert decision.detached_from_track is True
+
+    decision = controller.observe_physics(
+        object_id,
+        struck=False,
+        body=unsettled,
+        dt_s=0.25,
+    )
+
+    state = controller.state(object_id)
+    assert state is not None
+    assert decision is not None
+    assert decision.drive_enabled is True
+    assert decision.detached_from_track is False
+    assert state.phase is MapTrafficPhase.RECOVERING
 
 
 def test_map_traffic_recollision_and_offscreen_reset_share_one_state() -> None:

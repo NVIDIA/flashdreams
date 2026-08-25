@@ -25,6 +25,7 @@ _LANE_CORRIDOR_M = 2.25
 _MAX_HEADING_DELTA_RAD = math.radians(40.0)
 _HEADWAY_GRID_CELL_M = 64.0
 _RESTART_AFTER_STOPPED_S = 1.0
+_MAX_COLLISION_SETTLING_S = 3.0
 _STOPPED_LINEAR_SPEED_MPS = 0.10
 _STOPPED_ANGULAR_SPEED_RADPS = 0.10
 _RECOVERED_POSITION_ERROR_M = 0.60
@@ -72,13 +73,14 @@ class MapTrafficVehicleState:
     velocity_scale: float = 1.0
     phase: MapTrafficPhase = MapTrafficPhase.TRAVERSING
     stopped_duration_s: float = 0.0
+    collision_duration_s: float = 0.0
 
     @property
     def decision(self) -> MapTrafficDecision:
         """Return control outputs derived solely from the gameplay phase."""
         return MapTrafficDecision(
             drive_enabled=self.phase is not MapTrafficPhase.COLLISION,
-            detached_from_track=self.phase is not MapTrafficPhase.TRAVERSING,
+            detached_from_track=self.phase is MapTrafficPhase.COLLISION,
         )
 
     @property
@@ -264,6 +266,7 @@ class MapTrafficController:
     def _reset_offscreen(cls, state: MapTrafficVehicleState) -> None:
         state.phase = MapTrafficPhase.TRAVERSING
         state.stopped_duration_s = 0.0
+        state.collision_duration_s = 0.0
         state.velocity_scale = 1.0
         cls._set_route_snapshot(state)
 
@@ -460,9 +463,11 @@ class MapTrafficController:
         if struck:
             state.phase = MapTrafficPhase.COLLISION
             state.stopped_duration_s = 0.0
+            state.collision_duration_s = 0.0
             return state.decision
 
         if state.phase is MapTrafficPhase.COLLISION:
+            state.collision_duration_s += dt_s
             linear_speed = float(np.linalg.norm(body.linear_velocity_mps[:2]))
             angular_speed = float(np.linalg.norm(body.angular_velocity_radps))
             stopped = (
@@ -472,13 +477,17 @@ class MapTrafficController:
             state.stopped_duration_s = (
                 state.stopped_duration_s + dt_s if stopped else 0.0
             )
-            if state.stopped_duration_s >= _RESTART_AFTER_STOPPED_S:
+            if (
+                state.stopped_duration_s >= _RESTART_AFTER_STOPPED_S
+                or state.collision_duration_s >= _MAX_COLLISION_SETTLING_S
+            ):
                 self._apply_route_projection(
                     state,
                     self._nearest_route_projection(state, body.position_m[:2]),
                 )
                 state.phase = MapTrafficPhase.RECOVERING
                 state.stopped_duration_s = 0.0
+                state.collision_duration_s = 0.0
                 state.velocity_scale = 1.0
         elif state.phase is MapTrafficPhase.RECOVERING and self._is_recovered(
             state, body
