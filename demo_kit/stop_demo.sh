@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Stop the Crazy Robotaxi hosted demo: kill the tmux session and any
 # leftover app process, then report port and GPU state.
 set -u

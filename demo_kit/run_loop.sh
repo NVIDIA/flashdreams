@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Auto-restart loop for the Crazy Robotaxi demo, run inside the
 # `robotaxi-demo` tmux session by start_demo.sh. If the app exits it is
 # relaunched after a 10 s delay, capped at 5 restarts per rolling hour.
