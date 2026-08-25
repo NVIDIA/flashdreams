@@ -23,7 +23,7 @@ NVIDIA OmniDreams
 
       Blog page
 
-   .. button-link:: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf
+   .. button-link:: https://arxiv.org/abs/2606.03159
       :color: primary
 
       Tech report
@@ -477,9 +477,12 @@ If you use OmniDreams, please cite the original work:
 .. code-block:: bibtex
 
    @misc{nvidia2026omnidreams,
-     title={OmniDreams: Real-Time Generative Closed-Loop Autonomous Vehicle Simulation Built on NVIDIA Cosmos},
-     author={Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Wang, Jialiang and Lucas, James and Wu, Jay and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Michal and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Ren, Xuanchi and Lu, Yifan and Gojcic, Zan and Wang, Zian},
-     year={2026},
-     note={Technical report},
-     howpublished={\url{https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf}}
+     title         = {{NVIDIA} {OmniDreams}: Real-Time Generative World Model for Closed-Loop Autonomous Vehicle Simulation},
+     author        = {Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Wei, Fangyin and Ferroni, Francesco and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Lucas, James and Wu, Jay Zhangjie and Wang, Jialiang and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Micha{\l} and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Wu, Xindi and Ren, Xuanchi and Lu, Yifan and Zhang, Yuxuan and Gojcic, Zan and Wang, Zian},
+     year          = {2026},
+     eprint        = {2606.03159},
+     archivePrefix = {arXiv},
+     primaryClass  = {cs.CV},
+     doi           = {10.48550/arXiv.2606.03159},
+     url           = {https://arxiv.org/abs/2606.03159},
    }
