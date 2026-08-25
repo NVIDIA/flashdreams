@@ -42,6 +42,7 @@ race_courses:
     start: south_west
     checkpoints: [southeast, east_north, north, west_south]
     lap_count: 3
+    checkpoint_markers: true
 
 spawns:
   - id: start

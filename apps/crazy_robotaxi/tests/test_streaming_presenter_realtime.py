@@ -11,6 +11,7 @@ from crazy_robotaxi.game import TaxiGameSnapshot
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
+from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.streaming_presenter import (
     _INDEX_HTML,
     MJPEGStreamingPresenter,
@@ -38,12 +39,35 @@ from omnidreams_game_engine.types import (
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 
 
+def _race_snapshot(*, checkpoint_markers: bool) -> RaceGameSnapshot:
+    return RaceGameSnapshot(
+        map_id="map",
+        course_id="course",
+        session_state="racing",
+        target_kind="checkpoint",
+        target_element_id="checkpoint",
+        target_xyz_m=(10.0, 0.0, 0.0),
+        gate_start_xyz_m=(10.0, -2.0, 0.0),
+        gate_end_xyz_m=(10.0, 2.0, 0.0),
+        checkpoint_markers=checkpoint_markers,
+        distance_m=10.0,
+        relative_bearing_rad=0.0,
+        checkpoint_index=0,
+        checkpoint_count=2,
+        completed_laps=0,
+        lap_count=0,
+        elapsed_time_us=1_000_000,
+        best_time_us=None,
+    )
+
+
 def test_streaming_page_contains_taxi_name_and_leaderboard_controls() -> None:
     assert 'id="name-entry"' in _INDEX_HTML
     assert 'id="player-name"' in _INDEX_HTML
     assert "'/taxi/name'" in _INDEX_HTML
     assert 'id="score-rows"' in _INDEX_HTML
     assert 'id="new-game"' in _INDEX_HTML
+    assert "race-gate" in _INDEX_HTML
     assert 'id="taxi-boundaries"' not in _INDEX_HTML
     assert 'id="scene-picker"' not in _INDEX_HTML
     assert "fetchScenes" not in _INDEX_HTML
@@ -108,6 +132,38 @@ def test_streaming_presenter_draws_visible_world_marker() -> None:
 
     assert np.count_nonzero(marked) > 0
     assert np.any(np.all(marked == np.array([118, 185, 0]), axis=2))
+
+
+@pytest.mark.parametrize("checkpoint_markers", [False, True])
+def test_streaming_race_gate_respects_camera_marker_setting(
+    checkpoint_markers: bool,
+) -> None:
+    calibration = CameraCalibration(
+        clipgt_name="camera:test",
+        logical_name="camera_test",
+        width=100,
+        height=80,
+        cx=50.0,
+        cy=40.0,
+        polynomial=np.array([0.0, 0.01], dtype=np.float32),
+        is_backward_polynomial=True,
+        linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
+    )
+    frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((80, 100, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        rig_to_world=np.eye(4, dtype=np.float32),
+        application_state=_race_snapshot(checkpoint_markers=checkpoint_markers),
+    )
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._taxi_camera_calibration = calibration
+    presenter._taxi_camera_models = {(100, 80): FThetaCameraModel(calibration)}
+
+    marked = presenter._with_taxi_world_marker(frame.rgb_host_uint8, frame)
+
+    assert bool(np.count_nonzero(marked)) is checkpoint_markers
 
 
 def test_streaming_presenter_publishes_jpeg_on_latest_frame_bus() -> None:
@@ -180,6 +236,30 @@ def test_streaming_state_snapshot_includes_taxi_payload() -> None:
     assert len(snapshot["taxi"]["bev_targets"]) == 4
     assert all(target["visible"] for target in snapshot["taxi"]["bev_targets"])
     assert "bev_enclosure_segments" not in snapshot["taxi"]
+
+
+def test_streaming_state_always_includes_race_bev_gate() -> None:
+    keyboard = CrazyRobotaxiKeyboardState()
+    vehicle = VehicleState(0.0, 0.0, 0.0, 0.0, 3.0, 0.0)
+    race = _race_snapshot(checkpoint_markers=False)
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._keyboard = keyboard
+    presenter._taxi_enabled = True
+    presenter._bev_config = BevConfig(tilt_deg=0.0)
+    presenter._latest_presented_frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        vehicle_state=vehicle,
+        application_state=race,
+        bev_rig_to_world=rig_pose_from_vehicle_state(vehicle),
+    )
+
+    snapshot = presenter._state_snapshot()
+
+    assert snapshot["taxi"]["checkpoint_markers"] is False
+    assert snapshot["taxi"]["bev_gate"]["start"]["visible"] is True
+    assert snapshot["taxi"]["bev_gate"]["end"]["visible"] is True
 
 
 def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:

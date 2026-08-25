@@ -65,7 +65,7 @@ from crazy_robotaxi.game import (
     project_target_pose_to_bev,
     project_taxi_markers_to_camera,
 )
-from crazy_robotaxi.race import RaceGameSnapshot
+from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 
 # Colour palette mirrors :mod:`omnidreams_game_engine.demo` for a
@@ -1603,7 +1603,7 @@ class SlangPyHudPresenter:
         cx = (ax + ar) // 2
         elapsed = snapshot.elapsed_time_us / 1_000_000.0
         if snapshot.session_state == "awaiting_start":
-            progress = "ENTER START TO BEGIN"
+            progress = "CROSS START LINE TO BEGIN"
         elif snapshot.lap_count == 0:
             progress = (
                 f"CHECKPOINT {snapshot.checkpoint_index + 1}/"
@@ -1856,15 +1856,8 @@ class SlangPyHudPresenter:
                 output_height=source_height,
             )
             self._taxi_camera_models[model_key] = camera_model
-        markers = project_taxi_markers_to_camera(
-            frame.application_state,
-            frame.rig_to_world,
-            camera_model,
-            image_width=source_width,
-            image_height=source_height,
-        )
         fit = self._compute_camera_fit()
-        if not markers or fit is None:
+        if fit is None:
             return
         fit_width, fit_height, offset_x, offset_y = fit
         area_x, area_y, _area_right, _area_bottom = camera_area
@@ -1876,23 +1869,54 @@ class SlangPyHudPresenter:
             )
 
         if isinstance(frame.application_state, RaceGameSnapshot):
-            color = ACCENT_AMBER
+            gate = project_race_gate_to_camera(
+                frame.application_state,
+                frame.rig_to_world,
+                camera_model,
+                image_width=source_width,
+                image_height=source_height,
+            )
+            if gate is None:
+                return
+            line = (display_point(gate[0]), display_point(gate[1]))
+            draw.line(line, fill=(0, 0, 0, 235), width=13)
+            draw.line(line, fill=(230, 55, 55, 255), width=9)
             label = (
                 "START"
                 if frame.application_state.target_kind == "start"
                 else f"CP {frame.application_state.checkpoint_index + 1}"
             )
-        else:
-            color = (
-                NVIDIA_GREEN
-                if frame.application_state.phase == "seeking_pickup"
-                else ACCENT_AMBER
+            center = (
+                (line[0][0] + line[1][0]) // 2,
+                (line[0][1] + line[1][1]) // 2,
             )
-            label = (
-                "PICKUP"
-                if frame.application_state.phase == "seeking_pickup"
-                else "DROPOFF"
+            label_box = _measure_text(self._font_small, label)
+            draw.text(
+                (center[0] - (label_box[2] - label_box[0]) // 2, center[1] - 26),
+                label,
+                fill=(255, 255, 255),
+                font=self._font_small,
+                stroke_width=3,
+                stroke_fill=(0, 0, 0),
             )
+            return
+        markers = project_taxi_markers_to_camera(
+            frame.application_state,
+            frame.rig_to_world,
+            camera_model,
+            image_width=source_width,
+            image_height=source_height,
+        )
+        if not markers:
+            return
+        color = (
+            NVIDIA_GREEN
+            if frame.application_state.phase == "seeking_pickup"
+            else ACCENT_AMBER
+        )
+        label = (
+            "PICKUP" if frame.application_state.phase == "seeking_pickup" else "DROPOFF"
+        )
         for marker in markers:
             self._draw_taxi_marker_projection(
                 draw,
@@ -2641,6 +2665,24 @@ class SlangPyHudPresenter:
         content_w = right - left
         content_h = bottom - top
         if content_w <= 0 or content_h <= 0:
+            return
+        if isinstance(snapshot, RaceGameSnapshot):
+            start_u, start_v, start_visible = project_target_pose_to_bev(
+                snapshot.gate_start_xyz_m, bev_pose, bev
+            )
+            end_u, end_v, end_visible = project_target_pose_to_bev(
+                snapshot.gate_end_xyz_m, bev_pose, bev
+            )
+            if start_visible or end_visible:
+                line = (
+                    (
+                        round(left + start_u * content_w),
+                        round(top + start_v * content_h),
+                    ),
+                    (round(left + end_u * content_w), round(top + end_v * content_h)),
+                )
+                draw.line(line, fill=(255, 255, 255, 255), width=13)
+                draw.line(line, fill=(230, 45, 45, 255), width=9)
             return
         color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
         radius = max(8, marker_size - 2)

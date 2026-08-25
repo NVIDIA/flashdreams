@@ -1016,10 +1016,12 @@ def _parse_race_courses(
     course_ids: set[str] = set()
     for index, value in enumerate(values):
         raw = _mapping(value, f"race_courses[{index}]")
-        expected = {"id", "start", "checkpoints", "lap_count"}
-        if set(raw) != expected:
+        required = {"id", "start", "checkpoints", "lap_count"}
+        allowed = required | {"checkpoint_markers"}
+        if not required <= set(raw) or not set(raw) <= allowed:
             raise GameMapError(
-                f"race_courses[{index}] requires exactly {sorted(expected)}"
+                f"race_courses[{index}] requires {sorted(required)} and optionally "
+                "'checkpoint_markers'"
             )
         course_id = str(raw["id"]).strip()
         if not course_id or course_id in course_ids:
@@ -1062,12 +1064,18 @@ def _parse_race_courses(
             raise GameMapError(
                 f"Race course {course_id!r}.lap_count must be a nonnegative integer"
             )
+        checkpoint_markers = raw.get("checkpoint_markers", True)
+        if type(checkpoint_markers) is not bool:
+            raise GameMapError(
+                f"Race course {course_id!r}.checkpoint_markers must be a boolean"
+            )
         courses.append(
             GameMapRaceCourse(
                 course_id=course_id,
                 start_element_id=start,
                 checkpoint_element_ids=checkpoints,
                 lap_count=lap_count,
+                checkpoint_markers=checkpoint_markers,
             )
         )
     return tuple(courses)

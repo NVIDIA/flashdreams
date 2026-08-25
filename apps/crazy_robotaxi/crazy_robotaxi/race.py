@@ -20,10 +20,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
+import numpy.typing as npt
+from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.game_map import GameMapRaceCourse, ResolvedGameMap
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import nearest_points
 
 from crazy_robotaxi.game import relative_target_bearing_rad
 from crazy_robotaxi.high_scores import RaceTimeEntry, RaceTimeStore
@@ -53,7 +55,16 @@ class RaceGameSnapshot:
     """Map element whose surface is the active gate."""
 
     target_xyz_m: tuple[float, float, float]
-    """Nearest point on the active gate in world coordinates."""
+    """Fixed midpoint of the active gate in world coordinates."""
+
+    gate_start_xyz_m: tuple[float, float, float]
+    """First fixed endpoint of the active gate line."""
+
+    gate_end_xyz_m: tuple[float, float, float]
+    """Second fixed endpoint of the active gate line."""
+
+    checkpoint_markers: bool
+    """Whether presenters display camera-view gate markers."""
 
     distance_m: float
     """Shortest XY distance from the ego to the active gate."""
@@ -119,6 +130,9 @@ class RaceGameSnapshot:
             "target_kind": self.target_kind,
             "target_element_id": self.target_element_id,
             "target_xyz_m": list(self.target_xyz_m),
+            "gate_start_xyz_m": list(self.gate_start_xyz_m),
+            "gate_end_xyz_m": list(self.gate_end_xyz_m),
+            "checkpoint_markers": self.checkpoint_markers,
             "distance_m": self.distance_m,
             "relative_bearing_rad": self.relative_bearing_rad,
             "checkpoint_index": self.checkpoint_index,
@@ -142,7 +156,7 @@ class RaceGameSnapshot:
 
 
 class RaceController:
-    """Advance one ordered map course using swept map-surface activation."""
+    """Advance one ordered map course using swept gate-line activation."""
 
     def __init__(
         self,
@@ -167,6 +181,7 @@ class RaceController:
             for element in game_map.elements
             if element.element_id in self._surfaces
         }
+        self._gates = self._build_gates()
         self._session_state: RaceSessionState = "awaiting_start"
         self._target_kind: RaceTargetKind = "start"
         self._checkpoint_index = 0
@@ -206,15 +221,25 @@ class RaceController:
     def snapshot(self, state: VehicleState) -> RaceGameSnapshot:
         """Return race state relative to the supplied ego pose."""
         target_id = self._target_element_id
-        surface = self._surfaces[target_id]
+        gate = self._gates[target_id]
         ego = Point(state.x_m, state.y_m)
-        target_point = nearest_points(ego, surface)[1]
+        start_xy, end_xy = gate.coords[0], gate.coords[-1]
         target_xyz = (
-            float(target_point.x),
-            float(target_point.y),
+            (float(start_xy[0]) + float(end_xy[0])) / 2.0,
+            (float(start_xy[1]) + float(end_xy[1])) / 2.0,
             self._surface_z[target_id],
         )
-        distance = float(ego.distance(surface))
+        gate_start_xyz = (
+            float(start_xy[0]),
+            float(start_xy[1]),
+            self._surface_z[target_id],
+        )
+        gate_end_xyz = (
+            float(end_xy[0]),
+            float(end_xy[1]),
+            self._surface_z[target_id],
+        )
+        distance = float(ego.distance(gate))
         return RaceGameSnapshot(
             map_id=self._map_id,
             course_id=self._course.course_id,
@@ -222,6 +247,9 @@ class RaceController:
             target_kind=self._target_kind,
             target_element_id=target_id,
             target_xyz_m=target_xyz,
+            gate_start_xyz_m=gate_start_xyz,
+            gate_end_xyz_m=gate_end_xyz,
+            checkpoint_markers=self._course.checkpoint_markers,
             distance_m=distance,
             relative_bearing_rad=relative_target_bearing_rad(
                 state.x_m,
@@ -299,13 +327,29 @@ class RaceController:
             self._event = "checkpoint"
 
     def _target_hit(self, x_m: float, y_m: float) -> bool:
-        surface = self._surfaces[self._target_element_id]
+        gate = self._gates[self._target_element_id]
         current = Point(x_m, y_m)
-        if surface.covers(current):
+        if gate.covers(current):
             return True
         if self._previous_xy == (x_m, y_m):
             return False
-        return LineString((self._previous_xy, (x_m, y_m))).intersects(surface)
+        return LineString((self._previous_xy, (x_m, y_m))).intersects(gate)
+
+    def _build_gates(self) -> dict[str, LineString]:
+        gates = {
+            self._course.start_element_id: _cross_course_gate(
+                self._surfaces[self._course.start_element_id],
+                self._surfaces[self._course.checkpoint_element_ids[0]],
+            )
+        }
+        previous_id = self._course.start_element_id
+        for checkpoint_id in self._course.checkpoint_element_ids:
+            gates[checkpoint_id] = _cross_course_gate(
+                self._surfaces[checkpoint_id],
+                self._surfaces[previous_id],
+            )
+            previous_id = checkpoint_id
+        return gates
 
     def _finish(self, timestamp_us: int) -> None:
         assert self._start_timestamp_us is not None
@@ -319,3 +363,134 @@ class RaceController:
             "awaiting_name" if self._high_score_rank is not None else "leaderboard"
         )
         self._event = "race_complete"
+
+
+def _cross_course_gate(surface: Polygon, adjacent_surface: Polygon) -> LineString:
+    """Build a fixed line across the side facing an adjacent course element.
+
+    Args:
+        surface: Surface on which to place the gate.
+        adjacent_surface: Adjacent course surface used to select the relevant
+            entrance or exit and infer travel direction.
+
+    Returns:
+        A line spanning the target surface perpendicular to travel.
+    """
+    target = surface.representative_point()
+    approach = adjacent_surface.representative_point()
+    approach_xy = np.asarray([approach.x, approach.y], dtype=np.float64)
+    direction = np.asarray(
+        [target.x - approach.x, target.y - approach.y], dtype=np.float64
+    )
+    norm = float(np.linalg.norm(direction))
+    if norm <= 1.0e-6:
+        direction = np.asarray([1.0, 0.0], dtype=np.float64)
+    else:
+        direction /= norm
+    span = max(
+        surface.bounds[2] - surface.bounds[0],
+        surface.bounds[3] - surface.bounds[1],
+    )
+    span = max(10.0, span * 4.0)
+    anchor = np.asarray([target.x, target.y], dtype=np.float64)
+    ray = LineString(
+        (
+            (approach.x, approach.y),
+            tuple(anchor + direction * span),
+        )
+    )
+    path_parts = _line_parts(ray.intersection(surface))
+    if path_parts:
+        path = min(path_parts, key=lambda part: part.distance(approach))
+        endpoints = (np.asarray(path.coords[0]), np.asarray(path.coords[-1]))
+        entry = min(
+            endpoints,
+            key=lambda point: np.linalg.norm(point - approach_xy),
+        )
+        anchor = entry + direction * min(1.0, path.length * 0.15)
+    perpendicular = np.asarray([-direction[1], direction[0]], dtype=np.float64)
+    cross_line = LineString(
+        (tuple(anchor - perpendicular * span), tuple(anchor + perpendicular * span))
+    )
+    cross_parts = _line_parts(cross_line.intersection(surface))
+    if not cross_parts:
+        return LineString(
+            (tuple(anchor - perpendicular), tuple(anchor + perpendicular))
+        )
+    return max(cross_parts, key=lambda part: part.length)
+
+
+def _line_parts(geometry: object) -> tuple[LineString, ...]:
+    if isinstance(geometry, LineString):
+        return (geometry,) if geometry.length > 1.0e-6 else ()
+    return tuple(
+        part
+        for part in getattr(geometry, "geoms", ())
+        if isinstance(part, LineString) and part.length > 1.0e-6
+    )
+
+
+def project_race_gate_to_camera(
+    snapshot: RaceGameSnapshot,
+    rig_to_world: npt.NDArray[np.float32],
+    camera_model: FThetaCameraModel,
+    *,
+    image_width: int,
+    image_height: int,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Project and clip the active race gate into camera pixels.
+
+    Args:
+        snapshot: Current race state and fixed gate endpoints.
+        rig_to_world: Camera-rig pose in world coordinates.
+        camera_model: Camera projection model.
+        image_width: Output image width in pixels.
+        image_height: Output image height in pixels.
+
+    Returns:
+        Clipped pixel endpoints, or ``None`` when camera markers are disabled or
+        the gate is not visible.
+    """
+    if not snapshot.checkpoint_markers:
+        return None
+    points = np.asarray(
+        (snapshot.gate_start_xyz_m, snapshot.gate_end_xyz_m), dtype=np.float32
+    )
+    points[:, 2] += np.float32(0.08)
+    uv, _depth, forward = camera_model.project_world(points, rig_to_world)
+    if not bool(forward.all()):
+        return None
+    clipped = _clip_unit_segment(
+        (float(uv[0, 0]) / image_width, float(uv[0, 1]) / image_height),
+        (float(uv[1, 0]) / image_width, float(uv[1, 1]) / image_height),
+    )
+    if clipped is None:
+        return None
+    return (
+        (clipped[0][0] * image_width, clipped[0][1] * image_height),
+        (clipped[1][0] * image_width, clipped[1][1] * image_height),
+    )
+
+
+def _clip_unit_segment(
+    start: tuple[float, float], end: tuple[float, float]
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    x0, y0 = start
+    dx, dy = end[0] - x0, end[1] - y0
+    lower, upper = 0.0, 1.0
+    for p, q in ((-dx, x0), (dx, 1.0 - x0), (-dy, y0), (dy, 1.0 - y0)):
+        if abs(p) <= 1.0e-12:
+            if q < 0.0:
+                return None
+            continue
+        ratio = q / p
+        if p < 0.0:
+            lower = max(lower, ratio)
+        else:
+            upper = min(upper, ratio)
+        if lower > upper:
+            return None
+    return (
+        (x0 + lower * dx, y0 + lower * dy),
+        (x0 + upper * dx, y0 + upper * dy),
+    )

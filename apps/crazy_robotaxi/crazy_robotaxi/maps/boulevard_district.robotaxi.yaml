@@ -362,6 +362,7 @@ race_courses:
       - arterial_crossing_1082
       - east_arterial_end
     lap_count: 0
+    checkpoint_markers: true
 
 traffic_count: 100
 

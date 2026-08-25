@@ -98,6 +98,7 @@ race_courses:
       - neighborhood_loop_west
       - neighborhood_loop_southwest_corner
     lap_count: 3
+    checkpoint_markers: true
 
 spawns:
   - id: taxi_start

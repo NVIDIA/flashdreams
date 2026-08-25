@@ -260,6 +260,9 @@ class GameMapRaceCourse:
     lap_count: int
     """Required laps, or zero for a point-to-point course."""
 
+    checkpoint_markers: bool = True
+    """Whether presenters display camera-view start and checkpoint markers."""
+
 
 @dataclass(frozen=True)
 class GameMapLane:
@@ -607,6 +610,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "start_element_id": course.start_element_id,
                 "checkpoint_element_ids": list(course.checkpoint_element_ids),
                 "lap_count": course.lap_count,
+                "checkpoint_markers": course.checkpoint_markers,
             }
             for course in game_map.race_courses
         ],
@@ -855,6 +859,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 str(item) for item in raw["checkpoint_element_ids"]
             ),
             lap_count=int(raw["lap_count"]),
+            checkpoint_markers=bool(raw.get("checkpoint_markers", True)),
         )
         for raw in value.get("race_courses", [])
     )

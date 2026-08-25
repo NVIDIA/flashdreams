@@ -62,6 +62,7 @@ from crazy_robotaxi.game import (
     project_target_to_bev,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
     encode_rgb_frame_to_jpeg,
@@ -336,6 +337,7 @@ _INDEX_HTML = """<!doctype html>
     fill: currentColor; stroke: black; stroke-width: 3px;
     stroke-linejoin: round; paint-order: stroke fill;
   }
+  .taxi-arrow.hidden { display: none; }
   .taxi-status { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .taxi-event { min-height: 18px; color: white; font-weight: 700; margin-top: 3px; }
   .taxi-hud.dropoff { color: #c89632; border-color: #c89632; }
@@ -352,6 +354,11 @@ _INDEX_HTML = """<!doctype html>
     transform: translate(-50%, -50%); box-shadow: 0 2px 6px black;
   }
   .taxi-pin.dropoff { background: #c89632; }
+  .race-gate {
+    position: absolute; height: 9px; border: 2px solid white;
+    border-radius: 6px; background: #e62d2d; box-sizing: border-box;
+    transform-origin: left center; box-shadow: 0 2px 6px black;
+  }
   .game-over {
     position: fixed; inset: 0; display: flex; align-items: center;
     justify-content: center; background: rgba(0, 0, 0, 0.72);
@@ -599,13 +606,14 @@ function paintTaxi(taxi) {
   taxiHudEl.classList.remove('hidden');
   taxiHudEl.classList.toggle('dropoff', dropoff);
   taxiArrowEl.style.transform = `rotate(${-taxi.relative_bearing_rad * 180 / Math.PI}deg)`;
+  taxiArrowEl.classList.toggle('hidden', race && !taxi.checkpoint_markers);
   const phase = dropoff ? 'DROPOFF' : 'PICKUP';
   const timer = typeof taxi.remaining_time_s === 'number'
     ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
   const highScore = typeof taxi.high_score === 'number'
     ? `  HIGH ${taxi.high_score}` : '';
   if (race) {
-    let progress = 'ENTER START TO BEGIN';
+    let progress = 'CROSS START LINE TO BEGIN';
     if (taxi.session_state === 'racing' && taxi.lap_count === 0) {
       progress = `CHECKPOINT ${taxi.checkpoint_index + 1}/${taxi.checkpoint_count}`;
     } else if (taxi.session_state === 'racing' && taxi.target_kind === 'start') {
@@ -629,6 +637,22 @@ function paintTaxi(taxi) {
   const showMap = taxi.bev_enabled;
   taxiMapEl.classList.toggle('hidden', !showMap);
   taxiPinsEl.replaceChildren();
+  if (race && taxi.bev_gate) {
+    const start = taxi.bev_gate.start;
+    const end = taxi.bev_gate.end;
+    if (start.visible || end.visible) {
+      const dx = (end.u - start.u) * taxiMapEl.clientWidth;
+      const dy = (end.v - start.v) * taxiMapEl.clientHeight;
+      const gate = document.createElement('div');
+      gate.className = 'race-gate';
+      gate.style.left = `${start.u * 100}%`;
+      gate.style.top = `${start.v * 100}%`;
+      gate.style.width = `${Math.hypot(dx, dy)}px`;
+      gate.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+      taxiPinsEl.appendChild(gate);
+    }
+    return;
+  }
   markers.filter(marker => marker.visible).forEach(marker => {
     const pin = document.createElement('div');
     pin.className = `taxi-pin${dropoff ? ' dropoff' : ''}`;
@@ -962,7 +986,7 @@ class MJPEGStreamingPresenter:
         snapshot = frame.application_state
         if (
             snapshot is None
-            or snapshot.session_state != "playing"
+            or snapshot.session_state not in {"playing", "awaiting_start", "racing"}
             or frame.rig_to_world is None
             or self._taxi_camera_calibration is None
         ):
@@ -977,6 +1001,21 @@ class MJPEGStreamingPresenter:
                 output_height=image_height,
             )
             self._taxi_camera_models[model_key] = camera_model
+        if isinstance(snapshot, RaceGameSnapshot):
+            gate = project_race_gate_to_camera(
+                snapshot,
+                frame.rig_to_world,
+                camera_model,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            if gate is None:
+                return rgb_host_uint8
+            image = Image.fromarray(rgb_host_uint8, mode="RGB")
+            draw = ImageDraw.Draw(image)
+            draw.line(gate, fill=(0, 0, 0), width=13)
+            draw.line(gate, fill=(230, 55, 55), width=9)
+            return np.asarray(image)
         markers = project_taxi_markers_to_camera(
             snapshot,
             frame.rig_to_world,
@@ -1164,6 +1203,28 @@ class MJPEGStreamingPresenter:
                 self._bev_config is not None and self._bev_config.enabled
             )
             if vehicle_state is not None and self._bev_config is not None:
+                if isinstance(taxi_state, RaceGameSnapshot):
+                    start_u, start_v, start_visible = project_target_to_bev(
+                        taxi_state.gate_start_xyz_m,
+                        vehicle_state,
+                        self._bev_config,
+                    )
+                    end_u, end_v, end_visible = project_target_to_bev(
+                        taxi_state.gate_end_xyz_m,
+                        vehicle_state,
+                        self._bev_config,
+                    )
+                    taxi_payload["bev_gate"] = {
+                        "start": {
+                            "u": start_u,
+                            "v": start_v,
+                            "visible": start_visible,
+                        },
+                        "end": {"u": end_u, "v": end_v, "visible": end_visible},
+                    }
+                    taxi_payload["bev_targets"] = []
+                    result["taxi"] = taxi_payload
+                    return result
                 targets = (
                     taxi_state.pickup_targets_xyz_m
                     if taxi_state.phase == "seeking_pickup"

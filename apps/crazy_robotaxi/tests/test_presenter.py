@@ -15,11 +15,11 @@ from crazy_robotaxi.game import (
     TaxiPhase,
 )
 from crazy_robotaxi.hud_presenter import (
-    SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
-)
-from crazy_robotaxi.hud_presenter import (
     _RESERVED_HUD_KEYSYMS,
     _validate_extra_key_handlers,
+)
+from crazy_robotaxi.hud_presenter import (
+    SlangPyHudPresenter as CrazyRobotaxiHudPresenter,
 )
 from crazy_robotaxi.hud_presenter import (
     _build_bev_panel_image as _build_taxi_bev_panel_image,
@@ -27,6 +27,7 @@ from crazy_robotaxi.hud_presenter import (
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
+from crazy_robotaxi.race import RaceGameSnapshot
 from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.input.keyboard import KeyboardState
 from omnidreams_game_engine.presenter import (
@@ -866,6 +867,51 @@ def test_taxi_hud_bev_draws_nearby_targets_and_omits_distant_ones(
     )
 
     assert not np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
+
+
+def test_race_hud_bev_always_draws_thick_red_gate() -> None:
+    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
+    presenter._bev_config = BevConfig(
+        width=64,
+        height=64,
+        height_m=15.0,
+        fov_deg=60.0,
+        tilt_deg=0.0,
+    )
+    snapshot = RaceGameSnapshot(
+        map_id="map",
+        course_id="course",
+        session_state="racing",
+        target_kind="checkpoint",
+        target_element_id="checkpoint",
+        target_xyz_m=(5.0, 0.0, 0.0),
+        gate_start_xyz_m=(5.0, -2.0, 0.0),
+        gate_end_xyz_m=(5.0, 2.0, 0.0),
+        checkpoint_markers=False,
+        distance_m=5.0,
+        relative_bearing_rad=0.0,
+        checkpoint_index=0,
+        checkpoint_count=1,
+        completed_laps=0,
+        lap_count=0,
+        elapsed_time_us=1_000_000,
+        best_time_us=None,
+    )
+    presenter._latest_presented_frame = PresentedFrame(
+        timestamp_us=0,
+        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+        depth_host_f32=None,
+        bev_rig_to_world=np.eye(4, dtype=np.float32),
+        application_state=snapshot,
+    )
+    canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+
+    presenter._draw_bev_taxi_target(
+        ImageDraw.Draw(canvas), (20, 10, 80, 70), marker_size=10
+    )
+
+    pixels = np.asarray(canvas)
+    assert np.any(np.all(pixels == np.array([230, 45, 45, 255]), axis=-1))
 
 
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:
