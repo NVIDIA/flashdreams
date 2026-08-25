@@ -138,6 +138,7 @@ class _StreamClientStats:
             f"({fps:.1f} fps, {kbps:.0f} KiB/s over {elapsed:.1f}s)"
         )
 
+
 # Browser ``event.key`` values to the keysym strings that
 # :meth:`KeyboardDriveState.set_key` (in ``demo.py``) recognises. The
 # slangpy HUD path uses the SDL/pygame-style ``"Up"``/``"Down"``/etc.
@@ -169,6 +170,33 @@ _BROWSER_KEY_TO_VIEW_MODE: dict[str, str] = {
     "2": "rgb",
     "3": "physx",
 }
+
+_RESERVED_BROWSER_KEYS = frozenset(
+    set(_BROWSER_KEY_TO_DRIVE_KEYSYM) | set(_BROWSER_KEY_TO_VIEW_MODE) | {"r", "R"}
+)
+"""Browser keys ``_apply_control`` dispatches itself; extras may not shadow them."""
+
+
+def _validate_extra_key_handlers(
+    handlers: dict[str, Callable[[], None]] | None,
+) -> dict[str, Callable[[], None]]:
+    """Reject handler keys that collide with the presenter's own bindings.
+
+    A shadowed registration would never fire (``_apply_control`` returns
+    before the extra-handler lookup), so failing loudly at construction
+    beats a silently dead key. Single-character keys are normalized to
+    lowercase because the browser posts ``e.key`` verbatim (``K`` when
+    Shift is held) while handlers are looked up case-insensitively.
+    """
+    validated: dict[str, Callable[[], None]] = {}
+    for key, handler in (handlers or {}).items():
+        validated[key.lower() if len(key) == 1 else key] = handler
+    conflicts = sorted(key for key in validated if key in _RESERVED_BROWSER_KEYS)
+    if conflicts:
+        raise ValueError(
+            f"extra_key_handlers may not rebind reserved keys: {conflicts}"
+        )
+    return validated
 
 
 class _KeyboardDriveSink:
@@ -892,6 +920,7 @@ class MJPEGStreamingPresenter:
         scenes: tuple[dict[str, object], ...] = (),
         thumbnails: dict[str, bytes] | None = None,
         stream_token: str | None = None,
+        extra_key_handlers: dict[str, Callable[[], None]] | None = None,
     ) -> None:
         self._raster = raster
         # Shared-secret gate for every HTTP endpoint. ``None`` / empty keeps
@@ -899,6 +928,11 @@ class MJPEGStreamingPresenter:
         # carry it (``?token=`` or ``X-Stream-Token`` header) or get a 403.
         self._stream_token = (stream_token or "").strip() or None
         self._keyboard = keyboard
+        # Composition-root key extensions (e.g. live-edit abilities): browser
+        # keysym (lowercase for letters) -> zero-arg callback, fired on
+        # keydown. Mirrors ``SlangPyHudPresenter``'s ``extra_key_handlers``
+        # so both transports expose the same hook.
+        self._extra_key_handlers = _validate_extra_key_handlers(extra_key_handlers)
         self._visual_flare = CollisionVisualFlare()
         self._taxi_enabled = False
         self._bev_config: BevConfig | None = None
@@ -912,9 +946,7 @@ class MJPEGStreamingPresenter:
             )
         self._stream_scale = float(stream_scale)
         if not 0.1 <= self._stream_scale <= 1.0:
-            raise ValueError(
-                f"stream scale must be in [0.1, 1.0], got {stream_scale}"
-            )
+            raise ValueError(f"stream scale must be in [0.1, 1.0], got {stream_scale}")
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
         # BEV minimap stream lives on its own JPEG buffer so connected
@@ -1347,21 +1379,14 @@ class MJPEGStreamingPresenter:
             if key in ("r", "R"):
                 self._keyboard.request_reset()
                 return
-            # Live-edit abilities: ``k`` cycles the world skin, ``c``
-            # toggles coins, ``v`` cycles the weather, ``o`` spawns an
-            # obstacle event. Rising-edge requests drained by the runtime;
-            # no-ops when the --live-edit-* flags are off.
-            requests = getattr(self._keyboard, "live_edit", None)
-            if requests is None:
-                return
-            if key in ("k", "K"):
-                requests.request_skin_cycle()
-            elif key in ("c", "C"):
-                requests.request_coins_toggle()
-            elif key in ("v", "V"):
-                requests.request_weather_cycle()
-            elif key in ("o", "O"):
-                requests.request_obstacle_spawn()
+            # Composition-root key extensions; single characters were
+            # normalized to lowercase at registration, so fold case here to
+            # keep Shift-modified presses bound to the same handler.
+            handler = self._extra_key_handlers.get(
+                key.lower() if len(key) == 1 else key
+            )
+            if handler is not None:
+                handler()
 
     def _state_snapshot(self) -> dict[str, object]:
         """Return a JSON-serializable vehicle and taxi telemetry snapshot.
@@ -1638,9 +1663,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self._serve_mjpeg(presenter._wait_for_new_frame, endpoint="/stream")
 
         def _serve_bev_stream(self) -> None:
-            self._serve_mjpeg(
-                presenter._wait_for_new_bev_frame, endpoint="/bev_stream"
-            )
+            self._serve_mjpeg(presenter._wait_for_new_bev_frame, endpoint="/bev_stream")
 
         def _serve_mjpeg(self, wait_fn: _WaitForFrame, *, endpoint: str) -> None:
             """Generic ``multipart/x-mixed-replace`` writer used by /stream and

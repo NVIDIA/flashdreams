@@ -684,6 +684,48 @@ class FlashdreamsWorldModelSession:
             )
         return model_frames
 
+    def replace_prompt(
+        self,
+        prompt: str,
+        *,
+        guidance_scale: float = 1.0,
+        guidance_chunks: int = 0,
+    ) -> None:
+        """Hot-swap the rollout's prompt at the current chunk boundary.
+
+        Public passthrough to the pipeline's ``replace_text`` so callers
+        (e.g. live-edit abilities) never reach into the private cache. Call
+        between :meth:`start` / :meth:`continue_generation` calls; the swap
+        applies from the next generated chunk onward.
+
+        The chunk finalize this session defers into the next
+        ``continue_generation`` is flushed first: finalize must run under
+        the OLD text, otherwise the previous chunk's KV history is
+        re-committed under the new prompt (an implicit recache).
+
+        Args:
+            prompt: Replacement prompt for subsequent chunks.
+            guidance_scale: Optional edit strength forwarded to
+                ``replace_text``; 1.0 is a plain swap.
+            guidance_chunks: Number of upcoming chunks to guide, forwarded
+                to ``replace_text``.
+        """
+        if self._cache is None:
+            raise RuntimeError("start() must be called before replace_prompt()")
+        replace_text = getattr(self.pipeline, "replace_text", None)
+        if not callable(replace_text):
+            raise RuntimeError("replace_prompt requires flashdreams replace_text().")
+        with torch.no_grad():
+            if self._pending_finalization_index is not None:
+                self.pipeline.finalize(self._pending_finalization_index, self._cache)
+                self._pending_finalization_index = None
+            replace_text(
+                self._cache,
+                [[prompt]],
+                guidance_scale=guidance_scale,
+                guidance_chunks=guidance_chunks,
+            )
+
     def reset(self, *, clear_precomputed_embeddings: bool = False) -> None:
         self._close_postprocess_stream()
         self._cache = None

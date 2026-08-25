@@ -6,6 +6,7 @@ from __future__ import annotations
 import threading
 
 import numpy as np
+import pytest
 from crazy_robotaxi.game import TaxiGameSnapshot
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
@@ -18,6 +19,7 @@ from crazy_robotaxi.streaming_presenter import (
     _downscale_rgb,
     _publish_if_open,
     _scaled_dims,
+    _validate_extra_key_handlers,
     _wait_for_bus_frame,
 )
 from omnidreams_game_engine.camera import FThetaCameraModel
@@ -292,8 +294,24 @@ def test_presenter_rejects_out_of_range_stream_knobs() -> None:
     raster = RasterConfig()
     keyboard = KeyboardState()
     with pytest.raises(ValueError, match="scale"):
-        MJPEGStreamingPresenter(
-            raster, keyboard, "127.0.0.1", 0, stream_scale=0.05
-        )
+        MJPEGStreamingPresenter(raster, keyboard, "127.0.0.1", 0, stream_scale=0.05)
     with pytest.raises(ValueError, match="quality"):
         MJPEGStreamingPresenter(raster, keyboard, "127.0.0.1", 0, jpeg_quality=0)
+
+
+def test_streaming_extra_key_handler_fires_on_keydown_case_insensitively() -> None:
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._keyboard = CrazyRobotaxiKeyboardState()
+    fired: list[str] = []
+    presenter._extra_key_handlers = {"k": lambda: fired.append("k")}
+
+    presenter._apply_control("k", True)
+    presenter._apply_control("K", True)  # Shift held: browser posts uppercase
+    presenter._apply_control("k", False)  # keyup must not re-fire
+
+    assert fired == ["k", "k"]
+
+
+def test_streaming_extra_key_handlers_reject_reserved_browser_keys() -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        _validate_extra_key_handlers({"R": lambda: None})

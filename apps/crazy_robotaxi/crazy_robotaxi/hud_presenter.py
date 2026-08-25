@@ -402,6 +402,7 @@ class SlangPyHudPresenter:
         scene_options: tuple[Any, ...],
         control_assets: Any,
         wheel: Any | None,
+        extra_key_handlers: dict[str, Callable[[], None]] | None = None,
     ) -> None:
         try:
             import slangpy as spy
@@ -436,6 +437,12 @@ class SlangPyHudPresenter:
         self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._taxi_name_buffer = ""
         self._last_taxi_session_state: str | None = None
+        # Composition-root key extensions (e.g. live-edit abilities): keysym
+        # -> zero-arg callback, fired on discrete key press. Registered
+        # before ``_build_key_codes`` runs so the keysyms resolve to codes.
+        self._extra_key_handlers = _validate_extra_key_handlers(
+            extra_key_handlers, reserved=_RESERVED_HUD_KEYSYMS
+        )
 
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
@@ -2842,10 +2849,6 @@ class SlangPyHudPresenter:
             "d": _lookup_key(spy.KeyCode, "d"),
             "r": _lookup_key(spy.KeyCode, "r"),
             "x": _lookup_key(spy.KeyCode, "x"),
-            "k": _lookup_key(spy.KeyCode, "k"),
-            "c": _lookup_key(spy.KeyCode, "c"),
-            "v": _lookup_key(spy.KeyCode, "v"),
-            "o": _lookup_key(spy.KeyCode, "o"),
             "space": _lookup_key(spy.KeyCode, "space"),
             "up": _lookup_key(spy.KeyCode, "up", "arrow_up"),
             "down": _lookup_key(spy.KeyCode, "down", "arrow_down"),
@@ -2868,6 +2871,8 @@ class SlangPyHudPresenter:
                 f"digit{character}",
                 f"num_{character}",
             )
+        for keysym in self._extra_key_handlers:
+            key_codes.setdefault(keysym, _lookup_key(spy.KeyCode, keysym))
         return key_codes
 
     def _taxi_name_character_for_key(self, key: Any) -> str | None:
@@ -2968,28 +2973,15 @@ class SlangPyHudPresenter:
             self._keyboard.request_reset()
         elif self._key_matches(key, "x"):
             self.exit_scene()
-        elif self._key_matches(key, "k"):
-            self._request_live_edit("skin")
-        elif self._key_matches(key, "c"):
-            self._request_live_edit("coins")
-        elif self._key_matches(key, "v"):
-            self._request_live_edit("weather")
-        elif self._key_matches(key, "o"):
-            self._request_live_edit("obstacle")
-
-    def _request_live_edit(self, ability: str) -> None:
-        """Raise a live-edit key request; no-op when the flags are off."""
-        requests = getattr(self._keyboard, "live_edit", None)
-        if requests is None:
-            return
-        if ability == "skin":
-            requests.request_skin_cycle()
-        elif ability == "weather":
-            requests.request_weather_cycle()
-        elif ability == "obstacle":
-            requests.request_obstacle_spawn()
         else:
-            requests.request_coins_toggle()
+            self._dispatch_extra_key(key)
+
+    def _dispatch_extra_key(self, key: Any) -> None:
+        """Fire the composition-root handler bound to this keysym, if any."""
+        for keysym, handler in self._extra_key_handlers.items():
+            if self._key_matches(key, keysym):
+                handler()
+                return
 
     def _expire_pending_drive_releases(self) -> None:
         """Commit any debounced release whose grace window has passed.
@@ -3422,6 +3414,52 @@ class SlangPyHudPresenter:
 
 
 # -- Module-level helpers ---------------------------------------------
+
+
+_RESERVED_HUD_KEYSYMS = frozenset(
+    {
+        "escape",
+        "f11",
+        "w",
+        "a",
+        "s",
+        "d",
+        "r",
+        "x",
+        "space",
+        "up",
+        "down",
+        "left",
+        "right",
+        "key1",
+        "key2",
+        "key3",
+        "backspace",
+        "enter",
+        "minus",
+        "underscore",
+    }
+)
+"""Keysyms the presenter dispatches itself; extra handlers may not shadow them."""
+
+
+def _validate_extra_key_handlers(
+    handlers: dict[str, Callable[[], None]] | None,
+    *,
+    reserved: frozenset[str],
+) -> dict[str, Callable[[], None]]:
+    """Reject handler keysyms that collide with the presenter's own keys.
+
+    A shadowed registration would never fire (the built-in branch wins),
+    so failing loudly at construction beats a silently dead key.
+    """
+    validated = dict(handlers or {})
+    conflicts = sorted(keysym for keysym in validated if keysym in reserved)
+    if conflicts:
+        raise ValueError(
+            f"extra_key_handlers may not rebind reserved keys: {conflicts}"
+        )
+    return validated
 
 
 def _lookup_key(key_enum: Any, *names: str) -> Any:
