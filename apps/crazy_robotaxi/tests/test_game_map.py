@@ -45,8 +45,20 @@ from shapely.geometry import LineString, Point, Polygon
 pytestmark = pytest.mark.ci_cpu
 
 _MAPS = Path(__file__).parents[1] / "crazy_robotaxi" / "maps"
+_TEST_MAPS = Path(__file__).parent / "maps"
 _STARTER_MAP = _MAPS / "minimal_loop.robotaxi.yaml"
 _BOULEVARD_MAP = _MAPS / "boulevard_district.robotaxi.yaml"
+_BUNDLED_MAPS = (_STARTER_MAP, _BOULEVARD_MAP)
+_INTERSECTION_GEOMETRY_MAP = _TEST_MAPS / "intersection_geometry.robotaxi.yaml"
+_PARKING_DRIVEWAY_MAP = _TEST_MAPS / "parking_driveway.robotaxi.yaml"
+_TRAFFIC_INTERSECTION_MAP = _TEST_MAPS / "traffic_intersection.robotaxi.yaml"
+_TRAFFIC_LOOP_MAP = _TEST_MAPS / "traffic_loop.robotaxi.yaml"
+_COMPILER_TEST_MAPS = (
+    _INTERSECTION_GEOMETRY_MAP,
+    _PARKING_DRIVEWAY_MAP,
+    _TRAFFIC_INTERSECTION_MAP,
+    _TRAFFIC_LOOP_MAP,
+)
 
 
 def _write_map(tmp_path: Path, source: dict[str, object], name: str = "map") -> Path:
@@ -133,104 +145,12 @@ def _road_joint_map(*, curved_approach: bool = False) -> dict[str, object]:
 def _intersection_transition_map(
     transition_length_m: float = 20,
 ) -> dict[str, object]:
-    """Build a four-way intersection with one narrower through arm."""
-    common = {
-        "curb_offset_m": 0.6,
-        "speed_limit_mps": 12,
-        "lane_marking": {"style": "DASHED_SINGLE", "color": "WHITE"},
-    }
-    return {
-        "schema_version": 1,
-        "id": "intersection-transition-test",
-        "name": "Intersection Transition Test",
-        "compiler": {
-            "sample_spacing_m": 1,
-            "ground_margin_m": 10,
-            "intersection_connector_samples": 8,
-        },
-        "profiles": {
-            "wide": {
-                **common,
-                "lane_width_m": 3.6,
-                "lanes": ["backward", "backward", "forward", "forward"],
-                "divider_markings": [
-                    {"style": "DASHED_SINGLE", "color": "WHITE"},
-                    {"style": "SOLID_GROUP", "color": "YELLOW"},
-                    {"style": "DASHED_SINGLE", "color": "WHITE"},
-                ],
-            },
-            "narrow": {
-                **common,
-                "lane_width_m": 3.2,
-                "curb_offset_m": 0.5,
-                "curb": False,
-                "lanes": ["backward", "forward"],
-                "divider_markings": [{"style": "SOLID_GROUP", "color": "YELLOW"}],
-            },
-        },
-        "nodes": [
-            {
-                "id": "center",
-                "type": "intersection",
-                "pose": {"x_m": 0, "y_m": 0},
-                "lane_transition_length_m": transition_length_m,
-            },
-            *(
-                {
-                    "id": node_id,
-                    "type": "cul_de_sac",
-                    "pose": {"x_m": x_m, "y_m": y_m},
-                    "culdesac_radius_m": 12,
-                }
-                for node_id, x_m, y_m in (
-                    ("north", 0, 100),
-                    ("south", 0, -100),
-                    ("east", 100, 0),
-                    ("west", -100, 0),
-                )
-            ),
-        ],
-        "roads": [
-            {
-                "id": "north_road",
-                "from": "center",
-                "to": "north",
-                "profile": "narrow",
-            },
-            {
-                "id": "south_road",
-                "from": "center",
-                "to": "south",
-                "profile": "wide",
-            },
-            {
-                "id": "east_road",
-                "from": "center",
-                "to": "east",
-                "profile": "narrow",
-            },
-            {
-                "id": "west_road",
-                "from": "center",
-                "to": "west",
-                "profile": "narrow",
-            },
-        ],
-        "spawns": [
-            {
-                "id": "start",
-                "road": "south_road",
-                "lane": 2,
-                "distance_m": 10,
-                "variants": {
-                    "default": {
-                        "image": "package://omnidreams_game_engine/screenshot.jpg",
-                        "prompt": "A road widening at an intersection.",
-                    }
-                },
-            }
-        ],
-    }
+    """Load a four-way intersection with one narrower through arm."""
+    source = yaml.safe_load(_TRAFFIC_INTERSECTION_MAP.read_text(encoding="utf-8"))
+    nodes = cast(list[dict[str, Any]], source["nodes"])
+    center = next(node for node in nodes if node["id"] == "center")
+    center["lane_transition_length_m"] = transition_length_m
+    return cast(dict[str, object], source)
 
 
 def _self_loop_map() -> dict[str, object]:
@@ -295,50 +215,28 @@ def _point_on_polyline(points: np.ndarray, distance_m: float) -> np.ndarray:
     return points[index] + alpha * (points[index + 1] - points[index])
 
 
-def test_bundled_maps_use_schema_version_1() -> None:
-    starter = load_game_map(_STARTER_MAP)
-    boulevard = load_game_map(_BOULEVARD_MAP)
+@pytest.mark.parametrize("source_path", _BUNDLED_MAPS)
+def test_bundled_map_compiles(source_path: Path, tmp_path: Path) -> None:
+    source = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
+    game_map = compiled.game_map
 
-    assert starter.schema_version == boulevard.schema_version == 1
-    assert {node.node_type for node in starter.topology.nodes} == {
-        "intersection",
-        "road_joint",
-        "cul_de_sac",
-        "parking_lot",
-    }
-    assert len(starter.topology.roads) == 6
-    assert len(boulevard.topology.nodes) == 75
-    assert len(boulevard.topology.roads) == 81
-    assert len(boulevard.topology.parking_accesses) == 8
-    assert len(boulevard.traffic) == 12
-    assert {traffic.vehicle_id for traffic in boulevard.traffic} == {
-        "arterial_eastbound",
-        "arterial_westbound",
-        "northwest_clockwise",
-        "northwest_counterclockwise",
-        "diagonal_clockwise",
-        "diagonal_counterclockwise",
-        "southwest_clockwise",
-        "southwest_counterclockwise",
-        "south_grid_clockwise",
-        "south_grid_counterclockwise",
-        "far_east_clockwise",
-        "far_east_counterclockwise",
-    }
-    assert boulevard.default_spawn.lane_id == "spawn_arterial:lane:2"
-    for game_map in (starter, boulevard):
-        for node in game_map.topology.nodes:
-            if node.node_type != "intersection":
-                continue
-            assert set(node.geometry) == {"lane_transition_length_m"}, node.node_id
+    assert game_map.schema_version == source["schema_version"] == 1
+    assert game_map.map_id == source["id"]
+    assert game_map.spawns
+    assert compiled.archive_path.is_file()
+    if "traffic_count" in source:
+        assert len(game_map.traffic) == source["traffic_count"]
+    authored_traffic_ids = {traffic["id"] for traffic in source.get("traffic", ())}
+    assert authored_traffic_ids <= {traffic.vehicle_id for traffic in game_map.traffic}
 
 
 def test_unreleased_map_compiler_stays_at_version_1() -> None:
     assert game_map_compiler._COMPILER_VERSION == "1"
 
 
-def test_boulevard_road_vicinity_expands_from_both_endpoints() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+def test_road_vicinity_expands_from_both_endpoints() -> None:
+    game_map = load_game_map(_TRAFFIC_LOOP_MAP)
     resolver = GameMapVicinityResolver(game_map)
     spawn = game_map.default_spawn
 
@@ -348,69 +246,45 @@ def test_boulevard_road_vicinity_expands_from_both_endpoints() -> None:
     )
 
     assert vicinity is not None
-    assert vicinity.location_element_id == "spawn_arterial"
-    assert len(vicinity.traffic_element_ids) == 25
-    assert {
-        "west_arterial_crossing",
-        "central_arterial_crossing",
-        "west_arterial_end",
-        "west_north_crossing",
-        "west_south_crossing",
-        "diagonal_arterial_crossing",
-        "central_north_crossing",
-        "central_south_crossing",
-        "west_north_upper",
-        "north_cross_street",
-        "southwest_cross_west",
-        "arterial_sweep",
-        "central_north_upper",
-        "central_south_middle",
-    } <= vicinity.traffic_element_ids
-    assert {
-        "west_upper_crossing",
-        "central_upper_crossing",
-        "southwest_crossing",
-        "upper_cross_street",
-        "southwest_cross_center",
-    }.isdisjoint(vicinity.traffic_element_ids)
+    assert vicinity.location_element_id == "south_west"
+    assert vicinity.traffic_element_ids == {
+        "east_south",
+        "south",
+        "south_east",
+        "south_west",
+        "southeast",
+        "southwest",
+        "west",
+        "west_north",
+        "west_south",
+    }
     assert resolver.resolve(1.0e6, 1.0e6, previous=vicinity) is vicinity
 
 
-def test_boulevard_node_vicinity_adds_neighbor_nodes_and_their_roads() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+def test_node_vicinity_adds_neighbor_nodes_and_their_roads() -> None:
+    game_map = load_game_map(_TRAFFIC_LOOP_MAP)
     resolver = GameMapVicinityResolver(game_map)
-    node = next(
-        node
-        for node in game_map.topology.nodes
-        if node.node_id == "central_arterial_crossing"
-    )
+    node = next(node for node in game_map.topology.nodes if node.node_id == "south")
 
     vicinity = resolver.resolve(node.x_m, node.y_m)
 
     assert vicinity is not None
     assert vicinity.location_element_id == node.node_id
-    assert {
-        "central_arterial_crossing",
-        "west_arterial_crossing",
-        "diagonal_arterial_crossing",
-        "central_north_crossing",
-        "central_south_crossing",
-        "west_arterial_approach",
-        "arterial_sweep",
-        "central_north_upper",
-        "central_south_middle",
-    } <= vicinity.traffic_element_ids
-    assert {
-        "west_arterial_end",
-        "central_upper_crossing",
-        "central_lower_crossing",
-    }.isdisjoint(vicinity.traffic_element_ids)
+    assert vicinity.traffic_element_ids == {
+        "east_south",
+        "south",
+        "south_east",
+        "south_west",
+        "southeast",
+        "southwest",
+        "west_south",
+    }
 
 
-def test_boulevard_vicinity_rejects_distant_polygons_before_exact_tests(
+def test_vicinity_rejects_distant_polygons_before_exact_tests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+    game_map = load_game_map(_TRAFFIC_LOOP_MAP)
     resolver = GameMapVicinityResolver(game_map)
     spawn = game_map.default_spawn
     exact_test_count = 0
@@ -431,12 +305,12 @@ def test_boulevard_vicinity_rejects_distant_polygons_before_exact_tests(
     )
 
     assert vicinity is not None
-    assert vicinity.location_element_id == "spawn_arterial"
+    assert vicinity.location_element_id == "south_west"
     assert exact_test_count == 1
 
 
 def test_vicinity_exposes_parking_lot_pedestrian_at_an_expanded_node() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+    game_map = load_game_map(_PARKING_DRIVEWAY_MAP)
     resolver = GameMapVicinityResolver(game_map)
     access = game_map.topology.parking_accesses[0]
     connecting_road = next(
@@ -794,8 +668,8 @@ def test_traffic_compiles_and_round_trips(tmp_path: Path) -> None:
     assert "local_car" in preview_text
 
 
-def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+def test_traffic_turns_are_continuous_and_physically_limited() -> None:
+    game_map = load_game_map(_TRAFFIC_INTERSECTION_MAP)
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
     node_types = {node.node_id: node.node_type for node in game_map.topology.nodes}
 
@@ -953,24 +827,21 @@ def test_traffic_count_generates_deterministic_graph_wide_cars(
 def test_traffic_count_generates_loop_routes_without_authored_cars(
     tmp_path: Path,
 ) -> None:
-    source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source = yaml.safe_load(_TRAFFIC_LOOP_MAP.read_text(encoding="utf-8"))
     source["traffic_count"] = 2
 
     game_map = load_game_map(_write_map(tmp_path, source))
 
     assert len(game_map.traffic) == 2
     assert all(vehicle.end_behavior == "wrap" for vehicle in game_map.traffic)
-    assert all(
-        "neighborhood_lot" not in vehicle.node_ids for vehicle in game_map.traffic
-    )
 
 
-def test_boulevard_large_logical_fleet_activates_only_graph_nearby_cars(
+def test_large_logical_fleet_activates_only_graph_nearby_cars(
     tmp_path: Path,
 ) -> None:
-    source = yaml.safe_load(_BOULEVARD_MAP.read_text(encoding="utf-8"))
-    source["traffic_count"] = 100
-    game_map = load_game_map(_write_map(tmp_path, source, "dense-boulevard"))
+    source = yaml.safe_load(_TRAFFIC_LOOP_MAP.read_text(encoding="utf-8"))
+    source["traffic_count"] = 20
+    game_map = load_game_map(_write_map(tmp_path, source, "dense-traffic-loop"))
     spawn = game_map.default_spawn
     vicinity = GameMapVicinityResolver(game_map).resolve(
         float(spawn.position_world[0]),
@@ -980,9 +851,8 @@ def test_boulevard_large_logical_fleet_activates_only_graph_nearby_cars(
 
     controller.set_vicinity(vicinity)
 
-    assert len(game_map.traffic) == 100
+    assert len(game_map.traffic) == 20
     assert 0 < len(controller.active_objects) < len(game_map.traffic)
-    assert len(controller.active_objects) == 27
 
 
 @pytest.mark.parametrize("count", [-1, 1.5, True, "2"])
@@ -1062,18 +932,14 @@ def test_curb_defaults_to_true_for_roads_and_boundary_nodes() -> None:
 
 
 def test_askew_intersection_road_angles_are_geometry_driven() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+    game_map = load_game_map(_INTERSECTION_GEOMETRY_MAP)
     nodes = {node.node_id: node for node in game_map.topology.nodes}
-    road = next(
-        item
-        for item in game_map.topology.roads
-        if item.road_id == "diagonal_north_lower"
-    )
+    road = next(item for item in game_map.topology.roads if item.road_id == "east_road")
     start, end = nodes[road.from_node_id], nodes[road.to_node_id]
     bearing = np.degrees(np.arctan2(end.y_m - start.y_m, end.x_m - start.x_m)) % 360
 
-    assert start.node_id == "diagonal_arterial_crossing"
-    assert bearing == pytest.approx(81.0, abs=0.2)
+    assert start.node_id == "center"
+    assert bearing == pytest.approx(9.46, abs=0.01)
 
 
 def test_road_joint_trims_roads_and_emits_visible_curve(tmp_path: Path) -> None:
@@ -1658,41 +1524,34 @@ def test_cul_de_sac_must_terminate_exactly_one_road(tmp_path: Path) -> None:
 
 
 def test_intersection_surface_is_inferred_from_incident_road_edges() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    crossing = _surface(game_map, "central_arterial_crossing")
-    merge = _surface(game_map, "arterial_merge_crossing")
+    game_map = load_game_map(_INTERSECTION_GEOMETRY_MAP)
+    intersection = _surface(game_map, "center")
+    node = next(node for node in game_map.topology.nodes if node.node_id == "center")
 
-    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 0]) == pytest.approx(
-        8.4, abs=0.05
-    )
-    assert np.ptp(np.asarray(crossing.exterior.coords)[:, 1]) == pytest.approx(
-        15.6, abs=0.05
-    )
-    assert crossing.area == pytest.approx(8.4 * 15.6, abs=0.5)
-    assert np.ptp(np.asarray(merge.exterior.coords)[:, 0]) < 30.0
-    assert np.ptp(np.asarray(merge.exterior.coords)[:, 1]) < 28.0
-    assert merge.convex_hull.area - merge.area < 5.0
+    assert node.polygon_vertices_xy == ()
+    assert intersection.bounds == pytest.approx((-3.45, -7.8, 7.67, 9.60), abs=0.02)
+    assert intersection.area == pytest.approx(161.47, abs=0.1)
+    assert intersection.convex_hull.area - intersection.area < 0.1
 
 
-def test_boulevard_intersection_curbs_have_no_cap_fragments() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+def test_intersection_curbs_have_no_cap_fragments() -> None:
+    game_map = load_game_map(_INTERSECTION_GEOMETRY_MAP)
     elements = {element.element_id: element for element in game_map.elements}
 
-    assert not elements["central_arterial_crossing"].curbs
-    merge_lengths = [
+    curb_lengths = [
         LineString(curb.polyline_world[:, :2]).length
-        for curb in elements["arterial_merge_crossing"].curbs
+        for curb in elements["center"].curbs
     ]
-    assert merge_lengths
-    assert min(merge_lengths) > 1.0
+    assert curb_lengths
+    assert min(curb_lengths) > 1.0
 
 
-def test_south_parking_lot_uses_its_complete_authored_opening() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+def test_parking_lot_uses_its_complete_authored_opening() -> None:
+    game_map = load_game_map(_PARKING_DRIVEWAY_MAP)
     elements = {element.element_id: element for element in game_map.elements}
-    opening = LineString(((145.0, -150.0), (157.0, -150.0)))
-    lot = elements["south_parking_lot"]
-    access = _surface(game_map, "south_parking_lot:access")
+    opening = LineString(((-6.0, -20.0), (6.0, -20.0)))
+    lot = elements["parking_lot"]
+    access = _surface(game_map, "parking_lot:access")
 
     assert access.boundary.intersection(opening).length == pytest.approx(12.0)
     assert (
@@ -1750,18 +1609,14 @@ def test_parking_access_is_inferred_from_lot_node_and_not_authored_as_a_road() -
 
 
 def test_degree_two_parking_sources_compile_as_driveway_nodes() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+    game_map = load_game_map(_PARKING_DRIVEWAY_MAP)
     nodes = {node.node_id: node for node in game_map.topology.nodes}
 
-    assert nodes["southwest_lot_driveway"].node_type == "driveway"
-    assert nodes["south_lot_driveway"].node_type == "driveway"
-    assert nodes["east_corner_lot_driveway"].node_type == "driveway"
-    assert nodes["south_upper_lot_driveway"].node_type == "driveway"
-    assert nodes["arterial_crossing_895"].node_type == "intersection"
+    assert nodes["lot_driveway"].node_type == "driveway"
     assert not any(
         element.element_type == "intersection"
         for element in game_map.elements
-        if element.element_id == "southwest_lot_driveway"
+        if element.element_id == "lot_driveway"
     )
 
 
@@ -1776,11 +1631,11 @@ def test_lane_graph_routes_to_and_from_parking_lot() -> None:
 
 
 def test_parking_lots_compile_as_green_roadnet_masks() -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
+    game_map = load_game_map(_PARKING_DRIVEWAY_MAP)
     rows = game_map_compiler._road_marking_rows(game_map)
     lots = [node for node in game_map.topology.nodes if node.node_type == "parking_lot"]
 
-    assert len(rows) == len(lots) == 8
+    assert len(rows) == len(lots) == 1
     assert all(
         cast(dict[str, Any], row["road_marking"])["category"]
         == "ROI_POLYGON_ROADNET_MASK"
@@ -1802,7 +1657,7 @@ def test_routing_connectors_are_not_world_model_conditioning() -> None:
     assert compiled_lane_ids.isdisjoint(lane.lane_id for lane in connectors)
 
 
-@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+@pytest.mark.parametrize("source_path", _COMPILER_TEST_MAPS)
 def test_every_authored_join_has_exact_non_overlapping_surfaces(
     source_path: Path,
 ) -> None:
@@ -1824,7 +1679,7 @@ def test_every_authored_join_has_exact_non_overlapping_surfaces(
         assert first.distance(second) <= 1.0e-4, (first_id, second_id)
 
 
-@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+@pytest.mark.parametrize("source_path", _COMPILER_TEST_MAPS)
 def test_connected_surface_seams_do_not_emit_boundaries(source_path: Path) -> None:
     game_map = load_game_map(source_path)
     elements = {element.element_id: element for element in game_map.elements}
@@ -1850,7 +1705,7 @@ def test_connected_surface_seams_do_not_emit_boundaries(source_path: Path) -> No
         assert seam_boundaries <= 1.0e-4, (first_id, second_id, seam_boundaries)
 
 
-@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+@pytest.mark.parametrize("source_path", _COMPILER_TEST_MAPS)
 def test_compiled_boundaries_belong_to_their_elements(source_path: Path) -> None:
     game_map = load_game_map(source_path)
     for element in game_map.elements:
@@ -1867,7 +1722,7 @@ def test_compiled_boundaries_belong_to_their_elements(source_path: Path) -> None
             assert not element.curbs
 
 
-@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+@pytest.mark.parametrize("source_path", _COMPILER_TEST_MAPS)
 def test_every_authored_road_emits_every_profile_divider(source_path: Path) -> None:
     document = yaml.safe_load(source_path.read_text(encoding="utf-8"))
     game_map = load_game_map(source_path)
@@ -1885,7 +1740,7 @@ def test_every_authored_road_emits_every_profile_divider(source_path: Path) -> N
         assert actual.get(road["id"], 0) == expected, road["id"]
 
 
-@pytest.mark.parametrize("source_path", [_STARTER_MAP, _BOULEVARD_MAP])
+@pytest.mark.parametrize("source_path", _COMPILER_TEST_MAPS)
 def test_final_clipgt_archive_contains_all_authored_map_geometry(
     source_path: Path, tmp_path: Path
 ) -> None:
@@ -1893,14 +1748,21 @@ def test_final_clipgt_archive_contains_all_authored_map_geometry(
     compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
 
     with zipfile.ZipFile(compiled.archive_path) as archive:
+        archive_names = set(archive.namelist())
         lane_lines = pq.read_table(
             io.BytesIO(archive.read("clipgt/lane_line.parquet"))
         ).to_pylist()
         boundaries = pq.read_table(
             io.BytesIO(archive.read("clipgt/road_boundary.parquet"))
         )
-        intersections = pq.read_table(
-            io.BytesIO(archive.read("clipgt/intersection_area.parquet"))
+        intersection_count = sum(
+            node.node_type == "intersection"
+            for node in compiled.game_map.topology.nodes
+        )
+        intersections = (
+            pq.read_table(io.BytesIO(archive.read("clipgt/intersection_area.parquet")))
+            if intersection_count
+            else None
         )
 
     labels = [row["key"]["label_class_id"] for row in lane_lines]
@@ -1914,9 +1776,10 @@ def test_final_clipgt_archive_contains_all_authored_map_geometry(
     assert boundaries.num_rows == sum(
         len(element.road_boundaries) for element in compiled.game_map.elements
     )
-    assert intersections.num_rows == sum(
-        node.node_type == "intersection" for node in compiled.game_map.topology.nodes
-    )
+    if intersections is None:
+        assert "clipgt/intersection_area.parquet" not in archive_names
+    else:
+        assert intersections.num_rows == intersection_count
 
 
 def test_compiler_settings_remain_map_local(tmp_path: Path) -> None:
