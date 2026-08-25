@@ -24,13 +24,12 @@ from slangpy_ui_demo.model_output_app import (
 )
 from slangpy_ui_demo.text_input_app import TextInputSlangPyUILoop, TextInputState
 
-from flashdreams.runtime_v2._slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEventData,
-    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -69,11 +68,10 @@ def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
     )
     w_pressed = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEventData(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key="W", state=KeyboardInputState.PRESSED
-                ),
+                key="W",
+                state=KeyboardInputState.PRESSED,
             )
         ]
     )
@@ -144,9 +142,10 @@ def test_slangpy_ui_routes_pressed_and_released_key_edges() -> None:
     )
     events = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEventData(
                 timestamp=uint64(index),
-                event_data=KeyboardUserInputEventData(key="ArrowLeft", state=state),
+                key="ArrowLeft",
+                state=state,
             )
             for index, state in enumerate(
                 (KeyboardInputState.PRESSED, KeyboardInputState.RELEASED)

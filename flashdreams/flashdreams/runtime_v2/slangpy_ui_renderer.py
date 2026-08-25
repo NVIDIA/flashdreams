@@ -235,10 +235,9 @@ def _route_input_events(
 ) -> None:
     """Route supported runtime input events into SlangPy's UI context."""
     for event in events.get_events():
-        data = event.get_event_data()
-        if isinstance(data, KeyboardUserInputEventData):
-            pressed = data.state is KeyboardInputState.PRESSED
-            key = _resolve_slangpy_key(slangpy, data.key)
+        if isinstance(event, KeyboardUserInputEventData):
+            pressed = event.state is KeyboardInputState.PRESSED
+            key = _resolve_slangpy_key(slangpy, event.key)
             if key is not None:
                 key_event = slangpy.KeyboardEvent()
                 key_event.type = (
@@ -249,33 +248,33 @@ def _route_input_events(
                 key_event.key = key
                 key_event.mods = slangpy.KeyModifierFlags.none
                 ui_context.handle_keyboard_event(key_event)
-            if pressed and len(data.key) == 1:
+            if pressed and len(event.key) == 1:
                 text_event = slangpy.KeyboardEvent()
                 text_event.type = slangpy.KeyboardEventType.input
-                text_event.codepoint = ord(data.key)
+                text_event.codepoint = ord(event.key)
                 text_event.mods = slangpy.KeyModifierFlags.none
                 ui_context.handle_keyboard_event(text_event)
-        elif isinstance(data, MouseUserInputEventData):
+        elif isinstance(event, MouseUserInputEventData):
             mouse_event = slangpy.MouseEvent()
-            mouse_event.pos = (data.x * width, data.y * height)
+            mouse_event.pos = (event.x * width, event.y * height)
             mouse_event.mods = slangpy.KeyModifierFlags.none
-            if data.action == "button":
+            if event.action == "button":
                 buttons = (
                     slangpy.MouseButton.left,
                     slangpy.MouseButton.middle,
                     slangpy.MouseButton.right,
                 )
-                if not 0 <= data.button < len(buttons):
+                if not 0 <= event.button < len(buttons):
                     continue
                 mouse_event.type = (
                     slangpy.MouseEventType.button_down
-                    if data.pressed
+                    if event.pressed
                     else slangpy.MouseEventType.button_up
                 )
-                mouse_event.button = buttons[data.button]
-            elif data.action == "wheel":
+                mouse_event.button = buttons[event.button]
+            elif event.action == "wheel":
                 mouse_event.type = slangpy.MouseEventType.scroll
-                mouse_event.scroll = (data.wheel_x, data.wheel_y)
+                mouse_event.scroll = (event.wheel_x, event.wheel_y)
             else:
                 mouse_event.type = slangpy.MouseEventType.move
             ui_context.handle_mouse_event(mouse_event)

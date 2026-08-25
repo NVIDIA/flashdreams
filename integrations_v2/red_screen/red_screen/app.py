@@ -118,14 +118,14 @@ def _apply_events(state: RedScreenModelState, events: UserInputEvents) -> None:
     received_events = events.get_events()
     if not received_events:
         return
-    data = received_events[-1].get_event_data()
-    if not isinstance(data, KeyboardUserInputEventData):
+    event = received_events[-1]
+    if not isinstance(event, KeyboardUserInputEventData):
         return
-    if data.key == state.config.activation_key:
-        state.key_held = data.state is KeyboardInputState.PRESSED
-    elif data.state is KeyboardInputState.PRESSED and data.key.lower() == "w":
+    if event.key == state.config.activation_key:
+        state.key_held = event.state is KeyboardInputState.PRESSED
+    elif event.state is KeyboardInputState.PRESSED and event.key.lower() == "w":
         state.color_intensity = min(1.0, state.color_intensity + 0.1)
-    elif data.state is KeyboardInputState.PRESSED and data.key.lower() == "s":
+    elif event.state is KeyboardInputState.PRESSED and event.key.lower() == "s":
         state.color_intensity = max(0.0, state.color_intensity - 0.1)
 
 

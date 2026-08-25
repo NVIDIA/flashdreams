@@ -311,8 +311,7 @@ class IUILoop(ILoop[StateT], ABC):
 
 def _contains_close(events: UserInputEvents) -> bool:
     return any(
-        isinstance(event.get_event_data(), CloseUserInputEventData)
-        for event in events.get_events()
+        isinstance(event, CloseUserInputEventData) for event in events.get_events()
     )
 
 

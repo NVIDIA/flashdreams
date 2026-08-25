@@ -15,7 +15,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     NumeralKeypadUserInputEventData,
-    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -77,9 +76,9 @@ def test_client_window_for_null_model() -> None:
     current_step_index = 0
     test_event_data = 2
     while current_timestamp < 1000:
-        numeral_keypad_input = UserInputEvent(
+        numeral_keypad_input = NumeralKeypadUserInputEventData(
             timestamp=current_timestamp,
-            event_data=NumeralKeypadUserInputEventData(value=test_event_data),
+            value=test_event_data,
         )
 
         # This is the client-windowing system updating user-inputs handled by the
@@ -89,12 +88,12 @@ def test_client_window_for_null_model() -> None:
         # Model and UI threads share this input.
         get_user_input_events = client_window.get_user_input_events()
         assert get_user_input_events.get_events() == [numeral_keypad_input]
-        event_data = get_user_input_events.get_events()[0].get_event_data()
-        assert isinstance(event_data, NumeralKeypadUserInputEventData)
+        event = get_user_input_events.get_events()[0]
+        assert isinstance(event, NumeralKeypadUserInputEventData)
 
         # This is inside our `step` loop.
         output = pipeline.generate(
-            current_step_index, cache, input=torch.tensor([[event_data.value]])
+            current_step_index, cache, input=torch.tensor([[event.value]])
         )
         ## Note: model output is in bcthw layout, but in theory the model could output bctwh and we would require a swizzle operation to get to bcthw
         client_window.write(
@@ -107,12 +106,8 @@ def test_client_window_for_null_model() -> None:
             )
         )
 
-        assert (
-            numeral_keypad_input.get_event_data().get_type_name()
-            == NumeralKeypadUserInputEventData.get_type_name()
-        )
-        assert event_data.get_type_name() == "numeral_keypad"
-        assert event_data.value == test_event_data
+        assert event.get_type_name() == "numeral_keypad"
+        assert event.value == test_event_data
         assert output.shape == (1, 3, 1, 1, 1)
         assert output[0, 0, 0, 0, 0].item() == current_step_index + test_event_data
 

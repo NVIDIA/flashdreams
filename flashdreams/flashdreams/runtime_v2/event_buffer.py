@@ -50,8 +50,7 @@ class EventBuffer:
         with self._lock:
             self._events.extend(received)
             self._generation += sum(
-                isinstance(event.get_event_data(), ResetUserInputEventData)
-                for event in received
+                isinstance(event, ResetUserInputEventData) for event in received
             )
 
     def read(self, reader_id: int) -> tuple[UserInputEvents, int]:
