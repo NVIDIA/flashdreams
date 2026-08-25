@@ -3,15 +3,22 @@
 
 """Output sink writing what a session generates to an MP4 file."""
 
+import logging
+import os
+import shutil
+import tempfile
 from pathlib import Path
 
-from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.api_v2.output_sink import AbortableOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_frames
 
 
-class Mp4OutputSink(OutputSink):
+_LOGGER = logging.getLogger(__name__)
+
+
+class Mp4OutputSink(AbortableOutputSink):
     """Encode results into an MP4 file.
 
     Each result is encoded as it arrives, and the run is bounded by whatever
@@ -30,6 +37,9 @@ class Mp4OutputSink(OutputSink):
         self._path = Path(path)
         self._session_desc: SessionDesc | None = None
         self._encoder: Mp4Encoder | None = None
+        self._staging_dir: Path | None = None
+        self._staged_video_path: Path | None = None
+        self._frames_written = 0
 
     def open(self, session_desc: SessionDesc) -> None:
         """Prepare to encode a session's output.
@@ -49,13 +59,36 @@ class Mp4OutputSink(OutputSink):
         """
         if session_desc.audio_sample_rate is not None:
             raise ValueError("Mp4OutputSink does not support audio.")
-        self._session_desc = session_desc
-        self._encoder = Mp4Encoder(
-            self._path,
-            width=session_desc.video_width,
-            height=session_desc.video_height,
-            frames_per_second=session_desc.frames_per_second_for_step,
+        if self._session_desc is not None or self._staging_dir is not None:
+            raise RuntimeError("Mp4OutputSink is already open.")
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f".{self._path.name}.",
+                dir=self._path.parent,
+            )
         )
+        staged_video_path = staging_dir / "video.mp4"
+        try:
+            encoder = Mp4Encoder(
+                staged_video_path,
+                width=session_desc.video_width,
+                height=session_desc.video_height,
+                frames_per_second=session_desc.frames_per_second_for_step,
+            )
+        except BaseException as error:
+            try:
+                shutil.rmtree(staging_dir)
+            except BaseException as cleanup_error:
+                error.add_note(
+                    f"Staging cleanup also failed: {cleanup_error!r}"
+                )
+            raise
+        self._session_desc = session_desc
+        self._encoder = encoder
+        self._staging_dir = staging_dir
+        self._staged_video_path = staged_video_path
+        self._frames_written = 0
 
     def write(self, result: StepResult) -> None:
         """Encode the frames in ``result``.
@@ -70,19 +103,86 @@ class Mp4OutputSink(OutputSink):
         """
         if self._session_desc is None or self._encoder is None:
             raise RuntimeError("Mp4OutputSink.open() must run before write().")
-        self._encoder.write(result_to_rgb24_frames(result, self._session_desc))
+        frames = result_to_rgb24_frames(result, self._session_desc)
+        self._encoder.write(frames)
+        self._frames_written += len(frames)
 
     def close(self) -> None:
-        """Finish the file.
+        """Commit a complete staged MP4 atomically.
 
-        Can be called on a sink that was never opened, or twice.
+        Can be called on a sink that was never opened, or twice. An empty
+        session preserves any existing target and publishes nothing.
 
         Raises:
-            RuntimeError: The encoder failed, so the file is unusable.
+            RuntimeError: Encoding failed or did not produce its staged file.
+            OSError: The staged file could not be published atomically.
         """
-        self._session_desc = None
-        encoder = self._encoder
-        if encoder is None:
+        if self._session_desc is None:
             return
+        encoder = self._encoder
+        if encoder is not None:
+            encoder.close()
+            self._encoder = None
+        if self._frames_written == 0:
+            self._discard_staging()
+            self._clear_transaction()
+            return
+        staged_video_path = self._staged_video_path
+        if staged_video_path is None or not staged_video_path.is_file():
+            raise RuntimeError("MP4 encoding produced no staged video file.")
+        os.replace(staged_video_path, self._path)
+        self._complete_transaction()
+
+    def abort(self) -> None:
+        """Discard staged output without changing the target.
+
+        This is idempotent and is valid after a partial ``open``, ``write``, or
+        ``close`` failure.
+        """
+        failure: BaseException | None = None
+        encoder = self._encoder
         self._encoder = None
-        encoder.close()
+        if encoder is not None:
+            try:
+                encoder.abort()
+            except BaseException as error:
+                failure = error
+        cleanup_failed = False
+        try:
+            self._discard_staging()
+        except BaseException as error:
+            cleanup_failed = True
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note(f"Staging cleanup also failed: {error!r}")
+        self._clear_transaction(clear_staging=not cleanup_failed)
+        if failure is not None:
+            raise failure
+
+    def _discard_staging(self) -> None:
+        staging_dir = self._staging_dir
+        if staging_dir is not None and staging_dir.exists():
+            shutil.rmtree(staging_dir)
+
+    def _complete_transaction(self) -> None:
+        staging_dir = self._staging_dir
+        if staging_dir is not None:
+            try:
+                staging_dir.rmdir()
+            except OSError as error:
+                _LOGGER.warning(
+                    "Committed %s but could not remove empty staging directory %s: %s",
+                    self._path,
+                    staging_dir,
+                    error,
+                )
+        self._clear_transaction()
+
+    def _clear_transaction(self, *, clear_staging: bool = True) -> None:
+        self._session_desc = None
+        self._encoder = None
+        if clear_staging:
+            self._staging_dir = None
+            self._staged_video_path = None
+        self._frames_written = 0

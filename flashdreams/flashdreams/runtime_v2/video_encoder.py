@@ -106,17 +106,66 @@ class Mp4Encoder:
             return
         self._process = None
         assert process.stdin is not None
+        failure: BaseException | None = None
         try:
             process.stdin.close()
         except BrokenPipeError:
             # ffmpeg gave up first; its exit code and diagnostics say why.
             pass
-        exit_code = process.wait()
-        if self._error_reader is not None:
-            self._error_reader.join()
+        except BaseException as error:
+            failure = error
+        exit_code: int | None = None
+        try:
+            exit_code = process.wait()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note(f"Waiting for ffmpeg also failed: {error!r}")
+        finally:
+            error_reader = self._error_reader
             self._error_reader = None
+            if error_reader is not None:
+                try:
+                    error_reader.join()
+                except BaseException as error:
+                    if failure is None:
+                        failure = error
+                    else:
+                        failure.add_note(
+                            f"Joining the ffmpeg error reader also failed: {error!r}"
+                        )
+        if failure is not None:
+            raise failure
         if exit_code != 0:
             raise RuntimeError(self._failure())
+
+    def abort(self) -> None:
+        """Terminate an active encoder without treating its file as complete.
+
+        Does nothing before the process starts or after it has stopped, and can
+        be called more than once.
+        """
+        process = self._process
+        if process is None:
+            return
+        self._process = None
+        try:
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+            if process.stdin is not None:
+                try:
+                    process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+            process.wait()
+        finally:
+            if self._error_reader is not None:
+                self._error_reader.join()
+                self._error_reader = None
 
     def _start(self) -> subprocess.Popen[bytes]:
         """Start ffmpeg, reading raw frames from its standard input."""

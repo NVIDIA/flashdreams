@@ -12,9 +12,11 @@ import pytest
 import torch
 from torch import Tensor
 
+import flashdreams.runtime_v2.mp4_output_sink as mp4_sink_module
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.video_encoder import Mp4Encoder
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -38,6 +40,64 @@ _BLACK = (-1.0, -1.0, -1.0)
 
 
 ## Helpers
+
+
+class _FakeEncoder:
+    """Write a recognizable staged file without starting ffmpeg."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        fail_write: bool = False,
+        fail_close: bool = False,
+    ) -> None:
+        self.path = Path(path)
+        self.fail_write = fail_write
+        self.fail_close = fail_close
+        self.abort_calls = 0
+        self.frames_written = 0
+
+    def write(self, frames: np.ndarray) -> None:
+        self.frames_written += len(frames)
+        self.path.write_bytes(b"partial video")
+        if self.fail_write:
+            raise RuntimeError("encode write failed")
+
+    def close(self) -> None:
+        if self.frames_written:
+            self.path.write_bytes(b"complete video")
+        if self.fail_close:
+            raise RuntimeError("encode close failed")
+
+    def abort(self) -> None:
+        self.abort_calls += 1
+
+
+def _install_fake_encoder(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fail_write: bool = False,
+    fail_close: bool = False,
+) -> list[_FakeEncoder]:
+    encoders: list[_FakeEncoder] = []
+
+    def create_encoder(path: str | Path, **kwargs: object) -> _FakeEncoder:
+        del kwargs
+        encoder = _FakeEncoder(
+            path,
+            fail_write=fail_write,
+            fail_close=fail_close,
+        )
+        encoders.append(encoder)
+        return encoder
+
+    monkeypatch.setattr(mp4_sink_module, "Mp4Encoder", create_encoder)
+    return encoders
+
+
+def _staging_paths(path: Path) -> list[Path]:
+    return list(path.parent.glob(f".{path.name}.*"))
 
 
 def _session_desc(
@@ -125,6 +185,150 @@ def _mean_colour(frame: np.ndarray) -> tuple[float, float, float]:
 ## Tests that do not encode
 
 
+def test_target_is_replaced_only_after_successful_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    encoders = _install_fake_encoder(monkeypatch)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path)
+
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
+
+    assert path.read_bytes() == b"existing target"
+    assert len(_staging_paths(path)) == 1
+
+    sink.close()
+    sink.close()
+    sink.abort()
+
+    assert path.read_bytes() == b"complete video"
+    assert _staging_paths(path) == []
+    assert encoders[0].abort_calls == 0
+
+
+def test_abort_is_idempotent_and_preserves_existing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    encoders = _install_fake_encoder(monkeypatch)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
+
+    sink.abort()
+    sink.abort()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+    assert encoders[0].abort_calls == 1
+
+
+def test_write_failure_can_be_aborted_without_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_fake_encoder(monkeypatch, fail_write=True)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+
+    with pytest.raises(RuntimeError, match="encode write failed"):
+        sink.write(_result([_RED]))
+    sink.abort()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+
+
+def test_close_failure_can_be_aborted_without_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    encoders = _install_fake_encoder(monkeypatch, fail_close=True)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
+
+    with pytest.raises(RuntimeError, match="encode close failed"):
+        sink.close()
+    sink.abort()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+    assert encoders[0].abort_calls == 1
+
+
+def test_atomic_replace_failure_preserves_target_and_can_be_aborted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_fake_encoder(monkeypatch)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
+
+    def fail_replace(source: Path, target: Path) -> None:
+        del source, target
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(mp4_sink_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        sink.close()
+    sink.abort()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+
+
+def test_encoder_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class Stream:
+        def close(self) -> None:
+            calls.append("stdin.close")
+
+    class Process:
+        stdin = Stream()
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            calls.append("process.terminate")
+
+        def wait(self) -> int:
+            calls.append("process.wait")
+            return -15
+
+    class Reader:
+        def join(self) -> None:
+            calls.append("reader.join")
+
+    encoder = Mp4Encoder(
+        tmp_path / "staged.mp4",
+        width=_WIDTH,
+        height=_HEIGHT,
+        frames_per_second=30,
+    )
+    encoder._process = Process()  # type: ignore[assignment]
+    encoder._error_reader = Reader()  # type: ignore[assignment]
+
+    encoder.abort()
+    encoder.abort()
+
+    assert calls == [
+        "process.terminate",
+        "stdin.close",
+        "process.wait",
+        "reader.join",
+    ]
+
+
 def test_write_before_open_raises(tmp_path: Path) -> None:
     sink = Mp4OutputSink(tmp_path / "out.mp4")
 
@@ -208,6 +412,19 @@ def test_a_run_that_generated_nothing_writes_no_file(tmp_path: Path) -> None:
     sink.close()
 
     assert not path.exists()
+    assert _staging_paths(path) == []
+
+
+def test_empty_run_preserves_an_existing_target(tmp_path: Path) -> None:
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path)
+
+    sink.open(_session_desc())
+    sink.close()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
 
 
 def test_close_tolerates_a_sink_that_was_never_opened(tmp_path: Path) -> None:
