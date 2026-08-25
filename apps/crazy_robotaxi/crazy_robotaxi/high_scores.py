@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Persistent taxi-game high-score storage."""
+"""Persistent taxi and race leaderboard storage."""
 
 from __future__ import annotations
 
@@ -25,6 +25,21 @@ _RACE_CSV_FIELDS = (
     "achieved_at_utc",
 )
 _PLAYER_NAME_RE = re.compile(r"[A-Za-z0-9 _-]{1,12}")
+
+
+def format_race_time_us(elapsed_time_us: int) -> str:
+    """Format a race duration as minutes, seconds, and milliseconds.
+
+    Args:
+        elapsed_time_us: Nonnegative duration in integer microseconds.
+
+    Returns:
+        Duration formatted as ``M:SS.XXX`` with unbounded minutes.
+    """
+    total_milliseconds = (max(0, elapsed_time_us) + 500) // 1_000
+    minutes, milliseconds_in_minute = divmod(total_milliseconds, 60_000)
+    seconds, milliseconds = divmod(milliseconds_in_minute, 1_000)
+    return f"{minutes}:{seconds:02d}.{milliseconds:03d}"
 
 
 def default_high_scores_path() -> Path:
@@ -242,6 +257,7 @@ class RaceTimeEntry:
             "name": self.name,
             "elapsed_time_us": self.elapsed_time_us,
             "elapsed_time_s": self.elapsed_time_us / 1_000_000.0,
+            "elapsed_time": format_race_time_us(self.elapsed_time_us),
             "achieved_at_utc": self.achieved_at_utc,
         }
 
@@ -404,8 +420,7 @@ class RaceTimeStore:
                 writer.writeheader()
                 for entry in entries:
                     row = entry.as_dict()
-                    row.pop("elapsed_time_s")
-                    writer.writerow(row)
+                    writer.writerow({field: row[field] for field in _RACE_CSV_FIELDS})
                 csv_file.flush()
                 os.fsync(csv_file.fileno())
             os.replace(temporary_path, self._path)

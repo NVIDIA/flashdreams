@@ -866,7 +866,10 @@ def test_taxi_hud_bev_draws_nearby_targets_and_omits_distant_ones(
         ImageDraw.Draw(distant_canvas), content_rect, marker_size=10
     )
 
-    assert not np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
+    distant_marker_visible = bool(
+        np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
+    )
+    assert distant_marker_visible is (phase == "to_dropoff")
 
 
 def test_race_hud_bev_always_draws_thick_red_gate() -> None:
@@ -912,6 +915,7 @@ def test_race_hud_bev_always_draws_thick_red_gate() -> None:
 
     pixels = np.asarray(canvas)
     assert np.any(np.all(pixels == np.array([230, 45, 45, 255]), axis=-1))
+    assert np.any(np.all(pixels == np.array([200, 150, 50, 255]), axis=-1))
 
 
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:

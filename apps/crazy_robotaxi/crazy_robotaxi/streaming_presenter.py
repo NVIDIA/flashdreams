@@ -60,6 +60,7 @@ from PIL import Image, ImageDraw
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     project_target_to_bev,
+    project_target_to_bev_edge,
     project_taxi_markers_to_camera,
 )
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
@@ -359,6 +360,14 @@ _INDEX_HTML = """<!doctype html>
     border-radius: 6px; background: #e62d2d; box-sizing: border-box;
     transform-origin: left center; box-shadow: 0 2px 6px black;
   }
+  .bev-edge-arrow {
+    position: absolute; width: 26px; height: 26px;
+    transform-origin: center; filter: drop-shadow(0 2px 3px black);
+  }
+  .bev-edge-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .bev-edge-arrow path {
+    fill: #c89632; stroke: white; stroke-width: 2.5px; stroke-linejoin: round;
+  }
   .game-over {
     position: fixed; inset: 0; display: flex; align-items: center;
     justify-content: center; background: rgba(0, 0, 0, 0.72);
@@ -546,7 +555,7 @@ function paintGameOver(taxi) {
   }
   const race = taxi.game_mode === 'race';
   finalScoreEl.textContent = race
-    ? `FINAL TIME  ${(taxi.final_time_s || 0).toFixed(3)}s`
+    ? `FINAL TIME  ${taxi.final_time || '0:00.000'}`
     : `FINAL SCORE  ${taxi.score}`;
   if (previousTaxiSession !== state) releaseAllKeys();
   const enteringName = state === 'awaiting_name';
@@ -570,7 +579,7 @@ function paintGameOver(taxi) {
       const row = document.createElement('tr');
       if (index + 1 === taxi.high_score_rank) row.classList.add('current');
       const result = race
-        ? `${(entry.elapsed_time_us / 1000000).toFixed(3)}s`
+        ? entry.elapsed_time
         : String(entry.score);
       [String(index + 1), entry.name, result].forEach(value => {
         const cell = document.createElement('td');
@@ -581,6 +590,26 @@ function paintGameOver(taxi) {
     });
   }
   previousTaxiSession = state;
+}
+function appendBevEdgeArrow(spec) {
+  if (!spec) return;
+  const width = taxiMapEl.clientWidth;
+  const height = taxiMapEl.clientHeight;
+  if (width <= 0 || height <= 0) return;
+  const edgeX = spec.u * width;
+  const edgeY = spec.v * height;
+  const dx = edgeX - width / 2;
+  const dy = edgeY - height / 2;
+  const length = Math.hypot(dx, dy);
+  if (length <= 0.001) return;
+  const inset = 16;
+  const arrow = document.createElement('div');
+  arrow.className = 'bev-edge-arrow';
+  arrow.style.left = `${edgeX - dx / length * inset}px`;
+  arrow.style.top = `${edgeY - dy / length * inset}px`;
+  arrow.style.transform = `translate(-50%, -50%) rotate(${Math.atan2(dy, dx)}rad)`;
+  arrow.innerHTML = '<svg viewBox="0 0 26 26"><path d="M24 13 L3 2 L3 24 Z"></path></svg>';
+  taxiPinsEl.appendChild(arrow);
 }
 function paintTaxi(taxi) {
   driveHintEl.textContent = taxi
@@ -621,9 +650,8 @@ function paintTaxi(taxi) {
     } else if (taxi.session_state === 'racing') {
       progress = `LAP ${taxi.completed_laps + 1}/${taxi.lap_count}  CHECKPOINT ${taxi.checkpoint_index + 1}/${taxi.checkpoint_count}`;
     }
-    const best = typeof taxi.best_time_s === 'number'
-      ? `  BEST ${taxi.best_time_s.toFixed(3)}s` : '';
-    taxiStatusEl.textContent = `RACE ${taxi.elapsed_time_s.toFixed(3)}s  ${progress}  ${Math.round(taxi.distance_m)}m${best}`;
+    const best = taxi.best_time ? `  BEST ${taxi.best_time}` : '';
+    taxiStatusEl.textContent = `RACE ${taxi.elapsed_time}  ${progress}  ${Math.round(taxi.distance_m)}m${best}`;
     taxiEventEl.textContent = taxi.event === 'lap_complete' ? 'LAP COMPLETE' : '';
   } else {
     taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
@@ -651,6 +679,7 @@ function paintTaxi(taxi) {
       gate.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
       taxiPinsEl.appendChild(gate);
     }
+    appendBevEdgeArrow(taxi.bev_arrow);
     return;
   }
   markers.filter(marker => marker.visible).forEach(marker => {
@@ -660,6 +689,7 @@ function paintTaxi(taxi) {
     pin.style.top = `${marker.v * 100}%`;
     taxiPinsEl.appendChild(pin);
   });
+  appendBevEdgeArrow(taxi.bev_arrow);
 }
 nameEntryEl.addEventListener('submit', async event => {
   event.preventDefault();
@@ -1015,6 +1045,21 @@ class MJPEGStreamingPresenter:
             draw = ImageDraw.Draw(image)
             draw.line(gate, fill=(0, 0, 0), width=13)
             draw.line(gate, fill=(230, 55, 55), width=9)
+            center = (
+                (gate[0][0] + gate[1][0]) / 2.0,
+                (gate[0][1] + gate[1][1]) / 2.0,
+            )
+            label_box = draw.textbbox((0, 0), snapshot.target_label, stroke_width=2)
+            draw.text(
+                (
+                    center[0] - (label_box[2] - label_box[0]) / 2.0,
+                    center[1] - 22,
+                ),
+                snapshot.target_label,
+                fill=(255, 255, 255),
+                stroke_width=2,
+                stroke_fill=(0, 0, 0),
+            )
             return np.asarray(image)
         markers = project_taxi_markers_to_camera(
             snapshot,
@@ -1222,6 +1267,13 @@ class MJPEGStreamingPresenter:
                         },
                         "end": {"u": end_u, "v": end_v, "visible": end_visible},
                     }
+                    edge = project_target_to_bev_edge(
+                        taxi_state.target_xyz_m,
+                        vehicle_state,
+                        self._bev_config,
+                    )
+                    if edge is not None:
+                        taxi_payload["bev_arrow"] = {"u": edge[0], "v": edge[1]}
                     taxi_payload["bev_targets"] = []
                     result["taxi"] = taxi_payload
                     return result
@@ -1238,6 +1290,14 @@ class MJPEGStreamingPresenter:
                     )
                     bev_targets.append({"u": u, "v": v, "visible": visible})
                 taxi_payload["bev_targets"] = bev_targets
+                if taxi_state.phase == "to_dropoff":
+                    edge = project_target_to_bev_edge(
+                        taxi_state.target_xyz_m,
+                        vehicle_state,
+                        self._bev_config,
+                    )
+                    if edge is not None:
+                        taxi_payload["bev_arrow"] = {"u": edge[0], "v": edge[1]}
             else:
                 taxi_payload["bev_targets"] = []
             result["taxi"] = taxi_payload

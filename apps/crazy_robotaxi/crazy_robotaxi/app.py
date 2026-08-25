@@ -84,6 +84,7 @@ class CrazyRobotaxiRuntime:
         controller: TaxiGameController | RaceController,
         keyboard: CrazyRobotaxiKeyboardState,
         *,
+        game_mode: Literal["taxi", "race"] = "taxi",
         style_ability: Any | None = None,
         coin_ability: CoinAbility | None = None,
         obstacle_ability: Any | None = None,
@@ -92,6 +93,7 @@ class CrazyRobotaxiRuntime:
     ) -> None:
         self._controller = controller
         self._keyboard = keyboard
+        self._game_mode = game_mode
         self._style_ability = style_ability
         self._coin_ability = coin_ability
         self._obstacle_ability = obstacle_ability
@@ -158,7 +160,7 @@ class CrazyRobotaxiRuntime:
                 logger.info(f"[live-edit] item pickup {item_type} -> {label}")
         passengers = (
             build_pickup_passenger_trajectories(snapshots, trajectory.timestamps_us)
-            if isinstance(self._controller, TaxiGameController)
+            if self._game_mode == "taxi"
             else ()
         )
         obstacles: tuple[Any, ...] = ()
@@ -392,6 +394,7 @@ class CrazyRobotaxiApplication:
         return CrazyRobotaxiRuntime(
             controller,
             self._keyboard,
+            game_mode=self._game_mode,
             style_ability=self._style_ability,
             coin_ability=coin_ability,
             obstacle_ability=obstacle_ability,

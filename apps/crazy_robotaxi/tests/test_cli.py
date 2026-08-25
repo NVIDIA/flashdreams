@@ -95,7 +95,7 @@ def test_visual_flare_override_defaults_disabled() -> None:
         (["--game-mode", "race", "--disable-visual-flare"], False),
     ],
 )
-def test_named_game_modes_enable_game_physics(
+def test_named_game_modes_keep_base_game_physics_disabled(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
     visual_flare_enabled: bool,
@@ -106,9 +106,10 @@ def test_named_game_modes_enable_game_physics(
         build_parser().parse_args([*_MAP_ARGS, *argv])
     )
 
-    assert config.vehicle.speed_limit_enabled is True
-    assert config.vehicle.actor_collision_enabled is True
-    assert config.vehicle.static_collision_enabled is True
+    assert config.game_mode is False
+    assert config.vehicle.speed_limit_enabled is False
+    assert config.vehicle.actor_collision_enabled is False
+    assert config.vehicle.static_collision_enabled is False
     assert config.visual_flare_enabled is visual_flare_enabled
 
 

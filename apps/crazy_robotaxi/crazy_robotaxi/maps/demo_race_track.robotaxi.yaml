@@ -1,0 +1,110 @@
+schema_version: 1
+id: crazy-robotaxi-demo-race-track
+name: Demo Raceway
+
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 25.0
+  intersection_connector_samples: 8
+
+profiles:
+  raceway:
+    lane_width_m: 4.0
+    curb_offset_m: 0.8
+    lanes: [backward, forward]
+    speed_limit_mps: 16.5
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - {id: start_finish, type: road_joint, pose: {x_m: 0, y_m: -45}}
+  - {id: southeast, type: road_joint, pose: {x_m: 75, y_m: -45}}
+  - {id: east_lower, type: road_joint, pose: {x_m: 100, y_m: -20}}
+  - {id: east_upper, type: road_joint, pose: {x_m: 100, y_m: 20}}
+  - {id: northeast, type: road_joint, pose: {x_m: 75, y_m: 45}}
+  - {id: north_midpoint, type: road_joint, pose: {x_m: 0, y_m: 45}}
+  - {id: northwest, type: road_joint, pose: {x_m: -75, y_m: 45}}
+  - {id: west_upper, type: road_joint, pose: {x_m: -100, y_m: 20}}
+  - {id: west_lower, type: road_joint, pose: {x_m: -100, y_m: -20}}
+  - {id: southwest, type: road_joint, pose: {x_m: -75, y_m: -45}}
+
+roads:
+  - id: start_finish_straight
+    from: southwest
+    to: start_finish
+    profile: raceway
+
+  - id: south_straight
+    from: start_finish
+    to: southeast
+    profile: raceway
+
+  - id: southeast_bend
+    from: southeast
+    to: east_lower
+    profile: raceway
+
+  - id: east_straight
+    from: east_lower
+    to: east_upper
+    profile: raceway
+
+  - id: northeast_bend
+    from: east_upper
+    to: northeast
+    profile: raceway
+
+  - id: north_straight
+    from: northeast
+    to: north_midpoint
+    profile: raceway
+
+  - id: back_straight
+    from: north_midpoint
+    to: northwest
+    profile: raceway
+
+  - id: northwest_bend
+    from: northwest
+    to: west_upper
+    profile: raceway
+
+  - id: west_straight
+    from: west_upper
+    to: west_lower
+    profile: raceway
+
+  - id: southwest_bend
+    from: west_lower
+    to: southwest
+    profile: raceway
+
+race_courses:
+  - id: demo-oval
+    start: start_finish
+    checkpoints:
+      - southeast
+      - east_lower
+      - east_upper
+      - northeast
+      - north_midpoint
+      - northwest
+      - west_upper
+      - west_lower
+      - southwest
+    lap_count: 1
+    checkpoint_markers: true
+
+spawns:
+  - id: race_start
+    road: start_finish_straight
+    lane: 1
+    distance_m: 15
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: >-
+          A forward-facing view from a taxi on a compact closed urban race
+          circuit in daylight, with broad paved corners, safety barriers,
+          grandstands, sponsor banners, and a clear start-finish straight.

@@ -28,7 +28,11 @@ from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 from shapely.geometry import LineString, Point, Polygon
 
 from crazy_robotaxi.game import relative_target_bearing_rad
-from crazy_robotaxi.high_scores import RaceTimeEntry, RaceTimeStore
+from crazy_robotaxi.high_scores import (
+    RaceTimeEntry,
+    RaceTimeStore,
+    format_race_time_us,
+)
 
 RaceSessionState = Literal["awaiting_start", "racing", "awaiting_name", "leaderboard"]
 RaceTargetKind = Literal["start", "checkpoint"]
@@ -116,6 +120,15 @@ class RaceGameSnapshot:
         return 4.0
 
     @property
+    def target_label(self) -> Literal["START", "CHECKPOINT", "FINISH"]:
+        """Return the camera-view label for the active race gate."""
+        if self.target_kind == "start":
+            return "START" if self.session_state == "awaiting_start" else "FINISH"
+        if self.lap_count == 0 and self.checkpoint_index + 1 == self.checkpoint_count:
+            return "FINISH"
+        return "CHECKPOINT"
+
+    @property
     def pickup_targets_xyz_m(self) -> tuple[tuple[float, float, float], ...]:
         """Return no alternate targets for the ordered race course."""
         return ()
@@ -128,6 +141,7 @@ class RaceGameSnapshot:
             "course_id": self.course_id,
             "session_state": self.session_state,
             "target_kind": self.target_kind,
+            "target_label": self.target_label,
             "target_element_id": self.target_element_id,
             "target_xyz_m": list(self.target_xyz_m),
             "gate_start_xyz_m": list(self.gate_start_xyz_m),
@@ -141,13 +155,24 @@ class RaceGameSnapshot:
             "lap_count": self.lap_count,
             "elapsed_time_us": self.elapsed_time_us,
             "elapsed_time_s": self.elapsed_time_us / 1_000_000.0,
+            "elapsed_time": format_race_time_us(self.elapsed_time_us),
             "best_time_us": self.best_time_us,
             "best_time_s": (
                 None if self.best_time_us is None else self.best_time_us / 1_000_000.0
             ),
+            "best_time": (
+                None
+                if self.best_time_us is None
+                else format_race_time_us(self.best_time_us)
+            ),
             "final_time_us": self.final_time_us,
             "final_time_s": (
                 None if self.final_time_us is None else self.final_time_us / 1_000_000.0
+            ),
+            "final_time": (
+                None
+                if self.final_time_us is None
+                else format_race_time_us(self.final_time_us)
             ),
             "leaderboard": [entry.as_dict() for entry in self.leaderboard],
             "high_score_rank": self.high_score_rank,

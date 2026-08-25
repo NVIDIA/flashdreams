@@ -83,11 +83,15 @@ def test_loop_finishes_only_after_final_return_to_start(
         _state(start[0] + 100.0, start[1] - 100.0),
         RaceTimeStore(tmp_path / "times.csv"),
     )
+    awaiting_start = controller.snapshot(_state(*start))
+    assert awaiting_start.target_label == "START"
+    assert awaiting_start.as_dict()["target_label"] == "START"
 
     timestamp = 1_000_000
-    controller.advance_frames(
+    started = controller.advance_frames(
         _trajectory([_active_gate_midpoint(controller)], [timestamp]), 1.0
-    )
+    )[-1]
+    assert started.target_label == "CHECKPOINT"
     for lap in range(course.lap_count):
         for _checkpoint in course.checkpoint_element_ids:
             timestamp += 1_000_000
@@ -95,6 +99,7 @@ def test_loop_finishes_only_after_final_return_to_start(
                 _trajectory([_active_gate_midpoint(controller)], [timestamp]), 1.0
             )
         assert controller.is_playing
+        assert controller.snapshot(_state(*start)).target_label == "FINISH"
         timestamp += 1_000_000
         snapshot = controller.advance_frames(
             _trajectory([_active_gate_midpoint(controller)], [timestamp]), 1.0
@@ -140,9 +145,10 @@ def test_point_to_point_finishes_at_last_checkpoint_and_rejects_skips(
     skipped = controller.advance_frames(_trajectory([last], [2_000_000]), 1.0)[-1]
     assert skipped.checkpoint_index == 0
     assert controller.is_playing
-    controller.advance_frames(
+    final_gate = controller.advance_frames(
         _trajectory([_active_gate_midpoint(controller)], [3_000_000]), 1.0
-    )
+    )[-1]
+    assert final_gate.target_label == "FINISH"
     finished = controller.advance_frames(
         _trajectory([_active_gate_midpoint(controller)], [4_000_000]), 1.0
     )[-1]

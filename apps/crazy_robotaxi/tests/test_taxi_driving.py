@@ -57,7 +57,8 @@ def test_taxi_cli_keeps_base_mode_disabled(
             [
                 "--map",
                 "city.robotaxi.yaml",
-                "--taxi-game",
+                "--game-mode",
+                "taxi",
             ]
         )
     )
@@ -72,7 +73,12 @@ def test_taxi_cli_keeps_base_mode_disabled(
 
 def test_taxi_alignment_diagnostics_forces_physics_snapshots() -> None:
     args = build_parser().parse_args(
-        ["--taxi-game", "--taxi-alignment-diagnostics", "diagnostics"]
+        [
+            "--game-mode",
+            "taxi",
+            "--taxi-alignment-diagnostics",
+            "diagnostics",
+        ]
     )
 
     taxi_config = taxi_config_from_args(args)

@@ -34,6 +34,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.config import (
@@ -63,8 +64,10 @@ from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     TaxiGameSnapshot,
     project_target_pose_to_bev,
+    project_target_pose_to_bev_edge,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.high_scores import format_race_time_us
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 
@@ -1601,7 +1604,6 @@ class SlangPyHudPresenter:
             return
         ax, ay, ar, _ = camera_area
         cx = (ax + ar) // 2
-        elapsed = snapshot.elapsed_time_us / 1_000_000.0
         if snapshot.session_state == "awaiting_start":
             progress = "CROSS START LINE TO BEGIN"
         elif snapshot.lap_count == 0:
@@ -1619,9 +1621,12 @@ class SlangPyHudPresenter:
         best = (
             ""
             if snapshot.best_time_us is None
-            else f"  BEST {snapshot.best_time_us / 1_000_000.0:.3f}s"
+            else f"  BEST {format_race_time_us(snapshot.best_time_us)}"
         )
-        label = f"RACE {elapsed:07.3f}s  {progress}  {snapshot.distance_m:.0f}m{best}"
+        label = (
+            f"RACE {format_race_time_us(snapshot.elapsed_time_us)}  {progress}  "
+            f"{snapshot.distance_m:.0f}m{best}"
+        )
         bbox = _measure_text(self._font_medium, label)
         width = bbox[2] - bbox[0]
         draw.rounded_rectangle(
@@ -1671,8 +1676,7 @@ class SlangPyHudPresenter:
             fill=ACCENT_AMBER,
             font=self._font_large,
         )
-        final_s = (snapshot.final_time_us or 0) / 1_000_000.0
-        result = f"FINAL TIME  {final_s:.3f}s"
+        result = f"FINAL TIME  {format_race_time_us(snapshot.final_time_us or 0)}"
         result_box = _measure_text(self._font_medium, result)
         draw.text(
             (cx - (result_box[2] - result_box[0]) // 2, rect[1] + 92),
@@ -1708,7 +1712,10 @@ class SlangPyHudPresenter:
             return
         row_y = rect[1] + 145
         for rank, entry in enumerate(snapshot.leaderboard, start=1):
-            row = f"{rank:>2}.  {entry.name:<12}  {entry.elapsed_time_us / 1_000_000.0:>9.3f}s"
+            row = (
+                f"{rank:>2}.  {entry.name:<12}  "
+                f"{format_race_time_us(entry.elapsed_time_us):>9}"
+            )
             draw.text(
                 (cx - 230, row_y),
                 row,
@@ -1881,11 +1888,7 @@ class SlangPyHudPresenter:
             line = (display_point(gate[0]), display_point(gate[1]))
             draw.line(line, fill=(0, 0, 0, 235), width=13)
             draw.line(line, fill=(230, 55, 55, 255), width=9)
-            label = (
-                "START"
-                if frame.application_state.target_kind == "start"
-                else f"CP {frame.application_state.checkpoint_index + 1}"
-            )
+            label = frame.application_state.target_label
             center = (
                 (line[0][0] + line[1][0]) // 2,
                 (line[0][1] + line[1][1]) // 2,
@@ -2683,6 +2686,14 @@ class SlangPyHudPresenter:
                 )
                 draw.line(line, fill=(255, 255, 255, 255), width=13)
                 draw.line(line, fill=(230, 45, 45, 255), width=9)
+            self._draw_bev_edge_arrow(
+                draw,
+                content_rect,
+                marker_size,
+                snapshot.target_xyz_m,
+                bev_pose,
+                bev,
+            )
             return
         color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
         radius = max(8, marker_size - 2)
@@ -2712,6 +2723,63 @@ class SlangPyHudPresenter:
                 outline=(20, 20, 30, 255),
                 width=2,
             )
+        if snapshot.phase == "to_dropoff":
+            self._draw_bev_edge_arrow(
+                draw,
+                content_rect,
+                marker_size,
+                snapshot.target_xyz_m,
+                bev_pose,
+                bev,
+            )
+
+    @staticmethod
+    def _draw_bev_edge_arrow(
+        draw: ImageDraw.ImageDraw,
+        content_rect: tuple[int, int, int, int],
+        marker_size: int,
+        target_xyz_m: tuple[float, float, float],
+        bev_pose: npt.NDArray[np.float32],
+        bev: BevConfig,
+    ) -> None:
+        """Draw an inward-offset arrow where the target ray meets the BEV edge."""
+        projected = project_target_pose_to_bev_edge(target_xyz_m, bev_pose, bev)
+        if projected is None:
+            return
+        left, top, right, bottom = content_rect
+        edge_x = left + projected[0] * (right - left)
+        edge_y = top + projected[1] * (bottom - top)
+        delta_x = edge_x - (left + right) * 0.5
+        delta_y = edge_y - (top + bottom) * 0.5
+        length = _math.hypot(delta_x, delta_y)
+        if length <= 1.0e-6:
+            return
+        direction_x, direction_y = delta_x / length, delta_y / length
+        perpendicular_x, perpendicular_y = -direction_y, direction_x
+        size = float(max(9, marker_size))
+        center_x = edge_x - direction_x * (size + 3.0)
+        center_y = edge_y - direction_y * (size + 3.0)
+
+        def arrow(scale: float) -> list[tuple[float, float]]:
+            tip_x = center_x + direction_x * size * scale
+            tip_y = center_y + direction_y * size * scale
+            base_x = center_x - direction_x * size * scale * 0.72
+            base_y = center_y - direction_y * size * scale * 0.72
+            half_width = size * scale * 0.68
+            return [
+                (tip_x, tip_y),
+                (
+                    base_x + perpendicular_x * half_width,
+                    base_y + perpendicular_y * half_width,
+                ),
+                (
+                    base_x - perpendicular_x * half_width,
+                    base_y - perpendicular_y * half_width,
+                ),
+            ]
+
+        draw.polygon(arrow(1.0), fill=(255, 255, 255, 255))
+        draw.polygon(arrow(0.68), fill=ACCENT_AMBER + (255,))
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:
