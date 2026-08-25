@@ -282,3 +282,22 @@ async def test_video_track_timestamps_sparse_frames_at_their_source_cadence() ->
         assert second.pts >= 2
     finally:
         await track.close()
+
+
+@pytest.mark.asyncio
+async def test_drop_oldest_video_track_keeps_the_latest_ui_frame() -> None:
+    track = _VideoTrack(frames_per_second=60, drop_oldest=True)
+    frames = tuple(
+        torch.full((16, 16, 3), value, dtype=torch.uint8).numpy()
+        for value in (10, 20, 30)
+    )
+    try:
+        for frame in frames:
+            await track.enqueue((frame,))
+
+        assert track.qsize() == 1
+        assert track.dropped_for_lag == 2
+        latest = await track.recv()
+        assert abs(float(latest.to_ndarray(format="rgb24").mean()) - 30.0) <= 2.0
+    finally:
+        await track.close()

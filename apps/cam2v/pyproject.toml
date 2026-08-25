@@ -11,7 +11,10 @@ version = "0.1.0"
 description = "Reusable interactive FlashDreams camera-to-video application primitives"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["flashdreams[local-window,serving,ui]"]
+dependencies = ["flashdreams[local-window,runners,serving,ui]"]
+
+[project.entry-points."flashdreams.applications_v2"]
+"cam2v-dummy" = "cam2v.dummy:create_app"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
@@ -19,3 +22,6 @@ flashdreams = { workspace = true }
 [tool.setuptools]
 packages = ["cam2v"]
 package-dir = { cam2v = "." }
+
+[tool.setuptools.package-data]
+cam2v = ["assets/*.ppm"]

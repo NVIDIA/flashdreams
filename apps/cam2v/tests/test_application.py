@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 import cam2v.ui as cam2v_ui
 import pytest
+import tomli as tomllib
 import torch
 from cam2v import (
     Cam2VApplication,
@@ -26,6 +27,8 @@ from cam2v import (
     Cam2VUIStatus,
     CameraControlInput,
 )
+from cam2v.dummy import DummyCam2VPipelineConfig
+from cam2v.dummy import create_app as create_dummy_app
 from numpy import uint64
 
 from flashdreams.api_v2.thread import BlitModelOutputToScreenThread
@@ -313,3 +316,64 @@ def test_defaults_reject_invalid_timing_configuration() -> None:
             pixel_height=1,
             warmup_blocks=-1,
         )
+
+
+def test_dummy_cam2v_pipeline_simulates_generation_without_a_model() -> None:
+    """Exercise camera-dependent dummy output without image or GPU dependencies."""
+    pipeline = DummyCam2VPipelineConfig(
+        step_wait_seconds=0.0,
+        frames_per_chunk=2,
+    ).setup()
+    cache = pipeline.initialize_cache(
+        text=["dummy"],
+        image=torch.zeros((1, 3, 4, 8), dtype=torch.float32),
+    )
+    poses = torch.eye(4).repeat(2, 1, 1)
+    poses[:, 0, 3] = 1.0
+
+    frames = pipeline.generate(
+        autoregressive_index=0,
+        cache=cache,
+        input=CameraControlInput(
+            intrinsics=torch.zeros((2, 4)),
+            poses=poses,
+            world_scale=1.0,
+        ),
+    )
+
+    assert frames.shape == (2, 3, 4, 8)
+    assert frames[:, 0].mean() > frames[:, 1].mean()
+
+
+def test_dummy_cam2v_application_exposes_slow_step_controls() -> None:
+    """Keep synthetic latency configurable through application arguments."""
+    app = create_dummy_app()
+
+    app.init(
+        [
+            "--step-wait-seconds",
+            "0.25",
+            "--frames-per-chunk",
+            "3",
+            "--total-blocks",
+            "1",
+        ]
+    )
+
+    assert isinstance(app, Cam2VApplication)
+    assert app.pipeline_config == DummyCam2VPipelineConfig(
+        step_wait_seconds=0.25,
+        frames_per_chunk=3,
+    )
+
+
+def test_shared_cam2v_package_registers_the_dummy_application() -> None:
+    """Expose the slow dummy through the v2 application registry."""
+    manifest = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+
+    assert (
+        manifest["project"]["entry-points"]["flashdreams.applications_v2"][
+            "cam2v-dummy"
+        ]
+        == "cam2v.dummy:create_app"
+    )

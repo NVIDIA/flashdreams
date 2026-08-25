@@ -25,7 +25,7 @@ from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 from loguru import logger
 
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -44,6 +44,9 @@ _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
 _CUDA_EVENT_POLL_SECONDS = 0.001
 """Polling interval that keeps CUDA waits off the WebRTC event-loop thread."""
+
+_INTERACTIVE_FRAME_QUEUE_SIZE = 1
+"""Pending sender frames retained for latest-frame presentation."""
 
 _RGBArray: TypeAlias = np.ndarray[Any, np.dtype[np.uint8]]
 
@@ -87,30 +90,54 @@ class _VideoTrack(MediaStreamTrack):
 
     kind = "video"
 
-    def __init__(self, frames_per_second: int) -> None:
+    def __init__(self, frames_per_second: int, *, drop_oldest: bool = False) -> None:
+        """Configure frame pacing and optional latest-frame delivery.
+
+        Args:
+            frames_per_second: RTP clock and maximum delivery rate.
+            drop_oldest: Whether a newly presented frame replaces a queued one.
+        """
         super().__init__()
         self._frames_per_second = frames_per_second
         self._frame_interval = 1.0 / frames_per_second
         self._time_base = Fraction(1, frames_per_second)
-        self._frames: asyncio.Queue[_PresentedRGBFrame | None] = asyncio.Queue()
+        self._drop_oldest = drop_oldest
+        self._frames: asyncio.Queue[_PresentedRGBFrame | None] = asyncio.Queue(
+            maxsize=_INTERACTIVE_FRAME_QUEUE_SIZE if drop_oldest else 0
+        )
+        self._retired_pending_frames: list[_PendingRGBFrame] = []
+        self._dropped_for_lag = 0
         self._last_presented_at: float | None = None
         self._last_sent_at: float | None = None
         self._presentation_started_at: float | None = None
         self._next_pts = 0
         self._closed = False
 
+    @property
+    def dropped_for_lag(self) -> int:
+        """Return the number of stale sender frames replaced before encoding."""
+        return self._dropped_for_lag
+
+    def qsize(self) -> int:
+        """Return the number of frames waiting for the WebRTC sender."""
+        return self._frames.qsize()
+
     async def enqueue(self, frames: tuple[_QueuedRGBFrame, ...]) -> None:
         """Append generated RGB frames for the WebRTC sender."""
         if self._closed:
             return
+        self._reap_retired_pending_frames()
         presented_at = asyncio.get_running_loop().time()
         for frame_index, frame in enumerate(frames):
-            await self._frames.put(
-                _PresentedRGBFrame(
-                    frame=frame,
-                    presented_at=presented_at + frame_index * self._frame_interval,
-                )
+            presented_frame = _PresentedRGBFrame(
+                frame=frame,
+                presented_at=presented_at + frame_index * self._frame_interval,
             )
+            if self._drop_oldest:
+                self._drop_queued_frame()
+                self._frames.put_nowait(presented_frame)
+            else:
+                await self._frames.put(presented_frame)
 
     async def recv(self) -> VideoFrame:
         """Return the next generated frame when aiortc requests one."""
@@ -119,6 +146,7 @@ class _VideoTrack(MediaStreamTrack):
         presented_frame = await self._frames.get()
         if presented_frame is None:
             raise MediaStreamError
+        self._reap_retired_pending_frames()
         queued_frame = presented_frame.frame
         frame = (
             await queued_frame.resolve()
@@ -155,8 +183,42 @@ class _VideoTrack(MediaStreamTrack):
         if self._closed:
             return
         self._closed = True
+        while True:
+            try:
+                queued = self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if queued is not None:
+                self._retire_pending_frame(queued.frame)
+        if self._retired_pending_frames:
+            await asyncio.gather(
+                *(frame.resolve() for frame in self._retired_pending_frames)
+            )
+            self._retired_pending_frames.clear()
         self._frames.put_nowait(None)
         self.stop()
+
+    def _drop_queued_frame(self) -> None:
+        if not self._frames.full():
+            return
+        try:
+            stale = self._frames.get_nowait()
+        except asyncio.QueueEmpty:
+            return
+        if stale is not None:
+            self._retire_pending_frame(stale.frame)
+            self._dropped_for_lag += 1
+
+    def _retire_pending_frame(self, frame: _QueuedRGBFrame) -> None:
+        if isinstance(frame, _PendingRGBFrame) and not frame.ready_event.query():
+            self._retired_pending_frames.append(frame)
+
+    def _reap_retired_pending_frames(self) -> None:
+        self._retired_pending_frames = [
+            frame
+            for frame in self._retired_pending_frames
+            if not frame.ready_event.query()
+        ]
 
 
 class WebRTCServer:
@@ -388,7 +450,12 @@ class WebRTCServer:
             )
 
         peer_connection = RTCPeerConnection()
-        video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
+        video_track = _VideoTrack(
+            session_desc.frames_per_second_for_ui,
+            drop_oldest=(
+                session_desc.presentation_mode is PresentationMode.DROP_OLDEST
+            ),
+        )
         peer_connection.addTrack(video_track)
         self._peer_connection = peer_connection
         self._video_track = video_track

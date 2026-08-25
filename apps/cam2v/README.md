@@ -16,5 +16,16 @@ The overlay is enabled by default. Pass `-- --no-ui` after the application
 arguments to use the default model-output blitter for headless or benchmark
 runs.
 
+For UI testing without loading a real model, run the packaged dummy pipeline:
+
+```bash
+uv run flashdreams-run-v2 cam2v-dummy --mode webrtc \
+  --host 0.0.0.0 --port 8089 -- \
+  --step-wait-seconds 0.9 --frames-per-chunk 12
+```
+
+The model-generation-thread waits on a `threading.Event` for each synthetic
+step while the io-thread continues processing and rendering browser input.
+
 See `integrations/lingbot/lingbot/cam2v/app.py` for the minimal specialization
 pattern.

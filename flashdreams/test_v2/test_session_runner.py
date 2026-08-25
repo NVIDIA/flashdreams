@@ -418,6 +418,40 @@ def test_run_session_calls_ui_run_on_the_io_thread() -> None:
     assert log.threads_for("session.step(0)") == {_STEP_THREAD_NAME}
 
 
+def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
+    """Keep the io-thread responsive during a slow model-generation step."""
+    log = CallLog()
+    input_processed = threading.Event()
+
+    class SlowModelSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            assert input_processed.wait(timeout=1.0)
+            return super().step(step_index, events)
+
+        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            if events.get_events():
+                input_processed.set()
+            return super().run_ui(step_index, events)
+
+    session = SlowModelSession(
+        _session_desc(
+            presentation_mode=PresentationMode.BLOCK,
+            ui_fps=100,
+            model_fps=1,
+        ),
+        log,
+    )
+    window = RecordingClientWindow(
+        log,
+        [UserInputEvents([]), _key_event()],
+    )
+
+    run_session(session, window, steps=1)
+
+    assert input_processed.is_set()
+    assert "ui_thread.step" in log.calls
+
+
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
     log = CallLog()
 
