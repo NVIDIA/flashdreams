@@ -77,6 +77,9 @@ struct BodyRecord {
     bool detached = false;
     bool trackVisible = true;
     bool trackDriveEnabled = true;
+    bool externalTrackProgress = false;
+    std::int64_t trackTimestampUs = 0;
+    float trackVelocityScale = 1.0f;
     bool overlappingEgo = false;
     std::vector<std::int64_t> timestampsUs;
     std::vector<float> positions;
@@ -428,6 +431,31 @@ public:
         }
     }
 
+    void setBodyTrackProgress(
+        const py::array_t<std::int64_t, py::array::c_style>& objectIds,
+        const py::array_t<std::int64_t, py::array::c_style>& timestampsUs,
+        const py::array_t<float, py::array::c_style>& velocityScales)
+    {
+        if (
+            objectIds.ndim() != 1
+            || timestampsUs.ndim() != 1
+            || velocityScales.ndim() != 1)
+            throw std::invalid_argument("track-progress arrays must be one-dimensional");
+        const py::ssize_t count = objectIds.shape(0);
+        if (timestampsUs.shape(0) != count || velocityScales.shape(0) != count)
+            throw std::invalid_argument("track-progress arrays must have equal lengths");
+        for (py::ssize_t index = 0; index < count; ++index) {
+            const float scale = velocityScales.data()[index];
+            if (!std::isfinite(scale) || scale < 0.0f || scale > 1.0f)
+                throw std::invalid_argument(
+                    "track velocity scales must be finite and within [0, 1]");
+            BodyRecord& body = bodyAt(objectIds.data()[index]);
+            body.externalTrackProgress = true;
+            body.trackTimestampUs = timestampsUs.data()[index];
+            body.trackVelocityScale = scale;
+        }
+    }
+
     void setCollisionEnabled(BodyRecord& body, bool enabled)
     {
         if (body.collisionActive == enabled)
@@ -571,7 +599,10 @@ public:
                 BodyRecord& body = entry.second;
                 if (!body.hasTrack())
                     continue;
-                if (!isTrackVisible(body, timestampUs)) {
+                const std::int64_t trackTimestampUs = body.externalTrackProgress
+                    ? body.trackTimestampUs
+                    : timestampUs;
+                if (!isTrackVisible(body, trackTimestampUs)) {
                     body.trackVisible = false;
                     body.overlappingEgo = false;
                     body.driveIntentActive = false;
@@ -581,7 +612,9 @@ public:
                 }
                 body.trackVisible = true;
                 ++visibleCount;
-                const TrackSample track = sampleTrack(body, timestampUs);
+                TrackSample track = sampleTrack(body, trackTimestampUs);
+                track.velocity *= body.trackVelocityScale;
+                track.angularVelocity *= body.trackVelocityScale;
                 writeTrackState(body, track);
                 const PxTransform actorTransform = body.actor->getGlobalPose();
                 const PxVec3 actorVelocity = body.actor->getLinearVelocity();
@@ -1348,6 +1381,7 @@ PYBIND11_MODULE(ludus_physx_native, module)
         .def("set_body_track_drive_enabled", &NativeScene::setBodyTrackDriveEnabled)
         .def("set_body_detached", &NativeScene::setBodyDetached)
         .def("set_body_track_controls", &NativeScene::setBodyTrackControls)
+        .def("set_body_track_progress", &NativeScene::setBodyTrackProgress)
         .def("remove_body", &NativeScene::removeBody)
         .def("add_barrier", &NativeScene::addBarrier)
         .def("remove_barrier", &NativeScene::removeBarrier)

@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import math
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -185,6 +186,7 @@ class PhysXWorld:
         *,
         actor_collision_enabled: bool = True,
         max_actor_drive_speed_mps: float | None = None,
+        max_actor_drive_speeds_mps: dict[str, float] | None = None,
         capacity: int | None = None,
     ) -> None:
         if max_actor_drive_speed_mps is not None and (
@@ -199,6 +201,12 @@ class PhysXWorld:
         self.ego_model = ego_model
         self.actor_collision_enabled = actor_collision_enabled
         self.max_actor_drive_speed_mps = max_actor_drive_speed_mps
+        self.max_actor_drive_speeds_mps = dict(max_actor_drive_speeds_mps or {})
+        if any(
+            not math.isfinite(value) or value <= 0.0
+            for value in self.max_actor_drive_speeds_mps.values()
+        ):
+            raise ValueError("per-actor drive speeds must be finite and positive")
         self._closed = False
         self._objects: dict[str, SceneObject] = {}
         self._object_slots: dict[str, int] = {}
@@ -206,6 +214,7 @@ class PhysXWorld:
         self._object_native_ids: dict[str, int] = {}
         self._object_collision_active: dict[str, bool] = {}
         self._track_drive_enabled: dict[str, bool] = {}
+        self._track_progress_timestamp_us: dict[str, int] = {}
         self._detached_object_ids: set[str] = set()
         self._barriers: dict[str, InvisibleBarrier] = {}
         self._state_buffer = self._scene.state_buffer()
@@ -310,6 +319,35 @@ class PhysXWorld:
             self._track_drive_enabled[object_id] = drive_enabled
             self._objects[object_id].detached = detached
 
+    def apply_track_progress(
+        self, progress: tuple[tuple[str, int, float], ...]
+    ) -> None:
+        """Override route time and target velocity for procedural tracks."""
+        if not progress:
+            return
+        for object_id, _, velocity_scale in progress:
+            if object_id not in self._objects:
+                raise KeyError(object_id)
+            if not math.isfinite(velocity_scale) or not 0.0 <= velocity_scale <= 1.0:
+                raise ValueError("track velocity scale must be within [0, 1]")
+        self._scene.set_body_track_progress(
+            np.fromiter(
+                (self._object_native_ids[item[0]] for item in progress),
+                dtype=np.int64,
+                count=len(progress),
+            ),
+            np.fromiter(
+                (item[1] for item in progress), dtype=np.int64, count=len(progress)
+            ),
+            np.fromiter(
+                (item[2] for item in progress),
+                dtype=np.float32,
+                count=len(progress),
+            ),
+        )
+        for object_id, timestamp_us, _ in progress:
+            self._track_progress_timestamp_us[object_id] = int(timestamp_us)
+
     def _add_body(
         self,
         native_id: int,
@@ -390,7 +428,9 @@ class PhysXWorld:
             state,
             False,
             self.actor_collision_enabled,
-            self.max_actor_drive_speed_mps,
+            self.max_actor_drive_speeds_mps.get(
+                scene_object.object_id, self.max_actor_drive_speed_mps
+            ),
         )
         self._scene.set_body_track(
             native_id,
@@ -427,6 +467,7 @@ class PhysXWorld:
         del self._object_native_ids[object_id]
         del self._object_collision_active[object_id]
         del self._track_drive_enabled[object_id]
+        self._track_progress_timestamp_us.pop(object_id, None)
         self._detached_object_ids.discard(object_id)
         self._half_extents_buffer[slot] = 0.0
 
@@ -453,13 +494,19 @@ class PhysXWorld:
         del self._barriers[barrier_id]
 
     def synchronize(
-        self, graph: PhysicsObjectGraph, *, timestamp_us: int | None = None
+        self,
+        graph: PhysicsObjectGraph,
+        *,
+        timestamp_us: int | None = None,
+        initial_object_timestamps_us: Mapping[str, int] | None = None,
     ) -> None:
         """Apply graph additions, replacements, and removals incrementally.
 
         Args:
             graph: Desired active topology.
             timestamp_us: Initial pose time for newly added objects.
+            initial_object_timestamps_us: Per-object initial track times that
+                override ``timestamp_us`` for newly added procedural actors.
         """
         incoming_objects = {value.object_id: value for value in graph.objects}
         for object_id in tuple(self._objects):
@@ -471,7 +518,17 @@ class PhysXWorld:
                 continue
             if current is not None:
                 self.remove_object(object_id)
-            self.add_object(scene_object, timestamp_us=timestamp_us)
+            initial_timestamp = (
+                None
+                if initial_object_timestamps_us is None
+                else initial_object_timestamps_us.get(object_id)
+            )
+            self.add_object(
+                scene_object,
+                timestamp_us=(
+                    timestamp_us if initial_timestamp is None else initial_timestamp
+                ),
+            )
 
         incoming_barriers = {
             barrier.barrier_id or f"barrier-{index}": barrier
@@ -518,7 +575,9 @@ class PhysXWorld:
         visible_slots = tuple(
             (object_id, slot)
             for object_id, slot in self._object_slots.items()
-            if self._objects[object_id].is_visible_at(timestamp_us)
+            if self._objects[object_id].is_visible_at(
+                self._track_progress_timestamp_us.get(object_id, timestamp_us)
+            )
         )
         actor_samples = tuple(
             (

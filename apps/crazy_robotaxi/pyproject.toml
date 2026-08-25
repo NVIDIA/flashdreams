@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crazy-robotaxi"
+version = "0.1.0"
+description = "Crazy Robotaxi application for FlashDreams V2"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "flashdreams",
+    "flashdreams-omnidreams",
+    "omnidreams-game-engine",
+    "pillow",
+    "torch",
+]
+
+[project.scripts]
+crazy-robotaxi-map = "crazy_robotaxi.map_tool:main"
+
+[project.entry-points."flashdreams.applications_v2"]
+crazy-robotaxi = "crazy_robotaxi:create_app"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-omnidreams = { workspace = true }
+omnidreams-game-engine = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-manual-marker>=2.0"]
+
+[tool.setuptools.packages.find]
+include = ["crazy_robotaxi*"]
+
+[tool.setuptools.package-data]
+crazy_robotaxi = ["configs/*.yaml", "maps/*.robotaxi.yaml"]
+
+[tool.uv]
+managed = true

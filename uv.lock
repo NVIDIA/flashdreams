@@ -19,6 +19,7 @@ conflicts = [[
 
 [manifest]
 members = [
+    "crazy-robotaxi",
     "flashdreams",
     "flashdreams-cam2v",
     "flashdreams-cam2v-lingbot",
@@ -48,6 +49,7 @@ members = [
     "flashdreams-waypoint",
     "flashdreams-waypoint-v2",
     "ludus-renderer",
+    "omnidreams-game-engine",
 ]
 overrides = [
     { name = "numpy", specifier = ">=1.24,<2.5" },
@@ -676,6 +678,38 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/37/21972a15834d90bfbfb009b9d004779bd5a07a0ec0234e5ba8f64d5736f4/contourpy-1.3.3-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5ed3657edf08512fc3fe81b510e35c2012fbd3081d2e26160f27ca28affec989", size = 329207, upload-time = "2025-07-26T12:02:57.468Z" },
     { url = "https://files.pythonhosted.org/packages/0c/58/bd257695f39d05594ca4ad60df5bcb7e32247f9951fd09a9b8edb82d1daa/contourpy-1.3.3-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:3d1a3799d62d45c18bafd41c5fa05120b96a28079f2393af559b843d1a966a77", size = 225315, upload-time = "2025-07-26T12:02:58.801Z" },
 ]
+
+[[package]]
+name = "crazy-robotaxi"
+version = "0.1.0"
+source = { editable = "apps/crazy_robotaxi" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-omnidreams" },
+    { name = "omnidreams-game-engine" },
+    { name = "pillow" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-manual-marker" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
+    { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
+    { name = "pillow" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "torch" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "cryptography"
@@ -3367,6 +3401,49 @@ name = "nvidia-vfx"
 version = "0.1.0.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/37/b4/58e1bbb8d6fc9ed786564d0878314ea2f2cd458c84861a5130927e431ff6/nvidia_vfx-0.1.0.1.tar.gz", hash = "sha256:8a26bae3a967a2ce29040f17ba9d75e106f3d0c68016d440a77ed9c7eb05daae", size = 2673, upload-time = "2026-03-09T19:29:40.556Z" }
+
+[[package]]
+name = "omnidreams-game-engine"
+version = "0.1.0"
+source = { editable = "apps/omnidreams_game_engine" }
+dependencies = [
+    { name = "filelock" },
+    { name = "flashdreams" },
+    { name = "flashdreams-omnidreams" },
+    { name = "ludus-renderer" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "pyyaml" },
+    { name = "shapely" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-manual-marker" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "filelock", specifier = ">=3" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
+    { name = "ludus-renderer", editable = "integrations/omnidreams/ludus-renderer" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "shapely", specifier = ">=2.0" },
+    { name = "torch" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "onnx"

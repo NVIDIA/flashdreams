@@ -50,7 +50,9 @@ ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", 
 extraPaths = [
     "flashdreams",
     "apps",
+    "apps/crazy_robotaxi",
     "apps/interactive_drive",
+    "apps/omnidreams_game_engine",
     "integrations_v2",
     "integrations_v2/omnidreams/impl/ludus-renderer",
     "integrations/causal_forcing",
@@ -88,7 +90,9 @@ python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "apps",
+    "apps/crazy_robotaxi",
     "apps/interactive_drive",
+    "apps/omnidreams_game_engine",
     "integrations_v2",
     "integrations_v2/omnidreams/impl/ludus-renderer",
     "integrations/causal_forcing",
@@ -124,6 +128,17 @@ extra-paths = [
 exclude = [
     "**/protos/*pb2*",
     "apps/interactive_drive/interactive_drive/**",
+    # These map/archive parsers and numerical PhysX adapters intentionally
+    # accept dynamically shaped YAML, Arrow, and NumPy values. Keep the new
+    # V2 application, session, engine contracts, rollout, input, and renderer
+    # boundaries type-checked while isolating that data-oriented edge code.
+    "apps/omnidreams_game_engine/omnidreams_game_engine/game_map/**",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/math_utils.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/patterns.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/ply_io.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/scene_loader.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/components.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/game_physics.py",
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;
     # not shipped product, mirrors the interactive_drive precedent above.
     "integrations/hy_worldplay/tests/parity_check/**",
