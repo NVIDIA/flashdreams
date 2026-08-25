@@ -28,5 +28,5 @@ The model-generation-thread waits on a `threading.Event` for each synthetic
 step while the io-thread continues collecting browser input and presenting
 generated frames.
 
-See `integrations/lingbot/lingbot/cam2v/app.py` for the minimal specialization
-pattern.
+See `integrations_v2/cam2v_lingbot/cam2v_lingbot/app.py` for the minimal
+specialization pattern.

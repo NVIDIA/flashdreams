@@ -21,6 +21,7 @@ conflicts = [[
 members = [
     "flashdreams",
     "flashdreams-cam2v",
+    "flashdreams-cam2v-lingbot",
     "flashdreams-causal-forcing",
     "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
@@ -1131,6 +1132,23 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "runners", "serving"], editable = "flashdreams" }]
+
+[[package]]
+name = "flashdreams-cam2v-lingbot"
+version = "0.1.0"
+source = { editable = "integrations_v2/cam2v_lingbot" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-cam2v" },
+    { name = "flashdreams-lingbot" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
+    { name = "flashdreams-lingbot", editable = "integrations/lingbot" },
+]
 
 [[package]]
 name = "flashdreams-causal-forcing"

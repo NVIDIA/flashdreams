@@ -90,28 +90,12 @@ uv run flashdreams-run lingbot-world-fast \
     --prompt "your text prompt here" --total-blocks 21
 ```
 
-## Run the shared Cam2V WebRTC application
+## FlashDreams v2 Cam2V application
 
-Lingbot specializes the shared ``apps/cam2v`` application with its existing
-runner config and example-asset resolver. The application loads the pipeline
-once; each session owns its cache, keyboard state, and camera pose.
-Use the v2 launcher because ``flashdreams-run`` continues to run the established
-runner API.
-
-```bash
-uv run flashdreams-run-v2 cam2v-lingbot --mode webrtc --host 0.0.0.0 --port 8089 -- \
-    --example-data
-```
-
-The command prints the browser URL. Use ``W``/``S`` to move, ``A``/``D`` to
-yaw, ``Q``/``E`` to strafe, and ``I``/``K`` to pitch the generated camera.
-
-The application logs warmup-excluded ``steady_state_fps`` and a per-block
-timing breakdown while it runs. ``model_step_wall_s`` covers camera-input
-preparation, generation, finalization, and CUDA completion. The pipeline's
-profiling log provides the GPU-stage breakdown. Set ``--log-every-blocks N`` to
-reduce log frequency and ``--warmup-blocks N`` to change the five-block default
-warmup exclusion.
+The v2 `cam2v-lingbot` application lives in the standalone
+[`integrations_v2/cam2v_lingbot`](../../integrations_v2/cam2v_lingbot/README.md)
+package. This distribution continues to own the Lingbot model, runners, and
+legacy serving paths consumed by that application.
 
 Multi-GPU via context-parallelism (Wan 2.1 CP assumes `cp_size == world_size`):
 
