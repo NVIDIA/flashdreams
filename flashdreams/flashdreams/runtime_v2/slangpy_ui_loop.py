@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""SlangPy UI loop for FlashDreams applications."""
+"""UI loop drawing SlangPy widgets over the model output."""
 
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar, final
@@ -20,7 +20,13 @@ _StateT = TypeVar("_StateT")
 
 
 class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
-    """Render a SlangPy UI over an optional model frame."""
+    """Render a SlangPy UI over an optional model frame.
+
+    Subclass this and implement :meth:`step_ui` instead of ``step``: the widget
+    tree is drawn once per UI tick, and whatever :meth:`step_ui` returns is
+    composited beneath it. Needs CUDA, Vulkan/CUDA interop and SlangPy, so the
+    renderer is created on the first render rather than at construction.
+    """
 
     def __init__(
         self,
@@ -51,12 +57,28 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     def step_ui(
         self, ui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
-        """Draw widgets and optionally return the frame beneath them."""
+        """Draw widgets and optionally return the frame beneath them.
+
+        Args:
+            ui: SlangPy UI surface. ``ui.screen`` takes top-level widgets, and
+                every public ``slangpy.ui`` type is reachable from it.
+            step_index: Zero-based index since the latest reset.
+            events: Input events not seen by this loop before.
+
+        Returns:
+            A ``[C, H, W]`` frame to composite beneath the widgets, usually from
+            :meth:`presented_model_frame`, or ``None`` for widgets on black.
+        """
         ...
 
     @final
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Render the UI over the optional back-buffer returned by :meth:`step_ui`."""
+        """Render the UI over the optional back-buffer returned by :meth:`step_ui`.
+
+        Returns:
+            One composited frame, as ``[1, C, H, W]``. Sessions using this loop
+            therefore declare a ``tchw`` layout.
+        """
         back_buffer: Tensor | None = None
 
         def draw(ui: Any, index: int, current_events: UserInputEvents) -> None:

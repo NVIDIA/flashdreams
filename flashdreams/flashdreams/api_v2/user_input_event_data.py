@@ -7,11 +7,12 @@ from abc import ABC, abstractmethod
 
 
 class UserInputEventData(ABC):
-    """Base class for data stored in ``UserInputEvent``.
+    """Base class for data stored in a user input event.
 
     Implementations provide :meth:`get_type_name` and may add fields for their
-    event data when implementing. The runtime owns the set of concrete types,
-    which covers the input modalities supported today.
+    event data. The runtime owns the set of concrete types, in
+    :mod:`flashdreams.runtime_v2.user_input_event`, which covers the input
+    modalities supported today.
     """
 
     @classmethod

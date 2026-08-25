@@ -102,9 +102,9 @@ def _close_output_sink(output_sink: OutputSink) -> None:
 def _close_application(application: IApplication, *, run_failed: bool) -> None:
     """Close an application, keeping its close from hiding an earlier failure.
 
-    This is ``session_runner._close_session`` for the application: whatever
-    failed first is what a run reports, and a failure while cleaning up after it
-    is logged.
+    The same rule ``run_session`` follows for the session and its sinks:
+    whatever failed first is what a run reports, and a failure while cleaning up
+    after it is logged.
 
     Args:
         application: Application to close.

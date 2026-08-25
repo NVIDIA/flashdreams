@@ -3,69 +3,66 @@ SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-Protocols for the FlashDreams v2 API.
+The protocols a FlashDreams v2 application implements. Everything here is a
+contract; the runtime creates every other object and passes it in.
 
-- `application.py`: `IApplication` loads shared state and creates sessions.
-- `session.py`: `ISession` represents one session and owns a model loop and a UI loop.
-- `thread.py`: `ILoop` holds shared loop state and messaging;
-  `IModelLoop` and `IUILoop` define model and UI work.
-- `input_source.py` / `output_sink.py` / `client_window.py`: `IClientWindow`
-  groups one client's input and output.
-- `user_input_event_data.py`: base class for input event data.
+[ARCHITECTURE.md](../../../ARCHITECTURE.md) covers how an application, a session
+and the runtime fit together. [`runtime_v2`](../runtime_v2/README.md) covers what
+runs one, including the command line. This page is only what you implement, and
+what each contract promises.
 
-Running an application
-----------------------
+## What is in here
 
-`flashdreams-run-v2` finds an application through the
-`flashdreams.applications_v2` entry point and runs it with `ApplicationRunner`.
-The application chooses its default `SessionDesc`; `--pixel-width`,
-`--pixel-height`, `--fps`, `--layout`, `--backpressure-mode`, and
-`--presentation-mode` can override it.
+- `application.py`: `IApplication` parses arguments, holds what its sessions
+  share, and creates them.
+- `session.py`: `ISession` is one run, and registers the loops that do its work.
+- `loop.py`: `ILoop` holds per-loop state, messaging and lifecycle;
+  `IModelLoop` generates, `IUILoop` presents.
+- `input_source.py`, `output_sink.py`, `client_window.py`: `IClientWindow` is
+  both an `InputSource` and an `OutputSink`, grouping one client's input and
+  output.
+- `user_input_event_data.py`: base class for input event data. The concrete
+  types belong to the runtime.
 
-The selected client-window mode handles the run's input and output. MP4 mode
-writes a file and has no input. WebRTC mode streams to a browser. Mode-specific
-arguments are defined in `runtime_v2/client_window_factory.py`.
+Three of these are things you write: an application, a session, and a model
+loop. A UI loop is optional. Windows and sinks you only implement if you are
+adding a new way to watch a run.
 
-Model generation stops when the client closes, the model loop reports that it
-is finished, or a model-loop step limit is reached. `run_session` presents
-any queued frames before returning. An MP4 window never sends a close event, so
-its model loop must finish on its own.
+## `IApplication`
 
-`--stats-path` adds a `MetricsOutputSink`. It writes measurements provided in a
-`StepResult` returned via `step`. The client window still receives only the UI
-loop's output. Metrics collection does not change either presentation setting.
-For equality evaluations, use `PresentationMode.ONLY_PRESENT_NEW` and
-`BackpressureMode.BLOCK` so every model frame is presented exactly once and in
-order.
+Lives as long as the process. It parses its own arguments in `init`, loads
+whatever its sessions share, and creates them one at a time. Anything expensive
+belongs here, loaded once, and released in `close`.
 
-See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
-and the [benchmark README](../../tools/benchmarks/README.md) for the benchmark
-suite.
+It can also answer `session_desc` before `init` runs, so a caller can ask what
+this application would generate without paying to start it. Returning `None`
+means it will generate whatever it is asked for.
 
-`flashdreams.t2v_v2` builds the text-to-video API on these protocols. See
-[its README](../t2v_v2/README.md).
+Reject a description you cannot honour, from `create_session`. A session that
+quietly ignores the layout it was asked for produces tensors an output sink then
+refuses, much further along and much harder to place.
 
-Loops and threading
--------------------
+## `ISession`
 
-An application lives for the length of the parent process. A
-session (stored in `IApplication`) lives for one run and owns two `ILoop`
-objects: an `IModelLoop` and an `IUILoop`. In `ISession.init`, it must call
-`register_model_loop` and may call `register_ui_loop`.
+One run. It registers a model loop in `init` and may register a UI loop. A
+session that registers no UI loop gets
+`flashdreams.runtime_v2.blit_model_output_to_screen_loop.BlitModelOutputToScreenLoop`,
+which draws every model channel into one frame as if they were image layers.
 
-| Runs on | Calls | Owns | Frame rate |
-| --- | --- | --- | --- |
-| The thread that called `run_session` | `IUILoop.step` | UI-loop state, `run_session` state | `frames_per_second_for_ui` |
-| A new Python thread | `IModelLoop.step` | Model-loop state and model logic | `frames_per_second_for_step` |
+Each loop is registered with the state it owns, and the call returns the loop:
 
-## Using the loop model to build your own application
+```python
+self.register_model_loop(ModelLoop, state=ModelState(self._desc))
+```
 
-### Loop-to-loop communication
+`state` is required for a model loop and optional for a UI loop. Registration
+also fixes each loop's rate — the model loop at the session's
+`frames_per_second_for_step`, the UI loop at its `frames_per_second_for_ui`.
 
-Each `ILoop` has mutable `state` when the session registers it. The
-registration call (`register_model_loop` or `register_ui_loop`) returns the new
-loop object. The only way one loop should change another loop's state is via
-`invoke_async`:
+## Loops
+
+The two loops run on different threads, so neither should reach into the other's
+state directly. `invoke_async` is the way across:
 
 ```python
 new_prompt = str(text_from_ui)
@@ -75,53 +72,47 @@ invoke_async(
 )
 ```
 
-The call returns immediately, sending the operation to the target loop's message
-queue (`self.state.model_loop`). The target loop runs the operation in its next
-`step`. It takes a snapshot of queued operations first and only processes this
-snapshot until the next `step` is complete. Operations from `invoke_async` must
-return `None`. Queued operations that have not run are dropped during shutdown
-to prevent endless ping-ponging between loops.
+The call returns immediately and queues the operation against the target loop.
+That loop takes a snapshot of its queue before its next `step` and runs only
+what was in it. Operations must return `None`. Anything still queued at shutdown
+is dropped, so two loops cannot keep each other alive by messaging back and
+forth.
 
-### Loop reset
+`ILoop.is_finished` returns `False` by default. Override it when the model should
+end the run on its own, which is what a run writing an MP4 depends on, an MP4
+window never sends a close event, so nothing else will stop it.
 
-A reset event sent by an application calls `reset` on each loop, clears its
-`latest_result`, and restarts the loop's `step_index` at zero.
+`ILoop.reset` raises `NotImplementedError` by default. A reset arrives as a
+client event, and when one does, every loop's `reset` is called, its
+`latest_result` is cleared, and its `step_index` restarts at zero. A loop that
+does not override `reset` therefore fails the first time a client asks for one,
+implement it, even if the body is `return`.
 
-### Loop output
+## What a step returns
 
-All output from your model loop's `step` method returns a list of
-`StepResult` channels. The metrics inside this `StepResult` are recorded immediately by a metrics output sink; the actual full `StepResult` is passed along to a presentation manager.
+The two loops have different return contracts, and the runtime enforces both:
 
-The UI loop pulls from the presentation manager and sends results to the client
-window. `presented_model_frame` or `presented_model_frames` can be used to draw
-the model output.
+- A model loop returns `list[StepResult]`, one entry per channel. A single
+  `StepResult` or `None` raises `TypeError`.
+- A UI loop returns one `StepResult`, or `None` to present nothing this tick.
 
-Import `SlangPyUILoop` from `flashdreams.runtime_v2.slangpy_ui_loop`, subclass
-it, and implement `step_ui(ui, step_index, events)`. The `ui` argument exposes:
+Every channel in one model step must report the same `frame_count`. A step may
+generate several frames at once; the runtime presents them one per UI tick
+rather than dropping all but the last.
 
-- `ui.screen`, the root [`slangpy.ui.Screen`](https://slangpy.shader-slang.org/en/stable/src/api_reference.html#slangpy.ui.Screen)
-  that receives top-level widgets.
-- Every public type from `slangpy.ui`, including widget constructors such as
-  `Window`, `Group`, `Text`, `Button`, `ComboBox`, sliders, drag controls, and
-  input controls.
+A UI loop reads what the model produced through `presented_model_frame` and
+`presented_model_frames`, which return `[C, H, W]` frames with one, three or
+four channels. Four channels is RGBA, and composites over what is beneath it.
 
-The [SlangPy UI API reference](https://slangpy.shader-slang.org/en/stable/src/api_reference.html#ui)
-is the source of truth for every available widget constructor, method,
-property, flag, and callback. FlashDreams delegates these names directly to
-`slangpy.ui`; it does not maintain a smaller wrapper API. See the
-[`slangpy_ui_demo` examples](../../../integrations_v2/slangpy_ui_demo/README.md)
-for examples that use model-loop output as part of the UI.
+Output sinks read floating-point frames as `[-1, 1]` and integer frames as
+`[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
+other range converts before returning.
 
-If a UI loop is not registered, the runtime uses the default `IUILoop`
-implementation
-(`blit_model_output_to_screen_loop.py:BlitModelOutputToScreenLoop`).
-It blits the model output to the screen, flattening channels into one frame as
-if they were image layers.
+## A minimal application
 
-This is a minimal session using the default UI-loop implementation:
+Using the default UI loop, so there is only a model loop to write:
 
 ```python
-
 @dataclass
 class ModelState:
     desc: SessionDesc
@@ -142,7 +133,7 @@ class ModelLoop(IModelLoop[ModelState]):
         ]
 
     def reset(self) -> None:
-        pass
+        return
 
 class Session(ISession):
     def __init__(self, desc: SessionDesc) -> None:
@@ -158,45 +149,22 @@ class Session(ISession):
         self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 ```
 
-`ILoop.is_finished` returns `False` by default. Override it when the model
-should end the run on its own, as an MP4-producing model may set if not limiting the maximum number of steps.
+This loop runs forever. Override `is_finished` to make it stop.
 
-### Presentation knobs for loops and benchmarking
----------
+## Writing a UI loop
 
-The runtime buffers completed model steps and presents at most one frame per UI
-tick. Two independent `SessionDesc` settings control mismatched model and UI
-rates.
+For widgets drawn over the model output, subclass `SlangPyUILoop` from
+`flashdreams.runtime_v2.slangpy_ui_loop` and implement
+`step_ui(ui, step_index, events)` rather than `step`. The
+[`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)
+is the reference, including one example that uses model output inside the UI.
 
-`SessionDesc.backpressure_mode` handles a model thread producing frames faster
-than the UI thread can consume them:
+## Where to go next
 
-- `BackpressureMode.BLOCK` waits when the presentation queue is full. This keeps
-  every generated frame and can slow the model thread to the UI thread's pace.
-- `BackpressureMode.DROP_OLDEST` discards old buffered work so the UI can catch
-  up to newer output. This favors low latency over preserving every frame.
-
-`SessionDesc.presentation_mode` handles the UI thread ticking faster than the
-model thread produces frames:
-
-- `PresentationMode.ONLY_PRESENT_NEWEST` is eager: the UI runs every tick and
-  may present the newest generated model frame more-than-once when a new frame is not ready.
-- `PresentationMode.ONLY_PRESENT_NEW` is safe: the UI runs only after the
-  presentation manager advances to a new model frame, preventing duplicate
-  output frames.
-
-For equality evaluations, enable `PresentationMode.ONLY_PRESENT_NEW`
-with `BackpressureMode.BLOCK`. Together they preserve all generated frames and
-present each one exactly once and in order.
-
-Output sinks read floating-point frames as `[-1, 1]` and integer frames as
-`[0, 255]`. This is not remappable via a `SessionDesc` setting; the UI loop
-should implement its own remapping logic.
-
-
-Not built yet
--------------
-
-- A third fixed-rate thread for game logic.
-- A result field for the number of dropped frames.
-- Slowing model generation before the presentation buffer fills.
+- [ARCHITECTURE.md](../../../ARCHITECTURE.md) - how the layers fit together.
+- [Runtime](../runtime_v2/README.md) - what runs an application, and the command
+  line that does it.
+- [Writing an integration](../../../integrations_v2/README.md) - the checklist
+  for a new application.
+- [`flashdreams.t2v_v2`](../t2v_v2/README.md) - the text-to-video API built on
+  these protocols, and how to add a model to it.

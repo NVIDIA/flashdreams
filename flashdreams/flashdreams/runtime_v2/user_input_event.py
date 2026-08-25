@@ -68,8 +68,9 @@ class CloseUserInputEventData(UserInputEventData):
 class ResetUserInputEventData(UserInputEventData):
     """The client asked to start the run over.
 
-    Each registered thread resets before its next ``step``, and its step index
-    starts again from zero. The window stays open.
+    Every registered loop resets before its next ``step``, its step index starts
+    again from zero, and frames generated before the reset are discarded rather
+    than presented. The window stays open.
     """
 
     @classmethod
@@ -116,7 +117,10 @@ class FocusUserInputEventData(UserInputEventData):
     """Whether the video viewport owns keyboard focus."""
 
 
-# Below are stubbed input event data implementations for future clients.
+## Stubs for input modalities no client produces yet
+#
+# Named so that a client gaining one of these has somewhere to put it. Nothing
+# creates or reads them today, and none carries any data.
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -171,13 +175,17 @@ class UnknownUserInputEventData(UserInputEventData):
 
 @dataclass(frozen=True, slots=True)
 class UserInputEvent:
-    """User input event."""
+    """One input event: when it happened, and what happened.
+
+    The data decides what the event is, so a loop reading input dispatches on
+    the type of :meth:`get_event_data` rather than on anything here.
+    """
 
     timestamp: uint64
     """Timestamp in microseconds since the start of the session."""
 
     event_data: UserInputEventData
-    """Event data."""
+    """What happened, as one of the types in this module."""
 
     def get_timestamp(self) -> uint64:
         """Return the timestamp."""

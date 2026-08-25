@@ -45,7 +45,15 @@ class ISession(ABC):
 
     @abstractmethod
     def init(self) -> None:
-        """Initialize state and register the UI and model loops."""
+        """Initialize state and register this session's loops.
+
+        A model loop is required. Registering a UI loop is optional; without one
+        the runtime uses :class:`BlitModelOutputToScreenLoop`.
+
+        Raises:
+            RuntimeError: No model loop was registered by the time the runtime
+                asks for the loops.
+        """
         ...
 
     @property
@@ -62,9 +70,21 @@ class ISession(ABC):
         state: Any = None,
         **kwargs: Any,
     ) -> IUILoop[Any]:
-        """Create and register the UI loop.
+        """Create and register the UI loop, and return it.
 
-        Omit this call to use the default UI.
+        Omit this call to use the default UI. The loop is paced at the session's
+        ``frames_per_second_for_ui``.
+
+        Args:
+            loop_type: UI loop class to instantiate.
+            state: State the loop owns. Unlike a model loop, a UI loop is
+                allowed to hold none.
+            **kwargs: Passed to ``loop_type``.
+
+        Raises:
+            RuntimeError: The runtime already took the loops, or a UI loop was
+                registered already.
+            TypeError: ``loop_type`` does not derive from :class:`IUILoop`.
         """
         if self._registrations_frozen:
             raise RuntimeError("Loop registrations are already in use.")
@@ -94,7 +114,21 @@ class ISession(ABC):
         state: Any,
         **kwargs: Any,
     ) -> IModelLoop[Any]:
-        """Create and register the model loop."""
+        """Create and register the model loop, and return it.
+
+        The loop is paced at the session's ``frames_per_second_for_step``.
+
+        Args:
+            loop_type: Model loop class to instantiate.
+            state: State the loop owns. Required, since a model loop with no
+                state has nothing to generate from.
+            **kwargs: Passed to ``loop_type``.
+
+        Raises:
+            RuntimeError: The runtime already took the loops, or a model loop
+                was registered already.
+            TypeError: ``loop_type`` does not derive from :class:`IModelLoop`.
+        """
         if self._registrations_frozen:
             raise RuntimeError("Loop registrations are already in use.")
         if self._registered_model_loop is not None:

@@ -34,7 +34,13 @@ class _Message(Generic[StateT]):
 
 
 class ILoop(ABC, Generic[StateT]):
-    """Shared state, messaging, and lifecycle for a session loop."""
+    """Shared state, messaging, and lifecycle for a session loop.
+
+    A session registers one of each kind: an :class:`IModelLoop` that generates
+    and an :class:`IUILoop` that presents. They run on separate threads and own
+    their own ``state``, so the only supported way for one to change the other's
+    is :func:`invoke_async`.
+    """
 
     @final
     def register_session_loop_objects(
@@ -80,12 +86,18 @@ class ILoop(ABC, Generic[StateT]):
     ) -> StepResult | list[StepResult] | None:
         """Run one step.
 
+        The two kinds of loop return different things, and the runtime rejects
+        the wrong one: a model loop must return ``list[StepResult]``, one entry
+        per channel, and a UI loop must return one :class:`StepResult` or
+        ``None`` to present nothing this step.
+
         Args:
             step_index: Zero-based index since the latest reset.
             events: Input events not seen by this loop before.
 
         Returns:
-            Model channels, one UI frame, or ``None``.
+            Model channels from a model loop; one frame, or ``None``, from a UI
+            loop.
         """
         ...
 
@@ -95,6 +107,10 @@ class ILoop(ABC, Generic[StateT]):
 
     def reset(self) -> None:
         """Reset loop-owned state for a new session generation.
+
+        Called when a client asks for a reset, before the next :meth:`step`.
+        Overriding this is what makes a loop resettable, so implement it even
+        when there is nothing to undo.
 
         Raises:
             NotImplementedError: This loop does not support reset.
@@ -189,7 +205,12 @@ class ILoop(ABC, Generic[StateT]):
 
 
 class IModelLoop(ILoop[StateT], ABC):
-    """Loop that generates model results on the model thread."""
+    """Loop that generates model results on the model thread.
+
+    :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
+    channel, with every channel reporting the same ``frame_count``. Returning a
+    bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    """
 
     @final
     def _run_model_loop(
@@ -237,7 +258,12 @@ class IModelLoop(ILoop[StateT], ABC):
 
 
 class IUILoop(ILoop[StateT], ABC):
-    """Loop whose output is sent to the client window."""
+    """Loop whose output is sent to the client window.
+
+    :meth:`ILoop.step` must return one :class:`StepResult` or ``None`` here.
+    Model frames to draw come from :meth:`presented_model_frame` and
+    :meth:`presented_model_frames` rather than from the model loop directly.
+    """
 
     @final
     def register_session_ui_loop_objects(
@@ -257,12 +283,29 @@ class IUILoop(ILoop[StateT], ABC):
 
     @final
     def presented_model_frame(self, channel_index: int = 0) -> Tensor | None:
-        """Return the current frame from one model-result channel."""
+        """Return the current frame from one model-result channel.
+
+        Args:
+            channel_index: Channel to read, indexed as the model loop returned
+                them.
+
+        Returns:
+            A ``[C, H, W]`` frame with one, three or four channels, or ``None``
+            before the first model result has been presented.
+
+        Raises:
+            IndexError: The presented result has no such channel.
+        """
         return self._presentation_manager.presented_frame(channel_index)
 
     @final
     def presented_model_frames(self) -> tuple[Tensor, ...]:
-        """Return the current frame from every model-result channel."""
+        """Return the current frame from every model-result channel.
+
+        Returns:
+            One ``[C, H, W]`` frame per channel, bottom channel first, or an
+            empty tuple before the first model result has been presented.
+        """
         return self._presentation_manager.presented_frames()
 
 
@@ -282,7 +325,20 @@ def _model_results(
 
 
 def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> None:
-    """Queue ``operation`` against ``loop`` state before its next step."""
+    """Queue ``operation`` against ``loop`` state before its next step.
+
+    Returns immediately. ``loop`` snapshots its queue before its next
+    :meth:`ILoop.step` and runs what was in it, on its own thread. Anything
+    still queued at shutdown is dropped, so two loops cannot keep each other
+    alive by messaging back and forth.
+
+    Args:
+        loop: Loop whose state the operation runs against.
+        operation: Callable receiving that loop's state. Must return ``None``.
+
+    Raises:
+        RuntimeError: ``loop`` is shutting down.
+    """
     loop._invoke_async(operation)
 
 

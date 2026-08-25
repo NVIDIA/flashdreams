@@ -15,7 +15,19 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class PresentationManager:
-    """Buffer model output for a session's UI thread."""
+    """Buffer model output for a session's UI thread.
+
+    The model thread publishes a chunk of channels per step into a bounded
+    queue; the UI thread calls :meth:`advance` once per tick to move to the next
+    frame. A chunk holding several frames is walked frame by frame before
+    another is taken, so a step that generated twelve frames is presented over
+    twelve ticks rather than eleven being skipped.
+
+    :class:`BackpressureMode` decides what publishing does when the queue is
+    full. Frames that could not be kept are counted in
+    :attr:`dropped_for_space` and :attr:`discarded_at_reset` rather than lost
+    silently.
+    """
 
     def __init__(self) -> None:
         self._buffer: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(maxsize=2)
@@ -26,7 +38,10 @@ class PresentationManager:
         self._presented_chunk: list[StepResult] | None = None
         self._frame_index = -1
         self.dropped_for_space = 0
+        """Chunks dropped because the UI could not keep up with the model."""
+
         self.discarded_at_reset = 0
+        """Chunks discarded for having been generated before a reset."""
 
     def configure(
         self,
@@ -36,7 +51,21 @@ class PresentationManager:
         stop: threading.Event,
         put_timeout: float,
     ) -> None:
-        """Set the queue size and backpressure mode."""
+        """Set the queue size and backpressure mode.
+
+        Called by ``run_session`` before either thread uses this.
+
+        Args:
+            max_pending: Model steps that may wait to be shown. Replaces the
+                queue, so anything already buffered is discarded.
+            backpressure_mode: What :meth:`publish` does when the queue is full.
+            stop: Session shutdown event, so a blocked publish gives up.
+            put_timeout: How long a blocked publish waits before rechecking
+                ``stop``, in seconds.
+
+        Raises:
+            ValueError: ``max_pending`` is not positive.
+        """
         if max_pending <= 0:
             raise ValueError(f"max_pending must be > 0, got {max_pending}.")
         self._buffer = queue.Queue(maxsize=max_pending)
@@ -51,7 +80,19 @@ class PresentationManager:
     ) -> None:
         """Add one completed model step to the presentation queue.
 
-        ``BLOCK`` waits here when the queue is full.
+        Called on the model thread. ``BLOCK`` waits here when the queue is full,
+        until there is room or the session stops; ``DROP_OLDEST`` evicts instead
+        and returns.
+
+        Args:
+            generation: Reset generation the chunk was generated in. A chunk
+                from an earlier one is discarded rather than presented.
+            chunk: One :class:`StepResult` per model channel.
+
+        Raises:
+            ValueError: ``chunk`` is empty, or its channels disagree about
+                ``frame_count``.
+            TypeError: ``chunk`` holds something other than results.
         """
         if not chunk:
             raise ValueError("A presented chunk must contain at least one channel.")
@@ -74,8 +115,17 @@ class PresentationManager:
     def advance(self, generation: int) -> tuple[bool, list[StepResult] | None]:
         """Move to the next model frame, if one is available.
 
+        Called on the UI thread, once per tick. A ``generation`` other than the
+        last one seen drops what is being presented, so nothing generated before
+        a reset survives it.
+
+        Args:
+            generation: Current reset generation, from the event buffer.
+
         Returns:
-            Whether the frame changed, and the newly selected model step.
+            Whether the frame changed, and the chunk newly taken off the queue,
+            which is ``None`` when the change was to another frame of the chunk
+            already being presented.
         """
         if generation != self._generation:
             self._generation = generation
@@ -130,7 +180,21 @@ class PresentationManager:
         )
 
     def composite(self, bottom: Tensor | None, top: Tensor) -> Tensor:
-        """Draw ``top`` over ``bottom``."""
+        """Draw ``top`` over ``bottom``.
+
+        Args:
+            bottom: ``[C, H, W]`` frame to draw onto, or ``None`` to start from
+                black.
+            top: ``[C, H, W]`` frame to draw. Four channels is RGBA and blends;
+                anything else replaces.
+
+        Returns:
+            An RGB ``[3, H, W]`` frame.
+
+        Raises:
+            ValueError: The frames disagree about size, device or dtype, or
+                either is not a presentable frame.
+        """
         return _composite_frame(bottom, top)
 
     def has_pending_frames(self) -> bool:

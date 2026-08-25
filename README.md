@@ -129,6 +129,7 @@ to add your own.
 
 ## Developer guides
 
+- [Architecture](ARCHITECTURE.md)
 - [Inference pipeline overview](https://nvidia.github.io/flashdreams/main/developer_guides/inference_pipeline_overview.html)
 - [Config system](https://nvidia.github.io/flashdreams/main/developer_guides/config_system.html)
 - [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)

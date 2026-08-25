@@ -14,7 +14,16 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class WebRTCClientWindow(IClientWindow):
-    """Implement ``IClientWindow`` with WebRTC input and presentation."""
+    """Client window streaming a run to a browser.
+
+    A thin pairing of the :class:`IClientWindow` protocol with
+    :class:`WebRTCServer`, which does the serving. Browser events arrive on the
+    server's own thread, so they are queued here and handed over in batches when
+    the session asks, as the protocol requires.
+
+    A browser that disconnects becomes a close event, so a run through this
+    window ends on its own even when the session would generate forever.
+    """
 
     def __init__(
         self,

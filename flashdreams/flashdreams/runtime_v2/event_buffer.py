@@ -13,7 +13,18 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class EventBuffer:
-    """Keep input events until every loop has read them."""
+    """Keep input events until every loop has read them.
+
+    Input is collected once, on the thread running the UI, but both loops need it
+    and they read at different rates. So this holds a flat list of events plus a
+    cursor per registered reader, hands each reader only what it has not seen,
+    and drops the prefix they have all passed.
+
+    It also counts resets. Every :class:`ResetUserInputEventData` appended bumps
+    :attr:`generation`, which the loops and the presentation manager compare
+    against their own; that counter is how a reset reaches all of them without
+    any of them talking to each other.
+    """
 
     def __init__(self) -> None:
         self._events: list[UserInputEvent] = []

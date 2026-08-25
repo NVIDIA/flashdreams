@@ -12,15 +12,25 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 @dataclass(frozen=True, slots=True)
 class StepResult:
-    """Generated output returned by one inference step."""
+    """Generated output returned by one inference step.
+
+    A model loop returns a list of these, one per channel, and a UI loop returns
+    one. Channels in the same list must agree about ``frame_count``.
+    """
 
     step_index: int
     """Zero-based index of the step that produced this result."""
+
     output: Tensor
-    """Generated frames, laid out as ``output_layout`` says."""
+    """Generated frames, laid out as ``output_layout`` says. Floating-point
+    values are read as ``[-1, 1]`` and integer values as ``[0, 255]``."""
+
     frame_count: int
     """Number of frames in ``output``."""
+
     output_layout: VideoTensorLayout
     """Layout of ``output``."""
+
     metrics: dict[str, float | int] = field(default_factory=dict)
-    """Measurements for this step, such as timings, keyed by name."""
+    """Measurements for this step, such as timings, keyed by name. Recorded only
+    when a run asked for a metrics sink, and only from a model loop."""
