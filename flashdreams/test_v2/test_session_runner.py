@@ -11,16 +11,18 @@ import torch
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import (
-    BlitModelOutputToScreenLoop,
-    IModelLoop,
-    IUILoop,
-    invoke_async,
-)
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
+)
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -42,13 +44,17 @@ _RUNNER_LOGGER = "flashdreams.runtime_v2.session_runner"
 """Logger the runner reports discarded results on."""
 
 
-def test_presentation_mode_contains_all_presentation_policies() -> None:
-    assert list(PresentationMode) == [
-        PresentationMode.BLOCK,
-        PresentationMode.DROP_OLDEST,
-        PresentationMode.LOSSLESS,
+def test_session_modes_are_independent() -> None:
+    assert list(BackpressureMode) == [
+        BackpressureMode.BLOCK,
+        BackpressureMode.DROP_OLDEST,
     ]
-    assert SessionDesc().presentation_mode is PresentationMode.BLOCK
+    assert list(PresentationMode) == [
+        PresentationMode.ONLY_PRESENT_NEW,
+        PresentationMode.ONLY_PRESENT_NEWEST,
+    ]
+    assert SessionDesc().backpressure_mode is BackpressureMode.BLOCK
+    assert SessionDesc().presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
 
 
 class CallLog:
@@ -186,7 +192,6 @@ def test_registration_attaches_loop_lifecycle_events() -> None:
 
     assert session.model_loop._shutdown_event is session._shutdown_event
     assert session.ui_loop._shutdown_event is session._shutdown_event
-    assert session.model_loop._finished_event is not session.ui_loop._finished_event
     assert session.model_loop._failure_queue is session._failure_queue
     assert session.ui_loop._failure_queue is session._failure_queue
 
@@ -217,8 +222,6 @@ def test_session_shutdown_closes_every_registered_loop() -> None:
     assert len(failures) == 1
     assert str(failures[0]) == "model close failed"
     assert session._shutdown_event.is_set()
-    assert session.model_loop._finished_event.is_set()
-    assert session.ui_loop._finished_event.is_set()
 
 
 class FiniteSession(FakeSession):
@@ -316,12 +319,14 @@ class RecordingClientWindow(IClientWindow):
 
 def _session_desc(
     *,
-    presentation_mode: PresentationMode = PresentationMode.LOSSLESS,
+    backpressure_mode: BackpressureMode = BackpressureMode.BLOCK,
+    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEW,
     ui_fps: int = 100,
     model_fps: int = 1,
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
+        backpressure_mode=backpressure_mode,
         presentation_mode=presentation_mode,
         frames_per_second_for_ui=ui_fps,
         frames_per_second_for_step=model_fps,
@@ -449,9 +454,8 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
             for color in colors
         ],
     )
-    ui = BlitModelOutputToScreenLoop(
-        state=None,
-        frequency=60,
+    ui = BlitModelOutputToScreenLoop()
+    ui.register_session_ui_loop_objects(
         output_layout=VideoTensorLayout.tchw,
         presentation_manager=manager,
     )
@@ -519,7 +523,7 @@ def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:
     manager = PresentationManager()
     manager.configure(
         max_pending=1,
-        presentation_mode=PresentationMode.DROP_OLDEST,
+        backpressure_mode=BackpressureMode.DROP_OLDEST,
         stop=threading.Event(),
         put_timeout=0.01,
     )
@@ -724,7 +728,7 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     assert [result.step_index for result in window.results] == [0]
 
 
-def test_benchmark_is_lossless_when_model_is_faster() -> None:
+def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(ui_fps=30, model_fps=10_000), log)
     window = RecordingClientWindow(log)
@@ -740,7 +744,7 @@ def test_benchmark_is_lossless_when_model_is_faster() -> None:
     ]
 
 
-def test_benchmark_ui_runs_once_per_new_frame_when_ui_is_faster() -> None:
+def test_ONLY_PRESENT_NEW_runs_ui_once_per_new_frame() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(ui_fps=1_000, model_fps=20), log)
     window = RecordingClientWindow(log)
@@ -754,6 +758,26 @@ def test_benchmark_ui_runs_once_per_new_frame_when_ui_is_faster() -> None:
     ]
 
 
+def test_only_present_newest_runs_ui_eagerly_when_ui_is_faster() -> None:
+    log = CallLog()
+    session = FakeSession(
+        _session_desc(
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
+            ui_fps=1_000,
+            model_fps=20,
+        ),
+        log,
+    )
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=3)
+
+    presented = [result.output[0, 0, 0, 0, 0].item() for result in window.results]
+    assert presented == sorted(presented)
+    assert len(presented) > 3
+    assert presented[-1] == 2
+
+
 def test_run_session_drops_the_oldest_waiting_result() -> None:
     log = CallLog()
 
@@ -761,7 +785,7 @@ def test_run_session_drops_the_oldest_waiting_result() -> None:
     # does not depend on how the two threads happen to be scheduled.
     generated = threading.Event()
     drop_oldest_desc = _session_desc(
-        presentation_mode=PresentationMode.DROP_OLDEST,
+        backpressure_mode=BackpressureMode.DROP_OLDEST,
     )
     session = FakeSession(
         drop_oldest_desc, log, release_writes=generated, release_writes_at=3

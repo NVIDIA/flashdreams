@@ -3,6 +3,10 @@
 
 """Runtime data types for FlashDreams v2."""
 
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 
-__all__ = ["PresentationMode", "SessionDesc"]
+__all__ = ["BackpressureMode", "PresentationMode", "SessionDesc"]

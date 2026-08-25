@@ -11,8 +11,8 @@ from typing import Any
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
-class PresentationMode(Enum):
-    """How model frames wait for the UI."""
+class BackpressureMode(Enum):
+    """What the model thread does when the presentation queue is full."""
 
     BLOCK = "block"
     """Wait when the presentation queue is full."""
@@ -20,8 +20,15 @@ class PresentationMode(Enum):
     DROP_OLDEST = "drop_oldest"
     """Drop the oldest queued model step."""
 
-    LOSSLESS = "lossless"
-    """Show every model frame once and in order."""
+
+class PresentationMode(Enum):
+    """What the UI thread does when no new model frame is ready."""
+
+    ONLY_PRESENT_NEW = "only_present_new"
+    """Present only after advancing to a new model frame."""
+
+    ONLY_PRESENT_NEWEST = "only_present_newest"
+    """Present eagerly, reusing the newest model frame when necessary."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -36,8 +43,11 @@ class SessionDesc:
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Declared tensor layout for generated video results."""
 
-    presentation_mode: PresentationMode = PresentationMode.BLOCK
-    """How model frames wait for the UI."""
+    backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
+    """What the model thread does when the presentation queue is full."""
+
+    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEWEST
+    """What the UI thread does when no new model frame is ready."""
 
     frames_per_second_for_ui: int = 60
     """Rate to read input and present finished results at, in frames per second."""
@@ -55,6 +65,8 @@ class SessionDesc:
     """Extra values a runtime and an application agree on. Nothing here reads it."""
 
     def __post_init__(self) -> None:
+        if not isinstance(self.backpressure_mode, BackpressureMode):
+            raise TypeError("SessionDesc.backpressure_mode must be a BackpressureMode.")
         if not isinstance(self.presentation_mode, PresentationMode):
             raise TypeError("SessionDesc.presentation_mode must be a PresentationMode.")
         if (
@@ -77,4 +89,4 @@ class SessionDesc:
             raise ValueError("SessionDesc.video_height must be > 0 when set.")
 
 
-__all__ = ["PresentationMode", "SessionDesc"]
+__all__ = ["BackpressureMode", "PresentationMode", "SessionDesc"]

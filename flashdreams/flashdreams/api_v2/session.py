@@ -9,10 +9,9 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import Any, final
 
-from flashdreams.api_v2.thread import (
+from flashdreams.api_v2.loop import IModelLoop, IUILoop
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
-    IModelLoop,
-    IUILoop,
 )
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -73,19 +72,16 @@ class ISession(ABC):
             raise RuntimeError("The session already registered a UI loop.")
         if not issubclass(loop_type, IUILoop):
             raise TypeError("The UI loop must derive from IUILoop.")
-        loop = loop_type(
+        loop = loop_type(**kwargs)
+        loop.register_session_loop_objects(
             state=state,
             frequency=self.session_desc.frames_per_second_for_ui,
+            shutdown_event=self._shutdown_event,
+            failure_queue=self._failure_queue,
+        )
+        loop.register_session_ui_loop_objects(
             output_layout=self.session_desc.output_layout,
             presentation_manager=self._presentation_manager,
-            **kwargs,
-        )
-
-        # Seperate so user args do not pass to the 'runtime management' members
-        loop._attach_runtime(
-            shutdown_event=self._shutdown_event,
-            finished_event=threading.Event(),
-            failure_queue=self._failure_queue,
         )
         self._registered_ui_loop = loop
         return loop
@@ -105,16 +101,11 @@ class ISession(ABC):
             raise RuntimeError("The session already registered a model loop.")
         if not issubclass(loop_type, IModelLoop):
             raise TypeError("The model loop must derive from IModelLoop.")
-        loop = loop_type(
+        loop = loop_type(**kwargs)
+        loop.register_session_loop_objects(
             state=state,
             frequency=self.session_desc.frames_per_second_for_step,
-            **kwargs,
-        )
-
-        # Seperate so user args do not pass to the 'runtime management' members
-        loop._attach_runtime(
             shutdown_event=self._shutdown_event,
-            finished_event=threading.Event(),
             failure_queue=self._failure_queue,
         )
         self._registered_model_loop = loop

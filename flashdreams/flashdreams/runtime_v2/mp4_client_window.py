@@ -16,7 +16,8 @@ class Mp4ClientWindow(IClientWindow):
     """Write UI frames to an MP4 file and report no input.
 
     The session must finish on its own because this window never sends a close
-    event. Use ``BLOCK`` or ``LOSSLESS`` to keep every frame.
+    event. Use ``BackpressureMode.BLOCK`` with
+    ``PresentationMode.ONLY_PRESENT_NEW`` to write every frame once.
     """
 
     def __init__(self, path: str | Path) -> None:

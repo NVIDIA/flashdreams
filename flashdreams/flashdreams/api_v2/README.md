@@ -19,7 +19,8 @@ Running an application
 `flashdreams-run-v2` finds an application through the
 `flashdreams.applications_v2` entry point and runs it with `ApplicationRunner`.
 The application chooses its default `SessionDesc`; `--pixel-width`,
-`--pixel-height`, `--fps`, and `--layout` can override it.
+`--pixel-height`, `--fps`, `--layout`, `--backpressure-mode`, and
+`--presentation-mode` can override it.
 
 The selected client-window mode handles the run's input and output. MP4 mode
 writes a file and has no input. WebRTC mode streams to a browser. Mode-specific
@@ -30,8 +31,12 @@ is finished, or a model-loop step limit is reached. `run_session` presents
 any queued frames before returning. An MP4 window never sends a close event, so
 its model loop must finish on its own.
 
-`--stats-path` adds a `MetricsOutputSink`. Allows writing measurements as provided in a `StepResult` object returned via `step`. The client window still receives only the UI loop's output. Metrics collection
-does not change `SessionDesc.presentation_mode`, users must opt into `PresentationMode.LOSSLESS` if they want lossless presentation.
+`--stats-path` adds a `MetricsOutputSink`. It writes measurements provided in a
+`StepResult` returned via `step`. The client window still receives only the UI
+loop's output. Metrics collection does not change either presentation setting.
+For equality evaluations, use `PresentationMode.ONLY_PRESENT_NEW` and
+`BackpressureMode.BLOCK` so every model frame is presented exactly once and in
+order.
 
 See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
 and the [benchmark README](../../tools/benchmarks/README.md) for the benchmark
@@ -108,8 +113,10 @@ property, flag, and callback. FlashDreams delegates these names directly to
 for examples that use model-loop output as part of the UI.
 
 If a UI loop is not registered, the runtime uses the default `IUILoop`
-implementation (`BlitModelOutputToScreenLoop`). It blits the model output to the
-screen, flattening channels into one frame as if they were image layers.
+implementation
+(`blit_model_output_to_screen_loop.py:BlitModelOutputToScreenLoop`).
+It blits the model output to the screen, flattening channels into one frame as
+if they were image layers.
 
 This is a minimal session using the default UI-loop implementation:
 
@@ -157,16 +164,30 @@ should end the run on its own, as an MP4-producing model may set if not limiting
 ### Presentation knobs for loops and benchmarking
 ---------
 
-The runtime buffers completed model steps and presents one frame per UI tick.
-`SessionDesc.presentation_mode` controls what happens when model generation and
-the UI run at different speeds:
+The runtime buffers completed model steps and presents at most one frame per UI
+tick. Two independent `SessionDesc` settings control mismatched model and UI
+rates.
 
-- `BLOCK` waits when the buffer is full. If no new frame is ready, the UI may
-  draw the current frame again.
-- `DROP_OLDEST` drops old buffered work so the UI can show newer output.
-- `LOSSLESS` waits when the buffer is full and shows each model frame once. When
-  the current frame is the last available frame, the UI loop waits for a new
-  frame instead of drawing the old one again. This is important for quality-evaluation as it allows the benchmark to capture the full model output.
+`SessionDesc.backpressure_mode` handles a model thread producing frames faster
+than the UI thread can consume them:
+
+- `BackpressureMode.BLOCK` waits when the presentation queue is full. This keeps
+  every generated frame and can slow the model thread to the UI thread's pace.
+- `BackpressureMode.DROP_OLDEST` discards old buffered work so the UI can catch
+  up to newer output. This favors low latency over preserving every frame.
+
+`SessionDesc.presentation_mode` handles the UI thread ticking faster than the
+model thread produces frames:
+
+- `PresentationMode.ONLY_PRESENT_NEWEST` is eager: the UI runs every tick and
+  may present the newest generated model frame more-than-once when a new frame is not ready.
+- `PresentationMode.ONLY_PRESENT_NEW` is safe: the UI runs only after the
+  presentation manager advances to a new model frame, preventing duplicate
+  output frames.
+
+For equality evaluations, enable `PresentationMode.ONLY_PRESENT_NEW`
+with `BackpressureMode.BLOCK`. Together they preserve all generated frames and
+present each one exactly once and in order.
 
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. This is not remappable via a `SessionDesc` setting; the UI loop

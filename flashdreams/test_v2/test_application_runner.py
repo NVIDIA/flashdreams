@@ -13,7 +13,7 @@ from numpy import uint64
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IModelLoop
+from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -168,7 +168,7 @@ class _MetricsSink:
 def _session_desc() -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
-        presentation_mode=PresentationMode.LOSSLESS,
+        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
         frames_per_second_for_ui=100,
         frames_per_second_for_step=30,
         video_width=2,

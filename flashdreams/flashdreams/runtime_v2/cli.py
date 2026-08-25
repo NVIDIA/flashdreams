@@ -30,7 +30,11 @@ from flashdreams.runtime_v2.client_window_factory import (
     client_window_mode,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ARGUMENT_SEPARATOR = "--"
@@ -139,12 +143,20 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         help="Tensor layout to generate results in.",
     )
     parser.add_argument(
+        "--backpressure-mode",
+        type=BackpressureMode,
+        choices=tuple(BackpressureMode),
+        default=None,
+        metavar="{" + ",".join(mode.value for mode in BackpressureMode) + "}",
+        help="How the model thread handles a full presentation queue.",
+    )
+    parser.add_argument(
         "--presentation-mode",
         type=PresentationMode,
         choices=tuple(PresentationMode),
         default=None,
         metavar="{" + ",".join(mode.value for mode in PresentationMode) + "}",
-        help="Blocking, latest-frame, or lossless benchmark presentation.",
+        help="Whether the UI presents eagerly or only for new model frames.",
     )
 
 
@@ -160,6 +172,7 @@ def _session_desc(
         field: value
         for field, value in (
             ("output_layout", parsed_args.layout),
+            ("backpressure_mode", parsed_args.backpressure_mode),
             ("presentation_mode", parsed_args.presentation_mode),
             ("frames_per_second_for_step", parsed_args.fps),
             ("video_width", parsed_args.pixel_width),

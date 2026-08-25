@@ -9,7 +9,7 @@ import threading
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IModelLoop, IUILoop
+from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
@@ -70,7 +70,7 @@ def run_session(
     presentation_manager = session._presentation_manager
     presentation_manager.configure(
         max_pending=max_pending,
-        presentation_mode=session_desc.presentation_mode,
+        backpressure_mode=session_desc.backpressure_mode,
         stop=stop,
         put_timeout=tick_seconds,
     )
@@ -112,9 +112,9 @@ def run_session(
 
     def tick_ui() -> None:
         model_advanced, _ = presentation_manager.advance(event_buffer.generation)
-        # Do not redraw the last frame while lossless mode waits for a new one.
+        # Safe presentation does not redraw a frame the UI already consumed.
         if (
-            session_desc.presentation_mode is PresentationMode.LOSSLESS
+            session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
             and not model_advanced
         ):
             return
@@ -151,12 +151,12 @@ def run_session(
             )
             model_thread_handle.start()
 
-            # Once the model thread is stopped, we assume program is over.
-            # If UI-Thread is stopped we just don't output any new frames
-            # for our client-window.
+            # Keep servicing input and presenting queued frames until shutdown,
+            # or until the model finishes and no generated frames remain.
+            # A finished UI loop produces no further window output.
             while not stop.is_set():
                 if (
-                    model_loop._finished_event.is_set()
+                    not model_thread_handle.is_alive()
                     and not presentation_manager.has_pending_frames()
                 ):
                     break

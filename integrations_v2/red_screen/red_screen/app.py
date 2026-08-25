@@ -12,7 +12,7 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IModelLoop
+from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.client_window_factory import create_client_window
 from flashdreams.runtime_v2.session_desc import SessionDesc

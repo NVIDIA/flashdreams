@@ -36,12 +36,22 @@ class _Message(Generic[StateT]):
 class ILoop(ABC, Generic[StateT]):
     """Shared state, messaging, and lifecycle for a session loop."""
 
-    def __init__(self, *, state: StateT, frequency: int) -> None:
-        """Store the loop's state, rate, and lifecycle events.
+    @final
+    def register_session_loop_objects(
+        self,
+        *,
+        state: StateT,
+        frequency: int,
+        shutdown_event: threading.Event,
+        failure_queue: queue.Queue[BaseException],
+    ) -> None:
+        """Store objects supplied when this loop is registered with a session.
 
         Args:
             state: State used by this loop.
             frequency: Maximum steps per second; zero disables pacing.
+            shutdown_event: Event to signal that the loop should shutdown.
+            failure_queue: Queue that stores loop failures/exceptions.
 
         Raises:
             TypeError: ``frequency`` is not an integer.
@@ -61,25 +71,8 @@ class ILoop(ABC, Generic[StateT]):
         self._accepting_messages = True
         self._closed = False
         self._lifecycle_lock = threading.Lock()
-        self._shutdown_event = threading.Event()
-        self._finished_event = threading.Event()
-        self._failure_queue: queue.Queue[BaseException] = queue.Queue()
-
-    @final
-    def _attach_runtime(
-        self,
-        *,
-        shutdown_event: threading.Event,
-        finished_event: threading.Event,
-        failure_queue: queue.Queue[BaseException],
-    ) -> None:
-        """Attach runtime state allocated during loop registration."""
-        with self._lifecycle_lock:
-            if self._closed:
-                raise RuntimeError("Cannot attach runtime state to a closed loop.")
-            self._shutdown_event = shutdown_event
-            self._finished_event = finished_event
-            self._failure_queue = failure_queue
+        self._shutdown_event = shutdown_event
+        self._failure_queue = failure_queue
 
     @abstractmethod
     def step(
@@ -166,7 +159,6 @@ class ILoop(ABC, Generic[StateT]):
             self.close()
         finally:
             self._empty_message_queue()
-            self._finished_event.set()
 
     def _run_message_batch(self) -> None:
         batch: list[_Message[StateT]] = []
@@ -247,15 +239,19 @@ class IModelLoop(ILoop[StateT], ABC):
 class IUILoop(ILoop[StateT], ABC):
     """Loop whose output is sent to the client window."""
 
-    def __init__(
+    @final
+    def register_session_ui_loop_objects(
         self,
         *,
-        state: StateT,
-        frequency: int,
         output_layout: VideoTensorLayout,
         presentation_manager: PresentationManager,
     ) -> None:
-        super().__init__(state=state, frequency=frequency)
+        """Store UI objects supplied when this loop is registered with a session.
+
+        Args:
+            output_layout: Layout used for the compositing result.
+            presentation_manager: Buffer containing model frames.
+        """
         self.output_layout = output_layout
         self._presentation_manager = presentation_manager
 
@@ -268,29 +264,6 @@ class IUILoop(ILoop[StateT], ABC):
     def presented_model_frames(self) -> tuple[Tensor, ...]:
         """Return the current frame from every model-result channel."""
         return self._presentation_manager.presented_frames()
-
-
-class BlitModelOutputToScreenLoop(IUILoop[None]):
-    """Draw every model channel into one UI frame."""
-
-    @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-        """Draw the model channels in list order."""
-        del events
-        output = None
-        for frame in self.presented_model_frames():
-            output = self._presentation_manager.composite(output, frame)
-        if output is None:
-            return None
-        return StepResult(
-            step_index=step_index,
-            output=_frame_to_layout(output, self.output_layout),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
-
-    def reset(self) -> None:
-        return
 
 
 def _contains_close(events: UserInputEvents) -> bool:
@@ -308,26 +281,12 @@ def _model_results(
     return result
 
 
-def _frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:
-    """Add singleton time, batch, and view dimensions for ``layout``."""
-    if layout is VideoTensorLayout.tchw:
-        return frame.unsqueeze(0)
-    if layout is VideoTensorLayout.btchw:
-        return frame.unsqueeze(0).unsqueeze(0)
-    if layout is VideoTensorLayout.bcthw:
-        return frame.unsqueeze(0).unsqueeze(2)
-    if layout is VideoTensorLayout.bvtchw:
-        return frame.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-    raise ValueError(f"Unsupported presentation layout: {layout}.")
-
-
 def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> None:
     """Queue ``operation`` against ``loop`` state before its next step."""
     loop._invoke_async(operation)
 
 
 __all__ = [
-    "BlitModelOutputToScreenLoop",
     "ILoop",
     "IModelLoop",
     "IUILoop",

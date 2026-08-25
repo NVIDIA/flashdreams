@@ -9,7 +9,7 @@ import threading
 import torch
 from torch import Tensor
 
-from flashdreams.runtime_v2.session_desc import PresentationMode
+from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -19,7 +19,7 @@ class PresentationManager:
 
     def __init__(self) -> None:
         self._buffer: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(maxsize=2)
-        self._presentation_mode = PresentationMode.BLOCK
+        self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
         self._put_timeout = 1.0 / 30.0
         self._generation = 0
@@ -32,15 +32,15 @@ class PresentationManager:
         self,
         *,
         max_pending: int,
-        presentation_mode: PresentationMode,
+        backpressure_mode: BackpressureMode,
         stop: threading.Event,
         put_timeout: float,
     ) -> None:
-        """Set the queue size and presentation mode."""
+        """Set the queue size and backpressure mode."""
         if max_pending <= 0:
             raise ValueError(f"max_pending must be > 0, got {max_pending}.")
         self._buffer = queue.Queue(maxsize=max_pending)
-        self._presentation_mode = presentation_mode
+        self._backpressure_mode = backpressure_mode
         self._stop = stop
         self._put_timeout = put_timeout
 
@@ -51,7 +51,7 @@ class PresentationManager:
     ) -> None:
         """Add one completed model step to the presentation queue.
 
-        ``BLOCK`` and ``LOSSLESS`` wait here when the queue is full.
+        ``BLOCK`` waits here when the queue is full.
         """
         if not chunk:
             raise ValueError("A presented chunk must contain at least one channel.")
@@ -61,7 +61,7 @@ class PresentationManager:
         if frame_count <= 0 or any(item.frame_count != frame_count for item in chunk):
             raise ValueError("Every channel in a chunk must have the same frame_count.")
         pending = (generation, chunk)
-        if self._presentation_mode is PresentationMode.DROP_OLDEST:
+        if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             self._publish_latest(pending)
             return
         while not self._stop.is_set():
@@ -82,7 +82,7 @@ class PresentationManager:
             self._presented_chunk = None
             self._frame_index = -1
 
-        if self._presentation_mode is PresentationMode.DROP_OLDEST:
+        if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             chunk = self._take_buffered_chunk(generation, latest=True)
             if chunk is not None:
                 if (

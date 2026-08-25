@@ -3,6 +3,8 @@
 
 """CPU smoke tests for the v2 SlangPy UI demos."""
 
+import queue
+import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -38,13 +40,27 @@ pytestmark = pytest.mark.ci_cpu
 def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
     desc = SessionDesc(video_width=4, video_height=3)
     model_state = ColorToggleModelState(session_desc=desc, device="cpu")
-    model_loop = ColorToggleModelLoop(state=model_state, frequency=30)
+    shutdown_event = threading.Event()
+    failure_queue: queue.Queue[BaseException] = queue.Queue()
+    model_loop = ColorToggleModelLoop()
+    model_loop.register_session_loop_objects(
+        state=model_state,
+        frequency=30,
+        shutdown_event=shutdown_event,
+        failure_queue=failure_queue,
+    )
     ui_loop = ColorToggleSlangPyUILoop(
+        renderer=Mock(),
+    )
+    ui_loop.register_session_loop_objects(
         state=ColorToggleUIState(model_loop=model_loop),
         frequency=60,
+        shutdown_event=shutdown_event,
+        failure_queue=failure_queue,
+    )
+    ui_loop.register_session_ui_loop_objects(
         output_layout=desc.output_layout,
         presentation_manager=PresentationManager(),
-        renderer=Mock(),
     )
     ui = SimpleNamespace(
         screen=object(),
@@ -86,11 +102,17 @@ def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
 def test_text_input_updates_ui_owned_state() -> None:
     state = TextInputState()
     loop = TextInputSlangPyUILoop(
+        renderer=Mock(),
+    )
+    loop.register_session_loop_objects(
         state=state,
         frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
         output_layout=SessionDesc().output_layout,
         presentation_manager=PresentationManager(),
-        renderer=Mock(),
     )
     ui = SimpleNamespace(
         screen=object(),
