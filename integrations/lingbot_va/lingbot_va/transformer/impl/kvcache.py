@@ -1,0 +1,157 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Hongyu Zhou
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""VAKVCache — rolling-window KV cache for video-action transformers.
+
+Wraps a ``BlockKVCache`` with a compile-friendly read path: intermediate
+denoising steps read committed cache + concat fresh tokens (no writes),
+while the final step writes the full [video|action] chunk via BlockKVCache.update().
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+from torch import Tensor
+
+from flashdreams.core.attention.kvcache import BlockKVCache
+
+
+@dataclass
+class VAKVCache:
+    """Rolling-window KV cache for video-action models.
+
+    Lifecycle per AR step:
+        cache.before_update(chunk_idx)
+        ... intermediate denoising: read via committed_kv_plus_fresh (no cache mutation)
+        ... final video step: write_video(k, v)
+        ... final action step: write_action(k, v) → commits full chunk
+        cache.after_update(chunk_idx)
+    """
+
+    kv_cache: BlockKVCache
+    video_chunk: int
+    action_chunk: int
+
+    @staticmethod
+    def create(
+        *,
+        video_chunk: int,
+        action_chunk: int,
+        window_slots: int,
+        batch_size: int,
+        num_heads: int,
+        head_dim: int,
+        sink_size: int = 0,
+        device: torch.device | str = "cuda",
+        dtype: torch.dtype = torch.bfloat16,
+    ) -> "VAKVCache":
+        """Construct a VAKVCache with the given dimensions."""
+        slot_size = video_chunk + action_chunk
+        window_size = window_slots * slot_size
+        total_size = sink_size + window_size
+        kv_shape = (batch_size, total_size, num_heads, head_dim)
+
+        kv_cache = BlockKVCache(
+            k_shape=kv_shape,
+            v_shape=kv_shape,
+            seq_dim=1,
+            chunk_size=slot_size,
+            window_size=window_size,
+            sink_size=sink_size,
+            device=device,
+            dtype=dtype,
+        )
+
+        return VAKVCache(
+            kv_cache=kv_cache,
+            video_chunk=video_chunk,
+            action_chunk=action_chunk,
+        )
+
+    @property
+    def n_committed_tokens(self) -> int:
+        """Number of committed tokens from prior AR steps."""
+        return self.kv_cache._n_cached
+
+    def before_update(self, chunk_idx: int) -> None:
+        """Open the update window for a new AR step."""
+        self.kv_cache.before_update(chunk_idx)
+
+    def after_update(self, chunk_idx: int) -> None:
+        """Close the update window and commit."""
+        self.kv_cache.after_update(chunk_idx)
+
+    def committed_kv_plus_fresh(
+        self, k_fresh: Tensor, v_fresh: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        """Read-only: committed prior tokens + fresh current tokens.
+
+        Used during intermediate denoising steps. Does NOT mutate the cache.
+        This path is compile-friendly (pure tensor ops, no side effects).
+
+        Args:
+            k_fresh: Shape ``[batch, L_fresh, heads, head_dim]``.
+            v_fresh: Same shape as ``k_fresh``.
+
+        Returns:
+            ``(full_k, full_v)`` for attention context.
+        """
+        n = self.n_committed_tokens
+        committed_k = self.kv_cache._k[:, :n]
+        committed_v = self.kv_cache._v[:, :n]
+        return (
+            torch.cat([committed_k, k_fresh], dim=1),
+            torch.cat([committed_v, v_fresh], dim=1),
+        )
+
+    def write_video(self, k: Tensor, v: Tensor) -> None:
+        """Write video KV to the current chunk (pads action with zeros).
+
+        Called once on the final video denoising step.
+
+        Args:
+            k: Shape ``[batch, video_chunk, heads, head_dim]``.
+            v: Same shape as ``k``.
+        """
+        batch, _, heads, head_dim = k.shape
+        action_k = torch.zeros(
+            batch, self.action_chunk, heads, head_dim,
+            device=k.device, dtype=k.dtype,
+        )
+        action_v = torch.zeros_like(action_k)
+        full_k = torch.cat([k, action_k], dim=1)
+        full_v = torch.cat([v, action_v], dim=1)
+        self.kv_cache.update(full_k, full_v)
+
+    def write_action(self, k: Tensor, v: Tensor, video_k: Tensor, video_v: Tensor) -> None:
+        """Write full [video|action] KV to the current chunk (overwrite).
+
+        Called once on the final action denoising step.
+
+        Args:
+            k: Action K, shape ``[batch, action_chunk, heads, head_dim]``.
+            v: Action V, same shape.
+            video_k: Video K from the final video step.
+            video_v: Video V from the final video step.
+        """
+        full_k = torch.cat([video_k, k], dim=1)
+        full_v = torch.cat([video_v, v], dim=1)
+        self.kv_cache.update(full_k, full_v)
+
+    def reset(self) -> None:
+        """Reset to empty state."""
+        self.kv_cache.reset()
