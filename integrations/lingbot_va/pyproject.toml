@@ -38,7 +38,6 @@ flashdreams = { workspace = true }
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "tomli>=2.0",
 ]
 
 [tool.setuptools.packages.find]
