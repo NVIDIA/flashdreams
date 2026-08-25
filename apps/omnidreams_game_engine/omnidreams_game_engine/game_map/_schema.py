@@ -34,7 +34,9 @@ _REQUIRED_ROOT_FIELDS = frozenset(
         "spawns",
     }
 )
-_OPTIONAL_ROOT_FIELDS = frozenset({"profiles", "traffic", "traffic_count"})
+_OPTIONAL_ROOT_FIELDS = frozenset(
+    {"profiles", "race_courses", "traffic", "traffic_count"}
+)
 
 _PROFILE_ATTRIBUTE_FIELDS = frozenset(
     {
@@ -62,6 +64,24 @@ class GameMapHeader:
     name: str
     variants: tuple[GameMapVisualVariant, ...]
     source_path: Path
+    race_course_ids: tuple[str, ...] = ()
+
+
+def _parse_race_course_ids(doc: dict[str, Any]) -> tuple[str, ...]:
+    """Read stable course identifiers without compiling map geometry."""
+    if "race_courses" not in doc:
+        return ()
+    raw_courses = _sequence(doc["race_courses"], "race_courses")
+    if not raw_courses:
+        raise GameMapError("race_courses must contain at least one course")
+    course_ids: list[str] = []
+    for index, value in enumerate(raw_courses):
+        raw = _mapping(value, f"race_courses[{index}]")
+        course_id = str(raw.get("id", "")).strip()
+        if not course_id or course_id in course_ids:
+            raise GameMapError(f"Race course id {course_id!r} is empty or duplicated")
+        course_ids.append(course_id)
+    return tuple(course_ids)
 
 
 @dataclass(frozen=True)
@@ -223,6 +243,7 @@ def load_game_map_header(path: Path) -> GameMapHeader:
         name=name,
         variants=_parse_variants(first_spawn, source_path),
         source_path=source_path,
+        race_course_ids=_parse_race_course_ids(doc),
     )
 
 

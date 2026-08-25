@@ -51,11 +51,13 @@ _BOULEVARD_MAP = _MAPS / "boulevard_district.robotaxi.yaml"
 _BUNDLED_MAPS = (_STARTER_MAP, _BOULEVARD_MAP)
 _INTERSECTION_GEOMETRY_MAP = _TEST_MAPS / "intersection_geometry.robotaxi.yaml"
 _PARKING_DRIVEWAY_MAP = _TEST_MAPS / "parking_driveway.robotaxi.yaml"
+_RACE_COURSE_MAP = _TEST_MAPS / "race_course.robotaxi.yaml"
 _TRAFFIC_INTERSECTION_MAP = _TEST_MAPS / "traffic_intersection.robotaxi.yaml"
 _TRAFFIC_LOOP_MAP = _TEST_MAPS / "traffic_loop.robotaxi.yaml"
 _COMPILER_TEST_MAPS = (
     _INTERSECTION_GEOMETRY_MAP,
     _PARKING_DRIVEWAY_MAP,
+    _RACE_COURSE_MAP,
     _TRAFFIC_INTERSECTION_MAP,
     _TRAFFIC_LOOP_MAP,
 )
@@ -156,6 +158,7 @@ def _intersection_transition_map(
 def _self_loop_map() -> dict[str, object]:
     """Restore a compact self-loop fixture independent of the bundled demo."""
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source.pop("race_courses", None)
     source["nodes"] = [node for node in source["nodes"] if node["type"] != "road_joint"]
     source["roads"] = [
         road for road in source["roads"] if road["id"] == "dead_end_road"
@@ -224,6 +227,9 @@ def test_bundled_map_compiles(source_path: Path, tmp_path: Path) -> None:
     assert game_map.schema_version == source["schema_version"] == 1
     assert game_map.map_id == source["id"]
     assert game_map.spawns
+    assert [course.course_id for course in game_map.race_courses] == [
+        course["id"] for course in source.get("race_courses", ())
+    ]
     assert compiled.archive_path.is_file()
     if "traffic_count" in source:
         assert len(game_map.traffic) == source["traffic_count"]
@@ -586,6 +592,7 @@ def test_topology_round_trip_is_lossless() -> None:
     restored = game_map_from_dict(game_map_to_dict(original))
 
     assert restored.topology == original.topology
+    assert restored.race_courses == original.race_courses
     assert restored.topology.adjacency == original.topology.adjacency
     assert len(restored.lane_dividers) == len(original.lane_dividers)
     for restored_divider, original_divider in zip(

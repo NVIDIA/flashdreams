@@ -17,13 +17,14 @@ compiler:
 profiles: {}
 nodes: []
 roads: []
+race_courses: []
 traffic_count: 12
 traffic: []
 spawns: []
 ```
 
-`profiles`, `traffic_count`, and `traffic` are optional. All other root fields
-are required, and unknown root fields are errors.
+`profiles`, `race_courses`, `traffic_count`, and `traffic` are optional. All
+other root fields are required, and unknown root fields are errors.
 
 The compiler settings control road sampling, ground extent, and routing-only
 turn-connector resolution. They do not configure the renderer archive.
@@ -318,6 +319,26 @@ opening width becomes two equal opposing lanes with no shoulder, virtual white
 markings, physical curbs, and a 5.5m/s speed limit. Intersection connections
 include the access as an inferred footprint arm. Access lanes end at the lot
 boundary; parking lots contain no internal routing lanes.
+
+## Race courses
+
+The optional `race_courses` list defines one or more ordered courses using
+globally unique node or road IDs:
+
+```yaml
+race_courses:
+  - id: neighborhood-loop
+    start: south_intersection
+    checkpoints: [east_road, north_intersection, west_road]
+    lap_count: 3
+```
+
+The full resolved surface of each referenced node or road is its activation
+gate. `start` and every checkpoint must be distinct valid IDs, and checkpoints
+must be non-empty. A zero `lap_count` defines a point-to-point race that ends
+at the final checkpoint. A positive count defines a lap race: after reaching
+the final checkpoint, the player must return to `start` to complete that lap
+and begin the next one.
 
 ## NPC traffic
 

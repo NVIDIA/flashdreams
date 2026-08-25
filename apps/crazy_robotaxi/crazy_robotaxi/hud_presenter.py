@@ -65,6 +65,7 @@ from crazy_robotaxi.game import (
     project_target_pose_to_bev,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.race import RaceGameSnapshot
 from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 
 # Colour palette mirrors :mod:`omnidreams_game_engine.demo` for a
@@ -1474,9 +1475,15 @@ class SlangPyHudPresenter:
         frame = getattr(self, "_latest_presented_frame", None)
         snapshot = None if frame is None else frame.application_state
         live_snapshot = self._keyboard.taxi_game_state
-        if live_snapshot is not None and live_snapshot.session_state != "playing":
+        if live_snapshot is not None and live_snapshot.session_state in {
+            "awaiting_name",
+            "leaderboard",
+        }:
             snapshot = live_snapshot
         if snapshot is None:
+            return
+        if isinstance(snapshot, RaceGameSnapshot):
+            self._draw_race_hud(draw, camera_area, snapshot)
             return
         if snapshot.session_state != self._last_taxi_session_state:
             if snapshot.session_state == "awaiting_name":
@@ -1575,6 +1582,148 @@ class SlangPyHudPresenter:
                 stroke_width=3,
                 stroke_fill=(0, 0, 0),
             )
+
+    def _draw_race_hud(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        snapshot: RaceGameSnapshot,
+    ) -> None:
+        """Draw live race timing or the final top-times modal."""
+        if snapshot.session_state != self._last_taxi_session_state:
+            if snapshot.session_state == "awaiting_name":
+                self._taxi_name_buffer = ""
+            if snapshot.session_state in {"awaiting_name", "leaderboard"}:
+                self._release_taxi_drive_keys()
+            self._last_taxi_session_state = snapshot.session_state
+        if snapshot.session_state in {"awaiting_name", "leaderboard"}:
+            self._draw_race_game_over(draw, camera_area, snapshot)
+            return
+        ax, ay, ar, _ = camera_area
+        cx = (ax + ar) // 2
+        elapsed = snapshot.elapsed_time_us / 1_000_000.0
+        if snapshot.session_state == "awaiting_start":
+            progress = "ENTER START TO BEGIN"
+        elif snapshot.lap_count == 0:
+            progress = (
+                f"CHECKPOINT {snapshot.checkpoint_index + 1}/"
+                f"{snapshot.checkpoint_count}"
+            )
+        elif snapshot.target_kind == "start":
+            progress = f"RETURN TO START  LAP {snapshot.completed_laps + 1}/{snapshot.lap_count}"
+        else:
+            progress = (
+                f"LAP {snapshot.completed_laps + 1}/{snapshot.lap_count}  "
+                f"CHECKPOINT {snapshot.checkpoint_index + 1}/{snapshot.checkpoint_count}"
+            )
+        best = (
+            ""
+            if snapshot.best_time_us is None
+            else f"  BEST {snapshot.best_time_us / 1_000_000.0:.3f}s"
+        )
+        label = f"RACE {elapsed:07.3f}s  {progress}  {snapshot.distance_m:.0f}m{best}"
+        bbox = _measure_text(self._font_medium, label)
+        width = bbox[2] - bbox[0]
+        draw.rounded_rectangle(
+            (cx - width // 2 - 14, ay + 35, cx + width // 2 + 14, ay + 72),
+            radius=9,
+            fill=(12, 12, 18, 220),
+            outline=ACCENT_AMBER + (255,),
+            width=2,
+        )
+        draw.text(
+            (cx - width // 2 - bbox[0], ay + 42 - bbox[1]),
+            label,
+            fill=ACCENT_AMBER,
+            font=self._font_medium,
+        )
+
+    def _draw_race_game_over(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        snapshot: RaceGameSnapshot,
+    ) -> None:
+        """Draw race name entry and the course-specific top-times table."""
+        ax, ay, ar, ab = camera_area
+        cx, cy = (ax + ar) // 2, (ay + ab) // 2
+        panel_width = min(680, max(420, ar - ax - 80))
+        panel_height = min(720, max(430, ab - ay - 80))
+        rect = (
+            cx - panel_width // 2,
+            cy - panel_height // 2,
+            cx + panel_width // 2,
+            cy + panel_height // 2,
+        )
+        draw.rounded_rectangle(
+            rect,
+            radius=20,
+            fill=(10, 10, 16, 240),
+            outline=ACCENT_AMBER + (255,),
+            width=4,
+        )
+        entering_name = snapshot.session_state == "awaiting_name"
+        title = "NEW TOP TIME!" if entering_name else "TOP TIMES"
+        title_box = _measure_text(self._font_large, title)
+        draw.text(
+            (cx - (title_box[2] - title_box[0]) // 2, rect[1] + 28),
+            title,
+            fill=ACCENT_AMBER,
+            font=self._font_large,
+        )
+        final_s = (snapshot.final_time_us or 0) / 1_000_000.0
+        result = f"FINAL TIME  {final_s:.3f}s"
+        result_box = _measure_text(self._font_medium, result)
+        draw.text(
+            (cx - (result_box[2] - result_box[0]) // 2, rect[1] + 92),
+            result,
+            fill=TEXT_COLOR,
+            font=self._font_medium,
+        )
+        if entering_name:
+            rank_text = f"You reached #{snapshot.high_score_rank}"
+            rank_box = _measure_text(self._font_medium, rank_text)
+            draw.text(
+                (cx - (rank_box[2] - rank_box[0]) // 2, rect[1] + 135),
+                rank_text,
+                fill=ACCENT_AMBER,
+                font=self._font_medium,
+            )
+            input_rect = (cx - 230, rect[1] + 195, cx + 230, rect[1] + 250)
+            draw.rounded_rectangle(
+                input_rect,
+                radius=8,
+                fill=(28, 28, 40, 255),
+                outline=(255, 255, 255, 255),
+                width=2,
+            )
+            entered = self._taxi_name_buffer or "TYPE YOUR NAME"
+            entered_box = _measure_text(self._font_medium, entered)
+            draw.text(
+                (cx - (entered_box[2] - entered_box[0]) // 2, input_rect[1] + 13),
+                entered,
+                fill=TEXT_COLOR if self._taxi_name_buffer else LABEL_COLOR,
+                font=self._font_medium,
+            )
+            return
+        row_y = rect[1] + 145
+        for rank, entry in enumerate(snapshot.leaderboard, start=1):
+            row = f"{rank:>2}.  {entry.name:<12}  {entry.elapsed_time_us / 1_000_000.0:>9.3f}s"
+            draw.text(
+                (cx - 230, row_y),
+                row,
+                fill=ACCENT_AMBER if rank == snapshot.high_score_rank else TEXT_COLOR,
+                font=self._font_medium,
+            )
+            row_y += 38
+        hint = "Press R to race again"
+        hint_box = _measure_text(self._font_small, hint)
+        draw.text(
+            (cx - (hint_box[2] - hint_box[0]) // 2, rect[3] - 46),
+            hint,
+            fill=NVIDIA_GREEN,
+            font=self._font_small,
+        )
 
     def _draw_taxi_game_over(
         self,
@@ -1690,7 +1839,8 @@ class SlangPyHudPresenter:
         if (
             frame is None
             or frame.application_state is None
-            or frame.application_state.session_state != "playing"
+            or frame.application_state.session_state
+            not in {"playing", "awaiting_start", "racing"}
             or frame.rig_to_world is None
             or self._taxi_camera_calibration is None
             or self._latest_camera_src_size is None
@@ -1725,14 +1875,24 @@ class SlangPyHudPresenter:
                 area_y + offset_y + int(point[1] * fit_height / source_height),
             )
 
-        color = (
-            NVIDIA_GREEN
-            if frame.application_state.phase == "seeking_pickup"
-            else ACCENT_AMBER
-        )
-        label = (
-            "PICKUP" if frame.application_state.phase == "seeking_pickup" else "DROPOFF"
-        )
+        if isinstance(frame.application_state, RaceGameSnapshot):
+            color = ACCENT_AMBER
+            label = (
+                "START"
+                if frame.application_state.target_kind == "start"
+                else f"CP {frame.application_state.checkpoint_index + 1}"
+            )
+        else:
+            color = (
+                NVIDIA_GREEN
+                if frame.application_state.phase == "seeking_pickup"
+                else ACCENT_AMBER
+            )
+            label = (
+                "PICKUP"
+                if frame.application_state.phase == "seeking_pickup"
+                else "DROPOFF"
+            )
         for marker in markers:
             self._draw_taxi_marker_projection(
                 draw,

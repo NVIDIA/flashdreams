@@ -19,6 +19,7 @@ from omnidreams_game_engine.config import (
     AppConfig,
     WorldModelProfileConfig,
 )
+from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
 from omnidreams_game_engine.log import configure_logging
 from omnidreams_game_engine.renderer_settings import (
     RendererSettings,
@@ -255,11 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--game-mode",
-        action="store_true",
-        help=(
-            "Enable game-style actor and static-world collisions together with "
-            "the vehicle speed limit."
-        ),
+        choices=("taxi", "race"),
+        default="taxi",
+        help=("Select taxi fares or checkpoint racing (default: taxi)."),
     )
     parser.add_argument(
         "--disable-visual-flare",
@@ -311,8 +310,22 @@ def build_parser() -> argparse.ArgumentParser:
             " below ``bev-fov-deg / 2``."
         ),
     )
-    parser.set_defaults(taxi_game=True)
-    parser.add_argument("--taxi-game", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--race-course",
+        default=None,
+        metavar="ID",
+        help="Race course ID. Race mode uses the map's first course by default.",
+    )
+    parser.add_argument(
+        "--race-times",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Race leaderboard CSV path. Defaults to "
+            "$FLASHDREAMS_CACHE_DIR/interactive-drive/race_times.csv."
+        ),
+    )
     parser.add_argument(
         "--taxi-seed",
         type=int,
@@ -429,6 +442,23 @@ def prepare_config_and_backend(
     scene_path = args.scene
     if scene_path is None:
         raise SystemExit("--map is required")
+    if (
+        args.game_mode == "race"
+        and scene_path.exists()
+        and scene_path.name.endswith(GAME_MAP_SUFFIX)
+    ):
+        header = load_game_map_header(scene_path)
+        if not header.race_course_ids:
+            raise SystemExit(f"Map {header.map_id!r} does not define any race_courses")
+        if (
+            args.race_course is not None
+            and args.race_course not in header.race_course_ids
+        ):
+            available = ", ".join(header.race_course_ids)
+            raise SystemExit(
+                f"Unknown race course {args.race_course!r} for map {header.map_id!r}; "
+                f"available: {available}"
+            )
 
     renderer_settings = renderer_settings_from_args(args)
     bev_config = renderer_settings.bev
@@ -455,7 +485,7 @@ def prepare_config_and_backend(
         world_model_offload_text_encoder=bool(args.offload_text_encoder),
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         bev=bev_config,
-        game_mode=bool(args.game_mode),
+        game_mode=True,
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
         visual_flare_enabled=(
@@ -471,7 +501,7 @@ def prepare_config_and_backend(
             chunk=config.chunk,
             raster=config.raster,
             bev=config.bev,
-            synchronize_bev_with_rgb=bool(args.taxi_game),
+            synchronize_bev_with_rgb=True,
         )
     else:
         if config.manifest_path is None:
@@ -500,7 +530,7 @@ def prepare_config_and_backend(
             bev=config.bev,
             offload_text_encoder=config.world_model_offload_text_encoder,
             postprocess=config.postprocess,
-            synchronize_bev_with_rgb=bool(args.taxi_game),
+            synchronize_bev_with_rgb=True,
             motion_conformance_diagnostics_enabled=(
                 args.taxi_alignment_diagnostics is not None
             ),
@@ -516,21 +546,20 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
     """
     configure_logging()
     config, backend = prepare_config_and_backend(args)
-    if args.taxi_game:
-        from crazy_robotaxi.app import (
-            CrazyRobotaxiApp,
-            taxi_config_from_args,
-        )
-        from crazy_robotaxi.live_edit.config import live_edit_config_from_args
+    from crazy_robotaxi.app import CrazyRobotaxiApp, taxi_config_from_args
+    from crazy_robotaxi.live_edit.config import live_edit_config_from_args
 
-        app = CrazyRobotaxiApp(
-            config=config,
-            taxi_config=taxi_config_from_args(args),
-            backend=backend,
-            alignment_diagnostics_root=args.taxi_alignment_diagnostics,
-            trace_sink=trace_sink,
-            live_edit_config=live_edit_config_from_args(args),
-        )
-    else:
-        app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)
+    app = CrazyRobotaxiApp(
+        config=config,
+        taxi_config=taxi_config_from_args(args),
+        backend=backend,
+        game_mode=args.game_mode,
+        race_course_id=args.race_course,
+        race_times_path=(
+            None if args.race_times is None else args.race_times.expanduser()
+        ),
+        alignment_diagnostics_root=args.taxi_alignment_diagnostics,
+        trace_sink=trace_sink,
+        live_edit_config=live_edit_config_from_args(args),
+    )
     app.run()

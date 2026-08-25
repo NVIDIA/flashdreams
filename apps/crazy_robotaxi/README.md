@@ -128,6 +128,19 @@ reach the native fp8 weight snapshot — so running them requires
 obstacle without guidance) do not touch the model and run at full speed
 under native DIT.
 
+## Race mode
+
+Taxi mode is the default. Launch a bundled map's first race course with:
+
+```bash
+crazy-robotaxi --game-mode race
+```
+
+Use `--race-course ID` when a map defines multiple courses. The
+`--race-times PATH` option overrides the shared race-time CSV. Race
+leaderboards rank total race time independently for every map and course;
+lower times are better.
+
 ## Configuration files
 
 The standalone game keeps its portable configuration in three independent,

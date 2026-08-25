@@ -423,7 +423,7 @@ _INDEX_HTML = """<!doctype html>
       <div id="high-score-rank"></div>
       <input id="player-name" maxlength="12" autocomplete="nickname"
              pattern="[A-Za-z0-9 _-]{1,12}" placeholder="Your name" required>
-      <button class="game-button" type="submit">Save score</button>
+      <button class="game-button" id="save-result" type="submit">Save score</button>
       <div class="name-error" id="name-error"></div>
     </form>
     <div class="leaderboard hidden" id="leaderboard">
@@ -522,6 +522,7 @@ const finalScoreEl = document.getElementById('final-score');
 const nameEntryEl = document.getElementById('name-entry');
 const highScoreRankEl = document.getElementById('high-score-rank');
 const playerNameEl = document.getElementById('player-name');
+const saveResultEl = document.getElementById('save-result');
 const nameErrorEl = document.getElementById('name-error');
 const leaderboardEl = document.getElementById('leaderboard');
 const scoreRowsEl = document.getElementById('score-rows');
@@ -536,10 +537,17 @@ function paintGameOver(taxi) {
     previousTaxiSession = state || null;
     return;
   }
-  finalScoreEl.textContent = `FINAL SCORE  ${taxi.score}`;
+  const race = taxi.game_mode === 'race';
+  finalScoreEl.textContent = race
+    ? `FINAL TIME  ${(taxi.final_time_s || 0).toFixed(3)}s`
+    : `FINAL SCORE  ${taxi.score}`;
   if (previousTaxiSession !== state) releaseAllKeys();
   const enteringName = state === 'awaiting_name';
-  gameOverTitleEl.textContent = enteringName ? 'NEW HIGH SCORE!' : 'HIGH SCORES';
+  gameOverTitleEl.textContent = race
+    ? (enteringName ? 'NEW TOP TIME!' : 'TOP TIMES')
+    : (enteringName ? 'NEW HIGH SCORE!' : 'HIGH SCORES');
+  saveResultEl.textContent = race ? 'Save time' : 'Save score';
+  newGameEl.textContent = race ? 'Race Again' : 'New Game';
   nameEntryEl.classList.toggle('hidden', !enteringName);
   leaderboardEl.classList.toggle('hidden', enteringName);
   if (enteringName) {
@@ -554,7 +562,10 @@ function paintGameOver(taxi) {
     (taxi.leaderboard || []).forEach((entry, index) => {
       const row = document.createElement('tr');
       if (index + 1 === taxi.high_score_rank) row.classList.add('current');
-      [String(index + 1), entry.name, String(entry.score)].forEach(value => {
+      const result = race
+        ? `${(entry.elapsed_time_us / 1000000).toFixed(3)}s`
+        : String(entry.score);
+      [String(index + 1), entry.name, result].forEach(value => {
         const cell = document.createElement('td');
         cell.textContent = value;
         row.appendChild(cell);
@@ -575,12 +586,16 @@ function paintTaxi(taxi) {
     return;
   }
   paintGameOver(taxi);
-  if (taxi.session_state !== 'playing') {
+  const race = taxi.game_mode === 'race';
+  const active = race
+    ? taxi.session_state === 'awaiting_start' || taxi.session_state === 'racing'
+    : taxi.session_state === 'playing';
+  if (!active) {
     taxiHudEl.classList.add('hidden');
     taxiMapEl.classList.add('hidden');
     return;
   }
-  const dropoff = taxi.phase === 'to_dropoff';
+  const dropoff = race || taxi.phase === 'to_dropoff';
   taxiHudEl.classList.remove('hidden');
   taxiHudEl.classList.toggle('dropoff', dropoff);
   taxiArrowEl.style.transform = `rotate(${-taxi.relative_bearing_rad * 180 / Math.PI}deg)`;
@@ -589,12 +604,27 @@ function paintTaxi(taxi) {
     ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
   const highScore = typeof taxi.high_score === 'number'
     ? `  HIGH ${taxi.high_score}` : '';
-  taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
-  taxiEventEl.textContent = taxi.event === 'pickup_complete'
+  if (race) {
+    let progress = 'ENTER START TO BEGIN';
+    if (taxi.session_state === 'racing' && taxi.lap_count === 0) {
+      progress = `CHECKPOINT ${taxi.checkpoint_index + 1}/${taxi.checkpoint_count}`;
+    } else if (taxi.session_state === 'racing' && taxi.target_kind === 'start') {
+      progress = `RETURN TO START  LAP ${taxi.completed_laps + 1}/${taxi.lap_count}`;
+    } else if (taxi.session_state === 'racing') {
+      progress = `LAP ${taxi.completed_laps + 1}/${taxi.lap_count}  CHECKPOINT ${taxi.checkpoint_index + 1}/${taxi.checkpoint_count}`;
+    }
+    const best = typeof taxi.best_time_s === 'number'
+      ? `  BEST ${taxi.best_time_s.toFixed(3)}s` : '';
+    taxiStatusEl.textContent = `RACE ${taxi.elapsed_time_s.toFixed(3)}s  ${progress}  ${Math.round(taxi.distance_m)}m${best}`;
+    taxiEventEl.textContent = taxi.event === 'lap_complete' ? 'LAP COMPLETE' : '';
+  } else {
+    taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
+    taxiEventEl.textContent = taxi.event === 'pickup_complete'
     ? 'PASSENGER PICKED UP'
     : (taxi.event === 'fare_complete'
       ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
       : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : ''));
+  }
   const markers = taxi.bev_targets || [];
   const showMap = taxi.bev_enabled;
   taxiMapEl.classList.toggle('hidden', !showMap);
@@ -1111,7 +1141,10 @@ class MJPEGStreamingPresenter:
         vehicle_state = None if frame is None else frame.vehicle_state
         taxi_state = None if frame is None else frame.application_state
         live_taxi_state = self._keyboard.taxi_game_state
-        if live_taxi_state is not None and live_taxi_state.session_state != "playing":
+        if live_taxi_state is not None and live_taxi_state.session_state in {
+            "awaiting_name",
+            "leaderboard",
+        }:
             taxi_state = live_taxi_state
         result: dict[str, object] = {
             "speed_mps": None,
