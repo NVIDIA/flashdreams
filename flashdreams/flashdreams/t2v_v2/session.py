@@ -6,8 +6,8 @@
 from dataclasses import dataclass
 from typing import Any
 
-from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents

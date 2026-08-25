@@ -12,8 +12,8 @@ from numpy import uint64
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult

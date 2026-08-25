@@ -11,10 +11,10 @@ import torch
 from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
-from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
+from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
@@ -39,6 +39,7 @@ class ColorToggleModelState:
 
     def _toggle_color(self) -> None:
         self.blue = not self.blue
+
 
 class ColorToggleModelLoop(IModelLoop[ColorToggleModelState]):
     """Generate a solid red or blue frame from model-loop-owned state."""

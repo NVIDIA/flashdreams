@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 import torch
 
-from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc

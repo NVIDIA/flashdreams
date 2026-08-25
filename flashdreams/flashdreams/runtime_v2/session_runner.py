@@ -7,9 +7,9 @@ import logging
 import threading
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
