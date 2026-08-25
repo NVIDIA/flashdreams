@@ -271,7 +271,6 @@ def test_active_map_traffic_progress_is_anchored_to_its_physical_body() -> None:
     )
     published: list[tuple[tuple[str, int, float], ...]] = []
     world = SimpleNamespace(
-        body_state=lambda _: body,
         ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
         apply_track_progress=published.append,
     )
@@ -284,10 +283,63 @@ def test_active_map_traffic_progress_is_anchored_to_its_physical_body() -> None:
     assert {batch[0][1] for batch in published} == {int(initial_timestamp_us + 350_000)}
 
     body.position_m[:2] = (5.0, 0.0)
+    controller.observe_physics(
+        object_id,
+        struck=False,
+        body=body,
+        dt_s=1.0 / 30.0,
+    )
     controller.prepare_step(world, ego, 10.0)  # type: ignore[arg-type]
 
     assert state.timestamp_us == pytest.approx(500_000, abs=1.0)
     assert published[-1][0][1] == pytest.approx(850_000, abs=1.0)
+
+
+def test_active_map_traffic_walks_its_route_cursor_without_global_search() -> None:
+    centerline = np.asarray(
+        [[x, 0, 0] for x in range(21)] + [[20, 20, 0], [0, 20, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    definition = GameMapTrafficVehicle(
+        vehicle_id="cursor",
+        node_ids=("a", "b"),
+        end_behavior="wrap",
+        vehicle_type="car",
+        dimensions_lwh_m=(4.5, 1.8, 1.5),
+        speed_mps=None,
+        start_distance_m=1.0,
+        centerline_world=centerline,
+        speed_limits_mps=np.full(len(centerline), 10.0, dtype=np.float32),
+        route_element_ids=("road",) * (len(centerline) - 1),
+    )
+    controller = MapTrafficController((definition,), VehicleConfig())
+    controller.set_vicinity(
+        GameMapVicinity("road", frozenset({"road"}), frozenset({"road"}))
+    )
+    state = controller.state("map-traffic:cursor")
+    assert state is not None
+    body = _body_at((12.4, 0.0), linear_velocity_xy=(10.0, 0.0))
+    controller.observe_physics(
+        state.object_id,
+        struck=False,
+        body=body,
+        dt_s=1.0 / 30.0,
+    )
+    published: list[tuple[tuple[str, int, float], ...]] = []
+    world = SimpleNamespace(
+        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
+        apply_track_progress=published.append,
+    )
+
+    with patch.object(
+        controller,
+        "_nearest_route_projection",
+        side_effect=AssertionError("normal traversal used a global route search"),
+    ):
+        controller.prepare_step(world, _body_at((-100.0, -100.0)), 1.0 / 30.0)
+
+    assert state.route_segment_index == 12
+    assert state.timestamp_us == pytest.approx(1_240_000, abs=1.0)
 
 
 def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> None:
@@ -334,6 +386,7 @@ def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> N
         state.scene_object.sample(int(state.timestamp_us))
     )
     np.testing.assert_allclose(projected_position[:2], [20.0, 8.0], atol=1.0e-4)
+    assert state.route_segment_index == 1
 
     # A car facing backward remains physically detached; recovery does not snap it.
     controller.observe_physics(

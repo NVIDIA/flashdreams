@@ -62,6 +62,7 @@ class MapTrafficVehicleState:
     scene_object: SceneObject
     timestamp_us: float
     duration_us: int
+    route_segment_index: int
     max_speed_mps: float
     route_element_ids: tuple[str, ...]
     position_m: np.ndarray
@@ -99,6 +100,14 @@ class _TrafficObservation:
     position_xy: np.ndarray
     velocity_xy: np.ndarray
     half_length_m: float
+
+
+@dataclass(frozen=True)
+class _RouteProjection:
+    timestamp_us: float
+    segment_index: int
+    distance_sq: float
+    progress_distance: float
 
 
 def _route_track(
@@ -174,6 +183,9 @@ class MapTrafficController:
                     scene_object=scene_object,
                     timestamp_us=float(start_timestamp_us),
                     duration_us=duration_us,
+                    route_segment_index=self._route_segment_index(
+                        scene_object, start_timestamp_us
+                    ),
                     max_speed_mps=float(np.max(definition.speed_limits_mps)),
                     route_element_ids=definition.route_element_ids,
                     position_m=position.copy(),
@@ -228,7 +240,18 @@ class MapTrafficController:
         return self._states_by_id.get(object_id)
 
     @staticmethod
+    def _route_segment_index(scene_object: SceneObject, timestamp_us: float) -> int:
+        segment_index = int(
+            np.searchsorted(scene_object.timestamps_us, int(timestamp_us), side="right")
+            - 1
+        )
+        return min(max(segment_index, 0), len(scene_object.timestamps_us) - 2)
+
+    @staticmethod
     def _set_route_snapshot(state: MapTrafficVehicleState) -> None:
+        state.route_segment_index = MapTrafficController._route_segment_index(
+            state.scene_object, state.timestamp_us
+        )
         position, orientation, velocity = state.scene_object.sample(
             int(state.timestamp_us)
         )
@@ -260,13 +283,11 @@ class MapTrafficController:
             for state in self._states
             if state.element_id in visible_elements
         )
+        for object_id in active_ids - self._active_ids:
+            self._set_route_snapshot(self._states_by_id[object_id])
         changed = active_ids != self._active_ids
         self._active_ids = active_ids
         return changed
-
-    def _target_velocity(self, state: MapTrafficVehicleState) -> np.ndarray:
-        _, _, velocity = state.scene_object.sample(int(state.timestamp_us))
-        return velocity
 
     @staticmethod
     def _drive_target_timestamp_us(state: MapTrafficVehicleState) -> int:
@@ -276,14 +297,12 @@ class MapTrafficController:
         lookahead_us = _TRACK_LOOKAHEAD_S * 1_000_000.0 * state.velocity_scale
         return int((state.timestamp_us + lookahead_us) % state.duration_us)
 
-    def _observation(
-        self, state: MapTrafficVehicleState, world: PhysXWorld
-    ) -> _TrafficObservation:
-        velocity = self._target_velocity(state)
+    def _observation(self, state: MapTrafficVehicleState) -> _TrafficObservation:
         if state.object_id in self._active_ids:
-            position = world.body_state(state.object_id).position_m[:2]
+            position = state.position_m[:2]
+            _, _, velocity = state.scene_object.sample(int(state.timestamp_us))
         else:
-            position, _, _ = state.scene_object.sample(int(state.timestamp_us))
+            position, _, velocity = state.scene_object.sample(int(state.timestamp_us))
             position = position[:2]
         return _TrafficObservation(
             position_xy=np.asarray(position, dtype=np.float32),
@@ -299,48 +318,103 @@ class MapTrafficController:
         return min(delta, duration_us - delta)
 
     @classmethod
-    def _nearest_route_timestamp(
-        cls, state: MapTrafficVehicleState, position_xy: np.ndarray
-    ) -> float:
+    def _route_projection(
+        cls,
+        state: MapTrafficVehicleState,
+        position_xy: np.ndarray,
+        segment_index: int,
+    ) -> _RouteProjection:
         positions = state.scene_object.positions_m[:, :2]
         timestamps = state.scene_object.timestamps_us
-        best_distance_sq = math.inf
-        best_progress_distance = math.inf
-        best_timestamp_us = state.timestamp_us
-        for index, (start, end) in enumerate(
-            zip(positions[:-1], positions[1:], strict=True)
-        ):
-            segment = end - start
-            length_sq = float(np.dot(segment, segment))
-            alpha = (
-                0.0
-                if length_sq <= 1.0e-12
-                else float(
-                    np.clip(np.dot(position_xy - start, segment) / length_sq, 0, 1)
-                )
+        start = positions[segment_index]
+        segment = positions[segment_index + 1] - start
+        length_sq = float(np.dot(segment, segment))
+        alpha = 0.0
+        if length_sq > 1.0e-12:
+            alpha = float(np.dot(position_xy - start, segment) / length_sq)
+            alpha = min(max(alpha, 0.0), 1.0)
+        projection = start + alpha * segment
+        offset = position_xy - projection
+        timestamp_us = (
+            float(
+                timestamps[segment_index]
+                + alpha * (timestamps[segment_index + 1] - timestamps[segment_index])
             )
-            projection = start + alpha * segment
-            distance_sq = float(
-                np.dot(position_xy - projection, position_xy - projection)
-            )
-            timestamp_us = (
-                float(
-                    timestamps[index]
-                    + alpha * (timestamps[index + 1] - timestamps[index])
-                )
-                % state.duration_us
-            )
-            progress_distance = cls._cyclic_timestamp_distance(
+            % state.duration_us
+        )
+        return _RouteProjection(
+            timestamp_us=timestamp_us,
+            segment_index=segment_index,
+            distance_sq=float(np.dot(offset, offset)),
+            progress_distance=cls._cyclic_timestamp_distance(
                 timestamp_us, state.timestamp_us, state.duration_us
+            ),
+        )
+
+    @staticmethod
+    def _projection_is_better(
+        candidate: _RouteProjection, current: _RouteProjection
+    ) -> bool:
+        return candidate.distance_sq < current.distance_sq - 1.0e-8 or (
+            abs(candidate.distance_sq - current.distance_sq) <= 1.0e-8
+            and candidate.progress_distance < current.progress_distance
+        )
+
+    @classmethod
+    def _nearest_local_route_projection(
+        cls, state: MapTrafficVehicleState, position_xy: np.ndarray
+    ) -> _RouteProjection:
+        """Walk from the route cursor to the nearest adjacent segment."""
+        segment_count = len(state.scene_object.positions_m) - 1
+        best = cls._route_projection(
+            state, position_xy, state.route_segment_index % segment_count
+        )
+        visited = {best.segment_index}
+        while len(visited) < segment_count:
+            neighbor_indices = (
+                (best.segment_index - 1) % segment_count,
+                (best.segment_index + 1) % segment_count,
             )
-            if distance_sq < best_distance_sq - 1.0e-8 or (
-                abs(distance_sq - best_distance_sq) <= 1.0e-8
-                and progress_distance < best_progress_distance
-            ):
-                best_distance_sq = distance_sq
-                best_progress_distance = progress_distance
-                best_timestamp_us = timestamp_us
-        return best_timestamp_us
+            neighbors = tuple(
+                cls._route_projection(state, position_xy, segment_index)
+                for segment_index in neighbor_indices
+                if segment_index not in visited
+            )
+            visited.update(projection.segment_index for projection in neighbors)
+            better = tuple(
+                projection
+                for projection in neighbors
+                if cls._projection_is_better(projection, best)
+            )
+            if not better:
+                break
+            best = min(
+                better,
+                key=lambda projection: (
+                    projection.distance_sq,
+                    projection.progress_distance,
+                ),
+            )
+        return best
+
+    @classmethod
+    def _nearest_route_projection(
+        cls, state: MapTrafficVehicleState, position_xy: np.ndarray
+    ) -> _RouteProjection:
+        """Search the full route when collision recovery needs reacquisition."""
+        best = cls._route_projection(state, position_xy, 0)
+        for segment_index in range(1, len(state.scene_object.positions_m) - 1):
+            candidate = cls._route_projection(state, position_xy, segment_index)
+            if cls._projection_is_better(candidate, best):
+                best = candidate
+        return best
+
+    @staticmethod
+    def _apply_route_projection(
+        state: MapTrafficVehicleState, projection: _RouteProjection
+    ) -> None:
+        state.timestamp_us = projection.timestamp_us
+        state.route_segment_index = projection.segment_index
 
     @staticmethod
     def _is_recovered(state: MapTrafficVehicleState, body: BodyState) -> bool:
@@ -399,8 +473,9 @@ class MapTrafficController:
                 state.stopped_duration_s + dt_s if stopped else 0.0
             )
             if state.stopped_duration_s >= _RESTART_AFTER_STOPPED_S:
-                state.timestamp_us = self._nearest_route_timestamp(
-                    state, body.position_m[:2]
+                self._apply_route_projection(
+                    state,
+                    self._nearest_route_projection(state, body.position_m[:2]),
                 )
                 state.phase = MapTrafficPhase.RECOVERING
                 state.stopped_duration_s = 0.0
@@ -466,21 +541,21 @@ class MapTrafficController:
         for state in self._states:
             if state.phase is MapTrafficPhase.TRAVERSING:
                 if state.object_id in self._active_ids:
-                    body = world.body_state(state.object_id)
-                    state.timestamp_us = self._nearest_route_timestamp(
-                        state, body.position_m[:2]
+                    self._apply_route_projection(
+                        state,
+                        self._nearest_local_route_projection(
+                            state, state.position_m[:2]
+                        ),
                     )
-                    state.position_m = body.position_m.copy()
-                    state.orientation_xyzw = body.orientation_xyzw.copy()
-                    state.linear_velocity_mps = body.linear_velocity_mps.copy()
-                    state.angular_velocity_radps = body.angular_velocity_radps.copy()
                 else:
                     state.timestamp_us = (
                         state.timestamp_us + dt_s * 1_000_000.0 * state.velocity_scale
                     ) % state.duration_us
-                    self._set_route_snapshot(state)
+                    state.route_segment_index = self._route_segment_index(
+                        state.scene_object, state.timestamp_us
+                    )
         observations = {
-            state.object_id: self._observation(state, world) for state in self._states
+            state.object_id: self._observation(state) for state in self._states
         }
         ego_observation = _TrafficObservation(
             position_xy=np.asarray(ego.position_m[:2], dtype=np.float32),
