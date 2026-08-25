@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for Crazy Robotaxi's V2 ImGui UI thread."""
+"""CPU tests for Crazy Robotaxi's V2 SlangPy UI loop."""
 
 from __future__ import annotations
 
+import queue
+import threading
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -15,14 +17,14 @@ import slangpy as spy
 import torch
 from crazy_robotaxi.rules import TaxiGameSnapshot, TaxiSessionState
 from crazy_robotaxi.ui import (
-    CrazyRobotaxiImGUIThread,
+    CrazyRobotaxiSlangPyUILoop,
     TaxiHudState,
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import render_waypoint_layers
 from omnidreams_game_engine.types import CameraCalibration
 
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -104,8 +106,8 @@ class _Renderer:
         self.reset_count = 0
         self.closed = False
 
-    def render(self, step_index, events, draw_ui):
-        draw_ui(self.ui, step_index, events)
+    def render(self, step_index, events, step_ui):
+        step_ui(self.ui, step_index, events)
         return torch.zeros(4, self.height, self.width)
 
     def reset(self) -> None:
@@ -123,7 +125,7 @@ class _SubmissionState:
         self.names.append(name)
 
 
-class _SubmissionThread(IThread[_SubmissionState]):
+class _SubmissionLoop(IModelLoop[_SubmissionState]):
     def step(self, step_index, events):
         del step_index, events
         return None
@@ -171,7 +173,7 @@ def test_waypoints_are_rendered_as_frame_aligned_world_layers() -> None:
     assert torch.count_nonzero(terminal[:, 3]) == 0
 
 
-def test_imgui_thread_composites_world_waypoints_then_bev_and_imgui() -> None:
+def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
     waypoints = torch.zeros(1, 4, height, width)
@@ -191,15 +193,21 @@ def test_imgui_thread_composites_world_waypoints_then_bev_and_imgui() -> None:
     )
     changed, _ = presentation.advance(0)
     renderer = _Renderer(width, height)
-    thread = CrazyRobotaxiImGUIThread(
-        state=hud_state,
-        frequency=60,
-        output_layout=VideoTensorLayout.tchw,
-        presentation_manager=presentation,
+    loop = CrazyRobotaxiSlangPyUILoop(
         renderer=renderer,
     )
+    loop.register_session_loop_objects(
+        state=hud_state,
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        output_layout=VideoTensorLayout.tchw,
+        presentation_manager=presentation,
+    )
 
-    result = thread.step_ui(0, UserInputEvents([]))
+    result = loop.step(0, UserInputEvents([]))
 
     assert changed
     assert result.output.shape == (1, 3, height, width)
@@ -212,7 +220,7 @@ def test_imgui_thread_composites_world_waypoints_then_bev_and_imgui() -> None:
     assert result.output[0, 0, 10, 10] == 1.0
     assert torch.any(result.output != video)
 
-    thread.reset()
+    loop.reset()
     assert hud_state._current is None
     assert renderer.reset_count == 1
 
@@ -243,15 +251,21 @@ def test_hud_builds_real_slangpy_imgui_widgets_without_a_renderer() -> None:
     assert state._widgets.score.text == "SCORE  001200    HIGH  009000"
 
 
-def test_imgui_name_submission_uses_v2_thread_message_queue() -> None:
+def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
     state = TaxiHudState(160, 96)
-    model_thread = _SubmissionThread(state=_SubmissionState(), frequency=0)
-    state.model_thread = model_thread
+    model_loop = _SubmissionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SubmissionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
 
     state._submit_name(" DRIVER 7 ")
     state._submit_name("SECOND")
 
-    assert model_thread.state.names == []
-    model_thread._run_message_batch()
-    assert model_thread.state.names == ["DRIVER 7"]
+    assert model_loop.state.names == []
+    model_loop._run_message_batch()
+    assert model_loop.state.names == ["DRIVER 7"]
     assert state._submission_pending

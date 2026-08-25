@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 from crazy_robotaxi.application import CrazyRobotaxiApplication
-from crazy_robotaxi.session import CrazyRobotaxiModelThread
-from crazy_robotaxi.ui import CrazyRobotaxiImGUIThread
+from crazy_robotaxi.session import CrazyRobotaxiModelLoop
+from crazy_robotaxi.ui import CrazyRobotaxiSlangPyUILoop
 from omnidreams_game_engine.types import CameraCalibration, SceneDefinition
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -47,7 +47,7 @@ def _scene() -> SceneDefinition:
     )
 
 
-def test_application_registers_model_and_imgui_threads() -> None:
+def test_application_registers_model_and_slangpy_ui_loops() -> None:
     pipeline = object()
     app = CrazyRobotaxiApplication(
         pipeline_factory=lambda config, device: pipeline,
@@ -58,15 +58,15 @@ def test_application_registers_model_and_imgui_threads() -> None:
 
     session = app.create_session(desc)
     session.init()
-    ui_thread, model_thread = session._take_threads()
+    ui_loop, model_loop = session._take_loops()
 
     assert desc.output_layout is VideoTensorLayout.tchw
-    assert isinstance(model_thread, CrazyRobotaxiModelThread)
-    assert isinstance(ui_thread, CrazyRobotaxiImGUIThread)
-    assert model_thread.state.pipeline is pipeline
-    assert model_thread.state.rollout is None
-    assert model_thread.state.ui_thread is ui_thread
-    assert ui_thread.state.model_thread is model_thread
+    assert isinstance(model_loop, CrazyRobotaxiModelLoop)
+    assert isinstance(ui_loop, CrazyRobotaxiSlangPyUILoop)
+    assert model_loop.state.pipeline is pipeline
+    assert model_loop.state.rollout is None
+    assert model_loop.state.ui_loop is ui_loop
+    assert ui_loop.state.model_loop is model_loop
 
 
 def test_application_rejects_geometry_the_model_does_not_produce() -> None:

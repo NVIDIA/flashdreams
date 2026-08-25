@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Crazy Robotaxi V2 session with model and ImGui UI threads."""
+"""Crazy Robotaxi V2 session with model and SlangPy UI loops."""
 
 from __future__ import annotations
 
@@ -18,13 +18,13 @@ from omnidreams_game_engine.types import SceneDefinition
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
-    CrazyRobotaxiImGUIThread,
+    CrazyRobotaxiSlangPyUILoop,
     TaxiHudState,
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import render_waypoint_layers
+from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread, UIThread, invoke_async
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -43,8 +43,8 @@ class ModelState:
     config: ApplicationConfig
     session_desc: SessionDesc
     driver_input: DriverInput
-    ui_thread: UIThread[TaxiHudState]
-    """UI-thread endpoint used only through ``invoke_async``."""
+    ui_loop: IUILoop[TaxiHudState]
+    """UI-loop endpoint used only through ``invoke_async``."""
 
     rollout: WorldModelRollout | None = None
     last_video: torch.Tensor | None = None
@@ -93,7 +93,7 @@ class ModelState:
         rollout.engine.submit_text(name)
 
 
-class CrazyRobotaxiModelThread(IThread[ModelState]):
+class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
@@ -153,7 +153,7 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
         )
         hud_frames = build_hud_frames(video, game_frames)
         invoke_async(
-            state.ui_thread,
+            state.ui_loop,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
         )
         latest = game_frames[-1]
@@ -205,7 +205,7 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
 
 
 class CrazyRobotaxiSession(ISession):
-    """Register the model thread and Crazy Robotaxi ImGui UI thread."""
+    """Register the model loop and Crazy Robotaxi SlangPy UI loop."""
 
     def __init__(
         self,
@@ -229,21 +229,21 @@ class CrazyRobotaxiSession(ISession):
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
-        ui_thread = self.register_ui_thread(
-            CrazyRobotaxiImGUIThread,
+        ui_loop = self.register_ui_loop(
+            CrazyRobotaxiSlangPyUILoop,
             state=hud_state,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )
-        model_thread = self.register_model_thread(
-            CrazyRobotaxiModelThread,
+        model_loop = self.register_model_loop(
+            CrazyRobotaxiModelLoop,
             state=ModelState(
                 pipeline=self._pipeline,
                 scene=self._scene,
                 config=self._config,
                 session_desc=self._session_desc,
                 driver_input=DriverInput(self._config.driver_input),
-                ui_thread=ui_thread,
+                ui_loop=ui_loop,
             ),
         )
-        hud_state.model_thread = model_thread
+        hud_state.model_loop = model_loop

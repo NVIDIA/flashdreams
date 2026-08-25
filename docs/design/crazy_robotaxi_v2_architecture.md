@@ -38,7 +38,7 @@ flowchart TD
 
     subgraph SESSION["CrazyRobotaxiSession — one run"]
         SCENE["immutable SceneDefinition<br/>map, camera, seed, prompt"]
-        REG["register one model thread<br/>register one ImGui UI thread"]
+        REG["register one model loop<br/>register one SlangPy UI loop"]
     end
 
     subgraph MODELTHREAD["FlashDreams V2 model thread"]
@@ -50,7 +50,7 @@ flowchart TD
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
         BUFFER["PresentationManager<br/>RGB, waypoint, optional BEV channels"]
-        HUD["CrazyRobotaxiImGUIThread<br/>HUD widgets + name entry"]
+        HUD["CrazyRobotaxiSlangPyUILoop<br/>HUD widgets + name entry"]
         COMPOSE["world-waypoint + BEV composition<br/>then ImGui HUD"]
         WINDOW["V2 client window<br/>WebRTC / MP4 / supported host"]
     end
@@ -75,18 +75,18 @@ application-owned options. `create_session()` validates the requested
 description, lazily constructs the shared pipeline, prepares immutable scene
 data, and returns an uninitialized session.
 
-The session registers a model thread and a `CrazyRobotaxiImGUIThread`. The
-model thread emits generated RGB frames, a transparent camera-projected
+The session registers a model loop and a `CrazyRobotaxiSlangPyUILoop`. The
+model loop emits generated RGB frames, a transparent camera-projected
 waypoint layer, and, when configured, an optional BEV visualization channel.
 For each generated frame it also publishes an immutable `TaxiHudFrame` to the
-UI thread with `invoke_async`.
-The UI thread selects the HUD snapshot aligned with the currently presented
+UI loop with `invoke_async`.
+The UI loop selects the HUD snapshot aligned with the currently presented
 model frame, composes the in-world waypoint geometry and BEV panel onto the
 generated frame, updates its retained ImGui widgets, and returns that frame as
 the ImGui back buffer. UI callbacks send validated game actions back to the
-model thread with `invoke_async`; they never call game state directly.
+model loop with `invoke_async`; they never call game state directly.
 
-## Model-thread step
+## Model-loop step
 
 ```mermaid
 flowchart LR
@@ -105,7 +105,7 @@ flowchart LR
     POST["optional session-local postprocess stream"]
     WAYPOINTS["camera-projected RGBA<br/>world-waypoint layers"]
     HUDFRAMES["immutable TaxiHudFrame batch"]
-    SEND["invoke_async(UI thread)"]
+    SEND["invoke_async(UI loop)"]
     RESULTS["list[StepResult]<br/>RGB + waypoint + optional BEV"]
 
     EVENTS --> REDUCE
@@ -145,11 +145,11 @@ hdmap = condition_renderer.render(trajectory)       # [B,V,T,3,H,W]
 video = pipeline.generate(autoregressive_index, cache, hdmap)
 metrics = pipeline.finalize(autoregressive_index, cache)
 waypoints = render_waypoint_layers(game_snapshots, poses, camera)
-invoke_async(ui_thread, publish_hud_frames(game_snapshots, video))
+invoke_async(ui_loop, publish_hud_frames(game_snapshots, video))
 return [video StepResult, waypoints StepResult, optional BEV StepResult]
 ```
 
-The UI thread uses V2's `ImGUIThread` renderer and `presented_model_frames()`;
+The UI loop uses V2's `SlangPyUILoop` and `presented_model_frames()`;
 there is no intermediate render backend, local adapter, model session, chunk
 request, private command queue, private frame queue, or legacy
 `PresentedFrame` aggregate.
@@ -217,7 +217,7 @@ flowchart LR
     FRAME["TaxiGameFrame"]
     HUDSTATE["TaxiHudFrame<br/>immutable presentation state"]
     WAYPOINTS["camera-projected waypoint layer<br/>ring + beacon + label"]
-    IMGUI["CrazyRobotaxiImGUIThread<br/>score, time, navigation,<br/>name entry, leaderboard"]
+    IMGUI["CrazyRobotaxiSlangPyUILoop<br/>score, time, navigation,<br/>name entry, leaderboard"]
 
     MAP --> NAV --> FARES
     TAXI --> TAXIPHYS
@@ -240,8 +240,8 @@ subclass a game-engine application host or presenter.
 | --- | --- |
 | Application | resolved pipeline configuration; one loaded OmniDreams pipeline |
 | Session, immutable | validated session description; compiled/loaded scene definition; game configuration |
-| Model thread, per reset generation | driving-input reducer; simulation/PhysX/traffic; game rules; condition renderer; OmniDreams cache; last generated frame; AR index |
-| UI thread, per reset generation | retained ImGui widgets; immutable HUD-frame lookup; name-entry buffer; validation messages |
+| Model loop, per reset generation | driving-input reducer; simulation/PhysX/traffic; game rules; condition renderer; OmniDreams cache; last generated frame; AR index |
+| UI loop, per reset generation | retained ImGui widgets; immutable HUD-frame lookup; name-entry buffer; validation messages |
 | Outside runtime | authored map YAML; derived map cache; high-score file |
 
 All simulation, condition-renderer, and world-model CUDA calls that mutate
@@ -266,15 +266,15 @@ stateDiagram-v2
     Leaderboard --> Playing: V2 reset generation rebuilds rollout
 ```
 
-While awaiting a name, no new world-model block is generated. The model thread
+While awaiting a name, no new world-model block is generated. The model loop
 re-emits the last generated RGB frame with a transparent waypoint layer and
 publishes an updated immutable HUD frame. ImGui owns the editable name buffer
-and submits a validated name to the model thread with `invoke_async`. The model
-thread reports `is_finished()` only after a leaderboard frame has been emitted
+and submits a validated name to the model loop with `invoke_async`. The model
+loop reports `is_finished()` only after a leaderboard frame has been emitted
 (or an explicit finite block limit is reached), allowing MP4 mode to terminate
 without a client close event.
 
-On reset, the model thread closes and recreates the simulation, traffic, rules,
+On reset, the model loop closes and recreates the simulation, traffic, rules,
 condition renderer state, and autoregressive cache as one unit. On close, it
 releases all session-local resources; application close releases the shared
 pipeline.
@@ -285,17 +285,17 @@ pipeline.
 | --- | --- |
 | `InteractiveDriveApp` lifecycle | `IApplication` + `ISession` |
 | custom `run_main_loop` | `run_session` supplied by FlashDreams V2 |
-| `ChunkPipeline` worker | V2 model thread |
+| `ChunkPipeline` worker | V2 model loop |
 | private command/frame queues | direct step call + `PresentationManager` |
 | generation token on reset | V2 `EventBuffer` generation |
 | presenter event polling | V2 client window and shared event buffer |
-| presenter pacing and frame replay/drop | V2 UI thread + presentation mode |
+| presenter pacing and frame replay/drop | V2 UI loop + presentation mode |
 | `FlashdreamsWorldModelSession` | direct OmniDreams pipeline cache API |
 | `PresentedFrame` metadata bundle | typed engine results plus immutable `TaxiHudFrame` messages |
 | keyboard telemetry shared with presenter | UI-owned ImGui input plus `invoke_async` game actions |
 | native/MJPEG presenters | V2 client-window modes |
 | application-internal scene switching | map/variant application arguments; a different scene starts a new session |
-| manual reset queueing | V2 reset event and thread `reset()` |
+| manual reset queueing | V2 reset event and loop `reset()` |
 
 ## Implemented package boundary
 
@@ -314,8 +314,8 @@ apps/omnidreams_game_engine/
 apps/crazy_robotaxi/
   crazy_robotaxi/
     application.py            # IApplication composition root
-    session.py                # ISession + model/UI thread wiring
-    ui.py                     # ImGui HUD state and UI thread
+    session.py                # ISession + model/UI loop wiring
+    ui.py                     # ImGui HUD state and SlangPy UI loop
     world_overlay.py          # composited camera-projected waypoint geometry
     rules.py                  # taxi fare state machine
     dynamics.py               # arcade taxi controls

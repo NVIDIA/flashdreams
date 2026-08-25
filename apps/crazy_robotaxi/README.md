@@ -1,9 +1,9 @@
 # Crazy Robotaxi
 
-Crazy Robotaxi is a FlashDreams V2 application built on the model-thread
-`omnidreams-game-engine`. FlashDreams owns input collection, reset generations,
-presentation buffering, client windows, and the two-thread runtime.
-The UI thread uses FlashDreams' SlangPy ImGui renderer for the game HUD and
+Crazy Robotaxi is a FlashDreams V2 application built on the model/UI-loop API
+and `omnidreams-game-engine`. FlashDreams owns input collection, reset
+generations, presentation buffering, client windows, and the two-thread
+runtime. The UI loop uses FlashDreams' SlangPy renderer for the game HUD and
 composites it over model frames for local and WebRTC clients.
 Camera-projected waypoint rings, beacons, and labels are carried as a
 frame-aligned world layer; they are not ImGui windows.
@@ -26,8 +26,8 @@ Use `flashdreams-run-v2 crazy-robotaxi -- --help` for the complete application
 options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. The V2
 client's reset event rebuilds simulation, game rules, traffic, conditioning,
 and the autoregressive cache together while retaining the loaded model.
-Leaderboard name entry is owned by the ImGui UI and submitted to the model
-thread through V2's asynchronous thread-message contract.
+Leaderboard name entry is owned by the SlangPy UI and submitted to the model
+loop through V2's asynchronous loop-message contract.
 
 ## Authored maps
 

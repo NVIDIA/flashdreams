@@ -29,8 +29,8 @@ from torch import Tensor
 
 from crazy_robotaxi.high_scores import validate_player_name
 from crazy_robotaxi.rules import TaxiGameSnapshot
-from flashdreams.api_v2.thread import IThread, invoke_async
-from flashdreams.runtime_v2.imgui_thread import ImGUIThread
+from flashdreams.api_v2.loop import ILoop, invoke_async
+from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _MAX_BUFFERED_HUD_FRAMES = 64
@@ -80,8 +80,8 @@ class TaxiHudState:
     height: int
     """Presentation height in pixels."""
 
-    model_thread: IThread[Any] | None = None
-    """Model-thread endpoint used only through ``invoke_async``."""
+    model_loop: ILoop[Any] | None = None
+    """Model-loop endpoint used only through ``invoke_async``."""
 
     _frames: OrderedDict[int, TaxiHudFrame] = field(default_factory=OrderedDict)
     """Recent immutable snapshots keyed by presented tensor-frame identity."""
@@ -275,9 +275,9 @@ class TaxiHudState:
         except ValueError as error:
             self._validation_message = str(error)
             return
-        model_thread = self.model_thread
-        if model_thread is None:
-            self._validation_message = "Model thread is not ready."
+        model_loop = self.model_loop
+        if model_loop is None:
+            self._validation_message = "Model loop is not ready."
             return
         self._submission_pending = True
         self._validation_message = "Submitting score..."
@@ -285,15 +285,15 @@ class TaxiHudState:
             self._widgets.name_input.enabled = False
             self._widgets.submit.enabled = False
         invoke_async(
-            model_thread,
+            model_loop,
             lambda state, name=normalized: state.submit_player_name(name),
         )
 
 
-class CrazyRobotaxiImGUIThread(ImGUIThread[TaxiHudState]):
-    """Present generated frames beneath a responsive ImGui taxi HUD."""
+class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
+    """Present generated frames beneath a responsive SlangPy taxi HUD."""
 
-    def draw_ui(
+    def step_ui(
         self, ui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the current generated frame beneath it."""
@@ -407,7 +407,7 @@ def _navigation_label(bearing_rad: float) -> str:
 
 
 __all__ = [
-    "CrazyRobotaxiImGUIThread",
+    "CrazyRobotaxiSlangPyUILoop",
     "TaxiHudFrame",
     "TaxiHudState",
     "build_hud_frames",
