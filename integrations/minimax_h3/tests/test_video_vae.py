@@ -167,6 +167,32 @@ def test_pixel_adapters_apply_released_normalization_and_base_range(
     assert bool((output <= 1.0).all())
 
 
+def test_conditioning_adapter_samples_seed_42_and_rounds_before_normalizing(
+    tiny_video_vae: MiniMaxH3VideoVAE,
+) -> None:
+    """Match H3's independent seeded posterior and deliberate FP16 rounding."""
+    pixels = torch.linspace(
+        0.0, 1.0, 1 * 3 * 1 * 8 * 8, dtype=torch.float32
+    ).reshape(1, 3, 1, 8, 8)
+
+    actual = tiny_video_vae.encode_condition_pixels(pixels)
+    repeated = tiny_video_vae.encode_condition_pixels(pixels)
+    posterior = tiny_video_vae._encode_pixel_posterior(pixels)
+    expected = posterior.sample(
+        generator=torch.Generator(device="cpu").manual_seed(42)
+    )
+    expected = tiny_video_vae.normalize_latents(
+        expected.to(torch.float16).float().cpu()
+    )
+
+    assert actual.device.type == "cpu"
+    assert actual.dtype == torch.float32
+    assert torch.equal(actual, repeated)
+    assert torch.equal(actual, expected)
+    with pytest.raises(ValueError, match="non-negative"):
+        tiny_video_vae.encode_condition_pixels(pixels, seed=-1)
+
+
 def test_video_latent_normalization_is_per_channel() -> None:
     """Round-trip distinct mean and scale values for every latent channel."""
     model = _tiny_config(

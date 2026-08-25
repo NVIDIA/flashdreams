@@ -1278,17 +1278,39 @@ class MiniMaxH3VideoVAE(nn.Module):
         generator: torch.Generator | None = None,
     ) -> Tensor:
         """Encode base-range RGB pixels into normalized H3 video latents."""
-        self._validate_video(pixels, channels=self.config.in_channels, name="pixels")
-        if bool((pixels < 0).any()) or bool((pixels > 1).any()):
-            raise ValueError("pixels must stay within [0, 1].")
-        mean = pixels.new_tensor(_PIXEL_MEAN).view(1, -1, 1, 1, 1)
-        std = pixels.new_tensor(_PIXEL_STD).view(1, -1, 1, 1, 1)
-        posterior = self.encode((pixels - mean) / std).latent_dist
+        posterior = self._encode_pixel_posterior(pixels)
         latents = (
             posterior.sample(generator=generator)
             if sample_posterior
             else posterior.mode()
         )
+        return self.normalize_latents(latents)
+
+    def _encode_pixel_posterior(
+        self, pixels: Tensor
+    ) -> MiniMaxH3VideoDiagonalGaussianDistribution:
+        """Build the video posterior for base-range RGB pixels."""
+        self._validate_video(pixels, channels=self.config.in_channels, name="pixels")
+        if bool((pixels < 0).any()) or bool((pixels > 1).any()):
+            raise ValueError("pixels must stay within [0, 1].")
+        mean = pixels.new_tensor(_PIXEL_MEAN).view(1, -1, 1, 1, 1)
+        std = pixels.new_tensor(_PIXEL_STD).view(1, -1, 1, 1, 1)
+        return self.encode((pixels - mean) / std).latent_dist
+
+    @torch.no_grad()
+    def encode_condition_pixels(self, pixels: Tensor, *, seed: int = 42) -> Tensor:
+        """Encode visual conditioning with H3's seeded, rounded posterior.
+
+        The conditioning posterior owns a fresh CPU generator and therefore
+        never consumes the request's denoising RNG. Its sampled latent is
+        deliberately rounded through FP16 before per-channel normalization.
+        """
+        if type(seed) is not int or seed < 0:
+            raise ValueError("conditioning seed must be a non-negative integer")
+        posterior = self._encode_pixel_posterior(pixels)
+        generator = torch.Generator(device="cpu").manual_seed(seed)
+        latents = posterior.sample(generator=generator)
+        latents = latents.to(torch.float16).float().cpu()
         return self.normalize_latents(latents)
 
     @torch.no_grad()
