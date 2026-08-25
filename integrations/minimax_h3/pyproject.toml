@@ -23,10 +23,14 @@ version = "0.1.0"
 description = "Native MiniMax H3 model components for FlashDreams inference."
 requires-python = ">=3.10"
 dependencies = [
+    "accelerate>=1.0",
     "flashdreams",
     "huggingface-hub>=0.33",
+    "numpy>=1.24",
+    "pillow>=10.0",
     "safetensors>=0.4",
     "torch>=2.9",
+    "transformers>=5,<6",
 ]
 
 [tool.uv.sources]

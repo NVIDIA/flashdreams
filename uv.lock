@@ -27,6 +27,7 @@ members = [
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
+    "flashdreams-minimax-h3",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-red-screen",
@@ -1306,6 +1307,43 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "scipy", specifier = ">=1.11" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-minimax-h3"
+version = "0.1.0"
+source = { editable = "integrations/minimax_h3" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "flashdreams" },
+    { name = "huggingface-hub" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "pillow" },
+    { name = "safetensors" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "transformers" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", specifier = ">=1.0" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "huggingface-hub", specifier = ">=0.33" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "safetensors", specifier = ">=0.4" },
+    { name = "torch", specifier = ">=2.9" },
+    { name = "transformers", specifier = ">=5,<6" },
 ]
 provides-extras = ["dev"]
 

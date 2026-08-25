@@ -1,0 +1,431 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""CPU contracts for staged, Diffusers-free MiniMax H3 inference."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+import torch
+from PIL import Image
+from torch import nn
+
+from flashdreams.runtime_v2.audio_output import AudioOutput
+from minimax_h3.inference import (
+    MiniMaxH3InferenceConfig,
+    MiniMaxH3InferenceEngine,
+    MiniMaxH3InferenceRequest,
+    validate_execution_capacity,
+)
+from minimax_h3.latent_checkpoint import MiniMaxH3LatentCheckpointStore
+from minimax_h3.model import (
+    MiniMaxH3DenoiseProgress,
+    MiniMaxH3JointLatents,
+)
+from minimax_h3.reference_conditioning import (
+    MiniMaxH3AudioReference,
+    MiniMaxH3ImageReference,
+)
+
+pytestmark = pytest.mark.ci_cpu
+
+
+class _Tokenizer:
+    """Return small deterministic ids for prompts and reference labels."""
+
+    def __call__(self, text: str, *, add_special_tokens: bool) -> dict[str, list[int]]:
+        """Tokenize one presentation fragment without special tokens."""
+        assert not add_special_tokens
+        if text == "prompt":
+            return {"input_ids": [10, 11]}
+        return {"input_ids": [12 + len(text) % 100]}
+
+    def convert_tokens_to_ids(self, token: str) -> int:
+        """Resolve the four Qwen vision sentinel tokens."""
+        return {
+            "<|vision_start|>": 900,
+            "<|image_pad|>": 901,
+            "<|video_pad|>": 902,
+            "<|vision_end|>": 903,
+        }[token]
+
+
+class _ImageProcessor:
+    """Return one merged Qwen image token per supplied image."""
+
+    merge_size = 2
+
+    def __call__(
+        self, *, images: list[Image.Image], return_tensors: str
+    ) -> dict[str, torch.Tensor]:
+        """Create minimal correctly shaped image features."""
+        assert return_tensors == "pt"
+        return {
+            "pixel_values": torch.zeros(len(images), 4),
+            "image_grid_thw": torch.tensor([[1, 2, 2]] * len(images)),
+        }
+
+
+class _VideoProcessor:
+    """Expose the Qwen temporal-patch contract for reference tests."""
+
+    temporal_patch_size = 2
+
+
+class _Processor:
+    """Minimal Qwen multimodal processor used by the fake resources."""
+
+    image_processor = _ImageProcessor()
+    video_processor = _VideoProcessor()
+
+    def create_mm_token_type_ids(self, batches: list[list[int]]) -> list[list[int]]:
+        """Mark every fake presentation token as text for Qwen."""
+        return [[0] * len(value) for value in batches]
+
+
+class _QwenBase:
+    """Return the requested hidden-state depth without a language head."""
+
+    def __call__(self, **kwargs: Any) -> SimpleNamespace:
+        """Create one fake layer-50 embedding row per input token."""
+        rows = kwargs["input_ids"].shape[1]
+        hidden = [torch.zeros(1, rows, 5120) for _ in range(51)]
+        hidden[50] = torch.full((1, rows, 5120), 50.0)
+        return SimpleNamespace(hidden_states=hidden)
+
+
+class _TextEncoder(nn.Module):
+    """Small module matching the Qwen conditioner surface."""
+
+    def __init__(self) -> None:
+        """Create a BF16 dtype anchor and 64-layer metadata."""
+        super().__init__()
+        self.register_parameter(
+            "anchor", nn.Parameter(torch.zeros((), dtype=torch.bfloat16))
+        )
+        self.config = SimpleNamespace(
+            text_config=SimpleNamespace(num_hidden_layers=64)
+        )
+        self.model = _QwenBase()
+
+    @property
+    def dtype(self) -> torch.dtype:
+        """Return the conditioner computation dtype."""
+        return self.anchor.dtype
+
+
+class _VideoVAE(nn.Module):
+    """Shape-preserving fake native video VAE."""
+
+    device = torch.device("cpu")
+
+    def encode_condition_pixels(
+        self, pixels: torch.Tensor, *, seed: int = 42
+    ) -> torch.Tensor:
+        """Encode pixels to the corresponding H3 latent-frame shape."""
+        del seed
+        frames = pixels.shape[2]
+        latent_frames = 1 if frames == 1 else (frames - 5) // 17 * 5 + 2
+        return torch.zeros(
+            1,
+            24,
+            latent_frames,
+            pixels.shape[3] // 16,
+            pixels.shape[4] // 16,
+        )
+
+    def decode_output(self, latents: torch.Tensor) -> torch.Tensor:
+        """Decode H3 latent-frame arithmetic into unit-range pixels."""
+        frames = (latents.shape[2] - 2) // 5 * 17 + 5
+        return torch.full(
+            (
+                1,
+                3,
+                frames,
+                latents.shape[3] * 16,
+                latents.shape[4] * 16,
+            ),
+            0.25,
+        )
+
+
+class _AudioVAE(nn.Module):
+    """Shape-preserving fake native audio VAE."""
+
+    def encode_condition(self, samples: torch.Tensor) -> torch.Tensor:
+        """Encode stereo samples into channel-major latent rows."""
+        steps = max(1, (samples.shape[1] + 799) // 800)
+        return torch.zeros(2 * steps, 32)
+
+    def decode_output(self, latents: torch.Tensor) -> AudioOutput:
+        """Decode every H3 latent step to 800 stereo samples."""
+        return AudioOutput(
+            samples=torch.zeros(2, latents.shape[2] * 800),
+            sample_rate=32000,
+        )
+
+
+class _DiffusionModel(nn.Module):
+    """Record resume use and return shape-derived joint latents."""
+
+    def __init__(self, resumes: list[bool]) -> None:
+        """Share resume observations with the resource factory."""
+        super().__init__()
+        self.resumes = resumes
+
+    def generate_joint(
+        self,
+        state: Any,
+        *,
+        resume: MiniMaxH3DenoiseProgress | None,
+        checkpoint: Any,
+    ) -> MiniMaxH3JointLatents:
+        """Checkpoint paired state and return generated-only streams."""
+        self.resumes.append(resume is not None)
+        if checkpoint is not None:
+            checkpoint(
+                MiniMaxH3DenoiseProgress(
+                    video=state.latents,
+                    audio=state.audio_latents,
+                    next_step=1,
+                )
+            )
+        return MiniMaxH3JointLatents(
+            video=torch.zeros(
+                1,
+                24,
+                state.num_latent_frames,
+                state.latent_height,
+                state.latent_width,
+            ),
+            audio=torch.zeros(2, 32, state.num_audio_latents),
+        )
+
+
+class _Resources:
+    """Record staged heavyweight component lifetime events."""
+
+    tokenizer = _Tokenizer()
+    processor = _Processor()
+
+    def __init__(self) -> None:
+        """Initialize event and resume logs."""
+        self.events: list[str] = []
+        self.resumes: list[bool] = []
+
+    def load_text_encoder(self) -> nn.Module:
+        """Load the fake Qwen conditioner stage."""
+        self.events.append("load:text")
+        return _TextEncoder()
+
+    def load_video_vae(self) -> nn.Module:
+        """Load a fake native video VAE stage."""
+        self.events.append("load:video_vae")
+        return _VideoVAE()
+
+    def load_audio_vae(self) -> nn.Module:
+        """Load a fake native audio VAE stage."""
+        self.events.append("load:audio_vae")
+        return _AudioVAE()
+
+    def load_diffusion_model(self, workflow: str, steps: int) -> nn.Module:
+        """Load the requested fake workflow transformer stage."""
+        self.events.append(f"load:transformer:{workflow}:{steps}")
+        return _DiffusionModel(self.resumes)
+
+    def release(self, module: nn.Module) -> None:
+        """Record release of a completed or failed stage."""
+        self.events.append(f"release:{type(module).__name__}")
+
+    def close(self) -> None:
+        """Record release of shared metadata."""
+        self.events.append("close")
+
+
+class _FailingAudioResources(_Resources):
+    """Fail the reference audio-VAE load after the video VAE is live."""
+
+    def load_audio_vae(self) -> nn.Module:
+        """Raise a deterministic allocation-style failure."""
+        self.events.append("load:audio_vae")
+        raise RuntimeError("audio stage failed")
+
+
+def test_staged_t2va_returns_synchronized_v2_media() -> None:
+    """Keep every heavyweight stage disjoint and return one finite clip."""
+    resources = _Resources()
+    engine = MiniMaxH3InferenceEngine(
+        MiniMaxH3InferenceConfig(device="cpu"), resources=resources
+    )
+    result = engine.generate(
+        MiniMaxH3InferenceRequest(
+            workflow="t2va",
+            prompt="prompt",
+            width=32,
+            height=32,
+            duration=15.0,
+            num_inference_steps=2,
+            seed=7,
+        )
+    )
+
+    assert result.video.shape == (362, 3, 32, 32)
+    assert float(result.video.mean()) == -0.5
+    assert result.audio.samples.shape == (2, 482_400)
+    assert result.audio.sample_rate == 32000
+    assert result.metrics["aligned_num_frames"] == 362
+    assert resources.events == [
+        "load:text",
+        "release:_TextEncoder",
+        "load:transformer:t2va:2",
+        "release:_DiffusionModel",
+        "load:video_vae",
+        "release:_VideoVAE",
+        "load:audio_vae",
+        "release:_AudioVAE",
+    ]
+    engine.close()
+    engine.close()
+    assert resources.events[-1] == "close"
+    with pytest.raises(RuntimeError, match="closed"):
+        engine.generate(
+            MiniMaxH3InferenceRequest(
+                workflow="t2va", prompt="prompt", width=32, height=32
+            )
+        )
+
+
+def test_staged_engine_resumes_both_packed_streams(tmp_path: Path) -> None:
+    """Publish one paired record and pass it back to the next denoise stage."""
+    resources = _Resources()
+    engine = MiniMaxH3InferenceEngine(
+        MiniMaxH3InferenceConfig(device="cpu"), resources=resources
+    )
+    store = MiniMaxH3LatentCheckpointStore(work_dir=tmp_path, job_id="job-7")
+    request = MiniMaxH3InferenceRequest(
+        workflow="t2va",
+        prompt="prompt",
+        width=32,
+        height=32,
+        num_inference_steps=2,
+        checkpoint_store=store,
+    )
+
+    engine.generate(request)
+    engine.generate(request)
+
+    assert store.path.is_file()
+    assert resources.resumes == [False, True]
+
+
+@pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
+def test_staged_conditioning_workflows_use_native_vaes(workflow: str) -> None:
+    """Encode FL2VA and REF2VA media before loading their transformer."""
+    resources = _Resources()
+    engine = MiniMaxH3InferenceEngine(
+        MiniMaxH3InferenceConfig(device="cpu"), resources=resources
+    )
+    image = Image.new("RGB", (32, 32), color=(64, 128, 192))
+    options: dict[str, Any]
+    if workflow == "fl2va":
+        options = {"first_image": image}
+    else:
+        options = {"references": (MiniMaxH3ImageReference(image),)}
+
+    result = engine.generate(
+        MiniMaxH3InferenceRequest(
+            workflow=workflow,  # type: ignore[arg-type]
+            prompt="prompt",
+            width=32,
+            height=32,
+            duration=5.0,
+            num_inference_steps=2,
+            **options,
+        )
+    )
+
+    assert result.video.shape == (124, 3, 32, 32)
+    assert resources.events == [
+        "load:text",
+        "release:_TextEncoder",
+        "load:video_vae",
+        "release:_VideoVAE",
+        f"load:transformer:{workflow}:2",
+        "release:_DiffusionModel",
+        "load:video_vae",
+        "release:_VideoVAE",
+        "load:audio_vae",
+        "release:_AudioVAE",
+    ]
+
+
+def test_reference_audio_load_failure_releases_live_video_vae() -> None:
+    """Release a live reference video VAE when the paired audio load fails."""
+    resources = _FailingAudioResources()
+    engine = MiniMaxH3InferenceEngine(
+        MiniMaxH3InferenceConfig(device="cpu"), resources=resources
+    )
+    request = MiniMaxH3InferenceRequest(
+        workflow="ref2va",
+        prompt="prompt",
+        width=32,
+        height=32,
+        num_inference_steps=2,
+        references=(
+            MiniMaxH3ImageReference(Image.new("RGB", (32, 32))),
+            MiniMaxH3AudioReference(torch.zeros(2, 800), sample_rate=32000),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="audio stage failed"):
+        engine.generate(request)
+
+    assert resources.events[-3:] == [
+        "load:video_vae",
+        "load:audio_vae",
+        "release:_VideoVAE",
+    ]
+
+
+def test_request_and_capacity_reject_unsupported_work_before_weights() -> None:
+    """Validate workflows and devices without constructing default resources."""
+    with pytest.raises(ValueError, match="does not accept keyframes"):
+        MiniMaxH3InferenceRequest(
+            workflow="t2va",
+            prompt="prompt",
+            width=32,
+            height=32,
+            first_image=Image.new("RGB", (32, 32)),
+        )
+    with pytest.raises(ValueError, match="first_image must be a PIL image"):
+        MiniMaxH3InferenceRequest(
+            workflow="fl2va",
+            prompt="prompt",
+            width=32,
+            height=32,
+            first_image=object(),  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="requires a first image"):
+        MiniMaxH3InferenceRequest(
+            workflow="fl2va", prompt="prompt", width=32, height=32
+        )
+    with pytest.raises(RuntimeError, match="requires a CUDA device"):
+        validate_execution_capacity(MiniMaxH3InferenceConfig(device="cpu"))
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        MiniMaxH3InferenceConfig(checkpoint_min_free_gb=float("nan"))
