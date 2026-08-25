@@ -8,6 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
+from torch import Tensor
+
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
@@ -22,7 +24,6 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
-from torch import Tensor
 
 _DEFAULT_ACTIVATION_KEY = "r"
 """Key that turns the screen red while held."""

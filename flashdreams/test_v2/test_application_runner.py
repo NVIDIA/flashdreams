@@ -8,6 +8,8 @@ from collections.abc import Sequence
 
 import pytest
 import torch
+from numpy import uint64
+
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
@@ -20,7 +22,6 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 

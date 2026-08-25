@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+from torch import Tensor
+
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
@@ -20,7 +22,6 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from torch import Tensor
 
 
 @dataclass(slots=True)

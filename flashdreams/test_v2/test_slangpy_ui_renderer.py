@@ -7,12 +7,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from numpy import uint64
+
 from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
