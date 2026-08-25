@@ -89,6 +89,15 @@ SPDX-FileCopyrightText = [
 ]
 SPDX-License-Identifier = "Apache-2.0"
 
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/video_vae.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2026 The MiniMax and HuggingFace Teams. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
 # --- Generated protobuf stubs. The .proto sources are authoritative; the
 #     *_pb2.py / *_pb2.pyi / *_pb2_grpc.py outputs inherit the same license
 #     because the regeneration script (compile_protos.sh) is project-owned. ---
