@@ -1,0 +1,104 @@
+schema_version: 1
+id: crazy-robotaxi-demo-race-track
+name: Minimal Raceway
+
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 25.0
+  intersection_connector_samples: 8
+
+profiles:
+  raceway:
+    lane_width_m: 5.5
+    curb_offset_m: 1.5
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 24.0
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+
+nodes:
+  - {id: start_finish, type: road_joint, pose: {x_m: 0, y_m: -100}}
+  - {id: east_curve_entry, type: road_joint, pose: {x_m: 150, y_m: -100}}
+  - {id: east_curve_exit, type: road_joint, pose: {x_m: 150, y_m: 100}}
+  - {id: north_midpoint, type: road_joint, pose: {x_m: 0, y_m: 100}}
+  - {id: west_curve_entry, type: road_joint, pose: {x_m: -150, y_m: 100}}
+  - {id: west_curve_exit, type: road_joint, pose: {x_m: -150, y_m: -100}}
+
+roads:
+  - id: start_finish_straight
+    from: west_curve_exit
+    to: start_finish
+    profile: raceway
+
+  - id: south_straight
+    from: start_finish
+    to: east_curve_entry
+    profile: raceway
+
+  - id: east_curve
+    from: east_curve_entry
+    to: east_curve_exit
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: 194.183, y_m: -100}
+          - {x_m: 230, y_m: -55.228}
+        end: {x_m: 230, y_m: 0}
+      - control_points:
+          - {x_m: 230, y_m: 55.228}
+          - {x_m: 194.183, y_m: 100}
+        end: {x_m: 150, y_m: 100}
+
+  - id: north_straight
+    from: east_curve_exit
+    to: north_midpoint
+    profile: raceway
+
+  - id: back_straight
+    from: north_midpoint
+    to: west_curve_entry
+    profile: raceway
+
+  - id: west_curve
+    from: west_curve_entry
+    to: west_curve_exit
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: -194.183, y_m: 100}
+          - {x_m: -230, y_m: 55.228}
+        end: {x_m: -230, y_m: 0}
+      - control_points:
+          - {x_m: -230, y_m: -55.228}
+          - {x_m: -194.183, y_m: -100}
+        end: {x_m: -150, y_m: -100}
+
+race_courses:
+  - id: demo-oval
+    start: start_finish
+    checkpoints:
+      - east_curve_entry
+      - east_curve
+      - east_curve_exit
+      - north_midpoint
+      - west_curve_entry
+      - west_curve
+      - west_curve_exit
+    lap_count: 1
+    checkpoint_markers: true
+
+spawns:
+  - id: race_start
+    road: start_finish_straight
+    lane: 2
+    distance_m: 90
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: >-
+          A forward-facing view from a taxi on a wide closed urban race
+          circuit in daylight, with sweeping paved curves, safety barriers,
+          grandstands, sponsor banners, and a clear start-finish straight.
