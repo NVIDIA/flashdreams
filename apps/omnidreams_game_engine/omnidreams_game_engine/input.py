@@ -16,9 +16,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.types import DriverCommand
 
-_DRIVE_KEYS = frozenset(
-    {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
-)
+_DRIVE_KEYS = frozenset({"w", "a", "s", "d", "up", "down", "left", "right", "space"})
 _TEXT_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-"
 )

@@ -4,6 +4,7 @@
 import math
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 
 import numpy as np
 from loguru import logger
@@ -332,7 +333,7 @@ def sample_chunk_trajectory(
     )
     poses = np.zeros((chunk_size, 4, 4), dtype=np.float32)
 
-    state = VehicleState(**start_state.__dict__)
+    state = replace(start_state)
     vehicle_states: list[VehicleState] = []
     actor_samples: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]] = []
     physics_debug_frames = []

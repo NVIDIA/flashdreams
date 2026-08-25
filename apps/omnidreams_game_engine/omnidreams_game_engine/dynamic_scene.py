@@ -22,13 +22,13 @@ from typing import Any, Protocol
 
 import numpy as np
 import torch
-
 from ludus_renderer._ops.primitives import (
     CUBE_FLAG_WIREFRAME,
     PRIM_OBSTACLE,
     CubePool,
     TimestampedScene,
 )
+
 from omnidreams_game_engine.colors import BBOX_V3_COLORS
 
 

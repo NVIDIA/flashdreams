@@ -18,7 +18,11 @@ from torch import Tensor
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.dynamic_scene import MutableObjectSceneBuffer
-from omnidreams_game_engine.types import ConditionBatch, SceneDefinition, TrajectoryChunk
+from omnidreams_game_engine.types import (
+    ConditionBatch,
+    SceneDefinition,
+    TrajectoryChunk,
+)
 
 _BEV_CAMERA_NAME = "game_engine_bev"
 

@@ -10,6 +10,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
+from omnidreams_game_engine.input import DriverInput
+from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
+from omnidreams_game_engine.model import WorldModelRollout
+from omnidreams_game_engine.types import SceneDefinition
 
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.hud import render_hud
@@ -20,10 +24,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from omnidreams_game_engine.input import DriverInput
-from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
-from omnidreams_game_engine.model import WorldModelRollout
-from omnidreams_game_engine.types import SceneDefinition
 
 if TYPE_CHECKING:
     from crazy_robotaxi.application import ApplicationConfig
@@ -96,9 +96,7 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
             input_batch = state.driver_input.reduce(
                 events,
                 frame_count=frame_count,
-                frame_interval_s=(
-                    1.0 / state.session_desc.frames_per_second_for_step
-                ),
+                frame_interval_s=(1.0 / state.session_desc.frames_per_second_for_step),
                 accepting_text=False,
             )
             generated = rollout.step(
@@ -129,9 +127,7 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
             input_batch = state.driver_input.reduce(
                 events,
                 frame_count=1,
-                frame_interval_s=(
-                    1.0 / state.session_desc.frames_per_second_for_step
-                ),
+                frame_interval_s=(1.0 / state.session_desc.frames_per_second_for_step),
                 accepting_text=accepting_text,
             )
             if accepting_text and input_batch.submitted_text is not None:
@@ -156,7 +152,10 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
             player_name=state.driver_input.text,
         )
         latest = game_frames[-1]
-        if isinstance(latest, TaxiGameSnapshot) and latest.session_state == "leaderboard":
+        if (
+            isinstance(latest, TaxiGameSnapshot)
+            and latest.session_state == "leaderboard"
+        ):
             state.finished = True
         if (
             state.config.total_blocks is not None

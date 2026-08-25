@@ -5,6 +5,8 @@
 
 import numpy as np
 import pytest
+from omnidreams_game_engine.config import DriverInputConfig
+from omnidreams_game_engine.input import DriverInput
 
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.user_input_event import (
@@ -14,8 +16,6 @@ from flashdreams.runtime_v2.user_input_event import (
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from omnidreams_game_engine.config import DriverInputConfig
-from omnidreams_game_engine.input import DriverInput
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -43,7 +43,9 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
     )
 
     first = reducer.reduce(
-        _events(_key("w", KeyboardInputState.PRESSED), _key("a", KeyboardInputState.PRESSED)),
+        _events(
+            _key("w", KeyboardInputState.PRESSED), _key("a", KeyboardInputState.PRESSED)
+        ),
         frame_count=3,
         frame_interval_s=0.1,
         accepting_text=False,
@@ -56,7 +58,9 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
     )
 
     assert len(first.commands) == 3
-    assert [command.steer for command in first.commands] == pytest.approx([0.2, 0.4, 0.6])
+    assert [command.steer for command in first.commands] == pytest.approx(
+        [0.2, 0.4, 0.6]
+    )
     assert all(command.throttle == 1.0 for command in first.commands)
     assert retained.commands[0].steer == pytest.approx(0.8)
 

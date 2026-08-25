@@ -60,9 +60,7 @@ def load_renderer_settings(path: Path) -> RendererSettings:
         Validated visual settings.
     """
     doc = load_yaml_mapping(path)
-    require_exact_keys(
-        doc, {"schema_version", "raster", "bev"}, "renderer"
-    )
+    require_exact_keys(doc, {"schema_version", "raster", "bev"}, "renderer")
     require_version(doc, "renderer")
     raw_raster = require_mapping(doc["raster"], "renderer.raster")
     require_exact_keys(

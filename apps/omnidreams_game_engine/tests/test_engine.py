@@ -10,9 +10,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 import torch
-
+from omnidreams_game_engine.config import ChunkConfig, VehicleConfig
 from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+    sample_chunk_trajectory,
+)
 from omnidreams_game_engine.types import (
     ConditionBatch,
     DriverCommand,
@@ -126,3 +129,22 @@ def test_engine_rejects_frame_misalignment() -> None:
 
     with pytest.raises(ValueError, match="Game frames must align"):
         engine.step((DriverCommand(), DriverCommand()))
+
+
+def test_trajectory_sampling_copies_slotted_start_state() -> None:
+    start_state = _state(12.0)
+
+    trajectory = sample_chunk_trajectory(
+        start_state=start_state,
+        start_timestamp_us=100,
+        commands=(DriverCommand(),),
+        chunk_size=1,
+        chunk_config=ChunkConfig(),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        include_start_state=True,
+    )
+
+    assert trajectory.vehicle_states[0] == start_state
+    assert trajectory.vehicle_states[0] is not start_state
+    assert trajectory.boundary_state_after_chunk is trajectory.vehicle_states[0]

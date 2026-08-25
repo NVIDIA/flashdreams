@@ -16,6 +16,13 @@ from omnidreams.config import (
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
 )
+from omnidreams_game_engine.config import DriverInputConfig
+from omnidreams_game_engine.renderer_settings import (
+    RendererSettings,
+    load_renderer_settings,
+)
+from omnidreams_game_engine.scene import SceneRequest, load_scene
+from omnidreams_game_engine.types import SceneDefinition
 
 from crazy_robotaxi.config import load_game_settings
 from crazy_robotaxi.high_scores import default_high_scores_path
@@ -26,13 +33,6 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from omnidreams_game_engine.renderer_settings import (
-    RendererSettings,
-    load_renderer_settings,
-)
-from omnidreams_game_engine.config import DriverInputConfig
-from omnidreams_game_engine.scene import SceneRequest, load_scene
-from omnidreams_game_engine.types import SceneDefinition
 
 _ROOT = Path(__file__).resolve().parent
 _DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
@@ -198,7 +198,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--variant", default="default")
     parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
-    parser.add_argument("--model-preset", choices=tuple(_MODEL_PRESETS), default="standard")
+    parser.add_argument(
+        "--model-preset", choices=tuple(_MODEL_PRESETS), default="standard"
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
     parser.add_argument("--game-time-s", type=float)

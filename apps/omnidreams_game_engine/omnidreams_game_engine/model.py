@@ -20,8 +20,7 @@ from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 class VideoPostprocessor(Protocol):
     """Optional session-local generated-video transform."""
 
-    def __call__(self, video: Tensor) -> Tensor:
-        ...
+    def __call__(self, video: Tensor) -> Tensor: ...
 
 
 class RolloutEngine(Protocol):
@@ -148,7 +147,7 @@ class WorldModelRollout:
 
 
 def _initial_image_tensor(image: object, *, device: torch.device | str) -> Tensor:
-    array = np.ascontiguousarray(np.asarray(image, dtype=np.uint8)[..., :3])
+    array = np.asarray(image, dtype=np.uint8)[..., :3].copy(order="C")
     tensor = torch.from_numpy(array).permute(2, 0, 1)
     tensor = tensor.unsqueeze(0).unsqueeze(0).unsqueeze(2)
     return tensor.to(device=device, dtype=torch.bfloat16) / 127.5 - 1.0

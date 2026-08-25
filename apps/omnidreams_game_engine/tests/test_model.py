@@ -11,9 +11,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-
 from omnidreams_game_engine.engine import EngineStep
-from omnidreams_game_engine.model import WorldModelRollout
+from omnidreams_game_engine.model import WorldModelRollout, _initial_image_tensor
 from omnidreams_game_engine.types import (
     CameraCalibration,
     ConditionBatch,
@@ -145,3 +144,21 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
 
     rollout.close()
     assert engines[1].closed
+
+
+def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:
+    source = np.zeros((4, 8, 4), dtype=np.uint8)
+    source.setflags(write=False)
+    writable_flags: list[bool] = []
+    torch_from_numpy = torch.from_numpy
+
+    def record_writable(array):
+        writable_flags.append(array.flags.writeable)
+        return torch_from_numpy(array)
+
+    monkeypatch.setattr(torch, "from_numpy", record_writable)
+
+    tensor = _initial_image_tensor(source, device="cpu")
+
+    assert writable_flags == [True]
+    assert tensor.shape == (1, 1, 1, 3, 4, 8)

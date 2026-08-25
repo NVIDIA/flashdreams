@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from omnidreams_game_engine.game_map import load_game_map
 
 pytestmark = pytest.mark.ci_cpu
@@ -41,8 +40,7 @@ def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None
     connectors = (
         lane
         for lane in game_map.lanes
-        if ":connector:" in lane.lane_id
-        and node_types[lane.element_id] != "cul_de_sac"
+        if ":connector:" in lane.lane_id and node_types[lane.element_id] != "cul_de_sac"
     )
     for connector in connectors:
         sources = [
@@ -54,12 +52,10 @@ def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None
             (
                 sources[0].centerline_world[-1, :2]
                 - sources[0].centerline_world[-2, :2],
-                connector.centerline_world[1, :2]
-                - connector.centerline_world[0, :2],
+                connector.centerline_world[1, :2] - connector.centerline_world[0, :2],
             ),
             (
-                connector.centerline_world[-1, :2]
-                - connector.centerline_world[-2, :2],
+                connector.centerline_world[-1, :2] - connector.centerline_world[-2, :2],
                 target.centerline_world[1, :2] - target.centerline_world[0, :2],
             ),
         )

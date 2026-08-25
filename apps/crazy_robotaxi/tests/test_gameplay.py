@@ -10,7 +10,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
 from crazy_robotaxi.high_scores import HighScoreStore, validate_player_name
 from crazy_robotaxi.navigation import (
@@ -60,9 +59,7 @@ def _controller(
 
 
 def _lane(start: tuple[float, float], end: tuple[float, float]) -> NavigationLane:
-    return NavigationLane(
-        np.asarray([[*start, 0.0], [*end, 0.0]], dtype=np.float32)
-    )
+    return NavigationLane(np.asarray([[*start, 0.0], [*end, 0.0]], dtype=np.float32))
 
 
 def test_navigation_uses_directed_road_distance() -> None:

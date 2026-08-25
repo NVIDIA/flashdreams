@@ -8,12 +8,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from crazy_robotaxi.application import CrazyRobotaxiApplication
 from crazy_robotaxi.session import CrazyRobotaxiModelThread
+from omnidreams_game_engine.types import CameraCalibration, SceneDefinition
+
 from flashdreams.api_v2.thread import BlitModelOutputToScreenThread
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from omnidreams_game_engine.types import CameraCalibration, SceneDefinition
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -95,6 +95,4 @@ def test_application_rejects_a_frame_rate_the_model_was_not_trained_for() -> Non
     app.init([])
 
     with pytest.raises(ValueError, match="30 frames per second"):
-        app.create_session(
-            replace(app.session_desc(), frames_per_second_for_step=60)
-        )
+        app.create_session(replace(app.session_desc(), frames_per_second_for_step=60))

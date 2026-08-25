@@ -8,10 +8,6 @@ from __future__ import annotations
 from dataclasses import replace
 from functools import partial
 
-from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
-from crazy_robotaxi.physics import TaxiPhysicsWorld, step_taxi_physics_world
-from crazy_robotaxi.rules import TaxiGameConfig, TaxiGameController, TaxiGameRules
-from crazy_robotaxi.scene import load_scene_data
 from omnidreams_game_engine.conditioning import LudusConditionRenderer
 from omnidreams_game_engine.config import BevConfig, RasterConfig, VehicleConfig
 from omnidreams_game_engine.engine import GameEngine
@@ -22,6 +18,11 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
 )
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition, VehicleState
+
+from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
+from crazy_robotaxi.physics import TaxiPhysicsWorld, step_taxi_physics_world
+from crazy_robotaxi.rules import TaxiGameConfig, TaxiGameController, TaxiGameRules
+from crazy_robotaxi.scene import load_scene_data
 
 
 def build_taxi_engine(

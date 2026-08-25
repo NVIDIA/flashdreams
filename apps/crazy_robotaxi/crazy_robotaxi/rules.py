@@ -703,8 +703,7 @@ class TaxiGameController:
             if self._waypoints[index].element_id is None
             or (
                 vicinity is not None
-                and self._waypoints[index].element_id
-                in vicinity.pedestrian_element_ids
+                and self._waypoints[index].element_id in vicinity.pedestrian_element_ids
             )
         )
         return TaxiGameSnapshot(

@@ -10,6 +10,8 @@ from collections.abc import Sequence
 
 import numpy as np
 import torch
+from omnidreams_game_engine.camera import FThetaCameraModel
+from omnidreams_game_engine.types import CameraCalibration
 from PIL import Image, ImageDraw, ImageFont
 from torch import Tensor
 
@@ -17,8 +19,6 @@ from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
     project_taxi_markers_to_camera,
 )
-from omnidreams_game_engine.camera import FThetaCameraModel
-from omnidreams_game_engine.types import CameraCalibration
 
 _PANEL = (8, 12, 20, 214)
 _PICKUP = (255, 210, 48, 255)
@@ -215,7 +215,9 @@ def _draw_bev(
     angle = snapshot.relative_bearing_rad - math.pi / 2.0
     radius = size * 0.38
     target = (cx + math.cos(angle) * radius, cy + math.sin(angle) * radius)
-    draw.ellipse((target[0] - 6, target[1] - 6, target[0] + 6, target[1] + 6), fill=color)
+    draw.ellipse(
+        (target[0] - 6, target[1] - 6, target[0] + 6, target[1] + 6), fill=color
+    )
 
 
 def _draw_center_panel(

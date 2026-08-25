@@ -9,6 +9,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, cast
 
+from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.yaml_config import (
     StrictConfigError,
     load_yaml_mapping,
@@ -18,7 +19,6 @@ from omnidreams_game_engine.yaml_config import (
     require_mapping,
     require_version,
 )
-from omnidreams_game_engine.config import DriverInputConfig
 
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.rules import TaxiGameConfig

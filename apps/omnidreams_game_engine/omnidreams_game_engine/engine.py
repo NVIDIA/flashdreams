@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from omnidreams_game_engine.contracts import ConditionRenderer, GameRules, SimulationWorld
+from omnidreams_game_engine.contracts import (
+    ConditionRenderer,
+    GameRules,
+    SimulationWorld,
+)
 from omnidreams_game_engine.types import ConditionBatch, DriverCommand, TrajectoryChunk
 
 

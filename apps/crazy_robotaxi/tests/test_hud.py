@@ -6,7 +6,6 @@
 import numpy as np
 import pytest
 import torch
-
 from crazy_robotaxi.hud import render_hud
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from omnidreams_game_engine.types import CameraCalibration
