@@ -461,11 +461,16 @@ def project_taxi_markers_to_camera(
     image_height: int,
 ) -> tuple[TaxiCameraMarkerProjection, ...]:
     """Project the nearest three visible pickups or the active dropoff."""
-    targets = (
-        snapshot.pickup_targets_xyz_m
-        if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
-        else (snapshot.target_xyz_m,)
-    )
+    if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m:
+        targets = _nearest_visible_pickup_targets(
+            snapshot.pickup_targets_xyz_m,
+            rig_to_world,
+            camera_model,
+            image_width=image_width,
+            image_height=image_height,
+        )
+    else:
+        targets = (snapshot.target_xyz_m,)
     projections = [
         project_taxi_marker_to_camera(
             replace(snapshot, target_xyz_m=target),
@@ -476,11 +481,37 @@ def project_taxi_markers_to_camera(
         )
         for target in targets
     ]
-    visible = [projection for projection in projections if projection is not None]
-    if snapshot.phase == "seeking_pickup":
-        visible.sort(key=lambda projection: projection.distance_m)
-        del visible[3:]
-    return tuple(visible)
+    return tuple(projection for projection in projections if projection is not None)
+
+
+def _nearest_visible_pickup_targets(
+    targets_xyz_m: tuple[tuple[float, float, float], ...],
+    rig_to_world: npt.NDArray[np.float32],
+    camera_model: FThetaCameraModel,
+    *,
+    image_width: int,
+    image_height: int,
+) -> tuple[tuple[float, float, float], ...]:
+    targets = np.asarray(targets_xyz_m, dtype=np.float32)
+    uv, _depth, forward = camera_model.project_world(targets, rig_to_world)
+    inside = (
+        forward
+        & (uv[:, 0] >= 0.0)
+        & (uv[:, 0] < float(image_width))
+        & (uv[:, 1] >= 0.0)
+        & (uv[:, 1] < float(image_height))
+    )
+    visible_indices = np.flatnonzero(inside)
+    if visible_indices.size == 0:
+        return ()
+    ego_xy = np.asarray(rig_to_world[:2, 3], dtype=np.float32)
+    offsets_xy = targets[:, :2] - ego_xy
+    distance_squared = np.einsum("ni,ni->n", offsets_xy, offsets_xy)
+    nearest_order = np.argsort(
+        distance_squared[visible_indices],
+        kind="stable",
+    )[:3]
+    return tuple(targets_xyz_m[int(index)] for index in visible_indices[nearest_order])
 
 
 def _xyz_tuple(point: npt.NDArray[np.float32]) -> tuple[float, float, float]:

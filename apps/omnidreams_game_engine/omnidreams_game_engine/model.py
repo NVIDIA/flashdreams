@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -93,7 +94,17 @@ class WorldModelRollout:
         expected = self.frame_count(autoregressive_index)
         if len(commands) != expected:
             raise ValueError(f"Expected {expected} commands, got {len(commands)}")
+
+        rollout_wall_started = time.perf_counter()
+        rollout_cpu_started = time.thread_time()
+        engine_wall_started = time.perf_counter()
+        engine_cpu_started = time.thread_time()
         engine_step = self.engine.step(commands)
+        engine_wall_ms = (time.perf_counter() - engine_wall_started) * 1000.0
+        engine_cpu_ms = (time.thread_time() - engine_cpu_started) * 1000.0
+
+        pipeline_wall_started = time.perf_counter()
+        pipeline_cpu_started = time.thread_time()
         with torch.no_grad():
             video = self.pipeline.generate(
                 autoregressive_index=autoregressive_index,
@@ -104,8 +115,15 @@ class WorldModelRollout:
                 autoregressive_index=autoregressive_index,
                 cache=self.cache,
             )
+        pipeline_wall_ms = (time.perf_counter() - pipeline_wall_started) * 1000.0
+        pipeline_cpu_ms = (time.thread_time() - pipeline_cpu_started) * 1000.0
+
+        postprocess_wall_started = time.perf_counter()
+        postprocess_cpu_started = time.thread_time()
         if self._postprocess is not None:
             video = self._postprocess(video)
+        postprocess_wall_ms = (time.perf_counter() - postprocess_wall_started) * 1000.0
+        postprocess_cpu_ms = (time.thread_time() - postprocess_cpu_started) * 1000.0
         if video.ndim != 6 or tuple(video.shape[:2]) != (1, 1):
             raise ValueError(
                 "The game requires single-batch, single-view BVTCHW video; got "
@@ -113,10 +131,25 @@ class WorldModelRollout:
             )
         if int(video.shape[2]) != expected:
             raise ValueError("Generated video does not align with the engine step")
+        step_metrics = dict(metrics or {})
+        step_metrics.update(engine_step.metrics)
+        step_metrics.update(
+            {
+                "engine_wall_ms": engine_wall_ms,
+                "engine_cpu_ms": engine_cpu_ms,
+                "pipeline_wall_ms": pipeline_wall_ms,
+                "pipeline_cpu_ms": pipeline_cpu_ms,
+                "postprocess_wall_ms": postprocess_wall_ms,
+                "postprocess_cpu_ms": postprocess_cpu_ms,
+                "rollout_wall_ms": (time.perf_counter() - rollout_wall_started)
+                * 1000.0,
+                "rollout_cpu_ms": (time.thread_time() - rollout_cpu_started) * 1000.0,
+            }
+        )
         return WorldModelStep(
             video_bvtchw=video.detach(),
             engine=engine_step,
-            metrics=dict(metrics or {}),
+            metrics=step_metrics,
         )
 
     def reset(self) -> None:

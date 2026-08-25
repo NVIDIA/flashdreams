@@ -106,6 +106,19 @@ def test_engine_aligns_simulation_rules_and_conditioning() -> None:
     assert len(result.trajectory.vehicle_states) == 2
     assert result.game_frames == (("frame", 0.0), ("frame", 1.0))
     assert result.condition.hdmap_bvtchw.shape == (1, 1, 2, 3, 4, 6)
+    assert all(
+        result.metrics[name] >= 0.0
+        for name in (
+            "simulation_wall_ms",
+            "simulation_cpu_ms",
+            "rules_wall_ms",
+            "rules_cpu_ms",
+            "conditioning_wall_ms",
+            "conditioning_cpu_ms",
+            "engine_step_wall_ms",
+            "engine_step_cpu_ms",
+        )
+    )
     assert engine.current_game_frame == ("snapshot", 1.0)
     assert engine.submit_text("CAB") == ("CAB", 1.0)
 

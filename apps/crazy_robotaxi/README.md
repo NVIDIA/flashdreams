@@ -32,6 +32,25 @@ and the autoregressive cache together while retaining the loaded model.
 Leaderboard name entry is owned by the SlangPy UI and submitted to the model
 loop through V2's asynchronous loop-message contract.
 
+## Performance diagnostics
+
+Crazy Robotaxi emits model, engine, overlay, and complete model-step timing
+metrics. Capture them while reproducing a chunk pause with:
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc \
+  --stats-path /tmp/crazy-robotaxi-stats.json
+```
+
+The runtime also warns when a model step exceeds the duration of the frames it
+produces. The live `model_step_wall_ms`, `model_step_cpu_ms`, `engine_cpu_ms`,
+`simulation_cpu_ms`, `rules_cpu_ms`, `conditioning_cpu_ms`,
+`waypoint_overlay_cpu_ms`, and `physx_*_ms` metrics separate a throughput miss
+from app-side CPU work; the pipeline's `encode_ms`, `diffuse_ms`, `decode_ms`,
+and `finalize_ms` metrics identify the corresponding GPU stage. The JSON sink
+normalizes `_ms` metric names to `_s`. Exclude the first chunks when judging
+steady state because compilation and graph capture are startup costs.
+
 ## Authored maps
 
 Maps are strict semantic `.robotaxi.yaml` documents. Validate or compile them

@@ -129,7 +129,13 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
     )
 
     assert result.video_bvtchw.shape == (1, 1, 2, 3, 4, 8)
-    assert result.metrics == {"model_ms": 1.25}
+    assert result.metrics["model_ms"] == 1.25
+    assert result.metrics["engine_wall_ms"] >= 0.0
+    assert result.metrics["engine_cpu_ms"] >= 0.0
+    assert result.metrics["pipeline_wall_ms"] >= 0.0
+    assert result.metrics["pipeline_cpu_ms"] >= 0.0
+    assert result.metrics["rollout_wall_ms"] >= 0.0
+    assert result.metrics["rollout_cpu_ms"] >= 0.0
     assert [call[0] for call in pipeline.calls] == [
         "initialize_cache",
         "get_num_frames",

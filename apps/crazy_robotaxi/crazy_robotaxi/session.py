@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +35,8 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 if TYPE_CHECKING:
     from crazy_robotaxi.application import ApplicationConfig
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass(slots=True)
 class ModelState:
@@ -52,6 +56,7 @@ class ModelState:
     last_pose: np.ndarray | None = None
     blocks_generated: int = 0
     finished: bool = False
+    realtime_miss_count: int = 0
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build renderer, PhysX, game, and cache on the model thread."""
@@ -75,6 +80,7 @@ class ModelState:
         self.driver_input.reset()
         self.blocks_generated = 0
         self.finished = False
+        self.realtime_miss_count = 0
         self.last_video = None
         self.last_bev_overlay = None
         self.last_pose = None
@@ -97,6 +103,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        step_wall_started = time.perf_counter()
+        step_cpu_started = time.thread_time()
         state = self.state
         rollout = state.ensure_rollout()
         snapshot = rollout.engine.current_game_frame
@@ -129,6 +137,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
             bev = engine_step.condition.bev_tchw
+            bev_cpu_started = time.thread_time()
             bev_overlay = (
                 None
                 if bev is None
@@ -138,6 +147,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     height=state.session_desc.video_height,
                 )
             )
+            bev_overlay_cpu_ms = (time.thread_time() - bev_cpu_started) * 1000.0
             metrics = dict(generated.metrics)
             state.last_video = video[-1:].detach()
             state.last_bev_overlay = (
@@ -152,7 +162,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             poses = state.last_pose[None, ...]
             bev_overlay = state.last_bev_overlay
             metrics = {}
+            bev_overlay_cpu_ms = 0.0
 
+        waypoint_cpu_started = time.thread_time()
         waypoint_layers = render_waypoint_layers(
             game_frames,
             poses,
@@ -162,6 +174,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             device=video.device,
             dtype=video.dtype if video.is_floating_point() else torch.float32,
         )
+        waypoint_cpu_ms = (time.thread_time() - waypoint_cpu_started) * 1000.0
         hud_frames = build_hud_frames(video, game_frames)
         invoke_async(
             state.ui_loop,
@@ -179,6 +192,53 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         ):
             state.finished = True
         count = int(video.shape[0])
+        if snapshot.session_state == "playing":
+            model_step_wall_ms = (time.perf_counter() - step_wall_started) * 1000.0
+            model_step_cpu_ms = (time.thread_time() - step_cpu_started) * 1000.0
+            chunk_duration_ms = (
+                count / state.session_desc.frames_per_second_for_step * 1000.0
+            )
+            realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
+            metrics.update(
+                {
+                    "bev_overlay_cpu_ms": bev_overlay_cpu_ms,
+                    "waypoint_overlay_cpu_ms": waypoint_cpu_ms,
+                    "model_step_wall_ms": model_step_wall_ms,
+                    "model_step_cpu_ms": model_step_cpu_ms,
+                    "chunk_duration_ms": chunk_duration_ms,
+                    "realtime_margin_ms": realtime_margin_ms,
+                }
+            )
+            physx = engine_step.trajectory.physx_timings
+            if physx is not None:
+                metrics.update(
+                    {
+                        "physx_total_ms": physx.total_ms,
+                        "physx_synchronize_ms": physx.synchronize_ms,
+                        "physx_actor_update_ms": physx.actor_update_ms,
+                        "physx_solver_ms": physx.solver_ms,
+                        "physx_readback_ms": physx.readback_ms,
+                        "physx_bridge_ms": physx.bridge_ms,
+                    }
+                )
+            if realtime_margin_ms < 0.0:
+                state.realtime_miss_count += 1
+                if (
+                    state.realtime_miss_count <= 3
+                    or state.realtime_miss_count % 20 == 0
+                ):
+                    _LOGGER.warning(
+                        "[crazy-robotaxi] chunk missed realtime budget: "
+                        "step=%d frames=%d overrun_ms=%.1f wall_ms=%.1f "
+                        "cpu_ms=%.1f engine_cpu_ms=%.1f waypoint_cpu_ms=%.1f",
+                        step_index,
+                        count,
+                        -realtime_margin_ms,
+                        model_step_wall_ms,
+                        model_step_cpu_ms,
+                        float(metrics.get("engine_cpu_ms", 0.0)),
+                        waypoint_cpu_ms,
+                    )
         results = [
             StepResult(
                 step_index=step_index,

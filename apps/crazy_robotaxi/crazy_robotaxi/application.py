@@ -38,6 +38,9 @@ _ROOT = Path(__file__).resolve().parent
 _DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
 _DEFAULT_GAME = _ROOT / "configs" / "default_game.yaml"
 _DEFAULT_RENDERER = _ROOT / "configs" / "default_renderer.yaml"
+_VIDEO_FPS = 30
+"""Generation and UI cadence; each UI tick advances one generated frame."""
+
 _MODEL_PRESETS = {
     "standard": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline,
     "perf": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline,
@@ -82,8 +85,8 @@ class CrazyRobotaxiApplication(IApplication):
         raster = self._defaults.raster
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
-            frames_per_second_for_ui=60,
-            frames_per_second_for_step=30,
+            frames_per_second_for_ui=_VIDEO_FPS,
+            frames_per_second_for_step=_VIDEO_FPS,
             video_width=raster.width,
             video_height=raster.height,
         )
@@ -146,8 +149,13 @@ class CrazyRobotaxiApplication(IApplication):
             raise RuntimeError("init() must run before create_session()")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Crazy Robotaxi produces tchw output")
-        if session_desc.frames_per_second_for_step != 30:
-            raise ValueError("Crazy Robotaxi produces video at 30 frames per second")
+        if (
+            session_desc.frames_per_second_for_ui != _VIDEO_FPS
+            or session_desc.frames_per_second_for_step != _VIDEO_FPS
+        ):
+            raise ValueError(
+                "Crazy Robotaxi generates and presents video at 30 frames per second"
+            )
         expected = config.renderer.raster.resolution_wh
         actual = session_desc.video_width, session_desc.video_height
         if actual != expected:

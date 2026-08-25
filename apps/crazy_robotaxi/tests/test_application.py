@@ -61,6 +61,8 @@ def test_application_registers_model_and_slangpy_ui_loops() -> None:
     ui_loop, model_loop = session._take_loops()
 
     assert desc.output_layout is VideoTensorLayout.tchw
+    assert desc.frames_per_second_for_ui == 30
+    assert desc.frames_per_second_for_step == 30
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiSlangPyUILoop)
     assert model_loop.state.pipeline is pipeline
@@ -89,7 +91,16 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
         app.create_session(desc)
 
 
-def test_application_rejects_a_frame_rate_the_model_was_not_trained_for() -> None:
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"frames_per_second_for_step": 60},
+        {"frames_per_second_for_ui": 60},
+    ],
+)
+def test_application_rejects_mismatched_generation_or_ui_rate(
+    override: dict[str, int],
+) -> None:
     app = CrazyRobotaxiApplication(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -97,4 +108,4 @@ def test_application_rejects_a_frame_rate_the_model_was_not_trained_for() -> Non
     app.init([])
 
     with pytest.raises(ValueError, match="30 frames per second"):
-        app.create_session(replace(app.session_desc(), frames_per_second_for_step=60))
+        app.create_session(replace(app.session_desc(), **override))

@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import time
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from omnidreams_game_engine.contracts import (
     ConditionRenderer,
@@ -22,6 +24,8 @@ class EngineStep:
     trajectory: TrajectoryChunk
     game_frames: tuple[object, ...]
     condition: ConditionBatch
+    metrics: Mapping[str, float] = field(default_factory=dict)
+    """Wall and model-thread CPU timings for the engine's major stages."""
 
 
 class GameEngine:
@@ -63,12 +67,22 @@ class GameEngine:
             raise RuntimeError("GameEngine is closed")
         if not commands:
             raise ValueError("A game-engine step requires at least one command")
+
+        step_wall_started = time.perf_counter()
+        step_cpu_started = time.thread_time()
+        simulation_wall_started = time.perf_counter()
+        simulation_cpu_started = time.thread_time()
         trajectory = self.simulation.pose_chunk(
             commands=commands,
             chunk_size=len(commands),
             frame_interval_s=self.frame_interval_s,
             extrapolation_offset_s=0.0,
         )
+        simulation_wall_ms = (time.perf_counter() - simulation_wall_started) * 1000.0
+        simulation_cpu_ms = (time.thread_time() - simulation_cpu_started) * 1000.0
+
+        rules_wall_started = time.perf_counter()
+        rules_cpu_started = time.thread_time()
         update = self.rules.advance_frames(trajectory, self.frame_interval_s)
         if len(update.frames) != len(commands):
             raise ValueError("Game frames must align with simulated commands")
@@ -76,13 +90,33 @@ class GameEngine:
             trajectory,
             dynamic_actors=(*trajectory.dynamic_actors, *update.dynamic_actors),
         )
+        rules_wall_ms = (time.perf_counter() - rules_wall_started) * 1000.0
+        rules_cpu_ms = (time.thread_time() - rules_cpu_started) * 1000.0
+
+        conditioning_wall_started = time.perf_counter()
+        conditioning_cpu_started = time.thread_time()
         condition = self.condition_renderer.render(trajectory)
+        conditioning_wall_ms = (
+            time.perf_counter() - conditioning_wall_started
+        ) * 1000.0
+        conditioning_cpu_ms = (time.thread_time() - conditioning_cpu_started) * 1000.0
         if int(condition.hdmap_bvtchw.shape[2]) != len(commands):
             raise ValueError("Condition frames must align with simulated commands")
         return EngineStep(
             trajectory=trajectory,
             game_frames=update.frames,
             condition=condition,
+            metrics={
+                "simulation_wall_ms": simulation_wall_ms,
+                "simulation_cpu_ms": simulation_cpu_ms,
+                "rules_wall_ms": rules_wall_ms,
+                "rules_cpu_ms": rules_cpu_ms,
+                "conditioning_wall_ms": conditioning_wall_ms,
+                "conditioning_cpu_ms": conditioning_cpu_ms,
+                "engine_step_wall_ms": (time.perf_counter() - step_wall_started)
+                * 1000.0,
+                "engine_step_cpu_ms": (time.thread_time() - step_cpu_started) * 1000.0,
+            },
         )
 
     def close(self) -> None:

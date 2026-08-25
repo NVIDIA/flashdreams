@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,7 +15,11 @@ import numpy as np
 import pytest
 import slangpy as spy
 import torch
-from crazy_robotaxi.rules import TaxiGameSnapshot, TaxiSessionState
+from crazy_robotaxi.rules import (
+    TaxiGameSnapshot,
+    TaxiSessionState,
+    project_taxi_markers_to_camera,
+)
 from crazy_robotaxi.ui import (
     CrazyRobotaxiSlangPyUILoop,
     TaxiHudState,
@@ -171,6 +175,47 @@ def test_waypoints_are_rendered_as_frame_aligned_world_layers() -> None:
         device="cpu",
     )
     assert torch.count_nonzero(terminal[:, 3]) == 0
+
+
+def test_pickup_waypoint_projection_batches_anchors_before_rendering_rings() -> None:
+    class RecordingCamera:
+        def __init__(self) -> None:
+            self.point_counts: list[int] = []
+
+        def project_world(self, points, rig_to_world):
+            del rig_to_world
+            points = np.asarray(points)
+            self.point_counts.append(len(points))
+            uv = np.column_stack(
+                (
+                    np.full(len(points), 80.0, dtype=np.float32),
+                    48.0 - points[:, 2],
+                )
+            )
+            return (
+                uv,
+                np.ones(len(points), dtype=np.float32),
+                np.ones(len(points), dtype=bool),
+            )
+
+    camera: Any = RecordingCamera()
+    targets = tuple((float(distance), 0.0, 0.0) for distance in range(60, 0, -10))
+    snapshot = replace(
+        _snapshot(),
+        target_xyz_m=targets[-1],
+        pickup_targets_xyz_m=targets,
+    )
+
+    projections = project_taxi_markers_to_camera(
+        snapshot,
+        np.eye(4, dtype=np.float32),
+        camera,
+        image_width=160,
+        image_height=96,
+    )
+
+    assert camera.point_counts == [6, 34, 34, 34]
+    assert [projection.distance_m for projection in projections] == [10.0, 20.0, 30.0]
 
 
 def test_bev_is_rendered_as_frame_aligned_rgba_overlay() -> None:
