@@ -108,19 +108,51 @@ def _repository_paths() -> tuple[str, ...]:
     return tuple(paths)
 
 
-def _file_name_resolves(span: str) -> bool:
-    """Return whether a backticked file name matches something that exists.
+_CONVENTION_NAMES = frozenset(
+    {
+        "__init__.py",
+        "app.py",
+        "pyproject.toml",
+        "test_real_model.py",
+        "test_stand_in_model.py",
+    }
+)
+"""Names that describe a convention every package follows, not one file.
 
-    Looser than a link, deliberately. Prose names a file the way the sentence
-    around it reads rather than relative to the document, so
+A guide saying an integration re-exports ``create_app`` from its
+``__init__.py``, or names its tests ``test_real_model.py``, means all of them
+at once. These match anywhere; everything else has to be placed.
+"""
+
+
+def _file_name_resolves(span: str, document: Path) -> bool:
+    """Return whether a backticked file name matches the file it meant.
+
+    Looser than a link, because prose names a file the way the sentence around
+    it reads rather than relative to the document:
     ``runtime_v2/client_window_factory.py`` appears in documents at three
     different depths and none of them mean it as a path. A whole path segment
-    has to match, so ``session.py`` does not resolve through
-    ``my_session.py``, but which ``session.py`` it meant is not checked.
+    still has to match, so ``session.py`` does not resolve through
+    ``my_session.py``.
+
+    Where the name is ambiguous it has to resolve under the document that names
+    it, so ``api_v2/README.md`` saying ``session.py`` means the one beside it
+    and fails if that is renamed, rather than passing on the strength of a
+    namesake in another package. A name unique in the repository, or one of the
+    conventions above, is accepted from anywhere.
     """
-    return any(
-        path == span or path.endswith(f"/{span}") for path in _repository_paths()
-    )
+    matches = [
+        path
+        for path in _repository_paths()
+        if path == span or path.endswith(f"/{span}")
+    ]
+    if not matches:
+        return False
+    if len(matches) == 1 or span.rsplit("/", 1)[-1] in _CONVENTION_NAMES:
+        return True
+    directory = document.parent
+    prefix = "" if directory == _ROOT else f"{directory.relative_to(_ROOT)}/"
+    return any(path.startswith(prefix) for path in matches)
 
 
 def _links(document: Path) -> list[str]:
@@ -186,7 +218,11 @@ def test_v2_documentation_file_names_exist(relative_path: str) -> None:
     """Every backticked file name matches a file somewhere in the repository."""
     document = _ROOT / relative_path
     broken = sorted(
-        {span for span in _file_names(document) if not _file_name_resolves(span)}
+        {
+            span
+            for span in _file_names(document)
+            if not _file_name_resolves(span, document)
+        }
     )
 
     assert not broken, f"{relative_path} names files that do not exist: {broken}"
