@@ -348,6 +348,21 @@ class _FakeSession:
         self._pending_finalization_index = len(self.chunks) - 1
         return []
 
+    def replace_prompt(
+        self, prompt: str, *, guidance_scale: float = 1.0, guidance_chunks: int = 0
+    ) -> None:
+        # Mirrors FlashdreamsWorldModelSession.replace_prompt: flush the
+        # deferred finalize under the old text, then swap.
+        if self._pending_finalization_index is not None:
+            self.pipeline.finalize(self._pending_finalization_index, self._cache)
+            self._pending_finalization_index = None
+        self.pipeline.replace_text(
+            self._cache,
+            [[prompt]],
+            guidance_scale=guidance_scale,
+            guidance_chunks=guidance_chunks,
+        )
+
 
 def _hooked_style_ability(
     *, reswap_interval_chunks: int = 0, skin_duration_chunks: int = 0

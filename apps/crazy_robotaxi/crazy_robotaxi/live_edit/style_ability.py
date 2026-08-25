@@ -654,19 +654,11 @@ class StyleAbility:
                 or self._pending_weather is not _NO_PENDING
                 or refresh_due
             ):
-                # The adapter defers finalize of chunk N into the next
-                # continue_generation call; the validated swap semantics are
-                # finalize -> replace_text -> generate (otherwise finalize
-                # re-commits the previous chunk under the NEW text, an
-                # implicit recache). Flush the pending finalize first; the
-                # adapter's own finalize branch then no-ops.
-                pending_finalize = getattr(session, "_pending_finalization_index", None)
-                if pending_finalize is not None and session._cache is not None:
-                    import torch
-
-                    with torch.no_grad():
-                        session.pipeline.finalize(pending_finalize, session._cache)
-                    session._pending_finalization_index = None
+                # The validated swap semantics are finalize -> replace_text
+                # -> generate (otherwise finalize re-commits the previous
+                # chunk under the NEW text, an implicit recache). The swap
+                # path (:meth:`_replace_text`) flushes the adapter's deferred
+                # finalize before every swap, so no flush is needed here.
                 self._apply_pending(refresh=refresh_due)
             result = original_continue(condition_frames)
             if self._active_index is not None or self._active_weather is not None:
@@ -863,10 +855,13 @@ class StyleAbility:
         :meth:`_precompute_prompt_embeddings`) inject their cached
         embeddings through ``replace_text_from_embeddings`` — no text
         encoder forward at the boundary; anything else falls back to the
-        encode-per-swap ``replace_text``.
-        """
-        import torch
+        session's encode-per-swap ``replace_prompt``.
 
+        Both paths flush the adapter's deferred chunk finalize first:
+        finalize must run under the OLD text. ``session.replace_prompt``
+        does its own flush; the embeddings fast path (no upstream
+        equivalent yet) flushes here before touching the cache.
+        """
         transformer = self._transformer
         bypass_lora = (
             not target.use_lora
@@ -885,10 +880,11 @@ class StyleAbility:
         cached = embeddings is not None and callable(replace_from_embeddings)
         start = time.perf_counter()
         try:
-            # TODO(upstream): session._cache is private; ask for a public
-            # replace_text passthrough on FlashdreamsWorldModelSession.
-            with torch.no_grad():
-                if cached:
+            if cached:
+                self._flush_pending_finalize(session)
+                import torch
+
+                with torch.no_grad():
                     replace_from_embeddings(
                         session._cache,
                         embeddings,
@@ -896,14 +892,12 @@ class StyleAbility:
                         guidance_chunks=target.guidance_chunks,
                         recache_last_chunk=False,
                     )
-                else:
-                    session.pipeline.replace_text(
-                        session._cache,
-                        [[target.prompt]],
-                        guidance_scale=target.guidance_scale,
-                        guidance_chunks=target.guidance_chunks,
-                        recache_last_chunk=False,
-                    )
+            else:
+                session.replace_prompt(
+                    target.prompt,
+                    guidance_scale=target.guidance_scale,
+                    guidance_chunks=target.guidance_chunks,
+                )
         finally:
             if bypass_lora:
                 transformer.set_text_edit_lora(edit_lora)
@@ -912,6 +906,22 @@ class StyleAbility:
             f"[live-edit] swap issued cached_embeddings={cached} "
             f"swap_ms={elapsed_ms:.1f}"
         )
+
+    @staticmethod
+    def _flush_pending_finalize(session: Any) -> None:
+        """Flush the adapter's deferred chunk finalize under the OLD text.
+
+        Only the embeddings fast path needs this; ``session.replace_prompt``
+        performs the same flush itself.
+        """
+        pending_finalize = getattr(session, "_pending_finalization_index", None)
+        if pending_finalize is None or session._cache is None:
+            return
+        import torch
+
+        with torch.no_grad():
+            session.pipeline.finalize(pending_finalize, session._cache)
+        session._pending_finalization_index = None
 
     def _guard_manifest(self, manifest: Any) -> None:
         """Reject native-DIT manifests with a message naming the fix.
