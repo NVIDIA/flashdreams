@@ -20,11 +20,18 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
+from minimax_h3.reference_conditioning import (
+    MiniMaxH3AudioReference,
+    MiniMaxH3ImageReference,
+    MiniMaxH3VideoReference,
+)
 from minimax_h3.text_encoder import (
     build_fl2va_presentation,
+    build_ref2va_presentation,
     build_t2va_presentation,
     encode_presentation,
 )
@@ -39,11 +46,17 @@ class _Tokenizer:
         "prompt": [10, 11],
         "<Picture 1>: ": [21],
         "<Picture 2>: ": [22, 23],
+        "<Audio 1>: ": [31],
+        "<Audio 2>: ": [32],
+        "<Video 1>: ": [33],
+        "<0.2 seconds>": [34],
+        "<1.0 seconds>": [35],
         "": [],
     }
     _special = {
         "<|vision_start|>": 900,
         "<|image_pad|>": 901,
+        "<|video_pad|>": 902,
         "<|vision_end|>": 903,
     }
 
@@ -63,6 +76,13 @@ class _ImageProcessor:
         self, *, images: list[object], return_tensors: str
     ) -> dict[str, torch.Tensor]:
         assert return_tensors == "pt"
+        if images == ["image"]:
+            return {
+                "pixel_values": torch.arange(6, dtype=torch.float32).reshape(
+                    1, 6
+                ),
+                "image_grid_thw": torch.tensor([[1, 2, 4]]),
+            }
         assert images == ["first", "last"]
         return {
             "pixel_values": torch.arange(12, dtype=torch.float32).reshape(2, 6),
@@ -70,8 +90,31 @@ class _ImageProcessor:
         }
 
 
+class _VideoProcessor:
+    temporal_patch_size = 2
+
+    def __call__(
+        self,
+        *,
+        videos: list[np.ndarray],
+        do_sample_frames: bool,
+        return_tensors: str,
+    ) -> dict[str, torch.Tensor]:
+        assert not do_sample_frames
+        assert return_tensors == "pt"
+        assert len(videos) == 1
+        assert videos[0][:, 0, 0, 0].tolist() == [0, 12, 24]
+        return {
+            "pixel_values_videos": torch.arange(
+                12, dtype=torch.float32
+            ).reshape(1, 12),
+            "video_grid_thw": torch.tensor([[2, 2, 4]]),
+        }
+
+
 class _Processor:
     image_processor = _ImageProcessor()
+    video_processor = _VideoProcessor()
 
     def create_mm_token_type_ids(self, batches: list[list[int]]) -> list[list[int]]:
         """Tag the fake presentation as Qwen-internal text rows."""
@@ -175,6 +218,94 @@ def test_encode_presentation_reads_layer_50_without_lm_head() -> None:
     assert text_encoder.model.kwargs["pixel_values"].dtype == torch.bfloat16
     assert text_encoder.model.kwargs["image_grid_thw"].dtype == torch.long
     assert tuple(text_encoder.model.kwargs["mm_token_type_ids"].shape) == (1, 15)
+
+
+def test_ref2va_presentation_preserves_order_and_timestamps() -> None:
+    """Label audio before its video and pair 2 fps frames with half-even time."""
+    video_frames = np.stack(
+        [np.full((2, 2, 3), index, dtype=np.uint8) for index in range(25)]
+    )
+    presentation = build_ref2va_presentation(
+        _Tokenizer(),
+        _Processor(),
+        "prompt",
+        [
+            MiniMaxH3ImageReference("image"),
+            MiniMaxH3VideoReference(
+                frames=video_frames,
+                fps=24.0,
+                audio=torch.zeros(2, 8),
+                sample_rate=32000,
+            ),
+            MiniMaxH3AudioReference(torch.zeros(2, 8), sample_rate=32000),
+        ],
+    )
+
+    assert presentation.token_ids == (
+        21,
+        900,
+        901,
+        901,
+        903,
+        31,
+        33,
+        34,
+        900,
+        902,
+        902,
+        903,
+        35,
+        900,
+        902,
+        902,
+        903,
+        32,
+        10,
+        11,
+    )
+    assert presentation.token_tags.tolist() == [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+    ]
+    assert set(presentation.vision_inputs) == {
+        "pixel_values",
+        "image_grid_thw",
+        "pixel_values_videos",
+        "video_grid_thw",
+    }
+
+
+def test_ref2va_presentation_rejects_too_short_video() -> None:
+    """Require one complete temporal patch at the conditioner sample rate."""
+    with pytest.raises(ValueError, match="at least 13 frames"):
+        build_ref2va_presentation(
+            _Tokenizer(),
+            _Processor(),
+            "prompt",
+            [
+                MiniMaxH3VideoReference(
+                    frames=np.zeros((12, 2, 2, 3), dtype=np.uint8), fps=24.0
+                )
+            ],
+        )
 
 
 def test_text_conditioning_rejects_unsupported_presentations() -> None:

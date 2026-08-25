@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor
 
@@ -30,6 +31,11 @@ from minimax_h3.constants import (
     TEXT_ENCODER_LAYER,
     TEXT_TAG,
     VIDEO_TAG,
+)
+from minimax_h3.reference_conditioning import (
+    MiniMaxH3ImageReference,
+    MiniMaxH3Reference,
+    MiniMaxH3VideoReference,
 )
 
 
@@ -183,6 +189,198 @@ def build_fl2va_presentation(
     )
 
 
+def _sample_ref2va_video_frames(
+    frames: np.ndarray,
+    *,
+    fps: float,
+    sample_fps: float,
+    temporal_patch: int,
+) -> tuple[list[np.ndarray], list[float]]:
+    """Sample conditioner frames and timestamp merged vision blocks."""
+    if frames.ndim != 4 or frames.shape[0] == 0 or frames.shape[3] != 3:
+        raise ValueError("normalized video references must have shape [T, H, W, 3]")
+    if not np.isfinite(fps) or fps <= 0:
+        raise ValueError("reference video fps must be positive and finite")
+    if not np.isfinite(sample_fps) or sample_fps <= 0:
+        raise ValueError("video_sample_fps must be positive and finite")
+    if type(temporal_patch) is not int or temporal_patch <= 0:
+        raise ValueError("Qwen temporal_patch_size must be a positive integer")
+
+    stride = fps / sample_fps
+    indices: list[int] = []
+    cursor = 0.0
+    while round(cursor) < frames.shape[0]:
+        index = round(cursor)
+        if not indices or index > indices[-1]:
+            indices.append(index)
+        cursor += stride
+    if len(indices) < temporal_patch:
+        minimum = round((temporal_patch - 1) * stride) + 1
+        raise ValueError(
+            f"A reference video sampled at {sample_fps:g} fps needs at least "
+            f"{minimum} frames at {fps:g} fps, got {frames.shape[0]}."
+        )
+
+    timestamps = [index / sample_fps for index in range(len(indices))]
+    timestamps += [timestamps[-1]] * (-len(timestamps) % temporal_patch)
+    block_timestamps = [
+        (timestamps[index] + timestamps[index + temporal_patch - 1]) / 2
+        for index in range(0, len(timestamps), temporal_patch)
+    ]
+    return [frames[index] for index in indices], block_timestamps
+
+
+def build_ref2va_presentation(
+    tokenizer: Any,
+    processor: Any,
+    prompt: str,
+    references: Sequence[MiniMaxH3Reference],
+    *,
+    fps: float = 24.0,
+    video_sample_fps: float = 2.0,
+) -> MiniMaxH3Presentation:
+    """Build H3's ordered multimodal REF2VA Qwen presentation.
+
+    Image and video vision tensors are batched by modality, while labels stay
+    in request order. A video soundtrack emits its audio label immediately
+    before that video's label, matching the packed latent layout.
+
+    Args:
+        tokenizer: Qwen2 tokenizer from the pinned H3 repository.
+        processor: Qwen3-VL processor from the pinned H3 repository.
+        prompt: Prompt appended verbatim after all reference blocks.
+        references: Normalized references in semantic packed order.
+        fps: Rate carried by normalized reference videos.
+        video_sample_fps: Rate at which Qwen observes reference video.
+
+    Returns:
+        Token ids, modality tags, and batched Qwen vision features.
+    """
+    if not isinstance(prompt, str):
+        raise ValueError("prompt must be a string")
+    if not references:
+        raise ValueError("REF2VA presentations require at least one reference")
+
+    merge_size = processor.image_processor.merge_size**2
+    if type(merge_size) is not int or merge_size <= 0:
+        raise ValueError("Qwen image processor merge_size must be positive")
+    vision_inputs: dict[str, Tensor] = {}
+
+    images = [
+        reference.image
+        for reference in references
+        if isinstance(reference, MiniMaxH3ImageReference)
+    ]
+    image_token_counts: list[int] = []
+    if images:
+        image_features = processor.image_processor(
+            images=images, return_tensors="pt"
+        )
+        pixel_values = image_features["pixel_values"]
+        image_grid_thw = image_features["image_grid_thw"]
+        if not isinstance(pixel_values, Tensor) or not isinstance(
+            image_grid_thw, Tensor
+        ):
+            raise ValueError("Qwen image processor must return tensor features")
+        if image_grid_thw.shape != (len(images), 3):
+            raise ValueError("image_grid_thw must identify every image reference")
+        image_token_counts = [
+            int(grid.prod()) // merge_size for grid in image_grid_thw
+        ]
+        if any(count <= 0 for count in image_token_counts):
+            raise ValueError("each image reference must produce vision tokens")
+        vision_inputs.update(
+            pixel_values=pixel_values, image_grid_thw=image_grid_thw
+        )
+
+    videos = [
+        reference
+        for reference in references
+        if isinstance(reference, MiniMaxH3VideoReference)
+    ]
+    video_token_counts: list[int] = []
+    video_timestamps: list[list[float]] = []
+    if videos:
+        temporal_patch = processor.video_processor.temporal_patch_size
+        sampled = [
+            _sample_ref2va_video_frames(
+                reference.frames,
+                fps=float(reference.fps if reference.fps is not None else fps),
+                sample_fps=video_sample_fps,
+                temporal_patch=temporal_patch,
+            )
+            for reference in videos
+        ]
+        video_timestamps = [timestamps for _, timestamps in sampled]
+        video_features = processor.video_processor(
+            videos=[np.stack(frames) for frames, _ in sampled],
+            do_sample_frames=False,
+            return_tensors="pt",
+        )
+        pixel_values_videos = video_features["pixel_values_videos"]
+        video_grid_thw = video_features["video_grid_thw"]
+        if not isinstance(pixel_values_videos, Tensor) or not isinstance(
+            video_grid_thw, Tensor
+        ):
+            raise ValueError("Qwen video processor must return tensor features")
+        if video_grid_thw.shape != (len(videos), 3):
+            raise ValueError("video_grid_thw must identify every video reference")
+        video_token_counts = [
+            int(grid[1]) * int(grid[2]) // merge_size
+            for grid in video_grid_thw
+        ]
+        if any(count <= 0 for count in video_token_counts):
+            raise ValueError("each video vision block must produce tokens")
+        for timestamps, grid in zip(video_timestamps, video_grid_thw):
+            if int(grid[0]) != len(timestamps):
+                raise ValueError(
+                    "Qwen video blocks do not match MiniMax H3 timestamps"
+                )
+        vision_inputs.update(
+            pixel_values_videos=pixel_values_videos,
+            video_grid_thw=video_grid_thw,
+        )
+
+    vision_start = _special_token_id(tokenizer, "<|vision_start|>")
+    image_pad = _special_token_id(tokenizer, "<|image_pad|>")
+    video_pad = _special_token_id(tokenizer, "<|video_pad|>")
+    vision_end = _special_token_id(tokenizer, "<|vision_end|>")
+    token_ids: list[int] = []
+    token_tags: list[int] = []
+
+    def emit_text(value: str) -> None:
+        ids = _tokenize(tokenizer, value)
+        token_ids.extend(ids)
+        token_tags.extend([TEXT_TAG] * len(ids))
+
+    def emit_vision(pad_token: int, num_tokens: int) -> None:
+        ids = [vision_start] + [pad_token] * num_tokens + [vision_end]
+        token_ids.extend(ids)
+        token_tags.extend([VIDEO_TAG] * len(ids))
+
+    counts = {"image": 0, "video": 0, "audio": 0}
+    for reference in references:
+        if reference.has_audio:
+            counts["audio"] += 1
+            emit_text(f"<Audio {counts['audio']}>: ")
+        if isinstance(reference, MiniMaxH3ImageReference):
+            counts["image"] += 1
+            emit_text(f"<Picture {counts['image']}>: ")
+            emit_vision(image_pad, image_token_counts[counts["image"] - 1])
+        elif isinstance(reference, MiniMaxH3VideoReference):
+            counts["video"] += 1
+            emit_text(f"<Video {counts['video']}>: ")
+            for timestamp in video_timestamps[counts["video"] - 1]:
+                emit_text(f"<{timestamp:.1f} seconds>")
+                emit_vision(video_pad, video_token_counts[counts["video"] - 1])
+    emit_text(prompt)
+    return MiniMaxH3Presentation(
+        token_ids=tuple(token_ids),
+        token_tags=torch.tensor(token_tags, dtype=torch.long),
+        vision_inputs=vision_inputs,
+    )
+
+
 @torch.no_grad()
 def encode_presentation(
     text_encoder: Any,
@@ -245,6 +443,7 @@ __all__ = [
     "MiniMaxH3Presentation",
     "MiniMaxH3TextCondition",
     "build_fl2va_presentation",
+    "build_ref2va_presentation",
     "build_t2va_presentation",
     "encode_presentation",
 ]
