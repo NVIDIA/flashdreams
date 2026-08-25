@@ -318,6 +318,39 @@ class RecordingClientWindow(IClientWindow):
             raise RuntimeError("close failed")
 
 
+class TransactionalRecordingClientWindow(RecordingClientWindow):
+    """Record an output transaction that can be committed or aborted."""
+
+    def __init__(
+        self,
+        log: CallLog,
+        scripted_events: list[UserInputEvents] | None = None,
+        *,
+        fail_to_open: bool = False,
+        fail_to_write: bool = False,
+        fail_to_close: bool = False,
+        fail_to_abort: bool = False,
+    ) -> None:
+        super().__init__(
+            log,
+            scripted_events,
+            fail_to_open=fail_to_open,
+            fail_to_close=fail_to_close,
+        )
+        self._fail_to_write = fail_to_write
+        self._fail_to_abort = fail_to_abort
+
+    def write(self, result: StepResult) -> None:
+        super().write(result)
+        if self._fail_to_write:
+            raise RuntimeError("write failed")
+
+    def abort(self) -> None:
+        self._log.record("window.abort")
+        if self._fail_to_abort:
+            raise RuntimeError("abort failed")
+
+
 def _session_desc(
     *,
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK,
@@ -899,6 +932,170 @@ def test_run_session_rejects_a_pending_bound_of_zero() -> None:
         run_session(session, window, steps=1, max_pending=0)
 
     assert log.calls == []
+
+
+def test_success_closes_an_output_transaction_after_the_session() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.close"]
+    assert "window.abort" not in log.calls
+
+
+def test_client_cancellation_aborts_the_output_transaction() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(
+        log,
+        [_lifecycle_event(CloseUserInputEventData())],
+    )
+
+    run_session(FakeSession(_session_desc(), log), window, steps=None)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_model_thread_start_failure_aborts_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    def fail_to_start(thread: threading.Thread) -> None:
+        del thread
+        raise RuntimeError("model start failed")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_to_start)
+
+    with pytest.raises(RuntimeError, match="model start failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_model_step_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    with pytest.raises(RuntimeError, match="step failed"):
+        run_session(FakeSession(_session_desc(), log, fail_at=0), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_presentation_failure_aborts_output() -> None:
+    log = CallLog()
+
+    class InvalidPresentationSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(FakeModelLoop, state=self)
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            self._log.record(f"session.step({step_index})")
+            return StepResult(
+                step_index=step_index,
+                output=torch.zeros(1, 2, 1, 1, 1),
+                frame_count=1,
+                output_layout=self.session_desc.output_layout,
+            )
+
+    window = TransactionalRecordingClientWindow(log)
+    with pytest.raises(ValueError, match="one, three, or four"):
+        run_session(InvalidPresentationSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_sink_open_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log, fail_to_open=True)
+
+    with pytest.raises(RuntimeError, match="open failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_sink_write_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log, fail_to_write=True)
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_sink_close_failure_falls_back_to_abort() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log, fail_to_close=True)
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-3:] == ["session.close", "window.close", "window.abort"]
+
+
+def test_session_close_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    with pytest.raises(RuntimeError, match="session close failed"):
+        run_session(
+            FakeSession(_session_desc(), log, fail_to_close=True),
+            window,
+            steps=1,
+        )
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_first_model_failure_survives_all_cleanup_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+
+    class FailingModelLoop(FakeModelLoop):
+        def step(
+            self, step_index: int, events: UserInputEvents
+        ) -> list[StepResult]:
+            del step_index, events
+            raise RuntimeError("model step failed first")
+
+        def close(self) -> None:
+            raise RuntimeError("model close failed second")
+
+    class FailingCleanupSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(FailingModelLoop, state=self)
+
+    session = FailingCleanupSession(
+        _session_desc(),
+        log,
+        fail_to_close=True,
+    )
+    window = TransactionalRecordingClientWindow(log, fail_to_abort=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="model step failed first"):
+            run_session(session, window, steps=1)
+
+    assert "model close failed second" in caplog.text
+    assert "session close failed" in caplog.text
+    assert "abort failed" in caplog.text
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert log.calls.count("window.abort") == 1
 
 
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:

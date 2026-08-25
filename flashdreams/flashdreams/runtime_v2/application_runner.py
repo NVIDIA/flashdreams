@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.api_v2.output_sink import AbortableOutputSink, OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -76,13 +76,16 @@ class ApplicationRunner:
 
 
 def _close_client_window(client_window: IClientWindow) -> None:
-    """Close a window the run never reached, so what it was serving goes with it.
+    """Release a window the run never reached, aborting transactions.
 
     The run has already failed by the time this is called, so a failure here is
     logged rather than raised over the top of it.
     """
     try:
-        client_window.close()
+        if isinstance(client_window, AbortableOutputSink):
+            client_window.abort()
+        else:
+            client_window.close()
     except Exception:
         _LOGGER.exception(
             "The client window failed to close after a run that never started."
@@ -90,9 +93,12 @@ def _close_client_window(client_window: IClientWindow) -> None:
 
 
 def _close_output_sink(output_sink: OutputSink) -> None:
-    """Close a metrics sink after a run that never reached it."""
+    """Release a metrics sink after a run that never reached it."""
     try:
-        output_sink.close()
+        if isinstance(output_sink, AbortableOutputSink):
+            output_sink.abort()
+        else:
+            output_sink.close()
     except Exception:
         _LOGGER.exception(
             "The metrics output sink failed to close after a run that never started."

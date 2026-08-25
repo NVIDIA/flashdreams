@@ -48,3 +48,21 @@ class OutputSink(Protocol):
     def close(self) -> None:
         """Finish pending writes and release resources."""
         ...
+
+
+@runtime_checkable
+class AbortableOutputSink(OutputSink, Protocol):
+    """An output sink that can discard an incomplete session atomically.
+
+    Both terminal operations must be idempotent. The runtime calls ``close``
+    only for a successful run. It calls ``abort`` after cancellation or failure,
+    including when ``open``, ``write``, or ``close`` raised partway through.
+    """
+
+    @abstractmethod
+    def abort(self) -> None:
+        """Release resources and discard all unpublished output."""
+        ...
+
+
+__all__ = ["AbortableOutputSink", "OutputSink"]

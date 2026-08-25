@@ -146,6 +146,13 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
+class _AbortableWindow(_Window):
+    """Record a window whose unpublished output can be discarded."""
+
+    def abort(self) -> None:
+        self._calls.append("window.abort")
+
+
 class _MetricsSink:
     """Record model results delivered independently of the client window."""
 
@@ -202,6 +209,16 @@ def test_application_runner_closes_both_when_the_run_never_starts() -> None:
         ApplicationRunner(application, _Window(calls)).run(_session_desc())
 
     assert calls == ["application.init([])", "window.close", "application.close"]
+
+
+def test_application_start_failure_aborts_a_transactional_window() -> None:
+    calls: list[str] = []
+    application = _Application(calls, fail_to_init=True)
+
+    with pytest.raises(RuntimeError, match="application init failed"):
+        ApplicationRunner(application, _AbortableWindow(calls)).run(_session_desc())
+
+    assert calls == ["application.init([])", "window.abort", "application.close"]
 
 
 def test_application_runner_ends_a_run_a_window_cannot_end() -> None:

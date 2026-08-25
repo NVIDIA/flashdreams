@@ -8,7 +8,7 @@ import threading
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
-from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.api_v2.output_sink import AbortableOutputSink, OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -84,16 +84,21 @@ def run_session(
         put_timeout=tick_seconds,
     )
     model_thread_handle: threading.Thread | None = None
+    model_thread_started = False
     ui_loop: IUILoop[object] | None = None
     model_loop: IModelLoop[object] | None = None
-    high_level_failures: BaseException | None = None
+    high_level_failure: BaseException | None = None
+    loop_failures: list[BaseException] = []
+    cancelled = False
     cleanup_failures: list[BaseException] = []
     attempted_output_sinks: list[OutputSink] = []
 
     def collect_input() -> UserInputEvents:
+        nonlocal cancelled
         events = window.get_user_input_events()
         event_buffer.append(events)
         if _contains(events, CloseUserInputEventData):
+            cancelled = True
             stop.set()
         return events
 
@@ -159,6 +164,7 @@ def run_session(
                 name=_MODEL_THREAD_NAME,
             )
             model_thread_handle.start()
+            model_thread_started = True
 
             # Keep servicing input and presenting queued frames until shutdown,
             # or until the model finishes and no generated frames remain.
@@ -177,35 +183,69 @@ def run_session(
                 tick_ui()
                 event_buffer.collect_garbage()
     except BaseException as error:
-        high_level_failures = error
+        high_level_failure = error
     finally:
         stop.set()
-        if model_thread_handle is not None:
+        if model_thread_handle is not None and model_thread_started:
             try:
                 model_thread_handle.join()
             except BaseException as error:
                 cleanup_failures.append(error)
 
         cleanup_failures.extend(session._shutdown_registered_loops())
+        while not session._failure_queue.empty():
+            loop_failures.append(session._failure_queue.get())
         presentation_manager.clear()
         event_buffer.unregister(_UI_READER_ID)
         event_buffer.unregister(_MODEL_READER_ID)
         event_buffer.clear()
 
-        for output_sink in attempted_output_sinks:
+        regular_sinks = [
+            sink
+            for sink in attempted_output_sinks
+            if not isinstance(sink, AbortableOutputSink)
+        ]
+        abortable_sinks = [
+            sink
+            for sink in attempted_output_sinks
+            if isinstance(sink, AbortableOutputSink)
+        ]
+        for output_sink in regular_sinks:
             try:
                 output_sink.close()
             except BaseException as error:
                 cleanup_failures.append(error)
+
         try:
             session.close()
         except BaseException as error:
             cleanup_failures.append(error)
 
-    loop_failures = (
-        None if session._failure_queue.empty() else session._failure_queue.get()
-    )
-    primary_failure = loop_failures or high_level_failures
+        abort_transactions = bool(
+            cancelled or high_level_failure or loop_failures or cleanup_failures
+        )
+        for output_sink in abortable_sinks:
+            if abort_transactions:
+                try:
+                    output_sink.abort()
+                except BaseException as error:
+                    cleanup_failures.append(error)
+                continue
+            try:
+                output_sink.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
+                abort_transactions = True
+                try:
+                    output_sink.abort()
+                except BaseException as abort_error:
+                    cleanup_failures.append(abort_error)
+
+    primary_failure = high_level_failure
+    if loop_failures:
+        if primary_failure is None:
+            primary_failure = loop_failures.pop(0)
+        cleanup_failures.extend(loop_failures)
     if primary_failure is None and cleanup_failures:
         primary_failure = cleanup_failures.pop(0)
     for error in cleanup_failures:
