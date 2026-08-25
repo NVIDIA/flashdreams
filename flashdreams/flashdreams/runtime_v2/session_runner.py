@@ -159,6 +159,7 @@ def run_session(
     window: IClientWindow,
     *,
     metrics_output_sink: OutputSink | None = None,
+    tensor_artifact_output_sink: OutputSink | None = None,
     steps: int | None = None,
     max_pending: int = 2,
 ) -> None:
@@ -177,6 +178,7 @@ def run_session(
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
+        tensor_artifact_output_sink: Sink for named tensor outputs, if requested.
         steps: Maximum model steps; ``None`` runs until stopped.
         max_pending: Maximum model steps waiting to be shown.
 
@@ -247,6 +249,9 @@ def run_session(
         if metrics_output_sink is not None:
             for result in results:
                 metrics_output_sink.write(result)
+        if tensor_artifact_output_sink is not None:
+            for result in results:
+                tensor_artifact_output_sink.write(result)
 
     def tick_ui() -> None:
         assert ui_loop is not None
@@ -279,6 +284,9 @@ def run_session(
         if metrics_output_sink is not None:
             attempted_output_sinks.append(metrics_output_sink)
             metrics_output_sink.open(session_desc)
+        if tensor_artifact_output_sink is not None:
+            attempted_output_sinks.append(tensor_artifact_output_sink)
+            tensor_artifact_output_sink.open(session_desc)
         collect_input()
         tick_ui()
 

@@ -26,16 +26,19 @@ class ApplicationRunner:
         client_window: IClientWindow,
         *,
         metrics_output_sink: OutputSink | None = None,
+        tensor_artifact_output_sink: OutputSink | None = None,
     ) -> None:
         """
         Args:
             application: Long-lived application that creates the session.
             client_window: Window that supplies input and presents generated output.
             metrics_output_sink: Optional sink for model-step metrics.
+            tensor_artifact_output_sink: Optional sink for named tensor outputs.
         """
         self._application = application
         self._client_window = client_window
         self._metrics_output_sink = metrics_output_sink
+        self._tensor_artifact_output_sink = tensor_artifact_output_sink
 
     def run(
         self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
@@ -64,12 +67,15 @@ class ApplicationRunner:
                 session,
                 self._client_window,
                 metrics_output_sink=self._metrics_output_sink,
+                tensor_artifact_output_sink=self._tensor_artifact_output_sink,
             )
         finally:
             if not run_started:
                 _close_client_window(self._client_window)
                 if self._metrics_output_sink is not None:
                     _close_output_sink(self._metrics_output_sink)
+                if self._tensor_artifact_output_sink is not None:
+                    _close_output_sink(self._tensor_artifact_output_sink)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
@@ -90,12 +96,12 @@ def _close_client_window(client_window: IClientWindow) -> None:
 
 
 def _close_output_sink(output_sink: OutputSink) -> None:
-    """Close a metrics sink after a run that never reached it."""
+    """Close an auxiliary sink after a run that never reached it."""
     try:
         output_sink.close()
     except Exception:
         _LOGGER.exception(
-            "The metrics output sink failed to close after a run that never started."
+            "An auxiliary output sink failed to close after a run that never started."
         )
 
 

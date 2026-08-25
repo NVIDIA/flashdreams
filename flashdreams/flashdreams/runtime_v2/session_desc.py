@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from flashdreams.runtime_v2.tensor_artifact import TensorArtifactSchema
 
 
 class BackpressureMode(Enum):
@@ -61,6 +62,9 @@ class SessionDesc:
     video_height: int = 720
     """Output video height in pixels."""
 
+    tensor_artifact_schemas: tuple[TensorArtifactSchema, ...] = ()
+    """Named tensor artifacts a model step may emit alongside video."""
+
     metadata: dict[str, Any] = field(default_factory=dict)
     """Extra values a runtime and an application agree on. Nothing here reads it."""
 
@@ -87,6 +91,9 @@ class SessionDesc:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")
         if self.video_height <= 0:
             raise ValueError("SessionDesc.video_height must be > 0 when set.")
+        artifact_names = [schema.name for schema in self.tensor_artifact_schemas]
+        if len(set(artifact_names)) != len(artifact_names):
+            raise ValueError("SessionDesc tensor artifact names must be unique.")
 
 
 __all__ = ["BackpressureMode", "PresentationMode", "SessionDesc"]

@@ -35,6 +35,9 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
+from flashdreams.runtime_v2.tensor_artifact_output_sink import (
+    TensorArtifactOutputSink,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ARGUMENT_SEPARATOR = "--"
@@ -80,10 +83,16 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     metrics_output_sink = (
         None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )
+    tensor_artifact_output_sink = (
+        None
+        if parsed.tensor_artifact_dir is None
+        else TensorArtifactOutputSink(parsed.tensor_artifact_dir)
+    )
     ApplicationRunner(
         application,
         window,
         metrics_output_sink=metrics_output_sink,
+        tensor_artifact_output_sink=tensor_artifact_output_sink,
     ).run(session_desc, application_args)
     _report(mode.finished(window))
 

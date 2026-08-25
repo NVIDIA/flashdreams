@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from torch import Tensor
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from flashdreams.runtime_v2.tensor_artifact import TensorArtifactOutput
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,3 +35,5 @@ class StepResult:
     metrics: dict[str, float | int] = field(default_factory=dict)
     """Measurements for this step, such as timings, keyed by name. Recorded only
     when a run asked for a metrics sink, and only from a model loop."""
+    tensor_artifacts: tuple[TensorArtifactOutput, ...] = ()
+    """Named tensor artifacts emitted alongside the video result."""
