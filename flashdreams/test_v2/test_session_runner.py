@@ -71,6 +71,48 @@ def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
     assert clock.is_due(now=2.0, generation=1)
 
 
+def test_presentation_clock_uses_recent_model_fps() -> None:
+    clock = _PresentationClock(frames_per_second=16)
+
+    clock.observe_model_output(now=1.0, generation=0, frame_count=12)
+    assert clock.frames_per_second == 16
+
+    clock.observe_model_output(now=1.9, generation=0, frame_count=12)
+    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+
+    assert clock.is_due(now=2.0, generation=0)
+    clock.mark_advanced(now=2.0)
+    assert not clock.is_due(now=2.074, generation=0)
+    assert clock.is_due(now=2.075, generation=0)
+
+
+def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
+    clock = _PresentationClock(frames_per_second=30)
+
+    clock.observe_model_output(now=0.0, generation=0, frame_count=10)
+    clock.observe_model_output(now=1.0, generation=0, frame_count=10)
+    assert clock.frames_per_second == pytest.approx(10.0)
+
+    clock.observe_model_output(now=2.0, generation=0, frame_count=20)
+    assert clock.frames_per_second == pytest.approx(15.0)
+
+    clock.observe_model_output(now=3.0, generation=0, frame_count=20)
+    assert clock.frames_per_second == pytest.approx(20.0)
+
+
+def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
+    clock = _PresentationClock(frames_per_second=16)
+    clock.observe_model_output(now=1.0, generation=0, frame_count=12)
+    clock.observe_model_output(now=2.0, generation=0, frame_count=12)
+    assert clock.frames_per_second == pytest.approx(12.0)
+
+    assert clock.is_due(now=2.1, generation=1)
+    assert clock.frames_per_second == 16
+
+    clock.observe_model_output(now=2.2, generation=0, frame_count=120)
+    assert clock.frames_per_second == 16
+
+
 class CallLog:
     """Record calls made from either thread, with the thread that made them."""
 

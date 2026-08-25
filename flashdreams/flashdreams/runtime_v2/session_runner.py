@@ -6,6 +6,7 @@
 import logging
 import threading
 import time
+from collections import deque
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -22,30 +23,106 @@ _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
 _UI_READER_ID = 0
 _MODEL_READER_ID = 1
+_MODEL_FPS_WINDOW_SECONDS = 2.0
+"""Wall-time window used to estimate generated-frame throughput."""
 
 
 class _PresentationClock:
-    """Schedule model-frame advances independently of UI redraws."""
+    """Schedule model-frame advances at recent model throughput."""
 
     def __init__(self, frames_per_second: int) -> None:
-        self._frame_interval = 1.0 / frames_per_second
+        self._fallback_frame_interval = 1.0 / frames_per_second
+        self._frame_interval = self._fallback_frame_interval
         self._next_frame_at: float | None = None
         self._generation: int | None = None
+        self._observed_frames = 0
+        self._observations: deque[tuple[float, int]] = deque()
+        self._lock = threading.Lock()
+
+    @property
+    def frames_per_second(self) -> float:
+        """Return the current model-frame presentation rate."""
+        with self._lock:
+            return 1.0 / self._frame_interval
+
+    def observe_model_output(
+        self,
+        *,
+        now: float,
+        generation: int,
+        frame_count: int,
+    ) -> None:
+        """Add one completed model chunk to the rolling FPS estimate.
+
+        Args:
+            now: Monotonic completion time for the chunk.
+            generation: Session generation that produced the chunk.
+            frame_count: Number of generated frames in the chunk.
+
+        Raises:
+            ValueError: ``frame_count`` is not positive or ``now`` precedes the
+                latest observation.
+        """
+        if frame_count <= 0:
+            raise ValueError(f"frame_count must be > 0, got {frame_count}.")
+        with self._lock:
+            if self._generation is None or generation > self._generation:
+                self._reset_generation(generation)
+            elif generation < self._generation:
+                return
+
+            if self._observations and now < self._observations[-1][0]:
+                raise ValueError("now must not precede the latest observation.")
+            self._observed_frames += frame_count
+            if self._observations and now == self._observations[-1][0]:
+                self._observations[-1] = (now, self._observed_frames)
+            else:
+                self._observations.append((now, self._observed_frames))
+            self._update_frame_interval(now)
 
     def is_due(self, now: float, generation: int) -> bool:
         """Return whether the next model frame may be selected."""
-        if generation != self._generation:
-            self._generation = generation
-            self._next_frame_at = None
-        return self._next_frame_at is None or now >= self._next_frame_at
+        with self._lock:
+            if generation != self._generation:
+                self._reset_generation(generation)
+            return self._next_frame_at is None or now >= self._next_frame_at
 
     def mark_advanced(self, now: float) -> None:
         """Record one selected frame without catching up after a long stall."""
-        next_frame_at = self._next_frame_at
-        if next_frame_at is None or now - next_frame_at >= self._frame_interval:
-            self._next_frame_at = now + self._frame_interval
-        else:
-            self._next_frame_at = next_frame_at + self._frame_interval
+        with self._lock:
+            next_frame_at = self._next_frame_at
+            if next_frame_at is None or now - next_frame_at >= self._frame_interval:
+                self._next_frame_at = now + self._frame_interval
+            else:
+                self._next_frame_at = next_frame_at + self._frame_interval
+
+    def _reset_generation(self, generation: int) -> None:
+        self._generation = generation
+        self._frame_interval = self._fallback_frame_interval
+        self._next_frame_at = None
+        self._observed_frames = 0
+        self._observations.clear()
+
+    def _update_frame_interval(self, now: float) -> None:
+        cutoff = now - _MODEL_FPS_WINDOW_SECONDS
+        while len(self._observations) >= 3 and self._observations[1][0] <= cutoff:
+            self._observations.popleft()
+        if len(self._observations) < 2:
+            return
+
+        first_at, first_frames = self._observations[0]
+        last_at, last_frames = self._observations[-1]
+        window_started_at = max(first_at, cutoff)
+        frames_at_window_start = float(first_frames)
+        if window_started_at > first_at:
+            second_at, second_frames = self._observations[1]
+            fraction = (window_started_at - first_at) / (second_at - first_at)
+            frames_at_window_start += fraction * (second_frames - first_frames)
+
+        elapsed = last_at - window_started_at
+        generated_frames = last_frames - frames_at_window_start
+        if elapsed > 0.0 and generated_frames > 0.0:
+            self._frame_interval = elapsed / generated_frames
 
 
 def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> bool:
@@ -140,6 +217,12 @@ def run_session(
         generation: int,
         results: list[StepResult],
     ) -> None:
+        if results:
+            presentation_clock.observe_model_output(
+                now=time.monotonic(),
+                generation=generation,
+                frame_count=results[0].frame_count,
+            )
         presentation_manager.publish(generation, results)
         if metrics_output_sink is not None:
             for result in results:
