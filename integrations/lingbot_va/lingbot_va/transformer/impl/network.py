@@ -34,6 +34,9 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
 from lingbot_va.transformer.impl.kvcache import VAKVCache
 from lingbot_va.transformer.impl.modules import VABlock, VABlockCache
 
+VideoKV = tuple[tuple[Tensor, Tensor], ...]
+"""Per-block video keys and values retained for the matching action branch."""
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -362,13 +365,14 @@ class WanVADiTNetwork(nn.Module):
         cache: WanVADiTNetworkCache,
         rope_freqs: Tensor,
         persist: bool = False,
-    ) -> Tensor:
+    ) -> tuple[Tensor, VideoKV | None]:
         """Video-mode forward.
 
         Cache extraction and writes happen outside the compiled block loop.
 
         Returns:
-            Video flow ``[batch, L, prod(patch_size) * out_dim]``.
+            Video flow ``[batch, L, prod(patch_size) * out_dim]`` and the
+            per-block video KV written by a persistent call.
         """
         assert self._parameters_updated_after_loading_checkpoint
 
@@ -381,12 +385,13 @@ class WanVADiTNetwork(nn.Module):
         )
 
         # Cache write (outside compile boundary)
+        video_kv: VideoKV | None = None
         if persist:
             for block_idx, (k, v) in enumerate(zip(k_list, v_list)):
                 cache[block_idx].self_attn.write_video(k, v)
-            self._last_video_kv = list(zip(k_list, v_list))
+            video_kv = tuple(zip(k_list, v_list))
 
-        return output
+        return output, video_kv
 
     def forward_action(
         self,
@@ -394,6 +399,7 @@ class WanVADiTNetwork(nn.Module):
         timesteps: Tensor,
         cache: WanVADiTNetworkCache,
         rope_freqs: Tensor,
+        video_kv: VideoKV | None = None,
         persist: bool = False,
     ) -> Tensor:
         """Action-mode forward.
@@ -415,8 +421,16 @@ class WanVADiTNetwork(nn.Module):
 
         # Cache write (outside compile boundary)
         if persist:
-            for block_idx, (k, v) in enumerate(zip(k_list, v_list)):
-                vk, vv = self._last_video_kv[block_idx]
+            assert video_kv is not None, (
+                "A persistent action pass requires video KV from the same CFG branch."
+            )
+            assert len(video_kv) == len(k_list), (
+                f"Expected {len(k_list)} video KV pairs, got {len(video_kv)}."
+            )
+            for block_idx, (k, v, branch_video_kv) in enumerate(
+                zip(k_list, v_list, video_kv)
+            ):
+                vk, vv = branch_video_kv
                 cache[block_idx].self_attn.write_action(k, v, vk, vv)
 
         return output

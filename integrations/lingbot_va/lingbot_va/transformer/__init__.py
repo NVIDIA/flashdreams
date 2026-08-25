@@ -39,6 +39,7 @@ from flashdreams.infra.diffusion.transformer import (
 
 from lingbot_va.transformer.checkpoint import state_dict_transform
 from lingbot_va.transformer.impl.network import (
+    VideoKV,
     WanVADiTNetwork,
     WanVADiTNetworkCache,
     WanVADiTNetworkConfig,
@@ -56,6 +57,10 @@ class LingbotVATransformerCache(TransformerAutoregressiveCache):
 
     network_cache: WanVADiTNetworkCache
     network_cache_uncond: WanVADiTNetworkCache | None = None
+    video_kv_cond: VideoKV | None = None
+    """Video KV produced by the conditional branch for the current chunk."""
+    video_kv_uncond: VideoKV | None = None
+    """Video KV produced by the unconditional branch for the current chunk."""
     autoregressive_index: int = -1
 
     def start(self, autoregressive_index: int) -> None:
@@ -223,14 +228,20 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             grid_id, self.config.network.dim // self.config.network.num_heads
         ).to(noisy_latent.device)
 
-        flow_cond = self.network.forward_video(
+        flow_cond, video_kv_cond = self.network.forward_video(
             noisy_latent, timestep, cache.network_cache, rope_freqs, persist=persist,
         )
+        if persist:
+            assert video_kv_cond is not None
+            cache.video_kv_cond = video_kv_cond
 
         if cache.network_cache_uncond is not None:
-            flow_uncond = self.network.forward_video(
+            flow_uncond, video_kv_uncond = self.network.forward_video(
                 noisy_latent, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
             )
+            if persist:
+                assert video_kv_uncond is not None
+                cache.video_kv_uncond = video_kv_uncond
             if self.config.guidance_scale > 1.0:
                 return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
 
@@ -253,13 +264,27 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         ).to(noisy_action.device)
 
         flow_cond = self.network.forward_action(
-            noisy_action, timestep, cache.network_cache, rope_freqs, persist=persist,
+            noisy_action,
+            timestep,
+            cache.network_cache,
+            rope_freqs,
+            video_kv=cache.video_kv_cond,
+            persist=persist,
         )
+        if persist:
+            cache.video_kv_cond = None
 
         if cache.network_cache_uncond is not None:
             flow_uncond = self.network.forward_action(
-                noisy_action, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
+                noisy_action,
+                timestep,
+                cache.network_cache_uncond,
+                rope_freqs,
+                video_kv=cache.video_kv_uncond,
+                persist=persist,
             )
+            if persist:
+                cache.video_kv_uncond = None
             if self.config.action_guidance_scale > 1.0:
                 return flow_uncond + self.config.action_guidance_scale * (flow_cond - flow_uncond)
 
