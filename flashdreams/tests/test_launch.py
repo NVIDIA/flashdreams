@@ -81,7 +81,7 @@ def test_lingbot_mp4_launch_validates_manifest_sections(tmp_path: Path) -> None:
 def test_lingbot_null_launch_uses_shared_replay_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lingbot.demo import app
+    from action2v.legacy import app
 
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -164,7 +164,7 @@ def test_omnidreams_webrtc_honors_explicit_network_precedence() -> None:
 def test_omnidreams_mp4_short_slug_uses_default_output_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from omnidreams.demo import app
+    from hdmap2v.legacy import app
 
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -241,7 +241,7 @@ def test_capabilities_extend_launch_without_shared_routing_changes(
 def test_resolved_launch_calls_integration_directly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lingbot.demo import app
+    from action2v.legacy import app
 
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -284,7 +284,7 @@ def test_launch_mode_uses_compact_summary_by_default(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lingbot.demo import app
+    from action2v.legacy import app
 
     monkeypatch.setattr(app, "launch_from_runner", lambda **kwargs: None)
     config = _runner_config(runner_name="lingbot-world-fast")
@@ -307,7 +307,7 @@ def test_launch_mode_exits_nonzero_for_failed_run_result(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lingbot.demo import app
+    from action2v.legacy import app
 
     def fake_launch_from_runner(**kwargs: object) -> RunResult:
         del kwargs

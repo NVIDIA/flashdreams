@@ -32,7 +32,7 @@ is skipped.
 
 ## Omnidreams quality regression
 
-`integrations/omnidreams/tests/test_quality_regression.py` is the golden-clip
+`integrations_v2/omnidreams/tests/test_quality_regression.py` is the golden-clip
 gate for generated driving video. It is marked `ci_gpu` and skips in local
 runs until a reference clip and deterministic input assets are provided.
 
@@ -56,7 +56,7 @@ Minimum single-view setup with explicit local inputs:
 export FLASHDREAMS_OMNIDREAMS_QUALITY_REFERENCE_CLIP=/abs/path/reference.mp4
 export FLASHDREAMS_OMNIDREAMS_QUALITY_HDMAP_VIDEO_PATHS=/abs/path/hdmap.mp4
 export FLASHDREAMS_OMNIDREAMS_QUALITY_FIRST_FRAME_PATHS=/abs/path/first_frame.png
-uv run pytest integrations/omnidreams/tests/test_quality_regression.py -v
+uv run pytest integrations_v2/omnidreams/tests/test_quality_regression.py -v
 ```
 
 To use the runner's public single-view example data instead of supplying
@@ -77,7 +77,7 @@ your environment needs Hugging Face authentication for model or dataset access.
 ```bash
 mkdir -p /tmp/omnidreams_quality_ref /tmp/omnidreams_quality_artifacts
 
-uv run --project integrations/omnidreams flashdreams-run \
+uv run --project integrations_v2/omnidreams flashdreams-run \
   omnidreams \
   --example-data True \
   --example_data_uuid "239560dc-33d1-11ef-9720-00044bcbccac" \
@@ -101,8 +101,8 @@ FLASHDREAMS_OMNIDREAMS_QUALITY_EXAMPLE_DATA=1 \
 FLASHDREAMS_OMNIDREAMS_QUALITY_EXTRACT_GENERATED_REGION_FROM_REFERENCE=1 \
 FLASHDREAMS_OMNIDREAMS_QUALITY_ARTIFACT_DIR=/tmp/omnidreams_quality_artifacts \
 FLASHDREAMS_OMNIDREAMS_QUALITY_TOTAL_BLOCKS=4 \
-uv run --project integrations/omnidreams pytest \
-  integrations/omnidreams/tests/test_quality_regression.py -v -s
+uv run --project integrations_v2/omnidreams pytest \
+  integrations_v2/omnidreams/tests/test_quality_regression.py -v -s
 ```
 
 After visually inspecting the artifacts, promote this file as the reference

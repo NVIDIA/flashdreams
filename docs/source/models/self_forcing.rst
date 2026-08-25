@@ -61,7 +61,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/self_forcing
+   uv sync --project integrations_v2/self_forcing
 
 Running the method
 ------------------
@@ -71,7 +71,7 @@ example:
 
 .. code-block:: bash
 
-   uv run --project integrations/self_forcing \
+   uv run --project integrations_v2/self_forcing \
        flashdreams-run \
        self-forcing-wan2.1-t2v-1.3b \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
@@ -98,7 +98,7 @@ For multi-GPU inference, use:
 
 .. code-block:: bash
 
-   uv run --project integrations/self_forcing \
+   uv run --project integrations_v2/self_forcing \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        self-forcing-wan2.1-t2v-1.3b \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
@@ -109,7 +109,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/self_forcing \
+   uv run --project integrations_v2/self_forcing \
        flashdreams-run \
        self-forcing-wan2.1-t2v-1.3b \
        --help
@@ -203,9 +203,9 @@ under matched settings.
          This chart shows the DiT total runtime (4 denoising steps in milliseconds) at the 6th autoregressive rollout on a single GPU.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend and <code>torch.compile</code> for DiT network.
          For profiling the official implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check/README.md">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing/tests/parity_check/README.md">this instruction</a>.
          For profiling the FastVideo implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
        </p>
      </figcaption>
    </figure>

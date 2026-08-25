@@ -60,7 +60,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/causal_forcing
+   uv sync --project integrations_v2/causal_forcing
 
 Running the method
 ------------------
@@ -70,7 +70,7 @@ example:
 
 .. code-block:: bash
 
-   uv run --project integrations/causal_forcing \
+   uv run --project integrations_v2/causal_forcing \
        flashdreams-run \
        causal-forcing-wan2.1-t2v-1.3b-framewise \
        --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
@@ -82,7 +82,7 @@ For multi-GPU inference, run the same command under ``torchrun`` (taking
 
 .. code-block:: bash
 
-   uv run --project integrations/causal_forcing \
+   uv run --project integrations_v2/causal_forcing \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        causal-forcing-wan2.1-t2v-1.3b-framewise \
        --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
@@ -93,7 +93,7 @@ For I2V, run with the following command:
 
 .. code-block:: bash
 
-   uv run --project integrations/causal_forcing \
+   uv run --project integrations_v2/causal_forcing \
        flashdreams-run \
        causal-forcing-wan2.1-i2v-1.3b-framewise \
        --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
@@ -120,7 +120,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/causal_forcing \
+   uv run --project integrations_v2/causal_forcing \
        flashdreams-run \
        causal-forcing-wan2.1-t2v-1.3b-framewise \
        --help

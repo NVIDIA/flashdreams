@@ -1,90 +1,60 @@
-.. SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-.. SPDX-License-Identifier: Apache-2.0
-..
-.. Licensed under the Apache License, Version 2.0 (the "License");
-.. you may not use this file except in compliance with the License.
-.. You may obtain a copy of the License at
-..
-.. http://www.apache.org/licenses/LICENSE-2.0
-..
-.. Unless required by applicable law or agreed to in writing, software
-.. distributed under the License is distributed on an "AS IS" BASIS,
-.. WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-.. See the License for the specific language governing permissions and
-.. limitations under the License.
+Integrations
+============
 
-Pipelines and runners
-===================================
+Model integrations are workspace packages rooted at
+``integrations_v2/<model_name>/``. Each package owns the model implementation,
+its canonical pipeline configs, and small bindings to reusable applications.
 
-FlashDreams model integrations are built from two public layers:
+Layout
+------
 
-- **Pipelines** (``StreamInferencePipelineConfig``) that define model behavior.
-- **Runners** (``RunnerConfig`` + ``Runner``) that define CLI-facing I/O.
+The required shape is::
 
-Most actively developed model implementations now live under ``integrations/*``
-as plugin-style standalone packages. This page keeps documenting the in-tree
-pipeline modules that are still exposed from ``flashdreams.recipes``.
+   integrations_v2/<model_name>/
+   ├── config.py
+   ├── impl/                       # all model implementation
+   │   ├── pipeline.py             # only when the model needs one
+   │   └── transformer/
+   ├── apps/
+   │   └── <app_name>/
+   │       └── adapter.py
+   └── tests/
 
-.. note::
+``config.py`` is the only Python module at the integration root and the single
+source of model-specific defaults, pipeline configs, and hook factories. All
+model implementation, integration-owned data, and vendored source stays under
+``impl/``. Apart from ``apps/``, ``tests/``, ``README.md``, and
+``pyproject.toml``, only an important integration-wide operational script may
+sit beside ``config.py``.
 
-   Pipeline modules import the heavy GPU stack (transformer-engine, CUDA
-   ops) at import time, so this page shows them by *automodule* with
-   ``:no-undoc-members:`` to keep the rendered API focused on the names
-   that these in-tree modules actually expose. The unified ``flashdreams-run``
-   CLI shows end-to-end usage; see :doc:`/models/index` for model launch
-   examples.
+Applications live under ``apps/<app_name>/`` and must not import a concrete
+model package. When an app needs model behavior, it exposes a typed hook or
+factory. The nested integration adapter imports those defaults and hooks only
+from ``...config`` and passes them to the reusable application.
 
-Integration structure (current)
--------------------------------
+Application discovery
+---------------------
 
-For new model work, follow ``integrations/<name>/``:
+An integration exposes a binding through its package manifest::
 
-- ``config.py``: pipeline + runner config literals (slugged entries).
-- ``runner.py``: runtime I/O, cache init, generate/finalize loop, persistence.
-- ``pipeline.py`` and ``transformer/*``: model compute path.
-- ``pyproject.toml``: plugin packaging + entry-point registration.
+   [project.entry-points."flashdreams.applications_v2"]
+   action2v-my-model = "my_model.apps.action2v.adapter:create_app"
 
-This makes each integration effectively a standalone repository while still
-plugging into the same ``flashdreams-run`` registry.
+The adapter should remain a bare construction boundary. Do not place UI,
+input handling, launch orchestration, model selection, or checkpoint literals
+in it.
 
-Reference integration folders
------------------------------
+Forbidden compatibility layers
+------------------------------
 
-- `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams>`_
-- `self_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_
-- `causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing>`_
-- `lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_
-- `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21>`_
-- `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
-- `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
-- `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
+Do not add integration-root ``runner.py``, ``launch.py``, ``runtime.py``,
+``prepare.py``, or ``model_session.py`` shims. Move real model code into
+``impl/`` and move complete demo behavior into the repository-level ``apps/``.
 
-NVIDIA OmniDreams
------------------
-
-OmniDreams now ships as a plugin under ``integrations/omnidreams``; it
-registers its runners via the ``flashdreams.runner_configs`` entry-point
-group and is no longer part of the in-tree ``flashdreams.recipes`` API
-surface. See ``integrations/omnidreams/README.md`` for the plugin entry
-point and ``flashdreams-run omnidreams-*`` for the user-facing CLI.
-
-Wan
----
-
-.. automodule:: flashdreams.recipes.wan
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
-.. automodule:: flashdreams.recipes.wan.pipeline
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
-
-TAEHV
+Tests
 -----
 
-.. automodule:: flashdreams.recipes.taehv
-   :members:
-   :no-undoc-members:
-   :show-inheritance:
+Reusable application behavior is tested with the application. Integration
+tests cover model config literals, adapter wiring, checkpoint transforms, and
+model numerics. CPU-safe architecture tests verify that adapters stay minimal
+and legacy runner modules do not return.

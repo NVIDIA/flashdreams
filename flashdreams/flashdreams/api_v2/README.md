@@ -42,7 +42,7 @@ See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.js
 and the [benchmark README](../../tools/benchmarks/README.md) for the benchmark
 suite.
 
-`flashdreams.t2v_v2` builds the text-to-video API on these protocols. See
+The `apps/t2v` package builds the text-to-video application on these protocols. See
 [its README](../t2v_v2/README.md).
 
 Loops and threading
@@ -109,7 +109,7 @@ The [SlangPy UI API reference](https://slangpy.shader-slang.org/en/stable/src/ap
 is the source of truth for every available widget constructor, method,
 property, flag, and callback. FlashDreams delegates these names directly to
 `slangpy.ui`; it does not maintain a smaller wrapper API. See the
-[`slangpy_ui_demo` examples](../../../integrations_v2/slangpy_ui_demo/README.md)
+[`slangpy_ui_demo` examples](../../../apps/slangpy_ui_demo/README.md)
 for examples that use model-loop output as part of the UI.
 
 If a UI loop is not registered, the runtime uses the default `IUILoop`

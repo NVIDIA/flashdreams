@@ -63,9 +63,8 @@ Serving implementation references
 - ``flashdreams.serving.webrtc`` for the shared WebRTC server, session manager,
   runtime protocol, data-channel messages, packaged UI app factory, and
   distributed serve-loop helpers.
-- ``integrations/lingbot/lingbot/webrtc`` and
-  ``integrations/omnidreams/omnidreams/webrtc`` for concrete WebRTC demos built
-  on the shared serving stack.
+- ``apps/action2v`` and ``apps/hdmap2v`` for reusable application loops;
+  model-specific bindings live under ``integrations_v2/<model>/<app>/adapter.py``.
 
 WebRTC demo shape
 -----------------

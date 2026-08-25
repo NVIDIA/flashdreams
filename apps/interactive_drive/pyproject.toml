@@ -1,0 +1,22 @@
+[project]
+name = "flashdreams-interactive-drive-v2"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams[local-window,serving]",
+    "flashdreams-hdmap2v-v2",
+]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-hdmap2v-v2 = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["interactive_drive*"]
+
+[tool.uv]
+managed = true

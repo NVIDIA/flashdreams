@@ -1,0 +1,69 @@
+{
+  "baseline_id": "od-26.01-worldlens-40-v1",
+  "baseline_path": "C:\\code\\ui-simple-v2-backup\\.tmp\\codex-omnidreams-layout\\pytest\\test_check_baseline_cli_writes0\\baseline.json",
+  "check_count": 4,
+  "checks": [
+    {
+      "actual": 40,
+      "expected": 41,
+      "max_allowed": null,
+      "message": "expected actual == 41, got 40",
+      "min_allowed": null,
+      "name": "generated_clip_count",
+      "op": "==",
+      "passed": false,
+      "relative_tolerance": null,
+      "severity": "critical",
+      "source": "generated.generated_mp4_count",
+      "tolerance": null
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "max_allowed": null,
+      "message": "",
+      "min_allowed": null,
+      "name": "validation_failures",
+      "op": "==",
+      "passed": true,
+      "relative_tolerance": null,
+      "severity": "critical",
+      "source": "validation.failure_count",
+      "tolerance": null
+    },
+    {
+      "actual": 0.9520937014848758,
+      "expected": 0.9521,
+      "max_allowed": null,
+      "message": "",
+      "min_allowed": null,
+      "name": "worldlens_temporal_consistency",
+      "op": null,
+      "passed": true,
+      "relative_tolerance": null,
+      "severity": "critical",
+      "source": "worldlens.runs[split=od_26_01_worldlens_40].artifact_metrics[artifact=temporal_consistency/repeat_0.json].temporal_consistency_per_frame",
+      "tolerance": 0.001
+    },
+    {
+      "actual": 388.13717153675134,
+      "expected": null,
+      "max_allowed": 430.0,
+      "message": "",
+      "min_allowed": null,
+      "name": "drivinggen_fvd_lite",
+      "op": null,
+      "passed": true,
+      "relative_tolerance": null,
+      "severity": "critical",
+      "source": "drivinggen.fvd_lite[split=od_26_01_batch_00001].value",
+      "tolerance": null
+    }
+  ],
+  "critical_failures": 1,
+  "kind": "omnidreams_eval_baseline_check",
+  "passed": false,
+  "schema_version": 1,
+  "summary_path": "C:\\code\\ui-simple-v2-backup\\.tmp\\codex-omnidreams-layout\\pytest\\test_check_baseline_cli_writes0\\summary.json",
+  "warning_failures": 0
+}

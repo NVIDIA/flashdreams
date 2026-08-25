@@ -43,7 +43,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/fastvideo_causal_wan22
+   uv sync --project integrations_v2/fastvideo_causal_wan22
 
 Running the method
 ------------------
@@ -52,14 +52,14 @@ To run Causal Wan2.2, launch the registered runner slug. For example:
 
 .. code-block:: bash
 
-   uv run --project integrations/fastvideo_causal_wan22 \
+   uv run --project integrations_v2/fastvideo_causal_wan22 \
        flashdreams-run \
        fastvideo-causal-wan2.2-t2v-14b \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
        --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
-   uv run --project integrations/fastvideo_causal_wan22 \
+   uv run --project integrations_v2/fastvideo_causal_wan22 \
        flashdreams-run \
        fastvideo-causal-wan2.2-t2v-14b \
        --prompt "A playful raccoon is seen playing an electronic guitar, strumming the strings with its front paws. The raccoon has distinctive black facial markings and a bushy tail. It sits comfortably on a small stool, its body slightly tilted as it focuses intently on the instrument. The setting is a cozy, dimly lit room with vintage posters on the walls, adding a retro vibe. The raccoon's expressive eyes convey a sense of joy and concentration. Medium close-up shot, focusing on the raccoon's face and hands interacting with the guitar." \
@@ -71,7 +71,7 @@ For multi-GPU inference, run the same command under ``torchrun`` (taking
 
 .. code-block:: bash
 
-   uv run --project integrations/fastvideo_causal_wan22 \
+   uv run --project integrations_v2/fastvideo_causal_wan22 \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        fastvideo-causal-wan2.2-t2v-14b \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
@@ -93,7 +93,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/fastvideo_causal_wan22 \
+   uv run --project integrations_v2/fastvideo_causal_wan22 \
        flashdreams-run \
        fastvideo-causal-wan2.2-t2v-14b \
        --help

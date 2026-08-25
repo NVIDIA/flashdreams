@@ -6,11 +6,25 @@
 from .t2v import (
     T2VApplication,
     T2VApplicationDefaults,
-    T2VApplicationSession,
+    T2VIntegrationHooks,
+    T2VModelLoop,
+    T2VModelState,
+    T2VSession,
+    T2VSessionConfig,
+    T2VSlangPyUILoop,
+    T2VUIState,
+    TextInputSpec,
 )
 
 __all__ = [
     "T2VApplication",
     "T2VApplicationDefaults",
-    "T2VApplicationSession",
+    "T2VIntegrationHooks",
+    "T2VModelLoop",
+    "T2VModelState",
+    "T2VSession",
+    "T2VSessionConfig",
+    "T2VSlangPyUILoop",
+    "T2VUIState",
+    "TextInputSpec",
 ]

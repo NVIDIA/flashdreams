@@ -28,9 +28,9 @@ CPU-only tests for the v2 protocols themselves:
 - `test_t2v_application.py` covers the shared text-to-video application: its
   flags, the clip it says it would generate, what it refuses to generate, and
   when the model is
-  loaded. Covering it here is what lets each `integrations_v2/t2v_*` package test
+  loaded. Covering it here is what lets each model's nested `t2v` adapter test
   only what is particular to its own model, over the stand-in pipeline
-  `flashdreams.t2v_v2.testing` ships.
+  `t2v.testing` ships.
 - `test_t2v_session.py` covers one rollout through `T2VSession`: the prompt
   encoded into a cache once, a block generated per step, and what a reset or a
   close leaves behind. Driving a rollout is the same job for every model, so it
@@ -49,8 +49,8 @@ CPU-only tests for the v2 protocols themselves:
   `flashdreams/tests/test_benchmark_harness.py`.
 
 Application behaviour is tested by the application that owns it — see
-`integrations_v2/red_screen/red_screen/tests/` and
-`integrations_v2/color_fade/color_fade/tests/`.
+`apps/red_screen/red_screen/tests/` and
+`apps/color_fade/color_fade/tests/`.
 
 Run commands from the repository root.
 

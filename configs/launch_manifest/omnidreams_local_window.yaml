@@ -7,4 +7,4 @@ scenario:
   preload_scenes: false
 
 output:
-  world_model_manifest_path: ../../integrations/omnidreams/omnidreams/interactive_drive/configs/example_world_model_perf.yaml
+  world_model_manifest_path: ../../apps/hdmap2v/hdmap2v/interactive_drive/configs/example_world_model_perf.yaml

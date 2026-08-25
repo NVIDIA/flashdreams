@@ -1,0 +1,174 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import threading
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+from flashvsr.impl.grpc.protos import flashvsr_pb2 as pb2
+from flashvsr.impl.grpc.streaming_view import _encode_jpeg_rgb
+from flashvsr.impl.grpc.uplift_client import (
+    build_chunk_request,
+    build_chunks,
+    encode_jpeg_frames,
+)
+
+pytestmark = pytest.mark.ci_cpu
+
+
+def test_build_chunks_drops_trailing_partial_chunk() -> None:
+    assert build_chunks(total_frames=45, first_chunk=13, chunk_size=16) == [
+        (0, 13),
+        (13, 16),
+        (29, 16),
+    ]
+
+
+def test_build_chunk_request_raw_display_only() -> None:
+    frames = np.zeros((8, 4, 6, 3), dtype=np.uint8)
+    request = build_chunk_request(
+        chunk_idx=0,
+        frame_data=frames,
+        scale=2,
+        sparse_ratio=0.0,
+        input_format="raw",
+        jpeg_quality=90,
+        display_only=True,
+    )
+
+    assert request.frame_encoding == pb2.FRAME_ENCODING_RAW_RGB
+    assert request.frames_rgb == frames.tobytes()
+    assert request.num_frames == 8
+    assert request.height == 4
+    assert request.width == 6
+    assert request.input_height == 4
+    assert request.input_width == 6
+    assert request.scale == 2
+    assert request.display_only
+
+
+def test_encode_jpeg_frames_returns_jpeg_payloads() -> None:
+    pytest.importorskip("PIL.Image")
+    frames = np.zeros((2, 4, 6, 3), dtype=np.uint8)
+
+    encoded = encode_jpeg_frames(frames, quality=90)
+
+    assert len(encoded) == 2
+    assert all(frame.startswith(b"\xff\xd8") for frame in encoded)
+    assert all(frame.endswith(b"\xff\xd9") for frame in encoded)
+
+
+def test_streaming_view_cpu_jpeg_encoder_returns_jpeg_payload() -> None:
+    pytest.importorskip("PIL.Image")
+    frame = np.zeros((4, 6, 3), dtype=np.uint8)
+
+    encoded = _encode_jpeg_rgb(frame, quality=90)
+
+    assert encoded.startswith(b"\xff\xd8")
+    assert encoded.endswith(b"\xff\xd9")
+
+
+def test_attention_mode_auto_uses_sparse(monkeypatch: pytest.MonkeyPatch) -> None:
+    from flashvsr.impl.grpc import uplift_server as grpc_server
+
+    monkeypatch.setattr(grpc_server, "_sparse_attention_available", lambda: True)
+
+    assert grpc_server._resolve_attention_mode("auto") == "sparse"
+    assert grpc_server._resolve_attention_mode("sparse") == "sparse"
+    assert grpc_server._resolve_attention_mode("full") == "full"
+
+
+def test_attention_mode_auto_falls_back_to_full_when_sparse_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from flashvsr.impl.grpc import uplift_server as grpc_server
+
+    monkeypatch.setattr(
+        grpc_server,
+        "_sparse_attention_available",
+        lambda: False,
+        raising=False,
+    )
+
+    assert grpc_server._resolve_attention_mode("auto") == "full"
+
+
+def test_grpc_server_defaults_to_loopback() -> None:
+    from flashvsr.impl.grpc import uplift_server as grpc_server
+
+    assert grpc_server._grpc_listen_address(50051) == "127.0.0.1:50051"
+
+
+def test_unary_session_token_prevents_cross_client_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from flashvsr.impl.grpc import uplift_server as grpc_server
+
+    class Context:
+        code = None
+        details = None
+
+        def set_code(self, code) -> None:
+            self.code = code
+
+        def set_details(self, details: str) -> None:
+            self.details = details
+
+    server = object.__new__(grpc_server.FlashVSR)
+    server._default_H = 4
+    server._default_W = 6
+    server._default_scale = 2
+    server._default_sparse_ratio = 1.5
+    server._attention_mode = "full"
+    server._sessions = {}
+    server._sessions_lock = threading.Lock()
+    monkeypatch.setattr(
+        server,
+        "_get_upsampler",
+        lambda *_args: SimpleNamespace(initialize_cache=lambda: object()),
+    )
+
+    owner = Context()
+    started = server.start_session(
+        pb2.StartSessionRequest(session_id="owner", input_height=4, input_width=6),
+        owner,
+    )
+
+    assert started.success
+    assert started.session_token
+
+    attacker = Context()
+    denied_end = server.end_session(pb2.EndSessionRequest(session_id="owner"), attacker)
+    assert not denied_end.success
+    assert attacker.code == grpc_server.grpc.StatusCode.PERMISSION_DENIED
+    assert "owner" in server._sessions
+
+    chunk_attacker = Context()
+    denied_chunk = server.upscale_chunk(
+        pb2.UpscaleChunkRequest(session_id="owner"),
+        chunk_attacker,
+    )
+    assert denied_chunk.error == "invalid session token"
+    assert chunk_attacker.code == grpc_server.grpc.StatusCode.PERMISSION_DENIED
+
+    ended = server.end_session(
+        pb2.EndSessionRequest(session_id="owner", session_token=started.session_token),
+        owner,
+    )
+    assert ended.success
+    assert "owner" not in server._sessions

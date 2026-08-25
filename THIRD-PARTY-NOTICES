@@ -52,7 +52,7 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 ================================================================================
-Optional integration: integrations/omnidreams
+Optional integration: integrations_v2/omnidreams
 ================================================================================
 
 mediapy                Apache-2.0   https://github.com/google/mediapy
@@ -68,33 +68,33 @@ NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX
     and resulting native module are not redistributed in this repository.
 
 Files in
-    integrations/omnidreams/omnidreams/conditioning/world_scenario/
+    integrations_v2/omnidreams/conditioning/world_scenario/
     (camera_base.py, ftheta.py, pinhole.py)
 were originally authored as part of the NVIDIA Cosmos-Drive-Dreams project
 (https://github.com/nv-tlabs/Cosmos-Drive-Dreams) and are redistributed and
 modified under the same Apache-2.0 license.
 
 NVIDIA OmniDreams single-view native builds use script-managed, pinned source
-downloads under integrations/omnidreams/omnidreams_singleview/3rdparty/.
+downloads under integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/.
 Those downloaded trees are ignored by Git and are not source-level
 redistributions in this repository.
 
 CUTLASS                BSD-3-Clause https://github.com/NVIDIA/cutlass
-    Pinned by integrations/omnidreams/omnidreams_singleview/
+    Pinned by integrations_v2/omnidreams/impl/omnidreams_singleview/
     thirdparty_sources.json at
     f3fde58372d33e9a5650ba7b80fc48b3b49d40c8.
     The sync script removes CUTLASS's python/CuTeDSL subtree because the
     native build does not use it and upstream licenses it separately. The
     script also applies the project-owned SM120 TMA descriptor patch under
-    integrations/omnidreams/omnidreams_singleview/patches/cutlass/.
+    integrations_v2/omnidreams/impl/omnidreams_singleview/patches/cutlass/.
 
 SageAttention          Apache-2.0   https://github.com/thu-ml/SageAttention
-    Pinned by integrations/omnidreams/omnidreams_singleview/
+    Pinned by integrations_v2/omnidreams/impl/omnidreams_singleview/
     thirdparty_sources.json at
     d1a57a546c3d395b1ffcbeecc66d81db76f3b4b5.
 
 SpargeAttn             Apache-2.0   https://github.com/thu-ml/SpargeAttn
-    Pinned by integrations/omnidreams/omnidreams_singleview/
+    Pinned by integrations_v2/omnidreams/impl/omnidreams_singleview/
     thirdparty_sources.json at
     bfd980b781784c04ad6a53e7ee657c0645d99171.
 
@@ -111,7 +111,7 @@ only when an RTX preset is selected, and is not redistributed as source in
 this repository.
 
 ================================================================================
-Optional integration: integrations/lingbot
+Optional integration: integrations_v2/lingbot
 ================================================================================
 
 aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp
@@ -130,7 +130,7 @@ notice inline; license texts are reproduced under LICENSES/.
 HPG-2011 NVIDIA CUDA Rasterizer port
 --------------------------------------------------------------------------------
 
-Path:    integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+Path:    integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
 License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)
          Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved.
 
@@ -148,7 +148,7 @@ deviations.
 LodePNG
 --------------------------------------------------------------------------------
 
-Path:     integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
+Path:     integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
           cudaraster/framework/3rdparty/lodepng/{lodepng.h, lodepng.cpp}
 License:  Zlib (see LICENSES/Zlib.txt)
           Copyright (c) 2005-2011 Lode Vandevenne

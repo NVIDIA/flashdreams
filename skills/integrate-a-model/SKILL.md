@@ -9,14 +9,14 @@ The ordered procedure for binding an external video model to the flashdreams
 framework. Read the **`flashdreams-integrations`** skill first for the architecture
 (layers, contracts, the cache tree) — this skill is the *route*, that one is the *map*.
 
-**Worked example throughout:** `integrations/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
-which reuses the `integrations/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
+**Worked example throughout:** `integrations_v2/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
+which reuses the `integrations_v2/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
 reference integration; read it side-by-side. Match `python-docstring-style`.
 
 ## The core bet: reuse, don't re-implement
 
 Most modern video models are DiT-family. Before writing anything, find the closest
-existing flashdreams recipe (`integrations/wan22`, `wan21`, `self_forcing`, …) and
+existing flashdreams recipe (`integrations_v2/wan22`, `wan21`, `self_forcing`, …) and
 **subclass it**. HY-WorldPlay is a Wan 2.2 TI2V-5B with three conditioner deltas — it
 adds ~3 small subclasses, not a from-scratch network. If your model maps onto an
 existing backbone, the job is *config + checkpoint remap + deltas + verify*, which is
@@ -27,7 +27,7 @@ say so up front.
 
 ## Phase 0 — Scope (½–2 days; do this before promising a timeline)
 
-**First pick the integration lane** — the `integrations/` directory has several, and they
+**First pick the integration lane** — the `integrations_v2/` directory has several, and they
 differ a lot in effort. HY-WorldPlay is the *runner-plugin* lane, **not** the universal
 pattern:
 
@@ -74,13 +74,13 @@ tests/
 └── parity_check/  # GPU parity harness (gitignored heavy deps)
 ```
 
-**Lane A — in-tree (`integrations/<name>/`)**, for upstreaming into flashdreams (mirror
-`integrations/self_forcing/` / `integrations/hy_worldplay/`):
-- The repo-root `integrations/*` glob auto-adds it to the uv workspace.
+**Lane A — in-tree (`integrations_v2/<name>/`)**, for upstreaming into flashdreams (mirror
+`integrations_v2/self_forcing/` / `integrations_v2/hy_worldplay/`):
+- The repo-root `integrations_v2/*` glob auto-adds it to the uv workspace.
 - `pyproject.toml` `version` must match `flashdreams._version.__version__`; the
   `sync-version` pre-commit hook enforces it (CI fails otherwise).
 - `[project.entry-points."flashdreams.runner_configs"]` maps slug → config (see
-  `integrations/hy_worldplay/pyproject.toml`):
+  `integrations_v2/hy_worldplay/pyproject.toml`):
   ```toml
   [project.entry-points."flashdreams.runner_configs"]
   "hy-worldplay-wan-i2v-5b" = "hy_worldplay.config:RUNNER_HY_WORLDPLAY_WAN_I2V_5B"
@@ -222,7 +222,7 @@ In order of cost:
 
 1. **`ci_cpu` smoke** (`test_smoke.py`): imports, the static config is fully swapped,
    runner slug == pipeline name, entry point registered, remap bijection tests.
-   Run: `uv run --extra dev pytest integrations/<name>/tests/test_smoke.py`.
+   Run: `uv run --extra dev pytest integrations_v2/<name>/tests/test_smoke.py`.
 2. **Checkpoint weight-equality** (Phase 3) — proves the load is correct without a GPU.
 3. **GPU rollout smoke** — `flashdreams-run <slug> --ckpt-path <distilled> --num-chunk 1`
    produces a valid mp4. (Use `--ckpt-path`; a base/un-distilled run gives identity-only
@@ -273,8 +273,8 @@ In order of cost:
 
 To test the skill, point a fresh agent (no prior context) at the repo state **before**
 an integration landed — a branch that **removes the integration plugins but keeps this
-skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations/wan22
-integrations/hy_worldplay` off a branch that already has this skill). Have it reproduce
+skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations_v2/wan22
+integrations_v2/hy_worldplay` off a branch that already has this skill). Have it reproduce
 the integration following this skill; score against the merged result (the integration
 PR + its follow-ups) — key set / shapes, parity `|Δ|`, test coverage, and how many
 gotchas it hits unaided. Feed the gaps back into this file.

@@ -8,6 +8,7 @@ const video = document.getElementById("video");
 const status = document.getElementById("status");
 const pressedKeys = new Set();
 const pressedButtons = new Set();
+const gamepadSnapshots = new Map();
 let lastPointerPosition = {x: 0, y: 0};
 
 const showStatus = (message, isError = false) => {
@@ -140,6 +141,70 @@ video.addEventListener("wheel", event => {
 
 video.addEventListener("focus", () => send({type: "focus", focused: true}));
 video.addEventListener("blur", () => send({type: "focus", focused: false}));
+
+const touchPayload = (event, touch, action) => {
+  const bounds = renderedVideoBounds();
+  return {
+    type: "touch",
+    action,
+    touch_id: touch.identifier,
+    x: Math.min(1, Math.max(0, (touch.clientX - bounds.left) / bounds.width)),
+    y: Math.min(1, Math.max(0, (touch.clientY - bounds.top) / bounds.height)),
+    pressure: Math.min(1, Math.max(0, touch.force || 0)),
+    primary: touch.identifier === event.touches[0]?.identifier,
+  };
+};
+
+for (const [domEvent, action] of [
+  ["touchstart", "start"],
+  ["touchmove", "move"],
+  ["touchend", "end"],
+  ["touchcancel", "cancel"],
+]) {
+  video.addEventListener(domEvent, event => {
+    for (const touch of event.changedTouches) {
+      send(touchPayload(event, touch, action));
+    }
+    event.preventDefault();
+  }, {passive: false});
+}
+
+const gamepadPayload = (gamepad, action = "state") => ({
+  type: "gamepad",
+  action,
+  index: gamepad.index,
+  id: gamepad.id,
+  mapping: gamepad.mapping,
+  axes: Array.from(gamepad.axes),
+  buttons: gamepad.buttons.map(button => button.value),
+  pressed: gamepad.buttons.map(button => button.pressed),
+});
+
+window.addEventListener("gamepadconnected", event => {
+  gamepadSnapshots.delete(event.gamepad.index);
+  send(gamepadPayload(event.gamepad, "connected"));
+});
+
+window.addEventListener("gamepaddisconnected", event => {
+  gamepadSnapshots.delete(event.gamepad.index);
+  send(gamepadPayload(event.gamepad, "disconnected"));
+});
+
+const pollGamepads = () => {
+  for (const gamepad of navigator.getGamepads?.() || []) {
+    if (!gamepad) {
+      continue;
+    }
+    const payload = gamepadPayload(gamepad);
+    const snapshot = JSON.stringify(payload);
+    if (gamepadSnapshots.get(gamepad.index) !== snapshot) {
+      gamepadSnapshots.set(gamepad.index, snapshot);
+      send(payload);
+    }
+  }
+  window.requestAnimationFrame(pollGamepads);
+};
+window.requestAnimationFrame(pollGamepads);
 
 window.addEventListener("blur", () => {
   for (const key of pressedKeys) {

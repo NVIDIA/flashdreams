@@ -34,12 +34,12 @@ Developer Guides
       How every overridable field is surfaced as a CLI flag, how
       method defaults compose, and how to layer overrides on top.
 
-   .. grid-item-card:: Runner slugs and demo dispatch
+   .. grid-item-card:: Application slugs and adapter dispatch
       :link: runner_slugs
       :link-type: doc
 
-      How public runner names are registered, parsed, matched to manifests,
-      and dispatched to integration-owned demo launch modes.
+      How reusable applications are registered and bound to model-owned
+      configuration through minimal integration adapters.
 
    .. grid-item-card:: Add a new method
       :link: new_integration

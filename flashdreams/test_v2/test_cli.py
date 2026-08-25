@@ -12,10 +12,17 @@ import argparse
 import json
 import shutil
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import torch
+from t2v import T2VApplication, T2VApplicationDefaults
+from t2v.testing import (
+    FakeT2VPipeline,
+    FakeT2VPipelineConfig,
+    TransparentUIRenderer,
+)
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
@@ -36,9 +43,6 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2.application import T2VApplication
-from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
-from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -80,7 +84,16 @@ class StubT2VApplication(T2VApplication):
                 device="cpu",
                 fps=8,
                 output_layout=VideoTensorLayout.tchw,
-            )
+            ),
+            ui_renderer_factory=lambda width, height: TransparentUIRenderer(
+                width=pipeline.width, height=pipeline.height
+            ),
+        )
+
+    def session_desc(self) -> SessionDesc:
+        return replace(
+            super().session_desc(),
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
         )
 
 

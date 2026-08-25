@@ -248,7 +248,7 @@ class TAEHV(nn.Module):
     pass ``checkpoint_path=None`` to ``super().__init__`` -- which stops
     after the meta construction -- and then call
     :meth:`load_from_checkpoint` once the mutation is done. See
-    ``integrations/flashvsr/flashvsr/decoder/network.py`` for the live
+    ``integrations_v2/flashvsr/decoder/network.py`` for the live
     example.
 
     Per-checkpoint key remaps and shape patches live in

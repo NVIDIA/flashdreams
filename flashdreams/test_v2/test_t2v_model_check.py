@@ -9,17 +9,17 @@ that says nothing useful about a run that fell short is worse than no check.
 """
 
 import pytest
-
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2.application import T2VApplication
-from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
-from flashdreams.t2v_v2.testing import (
+from t2v import T2VApplication, T2VApplicationDefaults
+from t2v.testing import (
     ExpectedFrameStats,
     FakeT2VPipeline,
     FakeT2VPipelineConfig,
+    TransparentUIRenderer,
     check_t2v_model_impl,
 )
+
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -52,7 +52,10 @@ def test_the_check_reports_what_a_run_failed_to_generate() -> None:
             device="cpu",
             fps=_FPS,
             output_layout=VideoTensorLayout.tchw,
-        )
+        ),
+        ui_renderer_factory=lambda width, height: TransparentUIRenderer(
+            width=width, height=height
+        ),
     )
 
     result = check_t2v_model_impl(

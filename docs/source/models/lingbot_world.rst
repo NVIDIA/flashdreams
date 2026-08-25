@@ -58,7 +58,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/lingbot
+   uv sync --project integrations_v2/lingbot
 
 Running the method
 ------------------
@@ -68,7 +68,7 @@ example:
 
 .. code-block:: bash
 
-   uv run --project integrations/lingbot \
+   uv run --project integrations_v2/lingbot \
        flashdreams-run \
        lingbot-world-fast \
        --example-data True \
@@ -86,7 +86,7 @@ For multi-GPU inference, run the same command under ``torchrun`` (taking
 
 .. code-block:: bash
 
-   uv run --project integrations/lingbot \
+   uv run --project integrations_v2/lingbot \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        lingbot-world-fast \
        --example-data True \
@@ -118,7 +118,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/lingbot \
+   uv run --project integrations_v2/lingbot \
        flashdreams-run \
        lingbot-world-fast \
        --help
@@ -153,7 +153,7 @@ For example, to run the V2 model on a single GPU:
 
 .. code-block:: bash
 
-   uv run --project integrations/lingbot \
+   uv run --project integrations_v2/lingbot \
        flashdreams-run \
        lingbot-world-v2-14b-causal-fast \
        --example-data True \
@@ -295,9 +295,9 @@ matched settings.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings,
          and all runs use Ulysses sequence parallelism for multi-GPU inference.
          For the official LingBot-World implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/parity_check">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests/parity_check">this instruction</a>.
          For the LightX2V baseline, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/baseline_lightx2v">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests/baseline_lightx2v">this instruction</a>.
        </p>
      </figcaption>
    </figure>

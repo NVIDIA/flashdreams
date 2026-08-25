@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "demo",
+      "repo": "C:\\code\\ui-simple-v2-backup\\.tmp\\codex-omnidreams-layout\\pytest\\test_verify_reports_missing_ma0\\source",
+      "commit": "46d3a16fa6c4004b611c47646947c04a5fb1a000",
+      "directory": "demo",
+      "delete_paths": [
+        "remove_me"
+      ]
+    }
+  ]
+}

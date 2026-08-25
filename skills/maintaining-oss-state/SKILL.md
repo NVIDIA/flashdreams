@@ -123,17 +123,17 @@ Rules:
 - External contributors add their **own** copyright line *above* the
   NVIDIA line — keep both. See `CONTRIBUTING.md:200-235`.
 - The Cosmos-Drive-Dreams files
-  (`integrations/omnidreams/omnidreams/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
+  (`integrations_v2/omnidreams/impl/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
   carry two `SPDX-FileCopyrightText` lines (NVIDIA + Cosmos-Drive-Dreams
   contributors). Mirror that pattern when redistributing other modified
   upstream Apache-2.0 source.
 
 ### What's exempt (handled by `REUSE.toml`)
 
-- Vendored upstream under `integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/**`
+- Vendored upstream under `integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/**`
   (carries its own BSD-3 / Zlib banners; `override` annotation in REUSE.toml).
 - Generated protobuf stubs under
-  `integrations/omnidreams/omnidreams/grpc/protos/*_pb2*` (regeneration
+  `integrations_v2/omnidreams/impl/grpc/protos/*_pb2*` (regeneration
   script is project-owned; aggregate annotation covers them).
 - Binary assets (`assets/**.png`, `.jpg`, `.jpeg`, `.webp`, `.mp4`,
   `.gif`, `.svg`) and lock files (`uv.lock`).
@@ -196,9 +196,9 @@ Two subtrees physically vendored into this repository carry
 different OSI-approved licenses; full texts are reproduced under
 LICENSES/:
 
-  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+  - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
         BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt)
-  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
+  - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
 
@@ -241,7 +241,7 @@ Reference architectures
        and confirming weights/sources aren't redistributed>
 
 ================================================================================
-Optional integration: integrations/<name>
+Optional integration: integrations_v2/<name>
 ================================================================================
 
   <one block per integration that pulls in deps not used by the root
@@ -350,9 +350,9 @@ This is the highest-frequency OSS-state edit. It touches **four** places:
 Vendoring upstream source into the repo (the cudaraster + LodePNG
 pattern, PR #111) is heavier — it touches **six** places:
 
-1. **Physically place the source** under an `integrations/.../` subtree
+1. **Physically place the source** under an `integrations_v2/.../impl/` subtree
    that signals it's third-party (e.g.,
-   `integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/`).
+   `integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/`).
    Keep the upstream banners verbatim in the file headers — don't
    replace them with NVIDIA SPDX headers.
 2. **Add the full license text** under `LICENSES/<SPDX>.txt`.
@@ -538,7 +538,7 @@ Triggers: every PR, every push to `main`, and every merge-queue group
   and is out of OSRB scope per the policy bullet. If it's in
   `dependencies = [...]`, it ships to every consumer — OSRB-scoped.
   The `[dev]` extras in `flashdreams/pyproject.toml` and
-  `integrations/*/pyproject.toml` are the seams.
+  `integrations_v2/*/pyproject.toml` are the seams.
 - **Forgetting that `gitlab/main` and `origin/main` have diverged.**
   Internal `gitlab` `main` carries 10+ commits not on `origin`
   (`Add --offload-text-encoder for batch run`, etc.) and is missing
@@ -580,13 +580,13 @@ weak-copyleft):**
 5. (Optional) Update `THIRD-PARTY-NOTICES` if its row drifts
    (e.g., URL changed).
 
-**Vendor upstream `qux` (BSD-3) into `integrations/foo/qux/`:**
+**Vendor upstream `qux` (BSD-3) into `integrations_v2/foo/qux/`:**
 
 1. Drop source in with upstream banners preserved.
 2. Add `LICENSES/BSD-3-Clause.txt` if not already present.
 3. New `[[annotations]]` block in `REUSE.toml` with
    `precedence = "override"`, BSD-3 SPDX, upstream copyright, path
-   `"integrations/foo/qux/**"`.
+   `"integrations_v2/foo/qux/**"`.
 4. New block in `THIRD-PARTY-NOTICES` "Source-level
    redistributions" — path,
    `License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)`,

@@ -504,7 +504,7 @@ class TestCompatGuards:
     def test_aiortc_sender_module_importable(self) -> None:
         # Any structural change to rtcrtpsender that breaks import will
         # break the runtime; catch it here before the first RTP packet.
-        import aiortc.rtcrtpsender  # noqa: F401
+        import aiortc.rtcrtpsender
 
 
 class TestNvencResultConversion:

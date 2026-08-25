@@ -46,7 +46,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/hy_worldplay
+   uv sync --project integrations_v2/hy_worldplay
 
 Running the method
 ------------------
@@ -56,7 +56,7 @@ image (or ``--example-data``) and the distilled checkpoint:
 
 .. code-block:: bash
 
-   uv run --project integrations/hy_worldplay \
+   uv run --project integrations_v2/hy_worldplay \
        flashdreams-run \
        hy-worldplay-wan-i2v-5b \
        --example-data True \
@@ -79,7 +79,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/hy_worldplay \
+   uv run --project integrations_v2/hy_worldplay \
        flashdreams-run \
        hy-worldplay-wan-i2v-5b \
        --help
@@ -151,7 +151,7 @@ under matched settings.
          704x1280, seed=0 on a single GB300. For an apples-to-apples comparison, both implementations are
          forced to use the cuDNN attention backend and torch.compile under matched runtime settings.
          For the official HY-WorldPlay implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/hy_worldplay/tests/parity_check">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay/tests/parity_check">this instruction</a>.
        </p>
      </figcaption>
    </figure>

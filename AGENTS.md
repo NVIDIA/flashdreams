@@ -15,13 +15,13 @@ Start here, then use the narrower docs for the task in front of you:
 - `flashdreams/flashdreams/infra/`: framework contracts and orchestration for configs, pipelines, encoders, decoders, diffusion models, schedulers, runners, profiling, and CUDA graph wrapping.
 - `flashdreams/flashdreams/recipes/`: built-in reusable recipe code such as WAN, Cosmos, TAEHV, and template wiring.
 - `flashdreams/flashdreams/configs/`, `plugins/`, and `scripts/`: runner registry, plugin discovery, and CLI entry points.
-- `integrations/<name>/`: workspace-member model/plugin packages with their own configs, runners, tests, README files, and `pyproject.toml` entry points.
+- `integrations_v2/<name>/`: workspace-member model/plugin packages. Keep `config.py` as the only root Python module; put model code, data, and vendored source in `impl/`, application adapters in `apps/<slug>/`, and tests in `tests/`. Besides `README.md` and `pyproject.toml`, reserve the root for rare integration-wide operational scripts.
 - `docs/source/`: Sphinx sources for quickstart, models, developer guides, API, and community docs.
 - `tests/`: root test helpers plus package/integration tests. Ignore `.claude/worktrees/` when scanning the source tree; those are nested worktree artifacts, not the repo's current source.
 
 ## Skill Map
 
-- `skills/flashdreams-integrations`: read before changing recipe/integration architecture, runner registration, pipeline wiring, or model boundaries.
+- `skills/flashdreams-integrations`: read before changing recipe/integration architecture, application adapter registration, pipeline wiring, or model boundaries.
 - `skills/integrate-a-model`: read before porting a new external model or reproducing an integration workflow.
 - `skills/profile-model-performance`: read before starting performance work on an existing model integration, demo, runner, or serving path; use it to map execution, add stage timings, and identify decode/model/cache/transfer/presentation bottlenecks.
 - `skills/apply-inference-optimizations`: read before porting runtime speedups such as bounded K/V caches, overlap, compile, CUDA graphs, decoder layout changes, or presentation queue tuning into an integration.
@@ -62,7 +62,7 @@ Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; `CO
 
 ## Boundaries
 
-Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `core` and `infra` must not import from `integrations/`; expose a generic config slot or override hook instead of adding model-specific branches. Built-in reusable model pieces belong in `flashdreams/flashdreams/recipes/`; standalone plugin packages belong in `integrations/<name>/`.
+Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `core` and `infra` must not import from `integrations_v2/`; expose a generic config slot or override hook instead of adding model-specific branches. Built-in reusable model pieces belong in `flashdreams/flashdreams/recipes/`; standalone plugin packages belong in `integrations_v2/<name>/`.
 
 ## Known Pitfalls
 

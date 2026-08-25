@@ -232,7 +232,7 @@ short ping comment.
   locally is the easiest way to avoid surprises.
 - Prefer small, well-named functions over long functions with comments
   explaining each block. Comments should explain *why*, not *what*.
-- Tests live in `flashdreams/tests/` and `integrations/*/tests/`. Use
+- Tests live in `flashdreams/tests/` and `integrations_v2/*/tests/`. Use
   `pytest` and prefer existing fixtures over hand-rolled setup. See
   [Testing](#testing) for marker requirements.
 - Every source file added by a contribution must include the SPDX
@@ -320,7 +320,7 @@ the declared minimums. This means:
 
 ## Working with a single integration package
 
-The workspace contains many integration packages under `integrations/`.
+The workspace contains many integration packages under `integrations_v2/`.
 A full `uv sync` installs dependencies for *all* of them. If you only
 need one (e.g. you're working on `omnidreams`), use the distribution
 package name with `--package` to sync only that package's dependencies:
@@ -330,7 +330,7 @@ package name with `--package` to sync only that package's dependencies:
 uv sync --package flashdreams-omnidreams --extra dev
 
 # Run a script/test from that integration only
-uv run --package flashdreams-omnidreams pytest integrations/omnidreams/tests/ -m ci_gpu
+uv run --package flashdreams-omnidreams pytest integrations_v2/omnidreams/tests/ -m ci_gpu
 ```
 
 This avoids pulling in (and compiling) dependencies that other
@@ -340,18 +340,18 @@ Available integration packages:
 
 | Path | `uv --package` name |
 |------|---------------------|
-| `integrations/causal_forcing` | `flashdreams-causal-forcing` |
-| `integrations/cosmos_predict2` | `flashdreams-cosmos-predict2` |
-| `integrations/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
-| `integrations/flashvsr` | `flashdreams-flashvsr` |
-| `integrations/hy_worldplay` | `flashdreams-hy-worldplay` |
-| `integrations/lingbot` | `flashdreams-lingbot` |
-| `integrations/omnidreams` | `flashdreams-omnidreams` |
-| `integrations/self_forcing` | `flashdreams-self-forcing` |
-| `integrations/wan21` | `flashdreams-wan21` |
-| `integrations/wan22` | `flashdreams-wan22` |
+| `integrations_v2/causal_forcing` | `flashdreams-causal-forcing` |
+| `integrations_v2/cosmos_predict2` | `flashdreams-cosmos-predict2` |
+| `integrations_v2/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
+| `integrations_v2/flashvsr` | `flashdreams-flashvsr` |
+| `integrations_v2/hy_worldplay` | `flashdreams-hy-worldplay` |
+| `integrations_v2/lingbot` | `flashdreams-lingbot` |
+| `integrations_v2/omnidreams` | `flashdreams-omnidreams` |
+| `integrations_v2/self_forcing` | `flashdreams-self-forcing` |
+| `integrations_v2/wan21` | `flashdreams-wan21` |
+| `integrations_v2/wan22` | `flashdreams-wan22` |
 
-The nested `integrations/omnidreams/ludus-renderer` workspace package is
+The nested `integrations_v2/omnidreams/impl/ludus-renderer` workspace package is
 named `ludus-renderer` and is installed as part of Omnidreams workflows
 that need it.
 

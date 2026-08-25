@@ -116,47 +116,114 @@ class FocusUserInputEventData(UserInputEventData):
     """Whether the video viewport owns keyboard focus."""
 
 
-# Below are stubbed input event data implementations for future clients.
-
-
 @dataclass(frozen=True, slots=True, eq=False)
 class TouchUserInputEventData(UserInputEventData):
-    """User input event data for touch."""
+    """One browser or native touch-point update."""
 
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
         return "touch"
 
+    action: Literal["start", "move", "end", "cancel"] = "move"
+    """Touch lifecycle action."""
+    touch_id: int = 0
+    """Client-local identifier that remains stable for the touch."""
+    x: float = 0.0
+    """Horizontal coordinate normalized to the video viewport."""
+    y: float = 0.0
+    """Vertical coordinate normalized to the video viewport."""
+    pressure: float = 0.0
+    """Normalized contact pressure."""
+    primary: bool = False
+    """Whether this is the primary touch point."""
+
 
 @dataclass(frozen=True, slots=True, eq=False)
 class GamepadUserInputEventData(UserInputEventData):
-    """User input event data for gamepad."""
+    """A complete gamepad state or connection transition.
+
+    State snapshots keep axes and analog button values together so a model
+    loop can consume one internally consistent controller sample.
+    """
 
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
         return "gamepad"
 
+    action: Literal["connected", "disconnected", "state"] = "state"
+    """Kind of gamepad update."""
+    index: int = 0
+    """Client-local gamepad index."""
+    controller_id: str = ""
+    """Controller identifier reported by the client."""
+    mapping: str = ""
+    """Controller mapping name, such as ``"standard"``."""
+    axes: tuple[float, ...] = ()
+    """Normalized analog axes, generally in ``[-1, 1]``."""
+    buttons: tuple[float, ...] = ()
+    """Analog button values, generally in ``[0, 1]``."""
+    pressed: tuple[bool, ...] = ()
+    """Digital pressed state corresponding to :attr:`buttons`."""
+
 
 @dataclass(frozen=True, slots=True, eq=False)
 class GameWheelUserInputEventData(UserInputEventData):
-    """User input event data for game wheel."""
+    """Normalized steering-wheel controls.
+
+    A client that knows its wheel mapping can publish this higher-level event
+    instead of making applications guess which raw gamepad axes are pedals.
+    """
 
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
         return "game_wheel"
 
+    action: Literal["connected", "disconnected", "state"] = "state"
+    """Kind of wheel update."""
+    index: int = 0
+    """Client-local controller index."""
+    controller_id: str = ""
+    """Controller identifier reported by the client."""
+    steering: float = 0.0
+    """Steering position in ``[-1, 1]``."""
+    throttle: float = 0.0
+    """Throttle position in ``[0, 1]``."""
+    brake: float = 0.0
+    """Brake position in ``[0, 1]``."""
+    clutch: float = 0.0
+    """Clutch position in ``[0, 1]``."""
+    buttons: tuple[bool, ...] = ()
+    """Digital wheel-button states."""
+
 
 @dataclass(frozen=True, slots=True, eq=False)
 class XRControllerUserInputEventData(UserInputEventData):
-    """User input event data for XR controllers."""
+    """One normalized XR-controller state."""
 
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
         return "xr_controller"
+
+    action: Literal["connected", "disconnected", "state"] = "state"
+    """Kind of XR-controller update."""
+    handedness: Literal["left", "right", "none"] = "none"
+    """Hand associated with the controller."""
+    controller_id: str = ""
+    """Controller identifier reported by the client."""
+    axes: tuple[float, ...] = ()
+    """Normalized touchpad or thumb-stick axes."""
+    buttons: tuple[float, ...] = ()
+    """Analog button values."""
+    pressed: tuple[bool, ...] = ()
+    """Digital button states."""
+    position: tuple[float, float, float] | None = None
+    """Optional controller position in the current XR reference space."""
+    orientation: tuple[float, float, float, float] | None = None
+    """Optional controller quaternion in ``(x, y, z, w)`` order."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)

@@ -1,0 +1,32 @@
+[project]
+name = "flashdreams-hdmap2v-v2"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["flashdreams[local-window,serving]"]
+
+[project.scripts]
+interactive-drive-configuration = "hdmap2v.interactive_drive.input_config.app:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["hdmap2v*"]
+
+[tool.setuptools.package-data]
+"hdmap2v.interactive_drive" = [
+    "configs/*.yaml",
+    "configs/wheels/*.yaml",
+    "assets/README.md",
+    "assets/wheel_and_pedals/*.png",
+    "README.md",
+    "hdmap.png",
+    "screenshot.jpg",
+]
+
+[tool.uv]
+managed = true

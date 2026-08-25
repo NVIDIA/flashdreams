@@ -31,13 +31,13 @@ Integration packages are not published to PyPI.  External consumers
 install them from the git repo:
 
 ```bash
-pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/wan21"
+pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations_v2/wan21"
 ```
 
 Or with uv:
 
 ```bash
-uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/wan21"
+uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations_v2/wan21"
 ```
 
 ## Package inventory

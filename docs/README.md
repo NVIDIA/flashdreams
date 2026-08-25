@@ -108,5 +108,5 @@ to be present.
 - **A new API category** — add `source/api/<topic>.rst`, then include it
   in the API toctree in `source/index.rst`.
 - **Plugin-first note** — most actively developed integrations live under
-  `integrations/<name>/`. Use `source/api/integrations.rst` to document
+  `integrations_v2/<name>/`. Use `source/api/integrations.rst` to document
   in-tree `flashdreams.recipes.*` API surface that remains public.

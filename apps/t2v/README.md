@@ -1,71 +1,44 @@
-# FlashDreams T2V applications
+# FlashDreams T2V application
 
-The shared T2V package provides the application/session protocol; each model
-integration owns its small `t2v/app.py` factory. A non-empty `--prompt` is
-required.
+`apps/t2v` owns the reusable text-to-video application, session, model loop,
+SlangPy UI, and test helpers. Model integrations do not implement demos. Their
+packages under `integrations_v2` only load a pipeline config and pass any
+model-shape differences to `T2VIntegrationHooks`.
 
-For a targeted workspace environment, select the integration distribution in
-the `uv run` command. This syncs the integration, `flashdreams-t2v`, and the
-local-window/serving dependencies without installing unrelated integrations:
+The installed adapter selects the model while every slug runs the same app:
 
-- `t2v-causal-forcing` → `--package flashdreams-causal-forcing`
-- `t2v-cosmos-predict2` → `--package flashdreams-cosmos-predict2`
-- `t2v-fastvideo-causal-wan22` → `--package flashdreams-fastvideo-causal-wan22`
-- `t2v-self-forcing` → `--package flashdreams-self-forcing`
-- `t2v-wan21` → `--package flashdreams-wan21`
-- `ti2v-wan22` → `--package flashdreams-wan22`
+- `t2v-causal-forcing`
+- `t2v-cosmos-predict2`
+- `t2v-fastvideo-causal-wan22`
+- `t2v-self-forcing`
+- `t2v-wan21`
+- `ti2v-wan22`
 
-The applications use one of two rollout modes:
-
-- `t2v-cosmos-predict2`, `t2v-wan21`, and `ti2v-wan22` are
-  **bidirectional**. They generate the complete clip in one rollout and require
-  exactly one block (`--total-blocks 1`, which is the default).
-- `t2v-causal-forcing`, `t2v-fastvideo-causal-wan22`, and
-  `t2v-self-forcing` are causal, streaming applications that can generate
-  multiple blocks.
-
-Native SlangPy window (default):
+For example:
 
 ```bash
-uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
+uv sync --package flashdreams-causal-forcing
+uv run flashdreams-run-v2 t2v-causal-forcing --mode webrtc -- \
   --prompt "A robot walking through a forest."
 ```
 
-The same demo can be launched from Python with the application runner used by
-`flashdreams-run t2v-causal-forcing`:
+Use `--mode mp4 --output-path artifacts/output.mp4` with the same slug for file
+output. Wan 2.2 TI2V additionally requires `--image-path`.
 
-```python
-from flashdreams.demo import run_application
+## Ownership boundary
 
-run_application(
-    "t2v-causal-forcing",
-    ["--prompt", "A robot walking through a forest."],
-)
-```
+- `apps/t2v`: application behavior, UI, sessions, transport-neutral model loop,
+  shared argument handling, and reusable tests.
+- `integrations_v2/<model>`: the model implementation, root `config.py`, runner
+  configs, and narrowly scoped hooks used by nested app adapters.
+- `integrations_v2/<model>/<app>/adapter.py`: bare-minimum binding from a model
+  config to this shared application.
 
-WebRTC browser backend:
+An integration adapter must not define an `IApplication`, `ISession`, model
+loop, UI loop, or model-specific application subclass.
 
-```bash
-uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
-  --output webrtc --host 0.0.0.0 --port 8080 \
-  --prompt "A robot walking through a forest."
-```
-
-Then open `http://localhost:8080/request_session`.
-
-MP4 artifact:
+## Tests
 
 ```bash
-uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
-  --output mp4 --output-path artifacts/output.mp4 \
-  --prompt "A robot walking through a forest."
+uv run --no-sync pytest apps/t2v -m ci_cpu -v
 ```
-
-Available slugs are `t2v-cosmos-predict2`, `t2v-causal-forcing`,
-`t2v-fastvideo-causal-wan22`, `t2v-self-forcing`, `t2v-wan21`, and
-`ti2v-wan22`. Wan 2.2 is first-frame conditioned and additionally requires
-`--image-path`; see its [integration README](../../integrations/wan22/README.md).
-All backends receive the same transport-neutral `InputHandler` and
-`OutputSink` API. Input handlers publish named, time-windowed
-`CanonicalInputWindow` values matching each application's
-`CanonicalInputSchema`.

@@ -89,7 +89,7 @@ Then launch your first model by following [the Get Started guide](https://nvidia
 For example, the offline Self-Forcing T2V quickstart command is:
 
 ```bash
-uv run --project integrations/self_forcing \
+uv run --project integrations_v2/self_forcing \
     flashdreams-run self-forcing-wan2.1-t2v-1.3b \
     --total-blocks 7
 ```
@@ -109,7 +109,7 @@ Drive a world model in real time with the unified OmniDreams `local-window` or
 ## Supported models
 
 FlashDreams ships first-party integrations under
-[`integrations/`](integrations/). Each model has a dedicated docs page with
+[`integrations_v2/`](integrations_v2/). Each model has a dedicated docs page with
 runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
 
 | Model | Family |

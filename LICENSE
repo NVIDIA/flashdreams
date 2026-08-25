@@ -10,11 +10,11 @@ FlashDreams is open-source software. Its licensing posture is:
   * Two subtrees physically present in this repository carry
     different OSI-approved licenses:
 
-      - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+      - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
         is licensed under the 3-clause BSD license. Full text:
         LICENSES/BSD-3-Clause.txt.
 
-      - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
+      - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
         cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         is licensed under the Zlib license. Full text:
         LICENSES/Zlib.txt.

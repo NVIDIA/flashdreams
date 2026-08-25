@@ -9,9 +9,9 @@ Two subtrees physically vendored into this repository carry
 different OSI-approved licenses; full texts are reproduced under
 LICENSES/:
 
-  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+  - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
         BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt)
-  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
+  - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
 

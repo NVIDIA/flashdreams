@@ -33,7 +33,7 @@ NVIDIA OmniDreams
 
       Model page
 
-   .. button-link:: https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams
+   .. button-link:: https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams
       :color: primary
 
       Official code
@@ -67,7 +67,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/omnidreams
+   uv sync --project integrations_v2/omnidreams
 
 Generate the default MP4 demo from bundled example data:
 
@@ -86,7 +86,7 @@ example:
 
 .. code-block:: bash
 
-   uv run --project integrations/omnidreams \
+   uv run --project integrations_v2/omnidreams \
        flashdreams-run \
        omnidreams \
        --example-data True \
@@ -113,7 +113,7 @@ For multi-GPU inference, use:
 
 .. code-block:: bash
 
-   uv run --project integrations/omnidreams \
+   uv run --project integrations_v2/omnidreams \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        omnidreams \
        --example-data True \
@@ -124,7 +124,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/omnidreams \
+   uv run --project integrations_v2/omnidreams \
        flashdreams-run \
        omnidreams \
        --help
@@ -320,7 +320,7 @@ LightVAE through the OmniDreams single-view CUDA extension
 PyTorch path. The extension builds against pinned checkouts of CUTLASS,
 SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
 repo. ``omnidreams-prepare --perf`` clones them at their pinned commits into
-``integrations/omnidreams/omnidreams_singleview/3rdparty/``:
+``integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/``:
 
 .. code-block:: bash
 

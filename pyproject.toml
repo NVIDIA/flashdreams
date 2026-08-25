@@ -1,18 +1,14 @@
 [tool.uv.workspace]
 members = [
     "flashdreams",
-    # Each populated subdir under ``integrations/`` or ``integrations_v2/``
-    # is a standalone external integration repo (e.g. ``causal_forcing`` /
-    # ``self_forcing``
-    # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
-    # folders alongside them are intentional placeholders for future
-    # extractions and don't ship a ``pyproject.toml`` yet.
-    "integrations/*",
+    # Each populated subdir under ``integrations_v2/`` is a standalone model
+    # package that owns its implementation, config, and nested app adapters.
     "integrations_v2/*",
     "apps/*",
-    # Nested sub-packages that the ``integrations/*`` glob does not reach.
-    "integrations/omnidreams/ludus-renderer",
+    # Nested sub-packages that the ``integrations_v2/*`` glob does not reach.
+    "integrations_v2/omnidreams/impl/ludus-renderer",
 ]
+exclude = ["apps/README.md", "integrations_v2/README.md"]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
 # compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
@@ -47,27 +43,14 @@ no-build-isolation-package = ["transformer-engine-torch"]
 extraPaths = [
     "flashdreams",
     "apps",
-    "integrations/omnidreams",
-    "integrations/omnidreams/ludus-renderer",
-    "integrations/causal_forcing",
-    "integrations/cosmos_predict2",
-    "integrations/flashvsr",
-    "integrations/fastvideo_causal_wan22",
-    "integrations/hy_worldplay",
-    "integrations/lingbot",
-    "integrations/sana",
-    "integrations/self_forcing",
-    "integrations/wan21",
-    "integrations/wan22",
-    "integrations_v2/color_fade",
-    "integrations_v2/null_model",
-    "integrations_v2/red_screen",
-    "integrations_v2/t2v_causal_forcing",
-    "integrations_v2/t2v_cosmos_predict2",
-    "integrations_v2/t2v_fastvideo_causal_wan22",
-    "integrations_v2/t2v_self_forcing",
-    "integrations_v2/t2v_wan21",
-    "integrations_v2/slangpy_ui_demo",
+    "integrations_v2",
+    "integrations_v2/omnidreams/impl/ludus-renderer",
+    "apps/color_fade",
+    "apps/interactive_drive",
+    "apps/action2v",
+    "apps/hdmap2v",
+    "apps/red_screen",
+    "apps/slangpy_ui_demo",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -81,43 +64,29 @@ python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "apps",
-    "integrations/omnidreams",
-    "integrations/omnidreams/ludus-renderer",
-    "integrations/causal_forcing",
-    "integrations/cosmos_predict2",
-    "integrations/flashvsr",
-    "integrations/fastvideo_causal_wan22",
-    "integrations/hy_worldplay",
-    "integrations/lingbot",
-    "integrations/sana",
-    "integrations/self_forcing",
-    "integrations/wan21",
-    "integrations/wan22",
-    "integrations_v2/color_fade",
-    "integrations_v2/null_model",
-    "integrations_v2/red_screen",
-    "integrations_v2/t2v_causal_forcing",
-    "integrations_v2/t2v_cosmos_predict2",
-    "integrations_v2/t2v_fastvideo_causal_wan22",
-    "integrations_v2/t2v_self_forcing",
-    "integrations_v2/t2v_wan21",
-    "integrations_v2/slangpy_ui_demo",
+    "integrations_v2",
+    "integrations_v2/omnidreams/impl/ludus-renderer",
+    "apps/color_fade",
+    "apps/interactive_drive",
+    "apps/action2v",
+    "apps/hdmap2v",
+    "apps/red_screen",
+    "apps/slangpy_ui_demo",
 ]
 
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
-# The ``omnidreams.interactive_drive`` subpackage's flashdreams / slangpy /
+# The ``hdmap2v.interactive_drive`` subpackage's flashdreams / slangpy /
 # numpy interop surface has known-untyped areas; exclude both the
 # subpackage source and its tests so workspace ``ty`` stays clean.
 # (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
     "**/protos/*pb2*",
-    "integrations/omnidreams/omnidreams/interactive_drive/**",
-    "integrations/omnidreams/tests/interactive_drive/**",
+    "apps/hdmap2v/hdmap2v/interactive_drive/**",
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;
     # not shipped product, mirrors the interactive_drive precedent above.
-    "integrations/hy_worldplay/tests/parity_check/**",
+    "integrations_v2/hy_worldplay/tests/parity_check/**",
 ]
 
 [tool.ty.rules]

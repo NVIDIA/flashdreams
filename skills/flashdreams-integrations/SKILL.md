@@ -1,13 +1,13 @@
 ---
 name: flashdreams-integrations
-description: Navigate the FlashDreams package layout and integration architecture: core vs infra vs recipes vs workspace integrations, Transformer/Encoder/StreamingDecoder/Pipeline config contracts, AR caches, CP, CFG, KV cache, CUDA graph wrapping, runner registration, and test placement. Use when adding or editing built-in recipes under flashdreams/flashdreams/recipes/, plugin packages under integrations/, model configs, pipeline wiring, or when the user asks where code belongs. The template recipe is the reference design.
+description: "Navigate the FlashDreams package layout and integration architecture: core vs infra vs recipes vs workspace integrations, application adapters, model configs, pipeline contracts, AR caches, CP, CFG, KV cache, CUDA graph wrapping, and test placement. Use when adding or editing built-in recipes, integrations_v2 packages, model configs, pipeline wiring, or when the user asks where code belongs."
 ---
 
 # flashdreams integration architecture
 
-A map of how `flashdreams/` is organized and how a single rollout flows through the framework. Read once before adding a built-in recipe under `flashdreams/flashdreams/recipes/`, adding a workspace integration under `integrations/`, or restructuring an existing one. Keep docstrings consistent with the `python-docstring-style` skill.
+A map of how `flashdreams/` is organized and how a single rollout flows through the framework. Read once before adding a built-in recipe under `flashdreams/flashdreams/recipes/`, adding a workspace integration under `integrations_v2/`, or restructuring an existing one. Keep docstrings consistent with the `python-docstring-style` skill.
 
-> For the **step-by-step procedure** of doing an integration end-to-end (scope → scaffold → recipe → checkpoint remap → conditioners → runner → verify → perf), see the **`integrate-a-model`** skill. This skill is the *map*; that one is the *route*.
+> For the **step-by-step procedure** of doing an integration end-to-end, see the **`integrate-a-model`** skill. This skill is the *map*; that one is the *route*.
 
 > **The fastest way to learn this codebase is to clone the structure of `flashdreams/flashdreams/recipes/template/`.** It is the reference integration — every contract this skill describes is wired up there in its minimal form. Skim it side-by-side with this document.
 
@@ -15,7 +15,7 @@ A map of how `flashdreams/` is organized and how a single rollout flows through 
 
 - Three layers, strict dependency direction: `core` -> `infra` -> recipes/integrations. `infra` and `core` never import from `integrations`. Recipes and integrations may reuse sibling recipe code when the dependency stays explicit and model-owned.
 - An integration = a `Pipeline` that owns a `DiffusionModel` + optional `Encoder` / `StreamingDecoder`. The `DiffusionModel` owns a `Transformer` + a `Scheduler`. You author the integration-specific subclasses of these and ship one **module-level literal** `StreamInferencePipelineConfig` per variant in `config.py`. No `build_*(...)` factories — variants derive from a base via `derive_config(BASE, ...)`.
-- Every config sets `name: str` (a stable slug). The per-integration `<NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig]` dict is keyed by `name`. There is no central pipeline-config registry — pipelines are reachable via direct per-integration imports. Integrations that ship a `Runner` (see §5) self-register their slugs into `flashdreams.configs.registry._SUPPORTED_RUNNERS` (read it via `supported_runners()`), which is the only registry the `flashdreams-run` CLI dispatches over.
+- Every config sets `name: str` (a stable slug). The per-integration `<NAME>_CONFIGS: dict[str, StreamInferencePipelineConfig]` dict is keyed by `name`. Applications are registered through `apps/<slug>/adapter.py`, which imports its defaults and hooks only from the integration's root `config.py`.
 - Per-rollout state lives in nested `*Cache` dataclasses that mirror the same containment tree.
 - Lifecycle: `pipeline.initialize_cache(...)` once, then a loop of `pipeline.generate(ar_idx, ...)` + `pipeline.finalize(ar_idx, ...)`.
 - Two shape regimes, separated by `transformer.patchify_and_maybe_split_cp`: pre-patchify `[B, C, T, H, W]` outside, post-patchify `[B, L/cp, C]` inside.
@@ -26,14 +26,14 @@ A map of how `flashdreams/` is organized and how a single rollout flows through 
 flashdreams/
 ├── core/        reusable numerical primitives (no integration-specific code, no infra deps)
 ├── infra/       framework contracts + orchestration (ABCs, base configs, pipeline glue)
-└── integrations/     concrete model bindings that satisfy the infra contracts
+└── integrations_v2/     concrete model bindings that satisfy the infra contracts
 ```
 
 | Layer    | Owns                                                                                                                                                                                                                                | Imports from |
 |----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------|
 | `core/`  | `attention/` (`NativeAttention`, `RingAttention`, `BlockKVCache`, `RotaryPositionEmbedding3D`, `apply_rope_freqs`), `checkpoint/load.py`, `distributed/` (`split_inputs_cp`, `cat_outputs_cp`, `*_object_list`), `io/`             | nothing in flashdreams |
 | `infra/` | `config` (`InstantiateConfig`, `derive_config`), `pipeline` (`StreamInferencePipeline*`), `diffusion.{model, scheduler, transformer}` (ABCs + base impls), `encoder` (`Encoder` + `StreamingEncoder` + `StreamingVideoEncoder` + `NullEncoder`), `decoder` (`StreamingDecoder` + `StreamingVideoDecoder`), `compile`, `cuda_graph`, `profiler` | `core`       |
-| `integrations/<name>/` | concrete model: `transformer/`, optional `encoder.py` / `decoder.py` / `pipeline.py`, `config.py` builders                                                                                                                  | `core`, `infra` |
+| `integrations_v2/<name>/` | root `config.py`, model code under `impl/`, app bindings under `apps/<slug>/`, and tests under `tests/`                                                                                                                  | `core`, `infra` |
 
 ### Where does this code go?
 
@@ -42,8 +42,9 @@ flashdreams/
 | New attention kernel or shared CUDA utility             | `core/`                            |
 | Reusable text/CLIP encoder any integration could use         | `infra/encoder/<kind>/`            |
 | New ABC or generic orchestrator                         | `infra/`                           |
-| Model-specific DiT, control encoder, or VAE             | `integrations/<name>/`                  |
-| CLI runner config + ``run()`` body                      | `integrations/<name>/runner.py`         |
+| Model-specific DiT, control encoder, or VAE             | `integrations_v2/<name>/impl/`             |
+| Reusable demo or UI implementation                     | `apps/<app_name>/`                         |
+| Model binding for a reusable app                       | `integrations_v2/<name>/apps/<app_name>/adapter.py` |
 
 If you're tempted to add an integration-specific branch in `infra/` or `core/` — expose a config slot or override hook instead.
 
@@ -104,13 +105,13 @@ Text encoders (subclass `Encoder`) go on `context_encoder`. Per-AR-step controls
 
 The decoder slot (`pipeline.decoder`) takes a `StreamingDecoder` (stateful, `forward(input, ar_idx, cache)`). Use `StreamingVideoDecoder` for pixel-video VAEs (WAN VAE, TAEHV) — it adds the spatial / temporal compression contracts the pipeline needs to size pixel I/O. Stateless decoders just return an empty `StreamingDecoderCache` from `initialize_autoregressive_cache` and ignore `autoregressive_index` / `cache` in `forward` (see `template/decoder.py`).
 
-**Where the per-AR-step control tensor flows.** This is the path a new control input (HDMap, camera trajectory, ...) takes through the framework. Defining a new control = author one `StreamingEncoder` subclass under `integrations/<name>/encoder.py` and consume the `control` arg inside your network's forward.
+**Where the per-AR-step control tensor flows.** This is the path a new control input (HDMap, camera trajectory, ...) takes through the framework. Defining a new control = author one `StreamingEncoder` subclass under `integrations_v2/<name>/impl/encoder.py` and consume the `control` arg inside your network's forward.
 
 ```
 user passes raw control as `pipeline.generate(ar_idx, cache, input=hdmap)`
           │     [B, C_ctrl, T, H, W]
           ▼
-pipeline.encoder.forward(input, ar_idx, cache.encoder_cache)        ← integrations/<name>/encoder.py
+pipeline.encoder.forward(input, ar_idx, cache.encoder_cache)        ← integrations_v2/<name>/impl/encoder.py
           │     [B, C_latent, T, H, W]   (still pre-patchify; same T/H/W as the noisy latent)
           ▼
 diffusion_model.generate(ar_idx, transformer_cache, input=encoded)
@@ -245,34 +246,23 @@ Compressed reference. The first time you touch one of these, also read the match
       cfg.name: cfg for cfg in (VARIANT_A, VARIANT_B, ...)
   }
   ```
-- **No central pipeline-config registry.** Pipeline configs are reachable via direct per-integration import (`from flashdreams.recipes.<name>.config import <NAME>_CONFIGS`). The only central registry is `flashdreams.configs.registry._SUPPORTED_RUNNERS` (read it via `supported_runners()`; see "Runner layer + `flashdreams-run` CLI" below) — integrations that haven't been wrapped into a runner just don't appear in `flashdreams-run`.
-- **`name` slug convention.** Lowercase, hyphen-separated, prefixed by the integration family (`omnidreams-...`, `causal-wan21-...`, `lingbot-world-...`). It's a stable user-facing key — treat it like an HTTP route, not a Python identifier. The matching runner (if any) reuses the same slug as its `runner_name`.
+- **No central pipeline-config registry.** Pipeline configs are reachable via direct per-integration import from `integrations_v2/<name>/config.py`; application adapters receive the selected config through their model-owned defaults/hooks.
+- **`name` slug convention.** Lowercase, hyphen-separated, prefixed by the integration family (`omnidreams-...`, `causal-wan21-...`, `lingbot-world-...`). It is a stable model-config key, not a Python identifier.
 - **No `build_*(...)` helpers.** If you find yourself writing one, use `derive_config` from a shared base instead. Tiny private factories that just shorten a repeated nested literal (e.g. one for each branch of a Wan 2.2 MoE) are fine — they take no "knobs" and just inline a fixed sub-config.
 - Export builder-side spatial defaults (`DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION`) as **module-level constants without leading underscore** in `config.py`. Examples and integrations import these to compute latent dimensions; keeping them private forces every caller to hard-code the same numbers.
 
-### Runner layer + `flashdreams-run` CLI
+### Application adapter layer
 
-A `StreamInferencePipeline` is intentionally narrow: it owns the encode → diffuse → decode loop given *already-prepared* inputs (text embeddings, padded first-frame, control latents). A `Runner` is the layer above that turns user-facing CLI arguments (`--prompt`, `--image_path`, `--output_dir`) into those pipeline inputs, drives the AR loop, and persists outputs. Two responsibilities, two classes — same shape as nerfstudio's `Trainer` ⊃ `Pipeline` split.
+A `StreamInferencePipeline` owns model execution for already-prepared inputs. User interaction, presentation, input loading, and demo loops live in a reusable package under `apps/<app_name>/`. An integration binds that application to one model without copying the app.
 
-- **`Runner` ABC + `RunnerConfig` base** live in `flashdreams/infra/runner.py`. Built-in per-variant subclasses live in `flashdreams/flashdreams/recipes/<name>/runner.py`. The base ``__init__`` eagerly does `pipeline = config.pipeline.setup().to(config.device).eval()`; the subclass's only job is `run()` — load runner-config inputs, build the cache, loop `generate` + `finalize`, persist outputs.
-- **Per-variant runners.** One `RunnerConfig` literal per shipped pipeline variant (mirrors the literal style of `<NAME>_CONFIGS`). When two variants share the same I/O (e.g. the three template configs), they can share one `_target` `Runner` class but each variant still gets its own `RunnerConfig` literal pinning the right `pipeline=`. When two variants need different I/O (e.g. Wan T2V vs I2V), each gets its own `Runner` subclass too. Reference templates: `flashdreams/flashdreams/recipes/template/runner.py` (one `Runner`, three configs) and `flashdreams/flashdreams/recipes/wan/runner.py` (two `Runner`s, two configs).
-- **`<NAME>_RUNNERS: dict[str, RunnerConfig]`** in `flashdreams/flashdreams/recipes/<name>/config.py` is keyed by `runner_name` (built from a tuple comprehension, same shape as `<NAME>_CONFIGS`). Each config module registers its runners with `register_runner(name, cfg, source="builtin")` (from `flashdreams.configs.registry`) so slugs land in `_SUPPORTED_RUNNERS`. `flashdreams/configs/runner_configs.py` side-effect-imports each recipe config module, so adding a new built-in runner means adding one `import flashdreams.recipes.<name>.config` line.
-- **`runner_name` mirrors `pipeline.name` by convention.** A smoke test (`tests/test_recipe_configs.py::test_runner_name_mirrors_pipeline_name`) enforces it for every in-tree runner so `flashdreams-run <name>` "just works". Per-runner literals are free to opt out (an integration with two runners over the same pipeline would have to), but the in-tree set holds the line.
-- **`_SUPPORTED_RUNNERS`** in `flashdreams/configs/registry.py` is the only central registry; treat it as immutable after integration imports complete and read it via `supported_runners()`. Each runner config carries its own one-line CLI description on `cfg.description` (annotated with `tyro.conf.Suppress` so it's hidden from per-runner `--help`). The smoke test `tests/test_recipe_configs.py::test_supported_runners_have_descriptions` enforces non-empty descriptions for every in-tree runner.
-- **`all_runners()`** returns the sorted, layered view: built-ins first, then plugin discoveries on top via `register_runner(..., source="plugin")` (a plugin can never silently shadow a shipped slug; collisions are logged and skipped).
-- **External runners** ship a `RunnerConfig` (with `description=` set) and register it via the `flashdreams.runner_configs` entry-point group:
-
-  ```toml
-  [project.entry-points."flashdreams.runner_configs"]
-  my-integration-fast = "my_pkg.runners:MY_RUNNER_CONFIG"
-  ```
-
-  The entry-point name is informational — the registry keys the runner by `cfg.runner_name`.
-- **Env-var backdoor** (matches `NERFSTUDIO_METHOD_CONFIGS`): `FLASHDREAMS_RUNNER_CONFIGS=slug=module:attr,slug2=other.module:factory_callable`. Useful for in-development runners that aren't installed yet; the attribute can be a `RunnerConfig` or a zero-arg factory returning one. Built-ins always win; bad entries are logged-and-skipped, never crash the CLI.
-- **`flashdreams-run`** (`flashdreams/scripts/cli.py`) is the unified CLI — one hyphenated console script (nerfstudio's `ns-train` shape) fronting a tyro subcommand union over the runner registry. `flashdreams-run --help` lists every runner; `flashdreams-run <runner> --help` shows every overridable field (including everything inside the wrapped `pipeline`); `flashdreams-run wan21-i2v-14b-480p --prompt "..." --image_path frame.png` resolves the literal + the overrides, builds the pipeline + runner, and dispatches into `runner.run()`. Use `--no-instantiate` to skip GPU work and just dump the resolved config.
-- **Multi-GPU via context-parallelism.** Launch with `torchrun --nproc_per_node=N --no-python flashdreams-run <slug> ...` (`--no-python` tells torchrun to execvp the console script on PATH directly, instead of wrapping it in `python <script>`). The `Runner` ABC bridges the launcher to `torch.distributed` *before* `pipeline.setup()`, so the integration transformer's auto-CP picks up `WORLD` at construction time and shards `T*H*W` tokens across ranks. `Runner.__init__` also pins `cuda:LOCAL_RANK` and exposes `self.local_rank` / `self.world_size` / `self.global_rank` / `self.is_rank_zero`. New runners must gate their persistence step (mp4, stats JSON, .pt dump, user-facing logs) on `self.is_rank_zero`; compute (`generate` / `finalize`) runs on every rank. There is no `cp_size` knob on any config — the launcher is the single source of truth.
-- **Soft contract.** A pipeline that hasn't been wrapped into a runner doesn't show up in `supported_runners()` and is *not* a `flashdreams-run` subcommand — the pipeline config is still reachable via the per-integration import. Migrate one integration at a time.
-- **I/O lazy-imports + the `runners` extras.** Image decoding (`cv2`) and MP4 muxing (`mediapy`) are lazy-imported inside `Runner.run()` and gated by the `runners` extras (`pip install 'flashdreams[runners]'`). This keeps serving deployments that only need the bare pipeline (e.g. `integrations/lingbot`) free of ffmpeg / opencv. The error message points users at the right extras when missing.
+- `integrations_v2/<model>/config.py` is the only Python module at the integration root and the only source of model presets, default selections, and model-owned hook callables.
+- `integrations_v2/<model>/impl/` contains every model-owned implementation module and package.
+- Keep integration-owned data and vendored source under `impl/` too. The root is limited to `apps/`, `config.py`, `impl/`, `tests/`, `README.md`, `pyproject.toml`, and rare integration-wide operational scripts that are real user or build entry points.
+- `integrations_v2/<model>/apps/<app_name>/adapter.py` is deliberately tiny: import the reusable application, import defaults/hooks from `...config`, and construct the application.
+- Register adapters under `[project.entry-points."flashdreams.applications_v2"]` with a target such as `model.apps.app_name.adapter:create_app`.
+- Never add model-specific branches or imports to an `apps/` implementation. Expose a typed hook/factory and provide it from the integration config.
+- Never create `runner.py`, `launch.py`, `runtime.py`, `prepare.py`, or `model_session.py` at an integration root as a compatibility shim. Put real model implementation in `impl/` and application orchestration in the repository-level `apps/`.
+- Application tests belong with the reusable app. Adapter/config smoke tests and model numerical tests belong with the integration.
 
 ### Standard transformer config knobs
 
@@ -286,7 +276,7 @@ Keep these names stable across integrations — tests and tooling look for them:
 
 `(height, width)` are **pre-patchify pixel-latent dimensions** for the rollout. They belong on `initialize_autoregressive_cache`, not the config:
 
-- The pipeline derives them and forwards them inside `transformer_context`. For I2V the pipeline reads them off `image.shape[-2:]`; for T2V the pipeline accepts explicit `height`/`width` kwargs (see `integrations/wan/pipeline.py` for the I2V-or-explicit-fallback pattern).
+- The pipeline derives them and forwards them inside `transformer_context`. For I2V the pipeline reads them off `image.shape[-2:]`; for T2V the pipeline accepts explicit `height`/`width` kwargs (see the relevant integration's `impl/pipeline.py` for the I2V-or-explicit-fallback pattern).
 - The transformer stashes them as `self._output_height` / `self._output_width` — **raw pre-patchify dims, not divided by `patch_spatial`**. Compute `pH = _output_height // network.patch_spatial` inline at the use site (`latent_shape`, `unpatchify_and_maybe_gather_cp`, `_build_network_cache`). Storing the pre-patchify value keeps the variable's meaning unambiguous and matches what the user passed in.
 - Builders (`config.py`, `conditioning_wrapper.py`) **never set `network.height`/`width`** on the transformer config — they're not there. They configure the *static* fields of `network` (`additional_concat_ch`, `enable_cross_view_attn`, `in_dim`, ...) and let `initialize_autoregressive_cache` thread the per-rollout shape.
 - Guards that depend on the rollout shape (`(L = T*H*W) % cp_size == 0`, `H % patch_spatial == 0`) live in `initialize_autoregressive_cache`, not `__post_init__`.
@@ -358,16 +348,16 @@ if config.checkpoint_path is not None:
 
 Adding a new integration `foo`:
 
-1. `integrations/foo/transformer/network.py` — `FooDiT` + `FooDiTCache` + `FooDiTConfig`. Use `RingAttention` for CP-aware self-attention. Apply RoPE to q/k *before* `kv_cache.update`. Network config carries `in_dim`, `additional_concat_ch`, `patch_temporal`, `patch_spatial` — never `height`/`width`.
-2. `integrations/foo/transformer/__init__.py` — `FooTransformerConfig` (standard knobs above, **no `height`/`width`/`device`/`__post_init__`**), `FooTransformerCache` (carries `rope_adapter` + `rope_freqs`; `start()` hoists `shift_t` and KV `before_update`), `FooTransformer` (single-arg `__init__(config)`; auto-detects CP size; sets `_cuda_graph_capture_ar_idx` and `_output_height = _output_width = None` in `__init__`; `initialize_autoregressive_cache(*, height, width, ...)` stashes the spatial layout and builds the rope adapter and any wrappers).
-3. (Optional) `integrations/foo/encoder.py`, `integrations/foo/decoder.py`. Pick the right base class for the slot:
+1. `integrations_v2/foo/impl/transformer/network.py` — `FooDiT` + `FooDiTCache` + `FooDiTConfig`. Use `RingAttention` for CP-aware self-attention. Apply RoPE to q/k *before* `kv_cache.update`. Network config carries `in_dim`, `additional_concat_ch`, `patch_temporal`, `patch_spatial` — never `height`/`width`.
+2. `integrations_v2/foo/impl/transformer/__init__.py` — `FooTransformerConfig` (standard knobs above, **no `height`/`width`/`device`/`__post_init__`**), `FooTransformerCache` (carries `rope_adapter` + `rope_freqs`; `start()` hoists `shift_t` and KV `before_update`), `FooTransformer` (single-arg `__init__(config)`; auto-detects CP size; sets `_cuda_graph_capture_ar_idx` and `_output_height = _output_width = None` in `__init__`; `initialize_autoregressive_cache(*, height, width, ...)` stashes the spatial layout and builds the rope adapter and any wrappers).
+3. (Optional) `integrations_v2/foo/impl/encoder.py`, `integrations_v2/foo/impl/decoder.py`. Pick the right base class for the slot:
    - Encoder for `transformer.context_encoder` → `Encoder` (slim `forward(self, input)`, no cache).
    - Encoder for `pipeline.encoder` (per-AR-step control) → `StreamingEncoder[YourCache]` (full `forward(self, input, ar_idx, cache)` + `initialize_autoregressive_cache`), or `StreamingVideoEncoder[YourCache]` if it's a pixel-video encoder (adds `spatial_compression_ratio` / `temporal_compression_ratio` + `get_{input,output}_temporal_size`).
    - Decoder for `pipeline.decoder` → `StreamingDecoder[YourCache]` (stateless decoders just return `StreamingDecoderCache()`), or `StreamingVideoDecoder[YourCache]` for pixel-video decoders that need to publish `spatial_compression_ratio` / `temporal_compression_ratio` + `get_{input,output}_temporal_size`.
-4. (Rare) `integrations/foo/pipeline.py` only if the base pipeline's `initialize_cache` signature doesn't fit — most commonly to derive `(height, width)` from an input image (I2V) or accept them as explicit kwargs (T2V).
-5. `integrations/foo/config.py` — one **module-level literal** `StreamInferencePipelineConfig` per shipped variant (no `build_*(...)` factories). Each literal sets a unique `name` slug. Express variants as `derive_config(BASE, name="foo-variant", ...)`. Register every variant in `FOO_CONFIGS: dict[str, StreamInferencePipelineConfig]` via `{cfg.name: cfg for cfg in (...)}`. Ship a separate `*_COMPILED` literal if you want a torch.compile + CUDA-graph fast path. Export `DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION` as public module-level constants. Literals fully resolve `network.in_dim` / `network.additional_concat_ch` / etc. so the config has no `__post_init__`.
-6. (Optional, but enables `flashdreams-run`) `integrations/foo/runner.py` — one `RunnerConfig` literal per shipped variant (per-variant `Runner` subclass when the I/O signature differs; one shared `Runner` when it doesn't). Each literal pins `pipeline=` to one of the `<NAME>_CONFIGS` literals **and sets a non-empty `description=`** (the CLI shows it next to the subcommand). Convention is `runner_name == pipeline.name`. Build `FOO_RUNNERS: dict[str, RunnerConfig]` via the `{cfg.runner_name: cfg for cfg in (...)}` comprehension, then loop `register_runner(name, cfg, source="builtin")` (from `flashdreams.configs.registry`) over its items so the slugs land in `_SUPPORTED_RUNNERS`. Finally, add one `import flashdreams.recipes.foo.runner` line to `flashdreams/configs/runner_configs.py` so the side effects fire at CLI startup. The smoke tests in `tests/test_integration_configs.py` enforce both the registry merge and a non-empty `cfg.description` per slug.
-7. `flashdreams/tests/test_foo.py` — bidirectional smoke + streaming smoke + CFG on/off + no-control branch + compile/CUDA-graph equivalence + CP equivalence. **Always set `compile_network=False` explicitly** in tests that introspect `transformer.network` (use `derive_config(FOO_BASE, diffusion_model=dict(transformer=dict(compile_network=False)))`).
+4. (Rare) `integrations_v2/foo/impl/pipeline.py` only if the base pipeline's `initialize_cache` signature doesn't fit — most commonly to derive `(height, width)` from an input image (I2V) or accept them as explicit kwargs (T2V).
+5. `integrations_v2/foo/config.py` — one **module-level literal** `StreamInferencePipelineConfig` per shipped variant (no `build_*(...)` factories). Each literal sets a unique `name` slug. Express variants as `derive_config(BASE, name="foo-variant", ...)`. Register every variant in `FOO_CONFIGS: dict[str, StreamInferencePipelineConfig]` via `{cfg.name: cfg for cfg in (...)}`. Ship a separate `*_COMPILED` literal if you want a torch.compile + CUDA-graph fast path. Export `DEFAULT_VIDEO_HEIGHT`, `DEFAULT_VIDEO_WIDTH`, `<NAME>_VAE_SPATIAL_COMPRESSION` as public module-level constants. Literals fully resolve `network.in_dim` / `network.additional_concat_ch` / etc. so the config has no `__post_init__`.
+6. (Optional application binding) `integrations_v2/foo/apps/<app_name>/adapter.py` — construct the shared app using defaults and hooks imported only from `...config`; register it in `flashdreams.applications_v2`.
+7. Put reusable application tests under `apps/<app_name>/tests/`; keep adapter/config and model numerical tests under `integrations_v2/foo/tests/`. **Always set `compile_network=False` explicitly** in tests that introspect `transformer.network`.
 
 ## 8. Common pitfalls
 
@@ -385,15 +375,15 @@ Configs:
 
 - **Putting derived sub-config fields in `__post_init__`.** Set `network.in_dim = base + control_channels` directly on the **literal**, where the conditional logic is colocated with the option that triggers it. The config should hold the final integer the network sees.
 - **Reaching for a `build_*` helper instead of a literal + `derive_config`.** The 1:1 nerfstudio mapping bans builder factories — variants are `derive_config(BASE, ...)`. Tiny private factories that just shorten a fixed sub-config (no kwargs) are fine.
-- **Forgetting `name` on a new literal.** It's a required, kw-only field. The smoke test in `tests/test_integration_configs.py` asserts every `supported_runners()[k].pipeline.name == k` for runner-equipped integrations.
-- **Reusing a `name` across variants.** Aggregators in `runner_configs.py` raise on duplicates; pick a fresh slug.
-- **Adding a runner but forgetting `description=`.** `flashdreams-run --help` shows an empty help line and the smoke test (`test_supported_runners_have_descriptions`) fails. Set `description=` on every `RunnerConfig` literal.
-- **`runner_name != pipeline.name`.** The CLI contract is "`flashdreams-run <name>` runs that integration"; a smoke test enforces parity on the in-tree set. Per-runner literals can opt out (e.g. two runners over one pipeline), but the default is to mirror.
-- **Plugging a deployment-specific variant straight into `_SUPPORTED_RUNNERS` from an integration package.** Out-of-tree code should ship a `RunnerConfig` (with `description=` set) and register it via the `flashdreams.runner_configs` entry point (or call `register_runner(..., source="plugin", target=...)` against a local dict); writing `source="builtin"` into the global registry from outside `flashdreams/` violates the dependency direction.
-- **Adding heavy I/O deps (`cv2`, `mediapy`, ...) at module load time.** Lazy-import them inside `Runner.run()` and gate on the `runners` extras with a clear `ImportError` so a serving deployment that only uses the bare pipeline doesn't pay the install cost.
+- **Forgetting `name` on a new literal.** It is the stable key used by app defaults and model hooks.
+- **Reusing a `name` across variants.** The integration config dict must reject or expose duplicates clearly; pick a fresh slug.
+- **Putting a model selection or checkpoint in an app.** Move it to `integrations_v2/<model>/config.py` and inject it through typed hooks.
+- **Adding Python modules beside `config.py`.** Put all implementation in `impl/` and all bindings in `apps/<slug>/`; the integration root has one stable config import location.
+- **Adding an integration-root runner/launch shim.** Delete the compatibility layer and bind a reusable application through `apps/<app_name>/adapter.py`.
+- **Adding heavy I/O deps at module load time.** Lazy-import them in the application path that consumes them so config-only imports stay cheap.
 - **Storing per-rollout shape on the config (`config.height`, `config.width`).** They aren't config — they vary every rollout. Pass them through `initialize_autoregressive_cache(height=..., width=...)` and stash them on the transformer instance.
 - **`__post_init__` cross-config validation that depends on `(height, width)`.** Move it into `initialize_autoregressive_cache`; that's where the spatial layout actually exists.
-- **Underscore-prefixing module-level builder defaults (`_DEFAULT_VIDEO_HEIGHT`, `_WAN_VAE_SPATIAL_COMPRESSION`).** These are imported from runner modules and integrations to compute pixel ↔ latent dimensions; export them publicly.
+- **Underscore-prefixing module-level builder defaults (`_DEFAULT_VIDEO_HEIGHT`, `_WAN_VAE_SPATIAL_COMPRESSION`).** Application adapters and integration modules use these to compute pixel ↔ latent dimensions; export them publicly.
 
 Latent shape:
 

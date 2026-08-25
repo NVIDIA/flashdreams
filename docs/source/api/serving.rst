@@ -36,8 +36,10 @@ Reference integration
 The public WebRTC demos provide concrete examples of the shared serving stack:
 
 - shared transport code under ``flashdreams/flashdreams/serving/webrtc/``,
-- LingBot runner and runtime wiring under ``integrations/lingbot/lingbot/``,
-- OmniDreams WebRTC runtime wiring under ``integrations/omnidreams/omnidreams/webrtc/``.
+- LingBot model wiring under ``integrations_v2/lingbot/`` and serving under
+  ``apps/action2v/``.
+- OmniDreams model wiring under ``integrations_v2/omnidreams/`` and serving
+  under ``apps/hdmap2v/``.
 
 Launch patterns
 ---------------

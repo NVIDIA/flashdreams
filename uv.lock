@@ -20,12 +20,15 @@ conflicts = [[
 [manifest]
 members = [
     "flashdreams",
+    "flashdreams-action2v-v2",
     "flashdreams-causal-forcing",
     "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
+    "flashdreams-hdmap2v-v2",
     "flashdreams-hy-worldplay",
+    "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
@@ -34,11 +37,6 @@ members = [
     "flashdreams-self-forcing",
     "flashdreams-slangpy-ui-demo",
     "flashdreams-t2v",
-    "flashdreams-t2v-causal-forcing",
-    "flashdreams-t2v-cosmos-predict2",
-    "flashdreams-t2v-fastvideo-causal-wan22",
-    "flashdreams-t2v-self-forcing",
-    "flashdreams-t2v-wan21",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "ludus-renderer",
@@ -1121,9 +1119,20 @@ cuda13 = [
 ]
 
 [[package]]
+name = "flashdreams-action2v-v2"
+version = "0.1.0"
+source = { editable = "apps/action2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+
+[[package]]
 name = "flashdreams-causal-forcing"
 version = "0.1.0"
-source = { editable = "integrations/causal_forcing" }
+source = { editable = "integrations_v2/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1149,7 +1158,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-color-fade"
 version = "0.1.0"
-source = { editable = "integrations_v2/color_fade" }
+source = { editable = "apps/color_fade" }
 dependencies = [
     { name = "flashdreams" },
 ]
@@ -1160,7 +1169,7 @@ requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 [[package]]
 name = "flashdreams-cosmos-predict2"
 version = "0.1.0"
-source = { editable = "integrations/cosmos_predict2" }
+source = { editable = "integrations_v2/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1188,7 +1197,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
 version = "0.1.0"
-source = { editable = "integrations/fastvideo_causal_wan22" }
+source = { editable = "integrations_v2/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1212,7 +1221,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-flashvsr"
 version = "0.1.0"
-source = { editable = "integrations/flashvsr" }
+source = { editable = "integrations_v2/flashvsr" }
 dependencies = [
     { name = "flashdreams" },
     { name = "grpcio" },
@@ -1240,12 +1249,24 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "flashdreams-hdmap2v-v2"
+version = "0.1.0"
+source = { editable = "apps/hdmap2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+
+[[package]]
 name = "flashdreams-hy-worldplay"
 version = "0.1.0"
-source = { editable = "integrations/hy_worldplay" }
+source = { editable = "integrations_v2/hy_worldplay" }
 dependencies = [
     { name = "diffusers" },
     { name = "flashdreams" },
+    { name = "flashdreams-action2v-v2" },
     { name = "flashdreams-wan22" },
     { name = "imageio", extra = ["ffmpeg"] },
     { name = "mediapy" },
@@ -1265,7 +1286,8 @@ dev = [
 requires-dist = [
     { name = "diffusers", specifier = ">=0.34" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-wan22", editable = "integrations/wan22" },
+    { name = "flashdreams-action2v-v2", editable = "apps/action2v" },
+    { name = "flashdreams-wan22", editable = "integrations_v2/wan22" },
     { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "moviepy", specifier = ">=1.0,<2" },
@@ -1276,13 +1298,29 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "flashdreams-interactive-drive-v2"
+version = "0.1.0"
+source = { editable = "apps/interactive_drive" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "flashdreams-hdmap2v-v2" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "flashdreams-hdmap2v-v2", editable = "apps/hdmap2v" },
+]
+
+[[package]]
 name = "flashdreams-lingbot"
 version = "0.1.0"
-source = { editable = "integrations/lingbot" }
+source = { editable = "integrations_v2/lingbot" }
 dependencies = [
     { name = "aiohttp" },
     { name = "aiortc" },
     { name = "flashdreams" },
+    { name = "flashdreams-action2v-v2" },
     { name = "mediapy" },
     { name = "opencv-python-headless" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1301,6 +1339,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "aiortc", specifier = ">=1.9" },
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-action2v-v2", editable = "apps/action2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1323,10 +1362,12 @@ requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 [[package]]
 name = "flashdreams-omnidreams"
 version = "0.1.0"
-source = { editable = "integrations/omnidreams" }
+source = { editable = "integrations_v2/omnidreams" }
 dependencies = [
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
+    { name = "flashdreams-hdmap2v-v2" },
+    { name = "flashdreams-interactive-drive-v2" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "huggingface-hub" },
@@ -1373,12 +1414,14 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["rtx-postprocess"], marker = "extra == 'rtx-postprocess'", editable = "flashdreams" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
+    { name = "flashdreams-hdmap2v-v2", editable = "apps/hdmap2v" },
+    { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "grpcio", specifier = ">=1.50" },
     { name = "grpcio-tools", specifier = ">=1.50" },
     { name = "huggingface-hub", specifier = ">=0.24" },
     { name = "imageio", specifier = ">=2.20" },
-    { name = "ludus-renderer", editable = "integrations/omnidreams/ludus-renderer" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'win32'", specifier = "==9.23.2.1" },
@@ -1404,7 +1447,7 @@ provides-extras = ["interactive-drive", "rtx-postprocess", "dev"]
 [[package]]
 name = "flashdreams-red-screen"
 version = "0.1.0"
-source = { editable = "integrations_v2/red_screen" }
+source = { editable = "apps/red_screen" }
 dependencies = [
     { name = "flashdreams", extra = ["serving"] },
 ]
@@ -1415,7 +1458,7 @@ requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flash
 [[package]]
 name = "flashdreams-sana-wm"
 version = "0.1.0"
-source = { editable = "integrations/sana" }
+source = { editable = "integrations_v2/sana_wm" }
 dependencies = [
     { name = "accelerate" },
     { name = "diffusers" },
@@ -1455,7 +1498,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-self-forcing"
 version = "0.1.0"
-source = { editable = "integrations/self_forcing" }
+source = { editable = "integrations_v2/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1479,7 +1522,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-slangpy-ui-demo"
 version = "0.1.0"
-source = { editable = "integrations_v2/slangpy_ui_demo" }
+source = { editable = "apps/slangpy_ui_demo" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
 ]
@@ -1499,84 +1542,9 @@ dependencies = [
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
 
 [[package]]
-name = "flashdreams-t2v-causal-forcing"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_causal_forcing" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-causal-forcing" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-causal-forcing", editable = "integrations/causal_forcing" },
-]
-
-[[package]]
-name = "flashdreams-t2v-cosmos-predict2"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_cosmos_predict2" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-cosmos-predict2" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-cosmos-predict2", editable = "integrations/cosmos_predict2" },
-]
-
-[[package]]
-name = "flashdreams-t2v-fastvideo-causal-wan22"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_fastvideo_causal_wan22" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-fastvideo-causal-wan22" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-fastvideo-causal-wan22", editable = "integrations/fastvideo_causal_wan22" },
-]
-
-[[package]]
-name = "flashdreams-t2v-self-forcing"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_self_forcing" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-self-forcing" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-self-forcing", editable = "integrations/self_forcing" },
-]
-
-[[package]]
-name = "flashdreams-t2v-wan21"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_wan21" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-wan21" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-wan21", editable = "integrations/wan21" },
-]
-
-[[package]]
 name = "flashdreams-wan21"
 version = "0.1.0"
-source = { editable = "integrations/wan21" }
+source = { editable = "integrations_v2/wan21" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1602,7 +1570,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-wan22"
 version = "0.1.0"
-source = { editable = "integrations/wan22" }
+source = { editable = "integrations_v2/wan22" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -2219,7 +2187,7 @@ wheels = [
 [[package]]
 name = "ludus-renderer"
 version = "0.9.0"
-source = { editable = "integrations/omnidreams/ludus-renderer" }
+source = { editable = "integrations_v2/omnidreams/impl/ludus-renderer" }
 dependencies = [
     { name = "cmake" },
     { name = "ninja" },

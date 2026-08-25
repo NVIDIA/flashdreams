@@ -61,7 +61,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/flashvsr
+   uv sync --project integrations_v2/flashvsr
 
 Running the method
 ------------------
@@ -71,7 +71,7 @@ registered runner slugs. For example:
 
 .. code-block:: bash
 
-   uv run --project integrations/flashvsr \
+   uv run --project integrations_v2/flashvsr \
        flashdreams-run \
        flashvsr-v1.1-sparse-ratio-2.0 \
        --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
@@ -82,7 +82,7 @@ For multi-GPU inference, run the dense full-attention preset under
 
 .. code-block:: bash
 
-   uv run --project integrations/flashvsr \
+   uv run --project integrations_v2/flashvsr \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        flashvsr-v1.1-full-attn \
        --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
@@ -113,7 +113,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/flashvsr \
+   uv run --project integrations_v2/flashvsr \
        flashdreams-run \
        flashvsr-v1.1-sparse-ratio-2.0 \
        --help
@@ -160,7 +160,7 @@ under matched settings.
       <p class="model-footnote">
         This chart shows per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
         For the official FlashVSR implementation, see
-        <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
+        <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr/tests/parity_check">this instruction</a>.
       </p>
     </figcaption>
   </figure>

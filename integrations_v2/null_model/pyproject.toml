@@ -21,9 +21,11 @@ dependencies = [
 # A published integration would resolve its released FlashDreams dependency.
 flashdreams = { workspace = true }
 
-[tool.setuptools.packages.find]
-# Keep the distribution limited to the integration-owned Python package.
-include = ["null_model*"]
+[tool.setuptools]
+packages = ["null_model", "null_model.impl"]
+
+[tool.setuptools.package-dir]
+null_model = "."
 
 [tool.uv]
 managed = true

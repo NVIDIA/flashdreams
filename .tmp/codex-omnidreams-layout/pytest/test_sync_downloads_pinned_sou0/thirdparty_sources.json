@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "demo",
+      "repo": "C:\\code\\ui-simple-v2-backup\\.tmp\\codex-omnidreams-layout\\pytest\\test_sync_downloads_pinned_sou0\\source",
+      "commit": "f0f5f9421e04dc2c9f353f95f8b294b841eaef30",
+      "directory": "demo",
+      "delete_paths": [
+        "remove_me"
+      ],
+      "patches": [
+        {
+          "path": "C:\\code\\ui-simple-v2-backup\\.tmp\\codex-omnidreams-layout\\pytest\\test_sync_downloads_pinned_sou0\\hello.patch",
+          "strip": 1
+        }
+      ]
+    }
+  ]
+}

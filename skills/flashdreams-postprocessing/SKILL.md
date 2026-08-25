@@ -7,7 +7,7 @@ description: Add or modify FlashDreams video post-processing processors, session
 
 Use this skill when adding a video post-processor or changing the runner
 post-processing stream. The reference implementation is
-`integrations/flashvsr/flashvsr/postprocess.py`.
+`integrations_v2/flashvsr/postprocess.py`.
 
 ## Mental Model
 
@@ -29,7 +29,7 @@ config or processor factory.
 1. Pick a home:
    - Generic reusable post-processing belongs under `flashdreams/flashdreams/infra/postprocess/`.
    - Model-specific processors belong in their integration, for example
-     `integrations/<name>/<pkg>/postprocess.py`.
+     `integrations_v2/<name>/<pkg>/postprocess.py`.
 
 2. Define a config subclass:
 
@@ -136,7 +136,7 @@ Add CPU-safe tests unless the behavior genuinely requires a GPU:
 
 - Config/preset discovery: `flashdreams/tests/test_postprocess_presets.py`.
 - Stream contract and buffering: `flashdreams/tests/test_postprocess_stream.py`.
-- Processor-specific CPU fakes: `integrations/<name>/tests/test_postprocess.py`.
+- Processor-specific CPU fakes: `integrations_v2/<name>/tests/test_postprocess.py`.
 - Runner distributed skip/all-rank behavior:
   `flashdreams/tests/test_runner_postprocess.py`.
 
@@ -149,5 +149,5 @@ Useful focused validation:
 uv run pytest flashdreams/tests/test_runner_postprocess.py \
   flashdreams/tests/test_postprocess_stream.py \
   flashdreams/tests/test_postprocess_presets.py \
-  integrations/<name>/tests/test_postprocess.py
+  integrations_v2/<name>/tests/test_postprocess.py
 ```

@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from fractions import Fraction
 from importlib.resources import files
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 import torch
@@ -28,11 +28,15 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
     FocusUserInputEventData,
+    GamepadUserInputEventData,
+    GameWheelUserInputEventData,
     KeyboardInputState,
     KeyboardUserInputEventData,
     MouseUserInputEventData,
     ResetUserInputEventData,
+    TouchUserInputEventData,
     UserInputEvent,
+    XRControllerUserInputEventData,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -426,6 +430,94 @@ class WebRTCServer:
             if not isinstance(focused, bool):
                 raise ValueError("Focus event requires a boolean focused value.")
             event_data = FocusUserInputEventData(focused=focused)
+        elif event_type == "touch":
+            action = payload.get("action")
+            if action not in {"start", "move", "end", "cancel"}:
+                raise ValueError(
+                    "Touch event action must be 'start', 'move', 'end', or 'cancel'."
+                )
+            touch_id = _nonnegative_int(payload.get("touch_id"), label="touch_id")
+            primary = payload.get("primary", False)
+            if not isinstance(primary, bool):
+                raise ValueError("Touch primary must be a boolean.")
+            event_data = TouchUserInputEventData(
+                action=action,
+                touch_id=touch_id,
+                x=_normalized_coordinate(payload.get("x"), label="Touch x"),
+                y=_normalized_coordinate(payload.get("y"), label="Touch y"),
+                pressure=_unit_number(
+                    payload.get("pressure", 0.0), label="Touch pressure"
+                ),
+                primary=primary,
+            )
+        elif event_type == "gamepad":
+            action = _controller_action(payload)
+            buttons = _number_tuple(payload.get("buttons", ()), label="buttons")
+            pressed = _bool_tuple(payload.get("pressed", ()), label="pressed")
+            if len(buttons) != len(pressed):
+                raise ValueError("Gamepad buttons and pressed must have equal length.")
+            event_data = GamepadUserInputEventData(
+                action=action,
+                index=_nonnegative_int(payload.get("index", 0), label="index"),
+                controller_id=_string(
+                    payload.get("controller_id", payload.get("id", "")),
+                    label="controller_id",
+                ),
+                mapping=_string(payload.get("mapping", ""), label="mapping"),
+                axes=_number_tuple(payload.get("axes", ()), label="axes"),
+                buttons=buttons,
+                pressed=pressed,
+            )
+        elif event_type == "game_wheel":
+            event_data = GameWheelUserInputEventData(
+                action=_controller_action(payload),
+                index=_nonnegative_int(payload.get("index", 0), label="index"),
+                controller_id=_string(
+                    payload.get("controller_id", payload.get("id", "")),
+                    label="controller_id",
+                ),
+                steering=_bounded_number(
+                    payload.get("steering", 0.0),
+                    label="steering",
+                    low=-1.0,
+                    high=1.0,
+                ),
+                throttle=_unit_number(payload.get("throttle", 0.0), label="throttle"),
+                brake=_unit_number(payload.get("brake", 0.0), label="brake"),
+                clutch=_unit_number(payload.get("clutch", 0.0), label="clutch"),
+                buttons=_bool_tuple(payload.get("buttons", ()), label="buttons"),
+            )
+        elif event_type == "xr_controller":
+            handedness = payload.get("handedness", "none")
+            if handedness not in {"left", "right", "none"}:
+                raise ValueError("XR handedness must be 'left', 'right', or 'none'.")
+            buttons = _number_tuple(payload.get("buttons", ()), label="buttons")
+            pressed = _bool_tuple(payload.get("pressed", ()), label="pressed")
+            if len(buttons) != len(pressed):
+                raise ValueError("XR buttons and pressed must have equal length.")
+            event_data = XRControllerUserInputEventData(
+                action=_controller_action(payload),
+                handedness=handedness,
+                controller_id=_string(
+                    payload.get("controller_id", payload.get("id", "")),
+                    label="controller_id",
+                ),
+                axes=_number_tuple(payload.get("axes", ()), label="axes"),
+                buttons=buttons,
+                pressed=pressed,
+                position=cast(
+                    tuple[float, float, float] | None,
+                    _fixed_number_tuple(
+                        payload.get("position"), label="position", length=3
+                    ),
+                ),
+                orientation=cast(
+                    tuple[float, float, float, float] | None,
+                    _fixed_number_tuple(
+                        payload.get("orientation"), label="orientation", length=4
+                    ),
+                ),
+            )
         elif event_type == "reset":
             event_data = ResetUserInputEventData()
         elif event_type == "close":
@@ -440,6 +532,10 @@ class WebRTCServer:
             KeyboardUserInputEventData
             | MouseUserInputEventData
             | FocusUserInputEventData
+            | TouchUserInputEventData
+            | GamepadUserInputEventData
+            | GameWheelUserInputEventData
+            | XRControllerUserInputEventData
             | ResetUserInputEventData
             | CloseUserInputEventData
         ),
@@ -505,6 +601,76 @@ def _normalized_coordinate(value: object, *, label: str) -> float:
     if result < 0.0 or result > 1.0:
         raise ValueError(f"{label} must be between 0 and 1.")
     return result
+
+
+def _bounded_number(value: object, *, label: str, low: float, high: float) -> float:
+    """Return a finite number inside an inclusive range."""
+    result = _finite_number(value, label=label)
+    if result < low or result > high:
+        raise ValueError(f"{label} must be between {low} and {high}.")
+    return result
+
+
+def _unit_number(value: object, *, label: str) -> float:
+    """Return a normalized analog value."""
+    return _bounded_number(value, label=label, low=0.0, high=1.0)
+
+
+def _nonnegative_int(value: object, *, label: str) -> int:
+    """Return a non-negative integer that is not a boolean."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer.")
+    return value
+
+
+def _string(value: object, *, label: str) -> str:
+    """Return a string browser field."""
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string.")
+    return value
+
+
+def _number_tuple(value: object, *, label: str) -> tuple[float, ...]:
+    """Return a finite numeric JSON array as an immutable tuple."""
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"{label} must be an array.")
+    return tuple(
+        _finite_number(item, label=f"{label}[{index}]")
+        for index, item in enumerate(value)
+    )
+
+
+def _bool_tuple(value: object, *, label: str) -> tuple[bool, ...]:
+    """Return a boolean JSON array as an immutable tuple."""
+    if not isinstance(value, list | tuple) or not all(
+        isinstance(item, bool) for item in value
+    ):
+        raise ValueError(f"{label} must be a boolean array.")
+    return tuple(bool(item) for item in value)
+
+
+def _fixed_number_tuple(
+    value: object, *, label: str, length: int
+) -> tuple[float, ...] | None:
+    """Return an optional fixed-length numeric tuple."""
+    if value is None:
+        return None
+    result = _number_tuple(value, label=label)
+    if len(result) != length:
+        raise ValueError(f"{label} must contain {length} numbers.")
+    return result
+
+
+def _controller_action(
+    payload: dict[str, object],
+) -> Literal["connected", "disconnected", "state"]:
+    """Return a supported controller lifecycle action."""
+    action = payload.get("action", "state")
+    if action not in {"connected", "disconnected", "state"}:
+        raise ValueError(
+            "Controller action must be 'connected', 'disconnected', or 'state'."
+        )
+    return cast(Literal["connected", "disconnected", "state"], action)
 
 
 def _result_to_rgb_frames(

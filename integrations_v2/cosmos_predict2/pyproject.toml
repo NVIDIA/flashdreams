@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-cosmos-predict2"
+version = "0.1.0"
+description = "Cosmos-Predict2 T2V non-streaming inference plugin for flashdreams."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-t2v",
+    "mediapy>=1.1",
+    # No code here imports this. The Cosmos-Reason1 text encoder these configs
+    # select loads through a Qwen2.5-VL processor, which transformers will only
+    # build if torchvision is installed. Declared at the version torch>=2.9
+    # pairs with, matching the cuda12 and cuda13 groups.
+    "torchvision>=0.24",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-t2v = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# Bind the reusable T2V application to this model's root config.
+[project.entry-points."flashdreams.applications_v2"]
+"t2v-cosmos-predict2" = "cosmos_predict2.apps.t2v.adapter:create_app"
+
+[tool.setuptools]
+packages = ["cosmos_predict2", "cosmos_predict2.apps", "cosmos_predict2.apps.t2v"]
+
+[tool.setuptools.package-dir]
+cosmos_predict2 = "."
+
+[tool.uv]
+managed = true
