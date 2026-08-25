@@ -10,14 +10,6 @@ from unittest.mock import Mock
 
 import pytest
 import torch
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
-from flashdreams.runtime_v2.user_input_event import (
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from numpy import uint64
 from slangpy_ui_demo.invoke_async_app import (
     ColorToggleModelLoop,
@@ -31,6 +23,15 @@ from slangpy_ui_demo.model_output_app import (
     ModelOutputSlangPyUILoop,
 )
 from slangpy_ui_demo.text_input_app import TextInputSlangPyUILoop, TextInputState
+
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+)
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
 
