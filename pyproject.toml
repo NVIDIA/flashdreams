@@ -61,6 +61,7 @@ extraPaths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations/waypoint",
     "integrations_v2/color_fade",
     "integrations_v2/cam2v_lingbot",
     "integrations_v2/null_model",
@@ -71,6 +72,7 @@ extraPaths = [
     "integrations_v2/t2v_self_forcing",
     "integrations_v2/t2v_wan21",
     "integrations_v2/slangpy_ui_demo",
+    "integrations_v2/waypoint",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -96,6 +98,7 @@ extra-paths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations/waypoint",
     "integrations_v2/color_fade",
     "integrations_v2/cam2v_lingbot",
     "integrations_v2/null_model",
@@ -106,6 +109,7 @@ extra-paths = [
     "integrations_v2/t2v_self_forcing",
     "integrations_v2/t2v_wan21",
     "integrations_v2/slangpy_ui_demo",
+    "integrations_v2/waypoint",
 ]
 
 [tool.ty.src]
