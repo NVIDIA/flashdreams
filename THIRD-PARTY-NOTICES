@@ -130,8 +130,8 @@ notice inline; license texts are reproduced under LICENSES/.
 MiniMax H3 native model components
 --------------------------------------------------------------------------------
 
-Paths:   integrations/minimax_h3/minimax_h3/{audio_vae.py,scheduler.py,
-         transformer.py,video_vae.py}
+Paths:   integrations/minimax_h3/minimax_h3/{audio_vae.py,conditioning.py,
+         scheduler.py,transformer.py,video_vae.py}
 License: Apache-2.0 (see LICENSES/Apache-2.0.txt)
          Copyright 2025 The MiniMax authors and The HuggingFace Team.
          All rights reserved.
@@ -141,12 +141,12 @@ License: Apache-2.0 (see LICENSES/Apache-2.0.txt)
          All rights reserved.
 Upstream: https://github.com/huggingface/diffusers/tree/175fe6b2419a01db9c2ceabd01ec37d2c0305fc2
 
-These native MiniMax H3 components are modified ports of the scheduler,
-transformer, waveform autoencoder, and video autoencoder published in the
-pinned Hugging Face Diffusers commit above. The ports preserve the released
-checkpoint tensor names and numerical behavior while replacing Diffusers
-runtime APIs with FlashDreams interfaces. Each modified file retains the
-applicable upstream copyright inline.
+These native MiniMax H3 components are modified ports of the packed-sequence
+conditioning, scheduler, transformer, waveform autoencoder, and video
+autoencoder published in the pinned Hugging Face Diffusers commit above. The
+ports preserve the released checkpoint tensor names and numerical behavior
+while replacing Diffusers runtime APIs with FlashDreams interfaces. Each
+modified file retains the applicable upstream copyright inline.
 
 --------------------------------------------------------------------------------
 HPG-2011 NVIDIA CUDA Rasterizer port
