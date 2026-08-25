@@ -14,54 +14,186 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Model loading utilities adapted from upstream LingBot-VA (wan_va/modules/utils.py
-and wan_va/utils/scheduler.py)."""
+
+"""Checkpoint resolution and model loading for LingBot-VA."""
 
 from __future__ import annotations
 
-import math
+from pathlib import Path
+from typing import Any
 
 import torch
-from diffusers import AutoencoderKLWan
-from transformers import T5TokenizerFast, UMT5EncoderModel
+from torch import Tensor, nn
+
+from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
+
+_CHECKPOINT_COMPONENTS = ("transformer", "vae", "text_encoder", "tokenizer")
+"""Subdirectories required from a LingBot-VA checkpoint snapshot."""
 
 
-def load_vae(vae_path: str, torch_dtype: torch.dtype, torch_device):
-    vae = AutoencoderKLWan.from_pretrained(vae_path, torch_dtype=torch_dtype)
+def validate_checkpoint_root(path: str | Path) -> Path:
+    """Validate and return a local LingBot-VA checkpoint root.
+
+    Args:
+        path: Local snapshot directory.
+
+    Returns:
+        Expanded checkpoint directory.
+
+    Raises:
+        FileNotFoundError: The root or a required component is missing.
+        NotADirectoryError: The root is not a directory.
+    """
+    root = Path(path).expanduser()
+    if not root.exists():
+        raise FileNotFoundError(f"LingBot-VA checkpoint root does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(
+            f"LingBot-VA checkpoint root is not a directory: {root}"
+        )
+    missing = [
+        component
+        for component in _CHECKPOINT_COMPONENTS
+        if not (root / component).is_dir()
+    ]
+    if missing:
+        raise FileNotFoundError(
+            f"LingBot-VA checkpoint root {root} is missing component "
+            + ", ".join(repr(component) for component in missing)
+            + "."
+        )
+    return root
+
+
+def resolve_checkpoint_root(
+    checkpoint_root: str | Path,
+    *,
+    revision: str | None = None,
+) -> Path:
+    """Resolve a local root or revision-pinned Hugging Face repo to a snapshot.
+
+    Existing paths are always local. Nonexistent absolute, tilde-prefixed, and
+    dot-prefixed paths fail locally; other strings are treated as Hugging Face
+    repository IDs.
+
+    Args:
+        checkpoint_root: Local directory or Hugging Face repository ID.
+        revision: Optional Hugging Face revision.
+
+    Returns:
+        Validated local snapshot directory.
+    """
+    value = str(checkpoint_root)
+    expanded = Path(value).expanduser()
+    if expanded.exists():
+        return validate_checkpoint_root(expanded)
+    if (
+        isinstance(checkpoint_root, Path)
+        or expanded.is_absolute()
+        or value.startswith((".", "~"))
+    ):
+        raise FileNotFoundError(
+            f"LingBot-VA checkpoint root does not exist: {expanded}"
+        )
+
+    allow_patterns = [
+        component
+        for name in _CHECKPOINT_COMPONENTS
+        for component in (name, f"{name}/*", f"{name}/**")
+    ]
+    maybe_download_hf_repo_on_rank0(
+        value,
+        revision=revision,
+        allow_patterns=allow_patterns,
+    )
+    from huggingface_hub import snapshot_download
+
+    local_root = snapshot_download(
+        repo_id=value,
+        revision=revision,
+        allow_patterns=allow_patterns,
+        local_files_only=True,
+    )
+    return validate_checkpoint_root(local_root)
+
+
+def load_vae(
+    checkpoint_root: Path,
+    torch_dtype: torch.dtype,
+    torch_device: torch.device | str,
+) -> nn.Module:
+    """Load the Wan VAE from a resolved snapshot."""
+    from diffusers import AutoencoderKLWan
+
+    vae = AutoencoderKLWan.from_pretrained(
+        checkpoint_root,
+        subfolder="vae",
+        torch_dtype=torch_dtype,
+        local_files_only=True,
+    )
     return vae.to(torch_device)
 
 
-def load_text_encoder(text_encoder_path: str, torch_dtype: torch.dtype, torch_device):
+def load_text_encoder(
+    checkpoint_root: Path,
+    torch_dtype: torch.dtype,
+    torch_device: torch.device | str,
+) -> nn.Module:
+    """Load the UMT5 text encoder from a resolved snapshot."""
+    from transformers import UMT5EncoderModel
+
     text_encoder = UMT5EncoderModel.from_pretrained(
-        text_encoder_path, torch_dtype=torch_dtype
+        checkpoint_root,
+        subfolder="text_encoder",
+        torch_dtype=torch_dtype,
+        local_files_only=True,
     )
     return text_encoder.to(torch_device)
 
 
-def load_tokenizer(tokenizer_path: str):
-    return T5TokenizerFast.from_pretrained(tokenizer_path)
+def load_tokenizer(checkpoint_root: Path) -> Any:
+    """Load the T5 tokenizer from a resolved snapshot."""
+    from transformers import T5TokenizerFast
+
+    return T5TokenizerFast.from_pretrained(
+        checkpoint_root,
+        subfolder="tokenizer",
+        local_files_only=True,
+    )
 
 
-def patchify(x: torch.Tensor, patch_size: int | None) -> torch.Tensor:
+def patchify(x: Tensor, patch_size: int | None) -> Tensor:
+    """Fold a spatial VAE patch into the channel dimension."""
     if patch_size is None or patch_size == 1:
         return x
     batch_size, channels, frames, height, width = x.shape
     x = x.view(
-        batch_size, channels, frames,
-        height // patch_size, patch_size,
-        width // patch_size, patch_size,
+        batch_size,
+        channels,
+        frames,
+        height // patch_size,
+        patch_size,
+        width // patch_size,
+        patch_size,
     )
     x = x.permute(0, 1, 6, 4, 2, 3, 5).contiguous()
-    x = x.view(
-        batch_size, channels * patch_size * patch_size, frames,
-        height // patch_size, width // patch_size,
+    return x.view(
+        batch_size,
+        channels * patch_size * patch_size,
+        frames,
+        height // patch_size,
+        width // patch_size,
     )
-    return x
 
 
 class WanVAEStreamingWrapper:
+    """Keep independent causal encoder state around a shared Wan VAE."""
 
-    def __init__(self, vae_model):
+    def __init__(self, vae_model: nn.Module) -> None:
+        """
+        Args:
+            vae_model: Wan VAE whose encoder and quantization projection are used.
+        """
         self.vae = vae_model
         self.encoder = vae_model.encoder
         self.quant_conv = vae_model.quant_conv
@@ -69,115 +201,35 @@ class WanVAEStreamingWrapper:
         if hasattr(self.vae, "_cached_conv_counts"):
             self.enc_conv_num = self.vae._cached_conv_counts["encoder"]
         else:
-            count = 0
-            for m in self.encoder.modules():
-                if m.__class__.__name__ == "WanCausalConv3d":
-                    count += 1
-            self.enc_conv_num = count
-
+            self.enc_conv_num = sum(
+                module.__class__.__name__ == "WanCausalConv3d"
+                for module in self.encoder.modules()
+            )
         self.clear_cache()
 
-    def clear_cache(self):
-        self.feat_cache = [None] * self.enc_conv_num
+    def clear_cache(self) -> None:
+        """Discard causal encoder features from the previous observation."""
+        self.feat_cache: list[Tensor | None] = [None] * self.enc_conv_num
 
-    def encode_chunk(self, x_chunk: torch.Tensor) -> torch.Tensor:
-        if (
-            hasattr(self.vae.config, "patch_size")
-            and self.vae.config.patch_size is not None
-        ):
-            x_chunk = patchify(x_chunk, self.vae.config.patch_size)
+    def encode_chunk(self, x_chunk: Tensor) -> Tensor:
+        """Encode one observation chunk while advancing causal feature state."""
+        patch_size = getattr(self.vae.config, "patch_size", None)
+        if patch_size is not None:
+            x_chunk = patchify(x_chunk, patch_size)
         feat_idx = [0]
-        out = self.encoder(x_chunk, feat_cache=self.feat_cache, feat_idx=feat_idx)
-        enc = self.quant_conv(out)
-        return enc
+        output = self.encoder(
+            x_chunk,
+            feat_cache=self.feat_cache,
+            feat_idx=feat_idx,
+        )
+        return self.quant_conv(output)
 
 
-# ---------------------------------------------------------------------------
-# Upstream FlowMatchScheduler (wan_va/utils/scheduler.py)
-# ---------------------------------------------------------------------------
-
-
-class FlowMatchScheduler:
-
-    def __init__(
-        self,
-        num_inference_steps=100,
-        num_train_timesteps=1000,
-        shift=3.0,
-        sigma_max=1.0,
-        sigma_min=0.003 / 1.002,
-        inverse_timesteps=False,
-        extra_one_step=False,
-        reverse_sigmas=False,
-        exponential_shift=False,
-        exponential_shift_mu=None,
-        shift_terminal=None,
-    ):
-        self.num_train_timesteps = num_train_timesteps
-        self.shift = shift
-        self.sigma_max = sigma_max
-        self.sigma_min = sigma_min
-        self.inverse_timesteps = inverse_timesteps
-        self.extra_one_step = extra_one_step
-        self.reverse_sigmas = reverse_sigmas
-        self.exponential_shift = exponential_shift
-        self.exponential_shift_mu = exponential_shift_mu
-        self.shift_terminal = shift_terminal
-        self.set_timesteps(num_inference_steps)
-
-    def set_timesteps(self, num_inference_steps=100, denoising_strength=1.0,
-                      training=False, shift=None, dynamic_shift_len=None):
-        if shift is not None:
-            self.shift = shift
-        sigma_start = self.sigma_min + (self.sigma_max - self.sigma_min) * denoising_strength
-        if self.extra_one_step:
-            self.sigmas = torch.linspace(sigma_start, self.sigma_min,
-                                         num_inference_steps + 1)[:-1]
-        else:
-            self.sigmas = torch.linspace(sigma_start, self.sigma_min,
-                                         num_inference_steps)
-        if self.inverse_timesteps:
-            self.sigmas = torch.flip(self.sigmas, dims=[0])
-        if self.exponential_shift:
-            mu = (self.calculate_shift(dynamic_shift_len)
-                  if dynamic_shift_len is not None else self.exponential_shift_mu)
-            self.sigmas = math.exp(mu) / (math.exp(mu) + (1 / self.sigmas - 1))
-        else:
-            self.sigmas = self.shift * self.sigmas / (1 + (self.shift - 1) * self.sigmas)
-        if self.shift_terminal is not None:
-            one_minus_z = 1 - self.sigmas
-            scale_factor = one_minus_z[-1] / (1 - self.shift_terminal)
-            self.sigmas = 1 - (one_minus_z / scale_factor)
-        if self.reverse_sigmas:
-            self.sigmas = 1 - self.sigmas
-        self.timesteps = self.sigmas * self.num_train_timesteps
-
-    def step(self, model_output, timestep, sample, to_final=False, **kwargs):
-        if isinstance(timestep, torch.Tensor):
-            timestep = timestep.cpu()
-        timestep_id = torch.argmin((self.timesteps - timestep).abs())
-        sigma = self.sigmas[timestep_id]
-        if to_final or timestep_id + 1 >= len(self.timesteps):
-            sigma_ = 1 if (self.inverse_timesteps or self.reverse_sigmas) else 0
-        else:
-            sigma_ = self.sigmas[timestep_id + 1]
-        prev_sample = sample + model_output * (sigma_ - sigma)
-        return prev_sample
-
-    def add_noise(self, original_samples, noise, timestep, t_dim=2):
-        if isinstance(timestep, torch.Tensor):
-            timestep = timestep.cpu()
-        timestep = timestep[None]
-        timestep_id = torch.argmin((self.timesteps[:, None] - timestep).abs(), dim=0)
-        shape = [1] * noise.ndim
-        shape[t_dim] = timestep_id.shape[0]
-        sigma = self.sigmas[timestep_id].to(original_samples).view(shape)
-        sample = (1 - sigma) * original_samples + sigma * noise
-        return sample
-
-    def calculate_shift(self, image_seq_len, base_seq_len=256,
-                        max_seq_len=8192, base_shift=0.5, max_shift=0.9):
-        m = (max_shift - base_shift) / (max_seq_len - base_seq_len)
-        b = base_shift - m * base_seq_len
-        mu = image_seq_len * m + b
-        return mu
+__all__ = [
+    "WanVAEStreamingWrapper",
+    "load_text_encoder",
+    "load_tokenizer",
+    "load_vae",
+    "resolve_checkpoint_root",
+    "validate_checkpoint_root",
+]

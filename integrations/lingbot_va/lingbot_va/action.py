@@ -40,6 +40,22 @@ class LingbotVAActionProcessorConfig:
     q99: tuple[float, ...] = ROBOTWIN_ACTION_Q99
     norm_method: str = "quantiles"
 
+    def __post_init__(self) -> None:
+        """Reject inconsistent action schemas before tensor processing starts."""
+        if self.action_dim <= 0:
+            raise ValueError("action_dim must be positive")
+        if len(self.q01) != self.action_dim or len(self.q99) != self.action_dim:
+            raise ValueError("q01 and q99 must each contain action_dim values")
+        if len(set(self.used_action_channel_ids)) != len(self.used_action_channel_ids):
+            raise ValueError("used_action_channel_ids must be unique")
+        if any(
+            channel < 0 or channel >= self.action_dim
+            for channel in self.used_action_channel_ids
+        ):
+            raise ValueError("used_action_channel_ids must be within action_dim")
+        if self.norm_method != "quantiles":
+            raise ValueError(f"unsupported norm_method: {self.norm_method!r}")
+
 
 @dataclass
 class LingbotVAActionProcessor:
@@ -62,10 +78,18 @@ class LingbotVAActionProcessor:
         return mask
 
     def q01_tensor(self, *, device: torch.device | None = None) -> Tensor:
-        return torch.tensor(self.config.q01, dtype=torch.float32, device=device).reshape(-1, 1, 1)
+        return torch.tensor(
+            self.config.q01,
+            dtype=torch.float32,
+            device=device,
+        ).reshape(-1, 1, 1)
 
     def q99_tensor(self, *, device: torch.device | None = None) -> Tensor:
-        return torch.tensor(self.config.q99, dtype=torch.float32, device=device).reshape(-1, 1, 1)
+        return torch.tensor(
+            self.config.q99,
+            dtype=torch.float32,
+            device=device,
+        ).reshape(-1, 1, 1)
 
     def preprocess(self, action: Tensor) -> Tensor:
         """Normalize a raw action tensor of shape ``[C_used_or_full, F, H]``.
@@ -75,8 +99,17 @@ class LingbotVAActionProcessor:
         quantile-normalize to roughly ``[-1, 1]``, then return
         ``[1, action_dim, F, H, 1]``.
         """
-        assert action.ndim == 3, f"expected [C, F, H], got {tuple(action.shape)}"
-        padded = torch.nn.functional.pad(action, [0, 0, 0, 0, 0, 1], mode="constant", value=0)
+        expected_channels = len(self.config.used_action_channel_ids)
+        if action.ndim != 3 or action.shape[0] != expected_channels:
+            raise ValueError(
+                f"expected [{expected_channels}, F, H], got {tuple(action.shape)}"
+            )
+        padded = torch.nn.functional.pad(
+            action,
+            [0, 0, 0, 0, 0, 1],
+            mode="constant",
+            value=0,
+        )
         expanded = padded[list(self.inverse_used_action_channel_ids)]
         if self.config.norm_method != "quantiles":
             raise NotImplementedError(self.config.norm_method)
@@ -98,13 +131,25 @@ class LingbotVAActionProcessor:
             action: Tensor with shape ``[B, 30, F, H, 1]``.
 
         Returns:
-            Tensor with shape ``[len(used_action_channel_ids), F, H]``.
+            Tensor with shape ``[F * H, len(used_action_channel_ids)]``.
         """
-        assert action.ndim == 5, f"expected [B, C, F, H, W], got {tuple(action.shape)}"
+        if (
+            action.ndim != 5
+            or action.shape[0] != 1
+            or action.shape[1] != self.config.action_dim
+            or action.shape[-1] != 1
+        ):
+            raise ValueError(
+                f"expected [1, {self.config.action_dim}, F, H, 1], "
+                f"got {tuple(action.shape)}"
+            )
         action_cpu = action[0, ..., 0].detach().cpu()
         if self.config.norm_method != "quantiles":
             raise NotImplementedError(self.config.norm_method)
         q01 = self.q01_tensor()
         q99 = self.q99_tensor()
         denorm = (action_cpu + 1.0) / 2.0 * (q99 - q01 + 1e-6) + q01
-        return denorm[list(self.config.used_action_channel_ids)]
+        selected = denorm[list(self.config.used_action_channel_ids)]
+        return selected.permute(1, 2, 0).reshape(
+            -1, len(self.config.used_action_channel_ids)
+        )
