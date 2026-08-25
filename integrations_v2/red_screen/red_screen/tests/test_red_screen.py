@@ -7,9 +7,6 @@ import threading
 
 import pytest
 import torch
-from numpy import uint64
-from red_screen import create_app
-
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -17,10 +14,12 @@ from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
-    KeyboardUserInputEventData,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from numpy import uint64
+from red_screen import create_app
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -91,7 +90,7 @@ def _session_desc(
 def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
     return UserInputEvents(
         [
-            KeyboardUserInputEventData(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
                 key=key,
                 state=(
@@ -179,12 +178,12 @@ def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
         1,
         UserInputEvents(
             [
-                KeyboardUserInputEventData(
+                KeyboardUserInputEvent(
                     timestamp=uint64(0),
                     key="w",
                     state=KeyboardInputState.PRESSED,
                 ),
-                KeyboardUserInputEventData(
+                KeyboardUserInputEvent(
                     timestamp=uint64(1),
                     key="s",
                     state=KeyboardInputState.PRESSED,

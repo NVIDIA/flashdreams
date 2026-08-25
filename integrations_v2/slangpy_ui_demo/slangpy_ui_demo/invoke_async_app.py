@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-from torch import Tensor
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
@@ -18,10 +16,11 @@ from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
-    KeyboardUserInputEventData,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from torch import Tensor
 
 
 @dataclass(slots=True)
@@ -94,7 +93,7 @@ class ColorToggleSlangPyUILoop(SlangPyUILoop[ColorToggleUIState]):
 
         for event in events.get_events():
             if (
-                isinstance(event, KeyboardUserInputEventData)
+                isinstance(event, KeyboardUserInputEvent)
                 and event.state is KeyboardInputState.PRESSED
                 and event.key.lower() == "w"
             ):

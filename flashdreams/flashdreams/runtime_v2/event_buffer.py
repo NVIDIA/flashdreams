@@ -6,7 +6,7 @@
 import threading
 
 from flashdreams.runtime_v2.user_input_event import (
-    ResetUserInputEventData,
+    ResetUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -50,7 +50,7 @@ class EventBuffer:
         with self._lock:
             self._events.extend(received)
             self._generation += sum(
-                isinstance(event, ResetUserInputEventData) for event in received
+                isinstance(event, ResetUserInputEvent) for event in received
             )
 
     def read(self, reader_id: int) -> tuple[UserInputEvents, int]:

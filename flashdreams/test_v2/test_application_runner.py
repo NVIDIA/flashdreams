@@ -8,8 +8,6 @@ from collections.abc import Sequence
 
 import pytest
 import torch
-from numpy import uint64
-
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
@@ -18,10 +16,11 @@ from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEventData,
+    CloseUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -118,7 +117,7 @@ class _Window(IClientWindow):
             self._reported_close = True
             return UserInputEvents(
                 [
-                    CloseUserInputEventData(
+                    CloseUserInputEvent(
                         timestamp=uint64(0),
                     )
                 ]

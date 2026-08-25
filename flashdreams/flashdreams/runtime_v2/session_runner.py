@@ -16,7 +16,7 @@ from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import CloseUserInputEventData
+from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def run_session(
     def collect_input() -> UserInputEvents:
         events = window.get_user_input_events()
         event_buffer.append(events)
-        if _contains(events, CloseUserInputEventData):
+        if _contains(events, CloseUserInputEvent):
             stop.set()
         return events
 

@@ -8,8 +8,6 @@ import threading
 
 import pytest
 import torch
-from numpy import uint64
-
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
@@ -26,13 +24,14 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEventData,
+    CloseUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    ResetUserInputEventData,
+    KeyboardUserInputEvent,
+    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -405,7 +404,7 @@ def _session_desc(
 def _key_event() -> UserInputEvents:
     return UserInputEvents(
         [
-            KeyboardUserInputEventData(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
                 key="a",
                 state=KeyboardInputState.PRESSED,
@@ -714,7 +713,7 @@ def test_run_session_gives_the_first_step_input_already_collected() -> None:
 def test_run_session_stops_when_the_window_reports_a_close() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
-    window = RecordingClientWindow(log, [_lifecycle_event(CloseUserInputEventData)])
+    window = RecordingClientWindow(log, [_lifecycle_event(CloseUserInputEvent)])
 
     # No step count at all: the close is the only thing that ends this run.
     run_session(session, window, steps=None)
@@ -726,7 +725,7 @@ def test_run_session_stops_when_the_window_reports_a_close() -> None:
 def test_run_session_resets_the_session_and_the_step_index() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
-    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData)])
+    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEvent)])
 
     run_session(session, window, steps=2)
 
@@ -766,7 +765,7 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
     """A session that starts over is asked about the run it is starting."""
     log = CallLog()
     session = FiniteSession(_session_desc(), log, length=1, generated=1)
-    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData)])
+    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEvent)])
 
     run_session(session, window, steps=3)
 
@@ -805,7 +804,7 @@ def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
             UserInputEvents(
                 [
                     held_key,
-                    ResetUserInputEventData(timestamp=uint64(1)),
+                    ResetUserInputEvent(timestamp=uint64(1)),
                 ]
             )
         ],
@@ -824,7 +823,7 @@ def test_run_session_keeps_polling_while_the_final_result_is_pending() -> None:
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(
         log,
-        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData)],
+        [UserInputEvents([]), _lifecycle_event(ResetUserInputEvent)],
     )
 
     run_session(session, window, steps=1)
@@ -857,7 +856,7 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     session = SlowFirstStep(_session_desc(), log)
     window = ResettingWindow(
         log,
-        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData)],
+        [UserInputEvents([]), _lifecycle_event(ResetUserInputEvent)],
     )
 
     run_session(session, window, steps=2)
@@ -952,8 +951,8 @@ def test_run_session_discards_results_generated_before_a_reset(
         log,
         [
             UserInputEvents([]),
-            _lifecycle_event(ResetUserInputEventData),
-            _lifecycle_event(CloseUserInputEventData),
+            _lifecycle_event(ResetUserInputEvent),
+            _lifecycle_event(CloseUserInputEvent),
         ],
     )
 

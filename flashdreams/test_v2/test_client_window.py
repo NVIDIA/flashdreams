@@ -5,18 +5,17 @@
 
 import pytest
 import torch
-from null_model import NULL_MODEL_CONFIG
-from numpy import uint64
-
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    NumeralKeypadUserInputEventData,
+    NumeralKeypadUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from null_model import NULL_MODEL_CONFIG
+from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -76,7 +75,7 @@ def test_client_window_for_null_model() -> None:
     current_step_index = 0
     test_event_data = 2
     while current_timestamp < 1000:
-        numeral_keypad_input = NumeralKeypadUserInputEventData(
+        numeral_keypad_input = NumeralKeypadUserInputEvent(
             timestamp=current_timestamp,
             value=test_event_data,
         )
@@ -89,7 +88,7 @@ def test_client_window_for_null_model() -> None:
         get_user_input_events = client_window.get_user_input_events()
         assert get_user_input_events.get_events() == [numeral_keypad_input]
         event = get_user_input_events.get_events()[0]
-        assert isinstance(event, NumeralKeypadUserInputEventData)
+        assert isinstance(event, NumeralKeypadUserInputEvent)
 
         # This is inside our `step` loop.
         output = pipeline.generate(

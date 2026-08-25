@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, final
 
 from numpy import uint64
 
@@ -60,6 +60,11 @@ class UserInputEvent(ABC):
     def get_type_name(cls) -> str:
         """Return the event type name."""
         ...
+
+    @final
+    def get_timestamp(self) -> uint64:
+        """Return the timestamp of the event."""
+        return self.timestamp
 
     def __hash__(self) -> int:
         """Return the hash of the concrete class name.

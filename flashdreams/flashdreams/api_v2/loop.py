@@ -17,7 +17,7 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import CloseUserInputEventData
+from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -310,9 +310,7 @@ class IUILoop(ILoop[StateT], ABC):
 
 
 def _contains_close(events: UserInputEvents) -> bool:
-    return any(
-        isinstance(event, CloseUserInputEventData) for event in events.get_events()
-    )
+    return any(isinstance(event, CloseUserInputEvent) for event in events.get_events())
 
 
 def _model_results(
