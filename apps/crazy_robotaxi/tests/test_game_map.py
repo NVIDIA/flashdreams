@@ -41,6 +41,7 @@ from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import VehicleState
 from PIL import Image
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -483,9 +484,7 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
     )
     assert any(element.road_boundaries for element in game_map.elements)
     rows = game_map_compiler._boundary_rows(game_map)
-    assert len(rows) == sum(
-        len(element.road_boundaries) for element in game_map.elements
-    )
+    assert rows
     assert all(row["road_boundary"]["category"] == "road_boundary" for row in rows)
     compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
     with zipfile.ZipFile(compiled.archive_path) as archive:
@@ -498,17 +497,37 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
     )
 
 
-def test_race_map_preserves_element_local_bev_boundaries() -> None:
-    game_map = load_game_map(_RACE_COURSE_MAP)
+@pytest.mark.parametrize(
+    "source_path",
+    (_RACE_COURSE_MAP, _TRAFFIC_INTERSECTION_MAP, _PARKING_DRIVEWAY_MAP),
+)
+def test_maps_export_overlapping_local_bev_boundaries(source_path: Path) -> None:
+    game_map = load_game_map(source_path)
     rows = game_map_compiler._boundary_rows(game_map)
-    expected_ids = {
-        boundary.boundary_id
-        for element in game_map.elements
-        for boundary in element.road_boundaries
-    }
-    actual_ids = {row["key"]["label_class_id"] for row in rows}
+    perimeter = unary_union(
+        [Polygon(element.surface_world[:, :2]) for element in game_map.elements]
+    ).boundary
+    lines = [
+        LineString(
+            [(point["x"], point["y"]) for point in row["road_boundary"]["location"]]
+        )
+        for row in rows
+    ]
 
-    assert actual_ids == expected_ids
+    assert lines
+    maximum_length = (
+        game_map_compiler._BOUNDARY_CHUNK_CORE_LENGTH_M
+        + 2.0 * game_map_compiler._BOUNDARY_CHUNK_OVERLAP_M
+    )
+    for index, line in enumerate(lines):
+        assert line.length <= maximum_length + 1.0e-3
+        assert line.difference(perimeter.buffer(1.0e-4)).length <= 1.0e-4
+        if line.is_ring:
+            continue
+        other_lines = unary_union(lines[:index] + lines[index + 1 :])
+        assert Point(line.coords[0]).distance(other_lines) <= 1.0e-4
+        assert Point(line.coords[-1]).distance(other_lines) <= 1.0e-4
+    assert perimeter.difference(unary_union(lines).buffer(1.0e-4)).length <= 1.0e-4
 
 
 def test_profile_is_optional_when_attributes_are_direct(tmp_path: Path) -> None:
@@ -1800,8 +1819,8 @@ def test_final_clipgt_archive_contains_all_authored_map_geometry(
             label.startswith(f"lane_line:{road['id']}:lane:") for label in labels
         )
         assert actual == expected, road["id"]
-    assert boundaries.num_rows == sum(
-        len(element.road_boundaries) for element in compiled.game_map.elements
+    assert boundaries.num_rows == len(
+        game_map_compiler._boundary_rows(compiled.game_map)
     )
     if intersections is None:
         assert "clipgt/intersection_area.parquet" not in archive_names
