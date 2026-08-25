@@ -18,13 +18,21 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import torch
+from torch import nn
 from minimax_h3.constants import align_num_frames, validate_canvas
 from minimax_h3.lora import convert_musubi_lora
-from minimax_h3.model import MiniMaxH3DenoiseState, MiniMaxH3DiffusionModel
+from minimax_h3.model import (
+    MiniMaxH3DenoiseState,
+    MiniMaxH3DiffusionModel,
+    MiniMaxH3JointLatents,
+)
 from minimax_h3.scheduler import MiniMaxH3SchedulerConfig
 from minimax_h3.transformer import MiniMaxH3TransformerConfig
 
@@ -250,6 +258,8 @@ def test_row_timestep_plan_preserves_conditioning_levels(
         num_latent_frames=0,
         latent_height=0,
         latent_width=0,
+        num_audio_latents=0,
+        audio_channels=2,
     )
 
     def reject_scalar_conversion(_tensor: torch.Tensor) -> float:
@@ -264,3 +274,150 @@ def test_row_timestep_plan_preserves_conditioning_levels(
     assert timesteps.device == state.video_indices.device
     torch.testing.assert_close(timesteps, torch.tensor([0.25, 0.5, 0.999, 1.0]))
     torch.testing.assert_close(indices, torch.tensor([2, 1, 3, 0, 1, 1]))
+
+
+class _JointFlowTransformer(nn.Module):
+    """Small deterministic joint-flow double with optional missing audio flow."""
+
+    def __init__(self, audio_flow_calls: set[int] | None = None) -> None:
+        super().__init__()
+        self.anchor = nn.Parameter(torch.zeros(()))
+        self.audio_flow_calls = audio_flow_calls
+        self.calls = 0
+
+    @property
+    def device(self) -> torch.device:
+        """Return the device used by this transformer's only parameter."""
+        return self.anchor.device
+
+    def predict_flow(
+        self,
+        noisy_latent: torch.Tensor,
+        timestep: torch.Tensor,
+        cache: Any,
+    ) -> torch.Tensor:
+        """Return constant flows and optionally omit the cache side effect."""
+        del timestep
+        self.calls += 1
+        if self.audio_flow_calls is None or self.calls in self.audio_flow_calls:
+            cache.last_audio_flow = torch.full_like(cache.audio_hidden_states, 0.25)
+        return torch.full_like(noisy_latent, 0.5)
+
+
+def _joint_model(
+    *, num_inference_steps: int = 2, audio_flow_calls: set[int] | None = None
+) -> tuple[MiniMaxH3DiffusionModel, _JointFlowTransformer]:
+    transformer_config = SimpleNamespace(
+        patch_size=(1, 2, 2),
+        in_channels=1,
+        audio_in_channels=3,
+        text_dim=5,
+    )
+    transformer = _JointFlowTransformer(audio_flow_calls)
+    model: Any = object.__new__(MiniMaxH3DiffusionModel)
+    nn.Module.__init__(model)
+    model.config = SimpleNamespace(transformer=transformer_config)
+    model.transformer = transformer
+    model.scheduler = MiniMaxH3SchedulerConfig(
+        num_inference_steps=num_inference_steps, shift=1.0
+    ).setup()
+    model.audio_scheduler = MiniMaxH3SchedulerConfig(
+        num_inference_steps=num_inference_steps, shift=3.0
+    ).setup()
+    return model, transformer
+
+
+def _joint_state() -> MiniMaxH3DenoiseState:
+    return MiniMaxH3DenoiseState(
+        latents=torch.arange(8, dtype=torch.float32).reshape(2, 4),
+        audio_latents=torch.arange(18, dtype=torch.float32).reshape(6, 3),
+        prompt_embeds=torch.zeros((1, 1, 5)),
+        position_ids=torch.zeros((9, 3)),
+        token_tags=torch.zeros(9, dtype=torch.long),
+        video_indices=torch.tensor([1, 8]),
+        audio_indices=torch.tensor([2, 3, 4, 5, 6, 7]),
+        text_indices=torch.tensor([0]),
+        num_condition_video_rows=1,
+        num_condition_audio_rows=2,
+        num_latent_frames=1,
+        latent_height=2,
+        latent_width=2,
+        num_audio_latents=2,
+        audio_channels=2,
+    )
+
+
+def test_generate_joint_returns_both_streams_without_mutating_state() -> None:
+    """Update only target rows and unpack the oracle's channel-major audio."""
+    model, transformer = _joint_model()
+    state = _joint_state()
+    original_video = state.latents.clone()
+    original_audio = state.audio_latents.clone()
+    original_metadata = (
+        state.prompt_embeds,
+        state.position_ids,
+        state.token_tags,
+        state.video_indices,
+        state.audio_indices,
+        state.text_indices,
+    )
+
+    result = model.generate_joint(state)
+
+    assert isinstance(result, MiniMaxH3JointLatents)
+    assert transformer.calls == 1
+    assert result.video.shape == (1, 1, 1, 2, 2)
+    torch.testing.assert_close(result.video.flatten(), original_video[1] + 0.5)
+    expected_audio = (original_audio[2:] + 0.25).reshape(2, 2, 3).permute(0, 2, 1)
+    torch.testing.assert_close(result.audio, expected_audio)
+    torch.testing.assert_close(state.latents, original_video)
+    torch.testing.assert_close(state.audio_latents, original_audio)
+    current_metadata = (
+        state.prompt_embeds,
+        state.position_ids,
+        state.token_tags,
+        state.video_indices,
+        state.audio_indices,
+        state.text_indices,
+    )
+    assert all(
+        before is after
+        for before, after in zip(original_metadata, current_metadata)
+    )
+
+
+def test_generate_joint_rejects_invalid_packed_state_before_transformer() -> None:
+    """Validate exact stereo target geometry before the first model call."""
+    model, transformer = _joint_model()
+    state = replace(_joint_state(), audio_latents=torch.zeros((5, 3)))
+
+    with pytest.raises(ValueError, match="Packed audio latents"):
+        model.generate_joint(state)
+
+    assert transformer.calls == 0
+
+
+def test_generate_joint_does_not_reuse_stale_audio_flow() -> None:
+    """Require every transformer call to publish its paired audio velocity."""
+    model, transformer = _joint_model(
+        num_inference_steps=3, audio_flow_calls={1}
+    )
+
+    with pytest.raises(RuntimeError, match="did not produce an audio flow"):
+        model.generate_joint(_joint_state())
+
+    assert transformer.calls == 2
+
+
+def test_joint_latents_reject_nonfinite_or_empty_media() -> None:
+    """Keep malformed decoded inputs from crossing the joint latent boundary."""
+    with pytest.raises(ValueError, match="finite"):
+        MiniMaxH3JointLatents(
+            video=torch.full((1, 1, 1, 1, 1), torch.nan),
+            audio=torch.zeros((2, 1, 1)),
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        MiniMaxH3JointLatents(
+            video=torch.zeros((1, 1, 1, 1, 1)),
+            audio=torch.zeros((2, 1, 0)),
+        )
