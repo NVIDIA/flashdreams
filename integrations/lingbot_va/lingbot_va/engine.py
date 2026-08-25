@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Hongyu Zhou
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Session-owned LingBot-VA Robotwin inference engine."""
 
@@ -39,12 +51,14 @@ from lingbot_va.constants import (
     ROBOTWIN_ACTION_GUIDANCE_SCALE,
     ROBOTWIN_ACTION_INFERENCE_STEPS,
     ROBOTWIN_ACTION_SNR_SHIFT,
+    ROBOTWIN_COMPOSITE_HEIGHT,
     ROBOTWIN_FRAME_CHUNK_SIZE,
     ROBOTWIN_GUIDANCE_SCALE,
     ROBOTWIN_HEIGHT,
     ROBOTWIN_OBS_CAM_KEYS,
     ROBOTWIN_SNR_SHIFT,
     ROBOTWIN_VIDEO_INFERENCE_STEPS,
+    ROBOTWIN_VAE_TEMPORAL_SCALE,
     ROBOTWIN_WIDTH,
 )
 from lingbot_va.pipeline import LingbotVAInferencePipelineConfig
@@ -242,7 +256,13 @@ class LingbotVAEngine:
         self._device = device
 
         if device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
+            # PyTorch 2.12 can reject reset_peak_memory_stats before the CUDA
+            # context exists. Resolve the current device inside its context
+            # first so every session reports its own peak rather than a
+            # process-lifetime high-water mark.
+            with torch.cuda.device(device):
+                torch.cuda.current_device()
+                torch.cuda.reset_peak_memory_stats()
         torch.manual_seed(self.config.seed)
         self._load_models(checkpoint_root, device)
 
@@ -278,11 +298,11 @@ class LingbotVAEngine:
             video=video,
             actions=actions,
             metrics={
-                "prompt_encode_seconds": prompt_seconds,
-                "observation_encode_seconds": observation_seconds,
-                "denoise_seconds": denoise_seconds,
-                "decode_seconds": decode_seconds,
-                "total_seconds": time.perf_counter() - started,
+                "prompt_encode_s": prompt_seconds,
+                "observation_encode_s": observation_seconds,
+                "denoise_s": denoise_seconds,
+                "decode_s": decode_seconds,
+                "total_s": time.perf_counter() - started,
                 "peak_allocated_bytes": peak_allocated,
             },
         )
@@ -567,7 +587,14 @@ class LingbotVAEngine:
             from diffusers.models.autoencoders.autoencoder_kl_wan import unpatchify
 
             decoded = unpatchify(decoded, patch_size=patch_size)
-        return decoded[0].clamp(-1.0, 1.0).permute(1, 0, 2, 3).contiguous()
+        if tuple(decoded.shape[-2:]) != (ROBOTWIN_COMPOSITE_HEIGHT, ROBOTWIN_WIDTH):
+            raise ValueError(
+                "LingBot-VA VAE returned composite spatial shape "
+                f"{tuple(decoded.shape[-2:])}; expected "
+                f"{(ROBOTWIN_COMPOSITE_HEIGHT, ROBOTWIN_WIDTH)}."
+            )
+        high_camera = decoded[..., -ROBOTWIN_HEIGHT:, :]
+        return high_camera[0].clamp(-1.0, 1.0).permute(1, 0, 2, 3).contiguous()
 
     def _release_vae(self) -> None:
         """Release the final model component after decoded tensors reach CPU."""
@@ -599,8 +626,10 @@ class LingbotVAEngine:
 
 def expected_output_shape(config: LingbotVAEngineConfig) -> tuple[int, int, int, int]:
     """Return the fixed natural decoded video shape for one rollout."""
+    latent_frames = config.num_chunks * ROBOTWIN_FRAME_CHUNK_SIZE
+    decoded_frames = (latent_frames - 1) * ROBOTWIN_VAE_TEMPORAL_SCALE + 1
     return (
-        config.num_chunks * ROBOTWIN_FRAME_CHUNK_SIZE,
+        decoded_frames,
         3,
         ROBOTWIN_HEIGHT,
         ROBOTWIN_WIDTH,

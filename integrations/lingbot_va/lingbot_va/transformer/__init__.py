@@ -116,6 +116,8 @@ class LingbotVATransformerConfig(TransformerConfig):
 class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
     """Native LingBot-VA transformer with torch.compile support."""
 
+    _network: WanVADiTNetwork | None
+
     def __init__(self, config: LingbotVATransformerConfig) -> None:
         super().__init__(config)
         self.config: LingbotVATransformerConfig = config
@@ -143,15 +145,23 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         net = net.to(dtype=cfg.dtype, device=device)
 
         if cfg.compile_network:
-            net._forward_blocks_video = torch.compile(
-                net._forward_blocks_video,
-                mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
+            object.__setattr__(
+                net,
+                "_forward_blocks_video",
+                torch.compile(
+                    net._forward_blocks_video,
+                    mode="max-autotune-no-cudagraphs",
+                    fullgraph=True,
+                ),
             )
-            net._forward_blocks_action = torch.compile(
-                net._forward_blocks_action,
-                mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
+            object.__setattr__(
+                net,
+                "_forward_blocks_action",
+                torch.compile(
+                    net._forward_blocks_action,
+                    mode="max-autotune-no-cudagraphs",
+                    fullgraph=True,
+                ),
             )
 
         object.__setattr__(self, '_network', net)

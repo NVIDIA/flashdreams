@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import torch
 from einops import rearrange
@@ -90,11 +90,11 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
 
     @property
     def transformer(self) -> LingbotVATransformer:
-        return self.diffusion_model.transformer  # type: ignore[return-value]
+        return cast(LingbotVATransformer, self.diffusion_model.transformer)
 
     @property
     def video_scheduler(self) -> LingbotVAFlowMatchScheduler:
-        return self.diffusion_model.scheduler  # type: ignore[return-value]
+        return cast(LingbotVAFlowMatchScheduler, self.diffusion_model.scheduler)
 
     def initialize_cache(  # type: ignore[override]
         self,
@@ -138,7 +138,10 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
         """
         assert input is not None
         cfg = self.config
-        transformer_cache: LingbotVATransformerCache = cache.transformer_cache  # type: ignore[assignment]
+        transformer_cache = cast(
+            LingbotVATransformerCache,
+            cache.transformer_cache,
+        )
 
         init_latent = input["init_latent"]
         action_mask = input["action_mask"]
@@ -205,7 +208,8 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
                 )
                 latents = self.video_scheduler.step(pred, t, latents)
 
-            latents[:, :, 0:1] = latent_cond if frame_st_id == 0 else latents[:, :, 0:1]
+            if latent_cond is not None:
+                latents[:, :, 0:1] = latent_cond
 
         # --- Action denoise ---
         for i, t in enumerate(tqdm(action_timesteps, desc="action denoise")):
@@ -236,7 +240,8 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
                 pred = rearrange(pred, "b (f n) c -> b c f n 1", f=fcs)
                 actions = self.action_scheduler.step(pred, t, actions)
 
-            actions[:, :, 0:1] = action_cond if frame_st_id == 0 else actions[:, :, 0:1]
+            if action_cond is not None:
+                actions[:, :, 0:1] = action_cond
 
         # Close cache window and commit
         transformer_cache.finalize(autoregressive_index)

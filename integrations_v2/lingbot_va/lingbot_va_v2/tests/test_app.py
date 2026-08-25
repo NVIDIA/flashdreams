@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -61,7 +62,7 @@ class _FakeEngine:
         self.config = config
         self.closed = False
         self.runs = 0
-        frame_count = config.num_chunks * 2
+        frame_count = config.num_chunks * 8 - 3
         action_steps = config.num_chunks * 32
         self._output = LingbotVAEngineOutput(
             video=torch.zeros(
@@ -72,7 +73,7 @@ class _FakeEngine:
                 action_steps,
                 16,
             ),
-            metrics={"total_seconds": 1.25},
+            metrics={"total_s": 1.25},
         )
 
     def run(self) -> LingbotVAEngineOutput:
@@ -146,8 +147,8 @@ def _init_app(
     return app
 
 
-def _step(session: object, step_index: int = 0) -> StepResult:
-    model_loop = session.model_loop  # type: ignore[attr-defined]
+def _step(session: Any, step_index: int = 0) -> StepResult:
+    model_loop = session.model_loop
     results = model_loop.step(step_index, UserInputEvents([]))
     assert isinstance(results, list)
     return results[0]
@@ -193,10 +194,10 @@ def test_one_step_returns_video_actions_and_metrics(tmp_path: Path) -> None:
 
     result = _step(session)
 
-    assert result.output.shape == (2, 3, 256, 320)
+    assert result.output.shape == (5, 3, 256, 320)
     assert result.output_layout is VideoTensorLayout.tchw
-    assert result.frame_count == 2
-    assert result.metrics == {"total_seconds": 1.25}
+    assert result.frame_count == 5
+    assert result.metrics == {"total_s": 1.25}
     assert len(result.tensor_artifacts) == 1
     actions = result.tensor_artifacts[0]
     assert actions.schema is ACTIONS_SCHEMA

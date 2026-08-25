@@ -1,8 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """CPU regressions for LingBot-VA conditional and unconditional KV ownership."""
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,6 +29,7 @@ from lingbot_va.transformer import (
 )
 from lingbot_va.transformer.impl.network import (
     VideoKV,
+    WanVADiTNetwork,
     WanVADiTNetworkCache,
     WanVADiTNetworkConfig,
 )
@@ -114,3 +128,91 @@ def test_cfg_action_branches_consume_their_matching_video_kv() -> None:
     assert network.action_video_kv["uncond"][0][0].item() == -1.0
     assert cache.video_kv_cond is None
     assert cache.video_kv_uncond is None
+
+
+def test_action_block_loop_attends_to_committed_then_current_video_kv() -> None:
+    config = WanVADiTNetworkConfig(
+        dim=12,
+        ffn_dim=24,
+        num_heads=1,
+        num_layers=1,
+        text_dim=8,
+        freq_dim=4,
+    )
+    network = WanVADiTNetwork(config)
+    network._parameters_updated_after_loading_checkpoint = True
+    prior_k = torch.tensor([[[[1.0] * 12]]])
+    prior_v = torch.tensor([[[[2.0] * 12]]])
+    current_video_k = torch.tensor([[[[3.0] * 12]]])
+    current_video_v = torch.tensor([[[[4.0] * 12]]])
+    text_k = torch.zeros(1, 1, 1, 12)
+    text_v = torch.zeros_like(text_k)
+    cache = WanVADiTNetworkCache(
+        block_caches=[
+            SimpleNamespace(
+                self_attn=SimpleNamespace(
+                    n_committed_tokens=1,
+                    kv_cache=SimpleNamespace(_k=prior_k, _v=prior_v),
+                ),
+                cross_attn=SimpleNamespace(
+                    text=SimpleNamespace(_k=text_k, _v=text_v, _n_cached=1),
+                ),
+            )
+        ]
+    )
+    captured: dict[str, Tensor] = {}
+
+    def record_action_inputs(
+        x: Tensor,
+        timesteps: Tensor,
+        committed_k: Tensor,
+        committed_v: Tensor,
+        cross_k: Tensor,
+        cross_v: Tensor,
+        rope_freqs: Tensor,
+    ) -> tuple[Tensor, list[Tensor], list[Tensor]]:
+        del timesteps, cross_k, cross_v, rope_freqs
+        captured["k"] = committed_k
+        captured["v"] = committed_v
+        fresh = torch.zeros(1, 1, 1, 12)
+        return x, [fresh], [fresh]
+
+    object.__setattr__(network, "_forward_blocks_action", record_action_inputs)
+
+    output = network.forward_action(
+        torch.zeros(1, 1, 12),
+        torch.zeros(1, 1),
+        cache,
+        torch.zeros(1, 1, 1, 12),
+        video_kv=((current_video_k, current_video_v),),
+    )
+
+    assert output.shape == (1, 1, 12)
+    assert captured["k"].shape == (1, 1, 2, 1, 12)
+    assert captured["v"].shape == (1, 1, 2, 1, 12)
+    torch.testing.assert_close(captured["k"][0, 0, 0], prior_k[0, 0])
+    torch.testing.assert_close(captured["k"][0, 0, 1], current_video_k[0, 0])
+    torch.testing.assert_close(captured["v"][0, 0, 0], prior_v[0, 0])
+    torch.testing.assert_close(captured["v"][0, 0, 1], current_video_v[0, 0])
+
+
+def test_action_block_loop_requires_current_video_kv() -> None:
+    network = WanVADiTNetwork(
+        WanVADiTNetworkConfig(
+            dim=12,
+            ffn_dim=24,
+            num_heads=1,
+            num_layers=1,
+            text_dim=8,
+            freq_dim=4,
+        )
+    )
+    network._parameters_updated_after_loading_checkpoint = True
+
+    with pytest.raises(ValueError, match="current-chunk video KV"):
+        network.forward_action(
+            torch.zeros(1, 1, 12),
+            torch.zeros(1, 1),
+            WanVADiTNetworkCache(block_caches=[]),
+            torch.zeros(1, 1, 1, 12),
+        )

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -59,7 +60,7 @@ class WanVADiTNetworkConfig:
     cross_attn_norm: bool = True
     eps: float = 1e-6
     apply_rope_before_kvcache: bool = True
-    cp_method: str = "ring"
+    cp_method: Literal["ring", "ulysses"] = "ring"
 
 
 # ---------------------------------------------------------------------------
@@ -402,15 +403,28 @@ class WanVADiTNetwork(nn.Module):
     ) -> Tensor:
         """Action-mode forward.
 
-        Cache extraction and writes happen outside the compiled block loop.
+        Cache extraction, current-video concatenation, and writes happen outside
+        the compiled block loop. Every action denoise pass attends to committed
+        prior chunks, the matching branch's current video, and its fresh action
+        tokens, in that order.
 
         Returns:
             Action flow ``[batch, L, action_dim]``.
         """
         assert self._parameters_updated_after_loading_checkpoint
+        if video_kv is None:
+            raise ValueError("Action attention requires current-chunk video KV.")
+        if len(video_kv) != len(self.blocks):
+            raise ValueError(
+                f"Expected {len(self.blocks)} video KV pairs, got {len(video_kv)}."
+            )
 
         # Extract cache tensors (outside compile boundary)
         committed_k, committed_v, cross_k, cross_v = self._extract_cache_tensors(cache)
+        video_k = torch.stack([key for key, _ in video_kv])
+        video_v = torch.stack([value for _, value in video_kv])
+        committed_k = torch.cat([committed_k, video_k], dim=2)
+        committed_v = torch.cat([committed_v, video_v], dim=2)
 
         # Compiled block loop (pure tensors, no cache access)
         output, k_list, v_list = self._forward_blocks_action(
@@ -419,12 +433,6 @@ class WanVADiTNetwork(nn.Module):
 
         # Cache write (outside compile boundary)
         if persist:
-            assert video_kv is not None, (
-                "A persistent action pass requires video KV from the same CFG branch."
-            )
-            assert len(video_kv) == len(k_list), (
-                f"Expected {len(k_list)} video KV pairs, got {len(video_kv)}."
-            )
             for block_idx, (k, v, branch_video_kv) in enumerate(
                 zip(k_list, v_list, video_kv)
             ):

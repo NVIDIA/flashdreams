@@ -23,6 +23,7 @@ Cache read/write operations happen at the network level, outside the compiled gr
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -124,7 +125,7 @@ class VABlock(nn.Module):
         cross_attn_norm: bool = True,
         eps: float = 1e-6,
         apply_rope_before_kvcache: bool = True,
-        cp_method: str = "ring",
+        cp_method: Literal["ring", "ulysses"] = "ring",
     ) -> None:
         super().__init__()
         self.dim = dim

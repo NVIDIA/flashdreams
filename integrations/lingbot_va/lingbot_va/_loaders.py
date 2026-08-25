@@ -19,8 +19,9 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 from torch import Tensor, nn
@@ -108,12 +109,14 @@ def resolve_checkpoint_root(
     )
     from huggingface_hub import snapshot_download
 
-    local_root = snapshot_download(
-        repo_id=value,
-        revision=revision,
-        allow_patterns=allow_patterns,
-        local_files_only=True,
-    )
+    snapshot_kwargs: dict[str, Any] = {
+        "repo_id": value,
+        "allow_patterns": allow_patterns,
+        "local_files_only": True,
+    }
+    if revision is not None:
+        snapshot_kwargs["revision"] = revision
+    local_root = snapshot_download(**snapshot_kwargs)
     return validate_checkpoint_root(local_root)
 
 
@@ -125,11 +128,14 @@ def load_vae(
     """Load the Wan VAE from a resolved snapshot."""
     from diffusers import AutoencoderKLWan
 
-    vae = AutoencoderKLWan.from_pretrained(
-        checkpoint_root,
-        subfolder="vae",
-        torch_dtype=torch_dtype,
-        local_files_only=True,
+    vae = cast(
+        nn.Module,
+        AutoencoderKLWan.from_pretrained(
+            checkpoint_root,
+            subfolder="vae",
+            torch_dtype=torch_dtype,
+            local_files_only=True,
+        ),
     )
     return vae.to(torch_device)
 
@@ -142,20 +148,26 @@ def load_text_encoder(
     """Load the UMT5 text encoder from a resolved snapshot."""
     from transformers import UMT5EncoderModel
 
-    text_encoder = UMT5EncoderModel.from_pretrained(
-        checkpoint_root,
-        subfolder="text_encoder",
-        torch_dtype=torch_dtype,
-        local_files_only=True,
+    text_encoder = cast(
+        nn.Module,
+        UMT5EncoderModel.from_pretrained(
+            checkpoint_root,
+            subfolder="text_encoder",
+            torch_dtype=torch_dtype,
+            local_files_only=True,
+        ),
     )
     return text_encoder.to(torch_device)
 
 
 def load_tokenizer(checkpoint_root: Path) -> Any:
     """Load the T5 tokenizer from a resolved snapshot."""
-    from transformers import T5TokenizerFast
+    tokenizer_class = getattr(
+        importlib.import_module("transformers"),
+        "T5TokenizerFast",
+    )
 
-    return T5TokenizerFast.from_pretrained(
+    return tokenizer_class.from_pretrained(
         checkpoint_root,
         subfolder="tokenizer",
         local_files_only=True,
@@ -189,7 +201,7 @@ def patchify(x: Tensor, patch_size: int | None) -> Tensor:
 class WanVAEStreamingWrapper:
     """Keep independent causal encoder state around a shared Wan VAE."""
 
-    def __init__(self, vae_model: nn.Module) -> None:
+    def __init__(self, vae_model: Any) -> None:
         """
         Args:
             vae_model: Wan VAE whose encoder and quantization projection are used.
