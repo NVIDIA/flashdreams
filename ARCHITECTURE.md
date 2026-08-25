@@ -205,8 +205,9 @@ their own: loops reset their state and restart their step index, and frames
 generated before the reset are discarded rather than shown. One counter is the
 whole mechanism — none of those components has to know about the others.
 
-A **failure** ends the run, and whichever failure happened first is the one
-reported. A model-thread exception is handed to the session and sets the
+A **failure** ends the run, and a loop's failure is the one reported: a loop
+raised on either thread outranks one the main thread raised itself, whichever
+happened first. A model-thread exception is handed to the session and sets the
 shutdown event; the main thread then joins the thread, shuts the loops down,
 closes every sink it opened, closes the session, closes the application, and only
 then raises. Failures that happen during that cleanup are logged rather than

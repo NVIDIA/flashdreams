@@ -107,8 +107,9 @@ finished and no frames are still pending.
 
 On the way out it sets the shutdown event, joins the model thread, shuts both
 loops down, clears the presentation buffer, unregisters the readers, closes every
-sink it opened, and closes the session. Then it raises whichever failure happened
-first, logging any that occurred during that cleanup.
+sink it opened, and closes the session. Then it raises a loop's failure if one
+was queued, otherwise its own, otherwise the first cleanup failure, logging the
+rest.
 
 ## `EventBuffer`
 
@@ -153,8 +154,9 @@ ready:
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ONLY_PRESENT_NEW`: together they keep every frame and present each exactly once,
-in order. Frames that could not be kept are counted in `dropped_for_space` and
-`discarded_at_reset`, and logged when the run ends.
+in order. Steps that could not be kept are counted in `dropped_for_space` and
+`discarded_at_reset`, and logged when the run ends. Both count model steps rather
+than frames, so one step of twelve frames counts once.
 
 ## Presenting and writing
 

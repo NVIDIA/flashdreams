@@ -24,9 +24,9 @@ class PresentationManager:
     twelve ticks rather than eleven being skipped.
 
     :class:`BackpressureMode` decides what publishing does when the queue is
-    full. Frames that could not be kept are counted in
+    full. Chunks that could not be kept are counted in
     :attr:`dropped_for_space` and :attr:`discarded_at_reset` rather than lost
-    silently.
+    silently, one count per chunk however many frames it held.
     """
 
     def __init__(self) -> None:

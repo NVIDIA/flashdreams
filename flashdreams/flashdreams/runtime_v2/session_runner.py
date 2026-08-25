@@ -63,8 +63,9 @@ def run_session(
 
     Raises:
         ValueError: ``steps`` is negative, or ``max_pending`` is not positive.
-        BaseException: Whatever failed the run first. A failure while cleaning
-            up after it is logged instead.
+        BaseException: A loop's failure if one was queued, otherwise this
+            function's own, otherwise the first cleanup failure. The rest are
+            logged.
     """
     if steps is not None and steps < 0:
         raise ValueError(f"steps must be >= 0 or None, got {steps}.")
@@ -214,12 +215,12 @@ def run_session(
 
     if presentation_manager.dropped_for_space:
         _LOGGER.warning(
-            "Dropped %d results the window could not keep up with.",
+            "Dropped %d model steps the window could not keep up with.",
             presentation_manager.dropped_for_space,
         )
     if presentation_manager.discarded_at_reset:
         _LOGGER.info(
-            "Discarded %d results generated before a reset.",
+            "Discarded %d model steps generated before a reset.",
             presentation_manager.discarded_at_reset,
         )
     if primary_failure is not None:

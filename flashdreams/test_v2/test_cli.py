@@ -484,3 +484,46 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
 def test_the_command_needs_somewhere_to_write() -> None:
     with pytest.raises(SystemExit):
         cli.entrypoint(["stub"])
+
+
+class HelpfulApplication(IApplication):
+    """An application that parses its arguments, as every application does."""
+
+    def init(self, commandline_args: Sequence[str]) -> None:
+        parser = argparse.ArgumentParser(prog="flashdreams-run-v2 SLUG --")
+        parser.add_argument("--seconds", type=int, default=1, help="How long for.")
+        parser.parse_args(list(commandline_args))
+
+    def create_session(self, session_desc: SessionDesc) -> ISession:
+        return OneStepSession(session_desc)
+
+
+class RefusingMode(ClientWindowMode):
+    """A mode that fails if a run reaches its arguments or its window."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        del parsed_args
+        raise AssertionError("Application help must not check window arguments.")
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        del parsed_args
+        raise AssertionError("Application help must not create a window.")
+
+
+def test_an_application_describes_itself_without_a_window(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only the application can say what it takes, and it needs no window to say
+    it. The default mode would otherwise refuse the run for want of an
+    ``--output-path`` that nothing was going to be written to."""
+    _install(monkeypatch, HelpfulApplication())
+    monkeypatch.setattr(cli, "client_window_mode", RefusingMode)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.entrypoint(["stub", "--", "--help"])
+
+    assert exit_info.value.code == 0
+    assert "--seconds" in capsys.readouterr().out

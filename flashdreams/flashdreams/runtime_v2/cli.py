@@ -44,6 +44,9 @@ An application declares whatever arguments it likes, including ones this
 command also has, so the split is stated rather than guessed.
 """
 
+_HELP_FLAGS = frozenset({"-h", "--help"})
+"""What an application's own arguments use to ask for its help."""
+
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
     """Run the command, reporting where to watch what it generates."""
@@ -53,13 +56,22 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     parsed = parser.parse_args(own_args)
 
     mode = client_window_mode(parsed.mode)
-    try:
-        mode.check_arguments(parsed)
-    except ValueError as error:
-        parser.error(str(error))
+    # Asking an application what it takes is answered by the application alone,
+    # so a run that only wants its help neither checks the arguments for a
+    # window nor opens one.
+    wants_application_help = bool(_HELP_FLAGS.intersection(application_args))
+    if not wants_application_help:
+        try:
+            mode.check_arguments(parsed)
+        except ValueError as error:
+            parser.error(str(error))
 
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
+    if wants_application_help:
+        # Parsing is init's first job, so this prints the help and exits.
+        application.init(application_args)
+        return
     session_desc = _session_desc(application, parsed)
     window = mode.create(parsed)
     _report(mode.starting(window))
