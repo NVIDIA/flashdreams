@@ -62,39 +62,53 @@ def _prose(document: Path) -> str:
     return _FENCED_BLOCK.sub("", document.read_text(encoding="utf-8"))
 
 
-def _resolves(reference: str, document: Path) -> bool:
-    """Return whether ``reference`` names something that exists.
+def _link_resolves(target: str, document: Path) -> bool:
+    """Return whether a link reaches a file, resolved the way a reader's does.
 
-    A reference carrying a directory is resolved against the document's own
-    directory and each of its ancestors, so both ``../api_v2/README.md`` and
-    ``runtime_v2/client_window_factory.py`` reach their target. A bare file name
-    is accepted if anything in the repository is called that, which is enough to
-    catch a module that was renamed or never existed.
+    Against the document's own directory and nowhere else, because that is what
+    a Markdown renderer does with a relative link. A link is clickable, so a
+    target that only happens to exist somewhere else in the repository is
+    broken for the reader and fails here. A target climbing out of the
+    repository fails too, having nothing to reach.
     """
-    if "/" in reference:
-        for directory in (document.parent, *document.parent.parents):
-            if (directory / reference).exists():
-                return True
-            if directory == _ROOT:
-                break
-        return False
-    return any(_ROOT.rglob(reference))
+    destination = (document.parent / target).resolve()
+    return destination.is_relative_to(_ROOT) and destination.exists()
 
 
-def _file_references(document: Path) -> list[str]:
-    """Return the relative links and backticked file names in ``document``."""
-    prose = _prose(document)
-    references = [
-        target.split("#", 1)[0]
-        for target in _MARKDOWN_LINK.findall(prose)
+def _file_name_resolves(span: str) -> bool:
+    """Return whether a backticked file name matches something that exists.
+
+    Looser than a link, deliberately. Prose names a file the way the sentence
+    around it reads rather than relative to the document, so
+    ``runtime_v2/client_window_factory.py`` appears in documents at three
+    different depths and none of them mean it as a path. Anything whose path
+    ends with the span therefore counts, which still catches the thing these
+    get wrong: a module renamed, or never written.
+    """
+    return any(
+        str(path.relative_to(_ROOT)).endswith(span)
+        for path in _ROOT.rglob(span.rsplit("/", 1)[-1])
+    )
+
+
+def _links(document: Path) -> list[str]:
+    """Return the in-repository link targets in ``document``, anchors stripped."""
+    return [
+        stripped
+        for target in _MARKDOWN_LINK.findall(_prose(document))
         if not target.startswith(("http://", "https://", "#"))
+        for stripped in [target.split("#", 1)[0]]
+        if stripped
     ]
-    references += [
+
+
+def _file_names(document: Path) -> list[str]:
+    """Return the backticked spans in ``document`` that name a file."""
+    return [
         span
-        for span in _BACKTICKED.findall(prose)
+        for span in _BACKTICKED.findall(_prose(document))
         if span.endswith(_FILE_SUFFIXES) and " " not in span
     ]
-    return [reference for reference in references if reference]
 
 
 @pytest.mark.parametrize("relative_path", _DOCUMENTS)
@@ -106,15 +120,25 @@ def test_every_v2_document_exists(relative_path: str) -> None:
 
 
 @pytest.mark.parametrize("relative_path", _DOCUMENTS)
-def test_v2_documentation_references_resolve(relative_path: str) -> None:
-    """Every link and backticked file name reaches something."""
+def test_v2_documentation_links_resolve(relative_path: str) -> None:
+    """Every link reaches a file from where the document that carries it sits."""
     document = _ROOT / relative_path
     broken = sorted(
-        {
-            reference
-            for reference in _file_references(document)
-            if not _resolves(reference, document)
-        }
+        {target for target in _links(document) if not _link_resolves(target, document)}
     )
 
-    assert not broken, f"{relative_path} refers to files that do not exist: {broken}"
+    assert not broken, (
+        f"{relative_path} links to targets that do not resolve from "
+        f"{document.parent.relative_to(_ROOT) or '.'}: {broken}"
+    )
+
+
+@pytest.mark.parametrize("relative_path", _DOCUMENTS)
+def test_v2_documentation_file_names_exist(relative_path: str) -> None:
+    """Every backticked file name matches a file somewhere in the repository."""
+    document = _ROOT / relative_path
+    broken = sorted(
+        {span for span in _file_names(document) if not _file_name_resolves(span)}
+    )
+
+    assert not broken, f"{relative_path} names files that do not exist: {broken}"
