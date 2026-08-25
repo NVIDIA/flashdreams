@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 import torch
-import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
 from tqdm import tqdm

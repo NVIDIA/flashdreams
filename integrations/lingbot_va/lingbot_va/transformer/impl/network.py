@@ -18,14 +18,12 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
-from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.recipes.wan.transformer.impl.modules import (
     Head,
     sinusoidal_embedding_1d,

@@ -22,18 +22,14 @@ Cache read/write operations happen at the network level, outside the compiled gr
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
-from flashdreams.core.attention import NativeAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.recipes.wan.transformer.impl.modules import (
-    Block,
-    BlockCache,
     CrossAttnCache,
     CrossAttention,
     MultiHeadAttention,

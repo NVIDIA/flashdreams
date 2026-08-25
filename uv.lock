@@ -29,6 +29,7 @@ members = [
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
+    "flashdreams-lingbot-va",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-red-screen",
@@ -1342,6 +1343,36 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "scipy", specifier = ">=1.11" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-lingbot-va"
+version = "0.1.0"
+source = { editable = "integrations/lingbot_va" }
+dependencies = [
+    { name = "diffusers" },
+    { name = "einops" },
+    { name = "flashdreams" },
+    { name = "pillow" },
+    { name = "transformers" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "tomli" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "diffusers", specifier = ">=0.38,<0.39" },
+    { name = "einops" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "pillow", specifier = ">=10" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "transformers", specifier = ">=5.0,<6" },
 ]
 provides-extras = ["dev"]
 
