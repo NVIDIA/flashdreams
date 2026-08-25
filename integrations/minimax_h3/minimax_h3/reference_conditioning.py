@@ -25,20 +25,26 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import torch
 from PIL import Image
 from torch import Tensor
 
-from minimax_h3.conditioning import resolve_canvas_size
 from minimax_h3.constants import (
+    AUDIO_CHANNELS,
+    AUDIO_LATENT_CHANNELS,
     AUDIO_SAMPLE_RATE,
     CANVAS_MAX_PIXELS,
     CANVAS_MULTIPLE,
     CANVAS_SHORT_EDGE,
     FPS,
+    FRAME_CHUNK,
+    FRAME_REMAINDER,
     MAX_DURATION,
     MIN_DURATION,
+    VAE_LATENT_CHANNELS,
     align_num_frames,
 )
 
@@ -114,6 +120,17 @@ class MiniMaxH3AudioReference(MiniMaxH3Reference):
     def has_audio(self) -> bool:
         """Return that audio references always contribute audio rows."""
         return True
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class MiniMaxH3EncodedReferences:
+    """Video and audio conditioning rows encoded in semantic reference order."""
+
+    video: tuple[Tensor, ...]
+    """One normalized video-VAE latent tensor per visual reference."""
+
+    audio: tuple[Tensor, ...]
+    """One normalized channel-major row matrix per audio-bearing reference."""
 
 
 def _validate_num_frames(num_frames: int) -> None:
@@ -210,6 +227,8 @@ def _normalize_video(
     multiple: int,
 ) -> np.ndarray:
     """Resample decoded video onto H3's whole-frame clock and canvas."""
+    from minimax_h3.conditioning import resolve_canvas_size
+
     frames = _video_to_uint8(frames)
     if not math.isfinite(fps) or fps <= 0:
         raise ValueError(
@@ -425,15 +444,122 @@ def normalize_references(
     return tuple(normalized)
 
 
+@torch.no_grad()
+def encode_references(
+    video_vae: Any,
+    audio_vae: Any,
+    references: list[MiniMaxH3Reference] | tuple[MiniMaxH3Reference, ...],
+    *,
+    device: torch.device | str,
+) -> MiniMaxH3EncodedReferences:
+    """Encode normalized REF2VA media with caller-owned native VAEs.
+
+    The function moves only input tensors. Application resource policy owns
+    VAE placement and offload. Visual posterior samples use the video VAE's
+    independent seed-42 conditioning path; soundtrack rows take the audio
+    posterior mean and remain clean throughout denoising.
+
+    Args:
+        video_vae: Loaded native :class:`MiniMaxH3VideoVAE`.
+        audio_vae: Loaded native :class:`MiniMaxH3AudioVAE`.
+        references: Normalized references in semantic packed order.
+        device: Device on which the already-placed VAEs consume input media.
+
+    Returns:
+        Visual latent tensors and soundtrack row matrices in their respective
+        filtered reference orders.
+
+    Raises:
+        ValueError: References are not normalized or an encoder result is
+            malformed.
+    """
+    target_device = torch.device(device)
+    video_latents: list[Tensor] = []
+    audio_rows: list[Tensor] = []
+    for reference in references:
+        if isinstance(reference, MiniMaxH3ImageReference):
+            if not isinstance(reference.image, Image.Image):
+                raise ValueError(
+                    "image references must be normalized before encoding"
+                )
+            pixels = (
+                torch.from_numpy(np.array(reference.image, copy=True))
+                .permute(2, 0, 1)[None, :, None]
+                .to(device=target_device, dtype=torch.float32)
+                .div_(255.0)
+            )
+            video_latents.append(video_vae.encode_condition_pixels(pixels))
+        elif isinstance(reference, MiniMaxH3VideoReference):
+            if not isinstance(reference.frames, np.ndarray):
+                raise ValueError(
+                    "video references must be normalized before encoding"
+                )
+            source_frames = reference.frames.shape[0]
+            encoded_frames = (
+                max(1, (source_frames - FRAME_REMAINDER) // FRAME_CHUNK)
+                * FRAME_CHUNK
+                + FRAME_REMAINDER
+            )
+            pixels = (
+                torch.from_numpy(reference.frames[:encoded_frames].copy())
+                .permute(3, 0, 1, 2)[None]
+                .to(device=target_device, dtype=torch.float32)
+                .div_(255.0)
+            )
+            video_latents.append(video_vae.encode_condition_pixels(pixels))
+        elif not isinstance(reference, MiniMaxH3AudioReference):
+            raise ValueError(f"Unsupported MiniMax H3 reference {type(reference)}")
+
+        if isinstance(reference, MiniMaxH3AudioReference) or (
+            isinstance(reference, MiniMaxH3VideoReference)
+            and reference.has_audio
+        ):
+            if not isinstance(reference.audio, Tensor):
+                raise ValueError(
+                    "audio references must be normalized before encoding"
+                )
+            audio_rows.append(
+                audio_vae.encode_condition(reference.audio.to(target_device))
+            )
+
+    for latents in video_latents:
+        if (
+            latents.ndim != 5
+            or latents.shape[0] != 1
+            or latents.shape[1] != VAE_LATENT_CHANNELS
+            or any(size <= 0 for size in latents.shape[2:])
+        ):
+            raise ValueError("video reference encoder returned malformed latents")
+        if not latents.is_floating_point() or not bool(
+            torch.isfinite(latents).all()
+        ):
+            raise ValueError("video reference latents must be finite floating point")
+    for rows in audio_rows:
+        if (
+            rows.ndim != 2
+            or rows.shape[0] == 0
+            or rows.shape[0] % AUDIO_CHANNELS
+            or rows.shape[1] != AUDIO_LATENT_CHANNELS
+        ):
+            raise ValueError("audio reference encoder returned malformed rows")
+        if not rows.is_floating_point() or not bool(torch.isfinite(rows).all()):
+            raise ValueError("audio reference rows must be finite floating point")
+    return MiniMaxH3EncodedReferences(
+        video=tuple(video_latents), audio=tuple(audio_rows)
+    )
+
+
 __all__ = [
     "MAX_AUDIO_REFERENCES",
     "MAX_IMAGE_REFERENCES",
     "MAX_REFERENCES",
     "MAX_VIDEO_REFERENCES",
     "MiniMaxH3AudioReference",
+    "MiniMaxH3EncodedReferences",
     "MiniMaxH3ImageReference",
     "MiniMaxH3Reference",
     "MiniMaxH3VideoReference",
     "REFERENCE_IMAGE_SHORT_EDGE",
+    "encode_references",
     "normalize_references",
 ]

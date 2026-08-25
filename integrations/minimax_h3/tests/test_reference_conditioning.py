@@ -26,6 +26,7 @@ from minimax_h3.reference_conditioning import (
     MiniMaxH3AudioReference,
     MiniMaxH3ImageReference,
     MiniMaxH3VideoReference,
+    encode_references,
     normalize_references,
 )
 
@@ -153,4 +154,85 @@ def test_reference_validation_rejects_invalid_limits_shapes_and_rates() -> None:
             ],
             num_frames=125,
             **_normalization_options(),
+        )
+
+
+class _VideoVAE:
+    """Record normalized video pixels and return shape-derived H3 latents."""
+
+    def __init__(self) -> None:
+        self.inputs: list[torch.Tensor] = []
+
+    def encode_condition_pixels(self, pixels: torch.Tensor) -> torch.Tensor:
+        """Return one latent frame per supplied pixel frame."""
+        self.inputs.append(pixels.clone())
+        return torch.full(
+            (1, 24, pixels.shape[2], 2, 2),
+            float(len(self.inputs)),
+            dtype=torch.float32,
+        )
+
+
+class _AudioVAE:
+    """Record stereo waveforms and return channel-major latent rows."""
+
+    def __init__(self) -> None:
+        self.inputs: list[torch.Tensor] = []
+
+    def encode_condition(self, samples: torch.Tensor) -> torch.Tensor:
+        """Return two stereo steps with a call-specific value."""
+        self.inputs.append(samples.clone())
+        return torch.full(
+            (4, 32), float(len(self.inputs)), dtype=torch.float32
+        )
+
+
+def test_encode_references_filters_modalities_in_semantic_order() -> None:
+    """Encode visual and audio-bearing subsequences without reordering either."""
+    video_vae = _VideoVAE()
+    audio_vae = _AudioVAE()
+    references = [
+        MiniMaxH3ImageReference(Image.new("RGB", (32, 32), color=(255, 0, 0))),
+        MiniMaxH3VideoReference(
+            frames=np.full((25, 32, 32, 3), 64, dtype=np.uint8),
+            fps=24.0,
+            audio=torch.full((2, 8), 0.25),
+            sample_rate=32000,
+        ),
+        MiniMaxH3AudioReference(torch.full((2, 6), 0.5), sample_rate=32000),
+    ]
+
+    encoded = encode_references(
+        video_vae, audio_vae, references, device="cpu"
+    )
+
+    assert [tuple(value.shape) for value in encoded.video] == [
+        (1, 24, 1, 2, 2),
+        (1, 24, 22, 2, 2),
+    ]
+    assert [tuple(value.shape) for value in encoded.audio] == [(4, 32), (4, 32)]
+    assert bool((encoded.video[0] == 1).all())
+    assert bool((encoded.video[1] == 2).all())
+    assert bool((encoded.audio[0] == 1).all())
+    assert bool((encoded.audio[1] == 2).all())
+    assert video_vae.inputs[0].shape == (1, 3, 1, 32, 32)
+    assert video_vae.inputs[1].shape == (1, 3, 22, 32, 32)
+    assert float(video_vae.inputs[0][0, 0, 0, 0, 0]) == 1.0
+    assert float(video_vae.inputs[1][0, 0, 0, 0, 0]) == pytest.approx(64 / 255)
+    torch.testing.assert_close(audio_vae.inputs[0], references[1].audio)
+    torch.testing.assert_close(audio_vae.inputs[1], references[2].audio)
+
+
+def test_encode_references_requires_normalized_media() -> None:
+    """Reject raw array images before invoking either native VAE."""
+    with pytest.raises(ValueError, match="image references must be normalized"):
+        encode_references(
+            _VideoVAE(),
+            _AudioVAE(),
+            [
+                MiniMaxH3ImageReference(
+                    np.zeros((32, 32, 3), dtype=np.uint8)
+                )
+            ],
+            device="cpu",
         )
