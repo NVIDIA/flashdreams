@@ -93,11 +93,10 @@ class ColorToggleSlangPyUILoop(SlangPyUILoop[ColorToggleUIState]):
             self.state.instructions = ui.Text(window, "Press W to toggle red / blue")
 
         for event in events.get_events():
-            data = event.get_event_data()
             if (
-                isinstance(data, KeyboardUserInputEventData)
-                and data.state is KeyboardInputState.PRESSED
-                and data.key.lower() == "w"
+                isinstance(event, KeyboardUserInputEventData)
+                and event.state is KeyboardInputState.PRESSED
+                and event.key.lower() == "w"
             ):
                 invoke_async(self.state.model_loop, lambda state: state._toggle_color())
         return self.presented_model_frame()

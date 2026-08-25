@@ -12,7 +12,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
@@ -144,11 +144,9 @@ class _PresentationClock:
             )
 
 
-def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> bool:
-    """Return whether any event in ``events`` carries ``event_type`` data."""
-    return any(
-        isinstance(event.get_event_data(), event_type) for event in events.get_events()
-    )
+def _contains(events: UserInputEvents, event_type: type[UserInputEvent]) -> bool:
+    """Return whether ``events`` contains an instance of ``event_type``."""
+    return any(isinstance(event, event_type) for event in events.get_events())
 
 
 def _log_secondary_failure(message: str, error: BaseException) -> None:

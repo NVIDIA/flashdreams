@@ -18,7 +18,6 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEventData,
-    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -92,15 +91,13 @@ def _session_desc(
 def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
     return UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEventData(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key=key,
-                    state=(
-                        KeyboardInputState.PRESSED
-                        if pressed
-                        else KeyboardInputState.RELEASED
-                    ),
+                key=key,
+                state=(
+                    KeyboardInputState.PRESSED
+                    if pressed
+                    else KeyboardInputState.RELEASED
                 ),
             )
         ]
@@ -182,17 +179,15 @@ def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
         1,
         UserInputEvents(
             [
-                UserInputEvent(
+                KeyboardUserInputEventData(
                     timestamp=uint64(0),
-                    event_data=KeyboardUserInputEventData(
-                        key="w", state=KeyboardInputState.PRESSED
-                    ),
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
                 ),
-                UserInputEvent(
+                KeyboardUserInputEventData(
                     timestamp=uint64(1),
-                    event_data=KeyboardUserInputEventData(
-                        key="s", state=KeyboardInputState.PRESSED
-                    ),
+                    key="s",
+                    state=KeyboardInputState.PRESSED,
                 ),
             ]
         ),

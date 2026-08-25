@@ -144,9 +144,7 @@ async def test_window_buffers_browser_events_until_drained(monkeypatch: Any) -> 
 
         assert len(events) == 4
         keyboard_events = [
-            data
-            for event in events
-            if isinstance(data := event.get_event_data(), KeyboardUserInputEventData)
+            event for event in events if isinstance(event, KeyboardUserInputEventData)
         ]
         assert [(event.key, event.state) for event in keyboard_events] == [
             ("w", KeyboardInputState.PRESSED),
@@ -170,17 +168,13 @@ async def test_window_buffers_browser_events_until_drained(monkeypatch: Any) -> 
             )
             in logger.info.call_args_list
         )
-        assert events[0].get_timestamp() <= events[1].get_timestamp()
+        assert events[0].timestamp <= events[1].timestamp
         mouse = next(
-            data
-            for event in events
-            if isinstance(data := event.get_event_data(), MouseUserInputEventData)
+            event for event in events if isinstance(event, MouseUserInputEventData)
         )
         assert (mouse.action, mouse.x, mouse.y) == ("move", 0.25, 0.75)
         focus = next(
-            data
-            for event in events
-            if isinstance(data := event.get_event_data(), FocusUserInputEventData)
+            event for event in events if isinstance(event, FocusUserInputEventData)
         )
         assert focus.focused
         assert window.get_user_input_events().get_events() == []

@@ -13,7 +13,7 @@ from numpy import uint64
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -30,7 +30,6 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEventData,
     ResetUserInputEventData,
-    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -406,18 +405,17 @@ def _session_desc(
 def _key_event() -> UserInputEvents:
     return UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEventData(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key="a", state=KeyboardInputState.PRESSED
-                ),
+                key="a",
+                state=KeyboardInputState.PRESSED,
             )
         ]
     )
 
 
-def _lifecycle_event(event_data: UserInputEventData) -> UserInputEvents:
-    return UserInputEvents([UserInputEvent(timestamp=uint64(0), event_data=event_data)])
+def _lifecycle_event(event_type: type[UserInputEvent]) -> UserInputEvents:
+    return UserInputEvents([event_type(timestamp=uint64(0))])
 
 
 def test_run_session_presents_every_step_in_order() -> None:
@@ -716,7 +714,7 @@ def test_run_session_gives_the_first_step_input_already_collected() -> None:
 def test_run_session_stops_when_the_window_reports_a_close() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
-    window = RecordingClientWindow(log, [_lifecycle_event(CloseUserInputEventData())])
+    window = RecordingClientWindow(log, [_lifecycle_event(CloseUserInputEventData)])
 
     # No step count at all: the close is the only thing that ends this run.
     run_session(session, window, steps=None)
@@ -728,7 +726,7 @@ def test_run_session_stops_when_the_window_reports_a_close() -> None:
 def test_run_session_resets_the_session_and_the_step_index() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
-    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData())])
+    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData)])
 
     run_session(session, window, steps=2)
 
@@ -768,7 +766,7 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
     """A session that starts over is asked about the run it is starting."""
     log = CallLog()
     session = FiniteSession(_session_desc(), log, length=1, generated=1)
-    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData())])
+    window = RecordingClientWindow(log, [_lifecycle_event(ResetUserInputEventData)])
 
     run_session(session, window, steps=3)
 
@@ -807,9 +805,7 @@ def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
             UserInputEvents(
                 [
                     held_key,
-                    UserInputEvent(
-                        timestamp=uint64(1), event_data=ResetUserInputEventData()
-                    ),
+                    ResetUserInputEventData(timestamp=uint64(1)),
                 ]
             )
         ],
@@ -828,7 +824,7 @@ def test_run_session_keeps_polling_while_the_final_result_is_pending() -> None:
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(
         log,
-        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
+        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData)],
     )
 
     run_session(session, window, steps=1)
@@ -861,7 +857,7 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     session = SlowFirstStep(_session_desc(), log)
     window = ResettingWindow(
         log,
-        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
+        [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData)],
     )
 
     run_session(session, window, steps=2)
@@ -956,8 +952,8 @@ def test_run_session_discards_results_generated_before_a_reset(
         log,
         [
             UserInputEvents([]),
-            _lifecycle_event(ResetUserInputEventData()),
-            _lifecycle_event(CloseUserInputEventData()),
+            _lifecycle_event(ResetUserInputEventData),
+            _lifecycle_event(CloseUserInputEventData),
         ],
     )
 

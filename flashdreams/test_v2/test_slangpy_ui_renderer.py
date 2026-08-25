@@ -9,10 +9,9 @@ from unittest.mock import Mock
 import pytest
 from numpy import uint64
 
-from flashdreams.runtime_v2._slangpy_ui_renderer import _route_input_events
+from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEventData,
-    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -34,15 +33,13 @@ def test_mouse_input_is_routed_through_slangpy_ui_context() -> None:
     )
     events = UserInputEvents(
         [
-            UserInputEvent(
+            MouseUserInputEventData(
                 timestamp=uint64(0),
-                event_data=MouseUserInputEventData(
-                    action="button",
-                    x=0.25,
-                    y=0.75,
-                    button=0,
-                    pressed=True,
-                ),
+                action="button",
+                x=0.25,
+                y=0.75,
+                button=0,
+                pressed=True,
             )
         ]
     )

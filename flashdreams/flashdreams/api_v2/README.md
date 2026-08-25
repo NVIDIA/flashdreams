@@ -21,8 +21,8 @@ what each contract promises.
 - `input_source.py`, `output_sink.py`, `client_window.py`: `IClientWindow` is
   both an `InputSource` and an `OutputSink`, grouping one client's input and
   output.
-- `user_input_event_data.py`: base class for input event data. The concrete
-  types belong to the runtime.
+- `user_input_event.py`: base class for timestamped input events. The concrete
+  event types belong to the runtime.
 
 Three of these are things you write: an application, a session, and a model
 loop. A UI loop is optional. Windows and sinks you only implement if you are
