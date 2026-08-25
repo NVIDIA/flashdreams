@@ -189,6 +189,49 @@ def test_start_gate_detects_a_swept_crossing(tmp_path: Path) -> None:
     assert snapshot.elapsed_time_us == 0
 
 
+@pytest.mark.parametrize("gate_fraction", [0.1, 0.9])
+def test_swept_crossing_advances_through_adjacent_gates(
+    tmp_path: Path, gate_fraction: float
+) -> None:
+    game_map = load_game_map(_MAP)
+    authored = game_map.race_courses[0]
+    course = GameMapRaceCourse(
+        course_id="adjacent-gates",
+        start_element_id=authored.start_element_id,
+        checkpoint_element_ids=("southeast", "east_south", "north"),
+        lap_count=0,
+    )
+    controller = RaceController(
+        game_map,
+        course,
+        _state(-300.0, -300.0),
+        RaceTimeStore(tmp_path / "times.csv"),
+    )
+    controller.advance_frames(
+        _trajectory([_active_gate_midpoint(controller)], [1_000_000]), 1.0
+    )
+    first_gate = controller._gates[course.checkpoint_element_ids[0]]
+    second_gate = controller._gates[course.checkpoint_element_ids[1]]
+    first_crossing = np.asarray(
+        first_gate.interpolate(gate_fraction, normalized=True).coords[0]
+    )
+    second_crossing = np.asarray(
+        second_gate.interpolate(gate_fraction, normalized=True).coords[0]
+    )
+    direction = second_crossing - first_crossing
+    direction /= np.linalg.norm(direction)
+    before = first_crossing - direction
+    after = second_crossing + direction
+    controller._previous_xy = (float(before[0]), float(before[1]))
+
+    snapshot = controller.advance_frames(
+        _trajectory([(float(after[0]), float(after[1]))], [2_000_000]), 1.0
+    )[-1]
+
+    assert snapshot.checkpoint_index == 2
+    assert snapshot.target_element_id == "north"
+
+
 def test_start_gate_is_near_course_exit_instead_of_element_midpoint(
     tmp_path: Path,
 ) -> None:

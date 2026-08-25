@@ -331,8 +331,21 @@ class RaceController:
         self._event = None
         if self._start_timestamp_us is not None:
             self._elapsed_time_us = max(0, timestamp_us - self._start_timestamp_us)
-        if not self._target_hit(state.x_m, state.y_m):
-            return
+        movement = LineString((self._previous_xy, (state.x_m, state.y_m)))
+        minimum_hit_distance = 0.0
+        while self.is_playing:
+            hit_distance = _first_gate_hit_distance(
+                movement,
+                self._gates[self._target_element_id],
+                minimum_hit_distance,
+            )
+            if hit_distance is None:
+                return
+            self._advance_target(timestamp_us)
+            minimum_hit_distance = hit_distance + 1.0e-6
+
+    def _advance_target(self, timestamp_us: int) -> None:
+        """Advance race state after crossing the active target gate."""
         if self._session_state == "awaiting_start":
             self._start_timestamp_us = timestamp_us
             self._elapsed_time_us = 0
@@ -358,15 +371,6 @@ class RaceController:
         else:
             self._target_kind = "start"
             self._event = "checkpoint"
-
-    def _target_hit(self, x_m: float, y_m: float) -> bool:
-        gate = self._gates[self._target_element_id]
-        current = Point(x_m, y_m)
-        if gate.distance(current) <= 1.0e-6:
-            return True
-        if self._previous_xy == (x_m, y_m):
-            return False
-        return LineString((self._previous_xy, (x_m, y_m))).intersects(gate)
 
     def _build_gates(self) -> dict[str, LineString]:
         gates = {
@@ -494,6 +498,48 @@ def _line_parts(geometry: object) -> tuple[LineString, ...]:
         part
         for part in getattr(geometry, "geoms", ())
         if isinstance(part, LineString) and part.length > 1.0e-6
+    )
+
+
+def _first_gate_hit_distance(
+    movement: LineString,
+    gate: LineString,
+    minimum_distance: float,
+) -> float | None:
+    """Return the first gate crossing at or after a swept-path distance.
+
+    Args:
+        movement: Ego-center path for one simulation step.
+        gate: Active race gate.
+        minimum_distance: Earliest eligible distance along ``movement``.
+
+    Returns:
+        Distance to the first eligible crossing, or ``None`` when the remaining
+        movement does not hit the gate.
+    """
+    distances = list(_intersection_distances(movement, movement.intersection(gate)))
+    endpoint = Point(movement.coords[-1])
+    if gate.distance(endpoint) <= 1.0e-6:
+        distances.append(movement.length)
+    eligible = [distance for distance in distances if distance >= minimum_distance]
+    return min(eligible) if eligible else None
+
+
+def _intersection_distances(line: LineString, geometry: object) -> tuple[float, ...]:
+    """Return distances along a line for point and overlapping intersections."""
+    if isinstance(geometry, Point):
+        return (float(line.project(geometry)),)
+    if isinstance(geometry, LineString):
+        if geometry.is_empty:
+            return ()
+        return tuple(
+            float(line.project(Point(coordinate)))
+            for coordinate in (geometry.coords[0], geometry.coords[-1])
+        )
+    return tuple(
+        distance
+        for part in getattr(geometry, "geoms", ())
+        for distance in _intersection_distances(line, part)
     )
 
 
