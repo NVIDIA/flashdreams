@@ -26,7 +26,7 @@ class Cam2VApplication(IApplication):
     """Reusable interactive camera-to-video application.
 
     The shared class owns command-line parsing, pipeline lifetime, session
-    validation, and model-generation-thread construction. A concrete model
+    validation, and model-generation-loop construction. A concrete model
     integration contributes a runner config and an input resolver through
     :class:`Cam2VApplicationDefaults`.
     """
@@ -41,7 +41,7 @@ class Cam2VApplication(IApplication):
         self._total_blocks = defaults.total_blocks
         self._log_every_blocks = defaults.log_every_blocks
         self._warmup_blocks = defaults.warmup_blocks
-        self._use_imgui = True
+        self._use_ui = True
         self._input_values: dict[str, Any] | None = None
         self._pipeline: Any | None = None
 
@@ -148,7 +148,7 @@ class Cam2VApplication(IApplication):
         self._total_blocks = args.total_blocks
         self._log_every_blocks = args.log_every_blocks
         self._warmup_blocks = args.warmup_blocks
-        self._use_imgui = args.ui
+        self._use_ui = args.ui
         self._input_values = {
             "prompt": args.prompt,
             "prompt_path": args.prompt_path,
@@ -165,6 +165,7 @@ class Cam2VApplication(IApplication):
         """Return the model's default output shape and interactive rates."""
         return SessionDesc(
             output_layout=self.defaults.output_layout,
+            backpressure_mode=self.defaults.backpressure_mode,
             presentation_mode=self.defaults.presentation_mode,
             frames_per_second_for_ui=self.defaults.ui_fps,
             frames_per_second_for_step=self.defaults.fps,
@@ -208,7 +209,7 @@ class Cam2VApplication(IApplication):
                 warmup_blocks=self._warmup_blocks,
                 install_hint=self.defaults.install_hint,
             ),
-            use_imgui=self._use_imgui,
+            use_ui=self._use_ui,
         )
 
     def close(self) -> None:
@@ -256,8 +257,8 @@ class Cam2VApplication(IApplication):
                 f"{self.defaults.output_layout.value} output, got "
                 f"{session_desc.output_layout.value}."
             )
-        if self._use_imgui and session_desc.output_layout is not VideoTensorLayout.tchw:
-            raise ValueError("The Cam2V ImGui overlay requires tchw output.")
+        if self._use_ui and session_desc.output_layout is not VideoTensorLayout.tchw:
+            raise ValueError("The Cam2V SlangPy UI overlay requires tchw output.")
 
     def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
         """Reject frame dimensions that cannot map to integral latents."""

@@ -13,7 +13,7 @@ from typing import Any
 
 import torch
 
-from flashdreams.runtime_v2.presentation_manager import PresentationMode
+from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 Cam2VInputResolver = Callable[[Mapping[str, Any]], "Cam2VConditioning"]
@@ -78,11 +78,14 @@ class Cam2VApplicationDefaults:
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Tensor layout emitted by the model pipeline."""
 
-    presentation_mode: PresentationMode = PresentationMode.DROP_OLDEST
-    """Queue behavior used while an interactive client presents model frames."""
+    backpressure_mode: BackpressureMode = BackpressureMode.DROP_OLDEST
+    """Drop stale model chunks when the presentation queue is full."""
+
+    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEWEST
+    """Redraw the interactive UI while the selected model frame is unchanged."""
 
     ui_fps: int = 60
-    """Rate at which the UI thread reads inputs and presents frames."""
+    """Rate at which the io-thread reads inputs and runs the UI loop."""
 
     log_every_blocks: int = 1
     """Default interval between steady-state timing log records."""

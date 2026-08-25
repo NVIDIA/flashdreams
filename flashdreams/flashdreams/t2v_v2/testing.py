@@ -11,7 +11,7 @@ call, and the stand-in model they run it against, named as ``numpy.testing`` and
 import os
 import shutil
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,11 @@ import torch
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -106,7 +110,8 @@ def check_t2v_model_impl(
     The coverage an integration gets from one call: the application loads,
     resolves a session, generates, and what it generated is a video rather than
     a run that merely finished. It is initialized and closed here, and frames
-    are read the way a sink reads them.
+    are read the way a sink reads them. Blocking backpressure and new-frame-only
+    presentation keep the inspected frames identical to model output.
 
     Args:
         application: Uninitialized application to run.
@@ -133,6 +138,11 @@ def check_t2v_model_impl(
     try:
         if session_desc is None:
             session_desc = application.session_desc()
+        session_desc = replace(
+            session_desc,
+            backpressure_mode=BackpressureMode.BLOCK,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+        )
         run_session(
             application.create_session(session_desc),
             _InspectingClientWindow(inspector),

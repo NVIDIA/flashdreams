@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""ImGui status and camera-control overlay for Cam2V applications."""
+"""SlangPy status and camera-control overlay for Cam2V applications."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import torch
 from loguru import logger
 from torch import Tensor
 
-from flashdreams.runtime_v2.imgui_thread import ImGUIThread
+from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEventData,
     KeyboardInputState,
@@ -29,7 +29,7 @@ _CAMERA_KEY_ORDER = ("w", "s", "q", "e", "a", "d", "j", "l", "i", "k")
 
 @dataclass(frozen=True, slots=True)
 class Cam2VUIStatus:
-    """Latest model-generation status copied to the UI thread."""
+    """Latest model-generation status copied to the UI loop."""
 
     completed_blocks: int
     """Number of autoregressive blocks completed in this rollout."""
@@ -49,7 +49,7 @@ class Cam2VUIStatus:
 
 @dataclass(slots=True)
 class Cam2VUIState:
-    """Mutable Cam2V overlay state owned exclusively by the UI thread."""
+    """Mutable Cam2V overlay state owned exclusively by the UI loop."""
 
     total_blocks: int
     """Number of autoregressive blocks requested for the rollout."""
@@ -64,7 +64,16 @@ class Cam2VUIState:
     """Camera-control keys currently held by the client."""
 
     status: Cam2VUIStatus | None = None
-    """Latest model status received from the model-generation-thread."""
+    """Latest model status received from the model-generation loop."""
+
+    window: Any | None = field(default=None, init=False, repr=False)
+    """Retained SlangPy controls window."""
+
+    status_widgets: list[Any] = field(default_factory=list, init=False, repr=False)
+    """Retained SlangPy text widgets for model status."""
+
+    active_keys_widget: Any | None = field(default=None, init=False, repr=False)
+    """Retained SlangPy text widget for active camera controls."""
 
     def update_status(self, status: Cam2VUIStatus) -> None:
         """Replace the displayed model-generation status."""
@@ -76,33 +85,20 @@ class Cam2VUIState:
         self.status = None
 
 
-class Cam2VImGUIThread(ImGUIThread[Cam2VUIState]):
-    """Draw Cam2V controls and model throughput over the generated video."""
+class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
+    """Draw Cam2V controls and model throughput over generated video."""
 
-    def draw_ui(
+    def step_ui(
         self,
-        imgui: Any,
+        ui: Any,
         step_index: int,
         events: UserInputEvents,
     ) -> Tensor | None:
-        """Draw one status overlay and return the current model frame beneath it."""
+        """Update retained widgets and return the current model frame."""
         del step_index
         _apply_ui_input(self.state, events)
-
-        imgui.set_next_window_pos((16, 16), imgui.Cond_.once)
-        imgui.set_next_window_size((320, 250), imgui.Cond_.once)
-        imgui.begin("Camera controls")
-        _draw_model_status(imgui, self.state)
-        imgui.separator()
-        imgui.text("Move: W/S    Strafe: Q/E")
-        imgui.text("Yaw: A/D or J/L    Pitch: I/K")
-        active = [
-            key.upper() for key in _CAMERA_KEY_ORDER if key in self.state.held_keys
-        ]
-        imgui.text(f"Active keys: {', '.join(active) if active else 'none'}")
-        imgui.separator()
-        imgui.text("Click the video before using keyboard controls.")
-        imgui.end()
+        _ensure_widgets(ui, self.state)
+        _refresh_widgets(self.state)
 
         frame = self.presented_model_frame()
         if frame is None:
@@ -112,28 +108,70 @@ class Cam2VImGUIThread(ImGUIThread[Cam2VUIState]):
         return frame.to(torch.float32).mul_(2.0 / 255.0).sub_(1.0)
 
     def reset(self) -> None:
-        """Clear UI-owned state and renderer input for a new generation."""
+        """Clear UI-loop state for a new generation."""
         self.state.reset()
         super().reset()
 
 
-def _draw_model_status(imgui: Any, state: Cam2VUIState) -> None:
+def _ensure_widgets(ui: Any, state: Cam2VUIState) -> None:
+    if state.window is not None:
+        return
+    state.window = ui.Window(
+        ui.screen,
+        "Camera controls",
+        position=(16, 16),
+        size=(360, 280),
+    )
+    state.status_widgets = [
+        ui.Text(state.window, line) for line in _status_lines(state)
+    ]
+    ui.Text(state.window, "Move: W/S    Strafe: Q/E")
+    ui.Text(state.window, "Yaw: A/D or J/L    Pitch: I/K")
+    state.active_keys_widget = ui.Text(state.window, _active_keys_text(state))
+    ui.Text(state.window, "Click the video before using keyboard controls.")
+
+
+def _refresh_widgets(state: Cam2VUIState) -> None:
+    for widget, line in zip(
+        state.status_widgets,
+        _status_lines(state),
+        strict=True,
+    ):
+        widget.text = line
+    if state.active_keys_widget is not None:
+        state.active_keys_widget.text = _active_keys_text(state)
+
+
+def _status_lines(state: Cam2VUIState) -> tuple[str, ...]:
     status = state.status
     if status is None:
-        imgui.text("Waiting for the first generated chunk...")
-        imgui.text(f"Target video rate: {state.target_fps} FPS")
-        return
+        return (
+            "Waiting for the first generated chunk...",
+            "Generated: 0 frames",
+            "Latest model rate: waiting",
+            f"Steady state: warming up (0/{state.warmup_blocks})",
+            f"Target video rate: {state.target_fps} FPS",
+            "Latest model step: waiting",
+        )
 
-    imgui.text(f"Rollout: {status.completed_blocks}/{state.total_blocks} blocks")
-    imgui.text(f"Generated: {status.frames_generated} frames")
-    imgui.text(f"Latest model rate: {status.chunk_fps:.2f} FPS")
     if status.steady_state_fps is None:
         warmup_done = min(status.completed_blocks, state.warmup_blocks)
-        imgui.text(f"Steady state: warming up ({warmup_done}/{state.warmup_blocks})")
+        steady_state = f"Steady state: warming up ({warmup_done}/{state.warmup_blocks})"
     else:
-        imgui.text(f"Steady-state model rate: {status.steady_state_fps:.2f} FPS")
-    imgui.text(f"Target video rate: {state.target_fps} FPS")
-    imgui.text(f"Latest model step: {status.model_step_wall_s * 1_000.0:.0f} ms")
+        steady_state = f"Steady-state model rate: {status.steady_state_fps:.2f} FPS"
+    return (
+        f"Rollout: {status.completed_blocks}/{state.total_blocks} blocks",
+        f"Generated: {status.frames_generated} frames",
+        f"Latest model rate: {status.chunk_fps:.2f} FPS",
+        steady_state,
+        f"Target video rate: {state.target_fps} FPS",
+        f"Latest model step: {status.model_step_wall_s * 1_000.0:.0f} ms",
+    )
+
+
+def _active_keys_text(state: Cam2VUIState) -> str:
+    active = [key.upper() for key in _CAMERA_KEY_ORDER if key in state.held_keys]
+    return f"Active keys: {', '.join(active) if active else 'none'}"
 
 
 def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
@@ -147,7 +185,7 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
         key = data.key.lower()
         if key not in _CAMERA_KEYS:
             logger.info(
-                "Cam2V ImGui UI-thread ignored keyboard event "
+                "Cam2V SlangPy UI loop ignored keyboard event "
                 "key={} state={} timestamp_us={} reason=unsupported",
                 data.key,
                 data.state.value,
@@ -162,7 +200,7 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
             item for item in _CAMERA_KEY_ORDER if item in state.held_keys
         )
         logger.info(
-            "Cam2V ImGui UI-thread processed keyboard event "
+            "Cam2V SlangPy UI loop processed keyboard event "
             "key={} state={} timestamp_us={} held_keys={}",
             key,
             data.state.value,
@@ -171,4 +209,4 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
         )
 
 
-__all__ = ["Cam2VImGUIThread", "Cam2VUIState", "Cam2VUIStatus"]
+__all__ = ["Cam2VSlangPyUILoop", "Cam2VUIState", "Cam2VUIStatus"]

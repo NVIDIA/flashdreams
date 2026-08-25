@@ -11,24 +11,24 @@ from .defaults import (
     Cam2VInputResolver,
 )
 from .session import (
+    Cam2VModelLoop,
     Cam2VModelState,
-    Cam2VModelThread,
     Cam2VSession,
     Cam2VSessionConfig,
     CameraControlInput,
 )
-from .ui import Cam2VImGUIThread, Cam2VUIState, Cam2VUIStatus
+from .ui import Cam2VSlangPyUILoop, Cam2VUIState, Cam2VUIStatus
 
 __all__ = [
     "Cam2VApplication",
     "Cam2VApplicationDefaults",
     "Cam2VConditioning",
     "Cam2VInputResolver",
-    "Cam2VImGUIThread",
+    "Cam2VModelLoop",
     "Cam2VModelState",
-    "Cam2VModelThread",
     "Cam2VSession",
     "Cam2VSessionConfig",
+    "Cam2VSlangPyUILoop",
     "Cam2VUIState",
     "Cam2VUIStatus",
     "CameraControlInput",

@@ -11,7 +11,7 @@ from typing import Any
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 from flashdreams.t2v_v2.session import T2VSession
 
@@ -144,6 +144,7 @@ class T2VApplication(IApplication):
         """
         return SessionDesc(
             output_layout=self.defaults.output_layout,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
             frames_per_second_for_ui=_FRAMES_PER_SECOND_FOR_UI,
             frames_per_second_for_step=self.defaults.fps,
             video_width=self.defaults.pixel_width,

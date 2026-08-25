@@ -435,7 +435,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
 
     session = SlowModelSession(
         _session_desc(
-            presentation_mode=PresentationMode.BLOCK,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
             ui_fps=100,
             model_fps=1,
         ),
@@ -449,7 +449,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
     run_session(session, window, steps=1)
 
     assert input_processed.is_set()
-    assert "ui_thread.step" in log.calls
+    assert "ui_loop.step" in log.calls
 
 
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
@@ -573,11 +573,11 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
     class DefaultUISession(FakeSession):
         def init(self) -> None:
             self._log.record("session.init")
-            self.register_model_thread(FakeModelThread, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
 
     session = DefaultUISession(
         _session_desc(
-            presentation_mode=PresentationMode.BLOCK,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
             ui_fps=100,
             model_fps=30,
         ),
@@ -658,7 +658,7 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
 
     run_session(session, window, steps=2)
 
-    # Ignore UI calls when checking the model thread's order.
+    # Ignore UI calls when checking the model-generation-loop order.
     calls = [call for call in log.calls if call.startswith("session.reset")] + [
         call for call in log.calls if call.startswith("session.step(")
     ]

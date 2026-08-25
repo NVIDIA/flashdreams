@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Model-generation-thread and session shared by camera-to-video apps."""
+"""Model-generation loop and session shared by camera-to-video apps."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from typing import Any
 import torch
 from loguru import logger
 
+from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread, invoke_async
 from flashdreams.infra.runner_io import load_first_frame_tensor
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -27,7 +27,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 from .controls import CameraPoseIntegrator
 from .defaults import Cam2VConditioning
-from .ui import Cam2VImGUIThread, Cam2VUIState, Cam2VUIStatus
+from .ui import Cam2VSlangPyUILoop, Cam2VUIState, Cam2VUIStatus
 
 
 @dataclass(kw_only=True, slots=True)
@@ -112,8 +112,8 @@ class Cam2VModelState:
     steady_frames_generated: int = 0
     """Frames generated since :attr:`steady_started_at`."""
 
-    ui_thread: Cam2VImGUIThread | None = None
-    """Registered UI-thread handle used only through ``invoke_async``."""
+    ui_loop: Cam2VSlangPyUILoop | None = None
+    """Registered UI-loop handle used only through ``invoke_async``."""
 
 
 class _GPUStageTimer:
@@ -166,8 +166,8 @@ class _GPUStageTimer:
         )
 
 
-class Cam2VModelThread(IThread[Cam2VModelState]):
-    """Generate one camera-controlled video chunk per model-thread iteration."""
+class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
+    """Generate one camera-controlled video chunk per model-loop iteration."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Apply new keyboard edges and generate one autoregressive block."""
@@ -298,8 +298,8 @@ class Cam2VModelThread(IThread[Cam2VModelState]):
 class Cam2VSession(ISession):
     """One camera-controlled rollout sharing its application's loaded model."""
 
-    model_thread_type: type[Cam2VModelThread] = Cam2VModelThread
-    """Model-generation-thread type registered by :meth:`init`."""
+    model_loop_type: type[Cam2VModelLoop] = Cam2VModelLoop
+    """Model-generation-loop type registered by :meth:`init`."""
 
     def __init__(
         self,
@@ -307,32 +307,32 @@ class Cam2VSession(ISession):
         pipeline: Any,
         config: Cam2VSessionConfig,
         session_desc: SessionDesc,
-        use_imgui: bool = True,
+        use_ui: bool = True,
     ) -> None:
         """Configure one rollout without initializing model or UI resources.
 
         Args:
             pipeline: Application-owned model pipeline.
             config: Resolved inputs and rollout controls.
-            session_desc: Output dimensions, layout, and thread rates.
-            use_imgui: Whether to register the shared Cam2V overlay.
+            session_desc: Output dimensions, layout, and loop rates.
+            use_ui: Whether to register the shared Cam2V overlay.
         """
         self._pipeline = pipeline
         self._config = config
         self._session_desc = session_desc
-        self._use_imgui = use_imgui
+        self._use_ui = use_ui
 
     @property
     def session_desc(self) -> SessionDesc:
-        """Return the resolved output dimensions and thread rates."""
+        """Return the resolved output dimensions and loop rates."""
         return self._session_desc
 
     def init(self) -> None:
-        """Register the UI and model-generation threads with isolated state."""
-        ui_thread = None
-        if self._use_imgui:
-            registered_ui = self.register_ui_thread(
-                Cam2VImGUIThread,
+        """Register the UI and model-generation loops with isolated state."""
+        ui_loop = None
+        if self._use_ui:
+            registered_ui = self.register_ui_loop(
+                Cam2VSlangPyUILoop,
                 state=Cam2VUIState(
                     total_blocks=self._config.total_blocks,
                     target_fps=self._session_desc.frames_per_second_for_step,
@@ -341,15 +341,15 @@ class Cam2VSession(ISession):
                 width=self._session_desc.video_width,
                 height=self._session_desc.video_height,
             )
-            assert isinstance(registered_ui, Cam2VImGUIThread)
-            ui_thread = registered_ui
-        self.register_model_thread(
-            self.model_thread_type,
+            assert isinstance(registered_ui, Cam2VSlangPyUILoop)
+            ui_loop = registered_ui
+        self.register_model_loop(
+            self.model_loop_type,
             state=Cam2VModelState(
                 pipeline=self._pipeline,
                 session_desc=self._session_desc,
                 config=self._config,
-                ui_thread=ui_thread,
+                ui_loop=ui_loop,
             ),
         )
 
@@ -388,9 +388,9 @@ def _publish_ui_status(
     state: Cam2VModelState,
     metrics: Mapping[str, float | int],
 ) -> None:
-    """Send immutable model status to the UI thread without sharing state."""
-    ui_thread = state.ui_thread
-    if ui_thread is None:
+    """Send immutable model status to the UI loop without sharing state."""
+    ui_loop = state.ui_loop
+    if ui_loop is None:
         return
     steady_state_fps = metrics.get("steady_state_fps")
     status = Cam2VUIStatus(
@@ -403,7 +403,7 @@ def _publish_ui_status(
         model_step_wall_s=float(metrics["model_step_wall_s"]),
     )
     invoke_async(
-        ui_thread,
+        ui_loop,
         lambda ui_state, status=status: ui_state.update_status(status),
     )
 
@@ -469,7 +469,7 @@ def _format_optional_seconds(value: float | int | None) -> str:
 
 __all__ = [
     "Cam2VModelState",
-    "Cam2VModelThread",
+    "Cam2VModelLoop",
     "Cam2VSession",
     "Cam2VSessionConfig",
     "CameraControlInput",

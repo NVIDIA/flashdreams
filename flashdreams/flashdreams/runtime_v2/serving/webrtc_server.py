@@ -453,7 +453,7 @@ class WebRTCServer:
         video_track = _VideoTrack(
             session_desc.frames_per_second_for_ui,
             drop_oldest=(
-                session_desc.presentation_mode is PresentationMode.DROP_OLDEST
+                session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
             ),
         )
         peer_connection.addTrack(video_track)

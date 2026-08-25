@@ -50,6 +50,11 @@ which draws every model channel into one frame as if they were image layers.
 
 Each loop is registered with the state it owns, and the call returns the loop:
 
+| Runs on | Calls | Owns | Frame rate |
+| --- | --- | --- | --- |
+| The io-thread | `IUILoop.step` | UI-loop state, `run_session` state | `frames_per_second_for_ui` |
+| The model-generation-thread | `IModelLoop.step` | Model-loop state and model logic | `frames_per_second_for_step` |
+
 ```python
 self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 ```
@@ -156,6 +161,26 @@ nothing else.
 This loop runs forever. Override `is_finished` to make it stop.
 
 ## Writing a UI loop
+
+`SessionDesc.backpressure_mode` handles the model-generation-loop producing
+frames faster than the io-thread can consume them:
+
+- `BackpressureMode.BLOCK` waits when the presentation queue is full. This keeps
+  every generated frame and can slow the model-generation-thread to the
+  io-thread's pace.
+- `BackpressureMode.DROP_OLDEST` discards old buffered work so the UI can catch
+  up to newer output. This favors low latency over preserving every frame.
+
+`SessionDesc.presentation_mode` handles the UI loop ticking faster than the
+model-generation-loop produces frames:
+
+- `PresentationMode.ONLY_PRESENT_NEWEST` runs the UI every tick and may reuse
+  the newest generated model frame.
+- `PresentationMode.ONLY_PRESENT_NEW` runs the UI only after the presentation
+  manager advances to a new model frame.
+
+Use `PresentationMode.ONLY_PRESENT_NEW` with `BackpressureMode.BLOCK` when every
+generated frame must be presented exactly once and in order.
 
 For widgets drawn over the model output, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop` and implement
