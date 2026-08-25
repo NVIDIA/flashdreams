@@ -6,7 +6,10 @@ generations, presentation buffering, client windows, and the two-thread
 runtime. The UI loop uses FlashDreams' SlangPy renderer for the game HUD and
 composites it over model frames for local and WebRTC clients.
 Camera-projected waypoint rings, beacons, and labels are carried as a
-frame-aligned world layer; they are not ImGui windows.
+frame-aligned world layer; they are not ImGui windows. The optional BEV view
+is likewise published as a frame-aligned RGBA model-result layer. The
+`CrazyRobotaxiSlangPyUILoop` composites video, waypoints, and BEV through V2's
+presentation manager before the base loop applies the SlangPy ImGui HUD.
 
 ```bash
 uv sync --package crazy-robotaxi

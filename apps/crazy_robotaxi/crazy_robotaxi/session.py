@@ -22,7 +22,7 @@ from crazy_robotaxi.ui import (
     TaxiHudState,
     build_hud_frames,
 )
-from crazy_robotaxi.world_overlay import render_waypoint_layers
+from crazy_robotaxi.world_overlay import render_bev_overlay, render_waypoint_layers
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -48,7 +48,7 @@ class ModelState:
 
     rollout: WorldModelRollout | None = None
     last_video: torch.Tensor | None = None
-    last_bev: torch.Tensor | None = None
+    last_bev_overlay: torch.Tensor | None = None
     last_pose: np.ndarray | None = None
     blocks_generated: int = 0
     finished: bool = False
@@ -76,7 +76,7 @@ class ModelState:
         self.blocks_generated = 0
         self.finished = False
         self.last_video = None
-        self.last_bev = None
+        self.last_bev_overlay = None
         self.last_pose = None
         if self.rollout is not None:
             self.rollout.reset()
@@ -129,9 +129,20 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
             bev = engine_step.condition.bev_tchw
+            bev_overlay = (
+                None
+                if bev is None
+                else render_bev_overlay(
+                    bev,
+                    width=state.session_desc.video_width,
+                    height=state.session_desc.video_height,
+                )
+            )
             metrics = dict(generated.metrics)
             state.last_video = video[-1:].detach()
-            state.last_bev = None if bev is None else bev[-1:].detach()
+            state.last_bev_overlay = (
+                None if bev_overlay is None else bev_overlay[-1:].detach()
+            )
             state.last_pose = poses[-1].copy()
         else:
             if state.last_video is None or state.last_pose is None:
@@ -139,7 +150,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             video = state.last_video
             game_frames = (snapshot,)
             poses = state.last_pose[None, ...]
-            bev = state.last_bev
+            bev_overlay = state.last_bev_overlay
             metrics = {}
 
         waypoint_layers = render_waypoint_layers(
@@ -183,11 +194,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 output_layout=VideoTensorLayout.tchw,
             ),
         ]
-        if bev is not None:
+        if bev_overlay is not None:
             results.append(
                 StepResult(
                     step_index=step_index,
-                    output=bev,
+                    output=bev_overlay,
                     frame_count=count,
                     output_layout=VideoTensorLayout.tchw,
                 )

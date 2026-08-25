@@ -21,7 +21,7 @@ from crazy_robotaxi.ui import (
     TaxiHudState,
     build_hud_frames,
 )
-from crazy_robotaxi.world_overlay import render_waypoint_layers
+from crazy_robotaxi.world_overlay import render_bev_overlay, render_waypoint_layers
 from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
@@ -173,13 +173,32 @@ def test_waypoints_are_rendered_as_frame_aligned_world_layers() -> None:
     assert torch.count_nonzero(terminal[:, 3]) == 0
 
 
+def test_bev_is_rendered_as_frame_aligned_rgba_overlay() -> None:
+    overlay = render_bev_overlay(
+        torch.full((1, 3, 32, 32), 0.5),
+        width=160,
+        height=96,
+    )
+
+    assert overlay.shape == (1, 4, 96, 160)
+    assert overlay.dtype is torch.float32
+    assert torch.count_nonzero(overlay[:, 3, :56, :]) == 0
+    assert overlay[0, 3, 56, 120] == 1.0
+    assert overlay[0, 3, 58, 122] == pytest.approx(0.82)
+    assert torch.all(overlay[0, :3, 58, 122] == 0.5)
+
+
 def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
     waypoints = torch.zeros(1, 4, height, width)
     waypoints[:, 0, 10, 10] = 1.0
     waypoints[:, 3, 10, 10] = 1.0
-    bev = torch.full((1, 3, 32, 32), 0.5)
+    bev_overlay = render_bev_overlay(
+        torch.full((1, 3, 32, 32), 0.5),
+        width=width,
+        height=height,
+    )
     hud_state = TaxiHudState(width, height)
     hud_state.publish(build_hud_frames(video, (_snapshot(),)))
     presentation = PresentationManager()
@@ -188,7 +207,7 @@ def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
         [
             StepResult(0, video, 1, VideoTensorLayout.tchw),
             StepResult(0, waypoints, 1, VideoTensorLayout.tchw),
-            StepResult(0, bev, 1, VideoTensorLayout.tchw),
+            StepResult(0, bev_overlay, 1, VideoTensorLayout.tchw),
         ],
     )
     changed, _ = presentation.advance(0)
@@ -218,6 +237,7 @@ def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
     assert hud_state._widgets.navigation.text == "TARGET AHEAD  0 deg"
     assert not hasattr(hud_state._widgets, "marker_windows")
     assert result.output[0, 0, 10, 10] == 1.0
+    assert result.output[0, 0, 58, 122] == pytest.approx(0.32)
     assert torch.any(result.output != video)
 
     loop.reset()

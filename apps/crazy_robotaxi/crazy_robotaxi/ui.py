@@ -24,7 +24,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-import torch.nn.functional as functional
 from torch import Tensor
 
 from crazy_robotaxi.high_scores import validate_player_name
@@ -301,7 +300,7 @@ class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
         waypoints = frames[1] if len(frames) > 1 else None
-        bev = frames[2] if len(frames) > 2 else None
+        bev_overlay = frames[2] if len(frames) > 2 else None
         if video is not None:
             self.state.select_presented_frame(video)
         self.state.draw(ui)
@@ -313,7 +312,14 @@ class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
             video.to(torch.float32),
             waypoints.to(device=video.device, dtype=torch.float32),
         )
-        return _compose_minimap(world, bev)
+        if bev_overlay is None:
+            return world
+        if bev_overlay.shape[0] != 4:
+            raise ValueError("BEV presentation frames must use [4,H,W]")
+        return self._presentation_manager.composite(
+            world,
+            bev_overlay.to(device=video.device, dtype=torch.float32),
+        )
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
@@ -340,37 +346,6 @@ def build_hud_frames(
             )
         )
     return tuple(frames)
-
-
-def _compose_minimap(video: Tensor | None, bev: Tensor | None) -> Tensor | None:
-    if video is None:
-        return None
-    output = video.to(torch.float32)
-    if bev is None:
-        return output
-    if bev.ndim != 3 or bev.shape[0] != 3:
-        raise ValueError("BEV presentation frames must use [3,H,W]")
-    height, width = int(output.shape[-2]), int(output.shape[-1])
-    size = min(width // 4, height // 3)
-    if size <= 4:
-        return output
-    panel = functional.interpolate(
-        bev.to(device=output.device, dtype=torch.float32).unsqueeze(0),
-        size=(size, size),
-        mode="bilinear",
-        align_corners=False,
-    )[0]
-    output = output.clone()
-    margin = max(8, min(width, height) // 80)
-    top = height - size - margin
-    left = width - size - margin
-    target = output[:, top : top + size, left : left + size]
-    target.mul_(0.18).add_(panel, alpha=0.82)
-    target[:, :2, :] = 1.0
-    target[:, -2:, :] = 1.0
-    target[:, :, :2] = 1.0
-    target[:, :, -2:] = 1.0
-    return output
 
 
 def _score_label(snapshot: TaxiGameSnapshot) -> str:

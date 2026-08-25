@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Frame-aligned world-space waypoint presentation layers."""
+"""Frame-aligned Crazy Robotaxi presentation layers."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import torch
+import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
@@ -54,6 +55,61 @@ _GLYPHS = {
     "U": ("1001", "1001", "1001", "1001", "1001", "1001", "0110"),
 }
 """Tiny dependency-free glyphs used for world-anchored marker labels."""
+
+
+def render_bev_overlay(
+    bev_tchw: Tensor,
+    *,
+    width: int,
+    height: int,
+) -> Tensor:
+    """Render raw BEV frames into frame-aligned transparent RGBA layers.
+
+    Args:
+        bev_tchw: Floating-point BEV frames in ``[T,3,H,W]``.
+        width: Output width in pixels.
+        height: Output height in pixels.
+
+    Returns:
+        Floating-point layers in ``[T,4,H,W]`` with the BEV panel in the
+        bottom-right corner and alpha in ``[0,1]``.
+
+    Raises:
+        ValueError: The BEV tensor or output dimensions are invalid.
+    """
+    if bev_tchw.ndim != 4 or bev_tchw.shape[1] != 3:
+        raise ValueError("BEV frames must use [T,3,H,W]")
+    if not bev_tchw.is_floating_point():
+        raise ValueError("BEV overlays require floating-point frames")
+    if width <= 0 or height <= 0:
+        raise ValueError("BEV overlay dimensions must be positive")
+
+    overlay = torch.zeros(
+        (int(bev_tchw.shape[0]), 4, height, width),
+        device=bev_tchw.device,
+        dtype=bev_tchw.dtype,
+    )
+    size = min(width // 4, height // 3)
+    if size <= 4:
+        return overlay
+
+    panel = functional.interpolate(
+        bev_tchw,
+        size=(size, size),
+        mode="bilinear",
+        align_corners=False,
+    )
+    margin = max(8, min(width, height) // 80)
+    top = height - size - margin
+    left = width - size - margin
+    target = overlay[:, :, top : top + size, left : left + size]
+    target[:, :3].copy_(panel)
+    target[:, 3].fill_(0.82)
+    target[:, :, :2, :].fill_(1.0)
+    target[:, :, -2:, :].fill_(1.0)
+    target[:, :, :, :2].fill_(1.0)
+    target[:, :, :, -2:].fill_(1.0)
+    return overlay
 
 
 def render_waypoint_layers(
@@ -351,4 +407,4 @@ def _text_pixels(text: str, scale: int) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(x_values, dtype=np.int32), np.asarray(y_values, dtype=np.int32)
 
 
-__all__ = ["render_waypoint_layers"]
+__all__ = ["render_bev_overlay", "render_waypoint_layers"]
