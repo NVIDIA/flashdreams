@@ -498,6 +498,19 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
     )
 
 
+def test_race_map_preserves_element_local_bev_boundaries() -> None:
+    game_map = load_game_map(_RACE_COURSE_MAP)
+    rows = game_map_compiler._boundary_rows(game_map)
+    expected_ids = {
+        boundary.boundary_id
+        for element in game_map.elements
+        for boundary in element.road_boundaries
+    }
+    actual_ids = {row["key"]["label_class_id"] for row in rows}
+
+    assert actual_ids == expected_ids
+
+
 def test_profile_is_optional_when_attributes_are_direct(tmp_path: Path) -> None:
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
     profile = source["profiles"]["neighborhood"]

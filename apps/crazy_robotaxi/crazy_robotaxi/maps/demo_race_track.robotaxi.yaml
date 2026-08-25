@@ -20,10 +20,9 @@ profiles:
       - {style: DASHED_SINGLE, color: WHITE}
 
 nodes:
-  - {id: lower_chicane_exit, type: road_joint, pose: {x_m: -70, y_m: -210}}
-  - {id: start_finish, type: road_joint, pose: {x_m: 0, y_m: -210}}
-  - {id: turn_one_entry, type: road_joint, pose: {x_m: 210, y_m: -210}}
-  - {id: east_short_entry, type: road_joint, pose: {x_m: 290, y_m: -120}}
+  - {id: start_finish, type: road_joint, pose: {x_m: 0, y_m: -160}}
+  - {id: turn_one_entry, type: road_joint, pose: {x_m: 210, y_m: -160}}
+  - {id: east_short_entry, type: road_joint, pose: {x_m: 290, y_m: -90}}
   - {id: infield_turn_entry, type: road_joint, pose: {x_m: 290, y_m: -50}}
   - {id: infield_straight_entry, type: road_joint, pose: {x_m: 230, y_m: 20}}
   - {id: hairpin_entry, type: road_joint, pose: {x_m: 90, y_m: 20}}
@@ -33,12 +32,11 @@ nodes:
   - {id: esses_entry, type: road_joint, pose: {x_m: -60, y_m: 250}}
   - {id: esses_exit, type: road_joint, pose: {x_m: -160, y_m: 50}}
   - {id: west_hairpin_entry, type: road_joint, pose: {x_m: -270, y_m: 50}}
-  - {id: west_hairpin_exit, type: road_joint, pose: {x_m: -270, y_m: -130}}
-  - {id: lower_chicane_entry, type: road_joint, pose: {x_m: -180, y_m: -130}}
+  - {id: west_hairpin_exit, type: road_joint, pose: {x_m: -270, y_m: -160}}
 
 roads:
   - id: start_finish_straight
-    from: lower_chicane_exit
+    from: west_hairpin_exit
     to: start_finish
     profile: raceway
 
@@ -53,9 +51,9 @@ roads:
     profile: raceway
     bezier:
       - control_points:
-          - {x_m: 255, y_m: -210}
-          - {x_m: 290, y_m: -170}
-        end: {x_m: 290, y_m: -120}
+          - {x_m: 255, y_m: -160}
+          - {x_m: 290, y_m: -125}
+        end: {x_m: 290, y_m: -90}
 
   - id: east_short
     from: east_short_entry
@@ -140,32 +138,13 @@ roads:
     profile: raceway
     bezier:
       - control_points:
-          - {x_m: -310, y_m: 50}
-          - {x_m: -335, y_m: 20}
-        end: {x_m: -335, y_m: -40}
+          - {x_m: -330, y_m: 50}
+          - {x_m: -365, y_m: 5}
+        end: {x_m: -365, y_m: -55}
       - control_points:
-          - {x_m: -335, y_m: -95}
-          - {x_m: -305, y_m: -130}
-        end: {x_m: -270, y_m: -130}
-
-  - id: lower_straight
-    from: west_hairpin_exit
-    to: lower_chicane_entry
-    profile: raceway
-
-  - id: lower_chicane
-    from: lower_chicane_entry
-    to: lower_chicane_exit
-    profile: raceway
-    bezier:
-      - control_points:
-          - {x_m: -135, y_m: -130}
-          - {x_m: -150, y_m: -180}
-        end: {x_m: -110, y_m: -180}
-      - control_points:
-          - {x_m: -70, y_m: -180}
-          - {x_m: -110, y_m: -210}
-        end: {x_m: -70, y_m: -210}
+          - {x_m: -365, y_m: -115}
+          - {x_m: -330, y_m: -160}
+        end: {x_m: -270, y_m: -160}
 
 race_courses:
   - id: grand-prix
@@ -182,8 +161,6 @@ race_courses:
       - technical_esses
       - west_straight
       - west_hairpin
-      - lower_straight
-      - lower_chicane
       - start_finish_straight
     lap_count: 1
     checkpoint_markers: true
@@ -192,7 +169,7 @@ spawns:
   - id: race_start
     road: start_finish_straight
     lane: 2
-    distance_m: 40
+    distance_m: 220
     variants:
       default:
         image: package://omnidreams_game_engine/screenshot.jpg
