@@ -12,8 +12,8 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    MouseUserInputEventData,
+    KeyboardUserInputEvent,
+    MouseUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -235,7 +235,7 @@ def _route_input_events(
 ) -> None:
     """Route supported runtime input events into SlangPy's UI context."""
     for event in events.get_events():
-        if isinstance(event, KeyboardUserInputEventData):
+        if isinstance(event, KeyboardUserInputEvent):
             pressed = event.state is KeyboardInputState.PRESSED
             key = _resolve_slangpy_key(slangpy, event.key)
             if key is not None:
@@ -254,7 +254,7 @@ def _route_input_events(
                 text_event.codepoint = ord(event.key)
                 text_event.mods = slangpy.KeyModifierFlags.none
                 ui_context.handle_keyboard_event(text_event)
-        elif isinstance(event, MouseUserInputEventData):
+        elif isinstance(event, MouseUserInputEvent):
             mouse_event = slangpy.MouseEvent()
             mouse_event.pos = (event.x * width, event.y * height)
             mouse_event.mods = slangpy.KeyModifierFlags.none

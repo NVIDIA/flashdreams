@@ -34,7 +34,7 @@ class UserInputEvents:
             events: Events to hold, in any order.
         """
         self._data = UserInputEventsData(
-            events=sorted(events, key=lambda event: event.timestamp),
+            events=sorted(events, key=lambda event: event.get_timestamp()),
         )
 
     def get_events(self) -> list[UserInputEvent]:
