@@ -12,7 +12,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -31,6 +31,9 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
+
+if TYPE_CHECKING:
+    import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,16 +76,8 @@ class _CudaPresentationFrame:
     tensor: Tensor
     """Contiguous ``[H, W, 3]`` uint8 CUDA tensor."""
 
-    ready_event: Any
+    ready_event: torch.cuda.Event
     """CUDA event recorded after conversion to presentation format."""
-
-    def to_cuda_tensor(self) -> Tensor:
-        """Return the CUDA tensor consumed by the SlangPy presenter."""
-        return self.tensor
-
-    def to_cuda_event(self) -> Any:
-        """Return the event the presenter's copy stream must wait for."""
-        return self.ready_event
 
 
 class NativeWindowClientWindow(IClientWindow):
@@ -97,7 +92,7 @@ class NativeWindowClientWindow(IClientWindow):
         self,
         *,
         title: str = "FlashDreams",
-        presenter_factory: Callable[..., Any] | None = None,
+        presenter_factory: Callable[..., _SlangPyNativeWindowPresenter] | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
         """Configure the native client window.
@@ -119,9 +114,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._session_desc: SessionDesc | None = None
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
         self._close_event_enqueued = threading.Event()
-        self._presenter: Any | None = None
-        self._cuda_device_index: int | None = None
-        self._presentation_thread_id: int | None = None
+        self._presenter: _SlangPyNativeWindowPresenter | None = None
         self._poll_input_events: list[UserInputEvent] | None = None
         self._poll_input_thread_id: int | None = None
         self._pending_printable_keys: deque[tuple[str, int]] = deque()
@@ -142,9 +135,7 @@ class NativeWindowClientWindow(IClientWindow):
             )
         if self._presenter is not None:
             raise RuntimeError("NativeWindowClientWindow is already open.")
-        presenter_factory = self._presenter_factory
-        if presenter_factory is None:
-            presenter_factory = _SlangPyNativeWindowPresenter
+        presenter_factory = self._presenter_factory or _SlangPyNativeWindowPresenter
 
         presenter = presenter_factory(
             width=session_desc.video_width,
@@ -152,20 +143,7 @@ class NativeWindowClientWindow(IClientWindow):
             title=self.title,
         )
         try:
-            set_callbacks = getattr(presenter, "set_input_callbacks", None)
-            if not callable(set_callbacks):
-                raise TypeError(
-                    "A native-window presenter must accept input callbacks."
-                )
-            if not callable(getattr(presenter, "process_events", None)):
-                raise TypeError(
-                    "A native-window presenter must implement process_events()."
-                )
-            if not callable(getattr(presenter, "present_frame", None)):
-                raise TypeError(
-                    "A native-window presenter must implement present_frame()."
-                )
-            set_callbacks(
+            presenter.set_input_callbacks(
                 on_keyboard_event=self._on_keyboard_event,
                 on_mouse_event=self._on_mouse_event,
             )
@@ -176,10 +154,6 @@ class NativeWindowClientWindow(IClientWindow):
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
         self._close_event_enqueued.clear()
-        self._cuda_device_index = (
-            torch.cuda.current_device() if torch.cuda.is_initialized() else None
-        )
-        self._presentation_thread_id = None
         self._poll_input_events = None
         self._poll_input_thread_id = None
         self._pending_printable_keys.clear()
@@ -194,7 +168,7 @@ class NativeWindowClientWindow(IClientWindow):
             self._poll_input_thread_id = threading.get_ident()
             try:
                 presenter.process_events()
-                if _presenter_should_close(presenter):
+                if presenter.should_close:
                     self._on_window_closed()
                 polled_input_events = self._poll_input_events
             finally:
@@ -230,10 +204,9 @@ class NativeWindowClientWindow(IClientWindow):
             )
         if self._close_event_enqueued.is_set():
             return
-        self._bind_cuda_device()
         frames = result_to_rgb24_tensor(result, self._session_desc_or_raise())
         for frame in frames:
-            presentation_frame: object = frame
+            presentation_frame: Tensor | _CudaPresentationFrame = frame
             if frame.is_cuda:
                 ready_event = torch.cuda.Event()
                 ready_event.record(torch.cuda.current_stream(frame.device))
@@ -250,24 +223,12 @@ class NativeWindowClientWindow(IClientWindow):
         self._presenter = None
         self._session_started_ns = None
         self._session_desc = None
-        self._cuda_device_index = None
-        self._presentation_thread_id = None
         self._poll_input_events = None
         self._poll_input_thread_id = None
         self._pending_printable_keys.clear()
         self._pressed_key_values.clear()
         if presenter is not None:
             presenter.close()
-
-    def _bind_cuda_device(self) -> None:
-        """Bind the I/O thread's CUDA primary context to presentation."""
-        thread_id = threading.get_ident()
-        if self._presentation_thread_id == thread_id:
-            return
-        if self._cuda_device_index is not None:
-            torch.cuda.set_device(self._cuda_device_index)
-            torch.cuda.current_stream()
-        self._presentation_thread_id = thread_id
 
     def _session_desc_or_raise(self) -> SessionDesc:
         session_desc = self._session_desc
@@ -292,7 +253,7 @@ class NativeWindowClientWindow(IClientWindow):
             return self._poll_input_events
         return None
 
-    def _on_keyboard_event(self, event: Any) -> None:
+    def _on_keyboard_event(self, event: spy.KeyboardEvent) -> None:
         if _is_keyboard_input(event):
             text = _keyboard_input_text(event)
             if text is not None:
@@ -353,7 +314,7 @@ class NativeWindowClientWindow(IClientWindow):
             return
         self._put_input(keyboard_event)
 
-    def _on_mouse_event(self, event: Any) -> None:
+    def _on_mouse_event(self, event: spy.MouseEvent) -> None:
         session_desc = self._session_desc
         if session_desc is None:
             return
@@ -404,30 +365,15 @@ class _SlangPyNativeWindowPresenter:
             title=title,
             resizable=False,
         )
-        self._keyboard_event_callback: Callable[[Any], None] | None = None
-        self._mouse_event_callback: Callable[[Any], None] | None = None
+        self._keyboard_event_callback: Callable[[spy.KeyboardEvent], None] | None = None
+        self._mouse_event_callback: Callable[[spy.MouseEvent], None] | None = None
         self._window.on_keyboard_event = self._on_keyboard_event
         self._window.on_mouse_event = self._on_mouse_event
         self._cuda_interop_unavailable_reason: str | None = None
-        self._device = self._create_device()
-        self._surface = self._device.create_surface(self._window)
-        self._surface.configure(
-            width=self._width,
-            height=self._height,
-            format=self._choose_surface_format(),
-        )
-        self._display_texture = self._device.create_texture(
-            format=spy.Format.rgba8_unorm,
-            width=self._width,
-            height=self._height,
-            usage=(
-                spy.TextureUsage.shader_resource
-                | spy.TextureUsage.unordered_access
-                | spy.TextureUsage.copy_destination
-            ),
-            label="flashdreams_v2_native_window_texture",
-        )
-        self._cuda_rgb_interop = self._create_cuda_rgb_interop()
+        self._device: spy.Device | None = None
+        self._surface: spy.Surface | None = None
+        self._display_texture: spy.Texture | None = None
+        self._cuda_rgb_interop: _CudaRGBInterop | None = None
         self._host_upload = np.empty(
             (self._height, self._width, 4),
             dtype=np.uint8,
@@ -437,8 +383,8 @@ class _SlangPyNativeWindowPresenter:
     def set_input_callbacks(
         self,
         *,
-        on_keyboard_event: Callable[[Any], None] | None = None,
-        on_mouse_event: Callable[[Any], None] | None = None,
+        on_keyboard_event: Callable[[spy.KeyboardEvent], None] | None = None,
+        on_mouse_event: Callable[[spy.MouseEvent], None] | None = None,
     ) -> None:
         """Bind runtime input callbacks to the SlangPy window."""
         self._keyboard_event_callback = on_keyboard_event
@@ -454,12 +400,14 @@ class _SlangPyNativeWindowPresenter:
         if not self._closed:
             self._window.process_events()
 
-    def present_frame(self, frame: object) -> bool:
+    def present_frame(self, frame: Tensor | _CudaPresentationFrame) -> bool:
         """Present one RGB frame without pumping window events."""
         if self._closed:
             return False
 
-        cuda_resident = _is_cuda_resident(frame)
+        cuda_device = _cuda_frame_device(frame)
+        cuda_resident = cuda_device is not None
+        self._ensure_render_resources(cuda_device)
         if self._cuda_rgb_interop is not None:
             cuda_frame = self._cuda_rgb_interop.as_cuda_rgb_frame(frame)
             if cuda_frame is not None:
@@ -481,7 +429,8 @@ class _SlangPyNativeWindowPresenter:
                 "refusing to copy the frame through CPU memory."
             )
 
-        rgb = self._as_host_rgb(frame)
+        tensor = frame.tensor if isinstance(frame, _CudaPresentationFrame) else frame
+        rgb = self._as_host_rgb(tensor)
         if tuple(rgb.shape) != (self._height, self._width, 3):
             raise ValueError(
                 "Native-window frame shape does not match the configured surface: "
@@ -499,14 +448,17 @@ class _SlangPyNativeWindowPresenter:
         if self._cuda_rgb_interop is not None:
             self._cuda_rgb_interop.close()
             self._cuda_rgb_interop = None
+        self._display_texture = None
+        self._surface = None
+        self._device = None
         self._window.close()
 
-    def _on_keyboard_event(self, event: Any) -> None:
+    def _on_keyboard_event(self, event: spy.KeyboardEvent) -> None:
         """Forward one keyboard event to the runtime callback."""
         if self._keyboard_event_callback is not None:
             self._keyboard_event_callback(event)
 
-    def _on_mouse_event(self, event: Any) -> None:
+    def _on_mouse_event(self, event: spy.MouseEvent) -> None:
         """Forward one mouse event to the runtime callback."""
         if self._mouse_event_callback is not None:
             self._mouse_event_callback(event)
@@ -518,21 +470,50 @@ class _SlangPyNativeWindowPresenter:
         time.sleep(_CUDA_COPY_POLL_SECONDS)
         return True
 
-    def _create_device(self) -> Any:
+    def _ensure_render_resources(self, cuda_device: torch.device | None) -> None:
+        """Create presentation resources on the first frame's device."""
+        if self._device is not None:
+            return
+        if cuda_device is not None:
+            torch.cuda.set_device(cuda_device)
+        self._initialize_render_resources(enable_cuda_interop=cuda_device is not None)
+
+    def _initialize_render_resources(self, *, enable_cuda_interop: bool) -> None:
+        """Create the Vulkan surface and optional CUDA interop resources."""
+        self._device = self._create_device(enable_cuda_interop=enable_cuda_interop)
+        self._surface = self._device.create_surface(self._window)
+        self._surface.configure(
+            width=self._width,
+            height=self._height,
+            format=self._choose_surface_format(),
+        )
+        self._display_texture = self._device.create_texture(
+            format=self._spy.Format.rgba8_unorm,
+            width=self._width,
+            height=self._height,
+            usage=(
+                self._spy.TextureUsage.shader_resource
+                | self._spy.TextureUsage.unordered_access
+                | self._spy.TextureUsage.copy_destination
+            ),
+            label="flashdreams_v2_native_window_texture",
+        )
+        self._cuda_rgb_interop = self._create_cuda_rgb_interop()
+
+    def _create_device(self, *, enable_cuda_interop: bool) -> spy.Device:
         """Create the Vulkan device, sharing the active CUDA context if possible."""
-        existing_device_handles = self._cuda_existing_device_handles()
-        device_kwargs: dict[str, object] = {
-            "type": self._spy.DeviceType.vulkan,
-            "enable_debug_layers": False,
-            "enable_cuda_interop": bool(existing_device_handles),
-            "enable_cuda_launch_from_gfx": False,
-            "enable_ray_tracing": False,
-        }
-        if existing_device_handles:
-            device_kwargs["existing_device_handles"] = existing_device_handles
+        existing_device_handles = (
+            self._cuda_existing_device_handles() if enable_cuda_interop else []
+        )
         try:
-            device_factory: Any = self._spy.Device
-            return device_factory(**device_kwargs)
+            return self._spy.Device(
+                type=self._spy.DeviceType.vulkan,
+                enable_debug_layers=False,
+                enable_cuda_interop=bool(existing_device_handles),
+                enable_cuda_launch_from_gfx=False,
+                enable_ray_tracing=False,
+                existing_device_handles=existing_device_handles or None,
+            )
         except RuntimeError as exc:
             _LOGGER.info(
                 "Native-window CUDA interop device creation failed; using Vulkan "
@@ -547,7 +528,7 @@ class _SlangPyNativeWindowPresenter:
                 enable_ray_tracing=False,
             )
 
-    def _cuda_existing_device_handles(self) -> list[Any]:
+    def _cuda_existing_device_handles(self) -> list[spy.NativeHandle]:
         """Return SlangPy handles for the CUDA context current on this thread."""
         try:
             if not torch.cuda.is_initialized():
@@ -558,16 +539,8 @@ class _SlangPyNativeWindowPresenter:
             self._cuda_interop_unavailable_reason = "CUDA context unavailable"
             return []
 
-        get_handles = getattr(
-            self._spy,
-            "get_cuda_current_context_native_handles",
-            None,
-        )
-        if not callable(get_handles):
-            self._cuda_interop_unavailable_reason = "native handles unavailable"
-            return []
         try:
-            return list(get_handles())
+            return list(self._spy.get_cuda_current_context_native_handles())
         except Exception as exc:
             self._cuda_interop_unavailable_reason = (
                 f"native handle query failed ({type(exc).__name__}: {exc})"
@@ -576,7 +549,9 @@ class _SlangPyNativeWindowPresenter:
 
     def _create_cuda_rgb_interop(self) -> _CudaRGBInterop | None:
         """Create the GPU-resident RGB upload path when SlangPy supports it."""
-        if not self._device.supports_cuda_interop:
+        device = self._device
+        assert device is not None
+        if not device.supports_cuda_interop:
             reason = self._cuda_interop_unavailable_reason or "unsupported"
             _LOGGER.info(
                 "Native-window CUDA interop unavailable (%s); using host upload",
@@ -586,7 +561,7 @@ class _SlangPyNativeWindowPresenter:
         try:
             interop = _CudaRGBInterop(
                 spy=self._spy,
-                device=self._device,
+                device=device,
                 width=self._width,
                 height=self._height,
             )
@@ -602,6 +577,9 @@ class _SlangPyNativeWindowPresenter:
     def _submit_ready_cuda_rgb(self) -> bool:
         """Submit one copy-complete shared RGBA buffer to the swapchain."""
         assert self._cuda_rgb_interop is not None
+        assert self._surface is not None
+        assert self._device is not None
+        assert self._display_texture is not None
         ready = self._cuda_rgb_interop.ready_rgba_buffer()
         if ready is None:
             return False
@@ -638,6 +616,9 @@ class _SlangPyNativeWindowPresenter:
 
     def _present_host_upload(self) -> None:
         """Upload and present one CPU-resident RGBA frame."""
+        assert self._surface is not None
+        assert self._device is not None
+        assert self._display_texture is not None
         if not self._surface.config:
             return
         surface_texture = self._surface.acquire_next_image()
@@ -650,8 +631,9 @@ class _SlangPyNativeWindowPresenter:
         self._surface.present()
         del surface_texture
 
-    def _choose_surface_format(self) -> Any:
+    def _choose_surface_format(self) -> spy.Format:
         """Select a linear surface format for byte-exact RGB presentation."""
+        assert self._surface is not None
         linear_pairs = {
             self._spy.Format.rgba8_unorm_srgb: self._spy.Format.rgba8_unorm,
             self._spy.Format.bgra8_unorm_srgb: self._spy.Format.bgra8_unorm,
@@ -675,18 +657,17 @@ class _SlangPyNativeWindowPresenter:
         )
 
     @staticmethod
-    def _as_host_rgb(frame: object) -> np.ndarray:
+    def _as_host_rgb(frame: Tensor) -> np.ndarray:
         """Return one CPU frame as contiguous uint8 RGB data."""
-        to_numpy = getattr(frame, "to_numpy", None)
-        if callable(to_numpy):
-            frame = to_numpy()
-        return np.ascontiguousarray(frame, dtype=np.uint8)
+        return np.ascontiguousarray(frame.numpy(), dtype=np.uint8)
 
 
 class _CudaRGBInterop:
     """Map triple-buffered SlangPy shared storage into CUDA tensors."""
 
-    def __init__(self, *, spy: Any, device: Any, width: int, height: int) -> None:
+    def __init__(
+        self, *, spy: Any, device: spy.Device, width: int, height: int
+    ) -> None:
         """Allocate and CUDA-map the shared RGBA presentation buffers."""
         self._spy = spy
         self._device = device
@@ -707,9 +688,12 @@ class _CudaRGBInterop:
             for index in range(3)
         ]
         for shared_buffer in self._buffers:
-            shared_buffer.rgba_tensor = shared_buffer.buffer.to_torch(
-                type=spy.DataType.uint8,
-                shape=[self._height, self._width, 4],
+            shared_buffer.rgba_tensor = cast(
+                Tensor,
+                shared_buffer.buffer.to_torch(
+                    type=spy.DataType.uint8,
+                    shape=[self._height, self._width, 4],
+                ),
             )
         first_tensor = self._buffers[0].rgba_tensor
         if first_tensor is None:
@@ -718,15 +702,11 @@ class _CudaRGBInterop:
         self._copy_stream = torch.cuda.Stream(device=self._cuda_device)
         self._next_buffer_index = 0
 
-    def as_cuda_rgb_frame(self, frame: object) -> _CudaRGBFrame | None:
+    def as_cuda_rgb_frame(
+        self, frame: Tensor | _CudaPresentationFrame
+    ) -> _CudaRGBFrame | None:
         """Return a device-compatible CUDA RGB view when available."""
-        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
-        try:
-            tensor = to_cuda_tensor() if callable(to_cuda_tensor) else frame
-        except RuntimeError:
-            return None
-        if not torch.is_tensor(tensor):
-            return None
+        tensor = frame.tensor if isinstance(frame, _CudaPresentationFrame) else frame
         if (
             not tensor.is_cuda
             or tensor.dtype != torch.uint8
@@ -736,8 +716,9 @@ class _CudaRGBInterop:
             return None
         if self._device_index(tensor.device) != self._device_index(self._cuda_device):
             return None
-        to_cuda_event = getattr(frame, "to_cuda_event", None)
-        source_event = to_cuda_event() if callable(to_cuda_event) else None
+        source_event = (
+            frame.ready_event if isinstance(frame, _CudaPresentationFrame) else None
+        )
         return _CudaRGBFrame(tensor=tensor.detach(), source_event=source_event)
 
     def enqueue_rgb_to_shared_rgba(self, frame: _CudaRGBFrame) -> bool:
@@ -763,7 +744,9 @@ class _CudaRGBInterop:
         shared_buffer.copy_done_event = done
         return True
 
-    def ready_rgba_buffer(self) -> tuple[_SharedRGBABuffer, Any] | None:
+    def ready_rgba_buffer(
+        self,
+    ) -> tuple[_SharedRGBABuffer, spy.NativeHandle] | None:
         """Return the next copy-complete buffer and CUDA stream handle."""
         for shared_buffer in self._buffers:
             event = shared_buffer.copy_done_event
@@ -806,7 +789,7 @@ class _CudaRGBInterop:
         return None
 
     @staticmethod
-    def _device_index(device: Any) -> int:
+    def _device_index(device: torch.device) -> int:
         """Return a concrete CUDA device index."""
         index = device.index
         return 0 if index is None else int(index)
@@ -819,7 +802,7 @@ class _CudaRGBFrame:
     tensor: Tensor
     """CUDA uint8 RGB tensor to copy."""
 
-    source_event: Any | None
+    source_event: torch.cuda.Event | None
     """Producer event the copy stream waits for."""
 
 
@@ -827,7 +810,7 @@ class _CudaRGBFrame:
 class _SharedRGBABuffer:
     """Track one shared buffer's CUDA-copy and Vulkan-submit ownership."""
 
-    buffer: Any
+    buffer: spy.Buffer
     """SlangPy shared buffer."""
 
     row_pitch: int
@@ -839,24 +822,24 @@ class _SharedRGBABuffer:
     rgba_tensor: Tensor | None = None
     """CUDA tensor mapped over ``buffer``."""
 
-    copy_done_event: Any | None = None
+    copy_done_event: torch.cuda.Event | None = None
     """CUDA event completing the pending RGB-to-RGBA copy."""
 
     pending_submit_id: int | None = None
     """Vulkan submission currently reading the buffer."""
 
 
-def _is_cuda_resident(frame: object) -> bool:
-    """Return whether ``frame`` wraps a CUDA tensor without synchronizing it."""
-    to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
-    try:
-        tensor = to_cuda_tensor() if callable(to_cuda_tensor) else frame
-    except RuntimeError:
-        return False
-    return bool(getattr(tensor, "is_cuda", False))
+def _cuda_frame_device(
+    frame: Tensor | _CudaPresentationFrame,
+) -> torch.device | None:
+    """Return the device of a wrapped CUDA tensor without synchronizing it."""
+    tensor = frame.tensor if isinstance(frame, _CudaPresentationFrame) else frame
+    if not tensor.is_cuda:
+        return None
+    return tensor.device
 
 
-def _cuda_event_ready(event: Any | None) -> bool:
+def _cuda_event_ready(event: torch.cuda.Event | None) -> bool:
     """Return whether a CUDA event has completed without blocking the host."""
     if event is None:
         return True
@@ -866,24 +849,22 @@ def _cuda_event_ready(event: Any | None) -> bool:
         return False
 
 
-def _keyboard_event(event: Any) -> KeyboardUserInputEvent | None:
-    is_press = getattr(event, "is_key_press", None)
-    is_release = getattr(event, "is_key_release", None)
-    if callable(is_press) and is_press():
+def _keyboard_event(event: spy.KeyboardEvent) -> KeyboardUserInputEvent | None:
+    if event.is_key_press():
         state = KeyboardInputState.PRESSED
-    elif callable(is_release) and is_release():
+    elif event.is_key_release():
         state = KeyboardInputState.RELEASED
     else:
         return None
-    key = _runtime_key_name(getattr(event, "key", ""))
+    key = _runtime_key_name(event.key)
     if not key:
         return None
     return KeyboardUserInputEvent(timestamp=uint64(0), key=key, state=state)
 
 
-def _runtime_key_name(value: Any) -> str:
+def _runtime_key_name(value: spy.KeyCode) -> str:
     """Return the browser-style key value used by runtime input events."""
-    name = _enum_name(value)
+    name = value.name
     normalized = name.lower()
     modifier = _MODIFIER_KEY_NAMES.get(normalized)
     if modifier is not None:
@@ -898,13 +879,12 @@ def _runtime_key_name(value: Any) -> str:
     return name
 
 
-def _is_keyboard_input(event: Any) -> bool:
+def _is_keyboard_input(event: spy.KeyboardEvent) -> bool:
     """Return whether SlangPy resolved the event to a text codepoint."""
-    is_input = getattr(event, "is_input", None)
-    return bool(callable(is_input) and is_input())
+    return event.is_input()
 
 
-def _keyboard_input_text(event: Any) -> str | None:
+def _keyboard_input_text(event: spy.KeyboardEvent) -> str | None:
     """Return the Unicode character carried by a SlangPy input event."""
     try:
         codepoint = int(event.codepoint)
@@ -916,18 +896,17 @@ def _keyboard_input_text(event: Any) -> str | None:
 
 
 def _mouse_event(
-    event: Any, *, width: int, height: int
+    event: spy.MouseEvent, *, width: int, height: int
 ) -> MouseUserInputEvent | None:
-    event_type = _enum_name(getattr(event, "type", "")).lower()
-    x, y = _pair(getattr(event, "pos", (0.0, 0.0)))
+    x, y = float(event.pos.x), float(event.pos.y)
     normalized_x = min(1.0, max(0.0, x / width))
     normalized_y = min(1.0, max(0.0, y / height))
-    if event_type == "move":
+    if event.is_move():
         return MouseUserInputEvent(
             timestamp=uint64(0), x=normalized_x, y=normalized_y
         )
-    if event_type in {"button_down", "button_up"}:
-        button_name = _enum_name(getattr(event, "button", "")).lower()
+    if event.is_button_down() or event.is_button_up():
+        button_name = event.button.name.lower()
         button = {"left": 0, "middle": 1, "right": 2}.get(button_name)
         if button is None:
             return None
@@ -937,10 +916,10 @@ def _mouse_event(
             x=normalized_x,
             y=normalized_y,
             button=button,
-            pressed=event_type == "button_down",
+            pressed=event.is_button_down(),
         )
-    if event_type == "scroll":
-        wheel_x, wheel_y = _pair(getattr(event, "scroll", (0.0, 0.0)))
+    if event.is_scroll():
+        wheel_x, wheel_y = float(event.scroll.x), float(event.scroll.y)
         return MouseUserInputEvent(
             timestamp=uint64(0),
             action="wheel",
@@ -950,25 +929,6 @@ def _mouse_event(
             wheel_y=wheel_y,
         )
     return None
-
-
-def _pair(value: Any) -> tuple[float, float]:
-    try:
-        return float(value.x), float(value.y)
-    except AttributeError:
-        return float(value[0]), float(value[1])
-
-
-def _enum_name(value: Any) -> str:
-    name = getattr(value, "name", None)
-    if name is not None:
-        return str(name)
-    return str(value).rsplit(".", maxsplit=1)[-1]
-
-
-def _presenter_should_close(presenter: Any) -> bool:
-    value = getattr(presenter, "should_close", False)
-    return bool(value() if callable(value) else value)
 
 
 __all__ = ["NativeWindowClientWindow"]

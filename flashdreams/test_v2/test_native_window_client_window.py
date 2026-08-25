@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import queue
 import threading
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import torch
@@ -27,6 +28,9 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
+if TYPE_CHECKING:
+    import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -61,6 +65,9 @@ class _KeyboardEvent:
     def is_key_release(self) -> bool:
         return not self._pressed
 
+    def is_input(self) -> bool:
+        return False
+
 
 class _TextInputEvent:
     def __init__(self, text: str) -> None:
@@ -73,6 +80,23 @@ class _TextInputEvent:
         return False
 
     def is_key_release(self) -> bool:
+        return False
+
+
+class _MouseMoveEvent:
+    def __init__(self, x: float, y: float) -> None:
+        self.pos = SimpleNamespace(x=x, y=y)
+
+    def is_move(self) -> bool:
+        return True
+
+    def is_button_down(self) -> bool:
+        return False
+
+    def is_button_up(self) -> bool:
+        return False
+
+    def is_scroll(self) -> bool:
         return False
 
 
@@ -116,6 +140,12 @@ class _Presenter:
         self.close_threads.append(threading.get_ident())
 
 
+def _presenter_factory(
+    presenter: _Presenter,
+) -> Callable[..., native_window_module._SlangPyNativeWindowPresenter]:
+    return cast(Any, lambda **_kwargs: presenter)
+
+
 def test_slangpy_presenter_uses_standard_window_event_pump() -> None:
     process_count = 0
 
@@ -142,9 +172,18 @@ def test_slangpy_presenter_drops_frame_when_shared_buffers_are_busy() -> None:
 
     presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
     presenter._closed = False
+    presenter._device = object()
     presenter._cuda_rgb_interop = BusyInterop()
 
-    assert presenter.present_frame(SimpleNamespace(is_cuda=True))
+    assert presenter.present_frame(
+        native_window_module._CudaPresentationFrame(
+            tensor=cast(
+                torch.Tensor,
+                SimpleNamespace(is_cuda=True, device=torch.device("cuda", 0)),
+            ),
+            ready_event=cast(torch.cuda.Event, object()),
+        )
+    )
 
 
 def test_slangpy_presenter_drops_ready_frame_when_swapchain_is_unavailable() -> None:
@@ -160,6 +199,8 @@ def test_slangpy_presenter_drops_ready_frame_when_swapchain_is_unavailable() -> 
 
     presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
     presenter._cuda_rgb_interop = ReadyInterop()
+    presenter._device = object()
+    presenter._display_texture = object()
     presenter._surface = SimpleNamespace(
         config=True,
         acquire_next_image=lambda: None,
@@ -191,7 +232,7 @@ def test_window_lifecycle_and_events_stay_on_io_while_write_is_presentation(
         "result_to_rgb24_tensor",
         record_conversion,
     )
-    window = NativeWindowClientWindow(presenter_factory=create_presenter)
+    window = NativeWindowClientWindow(presenter_factory=cast(Any, create_presenter))
     window.open(_session_desc())
     window.get_user_input_events()
     presentation = threading.Thread(target=window.write, args=(_result(),))
@@ -206,47 +247,55 @@ def test_window_lifecycle_and_events_stay_on_io_while_write_is_presentation(
     assert io_thread not in conversion_threads
 
 
-def test_presentation_thread_rebinds_the_io_threads_cuda_device(
+def test_slangpy_presenter_binds_interop_to_the_first_cuda_frame_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    io_thread = threading.get_ident()
-    calls: list[tuple[str, int, int | None]] = []
-    presenter = _Presenter()
-
-    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
-    monkeypatch.setattr(
-        torch.cuda,
-        "current_device",
-        lambda: calls.append(("current_device", threading.get_ident(), None)) or 2,
+    calls: list[tuple[str, object]] = []
+    cuda_device = torch.device("cuda", 2)
+    cuda_tensor = cast(
+        torch.Tensor,
+        SimpleNamespace(is_cuda=True, device=cuda_device),
     )
+
+    class BusyInterop:
+        def as_cuda_rgb_frame(self, _frame: object) -> object:
+            return object()
+
+        def enqueue_rgb_to_shared_rgba(self, _frame: object) -> bool:
+            return False
+
+    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
+    presenter._closed = False
+    presenter._device = None
+    presenter._cuda_rgb_interop = None
+
+    def initialize(*, enable_cuda_interop: bool) -> None:
+        calls.append(("initialize", enable_cuda_interop))
+        presenter._device = object()
+        presenter._cuda_rgb_interop = BusyInterop()
+
+    presenter._initialize_render_resources = initialize
     monkeypatch.setattr(
         torch.cuda,
         "set_device",
-        lambda device: calls.append(("set_device", threading.get_ident(), device)),
+        lambda device: calls.append(("set_device", device)),
     )
-    monkeypatch.setattr(
-        torch.cuda,
-        "current_stream",
-        lambda *args: calls.append(("current_stream", threading.get_ident(), None)),
+    frame = native_window_module._CudaPresentationFrame(
+        tensor=cuda_tensor,
+        ready_event=cast(torch.cuda.Event, object()),
     )
-    window = NativeWindowClientWindow(presenter_factory=lambda **_kwargs: presenter)
-    window.open(_session_desc())
-    presentation = threading.Thread(target=window.write, args=(_result(),))
-    presentation.start()
-    presentation.join(timeout=1.0)
-    window.close()
 
-    assert calls[0] == ("current_device", io_thread, None)
-    set_device_calls = [call for call in calls if call[0] == "set_device"]
-    assert len(set_device_calls) == 1
-    assert set_device_calls[0][2] == 2
-    assert set_device_calls[0][1] != io_thread
+    assert presenter.present_frame(frame)
+    assert calls == [
+        ("set_device", cuda_device),
+        ("initialize", True),
+    ]
 
 
 def test_blocked_event_pump_does_not_pause_presentation() -> None:
     presenter = _Presenter()
     presenter.allow_process.clear()
-    window = NativeWindowClientWindow(presenter_factory=lambda **_kwargs: presenter)
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
     window.open(_session_desc())
     presentation_finished = threading.Event()
 
@@ -271,7 +320,7 @@ def test_native_window_reports_input_and_close_from_event_pump() -> None:
     presenter = _Presenter()
     clock_values = iter((1_000_000, 1_001_000, 1_002_000, 1_003_000))
     window = NativeWindowClientWindow(
-        presenter_factory=lambda **_kwargs: presenter,
+        presenter_factory=_presenter_factory(presenter),
         clock_ns=lambda: next(clock_values),
     )
     window.open(_session_desc())
@@ -279,10 +328,7 @@ def test_native_window_reports_input_and_close_from_event_pump() -> None:
     presenter.pending_events.put(
         (
             "mouse",
-            SimpleNamespace(
-                type=SimpleNamespace(name="move"),
-                pos=SimpleNamespace(x=1.0, y=0.5),
-            ),
+            _MouseMoveEvent(1.0, 0.5),
         )
     )
     presenter.pending_events.put(("close", None))
@@ -305,9 +351,11 @@ def test_native_window_reports_input_and_close_from_event_pump() -> None:
 
 def test_native_text_input_uses_slangpy_resolved_shift_character() -> None:
     presenter = _Presenter()
-    window = NativeWindowClientWindow(presenter_factory=lambda **_kwargs: presenter)
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
     window.open(_session_desc())
-    presenter.pending_events.put(("keyboard", _KeyboardEvent("left_shift", pressed=True)))
+    presenter.pending_events.put(
+        ("keyboard", _KeyboardEvent("left_shift", pressed=True))
+    )
     presenter.pending_events.put(("keyboard", _KeyboardEvent("a", pressed=True)))
     presenter.pending_events.put(("keyboard", _TextInputEvent("A")))
     presenter.pending_events.put(("keyboard", _KeyboardEvent("a", pressed=False)))
@@ -345,7 +393,7 @@ def test_native_modifier_names_match_browser_key_values(
     runtime_key: str,
 ) -> None:
     data = native_window_module._keyboard_event(
-        _KeyboardEvent(slangpy_name, pressed=True)
+        cast("spy.KeyboardEvent", _KeyboardEvent(slangpy_name, pressed=True))
     )
 
     assert data is not None
@@ -362,7 +410,7 @@ def test_native_printable_key_names_become_text_input_values(
     runtime_key: str,
 ) -> None:
     data = native_window_module._keyboard_event(
-        _KeyboardEvent(slangpy_name, pressed=True)
+        cast("spy.KeyboardEvent", _KeyboardEvent(slangpy_name, pressed=True))
     )
 
     assert data is not None
@@ -388,14 +436,16 @@ def test_device_conversion_does_not_materialize_a_host_array() -> None:
 
 
 def test_write_before_open_is_rejected() -> None:
-    window = NativeWindowClientWindow(presenter_factory=lambda **_kwargs: _Presenter())
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
 
     with pytest.raises(RuntimeError, match="open"):
         window.write(_result())
 
 
 def test_native_window_must_open_on_the_process_main_thread() -> None:
-    window = NativeWindowClientWindow(presenter_factory=lambda **_kwargs: _Presenter())
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
     errors: queue.SimpleQueue[BaseException] = queue.SimpleQueue()
 
     def open_window() -> None:
