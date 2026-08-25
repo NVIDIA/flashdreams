@@ -29,6 +29,7 @@ from torch import nn
 from minimax_h3.constants import align_num_frames, validate_canvas
 from minimax_h3.lora import convert_musubi_lora
 from minimax_h3.model import (
+    MiniMaxH3DenoiseProgress,
     MiniMaxH3DenoiseState,
     MiniMaxH3DiffusionModel,
     MiniMaxH3JointLatents,
@@ -421,3 +422,19 @@ def test_joint_latents_reject_nonfinite_or_empty_media() -> None:
             video=torch.zeros((1, 1, 1, 1, 1)),
             audio=torch.zeros((2, 1, 0)),
         )
+
+
+def test_generate_joint_resumes_at_the_same_paired_schedule_step() -> None:
+    """Resume both streams deterministically without replaying completed steps."""
+    model, transformer = _joint_model(num_inference_steps=3)
+    checkpoints: list[MiniMaxH3DenoiseProgress] = []
+
+    uninterrupted = model.generate_joint(_joint_state(), checkpoint=checkpoints.append)
+
+    assert transformer.calls == 2
+    assert [progress.next_step for progress in checkpoints] == [1, 2]
+    resumed_model, resumed_transformer = _joint_model(num_inference_steps=3)
+    resumed = resumed_model.generate_joint(_joint_state(), resume=checkpoints[0])
+    assert resumed_transformer.calls == 1
+    torch.testing.assert_close(resumed.video, uninterrupted.video)
+    torch.testing.assert_close(resumed.audio, uninterrupted.audio)

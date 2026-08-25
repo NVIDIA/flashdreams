@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
@@ -103,6 +104,31 @@ class MiniMaxH3JointLatents:
                 raise ValueError(f"{name} latents must use a floating-point dtype.")
             if not bool(torch.isfinite(value).all()):
                 raise ValueError(f"{name} latents must contain only finite values.")
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class MiniMaxH3DenoiseProgress:
+    """One resumable, synchronized point in H3's paired schedules."""
+
+    video: Tensor
+    """Packed video conditioning and targets at ``next_step``."""
+
+    audio: Tensor
+    """Packed audio conditioning and targets at ``next_step``."""
+
+    next_step: int
+    """Zero-based schedule index to execute next."""
+
+    def __post_init__(self) -> None:
+        if type(self.next_step) is not int or self.next_step < 0:
+            raise ValueError("next_step must be a non-negative integer.")
+        for name, value in (("video", self.video), ("audio", self.audio)):
+            if value.ndim != 2 or any(size <= 0 for size in value.shape):
+                raise ValueError(f"Packed {name} progress must be a non-empty matrix.")
+            if not value.is_floating_point():
+                raise ValueError(f"Packed {name} progress must be floating point.")
+            if not bool(torch.isfinite(value).all()):
+                raise ValueError(f"Packed {name} progress must contain finite values.")
 
 
 class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
@@ -248,6 +274,40 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             )
 
     @staticmethod
+    def _validate_resume(
+        state: MiniMaxH3DenoiseState,
+        resume: MiniMaxH3DenoiseProgress,
+    ) -> None:
+        """Require resumable targets to retain this request's condition rows."""
+        expected = {
+            "video": state.latents,
+            "audio": state.audio_latents,
+        }
+        actual = {
+            "video": resume.video,
+            "audio": resume.audio,
+        }
+        condition_rows = {
+            "video": state.num_condition_video_rows,
+            "audio": state.num_condition_audio_rows,
+        }
+        for name in expected:
+            source = expected[name]
+            restored = actual[name]
+            if restored.shape != source.shape or restored.dtype != source.dtype:
+                raise ValueError(
+                    f"Resumed {name} latents do not match the packed request shape "
+                    "and dtype."
+                )
+            rows = condition_rows[name]
+            if not torch.equal(
+                restored[:rows].detach().cpu(), source[:rows].detach().cpu()
+            ):
+                raise ValueError(
+                    f"Resumed {name} conditioning does not match this request."
+                )
+
+    @staticmethod
     def _row_timesteps(
         state: MiniMaxH3DenoiseState,
         video_timestep: Tensor,
@@ -275,14 +335,32 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
 
     @torch.no_grad()
     def generate_joint(
-        self, state: MiniMaxH3DenoiseState
+        self,
+        state: MiniMaxH3DenoiseState,
+        *,
+        resume: MiniMaxH3DenoiseProgress | None = None,
+        checkpoint: Callable[[MiniMaxH3DenoiseProgress], None] | None = None,
     ) -> MiniMaxH3JointLatents:
-        """Denoise and unpack synchronized video and stereo audio latents."""
+        """Denoise, optionally checkpoint, and unpack both synchronized streams."""
         transformer_config = cast(Any, self.config.transformer)
         self._validate_state(state, transformer_config)
+        if resume is not None:
+            self._validate_resume(state, resume)
         device = self.transformer.device
-        video = state.latents.to(device).clone()
-        audio = state.audio_latents.to(device).clone()
+        next_step = 0 if resume is None else resume.next_step
+        video_sigmas, video_timesteps = self.scheduler.schedule(device)
+        audio_sigmas, audio_timesteps = self.audio_scheduler.schedule(device)
+        if len(video_timesteps) != len(audio_timesteps):
+            raise RuntimeError("H3 video and audio schedules must have equal length")
+        if next_step > len(video_timesteps):
+            raise ValueError(
+                "Resumed next_step exceeds the configured denoising schedule."
+            )
+
+        video_source = state.latents if resume is None else resume.video
+        audio_source = state.audio_latents if resume is None else resume.audio
+        video = video_source.to(device).clone()
+        audio = audio_source.to(device).clone()
         execution_state = replace(
             state,
             prompt_embeds=state.prompt_embeds.to(device),
@@ -292,11 +370,6 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             audio_indices=state.audio_indices.to(device),
             text_indices=state.text_indices.to(device),
         )
-
-        video_sigmas, video_timesteps = self.scheduler.schedule(device)
-        audio_sigmas, audio_timesteps = self.audio_scheduler.schedule(device)
-        if len(video_timesteps) != len(audio_timesteps):
-            raise RuntimeError("H3 video and audio schedules must have equal length")
 
         cache = MiniMaxH3TransformerCache(
             audio_hidden_states=audio[None],
@@ -309,9 +382,9 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             audio_indices=execution_state.audio_indices,
             text_indices=execution_state.text_indices,
         )
-        for index, (video_timestep, audio_timestep) in enumerate(
-            zip(video_timesteps, audio_timesteps, strict=True)
-        ):
+        for index in range(next_step, len(video_timesteps)):
+            video_timestep = video_timesteps[index]
+            audio_timestep = audio_timesteps[index]
             logger.info(
                 "MiniMax H3 denoise step {}/{}",
                 index + 1,
@@ -353,6 +426,14 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
                 audio_sigmas[index],
                 audio_sigmas[index + 1],
             )
+            if checkpoint is not None:
+                checkpoint(
+                    MiniMaxH3DenoiseProgress(
+                        video=video.detach().clone(),
+                        audio=audio.detach().clone(),
+                        next_step=index + 1,
+                    )
+                )
 
         rows = video[state.num_condition_video_rows :]
         patch_t, patch_h, patch_w = transformer_config.patch_size
@@ -384,6 +465,7 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
 
 
 __all__ = [
+    "MiniMaxH3DenoiseProgress",
     "MiniMaxH3DenoiseState",
     "MiniMaxH3DiffusionModel",
     "MiniMaxH3DiffusionModelConfig",
