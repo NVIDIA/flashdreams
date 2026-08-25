@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""One batch of input events, as an input source hands them over."""
+"""One batch of input events that an input source passes to a loop."""
 
 from dataclasses import dataclass
 

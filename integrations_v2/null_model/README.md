@@ -5,15 +5,18 @@ SPDX-License-Identifier: Apache-2.0
 
 # FlashDreams NULL Model
 
-**Not a v2 application.** This is a v1 pipeline — an encoder, transformer,
-scheduler and decoder — whose output is arithmetic rather than video, so the
-framework tests can drive a whole pipeline without a checkpoint. It implements
-none of the v2 protocols and is not reachable through `flashdreams-run-v2`.
+A simple pipeline wth an encoder, transformer, scheduler and decoder, whose output
+is arithmetic rather than video, so it needs no checkpoint and runs on a CPU. It
+was written alongside the v2 protocols as the pipeline they were developed against,
+something whole that could be driven end to end while they were still changing,
+which is why it sits here rather than under `integrations/`.
 
-For a v2 application to copy, use
-[`color_fade`](../color_fade/README.md) for the file path or
-[`red_screen`](../red_screen/README.md) for the interactive one, and read the
-[integration guide](../README.md). What follows is about the pipeline.
+`flashdreams/test_v2/test_client_window.py` still drives it that way, through
+`IClientWindow`, `InputSource` and `OutputSink`. It implements none of those
+itself and registers no entry point, so `flashdreams-run-v2` cannot reach it. For
+a v2 application to copy, use [`color_fade`](../color_fade/README.md) for the
+file path or [`red_screen`](../red_screen/README.md) for the interactive one, and
+read the [integration guide](../README.md). What follows is about the pipeline.
 
 ## Observable contract
 
@@ -53,8 +56,7 @@ NULL_MODEL_CONFIG = NullModelConfig(
 ### A real integration package
 
 [`pyproject.toml`](pyproject.toml) declares `flashdreams-null-model` as a
-workspace package depending on `flashdreams`. Keeping it isolated lets it declare
-dependencies without affecting the other integrations.
+workspace package depending on `flashdreams`.
 
 ### The per-step encoder
 

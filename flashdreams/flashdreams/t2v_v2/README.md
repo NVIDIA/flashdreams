@@ -50,26 +50,23 @@ After the `--`, the same for every model, and listed by
 | `--compile` / `--no-compile` | Compile the network: minutes once, milliseconds a step. |
 | `--seed` | Seed the noise, so the same command generates the same clip. |
 
-`--no-compile` is usually right for a short clip. Compilation is on in most of
-the model configs, and paying minutes to save milliseconds a block is the wrong
-trade for a handful of blocks.
+Compilation is on in most of the model configs, so pass `--no-compile` for a
+short clip rather than paying minutes to save milliseconds a block.
 
 Before the `--` are `flashdreams-run-v2`'s own, including `--output-path`,
-`--pixel-width`, `--pixel-height` and `--fps`. Unasked, a model generates at the
-size and rate its checkpoint was trained for, which is what `session_desc()`
-answers with.
+`--pixel-width`, `--pixel-height`, `--fps` and `--layout`. Unasked, a model
+generates at the size and rate its checkpoint was trained for.
 
 ## What a t2v run generates
 
 `[-1, 1]` floats on whichever device `--device` loaded the model onto, in the
-layout the model's runner config declares,
-`tchw` for all five today. The frame size and rate are the checkpoint's, read off
-that runner config rather than written down in the integration.
+layout the model's runner config declares, `tchw` for all five today. The frame
+size and rate are the checkpoint's, read off that runner config rather than
+written down in the integration.
 
 Another size can be asked for with `--pixel-width` and `--pixel-height`, as long
-as each dimension is a whole number of latents across; the application checks
-against the decoder's spatial compression ratio, which is 8 for these models. A
-layout the model does not emit is refused before the checkpoint loads, since
+as each dimension is a multiple of 8, the decoder's spatial compression ratio. A
+`--layout` the model does not emit is refused before the checkpoint loads, since
 several gigabytes is a long wait for an answer of no.
 
 `--fps` sets the rate the frames are meant to play at, and so the rate an MP4
@@ -129,9 +126,8 @@ are on `T2VApplication`, and most integrations override none:
 | `_configure_argument_parser` | The model takes an argument the shared five do not. |
 | `_apply_parsed_arguments` | Something added by the hook above has to be kept. |
 
-There is also `session_type`, for a model needing a session other than
-`T2VSession`. Nothing overrides it today; a model whose step is not one
-autoregressive block would.
+There is also `session_type`, unused today, for a model whose step is not one
+autoregressive block and so needs a session other than `T2VSession`.
 
 **Write the `pyproject.toml`**, depending on `flashdreams` and the model package,
 and registering the slug:
@@ -180,11 +176,11 @@ def test_the_model_generates_from_a_prompt() -> None:
 ```
 
 `check_t2v_model_impl` runs the whole path, the application initializes,
-resolves a session, generates, and the frames are read the way an output sink
+resolves a session and generates, and the frames are read the way an output sink
 reads them, and returns what it measured alongside the expectations it missed.
-`ExpectedFrameStats` checks a frame count, a mean luminance band, and a minimum
-change between frames. Every field is optional, because a model that samples
-cannot be expected to produce a particular picture, only to produce a picture.
+`ExpectedFrameStats` checks a frame count, a mean luminance band and a minimum
+change between frames, every field optional, since a model that samples can only
+be expected to produce a picture, not a particular one.
 
 Two details in that call are worth copying. `BLOCK` with `ONLY_PRESENT_NEW` is
 what makes the frame count assertable, since every generated frame is then
@@ -213,20 +209,16 @@ def test_the_model_generates_a_clip_worth_watching(tmp_path: Path) -> None:
     assert result.passed, result.failures
 ```
 
-`real_model_run_skip_reason` returns why the run cannot happen here, the
-environment variable is unset, there is no GPU, or `ffmpeg` is missing, or
-`None` when it can.
+`real_model_run_skip_reason` returns why the run cannot happen here, no
+environment variable, no GPU, no `ffmpeg`, or `None` when it can.
 
 Each integration's own README carries the two commands that run these for its
-package. The real-model one writes under `$HOME` rather than `/tmp`, so that a
-sandboxed player can open the clip afterwards; pytest's real `/tmp` is private
-to the test process. The
+package, writing the real-model clip under `$HOME` so that a sandboxed player can
+open it afterwards. The
 [integration guide](../../../integrations_v2/README.md#testing-it) covers
-`--inexact` and the markers.
-
-How a t2v application behaves in general is covered once, in
-`flashdreams/test_v2`, and a run reaching a real file once, in the Self-Forcing
-integration. An integration's own tests do not repeat either.
+`--inexact` and the markers. General t2v behaviour is covered once in
+`flashdreams/test_v2`, and a run reaching a real file once in the Self-Forcing
+integration, so an integration's own tests repeat neither.
 
 ## Where to go next
 
