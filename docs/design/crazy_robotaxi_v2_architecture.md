@@ -49,9 +49,9 @@ flowchart TD
     end
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
-        BUFFER["PresentationManager<br/>generated RGB frames"]
+        BUFFER["PresentationManager<br/>RGB, waypoint, optional BEV channels"]
         HUD["CrazyRobotaxiImGUIThread<br/>HUD widgets + name entry"]
-        COMPOSE["ImGui compositing"]
+        COMPOSE["world-waypoint + BEV composition<br/>then ImGui HUD"]
         WINDOW["V2 client window<br/>WebRTC / MP4 / supported host"]
     end
 
@@ -63,7 +63,7 @@ flowchart TD
     PIPELINE --> CACHE
     INPUT --> ENGINE
     ENGINE --> HUDSTATE
-    ENGINE -->|"generated RGB + optional BEV channels"| BUFFER
+    ENGINE -->|"RGB + world waypoint + optional BEV channels"| BUFFER
     HUDSTATE -->|"invoke_async"| HUD
     HUD -->|"invoke_async game actions"| ENGINE
     BUFFER --> HUD --> COMPOSE --> WINDOW
@@ -76,13 +76,15 @@ description, lazily constructs the shared pipeline, prepares immutable scene
 data, and returns an uninitialized session.
 
 The session registers a model thread and a `CrazyRobotaxiImGUIThread`. The
-model thread emits generated RGB frames and, when configured, an optional BEV
-visualization channel. For each generated frame it also publishes an immutable
-`TaxiHudFrame` to the UI thread with `invoke_async`.
+model thread emits generated RGB frames, a transparent camera-projected
+waypoint layer, and, when configured, an optional BEV visualization channel.
+For each generated frame it also publishes an immutable `TaxiHudFrame` to the
+UI thread with `invoke_async`.
 The UI thread selects the HUD snapshot aligned with the currently presented
-model frame, updates its retained ImGui widgets, and returns the generated
-frame as the ImGui back buffer. UI callbacks send validated game actions back
-to the model thread with `invoke_async`; they never call game state directly.
+model frame, composes the in-world waypoint geometry and BEV panel onto the
+generated frame, updates its retained ImGui widgets, and returns that frame as
+the ImGui back buffer. UI callbacks send validated game actions back to the
+model thread with `invoke_async`; they never call game state directly.
 
 ## Model-thread step
 
@@ -101,9 +103,10 @@ flowchart LR
     GENERATE["pipeline.generate"]
     FINALIZE["pipeline.finalize"]
     POST["optional session-local postprocess stream"]
+    WAYPOINTS["camera-projected RGBA<br/>world-waypoint layers"]
     HUDFRAMES["immutable TaxiHudFrame batch"]
     SEND["invoke_async(UI thread)"]
-    RESULTS["list[StepResult]<br/>RGB video + optional BEV"]
+    RESULTS["list[StepResult]<br/>RGB + waypoint + optional BEV"]
 
     EVENTS --> REDUCE
     COUNT --> COMMANDS
@@ -116,10 +119,12 @@ flowchart LR
     ACTORS --> CONDITION
     SIM --> CONDITION
     CONDITION --> TENSOR --> GENERATE --> FINALIZE --> POST
+    SNAPSHOTS --> WAYPOINTS
+    SIM --> WAYPOINTS
     SNAPSHOTS --> HUDFRAMES
-    SIM --> HUDFRAMES
     HUDFRAMES --> SEND
     POST --> RESULTS
+    WAYPOINTS --> RESULTS
 ```
 
 The output-frame count is learned from the pipeline before simulation, so
@@ -139,8 +144,9 @@ trajectory = engine_step.trajectory
 hdmap = condition_renderer.render(trajectory)       # [B,V,T,3,H,W]
 video = pipeline.generate(autoregressive_index, cache, hdmap)
 metrics = pipeline.finalize(autoregressive_index, cache)
-invoke_async(ui_thread, publish_hud_frames(game_snapshots, poses, video))
-return [video StepResult, optional BEV StepResult]
+waypoints = render_waypoint_layers(game_snapshots, poses, camera)
+invoke_async(ui_thread, publish_hud_frames(game_snapshots, video))
+return [video StepResult, waypoints StepResult, optional BEV StepResult]
 ```
 
 The UI thread uses V2's `ImGUIThread` renderer and `presented_model_frames()`;
@@ -210,6 +216,7 @@ flowchart LR
     SCORES["HighScoreStore"]
     FRAME["TaxiGameFrame"]
     HUDSTATE["TaxiHudFrame<br/>immutable presentation state"]
+    WAYPOINTS["camera-projected waypoint layer<br/>ring + beacon + label"]
     IMGUI["CrazyRobotaxiImGUIThread<br/>score, time, navigation,<br/>name entry, leaderboard"]
 
     MAP --> NAV --> FARES
@@ -218,6 +225,7 @@ flowchart LR
     FARES --> PASSENGERS
     FARES <--> SCORES
     FARES --> FRAME --> HUDSTATE --> IMGUI
+    FRAME --> WAYPOINTS
     PASSENGERS --> FRAME
 ```
 
@@ -259,11 +267,12 @@ stateDiagram-v2
 ```
 
 While awaiting a name, no new world-model block is generated. The model thread
-re-emits the last generated RGB frame and publishes an updated immutable HUD
-frame. ImGui owns the editable name buffer and submits a validated name to the
-model thread with `invoke_async`. The model thread reports `is_finished()` only
-after a leaderboard frame has been emitted (or an explicit finite block limit
-is reached), allowing MP4 mode to terminate without a client close event.
+re-emits the last generated RGB frame with a transparent waypoint layer and
+publishes an updated immutable HUD frame. ImGui owns the editable name buffer
+and submits a validated name to the model thread with `invoke_async`. The model
+thread reports `is_finished()` only after a leaderboard frame has been emitted
+(or an explicit finite block limit is reached), allowing MP4 mode to terminate
+without a client close event.
 
 On reset, the model thread closes and recreates the simulation, traffic, rules,
 condition renderer state, and autoregressive cache as one unit. On close, it
@@ -307,6 +316,7 @@ apps/crazy_robotaxi/
     application.py            # IApplication composition root
     session.py                # ISession + model/UI thread wiring
     ui.py                     # ImGui HUD state and UI thread
+    world_overlay.py          # composited camera-projected waypoint geometry
     rules.py                  # taxi fare state machine
     dynamics.py               # arcade taxi controls
     physics.py                # taxi collision policy

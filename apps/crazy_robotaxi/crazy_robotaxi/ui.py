@@ -23,15 +23,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
 import torch
 import torch.nn.functional as functional
-from omnidreams_game_engine.camera import FThetaCameraModel
-from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
 from crazy_robotaxi.high_scores import validate_player_name
-from crazy_robotaxi.rules import TaxiGameSnapshot, project_taxi_markers_to_camera
+from crazy_robotaxi.rules import TaxiGameSnapshot
 from flashdreams.api_v2.thread import IThread, invoke_async
 from flashdreams.runtime_v2.imgui_thread import ImGUIThread
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -49,9 +46,6 @@ class TaxiHudFrame:
 
     snapshot: TaxiGameSnapshot
     """Taxi rules snapshot for the corresponding simulation frame."""
-
-    rig_pose_world: tuple[tuple[float, ...], ...]
-    """Camera-rig pose used to project world-space navigation markers."""
 
 
 @dataclass(slots=True)
@@ -74,15 +68,11 @@ class _HudWidgets:
     submit: Any
     validation: Any
     leaderboard: Any
-    marker_windows: list[tuple[Any, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class TaxiHudState:
     """Mutable ImGui state owned exclusively by the V2 UI thread."""
-
-    calibration: CameraCalibration
-    """Camera calibration used for HUD marker projection."""
 
     width: int
     """Presentation width in pixels."""
@@ -142,7 +132,6 @@ class TaxiHudState:
             widgets.event.text = ""
             widgets.navigation_window.visible = False
             widgets.terminal_window.visible = False
-            self._hide_markers(widgets)
             return
 
         snapshot = hud_frame.snapshot
@@ -160,7 +149,6 @@ class TaxiHudState:
 
         widgets.navigation_window.visible = snapshot.session_state == "playing"
         widgets.navigation.text = _navigation_label(snapshot.relative_bearing_rad)
-        self._update_markers(ui, widgets, hud_frame)
         self._update_terminal(widgets, snapshot)
 
     def reset(self) -> None:
@@ -200,7 +188,10 @@ class TaxiHudState:
         terminal_window = ui.Window(
             ui.screen,
             "Game Over",
-            position=(float(max(20, self.width // 2 - 270)), float(max(20, self.height // 2 - 220))),
+            position=(
+                float(max(20, self.width // 2 - 270)),
+                float(max(20, self.height // 2 - 220)),
+            ),
             size=(540.0, 440.0),
         )
         terminal_title = ui.Text(terminal_window, "")
@@ -240,53 +231,6 @@ class TaxiHudState:
         )
         return self._widgets
 
-    def _update_markers(
-        self, ui: Any, widgets: _HudWidgets, hud_frame: TaxiHudFrame
-    ) -> None:
-        snapshot = hud_frame.snapshot
-        if snapshot.session_state != "playing":
-            self._hide_markers(widgets)
-            return
-        camera = FThetaCameraModel(
-            self.calibration,
-            output_width=self.width,
-            output_height=self.height,
-        )
-        projections = project_taxi_markers_to_camera(
-            snapshot,
-            np.asarray(hud_frame.rig_pose_world, dtype=np.float32),
-            camera,
-            image_width=self.width,
-            image_height=self.height,
-        )
-        while len(widgets.marker_windows) < len(projections):
-            marker_window = ui.Window(
-                ui.screen,
-                "Waypoint",
-                position=(0.0, 0.0),
-                size=(132.0, 66.0),
-            )
-            widgets.marker_windows.append((marker_window, ui.Text(marker_window, "")))
-        label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
-        for index, (marker_window, marker_text) in enumerate(widgets.marker_windows):
-            visible = index < len(projections)
-            marker_window.visible = visible
-            if not visible:
-                continue
-            anchor_x, anchor_y = projections[index].anchor_uv
-            marker_window.position = (
-                float(np.clip(anchor_x - 66.0, 0.0, max(0.0, self.width - 132.0))),
-                float(np.clip(anchor_y - 78.0, 0.0, max(0.0, self.height - 66.0))),
-            )
-            marker_text.text = (
-                f"{label} {snapshot.distance_m:.0f}m" if index == 0 else label
-            )
-
-    @staticmethod
-    def _hide_markers(widgets: _HudWidgets) -> None:
-        for marker_window, _ in widgets.marker_windows:
-            marker_window.visible = False
-
     def _update_terminal(
         self, widgets: _HudWidgets, snapshot: TaxiGameSnapshot
     ) -> None:
@@ -311,10 +255,13 @@ class TaxiHudState:
         widgets.validation.visible = awaiting_name
         widgets.validation.text = self._validation_message
         widgets.leaderboard.visible = leaderboard
-        widgets.leaderboard.text = "\n".join(
-            f"{rank:>2}. {entry.name:<12} {entry.score:>7}"
-            for rank, entry in enumerate(snapshot.leaderboard, start=1)
-        ) or "NO SCORES YET"
+        widgets.leaderboard.text = (
+            "\n".join(
+                f"{rank:>2}. {entry.name:<12} {entry.score:>7}"
+                for rank, entry in enumerate(snapshot.leaderboard, start=1)
+            )
+            or "NO SCORES YET"
+        )
 
     def _submit_name_from_button(self) -> None:
         assert self._widgets is not None
@@ -353,11 +300,20 @@ class CrazyRobotaxiImGUIThread(ImGUIThread[TaxiHudState]):
         del step_index, events
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
-        bev = frames[1] if len(frames) > 1 else None
+        waypoints = frames[1] if len(frames) > 1 else None
+        bev = frames[2] if len(frames) > 2 else None
         if video is not None:
             self.state.select_presented_frame(video)
         self.state.draw(ui)
-        return _compose_minimap(video, bev)
+        if video is None:
+            return None
+        if waypoints is None or waypoints.shape[0] != 4:
+            raise ValueError("Waypoint presentation frames must use [4,H,W]")
+        world = self._presentation_manager.composite(
+            video.to(torch.float32),
+            waypoints.to(device=video.device, dtype=torch.float32),
+        )
+        return _compose_minimap(world, bev)
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
@@ -368,24 +324,19 @@ class CrazyRobotaxiImGUIThread(ImGUIThread[TaxiHudState]):
 def build_hud_frames(
     video_tchw: Tensor,
     snapshots: Sequence[object],
-    rig_poses_world: np.ndarray,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
-    if len(snapshots) != frame_count or len(rig_poses_world) != frame_count:
-        raise ValueError("Video, game snapshots, and rig poses must align")
+    if len(snapshots) != frame_count:
+        raise ValueError("Video and game snapshots must align")
     frames = []
     for index, snapshot in enumerate(snapshots):
         if not isinstance(snapshot, TaxiGameSnapshot):
             raise TypeError("Taxi HUD received a non-taxi game snapshot")
-        pose = tuple(
-            tuple(float(value) for value in row) for row in rig_poses_world[index]
-        )
         frames.append(
             TaxiHudFrame(
                 frame_key=int(video_tchw[index].data_ptr()),
                 snapshot=snapshot,
-                rig_pose_world=pose,
             )
         )
     return tuple(frames)
@@ -443,9 +394,7 @@ def _event_label(snapshot: TaxiGameSnapshot) -> str:
 
 
 def _navigation_label(bearing_rad: float) -> str:
-    degrees = math.degrees(
-        math.atan2(math.sin(bearing_rad), math.cos(bearing_rad))
-    )
+    degrees = math.degrees(math.atan2(math.sin(bearing_rad), math.cos(bearing_rad)))
     if abs(degrees) <= 15.0:
         direction = "AHEAD"
     elif abs(degrees) >= 165.0:

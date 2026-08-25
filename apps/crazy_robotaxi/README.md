@@ -5,6 +5,8 @@ Crazy Robotaxi is a FlashDreams V2 application built on the model-thread
 presentation buffering, client windows, and the two-thread runtime.
 The UI thread uses FlashDreams' SlangPy ImGui renderer for the game HUD and
 composites it over model frames for local and WebRTC clients.
+Camera-projected waypoint rings, beacons, and labels are carried as a
+frame-aligned world layer; they are not ImGui windows.
 
 ```bash
 uv sync --package crazy-robotaxi

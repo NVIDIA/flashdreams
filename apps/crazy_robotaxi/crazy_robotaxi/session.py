@@ -22,6 +22,7 @@ from crazy_robotaxi.ui import (
     TaxiHudState,
     build_hud_frames,
 )
+from crazy_robotaxi.world_overlay import render_waypoint_layers
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.thread import IThread, UIThread, invoke_async
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -141,11 +142,16 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
             bev = state.last_bev
             metrics = {}
 
-        hud_frames = build_hud_frames(
-            video,
+        waypoint_layers = render_waypoint_layers(
             game_frames,
             poses,
+            state.scene.selected_camera,
+            width=state.session_desc.video_width,
+            height=state.session_desc.video_height,
+            device=video.device,
+            dtype=video.dtype if video.is_floating_point() else torch.float32,
         )
+        hud_frames = build_hud_frames(video, game_frames)
         invoke_async(
             state.ui_thread,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
@@ -169,7 +175,13 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
                 metrics=metrics,
-            )
+            ),
+            StepResult(
+                step_index=step_index,
+                output=waypoint_layers,
+                frame_count=count,
+                output_layout=VideoTensorLayout.tchw,
+            ),
         ]
         if bev is not None:
             results.append(
@@ -214,7 +226,6 @@ class CrazyRobotaxiSession(ISession):
 
     def init(self) -> None:
         hud_state = TaxiHudState(
-            calibration=self._scene.selected_camera,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
         )

@@ -13,19 +13,20 @@ import numpy as np
 import pytest
 import slangpy as spy
 import torch
-
 from crazy_robotaxi.rules import TaxiGameSnapshot, TaxiSessionState
 from crazy_robotaxi.ui import (
     CrazyRobotaxiImGUIThread,
     TaxiHudState,
     build_hud_frames,
 )
+from crazy_robotaxi.world_overlay import render_waypoint_layers
+from omnidreams_game_engine.types import CameraCalibration
+
 from flashdreams.api_v2.thread import IThread
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from omnidreams_game_engine.types import CameraCalibration
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -134,29 +135,57 @@ class _SubmissionThread(IThread[_SubmissionState]):
 def test_hud_frames_are_immutable_messages_keyed_to_video_storage() -> None:
     video = torch.zeros(2, 3, 96, 160)
     snapshots = (_snapshot(), _snapshot())
-    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
 
-    frames = build_hud_frames(video, snapshots, poses)
+    frames = build_hud_frames(video, snapshots)
 
     assert [frame.frame_key for frame in frames] == [
         video[index].data_ptr() for index in range(2)
     ]
     assert frames[0].snapshot is snapshots[0]
-    assert isinstance(frames[0].rig_pose_world, tuple)
 
 
-def test_imgui_thread_owns_hud_and_composites_presented_bev() -> None:
+def test_waypoints_are_rendered_as_frame_aligned_world_layers() -> None:
+    poses = np.eye(4, dtype=np.float32)[None]
+
+    layers = render_waypoint_layers(
+        (_snapshot(),),
+        poses,
+        _calibration(),
+        width=160,
+        height=96,
+        device="cpu",
+    )
+
+    assert layers.shape == (1, 4, 96, 160)
+    assert layers.dtype is torch.float32
+    assert torch.any(layers[:, 3] == 1.0)
+
+    terminal = render_waypoint_layers(
+        (_snapshot(session_state="awaiting_name"),),
+        poses,
+        _calibration(),
+        width=160,
+        height=96,
+        device="cpu",
+    )
+    assert torch.count_nonzero(terminal[:, 3]) == 0
+
+
+def test_imgui_thread_composites_world_waypoints_then_bev_and_imgui() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
+    waypoints = torch.zeros(1, 4, height, width)
+    waypoints[:, 0, 10, 10] = 1.0
+    waypoints[:, 3, 10, 10] = 1.0
     bev = torch.full((1, 3, 32, 32), 0.5)
-    poses = np.eye(4, dtype=np.float32)[None]
-    hud_state = TaxiHudState(_calibration(), width, height)
-    hud_state.publish(build_hud_frames(video, (_snapshot(),), poses))
+    hud_state = TaxiHudState(width, height)
+    hud_state.publish(build_hud_frames(video, (_snapshot(),)))
     presentation = PresentationManager()
     presentation.publish(
         0,
         [
             StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, waypoints, 1, VideoTensorLayout.tchw),
             StepResult(0, bev, 1, VideoTensorLayout.tchw),
         ],
     )
@@ -179,6 +208,8 @@ def test_imgui_thread_owns_hud_and_composites_presented_bev() -> None:
     assert hud_state._widgets is not None
     assert hud_state._widgets.score.text == "SCORE  001200    HIGH  009000"
     assert hud_state._widgets.navigation.text == "TARGET AHEAD  0 deg"
+    assert not hasattr(hud_state._widgets, "marker_windows")
+    assert result.output[0, 0, 10, 10] == 1.0
     assert torch.any(result.output != video)
 
     thread.reset()
@@ -187,12 +218,11 @@ def test_imgui_thread_owns_hud_and_composites_presented_bev() -> None:
 
 
 def test_hud_builds_real_slangpy_imgui_widgets_without_a_renderer() -> None:
-    state = TaxiHudState(_calibration(), 160, 96)
+    state = TaxiHudState(160, 96)
     state.publish(
         build_hud_frames(
             torch.zeros(1, 3, 96, 160),
             (_snapshot(),),
-            np.eye(4, dtype=np.float32)[None],
         )
     )
     state._current = next(iter(state._frames.values()))
@@ -214,7 +244,7 @@ def test_hud_builds_real_slangpy_imgui_widgets_without_a_renderer() -> None:
 
 
 def test_imgui_name_submission_uses_v2_thread_message_queue() -> None:
-    state = TaxiHudState(_calibration(), 160, 96)
+    state = TaxiHudState(160, 96)
     model_thread = _SubmissionThread(state=_SubmissionState(), frequency=0)
     state.model_thread = model_thread
 
