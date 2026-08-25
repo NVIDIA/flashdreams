@@ -61,6 +61,12 @@ class SessionDesc:
     video_height: int = 720
     """Output video height in pixels."""
 
+    audio_sample_rate: int | None = None
+    """PCM sample rate, or ``None`` when the session emits no audio."""
+
+    audio_channels: int | None = None
+    """PCM channel count, or ``None`` when the session emits no audio."""
+
     metadata: dict[str, Any] = field(default_factory=dict)
     """Extra values a runtime and an application agree on. Nothing here reads it."""
 
@@ -87,6 +93,24 @@ class SessionDesc:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")
         if self.video_height <= 0:
             raise ValueError("SessionDesc.video_height must be > 0 when set.")
+        if (self.audio_sample_rate is None) != (self.audio_channels is None):
+            raise ValueError(
+                "SessionDesc.audio_sample_rate and audio_channels must be set together."
+            )
+        if self.audio_sample_rate is not None and (
+            isinstance(self.audio_sample_rate, bool)
+            or not isinstance(self.audio_sample_rate, int)
+            or self.audio_sample_rate <= 0
+        ):
+            raise ValueError(
+                "SessionDesc.audio_sample_rate must be a positive integer."
+            )
+        if self.audio_channels is not None and (
+            isinstance(self.audio_channels, bool)
+            or not isinstance(self.audio_channels, int)
+            or self.audio_channels not in (1, 2)
+        ):
+            raise ValueError("SessionDesc.audio_channels must be the integer 1 or 2.")
 
 
 __all__ = ["BackpressureMode", "PresentationMode", "SessionDesc"]

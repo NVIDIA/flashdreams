@@ -45,6 +45,7 @@ def _session_desc(
     *,
     width: int = _WIDTH,
     height: int = _HEIGHT,
+    audio: bool = False,
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
@@ -52,6 +53,8 @@ def _session_desc(
         frames_per_second_for_step=30,
         video_width=width,
         video_height=height,
+        audio_sample_rate=8_000 if audio else None,
+        audio_channels=2 if audio else None,
     )
 
 
@@ -139,6 +142,16 @@ def test_open_rejects_odd_frame_dimensions(
 
     with pytest.raises(ValueError, match=f"{width}x{height}"):
         sink.open(_session_desc(width=width, height=height))
+
+
+def test_open_rejects_audio_while_the_sink_is_video_only(tmp_path: Path) -> None:
+    path = tmp_path / "out.mp4"
+    sink = Mp4OutputSink(path)
+
+    with pytest.raises(ValueError, match="does not support audio"):
+        sink.open(_session_desc(audio=True))
+
+    assert not path.exists()
 
 
 def test_write_rejects_a_layout_the_sink_was_not_opened_for(tmp_path: Path) -> None:

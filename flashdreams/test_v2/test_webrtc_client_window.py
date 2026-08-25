@@ -35,14 +35,26 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
 
-def _session_desc() -> SessionDesc:
+def _session_desc(*, audio: bool = False) -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.tchw,
         frames_per_second_for_ui=30,
         frames_per_second_for_step=30,
         video_width=16,
         video_height=16,
+        audio_sample_rate=8_000 if audio else None,
+        audio_channels=2 if audio else None,
     )
+
+
+def test_window_rejects_audio_before_configuring_video() -> None:
+    window = WebRTCClientWindow()
+    try:
+        with pytest.raises(ValueError, match="does not support audio"):
+            window.open(_session_desc(audio=True))
+        window.open(_session_desc())
+    finally:
+        window.close()
 
 
 async def _connect_browser(

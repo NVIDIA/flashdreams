@@ -44,8 +44,11 @@ class Mp4OutputSink(OutputSink):
 
         Raises:
             ValueError: The frames are an odd number of pixels wide or high,
-                which this cannot encode.
+                or the session declares audio, which this video-only sink
+                cannot encode.
         """
+        if session_desc.audio_sample_rate is not None:
+            raise ValueError("Mp4OutputSink does not support audio.")
         self._session_desc = session_desc
         self._encoder = Mp4Encoder(
             self._path,

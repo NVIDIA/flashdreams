@@ -42,6 +42,7 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
             output=_frame_to_layout(output, self.output_layout),
             frame_count=1,
             output_layout=self.output_layout,
+            audio=self.presented_model_audio(),
         )
 
     def reset(self) -> None:

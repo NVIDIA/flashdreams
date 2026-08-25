@@ -14,6 +14,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.runtime_v2.audio_output import AudioOutput
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -470,6 +471,69 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert torch.equal(held.output, first.output)
     assert not manager.advance(1)[0]
     assert ui.step(2, UserInputEvents([])) is None
+
+
+def test_default_ui_forwards_one_audio_payload_once_across_channels() -> None:
+    manager = PresentationManager()
+    audio = AudioOutput(
+        samples=torch.zeros(2, 16),
+        sample_rate=8_000,
+        sample_offset=32,
+    )
+
+    def result(*, audio_output: AudioOutput | None = None) -> StepResult:
+        return StepResult(
+            step_index=0,
+            output=torch.zeros(2, 3, 1, 1),
+            frame_count=2,
+            output_layout=VideoTensorLayout.tchw,
+            audio=audio_output,
+        )
+
+    manager.publish(0, [result(), result(audio_output=audio)])
+    ui = BlitModelOutputToScreenLoop()
+    ui.register_session_ui_loop_objects(
+        output_layout=VideoTensorLayout.tchw,
+        presentation_manager=manager,
+    )
+
+    assert manager.advance(0)[0]
+    first = ui.step(0, UserInputEvents([]))
+    assert first is not None and first.audio is audio
+    held = ui.step(1, UserInputEvents([]))
+    assert held is not None and held.audio is None
+    assert manager.advance(0)[0]
+    second = ui.step(2, UserInputEvents([]))
+    assert second is not None and second.audio is None
+
+
+def test_presentation_rejects_multiple_audio_payloads() -> None:
+    manager = PresentationManager()
+    audio = AudioOutput(samples=torch.zeros(1, 1), sample_rate=8_000)
+    result = StepResult(
+        step_index=0,
+        output=torch.zeros(1, 3, 1, 1),
+        frame_count=1,
+        output_layout=VideoTensorLayout.tchw,
+        audio=audio,
+    )
+
+    with pytest.raises(ValueError, match="only one audio"):
+        manager.publish(0, [result, result])
+
+
+def test_presentation_rejects_an_untyped_audio_payload() -> None:
+    manager = PresentationManager()
+    result = StepResult(
+        step_index=0,
+        output=torch.zeros(1, 3, 1, 1),
+        frame_count=1,
+        output_layout=VideoTensorLayout.tchw,
+        audio=object(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(TypeError, match="AudioOutput"):
+        manager.publish(0, [result])
 
 
 def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:

@@ -26,6 +26,10 @@ class OutputSink(Protocol):
             session_desc: Output description declared by the session. The sink
                 configures itself from it and may reject a description it
                 cannot present.
+
+        Raises:
+            ValueError: The description declares output this sink cannot
+                consume, including audio for a video-only sink.
         """
         ...
 
