@@ -14,9 +14,10 @@ not part of this design.
    thread. No game loop, chunk worker, scene-loader worker, MJPEG server, or
    input-device worker is created by the game engine.
 3. The model thread exclusively owns mutable simulation, game, conditioning,
-   autoregressive-cache, input-reducer, and frame-snapshot state.
-4. The UI thread never reads model-thread state. Frame-aligned presentation
-   data crosses the boundary only as `StepResult` channels.
+   autoregressive-cache, and driving-input state.
+4. The UI thread owns all HUD widgets, name-entry state, and presentation.
+   Immutable HUD frame batches cross from model to UI through V2
+   `invoke_async`; neither thread reads the other's mutable state.
 5. The loaded OmniDreams pipeline is application-owned and reusable; every
    session/rollout has its own cache and mutable resources.
 6. Reset reconstructs all rollout state together. FlashDreams' generation
@@ -37,19 +38,20 @@ flowchart TD
 
     subgraph SESSION["CrazyRobotaxiSession — one run"]
         SCENE["immutable SceneDefinition<br/>map, camera, seed, prompt"]
-        REG["register exactly one model thread<br/>use V2 UI thread"]
+        REG["register one model thread<br/>register one ImGui UI thread"]
     end
 
     subgraph MODELTHREAD["FlashDreams V2 model thread"]
-        INPUT["DriverInput<br/>held keys + name entry"]
+        INPUT["DriverInput<br/>held driving keys"]
         ENGINE["GameEngine"]
         CACHE["session-local OmniDreams cache"]
-        HUD["frame-aligned RGBA HUD renderer"]
+        HUDSTATE["immutable TaxiHudFrame batches"]
     end
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
-        BUFFER["PresentationManager"]
-        COMPOSE["RGB + RGBA channel composition"]
+        BUFFER["PresentationManager<br/>generated RGB frames"]
+        HUD["CrazyRobotaxiImGUIThread<br/>HUD widgets + name entry"]
+        COMPOSE["ImGui compositing"]
         WINDOW["V2 client window<br/>WebRTC / MP4 / supported host"]
     end
 
@@ -60,10 +62,11 @@ flowchart TD
     SCENE --> ENGINE
     PIPELINE --> CACHE
     INPUT --> ENGINE
-    ENGINE --> HUD
-    ENGINE -->|"generated RGB channel"| BUFFER
-    HUD -->|"synchronized RGBA channel"| BUFFER
-    BUFFER --> COMPOSE --> WINDOW
+    ENGINE --> HUDSTATE
+    ENGINE -->|"generated RGB + optional BEV channels"| BUFFER
+    HUDSTATE -->|"invoke_async"| HUD
+    HUD -->|"invoke_async game actions"| ENGINE
+    BUFFER --> HUD --> COMPOSE --> WINDOW
 ```
 
 `CrazyRobotaxiApplication.session_desc()` declares the trained output layout,
@@ -72,11 +75,14 @@ application-owned options. `create_session()` validates the requested
 description, lazily constructs the shared pipeline, prepares immutable scene
 data, and returns an uninitialized session.
 
-The session registers a model thread. The standard V2 blit UI is sufficient
-because the model thread emits bottom-to-top RGB and RGBA channels with equal
-frame counts. If a custom UI is later required, it must preserve this channel
-contract and communicate changes through V2 events or `invoke_async`; it may
-not reach into model state.
+The session registers a model thread and a `CrazyRobotaxiImGUIThread`. The
+model thread emits generated RGB frames and, when configured, an optional BEV
+visualization channel. For each generated frame it also publishes an immutable
+`TaxiHudFrame` to the UI thread with `invoke_async`.
+The UI thread selects the HUD snapshot aligned with the currently presented
+model frame, updates its retained ImGui widgets, and returns the generated
+frame as the ImGui back buffer. UI callbacks send validated game actions back
+to the model thread with `invoke_async`; they never call game state directly.
 
 ## Model-thread step
 
@@ -95,8 +101,9 @@ flowchart LR
     GENERATE["pipeline.generate"]
     FINALIZE["pipeline.finalize"]
     POST["optional session-local postprocess stream"]
-    HUD["render_hud"]
-    RESULTS["list[StepResult]<br/>RGB video, RGBA HUD"]
+    HUDFRAMES["immutable TaxiHudFrame batch"]
+    SEND["invoke_async(UI thread)"]
+    RESULTS["list[StepResult]<br/>RGB video + optional BEV"]
 
     EVENTS --> REDUCE
     COUNT --> COMMANDS
@@ -109,17 +116,18 @@ flowchart LR
     ACTORS --> CONDITION
     SIM --> CONDITION
     CONDITION --> TENSOR --> GENERATE --> FINALIZE --> POST
-    SNAPSHOTS --> HUD
-    CONDITION --> HUD
+    SNAPSHOTS --> HUDFRAMES
+    SIM --> HUDFRAMES
+    HUDFRAMES --> SEND
     POST --> RESULTS
-    HUD --> RESULTS
 ```
 
 The output-frame count is learned from the pipeline before simulation, so
-simulation, conditioning, generated video, game snapshots, and HUD layers have
-one authoritative `T`. Input edges update retained held state; steering and
-speed commands are advanced at the simulation frame interval to produce a
-command for every frame rather than one command per model invocation.
+simulation, conditioning, generated video, game snapshots, and immutable HUD
+frames have one authoritative `T`. Input edges update retained held state;
+steering and speed commands are advanced at the simulation frame interval to
+produce a command for every frame rather than one command per model
+invocation.
 
 The direct model contract is:
 
@@ -131,11 +139,14 @@ trajectory = engine_step.trajectory
 hdmap = condition_renderer.render(trajectory)       # [B,V,T,3,H,W]
 video = pipeline.generate(autoregressive_index, cache, hdmap)
 metrics = pipeline.finalize(autoregressive_index, cache)
-return [video StepResult, HUD StepResult]
+invoke_async(ui_thread, publish_hud_frames(game_snapshots, poses, video))
+return [video StepResult, optional BEV StepResult]
 ```
 
-There is no intermediate render backend, local adapter, model session, chunk
-request, command queue, frame queue, or `PresentedFrame` aggregate.
+The UI thread uses V2's `ImGUIThread` renderer and `presented_model_frames()`;
+there is no intermediate render backend, local adapter, model session, chunk
+request, private command queue, private frame queue, or legacy
+`PresentedFrame` aggregate.
 
 ## Game-engine internals
 
@@ -198,21 +209,22 @@ flowchart LR
     PASSENGERS["waiting-passenger actors"]
     SCORES["HighScoreStore"]
     FRAME["TaxiGameFrame"]
-    HUD["TaxiHudRenderer<br/>score, time, target marker,<br/>BEV minimap, name entry, leaderboard"]
+    HUDSTATE["TaxiHudFrame<br/>immutable presentation state"]
+    IMGUI["CrazyRobotaxiImGUIThread<br/>score, time, navigation,<br/>name entry, leaderboard"]
 
     MAP --> NAV --> FARES
     TAXI --> TAXIPHYS
     TRAFFIC --> TAXIPHYS
     FARES --> PASSENGERS
     FARES <--> SCORES
-    FARES --> FRAME --> HUD
+    FARES --> FRAME --> HUDSTATE --> IMGUI
     PASSENGERS --> FRAME
 ```
 
 Taxi-specific code supplies the generic engine with arcade vehicle dynamics,
 curb/chassis physics policy, map-derived navigation/fare regions, game rules,
-passenger actors, persistent scores, and HUD rendering. It does not subclass a
-game-engine application host or presenter.
+passenger actors, persistent scores, and UI-thread ImGui widgets. It does not
+subclass a game-engine application host or presenter.
 
 ## State and lifetime table
 
@@ -220,14 +232,16 @@ game-engine application host or presenter.
 | --- | --- |
 | Application | resolved pipeline configuration; one loaded OmniDreams pipeline |
 | Session, immutable | validated session description; compiled/loaded scene definition; game configuration |
-| Model thread, per reset generation | input reducer; simulation/PhysX/traffic; game rules; condition renderer; OmniDreams cache; last generated frame; AR index |
-| UI thread | V2 presentation position and client-window state only |
+| Model thread, per reset generation | driving-input reducer; simulation/PhysX/traffic; game rules; condition renderer; OmniDreams cache; last generated frame; AR index |
+| UI thread, per reset generation | retained ImGui widgets; immutable HUD-frame lookup; name-entry buffer; validation messages |
 | Outside runtime | authored map YAML; derived map cache; high-score file |
 
-All CUDA/renderer calls that mutate per-rollout state occur on the model
-thread. Immutable scene arrays may be prepared before thread startup, but the
-model-thread state factory performs mutable renderer, PhysX, game, and cache
-construction lazily on its first `step`.
+All simulation, condition-renderer, and world-model CUDA calls that mutate
+per-rollout state occur on the model thread. The ImGui renderer creates and
+uses its presentation resources only on the UI thread. Immutable scene arrays
+may be prepared before thread startup, but the model-thread state factory
+performs mutable condition-renderer, PhysX, game, and cache construction
+lazily on its first `step`.
 
 ## Reset, terminal state, and close
 
@@ -245,10 +259,11 @@ stateDiagram-v2
 ```
 
 While awaiting a name, no new world-model block is generated. The model thread
-re-emits the last generated RGB frame with a newly rendered one-frame HUD layer
-until submission. It reports `is_finished()` only after a leaderboard frame has
-been emitted (or an explicit finite block limit is reached), allowing MP4 mode
-to terminate without a client close event.
+re-emits the last generated RGB frame and publishes an updated immutable HUD
+frame. ImGui owns the editable name buffer and submits a validated name to the
+model thread with `invoke_async`. The model thread reports `is_finished()` only
+after a leaderboard frame has been emitted (or an explicit finite block limit
+is reached), allowing MP4 mode to terminate without a client close event.
 
 On reset, the model thread closes and recreates the simulation, traffic, rules,
 condition renderer state, and autoregressive cache as one unit. On close, it
@@ -267,8 +282,8 @@ pipeline.
 | presenter event polling | V2 client window and shared event buffer |
 | presenter pacing and frame replay/drop | V2 UI thread + presentation mode |
 | `FlashdreamsWorldModelSession` | direct OmniDreams pipeline cache API |
-| `PresentedFrame` metadata bundle | typed engine results plus synchronized output channels |
-| keyboard telemetry shared with presenter | immutable `TaxiGameSnapshot` rendered to RGBA |
+| `PresentedFrame` metadata bundle | typed engine results plus immutable `TaxiHudFrame` messages |
+| keyboard telemetry shared with presenter | UI-owned ImGui input plus `invoke_async` game actions |
 | native/MJPEG presenters | V2 client-window modes |
 | application-internal scene switching | map/variant application arguments; a different scene starts a new session |
 | manual reset queueing | V2 reset event and thread `reset()` |
@@ -290,14 +305,14 @@ apps/omnidreams_game_engine/
 apps/crazy_robotaxi/
   crazy_robotaxi/
     application.py            # IApplication composition root
-    session.py                # ISession + model thread
+    session.py                # ISession + model/UI thread wiring
+    ui.py                     # ImGui HUD state and UI thread
     rules.py                  # taxi fare state machine
     dynamics.py               # arcade taxi controls
     physics.py                # taxi collision policy
     navigation.py             # map-derived routes/fare sampling
     passengers.py             # conditioning actors
     high_scores.py            # persistent leaderboard
-    hud.py                    # synchronized RGBA game layer
     config.py                 # strict game configuration
     map_tool.py               # offline validate/compile/preview command
 ```

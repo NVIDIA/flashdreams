@@ -62,6 +62,8 @@ nvidia-cudnn-frontend  MIT          https://github.com/NVIDIA/cudnn-frontend
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 grpcio, grpcio-tools   Apache-2.0   https://github.com/grpc/grpc
 shapely                BSD-3-Clause https://github.com/shapely/shapely
+slangpy                Apache-2.0 WITH LLVM-exception
+                                    https://github.com/shader-slang/slangpy
 ludus-renderer         Apache-2.0   (NVIDIA, internal distribution)
 cmake                  BSD-3-Clause https://github.com/Kitware/CMake
 NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX

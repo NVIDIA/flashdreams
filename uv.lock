@@ -684,10 +684,9 @@ name = "crazy-robotaxi"
 version = "0.1.0"
 source = { editable = "apps/crazy_robotaxi" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["local-window"] },
     { name = "flashdreams-omnidreams" },
     { name = "omnidreams-game-engine" },
-    { name = "pillow" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -701,10 +700,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams", extras = ["local-window"], editable = "flashdreams" },
     { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
     { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
-    { name = "pillow" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "torch" },

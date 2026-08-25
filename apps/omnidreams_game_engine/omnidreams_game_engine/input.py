@@ -17,18 +17,13 @@ from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.types import DriverCommand
 
 _DRIVE_KEYS = frozenset({"w", "a", "s", "d", "up", "down", "left", "right", "space"})
-_TEXT_CHARACTERS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-"
-)
 
 
 @dataclass(frozen=True, slots=True)
 class DriverInputBatch:
-    """Per-frame commands and optional submitted text for one model step."""
+    """Per-frame driving commands for one model step."""
 
     commands: tuple[DriverCommand, ...]
-    submitted_text: str | None
-    text: str
 
 
 class DriverInput:
@@ -38,11 +33,6 @@ class DriverInput:
         self.config = config
         self._pressed: set[str] = set()
         self._steering = 0.0
-        self._text = ""
-
-    @property
-    def text(self) -> str:
-        return self._text
 
     def reduce(
         self,
@@ -50,12 +40,10 @@ class DriverInput:
         *,
         frame_count: int,
         frame_interval_s: float,
-        accepting_text: bool,
     ) -> DriverInputBatch:
         """Apply input edges and produce a command for every simulated frame."""
         if frame_count <= 0:
             raise ValueError("frame_count must be positive")
-        submitted: str | None = None
         for event in events.get_events():
             data = event.get_event_data()
             if isinstance(data, FocusUserInputEventData) and not data.focused:
@@ -66,11 +54,6 @@ class DriverInput:
             raw_key = str(data.key)
             key = _normalize_key(raw_key)
             pressed = data.state is KeyboardInputState.PRESSED
-            if accepting_text and pressed:
-                consumed, value = self._consume_text_key(raw_key, key)
-                if consumed:
-                    submitted = value or submitted
-                    continue
             if key in _DRIVE_KEYS:
                 if pressed:
                     self._pressed.add(key)
@@ -105,27 +88,12 @@ class DriverInput:
                     manual_control=True,
                 )
             )
-        return DriverInputBatch(tuple(commands), submitted, self._text)
+        return DriverInputBatch(tuple(commands))
 
     def reset(self) -> None:
         """Clear every retained input value."""
         self._pressed.clear()
         self._steering = 0.0
-        self._text = ""
-
-    def _consume_text_key(self, raw_key: str, key: str) -> tuple[bool, str | None]:
-        if key in {"enter", "return"}:
-            return True, self._text if self._text.strip() else None
-        if key == "backspace":
-            self._text = self._text[:-1]
-            return True, None
-        if key == "escape":
-            self._text = "DRIVER"
-            return True, self._text
-        if len(raw_key) == 1 and raw_key in _TEXT_CHARACTERS and len(self._text) < 12:
-            self._text += raw_key
-            return True, None
-        return False, None
 
 
 def _normalize_key(key: str) -> str:

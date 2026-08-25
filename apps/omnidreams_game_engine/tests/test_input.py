@@ -48,13 +48,11 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
         ),
         frame_count=3,
         frame_interval_s=0.1,
-        accepting_text=False,
     )
     retained = reducer.reduce(
         UserInputEvents([]),
         frame_count=1,
         frame_interval_s=0.1,
-        accepting_text=False,
     )
 
     assert len(first.commands) == 3
@@ -71,7 +69,6 @@ def test_focus_loss_releases_drive_state() -> None:
         _events(_key("ArrowDown", KeyboardInputState.PRESSED)),
         frame_count=1,
         frame_interval_s=1.0 / 30.0,
-        accepting_text=False,
     )
 
     assert reverse.commands[0].brake == 1.0
@@ -82,25 +79,7 @@ def test_focus_loss_releases_drive_state() -> None:
         _events(FocusUserInputEventData(focused=False)),
         frame_count=1,
         frame_interval_s=1.0 / 30.0,
-        accepting_text=False,
     )
 
     assert result.commands[0].throttle == 0.0
     assert not result.commands[0].reverse
-
-
-def test_terminal_text_is_reduced_from_the_same_v2_events() -> None:
-    reducer = DriverInput()
-    result = reducer.reduce(
-        _events(
-            _key("A", KeyboardInputState.PRESSED),
-            _key("I", KeyboardInputState.PRESSED),
-            _key("enter", KeyboardInputState.PRESSED),
-        ),
-        frame_count=1,
-        frame_interval_s=1.0 / 30.0,
-        accepting_text=True,
-    )
-
-    assert result.text == "AI"
-    assert result.submitted_text == "AI"

@@ -9,10 +9,9 @@ description = "Crazy Robotaxi application for FlashDreams V2"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "flashdreams",
+    "flashdreams[local-window]",
     "flashdreams-omnidreams",
     "omnidreams-game-engine",
-    "pillow",
     "torch",
 ]
 

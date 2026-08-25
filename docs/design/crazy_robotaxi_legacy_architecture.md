@@ -1,7 +1,7 @@
 # Crazy Robotaxi map-branch architecture
 
 This document records the as-built architecture on
-`origin/dev/aidanf/game/crazy-robotaxi-map` as fetched at commit `0bda097`. It
+`origin/dev/aidanf/game/crazy-robotaxi-map` as fetched at commit `f92deda`. It
 is a behavioral reference for the rewrite, not a target implementation and not
 a list of files to transplant. The earlier V2 porting attempt was not
 consulted.

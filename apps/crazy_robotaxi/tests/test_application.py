@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 from crazy_robotaxi.application import CrazyRobotaxiApplication
 from crazy_robotaxi.session import CrazyRobotaxiModelThread
+from crazy_robotaxi.ui import CrazyRobotaxiImGUIThread
 from omnidreams_game_engine.types import CameraCalibration, SceneDefinition
 
-from flashdreams.api_v2.thread import BlitModelOutputToScreenThread
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -47,7 +47,7 @@ def _scene() -> SceneDefinition:
     )
 
 
-def test_application_registers_one_model_thread_and_uses_v2_ui() -> None:
+def test_application_registers_model_and_imgui_threads() -> None:
     pipeline = object()
     app = CrazyRobotaxiApplication(
         pipeline_factory=lambda config, device: pipeline,
@@ -62,9 +62,11 @@ def test_application_registers_one_model_thread_and_uses_v2_ui() -> None:
 
     assert desc.output_layout is VideoTensorLayout.tchw
     assert isinstance(model_thread, CrazyRobotaxiModelThread)
-    assert isinstance(ui_thread, BlitModelOutputToScreenThread)
+    assert isinstance(ui_thread, CrazyRobotaxiImGUIThread)
     assert model_thread.state.pipeline is pipeline
     assert model_thread.state.rollout is None
+    assert model_thread.state.ui_thread is ui_thread
+    assert ui_thread.state.model_thread is model_thread
 
 
 def test_application_rejects_geometry_the_model_does_not_produce() -> None:

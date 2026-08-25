@@ -13,7 +13,6 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from ludus_renderer import BodyState, PhysXWorld
-
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
@@ -126,9 +125,7 @@ def test_collision_recovery_globally_reacquires_route_and_cursor() -> None:
     assert state is not None
     stopped = _body_at((18.0, 8.0), yaw_rad=math.pi)
 
-    controller.observe_physics(
-        state.object_id, struck=True, body=stopped, dt_s=0.25
-    )
+    controller.observe_physics(state.object_id, struck=True, body=stopped, dt_s=0.25)
     for _ in range(4):
         controller.observe_physics(
             state.object_id, struck=False, body=stopped, dt_s=0.25

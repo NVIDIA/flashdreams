@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Crazy Robotaxi V2 session and sole model-thread implementation."""
+"""Crazy Robotaxi V2 session with model and ImGui UI threads."""
 
 from __future__ import annotations
 
@@ -16,10 +16,14 @@ from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.types import SceneDefinition
 
 from crazy_robotaxi.factory import build_taxi_engine
-from crazy_robotaxi.hud import render_hud
 from crazy_robotaxi.rules import TaxiGameSnapshot
+from crazy_robotaxi.ui import (
+    CrazyRobotaxiImGUIThread,
+    TaxiHudState,
+    build_hud_frames,
+)
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.thread import IThread
+from flashdreams.api_v2.thread import IThread, UIThread, invoke_async
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -38,6 +42,9 @@ class ModelState:
     config: ApplicationConfig
     session_desc: SessionDesc
     driver_input: DriverInput
+    ui_thread: UIThread[TaxiHudState]
+    """UI-thread endpoint used only through ``invoke_async``."""
+
     rollout: WorldModelRollout | None = None
     last_video: torch.Tensor | None = None
     last_bev: torch.Tensor | None = None
@@ -79,6 +86,11 @@ class ModelState:
         if rollout is not None:
             rollout.close()
 
+    def submit_player_name(self, name: str) -> None:
+        """Submit a UI-validated leaderboard name on the model thread."""
+        rollout = self.ensure_rollout()
+        rollout.engine.submit_text(name)
+
 
 class CrazyRobotaxiModelThread(IThread[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
@@ -89,15 +101,12 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
         snapshot = rollout.engine.current_game_frame
         if not isinstance(snapshot, TaxiGameSnapshot):
             raise TypeError("Taxi engine returned a non-taxi game frame")
-        accepting_text = snapshot.session_state == "awaiting_name"
-
         if snapshot.session_state == "playing":
             frame_count = rollout.frame_count(state.blocks_generated)
             input_batch = state.driver_input.reduce(
                 events,
                 frame_count=frame_count,
                 frame_interval_s=(1.0 / state.session_desc.frames_per_second_for_step),
-                accepting_text=False,
             )
             generated = rollout.step(
                 autoregressive_index=state.blocks_generated,
@@ -124,14 +133,6 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
             state.last_bev = None if bev is None else bev[-1:].detach()
             state.last_pose = poses[-1].copy()
         else:
-            input_batch = state.driver_input.reduce(
-                events,
-                frame_count=1,
-                frame_interval_s=(1.0 / state.session_desc.frames_per_second_for_step),
-                accepting_text=accepting_text,
-            )
-            if accepting_text and input_batch.submitted_text is not None:
-                snapshot = rollout.engine.submit_text(input_batch.submitted_text)
             if state.last_video is None or state.last_pose is None:
                 raise RuntimeError("Terminal game state has no generated frame")
             video = state.last_video
@@ -140,16 +141,14 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
             bev = state.last_bev
             metrics = {}
 
-        overlay = render_hud(
+        hud_frames = build_hud_frames(
+            video,
             game_frames,
-            rig_poses_world=poses,
-            calibration=state.scene.selected_camera,
-            bev_tchw=bev,
-            width=int(video.shape[-1]),
-            height=int(video.shape[-2]),
-            device=video.device,
-            dtype=video.dtype,
-            player_name=state.driver_input.text,
+            poses,
+        )
+        invoke_async(
+            state.ui_thread,
+            lambda ui_state, frames=hud_frames: ui_state.publish(frames),
         )
         latest = game_frames[-1]
         if (
@@ -163,21 +162,25 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
         ):
             state.finished = True
         count = int(video.shape[0])
-        return [
+        results = [
             StepResult(
                 step_index=step_index,
                 output=video,
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
                 metrics=metrics,
-            ),
-            StepResult(
-                step_index=step_index,
-                output=overlay,
-                frame_count=count,
-                output_layout=VideoTensorLayout.tchw,
-            ),
+            )
         ]
+        if bev is not None:
+            results.append(
+                StepResult(
+                    step_index=step_index,
+                    output=bev,
+                    frame_count=count,
+                    output_layout=VideoTensorLayout.tchw,
+                )
+            )
+        return results
 
     def is_finished(self) -> bool:
         return self.state.finished
@@ -190,7 +193,7 @@ class CrazyRobotaxiModelThread(IThread[ModelState]):
 
 
 class CrazyRobotaxiSession(ISession):
-    """Register one model thread and use V2's compositing UI thread."""
+    """Register the model thread and Crazy Robotaxi ImGui UI thread."""
 
     def __init__(
         self,
@@ -210,7 +213,18 @@ class CrazyRobotaxiSession(ISession):
         return self._session_desc
 
     def init(self) -> None:
-        self.register_model_thread(
+        hud_state = TaxiHudState(
+            calibration=self._scene.selected_camera,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
+        ui_thread = self.register_ui_thread(
+            CrazyRobotaxiImGUIThread,
+            state=hud_state,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
+        model_thread = self.register_model_thread(
             CrazyRobotaxiModelThread,
             state=ModelState(
                 pipeline=self._pipeline,
@@ -218,5 +232,7 @@ class CrazyRobotaxiSession(ISession):
                 config=self._config,
                 session_desc=self._session_desc,
                 driver_input=DriverInput(self._config.driver_input),
+                ui_thread=ui_thread,
             ),
         )
+        hud_state.model_thread = model_thread

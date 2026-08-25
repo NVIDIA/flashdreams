@@ -579,7 +579,7 @@ class TaxiGameController:
         """Persist the finished score and transition to the leaderboard.
 
         Args:
-            name: Valid player name supplied by the active presenter.
+            name: Valid player name supplied by the V2 UI thread.
 
         Raises:
             RuntimeError: The game is not waiting for a player name.
