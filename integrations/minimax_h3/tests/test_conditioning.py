@@ -20,18 +20,28 @@ from __future__ import annotations
 import hashlib
 import struct
 
+import numpy as np
 import pytest
 import torch
 
 from minimax_h3.conditioning import (
     audio_latent_num_frames,
     build_packed_layout,
+    build_ref2va_packed_layout,
     patchify_video_latents,
     prepare_denoise_state,
+    prepare_ref2va_denoise_state,
     resolve_canvas_size,
     video_latent_num_frames,
 )
 from minimax_h3.model import MiniMaxH3DiffusionModel
+from minimax_h3.reference_conditioning import (
+    MiniMaxH3AudioReference,
+    MiniMaxH3EncodedReferences,
+    MiniMaxH3ImageReference,
+    MiniMaxH3Reference,
+    MiniMaxH3VideoReference,
+)
 from minimax_h3.transformer import MiniMaxH3TransformerConfig
 
 pytestmark = pytest.mark.ci_cpu
@@ -188,4 +198,166 @@ def test_prepare_denoise_state_rejects_mismatched_inputs() -> None:
             num_frames=107,
             height=32,
             width=32,
+        )
+
+
+def _reference_fixture() -> tuple[
+    list[MiniMaxH3Reference], MiniMaxH3EncodedReferences
+]:
+    """Build the mixed-modality geometry used by pinned REF2VA parity tests."""
+    references = [
+        MiniMaxH3ImageReference(np.zeros((1, 1, 3), dtype=np.uint8)),
+        MiniMaxH3VideoReference(
+            np.zeros((1, 1, 1, 3), dtype=np.uint8),
+            24.0,
+            torch.zeros(2, 1),
+            32000,
+        ),
+        MiniMaxH3AudioReference(torch.zeros(2, 1), 32000),
+    ]
+    encoded = MiniMaxH3EncodedReferences(
+        video=(
+            torch.zeros(1, 24, 1, 4, 8),
+            torch.ones(1, 24, 2, 4, 4),
+        ),
+        audio=(torch.full((6, 32), 3.0), torch.full((4, 32), 4.0)),
+    )
+    return references, encoded
+
+
+def test_ref2va_layout_matches_pinned_oracle_digest() -> None:
+    """Match Diffusers ``175fe6b2419a`` shared-clock float64 layout exactly."""
+    references, encoded = _reference_fixture()
+    layout = build_ref2va_packed_layout(
+        torch.tensor([1, 0, 1]),
+        references,
+        encoded,
+        num_latent_frames=2,
+        latent_height=4,
+        latent_width=8,
+        num_audio_latents=4,
+    )
+
+    assert tuple(layout.position_ids.shape) == (53, 3)
+    assert layout.num_condition_video_rows == 16
+    assert layout.num_condition_audio_rows == 10
+    assert (
+        _layout_digest(
+            layout.position_ids,
+            layout.token_tags,
+            layout.video_indices,
+            layout.audio_indices,
+            layout.text_indices,
+            layout.num_condition_video_rows,
+            layout.num_condition_audio_rows,
+        )
+        == "19bfa28898063150168746bbd26fa88b619b6d4656723f0e215a2123455d5be3"
+    )
+
+
+def test_ref2va_layout_preserves_long_video_rotary_sum_order() -> None:
+    """Freeze the sequential float64 span that differs after 16 latent frames."""
+    references = [
+        MiniMaxH3VideoReference(
+            np.zeros((1, 1, 1, 3), dtype=np.uint8), fps=24.0
+        )
+    ]
+    layout = build_ref2va_packed_layout(
+        torch.tensor([1, 1]),
+        references,
+        MiniMaxH3EncodedReferences(
+            video=(torch.zeros(1, 24, 16, 4, 4),), audio=()
+        ),
+        num_latent_frames=2,
+        latent_height=4,
+        latent_width=4,
+        num_audio_latents=4,
+    )
+
+    assert (
+        _layout_digest(
+            layout.position_ids,
+            layout.token_tags,
+            layout.video_indices,
+            layout.audio_indices,
+            layout.text_indices,
+            layout.num_condition_video_rows,
+            layout.num_condition_audio_rows,
+        )
+        == "9cfaff1dab99498789d4f13eb355638870182ba3371deebeffb59883ef825439"
+    )
+
+
+def test_prepare_ref2va_state_preserves_rng_and_clean_audio_order() -> None:
+    """Draw visual conditions, target video, then target audio in that order."""
+    references, _ = _reference_fixture()
+    encoded = MiniMaxH3EncodedReferences(
+        video=(
+            torch.zeros(1, 24, 1, 2, 4),
+            torch.ones(1, 24, 2, 2, 2),
+        ),
+        audio=(torch.full((6, 32), 3.0), torch.full((4, 32), 4.0)),
+    )
+    state = prepare_ref2va_denoise_state(
+        torch.zeros(1, 3, 5120, dtype=torch.bfloat16),
+        torch.tensor([1, 0, 1]),
+        references,
+        encoded,
+        num_frames=124,
+        height=32,
+        width=32,
+        generator=torch.Generator().manual_seed(123),
+    )
+
+    oracle = torch.Generator().manual_seed(123)
+    first_noise = torch.randn(encoded.video[0].shape, generator=oracle)
+    second_noise = torch.randn(encoded.video[1].shape, generator=oracle)
+    target_video = torch.randn((1, 24, 37, 2, 2), generator=oracle)
+    target_audio = torch.randn((414, 32), generator=oracle)
+    noise_level = torch.tensor(0.999, dtype=torch.float32)
+    expected_video = torch.cat(
+        [
+            patchify_video_latents(
+                noise_level * encoded.video[0]
+                + (1.0 - noise_level) * first_noise
+            ),
+            patchify_video_latents(
+                noise_level * encoded.video[1]
+                + (1.0 - noise_level) * second_noise
+            ),
+            patchify_video_latents(target_video),
+        ]
+    )
+    expected_audio = torch.cat([*encoded.audio, target_audio])
+    torch.testing.assert_close(state.latents, expected_video, rtol=0, atol=0)
+    torch.testing.assert_close(state.audio_latents, expected_audio, rtol=0, atol=0)
+    assert state.num_condition_video_rows == 4
+    assert state.num_condition_audio_rows == 10
+    assert tuple(state.latents.shape) == (41, 96)
+    assert tuple(state.audio_latents.shape) == (424, 32)
+    MiniMaxH3DiffusionModel._validate_state(
+        state,
+        MiniMaxH3TransformerConfig(
+            checkpoint_path=None,
+            device="meta",
+            execution_device="cpu",
+            attention_backend="math",
+        ),
+    )
+
+
+def test_ref2va_layout_rejects_reference_encoder_mismatch() -> None:
+    """Reject a missing visual latent before consuming the request generator."""
+    references, encoded = _reference_fixture()
+    with pytest.raises(ValueError, match="video references do not match"):
+        build_ref2va_packed_layout(
+            torch.tensor([1]),
+            references,
+            MiniMaxH3EncodedReferences(
+                video=encoded.video[:1], audio=encoded.audio
+            ),
+            num_latent_frames=2,
+            latent_height=4,
+            latent_width=8,
+            num_audio_latents=4,
         )
