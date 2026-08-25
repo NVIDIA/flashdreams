@@ -217,21 +217,10 @@ def test_the_model_generates_a_clip_worth_watching(tmp_path: Path) -> None:
 environment variable is unset, there is no GPU, or `ffmpeg` is missing, or
 `None` when it can.
 
-Running them:
-
-```bash
-uv sync --package flashdreams-t2v-wan21 --group test --inexact
-uv run --no-sync pytest integrations_v2/t2v_wan21 -m ci_cpu -v
-```
-
-```bash
-T2V_WAN21_REAL_MODEL_RUN=1 uv run --no-sync pytest \
-    integrations_v2/t2v_wan21 -m ci_gpu -s --basetemp="$HOME/t2v-out"
-vlc "$HOME"/t2v-out/*current/clip.mp4
-```
-
-`--basetemp` under your home rather than `/tmp` is so a sandboxed player can see
-the file, since pytest's real `/tmp` is private to the test process. The
+Each integration's own README carries the two commands that run these for its
+package. The real-model one writes under `$HOME` rather than `/tmp`, so that a
+sandboxed player can open the clip afterwards; pytest's real `/tmp` is private
+to the test process. The
 [integration guide](../../../integrations_v2/README.md#testing-it) covers
 `--inexact` and the markers.
 

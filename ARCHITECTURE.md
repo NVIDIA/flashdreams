@@ -76,9 +76,8 @@ neither knows the other: every arrow crossing between them is a call through
 `api_v2`. The runtime holds the only reference to a window, and an integration
 holds none.
 
-**An application** is what someone writes. It parses its own arguments, holds
-whatever is expensive to load, and creates sessions. It implements two protocols
-and names nothing else, no windows, no sinks, no threads.
+**An application** is what someone writes, and it names nothing beyond the two
+protocols it implements — no windows, no sinks, no threads.
 
 **A session** is one run of that application. It owns the state for the run and
 registers the loops that do the work: a model loop that generates, and
@@ -88,17 +87,15 @@ optionally a UI loop that turns what was generated into what is shown.
 session to ask for, creates the window, starts the threads, moves frames between
 them, and closes it all down in the right order when the run ends.
 
-**A client window** is where the run goes and where input comes from, an MP4
-file, or a browser over WebRTC. It is the runtime's, not the application's, which
-is what lets the same application write a file in a benchmark and stream to a
-browser in a demo without knowing which is happening.
+**A client window** is where the run goes and where input comes from — an MP4
+file, or a browser over WebRTC. Being the runtime's rather than the
+application's is what lets one application write a file in a benchmark and
+stream to a browser in a demo without knowing which is happening.
 
 The seam that matters is between the session and the runtime. An application
-describes what it would generate, the runtime asks for a session and honours
-that description, and from then on the two communicate only through
-`StepResult` objects going one way and input events going the other. Nothing
-about a window reaches an application, and nothing about a model reaches a
-window.
+describes what it would generate, the runtime honours that description, and from
+then on the two communicate only through `StepResult` objects going one way and
+input events going the other.
 
 ## A run, end to end
 

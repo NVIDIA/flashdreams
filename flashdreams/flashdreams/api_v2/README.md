@@ -112,15 +112,11 @@ other range converts before returning.
 Using the default UI loop, so there is only a model loop to write:
 
 ```python
-@dataclass
-class ModelState:
-    desc: SessionDesc
-
-class ModelLoop(IModelLoop[ModelState]):
+class ModelLoop(IModelLoop[SessionDesc]):
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         del events
         frame = torch.zeros(
-            (1, 3, self.state.desc.video_height, self.state.desc.video_width)
+            (1, 3, self.state.video_height, self.state.video_width)
         )
         return [
             StepResult(
@@ -145,8 +141,11 @@ class Session(ISession):
         return self._desc
 
     def init(self) -> None:
-        self.register_model_loop(ModelLoop, state=ModelState(self._desc))
+        self.register_model_loop(ModelLoop, state=self._desc)
 ```
+
+A loop's state can be any object; this one keeps the session description and
+nothing else.
 
 This loop runs forever. Override `is_finished` to make it stop.
 
