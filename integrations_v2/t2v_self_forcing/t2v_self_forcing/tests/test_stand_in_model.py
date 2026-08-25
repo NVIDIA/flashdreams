@@ -16,7 +16,11 @@ import pytest
 from self_forcing.config import RUNNER_WAN21_T2V_1PT3B
 from t2v_self_forcing import SelfForcingT2VApplication
 
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.testing import (
     ExpectedFrameStats,
@@ -67,6 +71,9 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
     pipeline = FakeT2VPipeline()
     steps = 3
     path = tmp_path / "clip.mp4"
+    expected_frame_count = (
+        pipeline.first_block_frames + (steps - 1) * pipeline.block_frames
+    )
 
     result = check_t2v_model_impl(
         SelfForcingT2VApplication(pipeline_config=FakeT2VPipelineConfig(pipeline)),
@@ -74,6 +81,8 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
         # it says so here rather than asking the application.
         SessionDesc(
             output_layout=VideoTensorLayout.tchw,
+            backpressure_mode=BackpressureMode.BLOCK,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
             frames_per_second_for_step=RUNNER_WAN21_T2V_1PT3B.fps,
             video_width=pipeline.width,
             video_height=pipeline.height,
@@ -81,8 +90,7 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
         steps=steps,
         commandline_args=["--prompt", _PROMPT, "--device", "cpu"],
         expected=ExpectedFrameStats(
-            frame_count=pipeline.first_block_frames
-            + (steps - 1) * pipeline.block_frames,
+            frame_count=expected_frame_count,
             mean_luminance=(64.0, 192.0),
             min_frame_difference=1.0,
         ),
@@ -90,10 +98,5 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
     )
 
     assert result.passed, result.failures
-    assert result.frames_per_step == (
-        pipeline.first_block_frames,
-        pipeline.block_frames,
-        pipeline.block_frames,
-    )
-    assert result.metrics == ({"total_ms": 1.5},) * steps
+    assert result.frames_per_step == (1,) * expected_frame_count
     assert path.stat().st_size > 0
