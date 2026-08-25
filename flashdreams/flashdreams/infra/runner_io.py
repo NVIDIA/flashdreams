@@ -157,6 +157,74 @@ def read_video_fps(
     return float(media.VideoMetadata.from_path(str(path)).fps)
 
 
+def read_audio_f32(
+    path: str | Path,
+    *,
+    sample_rate: int,
+    channels: int = 2,
+) -> np.ndarray:
+    """Decode one audio stream through host FFmpeg.
+
+    Args:
+        path: Input audio file or audio-bearing video file.
+        sample_rate: Positive output sampling rate.
+        channels: Output channel count, currently mono or stereo.
+
+    Returns:
+        Contiguous finite float32 samples shaped ``[channels, samples]``.
+
+    Raises:
+        ValueError: The output format or decoded samples are invalid.
+        RuntimeError: Host FFmpeg is absent or cannot decode an audio stream.
+    """
+    if type(sample_rate) is not int or sample_rate <= 0:
+        raise ValueError("sample_rate must be a positive integer")
+    if type(channels) is not int or channels not in (1, 2):
+        raise ValueError("channels must be 1 or 2")
+    command = [
+        _find_ffmpeg_binary(),
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-ac",
+        str(channels),
+        "-ar",
+        str(sample_rate),
+        "-f",
+        "f32le",
+        "-c:a",
+        "pcm_f32le",
+        "pipe:1",
+    ]
+    process = subprocess.run(command, capture_output=True, check=False)
+    if process.returncode != 0:
+        diagnostic = process.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"ffmpeg could not decode an audio stream from {path}: "
+            f"{diagnostic or 'no diagnostic output'}"
+        )
+    if len(process.stdout) % np.dtype("<f4").itemsize:
+        raise ValueError(f"decoded audio bytes contain a truncated sample: {path}")
+    samples = np.frombuffer(process.stdout, dtype="<f4")
+    if samples.size == 0:
+        raise ValueError(f"decoded audio stream is empty: {path}")
+    if samples.size % channels:
+        raise ValueError(
+            f"decoded audio sample count {samples.size} is not divisible by "
+            f"{channels} channels"
+        )
+    samples = samples.reshape(-1, channels).T.copy()
+    if not np.isfinite(samples).all():
+        raise ValueError(f"decoded audio contains non-finite samples: {path}")
+    return samples
+
+
 def read_first_frame_rgb(
     path: str | Path,
     *,

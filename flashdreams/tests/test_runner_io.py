@@ -32,6 +32,7 @@ import flashdreams.infra.runner_io as runner_io
 from flashdreams.infra.runner_io import (
     ensure_output_dir,
     load_first_frame_tensor,
+    read_audio_f32,
     read_first_frame_rgb,
     read_video_fps,
     resolve_input_path,
@@ -251,6 +252,115 @@ def test_read_video_fps_uses_lazy_mediapy_metadata(
 
     assert read_video_fps(Path("clip.mp4")) == pytest.approx(23.976)
     assert calls == ["clip.mp4"]
+
+
+def test_read_audio_f32_uses_host_ffmpeg_and_deinterleaves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    expected = np.array([[0.25, 0.5], [-0.25, -0.5]], dtype=np.float32)
+    stdout = expected.T.astype("<f4").tobytes()
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        commands.append(command)
+        assert kwargs == {"capture_output": True, "check": False}
+        return types.SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
+
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "/host/ffmpeg")
+    monkeypatch.setattr(runner_io.subprocess, "run", run)
+
+    actual = read_audio_f32("reference.mp4", sample_rate=32000, channels=2)
+
+    assert actual.flags.c_contiguous
+    assert actual.dtype == np.float32
+    np.testing.assert_array_equal(actual, expected)
+    assert commands == [
+        [
+            "/host/ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "reference.mp4",
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-ac",
+            "2",
+            "-ar",
+            "32000",
+            "-f",
+            "f32le",
+            "-c:a",
+            "pcm_f32le",
+            "pipe:1",
+        ]
+    ]
+
+
+def test_read_audio_f32_surfaces_host_decode_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        runner_io.subprocess,
+        "run",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            returncode=1,
+            stdout=b"",
+            stderr=b"Stream map '0:a:0' matches no streams",
+        ),
+    )
+    with pytest.raises(RuntimeError, match="matches no streams"):
+        read_audio_f32("silent.mp4", sample_rate=32000)
+
+
+@pytest.mark.parametrize(
+    ("sample_rate", "channels", "message"),
+    [
+        (True, 2, "sample_rate"),
+        (0, 2, "sample_rate"),
+        (32000, True, "channels"),
+        (32000, 3, "channels"),
+    ],
+)
+def test_read_audio_f32_rejects_invalid_format(
+    sample_rate: int,
+    channels: int,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        read_audio_f32("reference.wav", sample_rate=sample_rate, channels=channels)
+
+
+@pytest.mark.parametrize(
+    ("stdout", "message"),
+    [
+        (b"", "empty"),
+        (b"\x00", "truncated"),
+        (np.array([0.0], dtype="<f4").tobytes(), "not divisible"),
+        (
+            np.array([0.0, float("nan")], dtype="<f4").tobytes(),
+            "non-finite",
+        ),
+    ],
+)
+def test_read_audio_f32_rejects_invalid_decoded_samples(
+    monkeypatch: pytest.MonkeyPatch,
+    stdout: bytes,
+    message: str,
+) -> None:
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        runner_io.subprocess,
+        "run",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            returncode=0, stdout=stdout, stderr=b""
+        ),
+    )
+    with pytest.raises(ValueError, match=message):
+        read_audio_f32("broken.wav", sample_rate=32000, channels=2)
 
 
 def test_write_video_tensor_streams_to_host_ffmpeg(
