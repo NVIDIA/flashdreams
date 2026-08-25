@@ -45,7 +45,7 @@ gates catch what.
   can't carry one (config, assets, binaries), but `reuse-lint`'s
   "Inline SPDX headers on first-party source files" step rejects any
   new `.py` / `.c` / `.cpp` / `.cu` / `.sh` / `.proto` / `Dockerfile`
-  / etc. without the inline tag.
+  / etc. without both non-empty inline tags.
 - **Direct deps are mirrored in three places:** the workspace member's
   `pyproject.toml` `dependencies`, the resolved `uv.lock` pin, and the
   `THIRD-PARTY-NOTICES` "Direct runtime dependencies" table. All
@@ -82,32 +82,22 @@ fix the underlying file.
 
 ## 2. Per-file SPDX headers
 
-Every first-party source file starts with the inline SPDX header. The
-exact wording is enforced by `reuse-lint`'s "Inline SPDX headers on
-first-party source files" step (looks for `SPDX-License-Identifier` in
-the first 20 lines).
+Every first-party source file starts with an inline SPDX header. The
+`reuse-lint` "Inline SPDX headers on first-party source files" step
+requires non-empty `SPDX-FileCopyrightText` and
+`SPDX-License-Identifier` tags in the first 20 lines. It deliberately
+does not prescribe the copyright holder text: public contributors may
+use their own notice, and a file may carry multiple copyright notices.
 
 **Python / shell / TOML / YAML** (`#` line comments):
 
 ```python
 # SPDX-FileCopyrightText: Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 ```
 
-**C / C++ / CUDA** (`//` line comments): same two SPDX tags + the same
-Apache-2.0 preamble, with `//` swapped for `#`.
+**C / C++ / CUDA** (`//` line comments): the same two SPDX tags, with
+`//` swapped for `#`.
 
 Rules:
 
@@ -116,12 +106,13 @@ Rules:
   files being **edited**, leave the year alone — it reflects original
   authorship, not last-touched.
 - The two SPDX tags (`SPDX-FileCopyrightText` + `SPDX-License-Identifier`)
-  are the load-bearing part. The Apache-2.0 preamble is house style;
-  the CI gate only checks for `SPDX-License-Identifier` in the first 20
-  lines, but the long form is what every existing file carries, so
-  match it.
-- External contributors add their **own** copyright line *above* the
-  NVIDIA line — keep both. See `CONTRIBUTING.md:200-235`.
+  are the complete, preferred header: concise, standardized, and
+  machine-verifiable. The longer Apache-2.0 boilerplate is accepted but
+  not required.
+- External contributors may use their **own** copyright notice. When
+  modifying an existing file, preserve all existing notices and add the
+  contributor's notice as another `SPDX-FileCopyrightText` line. See
+  the "Coding conventions" section of `CONTRIBUTING.md`.
 - The Cosmos-Drive-Dreams files
   (`integrations/omnidreams/omnidreams/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
   carry two `SPDX-FileCopyrightText` lines (NVIDIA + Cosmos-Drive-Dreams
@@ -440,9 +431,10 @@ When extending CONTRIBUTING.md:
 
 - Keep the DCO section anchored at `## Developer Certificate of Origin
   (DCO)` — the README and external docs link to it by anchor.
-- The SPDX header preamble at `CONTRIBUTING.md:200-235` doubles as the
-  agent-and-human source for what every new source file's header should
-  look like. Update it and `python-docstring-style/SKILL.md` together.
+- The SPDX header example in `CONTRIBUTING.md`'s "Coding conventions"
+  section doubles as the agent-and-human source for what every new
+  source file's header should look like. Update it and
+  `python-docstring-style/SKILL.md` together.
 - The IP-review-process reference in `CONTRIBUTING.md` is an OSRB
   pointer — don't change it without OSRB sign-off.
 
@@ -484,9 +476,9 @@ sections).
 4. Every tracked source file (`.py`, `.pyx`, `.pyi`, `.c`, `.cc`,
    `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`, `.cu`, `.cuh`,
    `.inl`, `.sh`, `.proto`, `Dockerfile` / `*.dockerfile`) carries
-   an inline `SPDX-License-Identifier` in its first 20 lines — with
-   the documented exclusions (`cudaraster/**`, generated protobuf
-   stubs).
+   non-empty inline `SPDX-FileCopyrightText` and
+   `SPDX-License-Identifier` tags in its first 20 lines — with the
+   documented exclusions (`cudaraster/**`, generated protobuf stubs).
 5. No file contains the legacy NVIDIA proprietary-banner sentinel
    phrases checked by `.github/workflows/reuse-lint.yml`.
 
@@ -621,7 +613,7 @@ weak-copyleft):**
 |---|---|
 | What's the canonical Apache-2.0 text? | `LICENSE` (= `LICENSES/Apache-2.0.txt`) |
 | What deps does FlashDreams ship? | `THIRD-PARTY-NOTICES` "Direct runtime dependencies" + `flashdreams/pyproject.toml` |
-| What does a SPDX header look like? | `CONTRIBUTING.md:215-232` |
+| What does a SPDX header look like? | `CONTRIBUTING.md` "Coding conventions" |
 | Where do I declare a config / asset file's license? | `REUSE.toml` |
 | Where do I record vendored upstream source? | NOTICE "Source-level redistributions" + `REUSE.toml` `override` block |
 | What does the CI gate enforce? | `.github/workflows/reuse-lint.yml` (read top to bottom) |

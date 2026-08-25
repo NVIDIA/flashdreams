@@ -235,29 +235,19 @@ short ping comment.
 - Tests live in `flashdreams/tests/` and `integrations/*/tests/`. Use
   `pytest` and prefer existing fixtures over hand-rolled setup. See
   [Testing](#testing) for marker requirements.
-- Every source file added by a contribution must include the SPDX
-  header used elsewhere in the project:
+- Every source file added by a contribution must include this concise
+  two-line SPDX header:
 
   ```python
-  # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  # SPDX-FileCopyrightText: Copyright (c) <YEAR> <COPYRIGHT HOLDER>
   # SPDX-License-Identifier: Apache-2.0
-  #
-  # Licensed under the Apache License, Version 2.0 (the "License");
-  # you may not use this file except in compliance with the License.
-  # You may obtain a copy of the License at
-  #
-  # http://www.apache.org/licenses/LICENSE-2.0
-  #
-  # Unless required by applicable law or agreed to in writing, software
-  # distributed under the License is distributed on an "AS IS" BASIS,
-  # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  # See the License for the specific language governing permissions and
-  # limitations under the License.
   ```
 
-  External contributors should add their own copyright line *above* the
-  NVIDIA line if they wish to be attributed; both attributions are
-  retained.
+  Use the current calendar year and the name of the actual copyright
+  holder, which may be the contributor, their organization, or NVIDIA.
+  Preserve existing copyright notices when modifying a file; multiple
+  `SPDX-FileCopyrightText` lines are allowed. The longer Apache-2.0
+  boilerplate is accepted but not required.
 
 ## Testing
 

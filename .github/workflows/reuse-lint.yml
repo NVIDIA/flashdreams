@@ -82,7 +82,7 @@ jobs:
           fi
           echo "OK: CONTRIBUTING.md references DCO / sign-off"
 
-      # Inline SPDX-License-Identifier on first-party source files.
+      # Inline SPDX copyright and license tags on first-party source files.
       # REUSE.toml provides aggregate coverage so 'reuse lint' is green even
       # without inline headers, but inline tags are the OSRB-preferred form
       # and catch new files copied in without attribution.
@@ -95,14 +95,21 @@ jobs:
           set -euo pipefail
           excludes='^integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/'
           excludes+='|^integrations/omnidreams/omnidreams/grpc/protos/.*_pb2'
-          missing_files=()
+          missing_copyright_files=()
+          missing_license_files=()
           while IFS= read -r f; do
             if printf '%s\n' "$f" | grep -qE "$excludes"; then
               continue
             fi
-            if ! head -n 20 "$f" | grep -q "SPDX-License-Identifier"; then
-              missing_files+=("$f")
+            header=$(head -n 20 "$f")
+            # REUSE-IgnoreStart
+            if ! printf '%s\n' "$header" | grep -qE 'SPDX-FileCopyrightText:[[:space:]]*[^[:space:]]'; then
+              missing_copyright_files+=("$f")
             fi
+            if ! printf '%s\n' "$header" | grep -qE 'SPDX-License-Identifier:[[:space:]]*[^[:space:]]'; then
+              missing_license_files+=("$f")
+            fi
+            # REUSE-IgnoreEnd
           done < <(git ls-files \
                      '*.py' '*.pyx' '*.pyi' \
                      '*.c' '*.cc' '*.cpp' '*.cxx' \
@@ -110,17 +117,28 @@ jobs:
                      '*.cu' '*.cuh' '*.inl' \
                      '*.sh' '*.proto' \
                      'Dockerfile' '*/Dockerfile' '**/Dockerfile' '*.dockerfile')
-          if [ "${#missing_files[@]}" -gt 0 ]; then
+          if [ "${#missing_copyright_files[@]}" -gt 0 ] || [ "${#missing_license_files[@]}" -gt 0 ]; then
             # Print the list to the raw log so it shows in the step output,
             # then emit GitHub annotations so the offending files appear in
             # the PR "Files changed" review tab too.
-            echo
-            echo "The following ${#missing_files[@]} source file(s) are missing an"
-            echo "inline 'SPDX-License-Identifier' tag in their first 20 lines:"
-            echo
-            for f in "${missing_files[@]}"; do
-              echo "  - $f"
-            done
+            if [ "${#missing_copyright_files[@]}" -gt 0 ]; then
+              echo
+              echo "The following ${#missing_copyright_files[@]} source file(s) are missing a non-empty"
+              echo "inline 'SPDX-FileCopyrightText' tag in their first 20 lines:"
+              echo
+              for f in "${missing_copyright_files[@]}"; do
+                echo "  - $f"
+              done
+            fi
+            if [ "${#missing_license_files[@]}" -gt 0 ]; then
+              echo
+              echo "The following ${#missing_license_files[@]} source file(s) are missing a non-empty"
+              echo "inline 'SPDX-License-Identifier' tag in their first 20 lines:"
+              echo
+              for f in "${missing_license_files[@]}"; do
+                echo "  - $f"
+              done
+            fi
             echo
             # REUSE-IgnoreStart
             echo "Add a header like (Python/shell comment style):"
@@ -128,14 +146,17 @@ jobs:
             echo "  # SPDX-License-Identifier: Apache-2.0"
             echo "C/C++/CUDA files use '//' line comments with the same two tags."
             echo
-            for f in "${missing_files[@]}"; do
-              echo "::error file=$f,line=1,title=Missing SPDX header::Add 'SPDX-License-Identifier: Apache-2.0' (and matching SPDX-FileCopyrightText) to the first 20 lines of this file."
+            for f in "${missing_copyright_files[@]}"; do
+              echo "::error file=$f,line=1,title=Missing SPDX copyright::Add a non-empty 'SPDX-FileCopyrightText' tag to the first 20 lines of this file."
+            done
+            for f in "${missing_license_files[@]}"; do
+              echo "::error file=$f,line=1,title=Missing SPDX license::Add a non-empty 'SPDX-License-Identifier' tag to the first 20 lines of this file."
             done
             # REUSE-IgnoreEnd
-            echo "::error title=Missing SPDX headers::${#missing_files[@]} source file(s) missing inline SPDX header"
+            echo "::error title=Missing SPDX headers::${#missing_copyright_files[@]} source file(s) missing copyright tags; ${#missing_license_files[@]} missing license tags"
             exit 1
           fi
-          echo "OK: every tracked source file carries an inline SPDX-License-Identifier"
+          echo "OK: every tracked source file carries inline SPDX copyright and license tags"
 
       - name: No NVIDIA proprietary banners
         run: |
