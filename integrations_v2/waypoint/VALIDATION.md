@@ -22,10 +22,10 @@ Validated on 2026-08-25 against FlashDreams main `8fd97fa3`, source PR #464
 - TAEHV SHA-256:
   `806f78a06266ba58bb982d8680add1a249aefcc96237e8a0aa60298617744682`.
 
-Large outputs remain in the ignored local directory `artifacts/waypoint-pr464/`:
-the 40-action MP4 and its V2 metrics JSON. The MP4 decodes as exactly 164
-frames (four seed frames plus 40 four-frame actions), with no duplicate or
-dropped frames.
+Large outputs remain in the ignored local directory `artifacts/waypoint-pr464/`.
+The initial 40-action MP4 decodes as exactly 164 frames (four seed frames plus
+40 four-frame actions), with no duplicate or dropped frames. Additional scene
+and long-rollout outputs are under its `additional-inference/` directory.
 
 ## Automated gates
 
@@ -81,3 +81,25 @@ four-step BF16 Euler schedule:
 
 The remaining BF16 difference is consistent with whole-model fusion in the
 official compiled graph versus separately compiled attention in FlashDreams.
+
+## Additional scene and long-rollout validation
+
+All 15 seed images from the pinned Biome checkout were each run for 40 actions.
+The original pinned example was also run through all 118 bundled actions. One
+loaded application and model served fresh sequential sessions, exercising both
+model reuse and per-session image cache/RNG isolation.
+
+- 16 runs completed, totaling 718 generated actions and 2,936 decoded frames.
+- Every metrics sequence was complete, ordered, and finite.
+- Every 40-action MP4 decoded as exactly 164 frames; the 118-action MP4 decoded
+  as exactly 476 frames.
+- Downsampled seed and final frames were nonblank. Seed-to-final mean absolute
+  pixel difference ranged from 21.09 to 51.73 on the 0-255 scale.
+- Action-40 latency across the 15 scenes averaged 90.986 ms, ranging from
+  89.029 to 92.622 ms.
+- Action 118 completed in 91.479 ms. Maximum measured peak allocation across
+  the batch was 6.355 GiB.
+
+All scenes used seed 464 and the same bundled control timeline. This validates
+execution, cache longevity, scene diversity, output encoding, and stable
+performance; it is not a qualitative gameplay ranking of the scenes.
