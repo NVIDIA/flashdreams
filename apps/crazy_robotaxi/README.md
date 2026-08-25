@@ -188,8 +188,9 @@ the roads connected to them.
 The complete, authoritative format is documented in
 [`../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md`](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md).
 The bundled `minimal_loop.robotaxi.yaml` is a compact working example,
-`demo_race_track.robotaxi.yaml` is a short one-lap circuit intended for race-mode
-demos, and `boulevard_district.robotaxi.yaml` recreates the original scene's
+`demo_race_track.robotaxi.yaml` is a wide one-lap circuit with sweeping Bézier
+curves intended for race-mode demos, and `boulevard_district.robotaxi.yaml`
+recreates the original scene's
 surface-street layout at its source scale, including the curved arterial split,
 neighborhood grid, eastern commercial loops, cul-de-sacs, and parking lots.
 The elevated highway and its on-ramps in the northwest are intentionally
