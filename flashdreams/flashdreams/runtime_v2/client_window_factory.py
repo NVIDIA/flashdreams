@@ -106,7 +106,32 @@ class _WebRTCMode(ClientWindowMode):
         return f"Open {server.url} in a browser."
 
 
-_MODES: tuple[ClientWindowMode, ...] = (_Mp4Mode(), _WebRTCMode())
+class _NativeWindowMode(ClientWindowMode):
+    """Present the run in a GPU-backed local OS window."""
+
+    name = "native-window"
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--window-title",
+            default="FlashDreams",
+            help="Native window title. Default: %(default)s.",
+        )
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        # Imported here so file and browser runs need none of the SlangPy stack.
+        from flashdreams.runtime_v2.native_window_client_window import (
+            NativeWindowClientWindow,
+        )
+
+        return NativeWindowClientWindow(title=parsed_args.window_title)
+
+
+_MODES: tuple[ClientWindowMode, ...] = (
+    _Mp4Mode(),
+    _WebRTCMode(),
+    _NativeWindowMode(),
+)
 """Modes a run can be presented through, the first being the default."""
 
 

@@ -24,11 +24,13 @@ uv sync --package flashdreams-slangpy-ui-demo --inexact
 uv run --no-sync flashdreams-run-v2 slangpy-ui-text-input --mode webrtc
 uv run --no-sync flashdreams-run-v2 slangpy-ui-model-output --mode webrtc
 uv run --no-sync flashdreams-run-v2 slangpy-ui-invoke-async --mode webrtc
+uv run --no-sync flashdreams-run-v2 slangpy-ui-model-output --mode native-window
 ```
 
 Open the URL the WebRTC window prints. The live renderer needs CUDA,
 Vulkan/CUDA interop, and SlangPy, which is why these are the only integrations
-here that will not run on a CPU.
+here that will not run on a CPU. Native-window mode presents the result directly
+in a GLFW window and keeps GPU-resident tensors off the CPU.
 
 ## Writing one
 

@@ -110,7 +110,9 @@ def _parser() -> argparse.ArgumentParser:
     installed = ", ".join(registered_application_slugs()) or "(none)"
     parser = argparse.ArgumentParser(
         prog="flashdreams-run-v2",
-        description="Run a FlashDreams application, to a file or to a browser.",
+        description=(
+            "Run a FlashDreams application to a file, browser, or native window."
+        ),
         epilog=(
             f"Installed applications: {installed}. Arguments after -- go to the "
             "application, so `flashdreams-run-v2 SLUG -- --help` describes it."

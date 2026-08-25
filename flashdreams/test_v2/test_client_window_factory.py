@@ -18,6 +18,9 @@ from flashdreams.runtime_v2.client_window_factory import (
     create_client_window,
 )
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.native_window_client_window import (
+    NativeWindowClientWindow,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -55,6 +58,15 @@ def test_the_file_is_named_once_there_is_something_in_it(tmp_path: Path) -> None
 def test_an_unsupported_mode_is_refused() -> None:
     with pytest.raises(ValueError, match="Unsupported"):
         create_client_window(argparse.Namespace(mode="local"))
+
+
+def test_a_native_window_mode_is_lazy_and_keeps_its_title() -> None:
+    window = create_client_window(
+        _parsed(["--mode", "native-window", "--window-title", "World model"])
+    )
+
+    assert isinstance(window, NativeWindowClientWindow)
+    assert window.title == "World model"
 
 
 class TestWebRTC:

@@ -11,11 +11,87 @@ from numpy import uint64
 
 from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
 from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEvent,
     MouseUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_space_key_routes_a_text_input_codepoint() -> None:
+    ui_context = Mock()
+    slangpy = SimpleNamespace(
+        KeyboardEvent=lambda: SimpleNamespace(),
+        KeyboardEventType=SimpleNamespace(
+            key_press="key_press",
+            key_release="key_release",
+            input="input",
+        ),
+        KeyCode=SimpleNamespace(space="space"),
+        KeyModifierFlags=SimpleNamespace(none="none"),
+    )
+    events = UserInputEvents(
+        [
+            KeyboardUserInputEvent(
+                timestamp=uint64(0),
+                key=" ",
+                state=KeyboardInputState.PRESSED,
+            )
+        ]
+    )
+
+    _route_input_events(
+        events,
+        ui_context=ui_context,
+        slangpy=slangpy,
+        width=1,
+        height=1,
+    )
+
+    key_event, text_event = [
+        call.args[0] for call in ui_context.handle_keyboard_event.call_args_list
+    ]
+    assert (key_event.type, key_event.key) == ("key_press", "space")
+    assert (text_event.type, text_event.codepoint) == ("input", ord(" "))
+
+
+def test_shifted_character_preserves_key_and_text_input() -> None:
+    ui_context = Mock()
+    slangpy = SimpleNamespace(
+        KeyboardEvent=lambda: SimpleNamespace(),
+        KeyboardEventType=SimpleNamespace(
+            key_press="key_press",
+            key_release="key_release",
+            input="input",
+        ),
+        KeyCode=SimpleNamespace(a="a"),
+        KeyModifierFlags=SimpleNamespace(none="none"),
+    )
+    events = UserInputEvents(
+        [
+            KeyboardUserInputEvent(
+                timestamp=uint64(0),
+                key="A",
+                state=KeyboardInputState.PRESSED,
+            )
+        ]
+    )
+
+    _route_input_events(
+        events,
+        ui_context=ui_context,
+        slangpy=slangpy,
+        width=1,
+        height=1,
+    )
+
+    key_event, text_event = [
+        call.args[0] for call in ui_context.handle_keyboard_event.call_args_list
+    ]
+    assert (key_event.type, key_event.key) == ("key_press", "a")
+    assert (text_event.type, text_event.codepoint) == ("input", ord("A"))
 
 
 def test_mouse_input_is_routed_through_slangpy_ui_context() -> None:

@@ -199,6 +199,29 @@ def result_to_rgb24_frames(
             one sequence of frames, or disagrees with itself over how many frames
             it carries.
     """
+    return result_to_rgb24_tensor(result, session_desc).cpu().numpy()
+
+
+def result_to_rgb24_tensor(result: StepResult, session_desc: SessionDesc) -> Tensor:
+    """Convert one result to device-resident ``[T, H, W, C]`` uint8 frames.
+
+    Floating-point tensors hold normalized ``[-1, 1]`` pixels and integer
+    tensors hold raw ``0``-``255`` values. The returned tensor remains on the
+    input tensor's device so GPU presentation does not materialize frames on
+    the CPU.
+
+    Args:
+        result: Generated output for one step.
+        session_desc: Description the output is expected to match.
+
+    Returns:
+        Contiguous uint8 RGB frames on ``result.output.device``.
+
+    Raises:
+        ValueError: ``result`` does not match ``session_desc``, carries more than
+            one sequence of frames, or disagrees with itself over its frame
+            count.
+    """
     if result.output_layout is not session_desc.output_layout:
         raise ValueError(
             f"Output was described as {session_desc.output_layout.value} but "
@@ -225,7 +248,7 @@ def result_to_rgb24_frames(
     if frames.is_floating_point():
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
-    return frames.permute(0, 2, 3, 1).contiguous().cpu().numpy()
+    return frames.permute(0, 2, 3, 1).contiguous()
 
 
 def _to_tchw(output: Tensor, layout: VideoTensorLayout) -> Tensor:
