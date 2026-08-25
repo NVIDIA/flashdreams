@@ -191,6 +191,8 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
 
     assert result.frame_count == 2
     assert result.metrics["model_step_s"] == 1.0
+    assert result.metrics["generate_call_s"] >= 0
+    assert result.metrics["finalize_and_sync_s"] >= 0
     assert result.metrics["steady_state_fps"] > 0
     assert result.metrics["model_step_wall_s"] > 0
     ui_loop._run_message_batch()
@@ -350,7 +352,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> N
             UserInputEvent(
                 timestamp=uint64(0),
                 event_data=KeyboardUserInputEventData(
-                    key="w",
+                    key="ArrowUp",
                     state=KeyboardInputState.PRESSED,
                 ),
             )

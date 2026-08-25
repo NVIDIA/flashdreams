@@ -31,9 +31,6 @@ class Cam2VApplication(IApplication):
     :class:`Cam2VApplicationDefaults`.
     """
 
-    session_type: type[Cam2VSession] = Cam2VSession
-    """Session constructed for each independent camera rollout."""
-
     def __init__(self, *, defaults: Cam2VApplicationDefaults) -> None:
         self.defaults = defaults
         self._pipeline_config = defaults.pipeline_config
@@ -131,18 +128,18 @@ class Cam2VApplication(IApplication):
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
 
+        self._pipeline_config = self.defaults.pipeline_config
         self._validate_arguments(args)
         self._apply_parsed_arguments(args)
-        self._pipeline_config = self.defaults.pipeline_config
         if args.compile is not None:
-            self._pipeline_config = self._apply_compile_override(
+            self._pipeline_config = derive_config(
                 self._pipeline_config,
-                args.compile,
+                diffusion_model={"transformer": {"compile_network": args.compile}},
             )
         if args.seed is not None:
-            self._pipeline_config = self._apply_seed_override(
+            self._pipeline_config = derive_config(
                 self._pipeline_config,
-                args.seed,
+                diffusion_model={"seed": args.seed},
             )
         self._device = args.device
         self._total_blocks = args.total_blocks
@@ -198,7 +195,7 @@ class Cam2VApplication(IApplication):
             pipeline = self._pipeline_config.setup().to(self._device).eval()
             self._pipeline = pipeline
         self._validate_frame_size(session_desc, pipeline)
-        return self.session_type(
+        return Cam2VSession(
             pipeline=pipeline,
             session_desc=session_desc,
             config=Cam2VSessionConfig(
@@ -237,17 +234,6 @@ class Cam2VApplication(IApplication):
             raise ValueError("--warmup-blocks must be >= 0.")
         if args.world_scale is not None and args.world_scale < 0:
             raise ValueError("--world-scale must be >= 0 when set.")
-
-    def _apply_compile_override(self, pipeline_config: Any, enabled: bool) -> Any:
-        """Return ``pipeline_config`` with network compilation overridden."""
-        return derive_config(
-            pipeline_config,
-            diffusion_model={"transformer": {"compile_network": enabled}},
-        )
-
-    def _apply_seed_override(self, pipeline_config: Any, seed: int) -> Any:
-        """Return ``pipeline_config`` with diffusion sampling seed overridden."""
-        return derive_config(pipeline_config, diffusion_model={"seed": seed})
 
     def _validate_layout(self, session_desc: SessionDesc) -> None:
         """Reject output layouts that differ from the model's declared layout."""

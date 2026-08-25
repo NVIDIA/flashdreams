@@ -53,7 +53,7 @@ class SessionDesc:
     """Rate to read input and run continuous UI redraws, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Generated-video rate and maximum model-loop iterations per second."""
+    """Initial video rate and maximum model-loop iterations per second."""
 
     video_width: int = 1280
     """Output video width in pixels."""

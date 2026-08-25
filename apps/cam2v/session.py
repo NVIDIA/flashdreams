@@ -8,7 +8,6 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import torch
@@ -95,9 +94,6 @@ class Cam2VModelState:
     cache: Any | None = None
     """Session-local autoregressive model cache."""
 
-    first_frame: torch.Tensor | None = None
-    """Session-local first-frame tensor retained by the cache."""
-
     blocks_generated: int = 0
     """Number of completed autoregressive model steps."""
 
@@ -117,56 +113,6 @@ class Cam2VModelState:
     """Registered UI-loop handle used only through ``invoke_async``."""
 
 
-class _GPUStageTimer:
-    """Measure GPU generation and finalization without intermediate syncs."""
-
-    def __init__(self, device: torch.device) -> None:
-        self._enabled = device.type == "cuda" and torch.cuda.is_available()
-        self._generate_start: torch.cuda.Event | None = None
-        self._generate_end: torch.cuda.Event | None = None
-        self._finalize_start: torch.cuda.Event | None = None
-        self._finalize_end: torch.cuda.Event | None = None
-        self._stream = torch.cuda.current_stream(device) if self._enabled else None
-        if self._enabled:
-            self._generate_start = torch.cuda.Event(enable_timing=True)
-            self._generate_end = torch.cuda.Event(enable_timing=True)
-            self._finalize_start = torch.cuda.Event(enable_timing=True)
-            self._finalize_end = torch.cuda.Event(enable_timing=True)
-
-    def mark_generate_start(self) -> None:
-        """Record the beginning of pipeline generation."""
-        if self._generate_start is not None:
-            self._generate_start.record(self._stream)
-
-    def mark_generate_end(self) -> None:
-        """Record the end of pipeline generation."""
-        if self._generate_end is not None:
-            self._generate_end.record(self._stream)
-
-    def mark_finalize_start(self) -> None:
-        """Record the beginning of pipeline finalization."""
-        if self._finalize_start is not None:
-            self._finalize_start.record(self._stream)
-
-    def mark_finalize_end(self) -> None:
-        """Record the end of pipeline finalization."""
-        if self._finalize_end is not None:
-            self._finalize_end.record(self._stream)
-
-    def elapsed_seconds(self) -> tuple[float | None, float | None]:
-        """Synchronize once and return generation and finalization durations."""
-        if self._finalize_end is None:
-            return None, None
-        assert self._generate_start is not None
-        assert self._generate_end is not None
-        assert self._finalize_start is not None
-        self._finalize_end.synchronize()
-        return (
-            self._generate_start.elapsed_time(self._generate_end) / 1_000.0,
-            self._finalize_start.elapsed_time(self._finalize_end) / 1_000.0,
-        )
-
-
 class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
     """Generate one camera-controlled video chunk per model-loop iteration."""
 
@@ -177,7 +123,21 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         if state.blocks_generated == state.config.warmup_blocks:
             state.steady_started_at = step_started_at
 
-        _ensure_rollout_initialized(state)
+        conditioning = state.config.conditioning
+        if state.cache is None:
+            first_frame = load_first_frame_tensor(
+                conditioning.first_frame_path,
+                pixel_height=state.session_desc.video_height,
+                pixel_width=state.session_desc.video_width,
+                device=state.config.device,
+                dtype=torch.bfloat16,
+                interpolation="cubic",
+                install_hint=state.config.install_hint,
+            )
+            state.cache = state.pipeline.initialize_cache(
+                text=[conditioning.prompt],
+                image=first_frame,
+            )
         assert state.cache is not None
 
         frame_count = int(state.pipeline.get_num_output_frames(step_index))
@@ -196,7 +156,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             segments=segments,
             frame_times=frame_times,
         )
-        conditioning = state.config.conditioning
         camera_input = CameraControlInput(
             intrinsics=conditioning.base_intrinsics.repeat(frame_count, 1).to(
                 device=state.config.device,
@@ -210,28 +169,24 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         )
         input_preparation_s = time.perf_counter() - step_started_at
 
-        gpu_timer = _GPUStageTimer(state.config.device)
         generate_started_at = time.perf_counter()
-        gpu_timer.mark_generate_start()
         frames = state.pipeline.generate(
             autoregressive_index=step_index,
             cache=state.cache,
             input=camera_input,
         )
-        gpu_timer.mark_generate_end()
-        generate_submit_s = time.perf_counter() - generate_started_at
+        generate_call_s = time.perf_counter() - generate_started_at
 
         finalize_started_at = time.perf_counter()
-        gpu_timer.mark_finalize_start()
         metrics = _numeric_metrics(
             state.pipeline.finalize(
                 autoregressive_index=step_index,
                 cache=state.cache,
             )
         )
-        gpu_timer.mark_finalize_end()
-        generate_gpu_s, finalize_gpu_s = gpu_timer.elapsed_seconds()
-        finalize_submit_s = time.perf_counter() - finalize_started_at
+        if state.config.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.current_stream(state.config.device).synchronize()
+        finalize_and_sync_s = time.perf_counter() - finalize_started_at
         model_step_wall_s = time.perf_counter() - step_started_at
 
         state.blocks_generated += 1
@@ -239,8 +194,8 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         metrics.update(
             {
                 "input_prepare_s": input_preparation_s,
-                "generate_submit_s": generate_submit_s,
-                "finalize_submit_s": finalize_submit_s,
+                "generate_call_s": generate_call_s,
+                "finalize_and_sync_s": finalize_and_sync_s,
                 "model_step_wall_s": model_step_wall_s,
                 "chunk_fps": frame_count / model_step_wall_s,
             }
@@ -251,10 +206,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             metrics["steady_state_fps"] = (
                 state.steady_frames_generated / steady_elapsed_s
             )
-        if generate_gpu_s is not None:
-            metrics["generate_gpu_s"] = generate_gpu_s
-        if finalize_gpu_s is not None:
-            metrics["finalize_gpu_s"] = finalize_gpu_s
         if (
             state.steady_started_at is not None
             and state.blocks_generated % state.config.log_every_blocks == 0
@@ -283,7 +234,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         """Discard model and camera state for a new session generation."""
         state = self.state
         state.cache = None
-        state.first_frame = None
         state.blocks_generated = 0
         state.frames_generated = 0
         state.keyboard_resampler.reset(start_v=0.0)
@@ -294,14 +244,10 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
     def close(self) -> None:
         """Release session-owned tensors while retaining the application model."""
         self.state.cache = None
-        self.state.first_frame = None
 
 
 class Cam2VSession(ISession):
     """One camera-controlled rollout sharing its application's loaded model."""
-
-    model_loop_type: type[Cam2VModelLoop] = Cam2VModelLoop
-    """Model-generation-loop type registered by :meth:`init`."""
 
     def __init__(
         self,
@@ -346,7 +292,7 @@ class Cam2VSession(ISession):
             assert isinstance(registered_ui, Cam2VSlangPyUILoop)
             ui_loop = registered_ui
         self.register_model_loop(
-            self.model_loop_type,
+            Cam2VModelLoop,
             state=Cam2VModelState(
                 pipeline=self._pipeline,
                 session_desc=self._session_desc,
@@ -412,23 +358,6 @@ def _catch_up_keyboard_timeline(
     )
 
 
-def _ensure_rollout_initialized(state: Cam2VModelState) -> None:
-    """Initialize first-frame and cache state on the model-generation-thread."""
-    if state.cache is not None:
-        return
-    conditioning = state.config.conditioning
-    state.first_frame = _load_first_frame(
-        conditioning.first_frame_path,
-        session_desc=state.session_desc,
-        device=state.config.device,
-        install_hint=state.config.install_hint,
-    )
-    state.cache = state.pipeline.initialize_cache(
-        text=[conditioning.prompt],
-        image=state.first_frame,
-    )
-
-
 def _publish_ui_status(
     state: Cam2VModelState,
     metrics: Mapping[str, float | int],
@@ -453,25 +382,6 @@ def _publish_ui_status(
     )
 
 
-def _load_first_frame(
-    path: Path,
-    *,
-    session_desc: SessionDesc,
-    device: torch.device,
-    install_hint: str,
-) -> torch.Tensor:
-    """Load a first frame using the framework's runner-compatible path."""
-    return load_first_frame_tensor(
-        path,
-        pixel_height=session_desc.video_height,
-        pixel_width=session_desc.video_width,
-        device=device,
-        dtype=torch.bfloat16,
-        interpolation="cubic",
-        install_hint=install_hint,
-    )
-
-
 def _numeric_metrics(stats: object) -> dict[str, float | int]:
     """Keep numeric pipeline metrics accepted by the v2 result contract."""
     if not isinstance(stats, Mapping):
@@ -492,24 +402,17 @@ def _log_step_timing(
     """Log one chunk's wall-time breakdown and steady-state throughput."""
     logger.info(
         "Cam2V block={} frames={} steady_state_fps={:.2f} chunk_fps={:.2f} "
-        "wall={:.3f}s input={:.3f}s generate_submit={:.3f}s "
-        "finalize_submit={:.3f}s generate_gpu={} finalize_gpu={}",
+        "wall={:.3f}s input={:.3f}s generate_call={:.3f}s "
+        "finalize_and_sync={:.3f}s",
         step_index,
         frame_count,
         metrics["steady_state_fps"],
         metrics["chunk_fps"],
         metrics["model_step_wall_s"],
         metrics["input_prepare_s"],
-        metrics["generate_submit_s"],
-        metrics["finalize_submit_s"],
-        _format_optional_seconds(metrics.get("generate_gpu_s")),
-        _format_optional_seconds(metrics.get("finalize_gpu_s")),
+        metrics["generate_call_s"],
+        metrics["finalize_and_sync_s"],
     )
-
-
-def _format_optional_seconds(value: float | int | None) -> str:
-    """Format an optional stage duration for live logging."""
-    return "n/a" if value is None else f"{float(value):.3f}s"
 
 
 __all__ = [

@@ -63,11 +63,13 @@ self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
-The io-thread also uses `frames_per_second_for_step` as the initial rate for
-selecting frames from model chunks, independently of its input and UI redraw
-rate. `PresentationMode.ONLY_PRESENT_NEWEST` lets an `IUILoop` redraw
-continuously; `PresentationMode.ONLY_PRESENT_NEW` runs it only when the selected
-model frame changes.
+The io-thread initially selects frames from model chunks at
+`frames_per_second_for_step`, then uses the model-generation-thread's rolling
+two-second output rate. This paces chunked output evenly without tying input
+and UI redraws to model throughput.
+`PresentationMode.ONLY_PRESENT_NEWEST` lets an `IUILoop` redraw continuously;
+`PresentationMode.ONLY_PRESENT_NEW` runs it only when the selected model frame
+changes.
 
 ## Loops
 

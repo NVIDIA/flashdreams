@@ -6,7 +6,7 @@ Concrete integrations supply an existing runner config plus an input resolver
 that turns their asset format into `Cam2VConditioning`.
 
 The application owns the loaded pipeline. Each session owns its autoregressive
-cache, first frame, keyboard state, camera pose, and SlangPy UI overlay. The
+cache, keyboard state, camera pose, and SlangPy UI overlay. The
 io-thread runs the UI loop over the current video frame; the
 model-generation-thread runs the model loop and is the only thread that mutates
 rollout state. Model status crosses to the UI loop through `invoke_async`
@@ -25,7 +25,8 @@ uv run flashdreams-run-v2 cam2v-dummy --mode webrtc \
 ```
 
 The model-generation-thread waits on a `threading.Event` for each synthetic
-step while the io-thread continues processing and rendering browser input.
+step while the io-thread continues collecting browser input and presenting
+generated frames.
 
 See `integrations/lingbot/lingbot/cam2v/app.py` for the minimal specialization
 pattern.

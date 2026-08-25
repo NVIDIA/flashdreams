@@ -23,11 +23,7 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import (
-    _next_tick_deadline,
-    _PresentationClock,
-    run_session,
-)
+from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -115,24 +111,6 @@ def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
 
     clock.observe_model_output(now=2.2, generation=0, frame_count=120)
     assert clock.frames_per_second == 16
-
-
-def test_io_tick_deadline_excludes_work_and_reanchors_after_an_overrun() -> None:
-    interval = 1.0 / 60.0
-
-    next_deadline = _next_tick_deadline(
-        1.0,
-        completed_at=1.005,
-        interval=interval,
-    )
-    assert next_deadline == pytest.approx(1.0 + interval)
-
-    reanchored = _next_tick_deadline(
-        next_deadline,
-        completed_at=1.1,
-        interval=interval,
-    )
-    assert reanchored == pytest.approx(1.1 + interval)
 
 
 class CallLog:

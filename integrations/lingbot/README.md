@@ -94,7 +94,7 @@ uv run flashdreams-run lingbot-world-fast \
 
 Lingbot specializes the shared ``apps/cam2v`` application with its existing
 runner config and example-asset resolver. The application loads the pipeline
-once; each session owns its cache, first frame, keyboard state, and camera pose.
+once; each session owns its cache, keyboard state, and camera pose.
 Use the v2 launcher because ``flashdreams-run`` continues to run the established
 runner API.
 
@@ -108,10 +108,10 @@ yaw, ``Q``/``E`` to strafe, and ``I``/``K`` to pitch the generated camera.
 
 The application logs warmup-excluded ``steady_state_fps`` and a per-block
 timing breakdown while it runs. ``model_step_wall_s`` covers camera-input
-preparation, generation, finalization, and CUDA completion; the GPU-stage
-values isolate generation and cache finalization. Set ``--log-every-blocks N``
-to reduce log frequency and ``--warmup-blocks N`` to change the five-block
-default warmup exclusion.
+preparation, generation, finalization, and CUDA completion. The pipeline's
+profiling log provides the GPU-stage breakdown. Set ``--log-every-blocks N`` to
+reduce log frequency and ``--warmup-blocks N`` to change the five-block default
+warmup exclusion.
 
 Multi-GPU via context-parallelism (Wan 2.1 CP assumes `cp_size == world_size`):
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -194,8 +194,6 @@ class DummyCam2VApplication(Cam2VApplication):
     """Run the shared Cam2V UI against a sleeping synthetic model."""
 
     def __init__(self) -> None:
-        self._step_wait_seconds = 0.9
-        self._frames_per_chunk = 12
         super().__init__(
             defaults=Cam2VApplicationDefaults(
                 pipeline_config=DummyCam2VPipelineConfig(),
@@ -209,14 +207,6 @@ class DummyCam2VApplication(Cam2VApplication):
                 warmup_blocks=1,
                 install_hint="Install the Cam2V application with runner extras.",
             )
-        )
-
-    def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse dummy latency settings without loading a model."""
-        super().init(commandline_args)
-        self._pipeline_config = DummyCam2VPipelineConfig(
-            step_wait_seconds=self._step_wait_seconds,
-            frames_per_chunk=self._frames_per_chunk,
         )
 
     def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
@@ -234,8 +224,10 @@ class DummyCam2VApplication(Cam2VApplication):
         )
 
     def _apply_parsed_arguments(self, args: argparse.Namespace) -> None:
-        self._step_wait_seconds = args.step_wait_seconds
-        self._frames_per_chunk = args.frames_per_chunk
+        self._pipeline_config = DummyCam2VPipelineConfig(
+            step_wait_seconds=args.step_wait_seconds,
+            frames_per_chunk=args.frames_per_chunk,
+        )
 
     def _validate_arguments(self, args: argparse.Namespace) -> None:
         super()._validate_arguments(args)

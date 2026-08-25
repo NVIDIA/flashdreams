@@ -746,11 +746,3 @@ def _prepare_rgb_frames(frames: torch.Tensor) -> tuple[_QueuedRGBFrame, ...]:
         )
         for frame_index in range(frames.shape[0])
     )
-
-
-def _result_to_rgb_frames(
-    result: StepResult, session_desc: SessionDesc
-) -> tuple[_RGBArray, ...]:
-    """Synchronously convert one result to time-major RGB uint8 frames."""
-    frames = _rgb_uint8_thwc(_validated_result_frames(result, session_desc)).cpu()
-    return tuple(np.asarray(frame.numpy()) for frame in frames)

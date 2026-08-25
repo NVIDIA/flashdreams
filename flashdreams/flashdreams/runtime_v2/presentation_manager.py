@@ -15,13 +15,13 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class PresentationManager:
-    """Buffer model output for a session's UI thread.
+    """Buffer model output for a session's io-thread.
 
-    The model thread publishes a chunk of channels per step into a bounded
-    queue; the UI thread calls :meth:`advance` once per tick to move to the next
-    frame. A chunk holding several frames is walked frame by frame before
-    another is taken, so a step that generated twelve frames is presented over
-    twelve ticks rather than eleven being skipped.
+    The model-generation-thread publishes a chunk of channels per step into a
+    bounded queue; the io-thread calls :meth:`advance` once per tick to move to
+    the next frame. A chunk holding several frames is walked frame by frame
+    before another is taken, so a step that generated twelve frames is
+    presented over twelve ticks rather than eleven being skipped.
 
     :class:`BackpressureMode` decides what publishing does when the queue is
     full. Chunks that could not be kept are counted in
@@ -81,9 +81,9 @@ class PresentationManager:
     ) -> None:
         """Add one completed model step to the presentation queue.
 
-        Called on the model thread. ``BLOCK`` waits here when the queue is full,
-        until there is room or the session stops; ``DROP_OLDEST`` evicts instead
-        and returns.
+        Called on the model-generation-thread. ``BLOCK`` waits here when the
+        queue is full, until there is room or the session stops;
+        ``DROP_OLDEST`` evicts instead and returns.
 
         Args:
             generation: Reset generation the chunk was generated in. A chunk
@@ -116,7 +116,7 @@ class PresentationManager:
     def advance(self, generation: int) -> tuple[bool, list[StepResult] | None]:
         """Move to the next model frame, if one is available.
 
-        Called on the UI thread, once per tick. A ``generation`` other than the
+        Called on the io-thread, once per tick. A ``generation`` other than the
         last one seen drops what is being presented, so nothing generated before
         a reset survives it.
 

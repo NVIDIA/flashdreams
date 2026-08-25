@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
 from typing import Any
 
 from cam2v import Cam2VApplication, Cam2VApplicationDefaults, Cam2VConditioning
@@ -42,15 +41,14 @@ def _resolve_lingbot_conditioning(values: Mapping[str, Any]) -> Cam2VConditionin
 class LingbotCam2VApplication(Cam2VApplication):
     """Lingbot World configured through its existing interactive runner config."""
 
-    def __init__(self, *, pipeline_config: Any | None = None) -> None:
-        defaults = Cam2VApplicationDefaults.from_runner_config(
-            RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
-            input_resolver=_resolve_lingbot_conditioning,
-            install_hint=_INSTALL_HINT,
+    def __init__(self) -> None:
+        super().__init__(
+            defaults=Cam2VApplicationDefaults.from_runner_config(
+                RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+                input_resolver=_resolve_lingbot_conditioning,
+                install_hint=_INSTALL_HINT,
+            )
         )
-        if pipeline_config is not None:
-            defaults = replace(defaults, pipeline_config=pipeline_config)
-        super().__init__(defaults=defaults)
 
 
 def create_app() -> IApplication:

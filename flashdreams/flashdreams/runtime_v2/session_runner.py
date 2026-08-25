@@ -35,7 +35,6 @@ class _PresentationClock:
         self._frame_interval = self._fallback_frame_interval
         self._next_frame_at: float | None = None
         self._generation: int | None = None
-        self._observed_frames = 0
         self._observations: deque[tuple[float, int]] = deque()
         self._lock = threading.Lock()
 
@@ -73,11 +72,15 @@ class _PresentationClock:
 
             if self._observations and now < self._observations[-1][0]:
                 raise ValueError("now must not precede the latest observation.")
-            self._observed_frames += frame_count
+            observed_frames = (
+                frame_count
+                if not self._observations
+                else self._observations[-1][1] + frame_count
+            )
             if self._observations and now == self._observations[-1][0]:
-                self._observations[-1] = (now, self._observed_frames)
+                self._observations[-1] = (now, observed_frames)
             else:
-                self._observations.append((now, self._observed_frames))
+                self._observations.append((now, observed_frames))
             self._update_frame_interval(now)
 
     def is_due(self, now: float, generation: int) -> bool:
@@ -100,7 +103,6 @@ class _PresentationClock:
         self._generation = generation
         self._frame_interval = self._fallback_frame_interval
         self._next_frame_at = None
-        self._observed_frames = 0
         self._observations.clear()
 
     def _update_frame_interval(self, now: float) -> None:
@@ -137,19 +139,6 @@ def _log_secondary_failure(message: str, error: BaseException) -> None:
     _LOGGER.error(message, exc_info=error)
 
 
-def _next_tick_deadline(
-    previous_deadline: float,
-    *,
-    completed_at: float,
-    interval: float,
-) -> float:
-    """Return the next absolute io-thread deadline without catch-up bursts."""
-    next_deadline = previous_deadline + interval
-    if next_deadline <= completed_at:
-        return completed_at + interval
-    return next_deadline
-
-
 def run_session(
     session: ISession,
     window: IClientWindow,
@@ -160,10 +149,10 @@ def run_session(
 ) -> None:
     """Run a session's UI and model loops.
 
-    The calling thread handles the window and UI. The model runs on a separate
-    Python thread. Returns when the client closes the window, when the model
-    loop has finished and no generated frames are still waiting, or when either
-    loop fails.
+    The calling io-thread handles the window and UI. A model-generation-thread
+    runs the model loop. Returns when the client closes the window, when the
+    model loop has finished and no generated frames are still waiting, or when
+    either loop fails.
 
     Both loops are shut down, every sink opened is closed, and the session is
     closed, before this returns or raises.
@@ -306,11 +295,10 @@ def run_session(
                     break
                 tick_ui()
                 event_buffer.collect_garbage()
-                next_tick_at = _next_tick_deadline(
-                    next_tick_at,
-                    completed_at=time.monotonic(),
-                    interval=tick_seconds,
-                )
+                next_tick_at += tick_seconds
+                completed_at = time.monotonic()
+                if next_tick_at <= completed_at:
+                    next_tick_at = completed_at + tick_seconds
     except BaseException as error:
         high_level_failures = error
     finally:

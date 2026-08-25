@@ -73,7 +73,7 @@ class Cam2VApplicationDefaults:
     """Device on which the application constructs the shared pipeline."""
 
     fps: int = 16
-    """Generated-video frame rate and model-generation-thread pacing limit."""
+    """Initial video frame rate and model-generation-loop pacing limit."""
 
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
     """Tensor layout emitted by the model pipeline."""

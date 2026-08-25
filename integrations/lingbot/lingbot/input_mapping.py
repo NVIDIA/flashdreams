@@ -24,7 +24,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from cam2v.controls import CameraPoseIntegrator, PoseSegment
 
 from flashdreams.runtime.canonical import (
     CAMERA_COMMAND,
@@ -45,6 +44,7 @@ from flashdreams.runtime.inputs import (
 )
 from flashdreams.runtime.mapping import InputMappingSchema
 from flashdreams.runtime.types import StepRequest
+from lingbot.controls import CameraPoseIntegrator, PoseSegment
 
 FIELD_CAMERA_TRAJECTORY = "camera_trajectory"
 FIELD_CAMERA_INTRINSICS = "camera_intrinsics"

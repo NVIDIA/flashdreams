@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import tomli as tomllib
 import torch
 from cam2v import Cam2VApplication, Cam2VConditioning
 from lingbot.cam2v import LingbotCam2VApplication, create_app
@@ -17,15 +18,29 @@ from lingbot.config import RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
 pytestmark = pytest.mark.ci_cpu
 
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_lingbot_registers_the_shared_cam2v_application() -> None:
+    """Keep the entry point and dependency owned by the integration."""
+    manifest = tomllib.loads((_PACKAGE_ROOT / "pyproject.toml").read_text())
+
+    assert "flashdreams-cam2v" in manifest["project"]["dependencies"]
+    assert (
+        manifest["project"]["entry-points"]["flashdreams.applications_v2"][
+            "cam2v-lingbot"
+        ]
+        == "lingbot.cam2v.app:create_app"
+    )
+
 
 def test_lingbot_reuses_its_runner_config_for_cam2v_defaults() -> None:
     """Avoid restating the model's pipeline, geometry, rate, or rollout length."""
-    pipeline_config = object()
-    application = LingbotCam2VApplication(pipeline_config=pipeline_config)
+    application = LingbotCam2VApplication()
     runner = RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
     assert isinstance(application, Cam2VApplication)
-    assert application.pipeline_config is pipeline_config
+    assert application.pipeline_config is runner.pipeline
     assert application.defaults.total_blocks == runner.total_blocks
     assert application.session_desc().video_width == runner.pixel_width
     assert application.session_desc().video_height == runner.pixel_height

@@ -12,6 +12,7 @@ import torch
 from loguru import logger
 from torch import Tensor
 
+from flashdreams.runtime.keyboard import normalize_key
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEventData,
@@ -20,11 +21,11 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
-_CAMERA_KEYS = frozenset({"w", "s", "q", "e", "a", "d", "j", "l", "i", "k"})
-"""Keyboard controls recognized by the shared camera pose integrator."""
-
 _CAMERA_KEY_ORDER = ("w", "s", "q", "e", "a", "d", "j", "l", "i", "k")
 """Stable order used when active camera controls are displayed."""
+
+_CAMERA_KEYS = frozenset(_CAMERA_KEY_ORDER)
+"""Keyboard controls recognized by the shared camera pose integrator."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,7 +189,7 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
             continue
         if not isinstance(data, KeyboardUserInputEventData):
             continue
-        key = data.key.lower()
+        key = normalize_key(data.key)
         if key not in _CAMERA_KEYS:
             logger.info(
                 "Cam2V SlangPy UI loop ignored keyboard event "
