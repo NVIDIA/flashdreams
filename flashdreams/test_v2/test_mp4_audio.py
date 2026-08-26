@@ -192,3 +192,44 @@ def test_audio_muxer_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> No
     muxer.abort()
 
     assert calls == ["terminate", "communicate"]
+
+
+def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> None:
+    """A second abort can retry a child whose first wait was interrupted."""
+    calls: list[str] = []
+
+    class Process:
+        communicate_calls = 0
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            calls.append("terminate")
+
+        def communicate(self) -> tuple[None, bytes]:
+            calls.append("communicate")
+            self.communicate_calls += 1
+            if self.communicate_calls == 1:
+                raise RuntimeError("mux wait interrupted")
+            return None, b""
+
+    process = Process()
+    muxer = Mp4AudioMuxer(
+        video_path=tmp_path / "video.mp4",
+        audio_path=tmp_path / "audio.f32le",
+        output_path=tmp_path / "output.mp4",
+        sample_rate=8_000,
+        channels=1,
+        audio_codec="reviewed-codec",
+    )
+    muxer._process = process  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="mux wait interrupted"):
+        muxer.abort()
+    assert muxer._process is process
+
+    muxer.abort()
+
+    assert muxer._process is None
+    assert calls == ["terminate", "communicate", "terminate", "communicate"]

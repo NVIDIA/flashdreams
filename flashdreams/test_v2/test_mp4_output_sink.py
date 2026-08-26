@@ -86,6 +86,7 @@ class _FakeMuxer:
         audio_path: str | Path,
         output_path: str | Path,
         fail_close: bool = False,
+        fail_abort_once: bool = False,
         **kwargs: object,
     ) -> None:
         del kwargs
@@ -93,6 +94,7 @@ class _FakeMuxer:
         self.audio_path = Path(audio_path)
         self.output_path = Path(output_path)
         self.fail_close = fail_close
+        self.fail_abort_once = fail_abort_once
         self.audio_bytes = b""
         self.abort_calls = 0
 
@@ -105,6 +107,8 @@ class _FakeMuxer:
 
     def abort(self) -> None:
         self.abort_calls += 1
+        if self.fail_abort_once and self.abort_calls == 1:
+            raise RuntimeError("mux abort wait failed")
 
 
 def _install_fake_encoder(
@@ -130,12 +134,19 @@ def _install_fake_encoder(
 
 
 def _install_fake_muxer(
-    monkeypatch: pytest.MonkeyPatch, *, fail_close: bool = False
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fail_close: bool = False,
+    fail_abort_once: bool = False,
 ) -> list[_FakeMuxer]:
     muxers: list[_FakeMuxer] = []
 
     def create_muxer(**kwargs: object) -> _FakeMuxer:
-        muxer = _FakeMuxer(**kwargs, fail_close=fail_close)
+        muxer = _FakeMuxer(
+            **kwargs,
+            fail_close=fail_close,
+            fail_abort_once=fail_abort_once,
+        )
         muxers.append(muxer)
         return muxer
 
@@ -619,6 +630,40 @@ def test_mux_failure_preserves_target_and_can_be_aborted(
     assert path.read_bytes() == b"existing target"
     assert _staging_paths(path) == []
     assert muxers[0].abort_calls == 1
+
+
+def test_failed_mux_abort_retains_ownership_and_staging_for_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never delete files beneath a mux child whose wait has not completed."""
+    _install_fake_encoder(monkeypatch)
+    muxers = _install_fake_muxer(
+        monkeypatch,
+        fail_close=True,
+        fail_abort_once=True,
+    )
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    audio = AudioOutput(samples=torch.zeros((2, 100)), sample_rate=8_000)
+    sink.open(_session_desc(audio=True))
+    sink.write(_result([_RED], audio=audio))
+    with pytest.raises(RuntimeError, match="mux close failed"):
+        sink.close()
+
+    with pytest.raises(RuntimeError, match="mux abort wait failed"):
+        sink.abort()
+
+    assert sink._muxer is muxers[0]
+    assert path.read_bytes() == b"existing target"
+    assert len(_staging_paths(path)) == 1
+
+    sink.abort()
+
+    assert sink._muxer is None
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+    assert muxers[0].abort_calls == 2
 
 
 def test_write_rejects_a_layout_the_sink_was_not_opened_for(tmp_path: Path) -> None:

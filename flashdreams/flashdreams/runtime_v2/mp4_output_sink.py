@@ -215,18 +215,19 @@ class Mp4OutputSink(AbortableOutputSink):
         """Discard staged output without changing the target.
 
         This is idempotent and is valid after a partial ``open``, ``write``, or
-        ``close`` failure.
+        ``close`` failure. Component ownership and staging are retained when
+        cleanup fails so a later call can retry safely.
         """
         failure: BaseException | None = None
         muxer = self._muxer
-        self._muxer = None
         if muxer is not None:
             try:
                 muxer.abort()
             except BaseException as error:
                 failure = error
+            else:
+                self._muxer = None
         encoder = self._encoder
-        self._encoder = None
         if encoder is not None:
             try:
                 encoder.abort()
@@ -237,8 +238,9 @@ class Mp4OutputSink(AbortableOutputSink):
                     cast(Any, failure).add_note(
                         f"Video encoder cleanup also failed: {error!r}"
                     )
+            else:
+                self._encoder = None
         audio_stager = self._audio_stager
-        self._audio_stager = None
         if audio_stager is not None:
             try:
                 audio_stager.abort()
@@ -249,16 +251,15 @@ class Mp4OutputSink(AbortableOutputSink):
                     cast(Any, failure).add_note(
                         f"Audio staging cleanup also failed: {error!r}"
                     )
-        cleanup_failed = False
-        try:
-            self._discard_staging()
-        except BaseException as error:
-            cleanup_failed = True
-            if failure is None:
-                failure = error
             else:
-                cast(Any, failure).add_note(f"Staging cleanup also failed: {error!r}")
-        self._clear_transaction(clear_staging=not cleanup_failed)
+                self._audio_stager = None
+        if failure is None:
+            try:
+                self._discard_staging()
+            except BaseException as error:
+                failure = error
+        if failure is None:
+            self._clear_transaction()
         if failure is not None:
             raise failure
 

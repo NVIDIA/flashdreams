@@ -185,7 +185,6 @@ class Mp4AudioMuxer:
     def abort(self) -> None:
         """Terminate and wait for an active mux process, if any."""
         process = self._process
-        self._process = None
         if process is None:
             return
         if process.poll() is None:
@@ -194,6 +193,7 @@ class Mp4AudioMuxer:
             except ProcessLookupError:
                 pass
         process.communicate()
+        self._process = None
 
     def _command(self, ffmpeg: str) -> list[str]:
         """Return the external invocation that copies video and encodes audio."""
