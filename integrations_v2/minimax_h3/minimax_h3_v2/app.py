@@ -40,7 +40,7 @@ from PIL import Image
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
-from flashdreams.infra.runner_io import (
+from flashdreams.core.io.media_input import (
     read_audio_f32,
     read_optional_audio_f32,
     read_video_rgb_with_fps,
