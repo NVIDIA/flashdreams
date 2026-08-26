@@ -58,6 +58,19 @@ def test_session_modes_are_independent() -> None:
     assert SessionDesc().presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["frames_per_second_for_ui", "frames_per_second_for_step"],
+)
+@pytest.mark.parametrize("value", [True, 24.0, 0, -1])
+def test_session_frame_rates_are_strict_positive_integers(
+    field: str, value: object
+) -> None:
+    """Reject values that fail later loop timing and encoder contracts."""
+    with pytest.raises(ValueError, match="positive integer"):
+        SessionDesc(**{field: value})  # type: ignore[arg-type]
+
+
 class CallLog:
     """Record calls made from either thread, with the thread that made them."""
 

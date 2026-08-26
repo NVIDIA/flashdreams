@@ -3,7 +3,6 @@
 
 """Description of the session a runtime asks an application for."""
 
-import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -76,18 +75,20 @@ class SessionDesc:
         if not isinstance(self.presentation_mode, PresentationMode):
             raise TypeError("SessionDesc.presentation_mode must be a PresentationMode.")
         if (
-            not math.isfinite(self.frames_per_second_for_ui)
+            isinstance(self.frames_per_second_for_ui, bool)
+            or not isinstance(self.frames_per_second_for_ui, int)
             or self.frames_per_second_for_ui <= 0
         ):
             raise ValueError(
-                "SessionDesc.frames_per_second_for_ui must be > 0 when set."
+                "SessionDesc.frames_per_second_for_ui must be a positive integer."
             )
         if (
-            not math.isfinite(self.frames_per_second_for_step)
+            isinstance(self.frames_per_second_for_step, bool)
+            or not isinstance(self.frames_per_second_for_step, int)
             or self.frames_per_second_for_step <= 0
         ):
             raise ValueError(
-                "SessionDesc.frames_per_second_for_step must be > 0 when set."
+                "SessionDesc.frames_per_second_for_step must be a positive integer."
             )
         if self.video_width <= 0:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")
