@@ -55,8 +55,7 @@ class MiniMaxH3Presentation:
         if len(self.token_ids) != self.token_tags.numel():
             raise ValueError("token_tags must identify every presentation token")
         if any(
-            type(token_id) is not int or token_id < 0
-            for token_id in self.token_ids
+            type(token_id) is not int or token_id < 0 for token_id in self.token_ids
         ):
             raise ValueError("token_ids must contain non-negative integers")
         if not bool(
@@ -273,9 +272,7 @@ def build_ref2va_presentation(
     ]
     image_token_counts: list[int] = []
     if images:
-        image_features = processor.image_processor(
-            images=images, return_tensors="pt"
-        )
+        image_features = processor.image_processor(images=images, return_tensors="pt")
         pixel_values = image_features["pixel_values"]
         image_grid_thw = image_features["image_grid_thw"]
         if not isinstance(pixel_values, Tensor) or not isinstance(
@@ -284,14 +281,10 @@ def build_ref2va_presentation(
             raise ValueError("Qwen image processor must return tensor features")
         if image_grid_thw.shape != (len(images), 3):
             raise ValueError("image_grid_thw must identify every image reference")
-        image_token_counts = [
-            int(grid.prod()) // merge_size for grid in image_grid_thw
-        ]
+        image_token_counts = [int(grid.prod()) // merge_size for grid in image_grid_thw]
         if any(count <= 0 for count in image_token_counts):
             raise ValueError("each image reference must produce vision tokens")
-        vision_inputs.update(
-            pixel_values=pixel_values, image_grid_thw=image_grid_thw
-        )
+        vision_inputs.update(pixel_values=pixel_values, image_grid_thw=image_grid_thw)
 
     videos = [
         reference
@@ -312,9 +305,7 @@ def build_ref2va_presentation(
             sampled.append(
                 _sample_ref2va_video_frames(
                     frames,
-                    fps=float(
-                        reference.fps if reference.fps is not None else fps
-                    ),
+                    fps=float(reference.fps if reference.fps is not None else fps),
                     sample_fps=video_sample_fps,
                     temporal_patch=temporal_patch,
                 )
@@ -334,16 +325,13 @@ def build_ref2va_presentation(
         if video_grid_thw.shape != (len(videos), 3):
             raise ValueError("video_grid_thw must identify every video reference")
         video_token_counts = [
-            int(grid[1]) * int(grid[2]) // merge_size
-            for grid in video_grid_thw
+            int(grid[1]) * int(grid[2]) // merge_size for grid in video_grid_thw
         ]
         if any(count <= 0 for count in video_token_counts):
             raise ValueError("each video vision block must produce tokens")
         for timestamps, grid in zip(video_timestamps, video_grid_thw):
             if int(grid[0]) != len(timestamps):
-                raise ValueError(
-                    "Qwen video blocks do not match MiniMax H3 timestamps"
-                )
+                raise ValueError("Qwen video blocks do not match MiniMax H3 timestamps")
         vision_inputs.update(
             pixel_values_videos=pixel_values_videos,
             video_grid_thw=video_grid_thw,

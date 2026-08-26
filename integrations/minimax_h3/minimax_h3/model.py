@@ -147,9 +147,7 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
         self.audio_scheduler = config.audio_scheduler.setup()
 
     @staticmethod
-    def _validate_state(
-        state: MiniMaxH3DenoiseState, transformer_config: Any
-    ) -> None:
+    def _validate_state(state: MiniMaxH3DenoiseState, transformer_config: Any) -> None:
         """Reject malformed packed streams before allocating execution memory."""
         counts = {
             "num_condition_video_rows": state.num_condition_video_rows,
@@ -191,9 +189,7 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             * (state.latent_height // patch_h)
             * (state.latent_width // patch_w)
         )
-        expected_video_rows = (
-            state.num_condition_video_rows + expected_video_targets
-        )
+        expected_video_rows = state.num_condition_video_rows + expected_video_targets
         expected_video_width = transformer_config.in_channels * (
             patch_t * patch_h * patch_w
         )
@@ -206,9 +202,7 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             )
 
         expected_audio_targets = state.audio_channels * state.num_audio_latents
-        expected_audio_rows = (
-            state.num_condition_audio_rows + expected_audio_targets
-        )
+        expected_audio_rows = state.num_condition_audio_rows + expected_audio_targets
         if tuple(state.audio_latents.shape) != (
             expected_audio_rows,
             transformer_config.audio_in_channels,
@@ -448,19 +442,27 @@ class MiniMaxH3DiffusionModel(DiffusionModel[MiniMaxH3TransformerCache]):
             patch_h,
             patch_w,
         )
-        video_latents = rows.permute(0, 4, 1, 5, 2, 6, 3, 7).reshape(
-            1,
-            channels,
-            state.num_latent_frames,
-            state.latent_height,
-            state.latent_width,
-        ).contiguous()
+        video_latents = (
+            rows.permute(0, 4, 1, 5, 2, 6, 3, 7)
+            .reshape(
+                1,
+                channels,
+                state.num_latent_frames,
+                state.latent_height,
+                state.latent_width,
+            )
+            .contiguous()
+        )
         audio_rows = audio[state.num_condition_audio_rows :]
-        audio_latents = audio_rows.reshape(
-            state.audio_channels,
-            state.num_audio_latents,
-            transformer_config.audio_in_channels,
-        ).permute(0, 2, 1).contiguous()
+        audio_latents = (
+            audio_rows.reshape(
+                state.audio_channels,
+                state.num_audio_latents,
+                transformer_config.audio_in_channels,
+            )
+            .permute(0, 2, 1)
+            .contiguous()
+        )
         return MiniMaxH3JointLatents(video=video_latents, audio=audio_latents)
 
 

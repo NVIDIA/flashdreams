@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 import torch
+from torch import Tensor, nn
+
 from flashdreams.core.attention import NativeAttention, apply_rope_freqs
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.diffusion.transformer import (
@@ -30,7 +32,6 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerAutoregressiveCache,
     TransformerConfig,
 )
-from torch import Tensor, nn
 
 H3_TRANSFORMER_CHECKPOINT = (
     "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/"

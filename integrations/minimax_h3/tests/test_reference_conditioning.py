@@ -20,8 +20,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
-from PIL import Image
-
 from minimax_h3.reference_conditioning import (
     MiniMaxH3AudioReference,
     MiniMaxH3ImageReference,
@@ -29,6 +27,7 @@ from minimax_h3.reference_conditioning import (
     encode_references,
     normalize_references,
 )
+from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -45,9 +44,7 @@ def _normalization_options() -> dict[str, int]:
 
 def test_normalize_references_preserves_order_and_maximum_alignment() -> None:
     """Keep semantic order and accept the 362-frame aligned 15-second request."""
-    image = MiniMaxH3ImageReference(
-        np.full((4, 8, 3), 0.5, dtype=np.float32)
-    )
+    image = MiniMaxH3ImageReference(np.full((4, 8, 3), 0.5, dtype=np.float32))
     audio = MiniMaxH3AudioReference(torch.arange(8, dtype=torch.float32)[None])
     video = MiniMaxH3VideoReference(
         frames=np.zeros((2, 4, 8, 3), dtype=np.uint8), fps=24.0
@@ -106,9 +103,7 @@ def test_audio_normalization_truncates_and_upmixes_without_resampler() -> None:
     with pytest.raises(ValueError, match="decoded at 32000 Hz"):
         normalize_references(
             [
-                MiniMaxH3ImageReference(
-                    np.zeros((32, 32, 3), dtype=np.uint8)
-                ),
+                MiniMaxH3ImageReference(np.zeros((32, 32, 3), dtype=np.uint8)),
                 MiniMaxH3AudioReference(torch.zeros(1, 4), sample_rate=16000),
             ],
             num_frames=124,
@@ -127,9 +122,7 @@ def test_reference_validation_rejects_invalid_limits_shapes_and_rates() -> None:
     with pytest.raises(ValueError, match="at most 3 video"):
         normalize_references(
             [
-                MiniMaxH3VideoReference(
-                    np.zeros((1, 32, 32, 3), dtype=np.uint8)
-                )
+                MiniMaxH3VideoReference(np.zeros((1, 32, 32, 3), dtype=np.uint8))
                 for _ in range(4)
             ],
             num_frames=124,
@@ -147,11 +140,7 @@ def test_reference_validation_rejects_invalid_limits_shapes_and_rates() -> None:
         )
     with pytest.raises(ValueError, match="aligned to the H3 frame grid"):
         normalize_references(
-            [
-                MiniMaxH3ImageReference(
-                    np.zeros((32, 32, 3), dtype=np.uint8)
-                )
-            ],
+            [MiniMaxH3ImageReference(np.zeros((32, 32, 3), dtype=np.uint8))],
             num_frames=125,
             **_normalization_options(),
         )
@@ -182,9 +171,7 @@ class _AudioVAE:
     def encode_condition(self, samples: torch.Tensor) -> torch.Tensor:
         """Return two stereo steps with a call-specific value."""
         self.inputs.append(samples.clone())
-        return torch.full(
-            (4, 32), float(len(self.inputs)), dtype=torch.float32
-        )
+        return torch.full((4, 32), float(len(self.inputs)), dtype=torch.float32)
 
 
 def test_encode_references_filters_modalities_in_semantic_order() -> None:
@@ -202,9 +189,7 @@ def test_encode_references_filters_modalities_in_semantic_order() -> None:
         MiniMaxH3AudioReference(torch.full((2, 6), 0.5), sample_rate=32000),
     ]
 
-    encoded = encode_references(
-        video_vae, audio_vae, references, device="cpu"
-    )
+    encoded = encode_references(video_vae, audio_vae, references, device="cpu")
 
     assert [tuple(value.shape) for value in encoded.video] == [
         (1, 24, 1, 2, 2),
@@ -229,10 +214,6 @@ def test_encode_references_requires_normalized_media() -> None:
         encode_references(
             _VideoVAE(),
             _AudioVAE(),
-            [
-                MiniMaxH3ImageReference(
-                    np.zeros((32, 32, 3), dtype=np.uint8)
-                )
-            ],
+            [MiniMaxH3ImageReference(np.zeros((32, 32, 3), dtype=np.uint8))],
             device="cpu",
         )

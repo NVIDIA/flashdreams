@@ -23,7 +23,6 @@ import struct
 import numpy as np
 import pytest
 import torch
-
 from minimax_h3.conditioning import (
     audio_latent_num_frames,
     build_packed_layout,
@@ -201,9 +200,7 @@ def test_prepare_denoise_state_rejects_mismatched_inputs() -> None:
         )
 
 
-def _reference_fixture() -> tuple[
-    list[MiniMaxH3Reference], MiniMaxH3EncodedReferences
-]:
+def _reference_fixture() -> tuple[list[MiniMaxH3Reference], MiniMaxH3EncodedReferences]:
     """Build the mixed-modality geometry used by pinned REF2VA parity tests."""
     references = [
         MiniMaxH3ImageReference(np.zeros((1, 1, 3), dtype=np.uint8)),
@@ -258,16 +255,12 @@ def test_ref2va_layout_matches_pinned_oracle_digest() -> None:
 def test_ref2va_layout_preserves_long_video_rotary_sum_order() -> None:
     """Freeze the sequential float64 span that differs after 16 latent frames."""
     references = [
-        MiniMaxH3VideoReference(
-            np.zeros((1, 1, 1, 3), dtype=np.uint8), fps=24.0
-        )
+        MiniMaxH3VideoReference(np.zeros((1, 1, 1, 3), dtype=np.uint8), fps=24.0)
     ]
     layout = build_ref2va_packed_layout(
         torch.tensor([1, 1]),
         references,
-        MiniMaxH3EncodedReferences(
-            video=(torch.zeros(1, 24, 16, 4, 4),), audio=()
-        ),
+        MiniMaxH3EncodedReferences(video=(torch.zeros(1, 24, 16, 4, 4),), audio=()),
         num_latent_frames=2,
         latent_height=4,
         latent_width=4,
@@ -318,12 +311,10 @@ def test_prepare_ref2va_state_preserves_rng_and_clean_audio_order() -> None:
     expected_video = torch.cat(
         [
             patchify_video_latents(
-                noise_level * encoded.video[0]
-                + (1.0 - noise_level) * first_noise
+                noise_level * encoded.video[0] + (1.0 - noise_level) * first_noise
             ),
             patchify_video_latents(
-                noise_level * encoded.video[1]
-                + (1.0 - noise_level) * second_noise
+                noise_level * encoded.video[1] + (1.0 - noise_level) * second_noise
             ),
             patchify_video_latents(target_video),
         ]
@@ -353,9 +344,7 @@ def test_ref2va_layout_rejects_reference_encoder_mismatch() -> None:
         build_ref2va_packed_layout(
             torch.tensor([1]),
             references,
-            MiniMaxH3EncodedReferences(
-                video=encoded.video[:1], audio=encoded.audio
-            ),
+            MiniMaxH3EncodedReferences(video=encoded.video[:1], audio=encoded.audio),
             num_latent_frames=2,
             latent_height=4,
             latent_width=8,

@@ -107,9 +107,7 @@ class PresentationManager:
             item.audio is not None and not isinstance(item.audio, AudioOutput)
             for item in chunk
         ):
-            raise TypeError(
-                "A presented chunk's audio payload must be an AudioOutput."
-            )
+            raise TypeError("A presented chunk's audio payload must be an AudioOutput.")
         if sum(item.audio is not None for item in chunk) > 1:
             raise ValueError("A presented chunk can carry only one audio payload.")
         pending = (generation, chunk)

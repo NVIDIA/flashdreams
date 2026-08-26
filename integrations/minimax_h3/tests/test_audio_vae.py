@@ -144,7 +144,9 @@ def test_audio_latent_denormalization_is_per_channel() -> None:
 
     actual = model.denormalize(latents)
 
-    expected_channels = torch.tensor([1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0]).view(1, 8, 1)
+    expected_channels = torch.tensor([1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0]).view(
+        1, 8, 1
+    )
     torch.testing.assert_close(actual, expected_channels.expand(2, 8, 3))
 
 

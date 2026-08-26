@@ -86,9 +86,7 @@ def prepare_keyframes(
         if image.size == (width, height):
             prepared.append(image)
         elif index == 0:
-            prepared.append(
-                image.resize((width, height), Image.Resampling.LANCZOS)
-            )
+            prepared.append(image.resize((width, height), Image.Resampling.LANCZOS))
         else:
             scale = max(width / image.size[0], height / image.size[1])
             resized_size = (
@@ -98,9 +96,7 @@ def prepare_keyframes(
             left = max(0, (resized_size[0] - width) // 2)
             top = max(0, (resized_size[1] - height) // 2)
             resized = image.resize(resized_size, Image.Resampling.LANCZOS)
-            prepared.append(
-                resized.crop((left, top, left + width, top + height))
-            )
+            prepared.append(resized.crop((left, top, left + width, top + height)))
     return MiniMaxH3KeyframeBatch(
         images=tuple(prepared),
         anchors=tuple(anchor for anchor, _ in supplied),

@@ -12,24 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
-from PIL import Image
-
-from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.loop import IModelLoop
-from flashdreams.api_v2.session import ISession
-from flashdreams.infra.runner_io import (
-    read_audio_f32,
-    read_optional_audio_f32,
-    read_video_rgb_with_fps,
-)
-from flashdreams.runtime_v2.session_desc import (
-    BackpressureMode,
-    PresentationMode,
-    SessionDesc,
-)
-from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from minimax_h3.constants import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
@@ -53,6 +35,24 @@ from minimax_h3.reference_conditioning import (
     MiniMaxH3Reference,
     MiniMaxH3VideoReference,
 )
+from PIL import Image
+
+from flashdreams.api_v2.application import IApplication
+from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.session import ISession
+from flashdreams.infra.runner_io import (
+    read_audio_f32,
+    read_optional_audio_f32,
+    read_video_rgb_with_fps,
+)
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _DEFAULT_PROMPT = "Animate this scene with coherent natural motion."
 _DEFAULT_SIZE = 768

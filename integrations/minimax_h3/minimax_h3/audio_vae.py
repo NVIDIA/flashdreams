@@ -28,11 +28,12 @@ from typing import cast
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor, nn
+from torch.nn.utils import weight_norm
+
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.runtime_v2.audio_output import AudioOutput
-from torch import Tensor, nn
-from torch.nn.utils import weight_norm
 
 H3_AUDIO_VAE_CHECKPOINT = (
     "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/"
@@ -402,13 +403,17 @@ class MiniMaxH3AudioCausalAttention(nn.Module):
             self.qkv.weight,
             torch.cat((self.q_bias, zero_k_bias, self.v_bias)),
         )
-        query, key, value = qkv.reshape(
-            batch_size,
-            sequence_length,
-            3,
-            self.num_heads,
-            self.head_dim,
-        ).permute(2, 0, 3, 1, 4).unbind(0)
+        query, key, value = (
+            qkv.reshape(
+                batch_size,
+                sequence_length,
+                3,
+                self.num_heads,
+                self.head_dim,
+            )
+            .permute(2, 0, 3, 1, 4)
+            .unbind(0)
+        )
         attended = F.scaled_dot_product_attention(
             query, key, value, is_causal=True
         ).permute(0, 2, 1, 3)
@@ -473,9 +478,7 @@ class MiniMaxH3AudioAMPBlock(nn.Module):
         )
         self.activations = nn.ModuleList(
             [
-                MiniMaxH3AudioActivation1d(
-                    activation=MiniMaxH3AudioSnakeBeta(channels)
-                )
+                MiniMaxH3AudioActivation1d(activation=MiniMaxH3AudioSnakeBeta(channels))
                 for _ in range(2 * len(dilation))
             ]
         )
@@ -567,9 +570,7 @@ class MiniMaxH3AudioBigVGANDecoder(nn.Module):
 class MiniMaxH3AudioVAEConfig(InstantiateConfig):
     """Configure the native FP32 MiniMax H3 waveform autoencoder."""
 
-    _target: type[MiniMaxH3AudioVAE] = field(
-        default_factory=lambda: MiniMaxH3AudioVAE
-    )
+    _target: type[MiniMaxH3AudioVAE] = field(default_factory=lambda: MiniMaxH3AudioVAE)
     checkpoint_path: str | None = H3_AUDIO_VAE_CHECKPOINT
     """Checkpoint URL or local path; ``None`` keeps initialized weights."""
 
@@ -653,9 +654,7 @@ class MiniMaxH3AudioVAE(nn.Module):
             self.logs_proj = nn.Conv1d(
                 config.latent_channels, config.latent_channels, 1
             )
-            self.dec_in_proj = nn.Conv1d(
-                config.latent_channels, config.latent_dim, 1
-            )
+            self.dec_in_proj = nn.Conv1d(config.latent_channels, config.latent_dim, 1)
             self.decoder = MiniMaxH3AudioBigVGANDecoder(
                 in_channels=config.latent_dim,
                 upsample_initial_channel=config.decoder_dim,
@@ -703,9 +702,9 @@ class MiniMaxH3AudioVAE(nn.Module):
             raise ValueError("Decoder rates must upsample by the encoder hop length.")
         if len(config.decoder_rates) != len(config.decoder_kernel_sizes):
             raise ValueError("Each decoder rate requires one kernel size.")
-        if not config.resblock_kernel_sizes or len(
-            config.resblock_kernel_sizes
-        ) != len(config.resblock_dilation_sizes):
+        if not config.resblock_kernel_sizes or len(config.resblock_kernel_sizes) != len(
+            config.resblock_dilation_sizes
+        ):
             raise ValueError("Each residual kernel requires one dilation schedule.")
         kernels = (*config.decoder_kernel_sizes, *config.resblock_kernel_sizes)
         dilations = tuple(
@@ -728,15 +727,14 @@ class MiniMaxH3AudioVAE(nn.Module):
             raise ValueError("latent_dim must be divisible by num_attention_heads.")
         if config.sampling_rate != 32_000:
             raise ValueError("MiniMax H3 audio output requires a 32000 Hz rate.")
-        if len(config.latents_mean) != config.latent_channels or len(
-            config.latents_std
-        ) != config.latent_channels:
+        if (
+            len(config.latents_mean) != config.latent_channels
+            or len(config.latents_std) != config.latent_channels
+        ):
             raise ValueError("Audio latent statistics must match latent_channels.")
         if not all(math.isfinite(value) for value in config.latents_mean):
             raise ValueError("Audio latent means must be finite.")
-        if not all(
-            math.isfinite(value) and value > 0 for value in config.latents_std
-        ):
+        if not all(math.isfinite(value) and value > 0 for value in config.latents_std):
             raise ValueError("Audio latent standard deviations must be positive.")
 
     @property
@@ -809,14 +807,10 @@ class MiniMaxH3AudioVAE(nn.Module):
             raise ValueError(
                 "latents must have shape [batch, latent_channels, positive_steps]."
             )
-        if not latents.is_floating_point() or not bool(
-            torch.isfinite(latents).all()
-        ):
+        if not latents.is_floating_point() or not bool(torch.isfinite(latents).all()):
             raise ValueError("latents must contain finite floating-point values.")
         self._require_fp32()
-        decoded = self.decoder(
-            self.dec_in_proj(latents.to(self.device, torch.float32))
-        )
+        decoded = self.decoder(self.dec_in_proj(latents.to(self.device, torch.float32)))
         return decoded.float()
 
     def denormalize(self, latents: Tensor) -> Tensor:
@@ -835,9 +829,7 @@ class MiniMaxH3AudioVAE(nn.Module):
             or latents.shape[2] <= 0
         ):
             raise ValueError("Audio latents must have shape [batch, channels, steps].")
-        if not latents.is_floating_point() or not bool(
-            torch.isfinite(latents).all()
-        ):
+        if not latents.is_floating_point() or not bool(torch.isfinite(latents).all()):
             raise ValueError("Audio latents must contain finite floating-point values.")
         mean = latents.new_tensor(self.config.latents_mean).view(1, -1, 1)
         std = latents.new_tensor(self.config.latents_std).view(1, -1, 1)
@@ -859,9 +851,11 @@ class MiniMaxH3AudioVAE(nn.Module):
         latents = posterior.latent_dist.mode().float().cpu().transpose(1, 2)
         mean = latents.new_tensor(self.config.latents_mean).view(1, 1, -1)
         std = latents.new_tensor(self.config.latents_std).view(1, 1, -1)
-        return ((latents - mean) / std).reshape(
-            -1, self.config.latent_channels
-        ).contiguous()
+        return (
+            ((latents - mean) / std)
+            .reshape(-1, self.config.latent_channels)
+            .contiguous()
+        )
 
     @torch.no_grad()
     def decode_output(self, normalized_latents: Tensor) -> AudioOutput:

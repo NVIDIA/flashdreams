@@ -96,9 +96,9 @@ def test_video_vae_round_trip_preserves_released_temporal_geometry(
     tiny_video_vae: MiniMaxH3VideoVAE,
 ) -> None:
     """Map 22 pixel frames to seven latents and back to 22 frames."""
-    sample = torch.linspace(
-        -1.0, 1.0, 1 * 3 * 22 * 8 * 8, dtype=torch.float32
-    ).reshape(1, 3, 22, 8, 8)
+    sample = torch.linspace(-1.0, 1.0, 1 * 3 * 22 * 8 * 8, dtype=torch.float32).reshape(
+        1, 3, 22, 8, 8
+    )
 
     posterior = tiny_video_vae.encode(sample).latent_dist
     decoded = tiny_video_vae.decode(posterior.mode())
@@ -152,9 +152,9 @@ def test_pixel_adapters_apply_released_normalization_and_base_range(
     tiny_video_vae: MiniMaxH3VideoVAE,
 ) -> None:
     """Encode base-range pixels and decode normalized latents back to RGB."""
-    pixels = torch.linspace(
-        0.0, 1.0, 1 * 3 * 22 * 8 * 8, dtype=torch.float32
-    ).reshape(1, 3, 22, 8, 8)
+    pixels = torch.linspace(0.0, 1.0, 1 * 3 * 22 * 8 * 8, dtype=torch.float32).reshape(
+        1, 3, 22, 8, 8
+    )
 
     normalized_latents = tiny_video_vae.encode_pixels(pixels)
     output = tiny_video_vae.decode_output(normalized_latents)
@@ -171,16 +171,14 @@ def test_conditioning_adapter_samples_seed_42_and_rounds_before_normalizing(
     tiny_video_vae: MiniMaxH3VideoVAE,
 ) -> None:
     """Match H3's independent seeded posterior and deliberate FP16 rounding."""
-    pixels = torch.linspace(
-        0.0, 1.0, 1 * 3 * 1 * 8 * 8, dtype=torch.float32
-    ).reshape(1, 3, 1, 8, 8)
+    pixels = torch.linspace(0.0, 1.0, 1 * 3 * 1 * 8 * 8, dtype=torch.float32).reshape(
+        1, 3, 1, 8, 8
+    )
 
     actual = tiny_video_vae.encode_condition_pixels(pixels)
     repeated = tiny_video_vae.encode_condition_pixels(pixels)
     posterior = tiny_video_vae._encode_pixel_posterior(pixels)
-    expected = posterior.sample(
-        generator=torch.Generator(device="cpu").manual_seed(42)
-    )
+    expected = posterior.sample(generator=torch.Generator(device="cpu").manual_seed(42))
     expected = tiny_video_vae.normalize_latents(
         expected.to(torch.float16).float().cpu()
     )

@@ -9,25 +9,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
+import minimax_h3_v2.app as app_module
 import numpy as np
 import pytest
-import torch
 import tomli
-from PIL import Image
-
-import minimax_h3_v2.app as app_module
-from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.audio_output import AudioOutput
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
-from flashdreams.runtime_v2.session_desc import (
-    BackpressureMode,
-    PresentationMode,
-    SessionDesc,
-)
-from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+import torch
 from minimax_h3.conditioning import audio_latent_num_frames
 from minimax_h3.inference import (
     MiniMaxH3InferenceConfig,
@@ -43,6 +29,20 @@ from minimax_h3_v2.app import (
     create_ref2va_app,
     create_t2va_app,
 )
+from PIL import Image
+
+from flashdreams.api_v2.application import IApplication
+from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.audio_output import AudioOutput
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -353,9 +353,7 @@ def test_ref2va_preserves_order_and_optional_video_soundtrack(
     monkeypatch.setattr(
         app_module,
         "_read_pil_image",
-        lambda _path: Image.fromarray(
-            np.zeros((8, 8, 3), dtype=np.uint8), mode="RGB"
-        ),
+        lambda _path: Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8), mode="RGB"),
     )
     monkeypatch.setattr(
         app_module,

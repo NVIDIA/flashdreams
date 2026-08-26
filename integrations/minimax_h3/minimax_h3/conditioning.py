@@ -168,9 +168,7 @@ def patchify_video_latents(
         patch_w,
     )
     latents = latents.permute(0, 2, 4, 6, 1, 3, 5, 7)
-    return latents.reshape(
-        -1, channels * patch_t * patch_h * patch_w
-    ).contiguous()
+    return latents.reshape(-1, channels * patch_t * patch_h * patch_w).contiguous()
 
 
 def _spatial_position_grid(dim: int, patch: int, sqrt_area: float) -> Tensor:
@@ -277,9 +275,7 @@ def build_packed_layout(
             for offset, frames_per_latent in enumerate(_ROPE_FRAMES_PER_LATENT):
                 spans[offset :: len(_ROPE_FRAMES_PER_LATENT)] *= frames_per_latent
             anchor_time = (
-                float(num_text_tokens)
-                + float(spans.sum())
-                - _ROPE_FRAME_RESCALE
+                float(num_text_tokens) + float(spans.sum()) - _ROPE_FRAME_RESCALE
             )
         else:
             raise ValueError(
@@ -298,9 +294,7 @@ def build_packed_layout(
     position_ids[audio_start:video_start, 0] = audio_time.repeat(AUDIO_CHANNELS)
     position_ids[audio_start:video_start, 2] = torch.cat(
         [
-            torch.full(
-                (num_audio_latents,), float(width_grid[0]), dtype=torch.float64
-            ),
+            torch.full((num_audio_latents,), float(width_grid[0]), dtype=torch.float64),
             torch.full(
                 (num_audio_latents,), float(width_grid[-1]), dtype=torch.float64
             ),
@@ -450,9 +444,7 @@ def build_ref2va_packed_layout(
             or any(size <= 0 for size in latents.shape[2:])
         ):
             raise ValueError("encoded reference video latents are malformed")
-        if not latents.is_floating_point() or not bool(
-            torch.isfinite(latents).all()
-        ):
+        if not latents.is_floating_point() or not bool(torch.isfinite(latents).all()):
             raise ValueError(
                 "encoded reference video latents must be finite floating point"
             )
@@ -480,9 +472,7 @@ def build_ref2va_packed_layout(
 
     num_text_tokens = text_token_tags.shape[0]
     target_video_rows = (
-        num_latent_frames
-        * (latent_height // patch_h)
-        * (latent_width // patch_w)
+        num_latent_frames * (latent_height // patch_h) * (latent_width // patch_w)
     )
     target_audio_rows = num_audio_latents * AUDIO_CHANNELS
     condition_video_rows = sum(
@@ -518,9 +508,7 @@ def build_ref2va_packed_layout(
             rows = slice(cursor, cursor + num_rows)
             cursor = rows.stop
             video_index_parts.append(torch.arange(rows.start, rows.stop))
-            frame_grid, _ = _frame_position_grid(
-                height, width, patch_h, patch_w
-            )
+            frame_grid, _ = _frame_position_grid(height, width, patch_h, patch_w)
             position_ids[rows, 0] = rotary_time
             position_ids[rows, 1:] = frame_grid
             rotary_time += 1.0
@@ -546,12 +534,8 @@ def build_ref2va_packed_layout(
             audio_rows = slice(cursor, cursor + num_audio_rows)
             video_rows = slice(audio_rows.stop, audio_rows.stop + num_video_rows)
             cursor = video_rows.stop
-            audio_index_parts.append(
-                torch.arange(audio_rows.start, audio_rows.stop)
-            )
-            video_index_parts.append(
-                torch.arange(video_rows.start, video_rows.stop)
-            )
+            audio_index_parts.append(torch.arange(audio_rows.start, audio_rows.stop))
+            video_index_parts.append(torch.arange(video_rows.start, video_rows.stop))
 
             frame_grid, width_grid = _frame_position_grid(
                 height, width, patch_h, patch_w
@@ -570,9 +554,7 @@ def build_ref2va_packed_layout(
             position_ids[video_rows, 1:] = frame_grid.repeat(frames, 1)
             video_span = sum(
                 _ROPE_FRAME_RESCALE
-                * _ROPE_FRAMES_PER_LATENT[
-                    index % len(_ROPE_FRAMES_PER_LATENT)
-                ]
+                * _ROPE_FRAMES_PER_LATENT[index % len(_ROPE_FRAMES_PER_LATENT)]
                 for index in range(frames)
             )
             rotary_time += max(float(reference_steps), video_span)
@@ -590,9 +572,7 @@ def build_ref2va_packed_layout(
     position_ids[video_start:, 0] = frame_time.repeat_interleave(
         target_frame_grid.shape[0]
     )
-    position_ids[video_start:, 1:] = target_frame_grid.repeat(
-        num_latent_frames, 1
-    )
+    position_ids[video_start:, 1:] = target_frame_grid.repeat(num_latent_frames, 1)
 
     video_indices = torch.cat(
         video_index_parts + [torch.arange(video_start, sequence_length)]
@@ -693,10 +673,7 @@ def prepare_denoise_state(
     num_audio_latents = audio_latent_num_frames(num_frames)
     if prompt_embeds.ndim != 3 or prompt_embeds.shape[0] != 1:
         raise ValueError("prompt_embeds must have shape [1, text_rows, hidden]")
-    if (
-        text_token_tags.ndim != 1
-        or prompt_embeds.shape[1] != text_token_tags.numel()
-    ):
+    if text_token_tags.ndim != 1 or prompt_embeds.shape[1] != text_token_tags.numel():
         raise ValueError("text_token_tags must identify every prompt-embedding row")
     if len(condition_latents) != len(keyframe_anchors):
         raise ValueError("each condition latent requires one keyframe anchor")
@@ -738,9 +715,7 @@ def prepare_denoise_state(
         )
     elif tuple(video_noise.shape) != expected_video_shape:
         raise ValueError(f"video_noise must have shape {expected_video_shape}")
-    video_rows = patchify_video_latents(
-        video_noise.to(target_device, torch.float32)
-    )
+    video_rows = patchify_video_latents(video_noise.to(target_device, torch.float32))
     if condition_rows:
         video_rows = torch.cat(condition_rows + [video_rows])
 
@@ -845,10 +820,7 @@ def prepare_ref2va_denoise_state(
     num_audio_latents = audio_latent_num_frames(num_frames)
     if prompt_embeds.ndim != 3 or prompt_embeds.shape[0] != 1:
         raise ValueError("prompt_embeds must have shape [1, text_rows, hidden]")
-    if (
-        text_token_tags.ndim != 1
-        or prompt_embeds.shape[1] != text_token_tags.numel()
-    ):
+    if text_token_tags.ndim != 1 or prompt_embeds.shape[1] != text_token_tags.numel():
         raise ValueError("text_token_tags must identify every prompt-embedding row")
 
     layout = build_ref2va_packed_layout(

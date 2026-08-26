@@ -16,7 +16,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_frames
 
-
 _LOGGER = logging.getLogger(__name__)
 
 

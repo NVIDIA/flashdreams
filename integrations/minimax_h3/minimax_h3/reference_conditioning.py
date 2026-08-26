@@ -170,9 +170,7 @@ def _normalize_image(
         if image_array.dtype != np.uint8:
             if not np.isfinite(image_array).all():
                 raise ValueError("A reference image must contain finite pixels.")
-            image_array = (
-                (image_array * 255.0).round().clip(0, 255).astype(np.uint8)
-            )
+            image_array = (image_array * 255.0).round().clip(0, 255).astype(np.uint8)
         image = Image.fromarray(image_array, mode="RGB")
     if not isinstance(image, Image.Image):
         raise ValueError(
@@ -192,9 +190,7 @@ def _normalize_image(
     target_height = max(multiple, round(height * scale / multiple) * multiple)
     target_width = max(multiple, round(width * scale / multiple) * multiple)
     if image.size != (target_width, target_height):
-        image = image.resize(
-            (target_width, target_height), Image.Resampling.LANCZOS
-        )
+        image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
     return image
 
 
@@ -239,9 +235,7 @@ def _normalize_video(
         )
     if fps != target_fps:
         scale = target_fps / fps
-        slots = np.floor(np.arange(frames.shape[0]) * scale + 0.5).astype(
-            np.int64
-        )
+        slots = np.floor(np.arange(frames.shape[0]) * scale + 0.5).astype(np.int64)
         end = math.floor(frames.shape[0] * scale + 0.5)
         frames = np.repeat(frames, np.diff(slots, append=end), axis=0)
     frames = frames[:num_frames]
@@ -259,9 +253,7 @@ def _normalize_video(
     return np.stack(
         [
             np.asarray(
-                Image.fromarray(frame).resize(
-                    (width, height), Image.Resampling.LANCZOS
-                )
+                Image.fromarray(frame).resize((width, height), Image.Resampling.LANCZOS)
             )
             for frame in frames
         ]
@@ -278,8 +270,7 @@ def _normalize_audio(
     """Validate, truncate, and upmix already-resampled reference audio."""
     if type(sample_rate) is not int or sample_rate <= 0:
         raise ValueError(
-            "A reference soundtrack needs a positive sample rate, got "
-            f"{sample_rate}."
+            f"A reference soundtrack needs a positive sample rate, got {sample_rate}."
         )
     if sample_rate != target_sample_rate:
         raise ValueError(
@@ -347,10 +338,7 @@ def normalize_references(
         "reference_image_short_edge": reference_image_short_edge,
         "multiple": multiple,
     }
-    if any(
-        type(value) is not int or value <= 0
-        for value in integer_options.values()
-    ):
+    if any(type(value) is not int or value <= 0 for value in integer_options.values()):
         raise ValueError(
             "reference normalization sizes and rates must be positive integers"
         )
@@ -393,8 +381,7 @@ def normalize_references(
     for reference in references:
         waveform = None
         if isinstance(reference, MiniMaxH3AudioReference) or (
-            isinstance(reference, MiniMaxH3VideoReference)
-            and reference.has_audio
+            isinstance(reference, MiniMaxH3VideoReference) and reference.has_audio
         ):
             source_audio = reference.audio
             if source_audio is None:
@@ -443,9 +430,7 @@ def normalize_references(
             if waveform is None:
                 raise AssertionError("validated audio reference was not normalized")
             normalized.append(
-                MiniMaxH3AudioReference(
-                    audio=waveform, sample_rate=target_sample_rate
-                )
+                MiniMaxH3AudioReference(audio=waveform, sample_rate=target_sample_rate)
             )
         else:
             raise AssertionError("validated reference type was not normalized")
@@ -487,9 +472,7 @@ def encode_references(
     for reference in references:
         if isinstance(reference, MiniMaxH3ImageReference):
             if not isinstance(reference.image, Image.Image):
-                raise ValueError(
-                    "image references must be normalized before encoding"
-                )
+                raise ValueError("image references must be normalized before encoding")
             pixels = (
                 torch.from_numpy(np.array(reference.image, copy=True))
                 .permute(2, 0, 1)[None, :, None]
@@ -500,14 +483,11 @@ def encode_references(
         elif isinstance(reference, MiniMaxH3VideoReference):
             frames = reference.frames
             if not isinstance(frames, np.ndarray):
-                raise ValueError(
-                    "video references must be normalized before encoding"
-                )
+                raise ValueError("video references must be normalized before encoding")
             frames_array = cast(np.ndarray, frames)
             source_frames = frames_array.shape[0]
             encoded_frames = (
-                max(1, (source_frames - FRAME_REMAINDER) // FRAME_CHUNK)
-                * FRAME_CHUNK
+                max(1, (source_frames - FRAME_REMAINDER) // FRAME_CHUNK) * FRAME_CHUNK
                 + FRAME_REMAINDER
             )
             pixels = (
@@ -521,13 +501,10 @@ def encode_references(
             raise ValueError(f"Unsupported MiniMax H3 reference {type(reference)}")
 
         if isinstance(reference, MiniMaxH3AudioReference) or (
-            isinstance(reference, MiniMaxH3VideoReference)
-            and reference.has_audio
+            isinstance(reference, MiniMaxH3VideoReference) and reference.has_audio
         ):
             if not isinstance(reference.audio, Tensor):
-                raise ValueError(
-                    "audio references must be normalized before encoding"
-                )
+                raise ValueError("audio references must be normalized before encoding")
             audio_rows.append(
                 audio_vae.encode_condition(reference.audio.to(target_device))
             )
@@ -540,9 +517,7 @@ def encode_references(
             or any(size <= 0 for size in latents.shape[2:])
         ):
             raise ValueError("video reference encoder returned malformed latents")
-        if not latents.is_floating_point() or not bool(
-            torch.isfinite(latents).all()
-        ):
+        if not latents.is_floating_point() or not bool(torch.isfinite(latents).all()):
             raise ValueError("video reference latents must be finite floating point")
     for rows in audio_rows:
         if (

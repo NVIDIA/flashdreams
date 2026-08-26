@@ -22,13 +22,9 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
+import minimax_h3.inference as inference_module
 import pytest
 import torch
-from PIL import Image
-from torch import nn
-
-from flashdreams.runtime_v2.audio_output import AudioOutput
-import minimax_h3.inference as inference_module
 from minimax_h3.inference import (
     DefaultMiniMaxH3Resources,
     MiniMaxH3InferenceConfig,
@@ -45,6 +41,10 @@ from minimax_h3.reference_conditioning import (
     MiniMaxH3AudioReference,
     MiniMaxH3ImageReference,
 )
+from PIL import Image
+from torch import nn
+
+from flashdreams.runtime_v2.audio_output import AudioOutput
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -754,9 +754,7 @@ def test_complete_cached_component_skips_download_capacity_check(
         lambda _path: pytest.fail("complete cache must not inspect free disk"),
     )
 
-    inference_module._validate_component_download_capacity(
-        config, ("audio_vae",)
-    )
+    inference_module._validate_component_download_capacity(config, ("audio_vae",))
 
 
 def test_missing_or_partial_component_requires_configured_free_disk(
@@ -786,6 +784,4 @@ def test_missing_or_partial_component_requires_configured_free_disk(
     )
 
     with pytest.raises(RuntimeError, match=r"transformer.*2 GiB.*found 1.0 GiB"):
-        inference_module._validate_component_download_capacity(
-            config, ("transformer",)
-        )
+        inference_module._validate_component_download_capacity(config, ("transformer",))

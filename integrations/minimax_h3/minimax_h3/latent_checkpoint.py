@@ -301,9 +301,7 @@ class MiniMaxH3LatentCheckpointStore:
             temporary.unlink(missing_ok=True)
         return path
 
-    def load(
-        self, identity: MiniMaxH3CheckpointIdentity
-    ) -> MiniMaxH3DenoiseProgress:
+    def load(self, identity: MiniMaxH3CheckpointIdentity) -> MiniMaxH3DenoiseProgress:
         """Load a complete matching record or reject it without partial resume."""
         path = self.path
         with safe_open(path, framework="pt", device="cpu") as handle:

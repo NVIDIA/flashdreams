@@ -21,18 +21,17 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import minimax_h3.latent_checkpoint as checkpoint_module
 import pytest
 import torch
-from safetensors import safe_open
-from safetensors.torch import load_file, save_file
-
-import minimax_h3.latent_checkpoint as checkpoint_module
 from minimax_h3.latent_checkpoint import (
     MiniMaxH3AssetIdentity,
     MiniMaxH3CheckpointIdentity,
     MiniMaxH3LatentCheckpointStore,
 )
 from minimax_h3.model import MiniMaxH3DenoiseProgress
+from safetensors import safe_open
+from safetensors.torch import load_file, save_file
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -92,10 +91,7 @@ def test_joint_checkpoint_round_trip_records_all_resume_identity(
     restored = store.load(identity)
 
     assert path == (
-        tmp_path.resolve()
-        / "job-17"
-        / "minimax_h3"
-        / "joint_latents.safetensors"
+        tmp_path.resolve() / "job-17" / "minimax_h3" / "joint_latents.safetensors"
     )
     assert restored.next_step == 1
     torch.testing.assert_close(restored.video, expected_video)

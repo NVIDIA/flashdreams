@@ -25,7 +25,6 @@ from typing import Any
 
 import pytest
 import torch
-from torch import nn
 from minimax_h3.constants import align_num_frames, validate_canvas
 from minimax_h3.lora import convert_musubi_lora
 from minimax_h3.model import (
@@ -36,6 +35,7 @@ from minimax_h3.model import (
 )
 from minimax_h3.scheduler import MiniMaxH3SchedulerConfig
 from minimax_h3.transformer import MiniMaxH3TransformerConfig
+from torch import nn
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -91,9 +91,7 @@ def _expected_checkpoint_shapes(
         "audio_proj_out.bias": (config.audio_in_channels,),
     }
     for index in range(config.num_refiner_layers):
-        shapes.update(
-            _block_shapes(f"token_refiner.refiner_blocks.{index}", config)
-        )
+        shapes.update(_block_shapes(f"token_refiner.refiner_blocks.{index}", config))
     for index in range(config.num_layers):
         prefix = f"transformer_blocks.{index}"
         shapes.update(_block_shapes(prefix, config))
@@ -382,8 +380,7 @@ def test_generate_joint_returns_both_streams_without_mutating_state() -> None:
         state.text_indices,
     )
     assert all(
-        before is after
-        for before, after in zip(original_metadata, current_metadata)
+        before is after for before, after in zip(original_metadata, current_metadata)
     )
 
 
@@ -400,9 +397,7 @@ def test_generate_joint_rejects_invalid_packed_state_before_transformer() -> Non
 
 def test_generate_joint_does_not_reuse_stale_audio_flow() -> None:
     """Require every transformer call to publish its paired audio velocity."""
-    model, transformer = _joint_model(
-        num_inference_steps=3, audio_flow_calls={1}
-    )
+    model, transformer = _joint_model(num_inference_steps=3, audio_flow_calls={1})
 
     with pytest.raises(RuntimeError, match="did not produce an audio flow"):
         model.generate_joint(_joint_state())

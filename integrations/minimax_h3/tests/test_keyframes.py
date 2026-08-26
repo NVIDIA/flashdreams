@@ -22,17 +22,14 @@ import hashlib
 import numpy as np
 import pytest
 import torch
-from PIL import Image
-
 from minimax_h3.keyframes import encode_keyframes, prepare_keyframes
+from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
 
 
 def _keyframe_fixtures() -> tuple[Image.Image, Image.Image]:
-    first = Image.fromarray(
-        np.arange(13 * 21 * 3, dtype=np.uint8).reshape(13, 21, 3)
-    )
+    first = Image.fromarray(np.arange(13 * 21 * 3, dtype=np.uint8).reshape(13, 21, 3))
     last = Image.fromarray(
         np.arange(23 * 11 * 3, dtype=np.uint8).reshape(23, 11, 3)[::-1].copy()
     )

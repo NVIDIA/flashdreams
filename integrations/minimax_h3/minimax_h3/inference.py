@@ -52,9 +52,9 @@ from minimax_h3.latent_checkpoint import (
 )
 from minimax_h3.lora import load_lora
 from minimax_h3.model import (
-    MiniMaxH3DiffusionModelConfig,
     MiniMaxH3DenoiseProgress,
     MiniMaxH3DenoiseState,
+    MiniMaxH3DiffusionModelConfig,
     MiniMaxH3JointLatents,
 )
 from minimax_h3.reference_conditioning import (

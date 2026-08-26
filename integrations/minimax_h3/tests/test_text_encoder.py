@@ -23,7 +23,6 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
-
 from minimax_h3.reference_conditioning import (
     MiniMaxH3AudioReference,
     MiniMaxH3ImageReference,
@@ -78,9 +77,7 @@ class _ImageProcessor:
         assert return_tensors == "pt"
         if images == ["image"]:
             return {
-                "pixel_values": torch.arange(6, dtype=torch.float32).reshape(
-                    1, 6
-                ),
+                "pixel_values": torch.arange(6, dtype=torch.float32).reshape(1, 6),
                 "image_grid_thw": torch.tensor([[1, 2, 4]]),
             }
         assert images == ["first", "last"]
@@ -105,9 +102,7 @@ class _VideoProcessor:
         assert len(videos) == 1
         assert videos[0][:, 0, 0, 0].tolist() == [0, 12, 24]
         return {
-            "pixel_values_videos": torch.arange(
-                12, dtype=torch.float32
-            ).reshape(1, 12),
+            "pixel_values_videos": torch.arange(12, dtype=torch.float32).reshape(1, 12),
             "video_grid_thw": torch.tensor([[2, 2, 4]]),
         }
 
@@ -204,9 +199,7 @@ def test_encode_presentation_reads_layer_50_without_lm_head() -> None:
         _Tokenizer(), processor, "prompt", ["first", "last"]
     )
     text_encoder = _TextEncoder()
-    condition = encode_presentation(
-        text_encoder, processor, presentation, device="cpu"
-    )
+    condition = encode_presentation(text_encoder, processor, presentation, device="cpu")
 
     assert condition.prompt_embeds.dtype == torch.bfloat16
     assert tuple(condition.prompt_embeds.shape) == (1, 15, 5120)

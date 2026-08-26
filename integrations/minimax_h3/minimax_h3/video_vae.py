@@ -28,9 +28,10 @@ from typing import cast
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor, nn
+
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.config import InstantiateConfig
-from torch import Tensor, nn
 
 H3_VIDEO_VAE_CHECKPOINT = (
     "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/"
@@ -205,7 +206,9 @@ class MiniMaxH3VideoGroupNorm(nn.GroupNorm):
             batch_size * num_frames, num_channels, 1, height, width
         )
         hidden_states = super().forward(hidden_states)
-        hidden_states = hidden_states.view(batch_size, num_frames, num_channels, height, width)
+        hidden_states = hidden_states.view(
+            batch_size, num_frames, num_channels, height, width
+        )
         return hidden_states.permute(0, 2, 1, 3, 4).contiguous()
 
 
@@ -448,10 +451,7 @@ class MiniMaxH3VideoRotaryPosEmbed(nn.Module):
         """Build cosine and sine tensors for three-axis RoPE."""
         inv_freq = cast(Tensor, self.inv_freq)
         angles = (
-            2.0
-            * math.pi
-            * position_ids[:, :, :, None]
-            * inv_freq[None, None, None, :]
+            2.0 * math.pi * position_ids[:, :, :, None] * inv_freq[None, None, None, :]
         )
         angles = angles.flatten(2, 3).tile(2).unsqueeze(2)
         return angles.cos(), angles.sin()
@@ -540,9 +540,7 @@ class MiniMaxH3VideoAttention(nn.Module):
             query = torch.cat(
                 (query_rotary * cos + query_rotated * sin, query_pass), dim=-1
             )
-            key = torch.cat(
-                (key_rotary * cos + key_rotated * sin, key_pass), dim=-1
-            )
+            key = torch.cat((key_rotary * cos + key_rotated * sin, key_pass), dim=-1)
         attended = F.scaled_dot_product_attention(
             query.transpose(1, 2),
             key.transpose(1, 2),
@@ -615,7 +613,9 @@ class MiniMaxH3VideoViTDecoder3d(nn.Module):
         self.out_channels = out_channels
         self.num_register_tokens = num_register_tokens
 
-        self.rope = MiniMaxH3VideoRotaryPosEmbed(int(attention_head_dim * rope_dim_ratio), theta=rope_theta)
+        self.rope = MiniMaxH3VideoRotaryPosEmbed(
+            int(attention_head_dim * rope_dim_ratio), theta=rope_theta
+        )
         self.proj_in = nn.Linear(in_channels, dim)
         self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, dim))
         self.transformer_blocks = nn.ModuleList(
@@ -631,7 +631,9 @@ class MiniMaxH3VideoViTDecoder3d(nn.Module):
             ]
         )
         self.norm_out = nn.LayerNorm(dim, elementwise_affine=True, eps=norm_eps)
-        self.proj_out = nn.Linear(dim, out_channels * patch_size_t * patch_size * patch_size)
+        self.proj_out = nn.Linear(
+            dim, out_channels * patch_size_t * patch_size * patch_size
+        )
 
         self.gradient_checkpointing = False
 
@@ -650,12 +652,23 @@ class MiniMaxH3VideoViTDecoder3d(nn.Module):
         hidden_states = torch.cat([hidden_states, register_tokens, cls_token], dim=1)
 
         grids = [
-            2.0 * (torch.arange(0.5, size, dtype=torch.float32, device=hidden_states.device) / size) - 1.0
+            2.0
+            * (
+                torch.arange(
+                    0.5, size, dtype=torch.float32, device=hidden_states.device
+                )
+                / size
+            )
+            - 1.0
             for size in (num_frames, height, width)
         ]
-        position_ids = torch.stack(torch.meshgrid(*grids, indexing="ij"), dim=-1).flatten(0, 2)
+        position_ids = torch.stack(
+            torch.meshgrid(*grids, indexing="ij"), dim=-1
+        ).flatten(0, 2)
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1, -1)
-        suffix_ids = position_ids.new_zeros((batch_size, self.num_register_tokens + 1, 3))
+        suffix_ids = position_ids.new_zeros(
+            (batch_size, self.num_register_tokens + 1, 3)
+        )
         position_ids = torch.cat([position_ids, suffix_ids], dim=1)
         rotary_emb = self.rope(position_ids)
 
@@ -691,9 +704,7 @@ class MiniMaxH3VideoViTDecoder3d(nn.Module):
 class MiniMaxH3VideoVAEConfig(InstantiateConfig):
     """Configure the native FP32 MiniMax H3 video autoencoder."""
 
-    _target: type[MiniMaxH3VideoVAE] = field(
-        default_factory=lambda: MiniMaxH3VideoVAE
-    )
+    _target: type[MiniMaxH3VideoVAE] = field(default_factory=lambda: MiniMaxH3VideoVAE)
     checkpoint_path: str | None = H3_VIDEO_VAE_CHECKPOINT
     """Sharded checkpoint index URL or local path; ``None`` skips loading."""
 
@@ -876,17 +887,20 @@ class MiniMaxH3VideoVAE(nn.Module):
             "clip_length": config.clip_length,
         }
         if any(
-            type(value) is not int or value <= 0
-            for value in integer_values.values()
+            type(value) is not int or value <= 0 for value in integer_values.values()
         ):
-            raise ValueError("Video VAE dimensions and counts must be positive integers.")
+            raise ValueError(
+                "Video VAE dimensions and counts must be positive integers."
+            )
         if type(config.token_drop) is not int or config.token_drop < 0:
             raise ValueError("token_drop must be a non-negative integer.")
         block_count = len(config.block_out_channels)
         if block_count == 0 or len(config.spatial_downsample_factors) != block_count:
             raise ValueError("Each encoder block requires a spatial downsample factor.")
         if len(config.temporal_downsample_factors) != block_count:
-            raise ValueError("Each encoder block requires a temporal downsample factor.")
+            raise ValueError(
+                "Each encoder block requires a temporal downsample factor."
+            )
         sequences = (
             config.block_out_channels,
             config.spatial_downsample_factors,
@@ -897,7 +911,9 @@ class MiniMaxH3VideoVAE(nn.Module):
             for values in sequences
             for value in values
         ):
-            raise ValueError("Encoder widths and downsample factors must be positive integers.")
+            raise ValueError(
+                "Encoder widths and downsample factors must be positive integers."
+            )
         if any(width % config.norm_num_groups for width in config.block_out_channels):
             raise ValueError("Encoder widths must be divisible by norm_num_groups.")
         if config.spatial_padding_mode not in {"reflect", "replicate"}:
@@ -924,15 +940,14 @@ class MiniMaxH3VideoVAE(nn.Module):
         tokens_chunk_size = math.ceil(config.clip_length / temporal_ratio)
         if config.token_drop >= tokens_chunk_size:
             raise ValueError("token_drop must be smaller than the latent chunk size.")
-        if len(config.latents_mean) != config.latent_channels or len(
-            config.latents_std
-        ) != config.latent_channels:
+        if (
+            len(config.latents_mean) != config.latent_channels
+            or len(config.latents_std) != config.latent_channels
+        ):
             raise ValueError("Video latent statistics must match latent_channels.")
         if not all(math.isfinite(value) for value in config.latents_mean):
             raise ValueError("Video latent means must be finite.")
-        if not all(
-            math.isfinite(value) and value > 0 for value in config.latents_std
-        ):
+        if not all(math.isfinite(value) and value > 0 for value in config.latents_std):
             raise ValueError("Video latent standard deviations must be positive.")
         tile_values = (
             config.tile_sample_min_height,
@@ -993,9 +1008,7 @@ class MiniMaxH3VideoVAE(nn.Module):
         self.tile_sample_min_height = (
             tile_sample_min_height or self.tile_sample_min_height
         )
-        self.tile_sample_min_width = (
-            tile_sample_min_width or self.tile_sample_min_width
-        )
+        self.tile_sample_min_width = tile_sample_min_width or self.tile_sample_min_width
         self.tile_sample_min_overlap_height = (
             tile_sample_min_overlap_height or self.tile_sample_min_overlap_height
         )
@@ -1144,9 +1157,7 @@ class MiniMaxH3VideoVAE(nn.Module):
         if num_frames == 1:
             return self._encode_clip(x)
         if num_frames % clip_length != 0:
-            pad_frames = x[:, :, -1:].repeat(
-                1, 1, (-num_frames) % clip_length, 1, 1
-            )
+            pad_frames = x[:, :, -1:].repeat(1, 1, (-num_frames) % clip_length, 1, 1)
             x = torch.cat([x, pad_frames], dim=2)
 
         moments = torch.cat(
@@ -1174,9 +1185,8 @@ class MiniMaxH3VideoVAE(nn.Module):
 
         num_tokens = z.shape[2] + token_drop
         pad_tokens = (-num_tokens) % tokens_chunk_size
-        num_chunks = (
-            (num_tokens + pad_tokens) // tokens_chunk_size
-            - int(token_drop > 0)
+        num_chunks = (num_tokens + pad_tokens) // tokens_chunk_size - int(
+            token_drop > 0
         )
         if pad_tokens > 0:
             z = torch.cat([z, z[:, :, -1:].repeat(1, 1, pad_tokens, 1, 1)], dim=2)
@@ -1210,8 +1220,7 @@ class MiniMaxH3VideoVAE(nn.Module):
             num_tokens_before_pad = z.shape[2] - pad_tokens
             pad_frames = sum(
                 intra_tail
-                if intra_tail
-                and (num_tokens_before_pad + k) % tokens_chunk_size == 0
+                if intra_tail and (num_tokens_before_pad + k) % tokens_chunk_size == 0
                 else temporal_ratio
                 for k in range(pad_tokens)
             )
