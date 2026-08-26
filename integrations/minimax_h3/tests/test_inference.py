@@ -28,6 +28,7 @@ from PIL import Image
 from torch import nn
 
 from flashdreams.runtime_v2.audio_output import AudioOutput
+import minimax_h3.inference as inference_module
 from minimax_h3.inference import (
     DefaultMiniMaxH3Resources,
     MiniMaxH3InferenceConfig,
@@ -708,3 +709,63 @@ def test_request_and_capacity_reject_unsupported_work_before_weights() -> None:
         validate_execution_capacity(MiniMaxH3InferenceConfig(device="cpu"))
     with pytest.raises(ValueError, match="finite and non-negative"):
         MiniMaxH3InferenceConfig(checkpoint_min_free_gb=float("nan"))
+
+
+def test_complete_cached_component_skips_download_capacity_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not reject a usable pinned component because the disk is nearly full."""
+    config = MiniMaxH3InferenceConfig(
+        cache_dir=tmp_path,
+        checkpoint_min_free_gb=150,
+    )
+    component_dir = (
+        tmp_path
+        / "models--MiniMaxAI--MiniMax-H3"
+        / "snapshots"
+        / config.revision
+        / "audio_vae"
+    )
+    component_dir.mkdir(parents=True)
+    (component_dir / "diffusion_pytorch_model.safetensors").write_bytes(b"cached")
+    monkeypatch.setattr(
+        inference_module.shutil,
+        "disk_usage",
+        lambda _path: pytest.fail("complete cache must not inspect free disk"),
+    )
+
+    inference_module._validate_component_download_capacity(
+        config, ("audio_vae",)
+    )
+
+
+def test_missing_or_partial_component_requires_configured_free_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Check the selected cache filesystem before a missing shard is downloaded."""
+    config = MiniMaxH3InferenceConfig(
+        cache_dir=tmp_path,
+        checkpoint_min_free_gb=2,
+    )
+    component_dir = (
+        tmp_path
+        / "models--MiniMaxAI--MiniMax-H3"
+        / "snapshots"
+        / config.revision
+        / "transformer"
+    )
+    component_dir.mkdir(parents=True)
+    (component_dir / "diffusion_pytorch_model.safetensors.index.json").write_text(
+        '{"weight_map":{"weight":"missing.safetensors"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        inference_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=1 * 2**30),
+    )
+
+    with pytest.raises(RuntimeError, match=r"transformer.*2 GiB.*found 1.0 GiB"):
+        inference_module._validate_component_download_capacity(
+            config, ("transformer",)
+        )

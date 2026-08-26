@@ -85,6 +85,25 @@ _MIN_FREE_GPU_GIB = 80.0
 _MIN_FREE_CACHE_GIB = 150.0
 """Converted root components needed for one workflow at the pinned revision."""
 
+_COMPONENT_SENTINELS: dict[str, tuple[str, ...]] = {
+    "tokenizer": ("tokenizer.json", "tokenizer_config.json"),
+    "processor": (
+        "chat_template.json",
+        "preprocessor_config.json",
+        "video_preprocessor_config.json",
+    ),
+    "audio_vae": ("diffusion_pytorch_model.safetensors",),
+}
+"""Non-sharded files that prove a pinned component is locally usable."""
+
+_SHARDED_COMPONENT_INDEX: dict[str, str] = {
+    "text_encoder": "model.safetensors.index.json",
+    "transformer": "diffusion_pytorch_model.safetensors.index.json",
+    "transformer_ref": "diffusion_pytorch_model.safetensors.index.json",
+    "vae": "diffusion_pytorch_model.safetensors.index.json",
+}
+"""Index files whose complete weight maps prove a component is cached."""
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class MiniMaxH3InferenceConfig:
@@ -248,6 +267,7 @@ class DefaultMiniMaxH3Resources:
         )
 
         self.config = config
+        _validate_component_download_capacity(config, ("tokenizer", "processor"))
         self._snapshot_dir = Path(
             snapshot_download(
                 repo_id=config.model_id,
@@ -284,6 +304,7 @@ class DefaultMiniMaxH3Resources:
         """Download one pinned allowlisted component and return its local path."""
         from huggingface_hub import snapshot_download
 
+        _validate_component_download_capacity(self.config, (component,))
         snapshot_dir = Path(
             snapshot_download(
                 repo_id=self.config.model_id,
@@ -705,7 +726,7 @@ class MiniMaxH3InferenceEngine:
 
 
 def validate_execution_capacity(config: MiniMaxH3InferenceConfig) -> None:
-    """Reject unsupported devices and insufficient staged disk/GPU capacity."""
+    """Reject unsupported devices and insufficient staged GPU capacity."""
     device = torch.device(config.device)
     if device.type != "cuda" or not torch.cuda.is_available():
         raise RuntimeError("Native MiniMax H3 inference requires a CUDA device")
@@ -716,23 +737,72 @@ def validate_execution_capacity(config: MiniMaxH3InferenceConfig) -> None:
             f"MiniMax H3 staged inference requires at least {_MIN_FREE_GPU_GIB:g} "
             f"GiB free GPU memory, found {free_gpu / 2**30:.1f} GiB"
         )
+
+
+def _validate_component_download_capacity(
+    config: MiniMaxH3InferenceConfig,
+    components: tuple[str, ...],
+) -> None:
+    """Require configured free space only when pinned components are missing."""
+    required_gib = config.checkpoint_min_free_gb
+    if required_gib is None or required_gib == 0:
+        return
     if config.cache_dir is None:
         from huggingface_hub.constants import HF_HUB_CACHE
 
         cache_dir = Path(HF_HUB_CACHE)
     else:
         cache_dir = config.cache_dir.expanduser()
+    snapshot_dir = (
+        cache_dir
+        / f"models--{config.model_id.replace('/', '--')}"
+        / "snapshots"
+        / config.revision
+    )
+    if all(_component_is_complete(snapshot_dir, component) for component in components):
+        return
     existing = cache_dir
     while not existing.exists() and existing != existing.parent:
         existing = existing.parent
     free_disk = shutil.disk_usage(existing).free
-    required_disk = int(_MIN_FREE_CACHE_GIB * 2**30)
+    required_disk = int(required_gib * 2**30)
     if free_disk < required_disk:
+        missing = ", ".join(
+            component
+            for component in components
+            if not _component_is_complete(snapshot_dir, component)
+        )
         raise RuntimeError(
-            f"Pulling the pinned H3 components requires at least "
-            f"{_MIN_FREE_CACHE_GIB:g} GiB free in the model cache filesystem, "
+            f"Pulling pinned H3 component(s) {missing} requires at least "
+            f"{required_gib:g} GiB free in the model cache filesystem, "
             f"found {free_disk / 2**30:.1f} GiB"
         )
+
+
+def _component_is_complete(snapshot_dir: Path, component: str) -> bool:
+    """Return whether every required file for ``component`` resolves locally."""
+    component_dir = snapshot_dir / component
+    sentinels = _COMPONENT_SENTINELS.get(component)
+    if sentinels is not None:
+        return all((component_dir / filename).is_file() for filename in sentinels)
+    index_filename = _SHARDED_COMPONENT_INDEX.get(component)
+    if index_filename is None:
+        return False
+    index_path = component_dir / index_filename
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    weight_map = payload.get("weight_map")
+    if not isinstance(weight_map, dict) or not weight_map:
+        return False
+    shard_names = tuple(weight_map.values())
+    return all(
+        isinstance(name, str) and (component_dir / name).is_file()
+        for name in shard_names
+    )
 
 
 __all__ = [
