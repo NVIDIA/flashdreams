@@ -17,8 +17,9 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -28,6 +29,7 @@ from torch import nn
 
 from flashdreams.runtime_v2.audio_output import AudioOutput
 from minimax_h3.inference import (
+    DefaultMiniMaxH3Resources,
     MiniMaxH3InferenceConfig,
     MiniMaxH3InferenceEngine,
     MiniMaxH3InferenceRequest,
@@ -265,6 +267,100 @@ class _FailingAudioResources(_Resources):
         """Raise a deterministic allocation-style failure."""
         self.events.append("load:audio_vae")
         raise RuntimeError("audio stage failed")
+
+
+def test_default_resources_resolve_pinned_subfolders_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resolve metadata and Qwen weights through one pinned local snapshot."""
+    import huggingface_hub
+
+    snapshot_dir = tmp_path / "snapshot"
+    processor_dir = snapshot_dir / "processor"
+    processor_dir.mkdir(parents=True)
+    (snapshot_dir / "tokenizer").mkdir()
+    (snapshot_dir / "text_encoder").mkdir()
+    (processor_dir / "chat_template.json").write_text(
+        '{"chat_template": "pinned template"}', encoding="utf-8"
+    )
+    downloads: list[dict[str, Any]] = []
+
+    def fake_snapshot_download(**kwargs: Any) -> str:
+        downloads.append(kwargs)
+        return str(snapshot_dir)
+
+    class _LocalFactory:
+        calls: list[tuple[Path, dict[str, Any]]] = []
+
+        @classmethod
+        def from_pretrained(cls, path: Path, **kwargs: Any) -> object:
+            cls.calls.append((path, kwargs))
+            return object()
+
+    class _TokenizerFactory(_LocalFactory):
+        calls: list[tuple[Path, dict[str, Any]]] = []
+
+    class _ImageFactory(_LocalFactory):
+        calls: list[tuple[Path, dict[str, Any]]] = []
+
+    class _VideoFactory(_LocalFactory):
+        calls: list[tuple[Path, dict[str, Any]]] = []
+
+    class _ProcessorFactory:
+        kwargs: dict[str, Any] = {}
+
+        def __init__(self, **kwargs: Any) -> None:
+            type(self).kwargs = kwargs
+
+    class _EncoderFactory(nn.Module):
+        calls: list[tuple[Path, dict[str, Any]]] = []
+
+        @classmethod
+        def from_pretrained(
+            cls, path: Path, **kwargs: Any
+        ) -> _EncoderFactory:
+            cls.calls.append((path, kwargs))
+            return cls()
+
+    fake_transformers = ModuleType("transformers")
+    setattr(fake_transformers, "AutoTokenizer", _TokenizerFactory)
+    setattr(fake_transformers, "Qwen2VLImageProcessor", _ImageFactory)
+    setattr(fake_transformers, "Qwen3VLVideoProcessor", _VideoFactory)
+    setattr(fake_transformers, "Qwen3VLProcessor", _ProcessorFactory)
+    setattr(
+        fake_transformers, "Qwen3VLForConditionalGeneration", _EncoderFactory
+    )
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    resources = DefaultMiniMaxH3Resources(
+        MiniMaxH3InferenceConfig(device="cpu", cache_dir=tmp_path / "cache")
+    )
+    encoder = resources.load_text_encoder()
+
+    assert downloads[0]["allow_patterns"] == ["tokenizer/*", "processor/*"]
+    assert downloads[1]["allow_patterns"] == ["text_encoder/*"]
+    assert all(call["revision"] == resources.config.revision for call in downloads)
+    assert all(call["cache_dir"] == str(tmp_path / "cache") for call in downloads)
+    assert _TokenizerFactory.calls == [
+        (snapshot_dir / "tokenizer", {"local_files_only": True})
+    ]
+    assert _ImageFactory.calls == [(processor_dir, {"local_files_only": True})]
+    assert _VideoFactory.calls == [(processor_dir, {"local_files_only": True})]
+    assert _ProcessorFactory.kwargs["chat_template"] == "pinned template"
+    assert _ProcessorFactory.kwargs["tokenizer"] is resources.tokenizer
+    assert _EncoderFactory.calls == [
+        (
+            snapshot_dir / "text_encoder",
+            {
+                "local_files_only": True,
+                "dtype": torch.bfloat16,
+                "device_map": {"": "cpu"},
+                "low_cpu_mem_usage": True,
+            },
+        )
+    ]
+    assert not encoder.training
 
 
 def test_staged_t2va_returns_synchronized_v2_media() -> None:

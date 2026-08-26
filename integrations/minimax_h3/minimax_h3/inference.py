@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import math
 import shutil
 import time
@@ -246,33 +247,76 @@ class DefaultMiniMaxH3Resources:
     """Load one pinned heavyweight component at a time on the execution GPU."""
 
     def __init__(self, config: MiniMaxH3InferenceConfig) -> None:
-        from transformers import AutoProcessor, AutoTokenizer
+        from huggingface_hub import snapshot_download
+        from transformers import (
+            AutoTokenizer,
+            Qwen2VLImageProcessor,
+            Qwen3VLProcessor,
+            Qwen3VLVideoProcessor,
+        )
 
         self.config = config
+        self._snapshot_dir = Path(
+            snapshot_download(
+                repo_id=config.model_id,
+                revision=config.revision,
+                cache_dir=(
+                    None if config.cache_dir is None else str(config.cache_dir)
+                ),
+                allow_patterns=["tokenizer/*", "processor/*"],
+            )
+        )
+        tokenizer_dir = self._snapshot_dir / "tokenizer"
+        processor_dir = self._snapshot_dir / "processor"
         self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model_id,
-            subfolder="tokenizer",
-            revision=config.revision,
-            cache_dir=None if config.cache_dir is None else str(config.cache_dir),
+            tokenizer_dir,
+            local_files_only=True,
         )
-        self.processor = AutoProcessor.from_pretrained(
-            config.model_id,
-            subfolder="processor",
-            revision=config.revision,
-            cache_dir=None if config.cache_dir is None else str(config.cache_dir),
+        image_processor = Qwen2VLImageProcessor.from_pretrained(
+            processor_dir,
+            local_files_only=True,
         )
+        video_processor = Qwen3VLVideoProcessor.from_pretrained(
+            processor_dir,
+            local_files_only=True,
+        )
+        chat_template = json.loads(
+            (processor_dir / "chat_template.json").read_text(encoding="utf-8")
+        )["chat_template"]
+        self.processor = Qwen3VLProcessor(
+            image_processor=image_processor,
+            video_processor=video_processor,
+            tokenizer=self.tokenizer,
+            chat_template=chat_template,
+        )
+
+    def _component_dir(self, component: str) -> Path:
+        """Download one pinned allowlisted component and return its local path."""
+        from huggingface_hub import snapshot_download
+
+        snapshot_dir = Path(
+            snapshot_download(
+                repo_id=self.config.model_id,
+                revision=self.config.revision,
+                cache_dir=(
+                    None
+                    if self.config.cache_dir is None
+                    else str(self.config.cache_dir)
+                ),
+                allow_patterns=[f"{component}/*"],
+            )
+        )
+        if snapshot_dir != self._snapshot_dir:
+            raise RuntimeError("Pinned H3 components resolved to different snapshots")
+        return snapshot_dir / component
 
     def load_text_encoder(self) -> nn.Module:
         """Materialize only the Qwen3-VL conditioner on the execution device."""
         from transformers import Qwen3VLForConditionalGeneration
 
         return Qwen3VLForConditionalGeneration.from_pretrained(
-            self.config.model_id,
-            subfolder="text_encoder",
-            revision=self.config.revision,
-            cache_dir=(
-                None if self.config.cache_dir is None else str(self.config.cache_dir)
-            ),
+            self._component_dir("text_encoder"),
+            local_files_only=True,
             dtype=torch.bfloat16,
             device_map={"": self.config.device},
             low_cpu_mem_usage=True,
