@@ -17,7 +17,6 @@
 
 import pytest
 import torch
-
 from lingbot_va.action import (
     LingbotVAActionProcessor,
     LingbotVAActionProcessorConfig,

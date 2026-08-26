@@ -57,8 +57,8 @@ from lingbot_va.constants import (
     ROBOTWIN_HEIGHT,
     ROBOTWIN_OBS_CAM_KEYS,
     ROBOTWIN_SNR_SHIFT,
-    ROBOTWIN_VIDEO_INFERENCE_STEPS,
     ROBOTWIN_VAE_TEMPORAL_SCALE,
+    ROBOTWIN_VIDEO_INFERENCE_STEPS,
     ROBOTWIN_WIDTH,
 )
 from lingbot_va.pipeline import LingbotVAInferencePipelineConfig

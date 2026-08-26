@@ -36,7 +36,6 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerAutoregressiveCache,
     TransformerConfig,
 )
-
 from lingbot_va.transformer.checkpoint import state_dict_transform
 from lingbot_va.transformer.impl.network import (
     VideoKV,
@@ -45,7 +44,6 @@ from lingbot_va.transformer.impl.network import (
     WanVADiTNetworkConfig,
     compute_rope_freqs_from_grid,
 )
-
 
 # ---------------------------------------------------------------------------
 # Cache

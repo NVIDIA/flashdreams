@@ -35,24 +35,23 @@ from typing import Any
 
 import torch
 from einops import rearrange
-from torch import Tensor
-
 from lingbot_va.constants import (
     ROBOTWIN_ACTION_DIM,
     ROBOTWIN_ACTION_PER_FRAME,
+    ROBOTWIN_ACTION_TOKEN_PER_CHUNK,
     ROBOTWIN_ATTENTION_WINDOW,
     ROBOTWIN_FRAME_CHUNK_SIZE,
     ROBOTWIN_LATENT_CHANNELS,
     ROBOTWIN_LATENT_HEIGHT,
     ROBOTWIN_LATENT_TOKEN_PER_CHUNK,
     ROBOTWIN_LATENT_WIDTH,
-    ROBOTWIN_ACTION_TOKEN_PER_CHUNK,
 )
 from lingbot_va.transformer import (
     LingbotVATransformer,
     LingbotVATransformerConfig,
 )
 from lingbot_va.utils import get_mesh_id
+from torch import Tensor
 
 
 @dataclass(frozen=True, slots=True)

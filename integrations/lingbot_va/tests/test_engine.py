@@ -15,11 +15,11 @@
 
 """CPU tests for LingBot engine configuration and one-run lifecycle."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 import torch
-
 from lingbot_va.constants import ROBOTWIN_OBS_CAM_KEYS
 from lingbot_va.engine import (
     LingbotVAEngine,
@@ -30,6 +30,8 @@ from lingbot_va.engine import (
     expected_output_shape,
     validate_input_images,
 )
+from lingbot_va.scheduler import LingbotVAFlowMatchSchedulerConfig
+from lingbot_va.transformer import LingbotVATransformerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -69,19 +71,24 @@ def test_pipeline_config_applies_every_model_override(tmp_path: Path) -> None:
 
     resolved = build_pipeline_config(config, tmp_path)
 
+    transformer = resolved.diffusion_model.transformer
+    scheduler = resolved.diffusion_model.scheduler
+
     assert resolved.checkpoint_root == str(tmp_path)
     assert resolved.enable_sync_and_profile is False
     assert resolved.diffusion_model.seed == 17
-    assert resolved.diffusion_model.transformer.checkpoint_root == str(tmp_path)
-    assert resolved.diffusion_model.transformer.compile_network is False
-    assert resolved.diffusion_model.transformer.guidance_scale == 2.5
-    assert resolved.diffusion_model.transformer.action_guidance_scale == 1.5
-    assert resolved.diffusion_model.scheduler.num_inference_steps == 7
-    assert resolved.diffusion_model.scheduler.shift == 4.0
+    assert isinstance(transformer, LingbotVATransformerConfig)
+    assert transformer.checkpoint_root == str(tmp_path)
+    assert transformer.compile_network is False
+    assert transformer.guidance_scale == 2.5
+    assert transformer.action_guidance_scale == 1.5
+    assert isinstance(scheduler, LingbotVAFlowMatchSchedulerConfig)
+    assert scheduler.num_inference_steps == 7
+    assert scheduler.shift == 4.0
     assert resolved.action_scheduler.num_inference_steps == 9
     assert resolved.action_scheduler.shift == 2.0
     assert resolved.attn_window == 72
-    assert resolved.diffusion_model.transformer.attn_window == 72
+    assert transformer.attn_window == 72
 
 
 def test_engine_is_one_run_and_close_is_idempotent() -> None:
@@ -133,17 +140,20 @@ def test_expected_shape_scales_only_with_chunk_count() -> None:
 
 
 @pytest.mark.parametrize(
-    ("changes", "message"),
+    ("config_factory", "message"),
     [
-        ({"num_chunks": 0}, "num_chunks"),
-        ({"video_inference_steps": 0}, "step counts"),
-        ({"video_snr_shift": 0.0}, "SNR shifts"),
-        ({"guidance_scale": -1.0}, "guidance scales"),
+        (lambda: LingbotVAEngineConfig(num_chunks=0), "num_chunks"),
+        (
+            lambda: LingbotVAEngineConfig(video_inference_steps=0),
+            "step counts",
+        ),
+        (lambda: LingbotVAEngineConfig(video_snr_shift=0.0), "SNR shifts"),
+        (lambda: LingbotVAEngineConfig(guidance_scale=-1.0), "guidance scales"),
     ],
 )
 def test_engine_config_rejects_invalid_values(
-    changes: dict[str, int | float],
+    config_factory: Callable[[], LingbotVAEngineConfig],
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        LingbotVAEngineConfig(**changes)  # type: ignore[arg-type]
+        config_factory()

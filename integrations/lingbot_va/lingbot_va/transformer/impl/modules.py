@@ -31,13 +31,11 @@ from torch import Tensor
 
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.recipes.wan.transformer.impl.modules import (
-    CrossAttnCache,
     CrossAttention,
+    CrossAttnCache,
     MultiHeadAttention,
 )
-
 from lingbot_va.transformer.impl.kvcache import VAKVCache
-
 
 # ---------------------------------------------------------------------------
 # Cache

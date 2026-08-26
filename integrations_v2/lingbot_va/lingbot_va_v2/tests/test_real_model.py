@@ -37,6 +37,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from lingbot_va.constants import DEFAULT_CHECKPOINT_ROOT
+from lingbot_va.engine import (
+    LingbotVAEngine,
+    LingbotVAEngineConfig,
+    LingbotVAEngineState,
+)
+from lingbot_va_v2.app import LingbotVAApplication
 
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -45,13 +52,6 @@ from flashdreams.runtime_v2.tensor_artifact_output_sink import (
     TensorArtifactOutputSink,
 )
 from flashdreams.t2v_v2.testing import real_model_run_skip_reason
-from lingbot_va.constants import DEFAULT_CHECKPOINT_ROOT
-from lingbot_va.engine import (
-    LingbotVAEngine,
-    LingbotVAEngineConfig,
-    LingbotVAEngineState,
-)
-from lingbot_va_v2.app import LingbotVAApplication
 
 pytestmark = pytest.mark.ci_gpu
 

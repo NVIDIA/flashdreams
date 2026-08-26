@@ -19,9 +19,8 @@ from pathlib import Path
 from typing import Any
 
 import huggingface_hub
-import pytest
-
 import lingbot_va._loaders as loaders
+import pytest
 
 pytestmark = pytest.mark.ci_cpu
 

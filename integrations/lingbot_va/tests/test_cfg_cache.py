@@ -15,24 +15,27 @@
 
 """CPU regressions for LingBot-VA conditional and unconditional KV ownership."""
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import torch
-from torch import Tensor, nn
-
 from lingbot_va.transformer import (
     LingbotVATransformer,
     LingbotVATransformerCache,
     LingbotVATransformerConfig,
 )
+from lingbot_va.transformer.impl.kvcache import VAKVCache
+from lingbot_va.transformer.impl.modules import VABlockCache
 from lingbot_va.transformer.impl.network import (
     VideoKV,
     WanVADiTNetwork,
     WanVADiTNetworkCache,
     WanVADiTNetworkConfig,
 )
+from torch import Tensor, nn
+
+from flashdreams.core.attention.kvcache import BlockKVCache
+from flashdreams.recipes.wan.transformer.impl.modules import CrossAttnCache
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -147,19 +150,17 @@ def test_action_block_loop_attends_to_committed_then_current_video_kv() -> None:
     current_video_v = torch.tensor([[[[4.0] * 12]]])
     text_k = torch.zeros(1, 1, 1, 12)
     text_v = torch.zeros_like(text_k)
-    cache = WanVADiTNetworkCache(
-        block_caches=[
-            SimpleNamespace(
-                self_attn=SimpleNamespace(
-                    n_committed_tokens=1,
-                    kv_cache=SimpleNamespace(_k=prior_k, _v=prior_v),
-                ),
-                cross_attn=SimpleNamespace(
-                    text=SimpleNamespace(_k=text_k, _v=text_v, _n_cached=1),
-                ),
-            )
-        ]
+    block_cache = VABlockCache(
+        self_attn=VAKVCache(
+            kv_cache=BlockKVCache.from_tensor(prior_k, prior_v, seq_dim=1),
+            video_chunk=1,
+            action_chunk=1,
+        ),
+        cross_attn=CrossAttnCache(
+            text=BlockKVCache.from_tensor(text_k, text_v, seq_dim=1)
+        ),
     )
+    cache = WanVADiTNetworkCache(block_caches=[block_cache])
     captured: dict[str, Tensor] = {}
 
     def record_action_inputs(

@@ -30,7 +30,6 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineConfig,
 )
 from flashdreams.infra.pipeline.base import StreamInferencePipelineCache
-
 from lingbot_va.scheduler import (
     LingbotVAFlowMatchScheduler,
     LingbotVAFlowMatchSchedulerConfig,

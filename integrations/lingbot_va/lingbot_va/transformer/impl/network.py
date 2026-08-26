@@ -29,7 +29,6 @@ from flashdreams.recipes.wan.transformer.impl.modules import (
     Head,
     sinusoidal_embedding_1d,
 )
-
 from lingbot_va.transformer.impl.kvcache import VAKVCache
 from lingbot_va.transformer.impl.modules import VABlock, VABlockCache
 

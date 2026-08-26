@@ -24,6 +24,13 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
+from lingbot_va.constants import ROBOTWIN_OBS_CAM_KEYS
+from lingbot_va.engine import LingbotVAEngineConfig, LingbotVAEngineOutput
+from lingbot_va_v2.app import (
+    ACTIONS_SCHEMA,
+    LingbotVAApplication,
+    create_app,
+)
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
@@ -39,13 +46,6 @@ from flashdreams.runtime_v2.tensor_artifact_output_sink import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from lingbot_va.constants import ROBOTWIN_OBS_CAM_KEYS
-from lingbot_va.engine import LingbotVAEngineConfig, LingbotVAEngineOutput
-from lingbot_va_v2.app import (
-    ACTIONS_SCHEMA,
-    LingbotVAApplication,
-    create_app,
-)
 
 pytestmark = pytest.mark.ci_cpu
 
