@@ -161,70 +161,28 @@ def test_slangpy_presenter_waits_for_gpu_work_before_releasing_resources() -> No
     calls: list[str] = []
     presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
     presenter._closed = False
-    presenter._cuda_rgb_interop = SimpleNamespace(
-        close=lambda: calls.append("interop.close")
+    presenter._presentation = SimpleNamespace(
+        close=lambda: calls.append("presentation.close")
     )
-    presenter._device = SimpleNamespace(
-        wait_for_idle=lambda: calls.append("device.wait_for_idle")
-    )
-    presenter._display_texture = object()
-    presenter._surface = object()
     presenter._window = SimpleNamespace(close=lambda: calls.append("window.close"))
 
     presenter.close()
     presenter.close()
 
-    assert calls == ["interop.close", "device.wait_for_idle", "window.close"]
-    assert presenter._cuda_rgb_interop is None
-    assert presenter._device is None
+    assert calls == ["presentation.close", "window.close"]
 
 
-def test_slangpy_presenter_drops_frame_when_shared_buffers_are_busy() -> None:
-    class BusyInterop:
-        def as_cuda_rgb_frame(self, _frame: object) -> object:
-            return object()
-
-        def enqueue_rgb_to_shared_rgba(self, _frame: object) -> bool:
-            return False
-
+def test_slangpy_presenter_delegates_plain_tensor_to_presentation_context() -> None:
+    presented: list[torch.Tensor] = []
     presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
     presenter._closed = False
-    presenter._device = object()
-    presenter._cuda_rgb_interop = BusyInterop()
-
-    assert presenter.present_frame(
-        native_window_module._CudaPresentationFrame(
-            tensor=cast(
-                torch.Tensor,
-                SimpleNamespace(is_cuda=True, device=torch.device("cuda", 0)),
-            ),
-            ready_event=cast(torch.cuda.Event, object()),
-        )
+    presenter._presentation = SimpleNamespace(
+        present=lambda frame: presented.append(frame)
     )
+    frame = torch.zeros((2, 2, 3), dtype=torch.uint8)
 
-
-def test_slangpy_presenter_drops_ready_frame_when_swapchain_is_unavailable() -> None:
-    shared_buffer = object()
-    discarded: list[object] = []
-
-    class ReadyInterop:
-        def ready_rgba_buffer(self) -> tuple[object, object]:
-            return shared_buffer, object()
-
-        def discard_ready(self, buffer: object) -> None:
-            discarded.append(buffer)
-
-    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
-    presenter._cuda_rgb_interop = ReadyInterop()
-    presenter._device = object()
-    presenter._display_texture = object()
-    presenter._surface = SimpleNamespace(
-        config=True,
-        acquire_next_image=lambda: None,
-    )
-
-    assert presenter._submit_ready_cuda_rgb()
-    assert discarded == [shared_buffer]
+    assert presenter.present_frame(frame)
+    assert presented == [frame]
 
 
 def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
@@ -265,49 +223,32 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     )
 
 
-def test_slangpy_presenter_binds_interop_to_the_first_cuda_frame_device(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[tuple[str, object]] = []
-    cuda_device = torch.device("cuda", 2)
-    cuda_tensor = cast(
+def test_presentation_context_copies_frames_to_its_render_device() -> None:
+    source_device = torch.device("cuda", 2)
+    render_device = torch.device("cuda", 1)
+    copied = cast(torch.Tensor, object())
+    copy_calls: list[torch.device] = []
+    frame = cast(
         torch.Tensor,
-        SimpleNamespace(is_cuda=True, device=cuda_device),
+        SimpleNamespace(
+            device=source_device,
+            to=lambda device: copy_calls.append(device) or copied,
+        ),
     )
+    context = object.__new__(native_window_module._PresentationContext)
+    context._render_device = render_device
 
-    class BusyInterop:
-        def as_cuda_rgb_frame(self, _frame: object) -> object:
-            return object()
+    assert context._frame_on_render_device(frame) is copied
+    assert copy_calls == [render_device]
 
-        def enqueue_rgb_to_shared_rgba(self, _frame: object) -> bool:
-            return False
 
-    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
-    presenter._closed = False
-    presenter._device = None
-    presenter._cuda_rgb_interop = None
+def test_presentation_context_reuses_frames_on_its_render_device() -> None:
+    render_device = torch.device("cuda", 1)
+    frame = cast(torch.Tensor, SimpleNamespace(device=render_device))
+    context = object.__new__(native_window_module._PresentationContext)
+    context._render_device = render_device
 
-    def initialize(*, enable_cuda_interop: bool) -> None:
-        calls.append(("initialize", enable_cuda_interop))
-        presenter._device = object()
-        presenter._cuda_rgb_interop = BusyInterop()
-
-    presenter._initialize_render_resources = initialize
-    monkeypatch.setattr(
-        torch.cuda,
-        "set_device",
-        lambda device: calls.append(("set_device", device)),
-    )
-    frame = native_window_module._CudaPresentationFrame(
-        tensor=cuda_tensor,
-        ready_event=cast(torch.cuda.Event, object()),
-    )
-
-    assert presenter.present_frame(frame)
-    assert calls == [
-        ("set_device", cuda_device),
-        ("initialize", True),
-    ]
+    assert context._frame_on_render_device(frame) is frame
 
 
 def test_native_window_reports_input_and_close_from_event_pump() -> None:

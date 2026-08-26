@@ -11,7 +11,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -36,9 +36,6 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
-
-_CUDA_COPY_POLL_SECONDS = 0.001
-"""Delay between checks for an already-enqueued CUDA presentation copy."""
 
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
@@ -67,17 +64,6 @@ _MODIFIER_KEY_NAMES = {
     "right_super": "Meta",
 }
 """Map physical SlangPy modifiers to browser ``KeyboardEvent.key`` values."""
-
-
-@dataclass(frozen=True, slots=True)
-class _CudaPresentationFrame:
-    """CUDA RGB tensor and the event that makes it safe for SlangPy to read."""
-
-    tensor: Tensor
-    """Contiguous ``[H, W, 3]`` uint8 CUDA tensor."""
-
-    ready_event: torch.cuda.Event
-    """CUDA event recorded after conversion to presentation format."""
 
 
 class NativeWindowClientWindow(IClientWindow):
@@ -198,14 +184,9 @@ class NativeWindowClientWindow(IClientWindow):
             return
         frames = result_to_rgb24_tensor(result, self._session_desc_or_raise())
         for frame in frames:
-            presentation_frame: Tensor | _CudaPresentationFrame = frame
-            if frame.is_cuda:
-                ready_event = torch.cuda.Event()
-                ready_event.record(torch.cuda.current_stream(frame.device))
-                presentation_frame = _CudaPresentationFrame(frame, ready_event)
             if self._close_event_enqueued:
                 return
-            if not presenter.present_frame(presentation_frame):
+            if not presenter.present_frame(frame):
                 self._on_window_closed()
                 return
 
@@ -319,7 +300,7 @@ class NativeWindowClientWindow(IClientWindow):
 
 
 class _SlangPyNativeWindowPresenter:
-    """Own the SlangPy window and its CUDA/Vulkan presentation resources."""
+    """Own the SlangPy window and forward frames to its presentation context."""
 
     def __init__(self, *, width: int, height: int, title: str) -> None:
         """Create a fixed-size SlangPy window and Vulkan surface.
@@ -350,20 +331,20 @@ class _SlangPyNativeWindowPresenter:
             title=title,
             resizable=False,
         )
+        try:
+            self._presentation = _PresentationContext(
+                spy=spy,
+                window=self._window,
+                width=self._width,
+                height=self._height,
+            )
+        except BaseException:
+            self._window.close()
+            raise
         self._keyboard_event_callback: Callable[[spy.KeyboardEvent], None] | None = None
         self._mouse_event_callback: Callable[[spy.MouseEvent], None] | None = None
         self._window.on_keyboard_event = self._on_keyboard_event
         self._window.on_mouse_event = self._on_mouse_event
-        self._cuda_interop_unavailable_reason: str | None = None
-        self._device: spy.Device | None = None
-        self._surface: spy.Surface | None = None
-        self._display_texture: spy.Texture | None = None
-        self._cuda_rgb_interop: _CudaRGBInterop | None = None
-        self._host_upload = np.empty(
-            (self._height, self._width, 4),
-            dtype=np.uint8,
-        )
-        self._host_upload[..., 3] = 255
 
     def set_input_callbacks(
         self,
@@ -385,59 +366,19 @@ class _SlangPyNativeWindowPresenter:
         if not self._closed:
             self._window.process_events()
 
-    def present_frame(self, frame: Tensor | _CudaPresentationFrame) -> bool:
+    def present_frame(self, frame: Tensor) -> bool:
         """Present one RGB frame without pumping window events."""
         if self._closed:
             return False
-
-        cuda_device = _cuda_frame_device(frame)
-        cuda_resident = cuda_device is not None
-        self._ensure_render_resources(cuda_device)
-        if self._cuda_rgb_interop is not None:
-            cuda_frame = self._cuda_rgb_interop.as_cuda_rgb_frame(frame)
-            if cuda_frame is not None:
-                if not self._cuda_rgb_interop.enqueue_rgb_to_shared_rgba(cuda_frame):
-                    return True
-                while not self._submit_ready_cuda_rgb():
-                    if not self._wait_for_presentation_progress():
-                        return False
-                return True
-            if cuda_resident:
-                raise ValueError(
-                    "CUDA native-window frames must be uint8 RGB tensors with "
-                    f"shape {(self._height, self._width, 3)} on the interop device."
-                )
-
-        if cuda_resident:
-            raise RuntimeError(
-                "CUDA native-window presentation requires CUDA/Vulkan interop; "
-                "refusing to copy the frame through CPU memory."
-            )
-
-        tensor = frame.tensor if isinstance(frame, _CudaPresentationFrame) else frame
-        rgb = self._as_host_rgb(tensor)
-        if tuple(rgb.shape) != (self._height, self._width, 3):
-            raise ValueError(
-                "Native-window frame shape does not match the configured surface: "
-                f"{tuple(rgb.shape)} != {(self._height, self._width, 3)}."
-            )
-        self._host_upload[..., :3] = rgb
-        self._present_host_upload()
+        self._presentation.present(frame)
         return True
 
     def close(self) -> None:
-        """Release CUDA interoperability and native window resources."""
+        """Release presentation resources and the native window."""
         if self._closed:
             return
         self._closed = True
-        if self._cuda_rgb_interop is not None:
-            self._cuda_rgb_interop.close()
-            self._cuda_rgb_interop = None
-        if self._device is not None:
-            self._device.wait_for_idle()
-        self._display_texture = None
-        self._surface = None
-        self._device = None
+        self._presentation.close()
         self._window.close()
 
     def _on_keyboard_event(self, event: spy.KeyboardEvent) -> None:
@@ -450,183 +391,177 @@ class _SlangPyNativeWindowPresenter:
         if self._mouse_event_callback is not None:
             self._mouse_event_callback(event)
 
-    def _wait_for_presentation_progress(self) -> bool:
-        """Yield briefly while waiting for CUDA or Vulkan progress."""
-        if self._closed:
-            return False
-        time.sleep(_CUDA_COPY_POLL_SECONDS)
-        return True
 
-    def _ensure_render_resources(self, cuda_device: torch.device | None) -> None:
-        """Create presentation resources on the first frame's device."""
-        if self._device is not None:
-            return
-        if cuda_device is not None:
-            torch.cuda.set_device(cuda_device)
-        self._initialize_render_resources(enable_cuda_interop=cuda_device is not None)
+class _PresentationContext:
+    """Own one render device and normalize every frame onto it."""
 
-    def _initialize_render_resources(self, *, enable_cuda_interop: bool) -> None:
-        """Create the Vulkan surface and optional CUDA interop resources."""
-        self._device = self._create_device(enable_cuda_interop=enable_cuda_interop)
-        self._surface = self._device.create_surface(self._window)
+    def __init__(
+        self, *, spy: Any, window: spy.Window, width: int, height: int
+    ) -> None:
+        self._spy = spy
+        self._width = width
+        self._height = height
+        self._device = self._create_device()
+        self._surface = self._device.create_surface(window)
         self._surface.configure(
-            width=self._width,
-            height=self._height,
+            width=width,
+            height=height,
             format=self._choose_surface_format(),
         )
         self._display_texture = self._device.create_texture(
-            format=self._spy.Format.rgba8_unorm,
-            width=self._width,
-            height=self._height,
+            format=spy.Format.rgba8_unorm,
+            width=width,
+            height=height,
             usage=(
-                self._spy.TextureUsage.shader_resource
-                | self._spy.TextureUsage.unordered_access
-                | self._spy.TextureUsage.copy_destination
+                spy.TextureUsage.shader_resource | spy.TextureUsage.copy_destination
             ),
             label="flashdreams_v2_native_window_texture",
         )
-        self._cuda_rgb_interop = self._create_cuda_rgb_interop()
+        self._host_upload = np.empty((height, width, 4), dtype=np.uint8)
+        self._host_upload[..., 3] = 255
+        self._cuda_buffer: spy.Buffer | None = None
+        self._cuda_rgba: Tensor | None = None
+        self._render_device = torch.device("cpu")
+        self._has_cuda_submission = False
+        self._create_cuda_upload()
 
-    def _create_device(self, *, enable_cuda_interop: bool) -> spy.Device:
-        """Create the Vulkan device, sharing the active CUDA context if possible."""
-        existing_device_handles = (
-            self._cuda_existing_device_handles() if enable_cuda_interop else []
-        )
-        try:
-            return self._spy.Device(
-                type=self._spy.DeviceType.vulkan,
-                enable_debug_layers=False,
-                enable_cuda_interop=bool(existing_device_handles),
-                enable_cuda_launch_from_gfx=False,
-                enable_ray_tracing=False,
-                existing_device_handles=existing_device_handles or None,
+    def present(self, frame: Tensor) -> None:
+        """Copy one RGB tensor to the render device and present it."""
+        expected_shape = (self._height, self._width, 3)
+        if frame.dtype != torch.uint8 or tuple(frame.shape) != expected_shape:
+            raise ValueError(
+                "Native-window frames must be uint8 RGB tensors with shape "
+                f"{expected_shape}; got {tuple(frame.shape)} and {frame.dtype}."
             )
-        except RuntimeError as exc:
-            _LOGGER.info(
-                "Native-window CUDA interop device creation failed; using Vulkan "
-                "host upload: %s",
-                exc,
-            )
-            self._cuda_interop_unavailable_reason = "device creation failed"
-            return self._spy.Device(
-                type=self._spy.DeviceType.vulkan,
-                enable_debug_layers=False,
-                enable_cuda_launch_from_gfx=False,
-                enable_ray_tracing=False,
-            )
-
-    def _cuda_existing_device_handles(self) -> list[spy.NativeHandle]:
-        """Return SlangPy handles for the CUDA context current on this thread."""
-        try:
-            if not torch.cuda.is_initialized():
-                torch.cuda.init()
-            torch.cuda.set_device(torch.cuda.current_device())
-            torch.cuda.current_stream()
-        except Exception:
-            self._cuda_interop_unavailable_reason = "CUDA context unavailable"
-            return []
-
-        try:
-            return list(self._spy.get_cuda_current_context_native_handles())
-        except Exception as exc:
-            self._cuda_interop_unavailable_reason = (
-                f"native handle query failed ({type(exc).__name__}: {exc})"
-            )
-            return []
-
-    def _create_cuda_rgb_interop(self) -> _CudaRGBInterop | None:
-        """Create the GPU-resident RGB upload path when SlangPy supports it."""
-        device = self._device
-        assert device is not None
-        if not device.supports_cuda_interop:
-            reason = self._cuda_interop_unavailable_reason or "unsupported"
-            _LOGGER.info(
-                "Native-window CUDA interop unavailable (%s); using host upload",
-                reason,
-            )
-            return None
-        try:
-            interop = _CudaRGBInterop(
-                spy=self._spy,
-                device=device,
-                width=self._width,
-                height=self._height,
-            )
-        except Exception as exc:
-            _LOGGER.info(
-                "Native-window CUDA interop unavailable; using host upload: %s",
-                exc,
-            )
-            return None
-        _LOGGER.info("Native-window CUDA interop enabled")
-        return interop
-
-    def _submit_ready_cuda_rgb(self) -> bool:
-        """Submit one copy-complete shared RGBA buffer to the swapchain."""
-        assert self._cuda_rgb_interop is not None
-        assert self._surface is not None
-        assert self._device is not None
-        assert self._display_texture is not None
-        ready = self._cuda_rgb_interop.ready_rgba_buffer()
-        if ready is None:
-            return False
-        rgba_buffer, cuda_stream = ready
         if not self._surface.config:
-            self._cuda_rgb_interop.discard_ready(rgba_buffer)
-            return True
+            return
         surface_texture = self._surface.acquire_next_image()
         if not surface_texture:
-            self._cuda_rgb_interop.discard_ready(rgba_buffer)
-            return True
+            return
 
+        frame = self._frame_on_render_device(frame)
         encoder = self._device.create_command_encoder()
+        if self._cuda_rgba is not None:
+            # CUDA frame, copy to CUDA buffer and then to texture
+            self._copy_cuda_frame(frame, encoder)
+        else:
+            # Non-CUDA frame, copy to host and then to texture
+            self._host_upload[..., :3] = np.ascontiguousarray(frame.numpy())
+            self._display_texture.copy_from_numpy(self._host_upload)
+        encoder.blit(surface_texture, self._display_texture)
+        self._device.submit_command_buffer(encoder.finish())
+        self._surface.present()
+        if self._cuda_rgba is not None:
+            self._has_cuda_submission = True
+        del surface_texture
+
+    def close(self) -> None:
+        """Wait for pending presentation work before releasing resources."""
+        self._device.wait_for_idle()
+
+    def _frame_on_render_device(self, frame: Tensor) -> Tensor:
+        """Return ``frame`` on the device owned by this context."""
+        if frame.device == self._render_device:
+            return frame
+        return frame.to(self._render_device)
+
+    def _copy_cuda_frame(self, frame: Tensor, encoder: Any) -> None:
+        """Copy RGB into the CUDA-mapped RGBA buffer."""
+        rgba = self._cuda_rgba
+        buffer = self._cuda_buffer
+        assert rgba is not None
+        assert buffer is not None
+        with torch.cuda.device(self._render_device):
+            stream = torch.cuda.current_stream()
+            stream_handle = int(stream.cuda_stream)
+            if self._has_cuda_submission:
+                self._device.sync_to_cuda(stream_handle)
+            if not frame.is_contiguous():
+                frame = frame.contiguous()
+            rgba[..., :3].copy_(frame, non_blocking=True)
+            rgba[..., 3].fill_(255)
+            self._device.sync_to_device(stream_handle)
         encoder.copy_buffer_to_texture(
             self._display_texture,
             0,
             0,
             [0, 0, 0],
-            rgba_buffer.buffer,
+            buffer,
             0,
-            rgba_buffer.size_bytes,
-            rgba_buffer.row_pitch,
+            self._width * self._height * 4,
+            self._width * 4,
             [self._width, self._height, 1],
         )
-        encoder.blit(surface_texture, self._display_texture)
-        submit_id = self._device.submit_command_buffer(
-            encoder.finish(),
-            cuda_stream=cuda_stream,
-        )
-        self._cuda_rgb_interop.mark_submitted(rgba_buffer, submit_id)
-        self._surface.present()
-        del surface_texture
-        return True
 
-    def _present_host_upload(self) -> None:
-        """Upload and present one CPU-resident RGBA frame."""
-        assert self._surface is not None
-        assert self._device is not None
-        assert self._display_texture is not None
-        if not self._surface.config:
+    def _create_device(self) -> spy.Device:
+        """Create a Vulkan device sharing the UI thread's CUDA context."""
+        handles = self._cuda_context_handles()
+        try:
+            return self._spy.Device(
+                type=self._spy.DeviceType.vulkan,
+                enable_debug_layers=False,
+                enable_cuda_interop=bool(handles),
+                enable_cuda_launch_from_gfx=False,
+                enable_ray_tracing=False,
+                existing_device_handles=handles or None,
+            )
+        except RuntimeError as exc:
+            _LOGGER.info(
+                "Native-window CUDA interop unavailable; using host upload: %s",
+                exc,
+            )
+            return self._spy.Device(
+                type=self._spy.DeviceType.vulkan,
+                enable_debug_layers=False,
+                enable_cuda_launch_from_gfx=False,
+                enable_ray_tracing=False,
+            )
+
+    def _cuda_context_handles(self) -> list[spy.NativeHandle]:
+        """Return handles for the UI thread's current CUDA device."""
+        if not torch.cuda.is_available():
+            return []
+        try:
+            cuda_device = torch.device("cuda", torch.cuda.current_device())
+            with torch.cuda.device(cuda_device):
+                torch.cuda.current_stream()
+                return list(self._spy.get_cuda_current_context_native_handles())
+        except Exception as exc:
+            _LOGGER.info(
+                "Native-window CUDA context unavailable; using host upload: %s",
+                exc,
+            )
+            return []
+
+    def _create_cuda_upload(self) -> None:
+        """Map one shared RGBA buffer into the presentation CUDA context."""
+        if not self._device.supports_cuda_interop:
             return
-        surface_texture = self._surface.acquire_next_image()
-        if not surface_texture:
+        try:
+            buffer = self._device.create_buffer(
+                size=self._width * self._height * 4,
+                usage=self._spy.BufferUsage.shared | self._spy.BufferUsage.copy_source,
+                label="flashdreams_v2_native_cuda_rgba",
+            )
+            rgba = cast(
+                Tensor,
+                buffer.to_torch(
+                    type=self._spy.DataType.uint8,
+                    shape=[self._height, self._width, 4],
+                ),
+            )
+        except Exception as exc:
+            _LOGGER.info(
+                "Native-window CUDA buffer unavailable; using host upload: %s",
+                exc,
+            )
             return
-        self._display_texture.copy_from_numpy(self._host_upload)
-        encoder = self._device.create_command_encoder()
-        encoder.blit(surface_texture, self._display_texture)
-        self._device.submit_command_buffer(encoder.finish())
-        self._surface.present()
-        del surface_texture
+        self._cuda_buffer = buffer
+        self._cuda_rgba = rgba
+        self._render_device = rgba.device
 
     def _choose_surface_format(self) -> spy.Format:
-        """Select a linear surface format for byte-exact RGB presentation."""
-        assert self._surface is not None
-        linear_pairs = {
-            self._spy.Format.rgba8_unorm_srgb: self._spy.Format.rgba8_unorm,
-            self._spy.Format.bgra8_unorm_srgb: self._spy.Format.bgra8_unorm,
-            self._spy.Format.bgrx8_unorm_srgb: self._spy.Format.bgrx8_unorm,
-        }
-        preferred = self._surface.info.preferred_format
+        """Select a supported linear surface format."""
         supported = list(self._surface.info.formats)
         for candidate in (
             self._spy.Format.rgba8_unorm,
@@ -635,205 +570,10 @@ class _SlangPyNativeWindowPresenter:
         ):
             if candidate in supported:
                 return candidate
-        preferred_linear = linear_pairs.get(preferred, preferred)
-        if preferred_linear in supported:
-            return preferred_linear
         raise RuntimeError(
             "Native-window output requires a linear swapchain; "
             f"supported formats: {supported}."
         )
-
-    @staticmethod
-    def _as_host_rgb(frame: Tensor) -> np.ndarray:
-        """Return one CPU frame as contiguous uint8 RGB data."""
-        return np.ascontiguousarray(frame.numpy(), dtype=np.uint8)
-
-
-class _CudaRGBInterop:
-    """Map triple-buffered SlangPy shared storage into CUDA tensors."""
-
-    def __init__(
-        self, *, spy: Any, device: spy.Device, width: int, height: int
-    ) -> None:
-        """Allocate and CUDA-map the shared RGBA presentation buffers."""
-        self._spy = spy
-        self._device = device
-        self._width = int(width)
-        self._height = int(height)
-        self._row_pitch = self._width * 4
-        self._size_bytes = self._row_pitch * self._height
-        self._buffers = [
-            _SharedRGBABuffer(
-                buffer=device.create_buffer(
-                    size=self._size_bytes,
-                    usage=spy.BufferUsage.shared | spy.BufferUsage.copy_source,
-                    label=f"flashdreams_v2_native_cuda_rgba_{index}",
-                ),
-                row_pitch=self._row_pitch,
-                size_bytes=self._size_bytes,
-            )
-            for index in range(3)
-        ]
-        for shared_buffer in self._buffers:
-            shared_buffer.rgba_tensor = cast(
-                Tensor,
-                shared_buffer.buffer.to_torch(
-                    type=spy.DataType.uint8,
-                    shape=[self._height, self._width, 4],
-                ),
-            )
-        first_tensor = self._buffers[0].rgba_tensor
-        if first_tensor is None:
-            raise RuntimeError("Shared RGBA buffer was not mapped into CUDA.")
-        self._cuda_device = first_tensor.device
-        self._copy_stream = torch.cuda.Stream(device=self._cuda_device)
-        self._next_buffer_index = 0
-
-    def as_cuda_rgb_frame(
-        self, frame: Tensor | _CudaPresentationFrame
-    ) -> _CudaRGBFrame | None:
-        """Return a device-compatible CUDA RGB view when available."""
-        tensor = frame.tensor if isinstance(frame, _CudaPresentationFrame) else frame
-        if (
-            not tensor.is_cuda
-            or tensor.dtype != torch.uint8
-            or tensor.ndim != 3
-            or tuple(tensor.shape) != (self._height, self._width, 3)
-        ):
-            return None
-        if self._device_index(tensor.device) != self._device_index(self._cuda_device):
-            return None
-        source_event = (
-            frame.ready_event if isinstance(frame, _CudaPresentationFrame) else None
-        )
-        return _CudaRGBFrame(tensor=tensor.detach(), source_event=source_event)
-
-    def enqueue_rgb_to_shared_rgba(self, frame: _CudaRGBFrame) -> bool:
-        """Enqueue one RGB-to-RGBA copy without synchronizing the host."""
-        shared_buffer = self._acquire_buffer()
-        if shared_buffer is None:
-            return False
-        rgba = shared_buffer.rgba_tensor
-        if rgba is None:
-            raise RuntimeError("Shared RGBA buffer was not mapped into CUDA.")
-        if frame.source_event is not None:
-            self._copy_stream.wait_event(frame.source_event)
-        with torch.cuda.stream(self._copy_stream):
-            rgb = frame.tensor
-            if not rgb.is_contiguous():
-                rgb = rgb.contiguous()
-            rgba[..., :3].copy_(rgb, non_blocking=True)
-            rgba[..., 3].fill_(255)
-            rgb.record_stream(self._copy_stream)
-            rgba.record_stream(self._copy_stream)
-            done = torch.cuda.Event()
-            done.record(self._copy_stream)
-        shared_buffer.copy_done_event = done
-        return True
-
-    def ready_rgba_buffer(
-        self,
-    ) -> tuple[_SharedRGBABuffer, spy.NativeHandle] | None:
-        """Return the next copy-complete buffer and CUDA stream handle."""
-        for shared_buffer in self._buffers:
-            event = shared_buffer.copy_done_event
-            if event is None or not _cuda_event_ready(event):
-                continue
-            cuda_stream = self._spy.NativeHandle(
-                self._spy.NativeHandleType.CUstream,
-                int(self._copy_stream.cuda_stream),
-            )
-            return shared_buffer, cuda_stream
-        return None
-
-    def mark_submitted(self, shared_buffer: _SharedRGBABuffer, submit_id: int) -> None:
-        """Associate a shared buffer with its Vulkan submission."""
-        shared_buffer.copy_done_event = None
-        shared_buffer.pending_submit_id = int(submit_id)
-
-    def discard_ready(self, shared_buffer: _SharedRGBABuffer) -> None:
-        """Release a copy-complete buffer when the swapchain is unavailable."""
-        shared_buffer.copy_done_event = None
-        shared_buffer.pending_submit_id = None
-
-    def close(self) -> None:
-        """Synchronize and release the CUDA copy stream."""
-        self._copy_stream.synchronize()
-
-    def _acquire_buffer(self) -> _SharedRGBABuffer | None:
-        """Return a shared buffer no longer owned by CUDA or Vulkan."""
-        for offset in range(len(self._buffers)):
-            index = (self._next_buffer_index + offset) % len(self._buffers)
-            shared_buffer = self._buffers[index]
-            if shared_buffer.copy_done_event is not None:
-                continue
-            submit_id = shared_buffer.pending_submit_id
-            if submit_id is not None and not self._device.is_submit_finished(submit_id):
-                continue
-            shared_buffer.pending_submit_id = None
-            self._next_buffer_index = (index + 1) % len(self._buffers)
-            return shared_buffer
-        return None
-
-    @staticmethod
-    def _device_index(device: torch.device) -> int:
-        """Return a concrete CUDA device index."""
-        index = device.index
-        return 0 if index is None else int(index)
-
-
-@dataclass(frozen=True, slots=True)
-class _CudaRGBFrame:
-    """CUDA RGB tensor plus its producer-completion event."""
-
-    tensor: Tensor
-    """CUDA uint8 RGB tensor to copy."""
-
-    source_event: torch.cuda.Event | None
-    """Producer event the copy stream waits for."""
-
-
-@dataclass(slots=True)
-class _SharedRGBABuffer:
-    """Track one shared buffer's CUDA-copy and Vulkan-submit ownership."""
-
-    buffer: spy.Buffer
-    """SlangPy shared buffer."""
-
-    row_pitch: int
-    """Bytes occupied by each row."""
-
-    size_bytes: int
-    """Total shared-buffer size in bytes."""
-
-    rgba_tensor: Tensor | None = None
-    """CUDA tensor mapped over ``buffer``."""
-
-    copy_done_event: torch.cuda.Event | None = None
-    """CUDA event completing the pending RGB-to-RGBA copy."""
-
-    pending_submit_id: int | None = None
-    """Vulkan submission currently reading the buffer."""
-
-
-def _cuda_frame_device(
-    frame: Tensor | _CudaPresentationFrame,
-) -> torch.device | None:
-    """Return the device of a wrapped CUDA tensor without synchronizing it."""
-    tensor = frame.tensor if isinstance(frame, _CudaPresentationFrame) else frame
-    if not tensor.is_cuda:
-        return None
-    return tensor.device
-
-
-def _cuda_event_ready(event: torch.cuda.Event | None) -> bool:
-    """Return whether a CUDA event has completed without blocking the host."""
-    if event is None:
-        return True
-    try:
-        return bool(event.query())
-    except RuntimeError:
-        return False
 
 
 def _keyboard_event(event: spy.KeyboardEvent) -> KeyboardUserInputEvent | None:
