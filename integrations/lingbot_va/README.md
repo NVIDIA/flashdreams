@@ -215,7 +215,7 @@ compilation:
   `15bcdc4307e080218255e83946c2c2e5dbc30f3b7acd26c8925167017234e586`;
 - actions: float32 `[64, 16]`, finite, distinct chunks, SHA-256
   `463b307b667c1ca13a47bbbc5a17f68604621dfe3c3a10fc5860077216928d95`;
-- peak allocation: 39,804,415,488 bytes (37.07 GiB).
+- peak allocation: 39,804,413,440 bytes (37.07 GiB).
 
 The action hash exactly matches the earlier resident/offload parity run.
 
