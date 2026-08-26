@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import cast
 
 import torch
 import torch.nn.functional as F
@@ -445,7 +446,13 @@ class MiniMaxH3VideoRotaryPosEmbed(nn.Module):
 
     def forward(self, position_ids: Tensor) -> tuple[Tensor, Tensor]:
         """Build cosine and sine tensors for three-axis RoPE."""
-        angles = 2.0 * math.pi * position_ids[:, :, :, None] * self.inv_freq[None, None, None, :]
+        inv_freq = cast(Tensor, self.inv_freq)
+        angles = (
+            2.0
+            * math.pi
+            * position_ids[:, :, :, None]
+            * inv_freq[None, None, None, :]
+        )
         angles = angles.flatten(2, 3).tile(2).unsqueeze(2)
         return angles.cos(), angles.sin()
 

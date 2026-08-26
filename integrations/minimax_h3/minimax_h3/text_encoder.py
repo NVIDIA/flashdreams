@@ -302,15 +302,23 @@ def build_ref2va_presentation(
     video_timestamps: list[list[float]] = []
     if videos:
         temporal_patch = processor.video_processor.temporal_patch_size
-        sampled = [
-            _sample_ref2va_video_frames(
-                reference.frames,
-                fps=float(reference.fps if reference.fps is not None else fps),
-                sample_fps=video_sample_fps,
-                temporal_patch=temporal_patch,
+        sampled: list[tuple[list[np.ndarray], list[float]]] = []
+        for reference in videos:
+            frames = reference.frames
+            if not isinstance(frames, np.ndarray):
+                raise ValueError(
+                    "video references must be normalized before presentation"
+                )
+            sampled.append(
+                _sample_ref2va_video_frames(
+                    frames,
+                    fps=float(
+                        reference.fps if reference.fps is not None else fps
+                    ),
+                    sample_fps=video_sample_fps,
+                    temporal_patch=temporal_patch,
+                )
             )
-            for reference in videos
-        ]
         video_timestamps = [timestamps for _, timestamps in sampled]
         video_features = processor.video_processor(
             videos=[np.stack(frames) for frames, _ in sampled],

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -161,16 +161,19 @@ def _normalize_image(
             )
         image = image.detach().movedim(0, -1).cpu().numpy()
     if isinstance(image, np.ndarray):
-        if image.ndim != 3 or image.shape[2] != 3:
+        image_array = cast(np.ndarray, image)
+        if image_array.ndim != 3 or image_array.shape[2] != 3:
             raise ValueError(
                 "A reference image array must have shape [height, width, 3], "
-                f"got {tuple(image.shape)}."
+                f"got {tuple(image_array.shape)}."
             )
-        if image.dtype != np.uint8:
-            if not np.isfinite(image).all():
+        if image_array.dtype != np.uint8:
+            if not np.isfinite(image_array).all():
                 raise ValueError("A reference image must contain finite pixels.")
-            image = (image * 255.0).round().clip(0, 255).astype(np.uint8)
-        image = Image.fromarray(image, mode="RGB")
+            image_array = (
+                (image_array * 255.0).round().clip(0, 255).astype(np.uint8)
+            )
+        image = Image.fromarray(image_array, mode="RGB")
     if not isinstance(image, Image.Image):
         raise ValueError(
             "A reference image must be a PIL image, NumPy array, or Torch tensor."
@@ -393,13 +396,16 @@ def normalize_references(
             isinstance(reference, MiniMaxH3VideoReference)
             and reference.has_audio
         ):
+            source_audio = reference.audio
+            if source_audio is None:
+                raise ValueError("An audio-bearing reference has no waveform.")
             sample_rate = (
                 target_sample_rate
                 if reference.sample_rate is None
                 else reference.sample_rate
             )
             waveform = _normalize_audio(
-                reference.audio,
+                source_audio,
                 sample_rate=sample_rate,
                 target_sample_rate=target_sample_rate,
                 max_samples=max_samples,
@@ -434,6 +440,8 @@ def normalize_references(
                 )
             )
         elif isinstance(reference, MiniMaxH3AudioReference):
+            if waveform is None:
+                raise AssertionError("validated audio reference was not normalized")
             normalized.append(
                 MiniMaxH3AudioReference(
                     audio=waveform, sample_rate=target_sample_rate
@@ -490,18 +498,20 @@ def encode_references(
             )
             video_latents.append(video_vae.encode_condition_pixels(pixels))
         elif isinstance(reference, MiniMaxH3VideoReference):
-            if not isinstance(reference.frames, np.ndarray):
+            frames = reference.frames
+            if not isinstance(frames, np.ndarray):
                 raise ValueError(
                     "video references must be normalized before encoding"
                 )
-            source_frames = reference.frames.shape[0]
+            frames_array = cast(np.ndarray, frames)
+            source_frames = frames_array.shape[0]
             encoded_frames = (
                 max(1, (source_frames - FRAME_REMAINDER) // FRAME_CHUNK)
                 * FRAME_CHUNK
                 + FRAME_REMAINDER
             )
             pixels = (
-                torch.from_numpy(reference.frames[:encoded_frames].copy())
+                torch.from_numpy(frames_array[:encoded_frames].copy())
                 .permute(3, 0, 1, 2)[None]
                 .to(device=target_device, dtype=torch.float32)
                 .div_(255.0)

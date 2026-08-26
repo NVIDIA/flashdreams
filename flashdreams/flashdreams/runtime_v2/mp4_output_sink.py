@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 from flashdreams.api_v2.output_sink import AbortableOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -80,7 +81,7 @@ class Mp4OutputSink(AbortableOutputSink):
             try:
                 shutil.rmtree(staging_dir)
             except BaseException as cleanup_error:
-                error.add_note(
+                cast(Any, error).add_note(
                     f"Staging cleanup also failed: {cleanup_error!r}"
                 )
             raise
@@ -155,7 +156,9 @@ class Mp4OutputSink(AbortableOutputSink):
             if failure is None:
                 failure = error
             else:
-                failure.add_note(f"Staging cleanup also failed: {error!r}")
+                cast(Any, failure).add_note(
+                    f"Staging cleanup also failed: {error!r}"
+                )
         self._clear_transaction(clear_staging=not cleanup_failed)
         if failure is not None:
             raise failure

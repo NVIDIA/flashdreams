@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -121,7 +121,9 @@ class Mp4Encoder:
             if failure is None:
                 failure = error
             else:
-                failure.add_note(f"Waiting for ffmpeg also failed: {error!r}")
+                cast(Any, failure).add_note(
+                    f"Waiting for ffmpeg also failed: {error!r}"
+                )
         finally:
             error_reader = self._error_reader
             self._error_reader = None
@@ -132,7 +134,7 @@ class Mp4Encoder:
                     if failure is None:
                         failure = error
                     else:
-                        failure.add_note(
+                        cast(Any, failure).add_note(
                             f"Joining the ffmpeg error reader also failed: {error!r}"
                         )
         if failure is not None:

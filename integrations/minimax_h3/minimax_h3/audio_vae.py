@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import cast
 
 import torch
 import torch.nn.functional as F
@@ -211,12 +212,13 @@ class MiniMaxH3AudioLowPassFilter1d(nn.Module):
 
     def forward(self, hidden_states: Tensor) -> Tensor:
         num_channels = hidden_states.shape[1]
+        filter_kernel = cast(Tensor, self.filter)
         hidden_states = F.pad(
             hidden_states, (self.pad_left, self.pad_right), mode="replicate"
         )
         return F.conv1d(
             hidden_states,
-            self.filter.expand(num_channels, -1, -1),
+            filter_kernel.expand(num_channels, -1, -1),
             stride=self.stride,
             groups=num_channels,
         )
@@ -243,10 +245,11 @@ class MiniMaxH3AudioUpSample1d(nn.Module):
 
     def forward(self, hidden_states: Tensor) -> Tensor:
         num_channels = hidden_states.shape[1]
+        filter_kernel = cast(Tensor, self.filter)
         hidden_states = F.pad(hidden_states, (self.pad, self.pad), mode="replicate")
         hidden_states = self.ratio * F.conv_transpose1d(
             hidden_states,
-            self.filter.expand(num_channels, -1, -1),
+            filter_kernel.expand(num_channels, -1, -1),
             stride=self.stride,
             groups=num_channels,
         )
@@ -393,10 +396,11 @@ class MiniMaxH3AudioCausalAttention(nn.Module):
 
     def forward(self, hidden_states: Tensor) -> Tensor:
         batch_size, sequence_length, _ = hidden_states.shape
+        zero_k_bias = cast(Tensor, self.zero_k_bias)
         qkv = F.linear(
             hidden_states,
             self.qkv.weight,
-            torch.cat((self.q_bias, self.zero_k_bias, self.v_bias)),
+            torch.cat((self.q_bias, zero_k_bias, self.v_bias)),
         )
         query, key, value = qkv.reshape(
             batch_size,
@@ -544,7 +548,8 @@ class MiniMaxH3AudioBigVGANDecoder(nn.Module):
         hidden_states = self.conv_pre(hidden_states)
 
         for i in range(self.num_upsamples):
-            hidden_states = self.ups[i][0](hidden_states)
+            upsample = cast(nn.ModuleList, self.ups[i])
+            hidden_states = upsample[0](hidden_states)
             residual: Tensor | None = None
             for j in range(self.num_kernels):
                 block = self.resblocks[i * self.num_kernels + j](hidden_states)
