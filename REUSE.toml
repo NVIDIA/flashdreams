@@ -66,6 +66,74 @@ SPDX-FileCopyrightText = [
 ]
 SPDX-License-Identifier = "Apache-2.0"
 
+# --- MiniMax H3 native components modified from Hugging Face Diffusers
+#     commit 175fe6b2419a01db9c2ceabd01ec37d2c0305fc2 under Apache-2.0. ---
+[[annotations]]
+path = [
+    "integrations/minimax_h3/minimax_h3/audio_vae.py",
+    "integrations/minimax_h3/minimax_h3/scheduler.py",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2025 The MiniMax authors and The HuggingFace Team. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/transformer.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2025 The MiniMax Team and The HuggingFace Team. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/video_vae.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2026 The MiniMax and HuggingFace Teams. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/conditioning.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2026 The MiniMax and HuggingFace Teams. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/text_encoder.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2026 The MiniMax and HuggingFace Teams. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/keyframes.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2026 The MiniMax and HuggingFace Teams. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations/minimax_h3/minimax_h3/reference_conditioning.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright 2026 The MiniMax and HuggingFace Teams. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0"
+
 # --- Generated protobuf stubs. The .proto sources are authoritative; the
 #     *_pb2.py / *_pb2.pyi / *_pb2_grpc.py outputs inherit the same license
 #     because the regeneration script (compile_protos.sh) is project-owned. ---

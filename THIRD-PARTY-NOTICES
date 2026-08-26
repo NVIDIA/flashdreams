@@ -52,6 +52,19 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 ================================================================================
+Optional integration: integrations/minimax_h3 and integrations_v2/minimax_h3
+================================================================================
+
+accelerate             Apache-2.0   https://github.com/huggingface/accelerate
+Pillow                 MIT-CMU      https://github.com/python-pillow/Pillow
+
+MiniMax H3 model weights are downloaded from the pinned upstream revision at
+runtime and are not redistributed in this repository. Video and audio media
+I/O invokes administrator- or user-provided ``ffmpeg`` and ``ffprobe``
+executables on ``PATH``; FlashDreams does not bundle those executables or link
+their libraries.
+
+================================================================================
 Optional integration: integrations/omnidreams
 ================================================================================
 
@@ -127,6 +140,30 @@ The following third-party source is physically present in this repository
 notice inline; license texts are reproduced under LICENSES/.
 
 --------------------------------------------------------------------------------
+MiniMax H3 native model components
+--------------------------------------------------------------------------------
+
+Paths:   integrations/minimax_h3/minimax_h3/{audio_vae.py,conditioning.py,
+         keyframes.py,reference_conditioning.py,scheduler.py,text_encoder.py,
+         transformer.py,video_vae.py}
+License: Apache-2.0 (see LICENSES/Apache-2.0.txt)
+         Copyright 2025 The MiniMax authors and The HuggingFace Team.
+         All rights reserved.
+         Copyright 2025 The MiniMax Team and The HuggingFace Team.
+         All rights reserved.
+         Copyright 2026 The MiniMax and HuggingFace Teams.
+         All rights reserved.
+Upstream: https://github.com/huggingface/diffusers/tree/175fe6b2419a01db9c2ceabd01ec37d2c0305fc2
+
+These native MiniMax H3 components are modified ports of the packed-sequence
+conditioning, keyframe and ordered reference preprocessing, Qwen3-VL
+presentation encoder, scheduler, transformer, waveform autoencoder, and video
+autoencoder published in the pinned Hugging Face Diffusers commit above. The
+ports preserve the released checkpoint tensor names and numerical behavior
+while replacing Diffusers runtime APIs with FlashDreams interfaces. Each
+modified file retains the applicable upstream copyright inline.
+
+--------------------------------------------------------------------------------
 HPG-2011 NVIDIA CUDA Rasterizer port
 --------------------------------------------------------------------------------
 
@@ -155,7 +192,7 @@ License:  Zlib (see LICENSES/Zlib.txt)
 Upstream: https://lodev.org/lodepng/
 
 LodePNG is a PNG codec implementation embedded by the upstream
-cudaraster framework. It is the only non-NVIDIA source physically
+cudaraster framework. It is one of the non-NVIDIA sources physically
 redistributed in this repository. The inline notice in lodepng.h
 preserves the upstream copyright notice as required by the Zlib
 license; LICENSES/Zlib.txt reproduces the license text in full.
