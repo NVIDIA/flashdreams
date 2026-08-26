@@ -241,10 +241,7 @@ def test_t2va_returns_maximum_aligned_video_audio_and_resets(tmp_path: Path) -> 
     assert request.seed == 7
     assert request.checkpoint_store is not None
     assert request.checkpoint_store.path == (
-        tmp_path.resolve()
-        / "rollout-7"
-        / "minimax_h3"
-        / "joint_latents.safetensors"
+        tmp_path.resolve() / "rollout-7" / "minimax_h3" / "joint_latents.safetensors"
     )
     assert engine.config.device == "cpu"
     assert engine.config.attention_backend == "math"
@@ -359,10 +356,9 @@ def test_ref2va_preserves_order_and_optional_video_soundtrack(
     )
     monkeypatch.setattr(
         app_module,
-        "read_video_rgb",
-        lambda _path: np.zeros((2, 8, 8, 3), dtype=np.uint8),
+        "read_video_rgb_with_fps",
+        lambda _path: (np.zeros((2, 8, 8, 3), dtype=np.uint8), 24.0),
     )
-    monkeypatch.setattr(app_module, "read_video_fps", lambda _path: 24.0)
     monkeypatch.setattr(
         app_module,
         "read_optional_audio_f32",
@@ -485,12 +481,8 @@ def test_create_session_requires_init_and_valid_canvas() -> None:
 
 def test_manifest_registers_three_stable_v2_slugs() -> None:
     """Keep each workflow independently discoverable by the V2 registry."""
-    manifest = tomli.loads(
-        (Path(__file__).parents[2] / "pyproject.toml").read_text()
-    )
-    entry_points = manifest["project"]["entry-points"][
-        "flashdreams.applications_v2"
-    ]
+    manifest = tomli.loads((Path(__file__).parents[2] / "pyproject.toml").read_text())
+    entry_points = manifest["project"]["entry-points"]["flashdreams.applications_v2"]
 
     assert entry_points == {
         "minimax-h3-t2va": "minimax_h3_v2.app:create_t2va_app",

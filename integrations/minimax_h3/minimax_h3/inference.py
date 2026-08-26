@@ -40,8 +40,6 @@ from minimax_h3.conditioning import (
     prepare_ref2va_denoise_state,
 )
 from minimax_h3.constants import (
-    AUDIO_SAMPLE_RATE,
-    FPS,
     MODEL_ID,
     align_num_frames,
     validate_canvas,
@@ -73,11 +71,7 @@ from minimax_h3.text_encoder import (
     build_t2va_presentation,
     encode_presentation,
 )
-from minimax_h3.transformer import (
-    H3_REF_TRANSFORMER_CHECKPOINT,
-    H3_TRANSFORMER_CHECKPOINT,
-    MiniMaxH3TransformerConfig,
-)
+from minimax_h3.transformer import MiniMaxH3TransformerConfig
 from minimax_h3.video_vae import MiniMaxH3VideoVAEConfig
 
 MiniMaxH3Workflow = Literal["t2va", "fl2va", "ref2va"]
@@ -159,9 +153,7 @@ class MiniMaxH3InferenceRequest:
             self.first_image, Image.Image
         ):
             raise ValueError("first_image must be a PIL image")
-        if self.last_image is not None and not isinstance(
-            self.last_image, Image.Image
-        ):
+        if self.last_image is not None and not isinstance(self.last_image, Image.Image):
             raise ValueError("last_image must be a PIL image")
         has_keyframes = self.first_image is not None or self.last_image is not None
         if self.workflow == "t2va" and (has_keyframes or self.references):
@@ -260,9 +252,7 @@ class DefaultMiniMaxH3Resources:
             snapshot_download(
                 repo_id=config.model_id,
                 revision=config.revision,
-                cache_dir=(
-                    None if config.cache_dir is None else str(config.cache_dir)
-                ),
+                cache_dir=(None if config.cache_dir is None else str(config.cache_dir)),
                 allow_patterns=["tokenizer/*", "processor/*"],
             )
         )
@@ -314,54 +304,78 @@ class DefaultMiniMaxH3Resources:
         """Materialize only the Qwen3-VL conditioner on the execution device."""
         from transformers import Qwen3VLForConditionalGeneration
 
-        return Qwen3VLForConditionalGeneration.from_pretrained(
-            self._component_dir("text_encoder"),
-            local_files_only=True,
-            dtype=torch.bfloat16,
-            device_map={"": self.config.device},
-            low_cpu_mem_usage=True,
-        ).eval()
+        try:
+            return Qwen3VLForConditionalGeneration.from_pretrained(
+                self._component_dir("text_encoder"),
+                local_files_only=True,
+                dtype=torch.bfloat16,
+                device_map={"": self.config.device},
+                low_cpu_mem_usage=True,
+            ).eval()
+        except BaseException:
+            self._recover_failed_load()
+            raise
 
     def load_video_vae(self) -> nn.Module:
         """Materialize the native full-precision video VAE."""
-        return MiniMaxH3VideoVAEConfig(
-            device=self.config.device,
-            checkpoint_min_free_gb=self.config.checkpoint_min_free_gb,
-        ).setup()
+        try:
+            return MiniMaxH3VideoVAEConfig(
+                checkpoint_path=str(
+                    self._component_dir("vae")
+                    / "diffusion_pytorch_model.safetensors.index.json"
+                ),
+                device=self.config.device,
+                checkpoint_min_free_gb=self.config.checkpoint_min_free_gb,
+            ).setup()
+        except BaseException:
+            self._recover_failed_load()
+            raise
 
     def load_audio_vae(self) -> nn.Module:
         """Materialize the native full-precision waveform VAE."""
-        return MiniMaxH3AudioVAEConfig(
-            device=self.config.device,
-            checkpoint_min_free_gb=self.config.checkpoint_min_free_gb,
-        ).setup()
+        try:
+            return MiniMaxH3AudioVAEConfig(
+                checkpoint_path=str(
+                    self._component_dir("audio_vae")
+                    / "diffusion_pytorch_model.safetensors"
+                ),
+                device=self.config.device,
+                checkpoint_min_free_gb=self.config.checkpoint_min_free_gb,
+            ).setup()
+        except BaseException:
+            self._recover_failed_load()
+            raise
 
     def load_diffusion_model(
         self, workflow: MiniMaxH3Workflow, num_inference_steps: int
     ) -> nn.Module:
         """Materialize the workflow's native transformer and paired schedules."""
-        checkpoint = (
-            H3_REF_TRANSFORMER_CHECKPOINT
-            if workflow == "ref2va"
-            else H3_TRANSFORMER_CHECKPOINT
+        component = "transformer_ref" if workflow == "ref2va" else "transformer"
+        checkpoint = str(
+            self._component_dir(component)
+            / "diffusion_pytorch_model.safetensors.index.json"
         )
-        transformer = MiniMaxH3TransformerConfig(
-            checkpoint_path=checkpoint,
-            checkpoint_min_free_gb=self.config.checkpoint_min_free_gb,
-            device=self.config.device,
-            execution_device=self.config.device,
-            sequential_cpu_offload=False,
-            attention_backend=self.config.attention_backend,
-        )
-        return MiniMaxH3DiffusionModelConfig(
-            transformer=transformer,
-            scheduler=MiniMaxH3SchedulerConfig(
-                num_inference_steps=num_inference_steps, shift=12.0
-            ),
-            audio_scheduler=MiniMaxH3SchedulerConfig(
-                num_inference_steps=num_inference_steps, shift=3.0
-            ),
-        ).setup()
+        try:
+            transformer = MiniMaxH3TransformerConfig(
+                checkpoint_path=checkpoint,
+                checkpoint_min_free_gb=self.config.checkpoint_min_free_gb,
+                device=self.config.device,
+                execution_device=self.config.device,
+                sequential_cpu_offload=False,
+                attention_backend=self.config.attention_backend,
+            )
+            return MiniMaxH3DiffusionModelConfig(
+                transformer=transformer,
+                scheduler=MiniMaxH3SchedulerConfig(
+                    num_inference_steps=num_inference_steps, shift=12.0
+                ),
+                audio_scheduler=MiniMaxH3SchedulerConfig(
+                    num_inference_steps=num_inference_steps, shift=3.0
+                ),
+            ).setup()
+        except BaseException:
+            self._recover_failed_load()
+            raise
 
     def release(self, module: Any) -> None:
         """Drop a completed stage without staging its weights in host RAM."""
@@ -377,6 +391,12 @@ class DefaultMiniMaxH3Resources:
         """Release small shared tokenizer/processor metadata."""
         del self.tokenizer
         del self.processor
+
+    def _recover_failed_load(self) -> None:
+        """Release unreachable partial allocations after component setup fails."""
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -641,9 +661,7 @@ class MiniMaxH3InferenceEngine:
                     store.save(identity, progress)
 
                 checkpoint = save_checkpoint
-            return model.generate_joint(
-                state, resume=resume, checkpoint=checkpoint
-            )
+            return model.generate_joint(state, resume=resume, checkpoint=checkpoint)
         finally:
             self.resources.release(model)
             del model
@@ -651,9 +669,7 @@ class MiniMaxH3InferenceEngine:
     def _decode_video(self, joint: MiniMaxH3JointLatents) -> Tensor:
         video_vae = self.resources.load_video_vae()
         try:
-            pixels = video_vae.decode_output(
-                joint.video.to(self.config.device)
-            )
+            pixels = video_vae.decode_output(joint.video.to(self.config.device))
             return (
                 pixels[0]
                 .permute(1, 0, 2, 3)
@@ -670,9 +686,7 @@ class MiniMaxH3InferenceEngine:
     def _decode_audio(self, joint: MiniMaxH3JointLatents) -> AudioOutput:
         audio_vae = self.resources.load_audio_vae()
         try:
-            decoded = audio_vae.decode_output(
-                joint.audio.to(self.config.device)
-            )
+            decoded = audio_vae.decode_output(joint.audio.to(self.config.device))
             return AudioOutput(
                 samples=decoded.samples.detach().to("cpu").contiguous(),
                 sample_rate=decoded.sample_rate,
@@ -686,8 +700,8 @@ class MiniMaxH3InferenceEngine:
         """Release shared metadata and reject further generation."""
         if self._closed:
             return
-        self._closed = True
         self.resources.close()
+        self._closed = True
 
 
 def validate_execution_capacity(config: MiniMaxH3InferenceConfig) -> None:

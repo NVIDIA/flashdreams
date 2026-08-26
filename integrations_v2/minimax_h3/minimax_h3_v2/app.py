@@ -22,8 +22,7 @@ from flashdreams.infra.runner_io import (
     read_audio_f32,
     read_image_rgb,
     read_optional_audio_f32,
-    read_video_fps,
-    read_video_rgb,
+    read_video_rgb_with_fps,
 )
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -365,9 +364,7 @@ def _decode_inputs(
             namespace.last_image_path, option="--last-image-path"
         )
         if first_path is None and last_path is None:
-            raise ValueError(
-                "fl2va requires --image-path, --last-image-path, or both"
-            )
+            raise ValueError("fl2va requires --image-path, --last-image-path, or both")
         identities = tuple(
             MiniMaxH3AssetIdentity.from_file(path, source=f"{anchor}:{path}")
             for anchor, path in (("first", first_path), ("last", last_path))
@@ -382,9 +379,7 @@ def _decode_inputs(
     specs = _parse_reference_specs(namespace.reference)
     references = tuple(_decode_reference(spec) for spec in specs)
     identities = tuple(
-        MiniMaxH3AssetIdentity.from_file(
-            spec.path, source=f"{spec.kind}:{spec.path}"
-        )
+        MiniMaxH3AssetIdentity.from_file(spec.path, source=f"{spec.kind}:{spec.path}")
         for spec in specs
     )
     return _DecodedInputs(references=references, identities=identities)
@@ -411,9 +406,7 @@ def _parse_reference_specs(entries: Sequence[str]) -> tuple[_ReferenceSpec, ...]
     for kind, limit in (("image", 9), ("video", 3), ("audio", 3)):
         count = sum(spec.kind == kind for spec in specs)
         if count > limit:
-            raise ValueError(
-                f"MiniMax H3 accepts at most {limit} {kind} references"
-            )
+            raise ValueError(f"MiniMax H3 accepts at most {limit} {kind} references")
     if len(specs) > 12:
         raise ValueError("MiniMax H3 accepts at most 12 references in total")
     if all(spec.kind == "audio" for spec in specs):
@@ -428,14 +421,15 @@ def _decode_reference(spec: _ReferenceSpec) -> MiniMaxH3Reference:
     if spec.kind == "image":
         return MiniMaxH3ImageReference(_read_pil_image(spec.path))
     if spec.kind == "video":
+        frames, fps = read_video_rgb_with_fps(spec.path)
         audio = read_optional_audio_f32(
             spec.path,
             sample_rate=AUDIO_SAMPLE_RATE,
             channels=AUDIO_CHANNELS,
         )
         return MiniMaxH3VideoReference(
-            frames=read_video_rgb(spec.path),
-            fps=read_video_fps(spec.path),
+            frames=frames,
+            fps=fps,
             audio=audio,
             sample_rate=None if audio is None else AUDIO_SAMPLE_RATE,
         )
@@ -491,9 +485,7 @@ def _validate_session_desc(session_desc: SessionDesc) -> None:
         session_desc.audio_sample_rate != AUDIO_SAMPLE_RATE
         or session_desc.audio_channels != AUDIO_CHANNELS
     ):
-        raise ValueError(
-            f"MiniMax H3 requires {AUDIO_SAMPLE_RATE} Hz stereo audio"
-        )
+        raise ValueError(f"MiniMax H3 requires {AUDIO_SAMPLE_RATE} Hz stereo audio")
 
 
 def create_t2va_app() -> IApplication:

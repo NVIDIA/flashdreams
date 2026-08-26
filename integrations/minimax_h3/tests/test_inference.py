@@ -121,9 +121,7 @@ class _TextEncoder(nn.Module):
         self.register_parameter(
             "anchor", nn.Parameter(torch.zeros((), dtype=torch.bfloat16))
         )
-        self.config = SimpleNamespace(
-            text_config=SimpleNamespace(num_hidden_layers=64)
-        )
+        self.config = SimpleNamespace(text_config=SimpleNamespace(num_hidden_layers=64))
         self.model = _QwenBase()
 
     @property
@@ -280,6 +278,8 @@ def test_default_resources_resolve_pinned_subfolders_offline(
     processor_dir.mkdir(parents=True)
     (snapshot_dir / "tokenizer").mkdir()
     (snapshot_dir / "text_encoder").mkdir()
+    for component in ("vae", "audio_vae", "transformer", "transformer_ref"):
+        (snapshot_dir / component).mkdir()
     (processor_dir / "chat_template.json").write_text(
         '{"chat_template": "pinned template"}', encoding="utf-8"
     )
@@ -316,9 +316,7 @@ def test_default_resources_resolve_pinned_subfolders_offline(
         calls: list[tuple[Path, dict[str, Any]]] = []
 
         @classmethod
-        def from_pretrained(
-            cls, path: Path, **kwargs: Any
-        ) -> _EncoderFactory:
+        def from_pretrained(cls, path: Path, **kwargs: Any) -> _EncoderFactory:
             cls.calls.append((path, kwargs))
             return cls()
 
@@ -327,9 +325,7 @@ def test_default_resources_resolve_pinned_subfolders_offline(
     setattr(fake_transformers, "Qwen2VLImageProcessor", _ImageFactory)
     setattr(fake_transformers, "Qwen3VLVideoProcessor", _VideoFactory)
     setattr(fake_transformers, "Qwen3VLProcessor", _ProcessorFactory)
-    setattr(
-        fake_transformers, "Qwen3VLForConditionalGeneration", _EncoderFactory
-    )
+    setattr(fake_transformers, "Qwen3VLForConditionalGeneration", _EncoderFactory)
     monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
@@ -361,6 +357,182 @@ def test_default_resources_resolve_pinned_subfolders_offline(
         )
     ]
     assert not encoder.training
+
+
+def test_native_components_load_from_the_selected_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep native weight downloads on the filesystem selected by --cache-dir."""
+    import huggingface_hub
+    import minimax_h3.inference as inference_module
+
+    snapshot_dir = tmp_path / "snapshot"
+    processor_dir = snapshot_dir / "processor"
+    processor_dir.mkdir(parents=True)
+    (snapshot_dir / "tokenizer").mkdir()
+    (processor_dir / "chat_template.json").write_text(
+        '{"chat_template": "pinned template"}', encoding="utf-8"
+    )
+    for component in ("vae", "audio_vae", "transformer", "transformer_ref"):
+        (snapshot_dir / component).mkdir()
+    downloads: list[dict[str, Any]] = []
+
+    def fake_snapshot_download(**kwargs: Any) -> str:
+        downloads.append(kwargs)
+        return str(snapshot_dir)
+
+    class _Factory:
+        @classmethod
+        def from_pretrained(cls, *args: Any, **kwargs: Any) -> object:
+            del args, kwargs
+            return object()
+
+    class _ProcessorFactory:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+
+    fake_transformers = ModuleType("transformers")
+    setattr(fake_transformers, "AutoTokenizer", _Factory)
+    setattr(fake_transformers, "Qwen2VLImageProcessor", _Factory)
+    setattr(fake_transformers, "Qwen3VLVideoProcessor", _Factory)
+    setattr(fake_transformers, "Qwen3VLProcessor", _ProcessorFactory)
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    calls: dict[str, list[dict[str, Any]]] = {
+        "video": [],
+        "audio": [],
+        "transformer": [],
+    }
+
+    def config_factory(kind: str) -> type:
+        class _Config:
+            def __init__(self, **kwargs: Any) -> None:
+                calls[kind].append(kwargs)
+
+            def setup(self) -> nn.Identity:
+                return nn.Identity()
+
+        return _Config
+
+    class _DiffusionConfig:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+
+        def setup(self) -> nn.Identity:
+            return nn.Identity()
+
+    monkeypatch.setattr(
+        inference_module, "MiniMaxH3VideoVAEConfig", config_factory("video")
+    )
+    monkeypatch.setattr(
+        inference_module, "MiniMaxH3AudioVAEConfig", config_factory("audio")
+    )
+    monkeypatch.setattr(
+        inference_module,
+        "MiniMaxH3TransformerConfig",
+        config_factory("transformer"),
+    )
+    monkeypatch.setattr(
+        inference_module, "MiniMaxH3DiffusionModelConfig", _DiffusionConfig
+    )
+    cache_dir = tmp_path / "selected-cache"
+    resources = DefaultMiniMaxH3Resources(
+        MiniMaxH3InferenceConfig(device="cpu", cache_dir=cache_dir)
+    )
+
+    resources.load_video_vae()
+    resources.load_audio_vae()
+    resources.load_diffusion_model("t2va", 2)
+    resources.load_diffusion_model("ref2va", 2)
+
+    assert calls["video"][0]["checkpoint_path"] == str(
+        snapshot_dir / "vae" / "diffusion_pytorch_model.safetensors.index.json"
+    )
+    assert calls["audio"][0]["checkpoint_path"] == str(
+        snapshot_dir / "audio_vae" / "diffusion_pytorch_model.safetensors"
+    )
+    assert [call["checkpoint_path"] for call in calls["transformer"]] == [
+        str(
+            snapshot_dir
+            / "transformer"
+            / "diffusion_pytorch_model.safetensors.index.json"
+        ),
+        str(
+            snapshot_dir
+            / "transformer_ref"
+            / "diffusion_pytorch_model.safetensors.index.json"
+        ),
+    ]
+    assert all(download["cache_dir"] == str(cache_dir) for download in downloads)
+
+
+@pytest.mark.parametrize("stage", ["text", "video", "audio", "diffusion"])
+def test_component_load_failure_reclaims_unreachable_allocations(
+    stage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A partial constructor failure must not poison the next staged load."""
+    import minimax_h3.inference as inference_module
+
+    resources = object.__new__(DefaultMiniMaxH3Resources)
+    resources.config = MiniMaxH3InferenceConfig(device="cpu")
+    resources._snapshot_dir = tmp_path
+    monkeypatch.setattr(
+        DefaultMiniMaxH3Resources,
+        "_component_dir",
+        lambda _self, component: tmp_path / component,
+    )
+    cleanup: list[str] = []
+    monkeypatch.setattr(inference_module.gc, "collect", lambda: cleanup.append("gc"))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda, "empty_cache", lambda: cleanup.append("empty_cache")
+    )
+
+    class _FailSetup:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+
+        def setup(self) -> nn.Module:
+            raise RuntimeError(f"{stage} setup failed")
+
+    if stage == "text":
+
+        class _FailEncoder:
+            @classmethod
+            def from_pretrained(cls, *args: Any, **kwargs: Any) -> nn.Module:
+                del cls, args, kwargs
+                raise RuntimeError("text setup failed")
+
+        fake_transformers = ModuleType("transformers")
+        setattr(fake_transformers, "Qwen3VLForConditionalGeneration", _FailEncoder)
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+        load = resources.load_text_encoder
+    elif stage == "video":
+        monkeypatch.setattr(inference_module, "MiniMaxH3VideoVAEConfig", _FailSetup)
+        load = resources.load_video_vae
+    elif stage == "audio":
+        monkeypatch.setattr(inference_module, "MiniMaxH3AudioVAEConfig", _FailSetup)
+        load = resources.load_audio_vae
+    else:
+        monkeypatch.setattr(
+            inference_module,
+            "MiniMaxH3TransformerConfig",
+            lambda **_kwargs: object(),
+        )
+        monkeypatch.setattr(
+            inference_module, "MiniMaxH3DiffusionModelConfig", _FailSetup
+        )
+
+        def load_diffusion() -> nn.Module:
+            return resources.load_diffusion_model("t2va", 2)
+
+        load = load_diffusion
+
+    with pytest.raises(RuntimeError, match=f"{stage} setup failed"):
+        load()
+
+    assert cleanup == ["gc", "empty_cache"]
 
 
 def test_staged_t2va_returns_synchronized_v2_media() -> None:
