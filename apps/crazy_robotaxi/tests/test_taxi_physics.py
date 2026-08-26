@@ -109,26 +109,6 @@ def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
         "map-traffic:following": 10.0,
         "map-traffic:leading": 10.0,
     }
-    bodies = {
-        "map-traffic:following": BodyState(
-            position_m=np.asarray([0, 0, 0.75], dtype=np.float32),
-            orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
-            linear_velocity_mps=np.zeros(3, dtype=np.float32),
-            angular_velocity_radps=np.zeros(3, dtype=np.float32),
-        ),
-        "map-traffic:leading": BodyState(
-            position_m=np.asarray([10, 0, 0.75], dtype=np.float32),
-            orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
-            linear_velocity_mps=np.zeros(3, dtype=np.float32),
-            angular_velocity_radps=np.zeros(3, dtype=np.float32),
-        ),
-    }
-    published: list[tuple[tuple[str, int, float], ...]] = []
-    world = SimpleNamespace(
-        body_state=lambda object_id: bodies[object_id],
-        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
-        apply_track_progress=published.append,
-    )
     ego = BodyState(
         position_m=np.asarray([-100, 0, 0.8], dtype=np.float32),
         orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
@@ -136,9 +116,9 @@ def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
         angular_velocity_radps=np.zeros(3, dtype=np.float32),
     )
 
-    controller.prepare_step(world, ego, 0.0)  # type: ignore[arg-type]
+    targets = controller.prepare_step(ego, 0.0)
 
-    scales = {object_id: scale for object_id, _, scale in published[-1]}
+    scales = {target.object_id: target.velocity_scale for target in targets}
     assert scales["map-traffic:following"] == 0.0
     assert scales["map-traffic:leading"] == 1.0
 
@@ -175,21 +155,6 @@ def test_map_traffic_advances_only_inactive_car_without_publishing_it() -> None:
     far_id = "map-traffic:far"
     near_timestamp_before = controller._states_by_id[near_id].timestamp_us
     far_timestamp_before = controller._states_by_id[far_id].timestamp_us
-    published: list[tuple[tuple[str, int, float], ...]] = []
-    near_position, near_orientation, _ = controller.active_objects[0].sample(
-        int(near_timestamp_before)
-    )
-    near_body = BodyState(
-        position_m=near_position,
-        orientation_xyzw=near_orientation,
-        linear_velocity_mps=np.zeros(3, dtype=np.float32),
-        angular_velocity_radps=np.zeros(3, dtype=np.float32),
-    )
-    world = SimpleNamespace(
-        body_state=lambda object_id: {near_id: near_body}[object_id],
-        ego_model=SimpleNamespace(half_extents_m=np.asarray([2.4, 1.0, 0.8])),
-        apply_track_progress=published.append,
-    )
     ego = BodyState(
         position_m=np.asarray([-100, -100, 0.8], dtype=np.float32),
         orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
@@ -197,10 +162,10 @@ def test_map_traffic_advances_only_inactive_car_without_publishing_it() -> None:
         angular_velocity_radps=np.zeros(3, dtype=np.float32),
     )
 
-    controller.prepare_step(world, ego, 1.0 / 30.0)
+    targets = controller.prepare_step(ego, 1.0 / 30.0)
 
     assert controller.active_object_ids == {near_id}
-    assert tuple(item[0] for item in published[0]) == (near_id,)
+    assert tuple(target.object_id for target in targets) == (near_id,)
     assert controller._states_by_id[near_id].timestamp_us == pytest.approx(
         near_timestamp_before, abs=1.0
     )
@@ -269,18 +234,16 @@ def test_active_map_traffic_progress_is_anchored_to_its_physical_body() -> None:
         linear_velocity_mps=np.zeros(3, dtype=np.float32),
         angular_velocity_radps=np.zeros(3, dtype=np.float32),
     )
-    published: list[tuple[tuple[str, int, float], ...]] = []
-    world = SimpleNamespace(
-        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
-        apply_track_progress=published.append,
-    )
     ego = _body_at((-100.0, -100.0))
 
+    targets = ()
     for _ in range(10):
-        controller.prepare_step(world, ego, 1.0)  # type: ignore[arg-type]
+        targets = controller.prepare_step(ego, 1.0)
 
     assert state.timestamp_us == pytest.approx(initial_timestamp_us, abs=1.0)
-    assert {batch[0][1] for batch in published} == {int(initial_timestamp_us + 350_000)}
+    assert {target.timestamp_us for target in targets} == {
+        int(initial_timestamp_us + 350_000)
+    }
 
     body.position_m[:2] = (5.0, 0.0)
     controller.observe_physics(
@@ -289,10 +252,10 @@ def test_active_map_traffic_progress_is_anchored_to_its_physical_body() -> None:
         body=body,
         dt_s=1.0 / 30.0,
     )
-    controller.prepare_step(world, ego, 10.0)  # type: ignore[arg-type]
+    targets = controller.prepare_step(ego, 10.0)
 
     assert state.timestamp_us == pytest.approx(500_000, abs=1.0)
-    assert published[-1][0][1] == pytest.approx(850_000, abs=1.0)
+    assert targets[0].timestamp_us == pytest.approx(850_000, abs=1.0)
 
 
 def test_active_map_traffic_walks_its_route_cursor_without_global_search() -> None:
@@ -325,18 +288,12 @@ def test_active_map_traffic_walks_its_route_cursor_without_global_search() -> No
         body=body,
         dt_s=1.0 / 30.0,
     )
-    published: list[tuple[tuple[str, int, float], ...]] = []
-    world = SimpleNamespace(
-        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
-        apply_track_progress=published.append,
-    )
-
     with patch.object(
         controller,
         "_nearest_route_projection",
         side_effect=AssertionError("normal traversal used a global route search"),
     ):
-        controller.prepare_step(world, _body_at((-100.0, -100.0)), 1.0 / 30.0)
+        controller.prepare_step(_body_at((-100.0, -100.0)), 1.0 / 30.0)
 
     assert state.route_segment_index == 12
     assert state.timestamp_us == pytest.approx(1_240_000, abs=1.0)
@@ -359,19 +316,9 @@ def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> N
     assert decision.detached_from_track is True
     assert state.phase is MapTrafficPhase.COLLISION
 
-    published: list[tuple[tuple[str, int, float], ...]] = []
-    world = SimpleNamespace(
-        body_state=lambda _: _body_at((18.0, 8.0), yaw_rad=math.pi),
-        ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
-        apply_track_progress=published.append,
-    )
-    controller.prepare_step(
-        world,  # type: ignore[arg-type]
-        _body_at((-100.0, -100.0)),
-        0.5,
-    )
+    targets = controller.prepare_step(_body_at((-100.0, -100.0)), 0.5)
     assert state.timestamp_us == frozen_timestamp_us
-    assert published[-1][0][2] == 0.0
+    assert targets[0].velocity_scale == 0.0
 
     stopped = _body_at((18.0, 8.0), yaw_rad=math.pi)
     for _ in range(4):

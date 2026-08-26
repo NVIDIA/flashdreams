@@ -17,10 +17,13 @@ from enum import Enum
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
-from ludus_renderer import BodyState, PhysXWorld, SceneObject
+from ludus_renderer import BodyState, SceneObject
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapLane, ResolvedGameMap
-from omnidreams_game_engine.simulation.actor_controller import ActorControlDecision
+from omnidreams_game_engine.simulation.actor_controller import (
+    ActorControlDecision,
+    ActorTrackTarget,
+)
 from omnidreams_game_engine.simulation.components import rigid_body_model_for_object
 from omnidreams_game_engine.types import (
     DynamicActorTrajectory,
@@ -538,12 +541,12 @@ class ObstacleAbility:
             return
         self._spawn_due(self._ego_state_from_body(ego), 0)
 
-    def prepare_step(self, world: PhysXWorld, ego: BodyState, dt_s: float) -> None:
-        """Advance scripted actuators after all due bodies have been inserted."""
+    def prepare_step(self, ego: BodyState, dt_s: float) -> tuple[ActorTrackTarget, ...]:
+        """Advance scripted motion and return targets for physical obstacles."""
         del ego
         if not self._config.physics:
-            return
-        progress: list[tuple[str, int, float]] = []
+            return ()
+        targets: list[ActorTrackTarget] = []
         for event in self.events:
             if event.phase is not ObstaclePhase.SCRIPTED or event.scene_object is None:
                 continue
@@ -551,8 +554,13 @@ class ObstacleAbility:
                 event.logical_timestamp_us + dt_s * 1_000_000.0,
                 float(event.scene_object.timestamps_us[-1]),
             )
-            progress.append((event.entity_id, int(event.logical_timestamp_us), 1.0))
-        world.apply_track_progress(tuple(progress))
+            targets.append(
+                ActorTrackTarget(
+                    object_id=event.entity_id,
+                    timestamp_us=int(event.logical_timestamp_us),
+                )
+            )
+        return tuple(targets)
 
     def observe_physics(
         self,

@@ -10,12 +10,15 @@ from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
-from ludus_renderer import BodyState, PhysXWorld, SceneObject
+from ludus_renderer import BodyState, SceneObject
 
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
-from omnidreams_game_engine.simulation.actor_controller import ActorControlDecision
+from omnidreams_game_engine.simulation.actor_controller import (
+    ActorControlDecision,
+    ActorTrackTarget,
+)
 from omnidreams_game_engine.simulation.components import rigid_body_model_for_object
 
 _OBJECT_ID_PREFIX = "map-traffic:"
@@ -171,6 +174,7 @@ class MapTrafficController:
         traffic: tuple[GameMapTrafficVehicle, ...],
         vehicle: VehicleConfig,
     ) -> None:
+        self._ego_half_length_m = vehicle.aabb_length_m * 0.5
         states: list[MapTrafficVehicleState] = []
         for definition in traffic:
             scene_object, start_timestamp_us, duration_us = _route_track(
@@ -547,8 +551,8 @@ class MapTrafficController:
         """Keep the stable authored traffic set unchanged between steps."""
         del ego
 
-    def prepare_step(self, world: PhysXWorld, ego: BodyState, dt_s: float) -> None:
-        """Advance all logical cars and publish active tracks in one native batch."""
+    def prepare_step(self, ego: BodyState, dt_s: float) -> tuple[ActorTrackTarget, ...]:
+        """Advance logical cars and return targets for active physical bodies."""
         for state in self._states:
             if state.phase is MapTrafficPhase.TRAVERSING:
                 if state.object_id in self._active_ids:
@@ -571,7 +575,7 @@ class MapTrafficController:
         ego_observation = _TrafficObservation(
             position_xy=np.asarray(ego.position_m[:2], dtype=np.float32),
             velocity_xy=np.asarray(ego.linear_velocity_mps[:2], dtype=np.float32),
-            half_length_m=float(world.ego_model.half_extents_m[0]),
+            half_length_m=self._ego_half_length_m,
         )
         buckets: dict[tuple[int, int], list[_TrafficObservation]] = {}
         for observation in (*observations.values(), ego_observation):
@@ -592,16 +596,15 @@ class MapTrafficController:
                 if state.phase is MapTrafficPhase.COLLISION
                 else self._headway_scale(observation, candidates)
             )
-        world.apply_track_progress(
-            tuple(
-                (
-                    state.object_id,
-                    self._drive_target_timestamp_us(state),
-                    state.velocity_scale,
-                )
-                for state in self._states
-                if state.object_id in self._active_ids
+        return tuple(
+            ActorTrackTarget(
+                object_id=state.object_id,
+                timestamp_us=self._drive_target_timestamp_us(state),
+                velocity_scale=state.velocity_scale,
+                loop_duration_us=state.duration_us,
             )
+            for state in self._states
+            if state.object_id in self._active_ids
         )
 
 

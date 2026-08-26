@@ -28,7 +28,6 @@ from ludus_renderer import (
     BodyState,
     InvisibleBarrier,
     PhysicsObjectGraph,
-    PhysXWorld,
     RigidBodyModel,
     SceneObject,
 )
@@ -51,6 +50,7 @@ from omnidreams_game_engine.simulation.components import (
     suspension_for_object,
     vehicle_dynamics_for_object,
 )
+from omnidreams_game_engine.simulation.gameplay_physx import GameplayPhysXWorld
 from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     DynamicActorTrajectory,
@@ -336,7 +336,7 @@ class GamePhysicsWorld:
         self._visual_flare_collision_deadline_us: int | None = None
         self._pending_struck_vehicle_ids: set[str] = set()
         self._ego_model = adapt_model(_ego_model(vehicle))
-        self._world = PhysXWorld(
+        self._world = GameplayPhysXWorld(
             base_physics_graph,
             self._ego_model,
             actor_collision_enabled=vehicle.actor_collision_enabled,
@@ -561,9 +561,7 @@ class GamePhysicsWorld:
                 objects=physics_graph.objects + retained_detached,
                 barriers=physics_graph.barriers,
             )
-        self._world.max_actor_drive_speeds_mps.update(
-            self._controller_drive_speed_caps()
-        )
+        self._world.set_actor_drive_speed_caps(self._controller_drive_speed_caps())
         self._world.synchronize(
             physics_graph,
             timestamp_us=timestamp_us,
@@ -765,8 +763,14 @@ class GamePhysicsWorld:
                 timestamp_us,
                 force_controller_refresh=True,
             )
-        for controller in self._actor_controllers:
-            controller.prepare_step(self._world, ego_before_step, dt_s)
+        actor_targets = tuple(
+            target
+            for controller in self._actor_controllers
+            for target in controller.prepare_step(ego_before_step, dt_s)
+        )
+        self._world.apply_actor_track_targets(
+            actor_targets, rollout_timestamp_us=timestamp_us
+        )
         physics_step = self._world.step_compact(
             ego_before_step,
             timestamp_us,

@@ -49,6 +49,7 @@ from omnidreams_game_engine.physx_debug import (
     select_presented_rgb,
 )
 from omnidreams_game_engine.rasterizer import _LudusConditionRasterizerImpl
+from omnidreams_game_engine.simulation.actor_controller import ActorTrackTarget
 from omnidreams_game_engine.simulation.components import (
     BoxColliderComponent,
     GameEntity,
@@ -69,6 +70,7 @@ from omnidreams_game_engine.simulation.game_physics import (
     _simplify_barrier_segments,
     _yaw_from_quaternion_xyzw,
 )
+from omnidreams_game_engine.simulation.gameplay_physx import GameplayPhysXWorld
 from omnidreams_game_engine.types import (
     DriverCommand,
     DynamicActorTrajectory,
@@ -437,7 +439,7 @@ def test_physx_world_applies_incremental_graph_changes_in_stable_buffers() -> No
 
 def test_physx_world_uses_per_object_initial_track_timestamp() -> None:
     ego_model = RigidBodyModel(1_550.0, (2.4, 1.0, 0.8))
-    world = PhysXWorld(PhysicsObjectGraph(), ego_model, capacity=8)
+    world = GameplayPhysXWorld(PhysicsObjectGraph(), ego_model, capacity=8)
     actor = SceneObject(
         object_id="procedural-car",
         object_type="Car",
@@ -459,6 +461,91 @@ def test_physx_world_uses_per_object_initial_track_timestamp() -> None:
         world.body_state(actor.object_id).position_m,
         np.asarray([10.0, 0.0, 0.8], dtype=np.float32),
     )
+    world.close()
+
+
+def test_gameplay_physx_retimes_actor_tracks_without_resetting_the_body() -> None:
+    ego_model = RigidBodyModel(1_550.0, (2.4, 1.0, 0.8))
+    actor = SceneObject(
+        object_id="procedural-car",
+        object_type="Car",
+        model=rigid_body_model_for_object("Car", np.asarray([4.0, 1.9, 1.6])),
+        timestamps_us=np.asarray([0, 1_000_000, 2_000_000], dtype=np.int64),
+        positions_m=np.asarray(
+            [[0.0, 0.0, 0.8], [10.0, 0.0, 0.8], [20.0, 0.0, 0.8]],
+            dtype=np.float32,
+        ),
+        orientations_xyzw=np.asarray([[0.0, 0.0, 0.0, 1.0]] * 3, dtype=np.float32),
+    )
+    world = GameplayPhysXWorld(
+        PhysicsObjectGraph(objects=(actor,)), ego_model, capacity=8
+    )
+    initial_body = world.body_state(actor.object_id)
+
+    world.apply_actor_track_targets(
+        (
+            ActorTrackTarget(
+                object_id=actor.object_id,
+                timestamp_us=1_000_000,
+                velocity_scale=0.5,
+            ),
+        ),
+        rollout_timestamp_us=5_000_000,
+    )
+
+    np.testing.assert_array_equal(
+        world.body_state(actor.object_id).position_m, initial_body.position_m
+    )
+    ego = BodyState(
+        position_m=np.asarray([-100.0, -100.0, 0.8], dtype=np.float32),
+        orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    step = world.step_compact(ego, 5_000_000, 1.0 / 30.0)
+    (_, track_position, _, track_velocity) = step.track_samples[0]
+    np.testing.assert_allclose(track_position, [10.0, 0.0, 0.8])
+    np.testing.assert_allclose(track_velocity, [5.0, 0.0, 0.0])
+    world.close()
+
+
+def test_gameplay_physx_zero_velocity_target_holds_one_route_pose() -> None:
+    ego_model = RigidBodyModel(1_550.0, (2.4, 1.0, 0.8))
+    actor = SceneObject(
+        object_id="paused-car",
+        object_type="Car",
+        model=rigid_body_model_for_object("Car", np.asarray([4.0, 1.9, 1.6])),
+        timestamps_us=np.asarray([0, 1_000_000], dtype=np.int64),
+        positions_m=np.asarray([[0.0, 0.0, 0.8], [10.0, 0.0, 0.8]], dtype=np.float32),
+        orientations_xyzw=np.asarray(
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
+        ),
+    )
+    world = GameplayPhysXWorld(
+        PhysicsObjectGraph(objects=(actor,)), ego_model, capacity=8
+    )
+
+    world.apply_actor_track_targets(
+        (
+            ActorTrackTarget(
+                object_id=actor.object_id,
+                timestamp_us=500_000,
+                velocity_scale=0.0,
+            ),
+        ),
+        rollout_timestamp_us=5_000_000,
+    )
+    ego = BodyState(
+        position_m=np.asarray([-100.0, -100.0, 0.8], dtype=np.float32),
+        orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    step = world.step_compact(ego, 5_000_000, 1.0 / 30.0)
+
+    (_, track_position, _, track_velocity) = step.track_samples[0]
+    np.testing.assert_allclose(track_position, [5.0, 0.0, 0.8])
+    np.testing.assert_allclose(track_velocity, 0.0)
     world.close()
 
 

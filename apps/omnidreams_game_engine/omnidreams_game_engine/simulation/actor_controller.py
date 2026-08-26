@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ludus_renderer import BodyState, PhysXWorld, SceneObject
+from ludus_renderer import BodyState, SceneObject
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,23 @@ class ActorControlDecision:
 
     drive_enabled: bool
     detached_from_track: bool
+
+
+@dataclass(frozen=True)
+class ActorTrackTarget:
+    """Logical route target for one gameplay-owned physical actor."""
+
+    object_id: str
+    """Stable object identifier shared with the physics graph."""
+
+    timestamp_us: int
+    """Logical timestamp to sample from the actor's source track."""
+
+    velocity_scale: float = 1.0
+    """Track velocity multiplier within ``[0, 1]``."""
+
+    loop_duration_us: int | None = None
+    """Track loop duration; ``None`` clamps at the source track endpoints."""
 
 
 class PhysicsActorController(Protocol):
@@ -47,7 +64,9 @@ class PhysicsActorController(Protocol):
 
     def prepare_topology(self, ego: BodyState) -> None: ...
 
-    def prepare_step(self, world: PhysXWorld, ego: BodyState, dt_s: float) -> None: ...
+    def prepare_step(
+        self, ego: BodyState, dt_s: float
+    ) -> tuple[ActorTrackTarget, ...]: ...
 
     def observe_physics(
         self,
@@ -59,4 +78,4 @@ class PhysicsActorController(Protocol):
     ) -> ActorControlDecision | None: ...
 
 
-__all__ = ["ActorControlDecision", "PhysicsActorController"]
+__all__ = ["ActorControlDecision", "ActorTrackTarget", "PhysicsActorController"]

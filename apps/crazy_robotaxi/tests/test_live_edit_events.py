@@ -504,7 +504,6 @@ class TestGeneratedObstacleEvents:
         )
         ability = ObstacleAbility(config)
         ability.request_spawn()
-        world = SimpleNamespace(apply_track_progress=lambda progress: None)
         ego = BodyState(
             position_m=np.asarray([0.0, 0.0, 0.8], dtype=np.float32),
             orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
@@ -512,8 +511,11 @@ class TestGeneratedObstacleEvents:
             angular_velocity_radps=np.zeros(3, dtype=np.float32),
         )
         ability.prepare_topology(ego)
-        ability.prepare_step(world, ego, 1.0 / 30.0)
+        targets = ability.prepare_step(ego, 1.0 / 30.0)
         (scene_object,) = ability.active_objects
+        assert tuple(target.object_id for target in targets) == (
+            scene_object.object_id,
+        )
         body = BodyState(
             position_m=scene_object.positions_m[0].copy(),
             orientation_xyzw=scene_object.orientations_xyzw[0].copy(),
