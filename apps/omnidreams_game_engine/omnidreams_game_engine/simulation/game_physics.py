@@ -28,12 +28,18 @@ from ludus_renderer import (
     BodyState,
     InvisibleBarrier,
     PhysicsObjectGraph,
-    PhysXWorld,
     RigidBodyModel,
     SceneObject,
 )
 
 from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.game_map.vicinity import (
+    GameMapVicinity,
+    GameMapVicinityResolver,
+)
+from omnidreams_game_engine.simulation.actor_controller import (
+    PhysicsActorController,
+)
 from omnidreams_game_engine.simulation.components import (
     BoxColliderComponent,
     GameEntity,
@@ -44,7 +50,8 @@ from omnidreams_game_engine.simulation.components import (
     suspension_for_object,
     vehicle_dynamics_for_object,
 )
-from omnidreams_game_engine.simulation.traffic_ai import TrafficDriverAI
+from omnidreams_game_engine.simulation.gameplay_physx import GameplayPhysXWorld
+from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     DynamicActorTrajectory,
     PhysicsDebugFrame,
@@ -58,13 +65,15 @@ _PHYSX_TOPOLOGY_REFRESH_INTERVAL_US = 2_000_000
 """Maximum time moving tracks can remain outside a stationary PhysX window."""
 
 _PHYSX_BARRIER_SPACING_M = 2.0
+_BARRIER_CONTACT_SLOP_M = 0.05
+"""Extra proximity accepted when reinforcing a resolved barrier contact."""
+
 _PHYSX_DEBUG_FORWARD_M = 125.0
 _PHYSX_DEBUG_REAR_M = 15.0
 _PHYSX_DEBUG_LATERAL_M = 100.0
 _VISUAL_FLARE_MIN_SPEED_DELTA_MPS = 5.0 * 0.44704
 _VISUAL_FLARE_COLLISION_WINDOW_US = 500_000
 _NON_EGO_MAX_DRIVE_SPEED_MPS = 15.0 * 0.44704
-_PERSISTENT_TRACK_TIMESTAMP_US = np.iinfo(np.int64).max // 4
 _PHYSX_SIMULATION_RADIUS_M = 96.0
 """Collision horizon around the last recenter point.
 
@@ -150,28 +159,6 @@ def _ego_model(vehicle: VehicleConfig) -> RigidBodyModel:
     return rigid_body_model_from_vehicle_config(vehicle)
 
 
-def _recorded_actor_trajectory(scene_object: SceneObject) -> DynamicActorTrajectory:
-    """Build one reusable renderer track that holds its final pose indefinitely."""
-    timestamps = scene_object.timestamps_us
-    positions = scene_object.positions_m
-    orientations = scene_object.orientations_xyzw
-    if int(timestamps[-1]) < _PERSISTENT_TRACK_TIMESTAMP_US:
-        timestamps = np.concatenate(
-            (timestamps, np.asarray([_PERSISTENT_TRACK_TIMESTAMP_US], dtype=np.int64))
-        )
-        positions = np.concatenate((positions, positions[-1:]), axis=0)
-        orientations = np.concatenate((orientations, orientations[-1:]), axis=0)
-    return DynamicActorTrajectory(
-        entity_id=scene_object.object_id,
-        object_type=scene_object.object_type,
-        timestamps_us=timestamps,
-        translations_world=positions,
-        orientations_xyzw=orientations,
-        dimensions_lwh=np.asarray(scene_object.model.half_extents_m, dtype=np.float32)
-        * 2.0,
-    )
-
-
 def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, ...]:
     """Coalesce dense ordered map strokes into game-scale wall segments."""
     segments = np.asarray(segments_world, dtype=np.float32)
@@ -196,6 +183,62 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
     return tuple(simplified)
 
 
+def _reinforce_static_barrier_rebound(
+    barriers: tuple[InvisibleBarrier, ...],
+    requested_ego: BodyState,
+    resolved_velocity_mps: np.ndarray,
+    ego_model: RigidBodyModel,
+    restitution: float,
+) -> tuple[np.ndarray, bool]:
+    """Raise outward barrier velocity and report inward barrier contact."""
+    position = np.asarray(requested_ego.position_m[:2], dtype=np.float32)
+    incoming_velocity = np.asarray(requested_ego.linear_velocity_mps, dtype=np.float32)
+    reinforced = np.asarray(resolved_velocity_mps, dtype=np.float32).copy()
+    yaw = _yaw_from_quaternion_xyzw(requested_ego.orientation_xyzw)
+    forward = np.asarray([math.cos(yaw), math.sin(yaw)], dtype=np.float32)
+    left = np.asarray([-forward[1], forward[0]], dtype=np.float32)
+    half_extents = ego_model.half_extents_m
+    contact_detected = False
+
+    for barrier in barriers:
+        start = np.asarray(barrier.start_xy_m, dtype=np.float32)
+        end = np.asarray(barrier.end_xy_m, dtype=np.float32)
+        segment = end - start
+        length_squared = float(np.dot(segment, segment))
+        if length_squared <= 1.0e-8:
+            continue
+        alpha = float(
+            np.clip(np.dot(position - start, segment) / length_squared, 0.0, 1.0)
+        )
+        offset = position - (start + segment * alpha)
+        distance = float(np.linalg.norm(offset))
+        if distance > 1.0e-6:
+            normal = offset / distance
+        else:
+            speed = float(np.linalg.norm(incoming_velocity[:2]))
+            normal = (
+                -incoming_velocity[:2] / speed
+                if speed > 1.0e-6
+                else np.asarray([1.0, 0.0], dtype=np.float32)
+            )
+        support = (
+            abs(float(np.dot(normal, forward))) * half_extents[0]
+            + abs(float(np.dot(normal, left))) * half_extents[1]
+        )
+        contact_distance = support + barrier.thickness_m * 0.5
+        if distance > contact_distance + _BARRIER_CONTACT_SLOP_M:
+            continue
+        incoming_normal_speed = float(np.dot(incoming_velocity[:2], normal))
+        if incoming_normal_speed >= 0.0:
+            continue
+        contact_detected = True
+        target_outward_speed = -restitution * incoming_normal_speed
+        resolved_normal_speed = float(np.dot(reinforced[:2], normal))
+        if resolved_normal_speed < target_outward_speed:
+            reinforced[:2] += normal * (target_outward_speed - resolved_normal_speed)
+    return reinforced, contact_detected
+
+
 class GamePhysicsWorld:
     """Adapt a scene bundle to Ludus and delegate all simulation to PhysX."""
 
@@ -205,23 +248,51 @@ class GamePhysicsWorld:
         vehicle: VehicleConfig,
         *,
         model_adapter: Callable[[RigidBodyModel], RigidBodyModel] | None = None,
+        static_barrier_segments_world: np.ndarray | None = None,
+        static_barrier_restitution: float | None = None,
+        actor_controllers: tuple[PhysicsActorController, ...] = (),
     ) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
+        if static_barrier_restitution is not None and (
+            not math.isfinite(static_barrier_restitution)
+            or not 0.0 <= static_barrier_restitution <= 1.0
+        ):
+            raise ValueError("static_barrier_restitution must be within [0, 1]")
+        self._static_barrier_restitution = static_barrier_restitution
         adapt_model = model_adapter or (lambda model: model)
 
-        def adapted_object(track: object) -> SceneObject:
-            scene_object = self._object_from_track(track, vehicle)
-            return replace(scene_object, model=adapt_model(scene_object.model))
-
-        objects = tuple(adapted_object(track) for track in scene.vehicle_bbox_tracks)
-        barriers = (
-            self._build_barriers(scene) if vehicle.static_collision_enabled else ()
+        game_map = getattr(scene, "game_map", None)
+        self._map_traffic = MapTrafficController(
+            () if game_map is None else game_map.traffic,
+            vehicle,
         )
-        self.graph = PhysicsObjectGraph(objects=objects, barriers=barriers)
-        self._recorded_trajectories_by_id = {
-            obj.object_id: _recorded_actor_trajectory(obj) for obj in objects
-        }
+        self._actor_controllers: tuple[PhysicsActorController, ...] = (
+            self._map_traffic,
+            *actor_controllers,
+        )
+        if (
+            vehicle.static_collision_enabled
+            and static_barrier_segments_world is not None
+        ):
+            segments = np.asarray(static_barrier_segments_world, dtype=np.float32)
+            if segments.ndim != 3 or segments.shape[1:] != (2, 3):
+                raise ValueError(
+                    "static_barrier_segments_world must have shape (N, 2, 3)"
+                )
+            barriers = tuple(
+                InvisibleBarrier(
+                    tuple(float(value) for value in segment[0]),
+                    tuple(float(value) for value in segment[1]),
+                    barrier_id=f"semantic-{index}",
+                )
+                for index, segment in enumerate(_simplify_barrier_segments(segments))
+            )
+        else:
+            barriers = (
+                self._build_barriers(scene) if vehicle.static_collision_enabled else ()
+            )
+        self.graph = PhysicsObjectGraph(objects=(), barriers=barriers)
         initial_transform = getattr(scene, "initial_rig_to_world", None)
         initial_xy = (
             np.asarray(initial_transform[:2, 3], dtype=np.float32)
@@ -229,11 +300,24 @@ class GamePhysicsWorld:
             else np.zeros(2, dtype=np.float32)
         )
         initial_timestamp_us = int(getattr(scene, "initial_timestamp_us", 0))
-        self._physics_graph = self.graph.copy_for_physx(
+        self._vicinity_resolver = (
+            None if game_map is None else GameMapVicinityResolver(game_map)
+        )
+        self._map_vicinity: GameMapVicinity | None = (
+            None
+            if self._vicinity_resolver is None
+            else self._vicinity_resolver.resolve(
+                float(initial_xy[0]), float(initial_xy[1])
+            )
+        )
+        self._map_traffic.set_vicinity(self._map_vicinity)
+        base_physics_graph = self.graph.copy_for_physx(
             initial_xy,
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=initial_timestamp_us,
         )
+        self._physics_graph = self._with_active_controller_objects(base_physics_graph)
+        self._synchronized_controller_ids = self._controller_active_ids()
         self._physics_center_xy = initial_xy.copy()
         self._physics_timestamp_us = initial_timestamp_us
         self._entities = [
@@ -243,47 +327,106 @@ class GamePhysicsWorld:
         self._detached_entity_ids: set[str] = set()
         self.last_step_timings = None
         self.last_step_actor_collision = False
+        self.last_step_static_barrier_collision = False
+        self.last_step_static_barrier_impact = False
+        self._static_barrier_contact_active = False
         self._visual_flare_collision_velocity_mps: np.ndarray | None = None
         self._visual_flare_driving_direction_xy: np.ndarray | None = None
         self._visual_flare_impact_normal_xy: np.ndarray | None = None
         self._visual_flare_collision_deadline_us: int | None = None
         self._pending_struck_vehicle_ids: set[str] = set()
         self._ego_model = adapt_model(_ego_model(vehicle))
-        self._world = PhysXWorld(
-            self._physics_graph,
+        self._world = GameplayPhysXWorld(
+            base_physics_graph,
             self._ego_model,
             actor_collision_enabled=vehicle.actor_collision_enabled,
             max_actor_drive_speed_mps=_NON_EGO_MAX_DRIVE_SPEED_MPS,
+            max_actor_drive_speeds_mps=self._controller_drive_speed_caps(),
         )
-        self._traffic_ai = TrafficDriverAI()
-        self._traffic_ai.synchronize(self._physics_graph.objects)
+        self._world.synchronize(
+            self._physics_graph,
+            timestamp_us=initial_timestamp_us,
+            initial_object_timestamps_us=self._controller_initial_timestamps(),
+        )
         self._refresh_debug_barriers()
         logger.info(
             "[physics] PhysX graph ready in {:.1f} ms; objects={}/{} barriers={}/{} simulation_radius_m={:.0f}",
             (time.perf_counter() - started_at) * 1000.0,
             len(self._physics_graph.objects),
-            len(self.graph.objects),
+            len(self.graph.objects)
+            + sum(len(controller.objects) for controller in self._actor_controllers),
             len(self._physics_graph.barriers),
             len(self.graph.barriers),
             _PHYSX_SIMULATION_RADIUS_M,
         )
 
-    @staticmethod
-    def _object_from_track(track: object, vehicle: VehicleConfig) -> SceneObject:
-        dimensions = np.asarray(track.dimensions_lwh[0], dtype=np.float32)
-        return SceneObject(
-            object_id=track.track_id,
-            object_type=track.object_type,
-            model=rigid_body_model_for_object(
-                track.object_type,
-                dimensions,
-                restitution=vehicle.collision_restitution,
-                friction=vehicle.collision_friction,
-            ),
-            timestamps_us=np.asarray(track.timestamps_us, dtype=np.int64),
-            positions_m=np.asarray(track.centers_world, dtype=np.float32),
-            orientations_xyzw=np.asarray(track.orientations_xyzw, dtype=np.float32),
-            max_extrapolation_us=track.max_extrapolation_us,
+    def _controller_owners(self) -> dict[str, PhysicsActorController]:
+        """Return the unique gameplay owner of every controller actor."""
+        owners: dict[str, PhysicsActorController] = {}
+        scene_ids = {scene_object.object_id for scene_object in self.graph.objects}
+        for controller in self._actor_controllers:
+            for object_id in controller.object_ids:
+                if object_id in scene_ids:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} conflicts with a scene actor"
+                    )
+                if object_id in owners:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} has multiple owners"
+                    )
+                owners[object_id] = controller
+        return owners
+
+    def _controller_active_ids(self) -> frozenset[str]:
+        return frozenset(
+            object_id
+            for controller in self._actor_controllers
+            for object_id in controller.active_object_ids
+        )
+
+    def _controller_initial_timestamps(self) -> dict[str, int]:
+        timestamps: dict[str, int] = {}
+        for controller in self._actor_controllers:
+            for object_id, timestamp_us in controller.active_timestamps_us.items():
+                if object_id in timestamps:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} has multiple timestamps"
+                    )
+                timestamps[object_id] = timestamp_us
+        return timestamps
+
+    def _controller_drive_speed_caps(self) -> dict[str, float]:
+        speed_caps: dict[str, float] = {}
+        for controller in self._actor_controllers:
+            for object_id, speed_mps in controller.max_drive_speeds_mps.items():
+                if object_id in speed_caps:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} has multiple speed caps"
+                    )
+                speed_caps[object_id] = speed_mps
+        return speed_caps
+
+    def _with_active_controller_objects(
+        self, physics_graph: PhysicsObjectGraph
+    ) -> PhysicsObjectGraph:
+        """Add active gameplay-owned actors to a PhysX window."""
+        incoming_ids = {
+            scene_object.object_id for scene_object in physics_graph.objects
+        }
+        additions: list[SceneObject] = []
+        for controller in self._actor_controllers:
+            for scene_object in controller.active_objects:
+                if scene_object.object_id in incoming_ids:
+                    raise ValueError(
+                        f"active actor ID {scene_object.object_id!r} is duplicated"
+                    )
+                incoming_ids.add(scene_object.object_id)
+                additions.append(scene_object)
+        if not additions:
+            return physics_graph
+        return PhysicsObjectGraph(
+            objects=physics_graph.objects + tuple(additions),
+            barriers=physics_graph.barriers,
         )
 
     @staticmethod
@@ -358,12 +501,26 @@ class GamePhysicsWorld:
         return set(self._world.active_collider_ids)
 
     def synchronize_window(
-        self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+        self,
+        center_xy_m: np.ndarray,
+        timestamp_us: int | None = None,
+        *,
+        force_controller_refresh: bool = False,
     ) -> bool:
         """Incrementally recenter active PhysX topology when the ego moves."""
         center = np.asarray(center_xy_m, dtype=np.float32)
         if center.shape != (2,):
             raise ValueError("center_xy_m must have shape (2,)")
+        traffic_topology_changed = False
+        if self._vicinity_resolver is not None:
+            self._map_vicinity = self._vicinity_resolver.resolve(
+                float(center[0]),
+                float(center[1]),
+                previous=self._map_vicinity,
+            )
+            traffic_topology_changed = self._map_traffic.set_vicinity(
+                self._map_vicinity
+            )
         center_is_current = (
             float(np.linalg.norm(center - self._physics_center_xy))
             < _PHYSX_RECENTER_DISTANCE_M
@@ -373,18 +530,30 @@ class GamePhysicsWorld:
             <= timestamp_us - self._physics_timestamp_us
             < _PHYSX_TOPOLOGY_REFRESH_INTERVAL_US
         )
-        if center_is_current and timestamp_is_current:
+        if (
+            center_is_current
+            and timestamp_is_current
+            and not traffic_topology_changed
+            and not force_controller_refresh
+        ):
             return False
         physics_graph = self.graph.copy_for_physx(
             center,
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=timestamp_us,
         )
+        physics_graph = self._with_active_controller_objects(physics_graph)
         incoming_ids = {obj.object_id for obj in physics_graph.objects}
+        controller_ids = frozenset(self._controller_owners())
+        active_controller_ids = self._controller_active_ids()
         retained_detached = tuple(
             obj
             for obj in self._physics_graph.objects
             if obj.object_id in self._detached_entity_ids
+            and (
+                obj.object_id not in controller_ids
+                or obj.object_id in active_controller_ids
+            )
             and obj.object_id not in incoming_ids
         )
         if retained_detached:
@@ -392,8 +561,12 @@ class GamePhysicsWorld:
                 objects=physics_graph.objects + retained_detached,
                 barriers=physics_graph.barriers,
             )
-        self._world.synchronize(physics_graph, timestamp_us=timestamp_us)
-        self._traffic_ai.synchronize(physics_graph.objects)
+        self._world.set_actor_drive_speed_caps(self._controller_drive_speed_caps())
+        self._world.synchronize(
+            physics_graph,
+            timestamp_us=timestamp_us,
+            initial_object_timestamps_us=self._controller_initial_timestamps(),
+        )
         existing_entities = {entity.entity_id: entity for entity in self._entities}
         self._entities = [
             existing_entities.get(scene_object.object_id)
@@ -403,6 +576,7 @@ class GamePhysicsWorld:
         self._entities_by_id = {entity.entity_id: entity for entity in self._entities}
         self._detached_entity_ids.intersection_update(self._entities_by_id)
         self._physics_graph = physics_graph
+        self._synchronized_controller_ids = active_controller_ids
         self._physics_center_xy = center.copy()
         if timestamp_us is not None:
             self._physics_timestamp_us = timestamp_us
@@ -581,11 +755,51 @@ class GamePhysicsWorld:
         ego_before_step = _body_state_from_vehicle(
             state, self._ego_model.half_extents_m[2]
         )
+        for controller in self._actor_controllers:
+            controller.prepare_topology(ego_before_step)
+        if self._controller_active_ids() != self._synchronized_controller_ids:
+            self.synchronize_window(
+                np.asarray(ego_before_step.position_m[:2], dtype=np.float32),
+                timestamp_us,
+                force_controller_refresh=True,
+            )
+        actor_targets = tuple(
+            target
+            for controller in self._actor_controllers
+            for target in controller.prepare_step(ego_before_step, dt_s)
+        )
+        self._world.apply_actor_track_targets(
+            actor_targets, rollout_timestamp_us=timestamp_us
+        )
         physics_step = self._world.step_compact(
             ego_before_step,
             timestamp_us,
             dt_s,
         )
+        self.last_step_static_barrier_collision = False
+        if self._static_barrier_restitution is not None:
+            (
+                reinforced_velocity,
+                self.last_step_static_barrier_collision,
+            ) = _reinforce_static_barrier_rebound(
+                self._physics_graph.barriers,
+                ego_before_step,
+                physics_step.ego.linear_velocity_mps,
+                self._ego_model,
+                self._static_barrier_restitution,
+            )
+            physics_step = replace(
+                physics_step,
+                ego=replace(
+                    physics_step.ego,
+                    linear_velocity_mps=reinforced_velocity,
+                ),
+            )
+        self.last_step_static_barrier_impact = (
+            self.last_step_static_barrier_collision
+            and not self._static_barrier_contact_active
+        )
+        self._static_barrier_contact_active = self.last_step_static_barrier_collision
         active_objects = {
             scene_object.object_id: scene_object
             for scene_object in self._physics_graph.objects
@@ -613,9 +827,14 @@ class GamePhysicsWorld:
                 if separation_m <= 1e-6:
                     continue
                 impact_normal_xy = separation_xy / separation_m
-                _, _, track_velocity_mps = scene_object.sample(timestamp_us)
+                traffic_state = self._map_traffic.state(object_id)
+                actor_velocity_mps = body.linear_velocity_mps
+                if traffic_state is not None:
+                    _, _, actor_velocity_mps = scene_object.sample(
+                        int(traffic_state.timestamp_us)
+                    )
                 relative_velocity_xy = (
-                    track_velocity_mps[:2] - ego_before_step.linear_velocity_mps[:2]
+                    actor_velocity_mps[:2] - ego_before_step.linear_velocity_mps[:2]
                 )
                 closing_speed_mps = -float(
                     np.dot(relative_velocity_xy, impact_normal_xy)
@@ -645,11 +864,6 @@ class GamePhysicsWorld:
             flare_driving_direction,
             self._visual_flare_impact_normal_xy,
         )
-        significant_struck_vehicle_ids = (
-            self._pending_struck_vehicle_ids.copy()
-            if self.last_step_actor_collision
-            else set()
-        )
         collision_window_expired = (
             self._visual_flare_collision_deadline_us is not None
             and timestamp_us > self._visual_flare_collision_deadline_us
@@ -662,46 +876,25 @@ class GamePhysicsWorld:
             self._pending_struck_vehicle_ids.clear()
         actor_samples = []
         pending_controls = []
-        native_track_samples = getattr(physics_step, "track_samples", ())
-        for actor_index, (object_id, body, native_detached) in enumerate(
-            physics_step.actor_samples
-        ):
-            scene_object = active_objects[object_id]
-            if actor_index < len(native_track_samples):
-                (
-                    track_object_id,
-                    track_position,
-                    track_orientation,
-                    track_velocity,
-                ) = native_track_samples[actor_index]
-                if track_object_id != object_id:
-                    raise RuntimeError("native actor and track samples are misaligned")
-            else:
-                # Compatibility path for light-weight test doubles and older
-                # native modules while their timestamp sampling remains Python-side.
-                track_position, track_orientation, track_velocity = scene_object.sample(
-                    timestamp_us
-                )
-            decision = self._traffic_ai.update(
+        controller_owners = self._controller_owners()
+        actor_bodies: dict[str, BodyState] = {}
+        for object_id, body, _native_detached in physics_step.actor_samples:
+            controller = controller_owners.get(object_id)
+            if controller is None:
+                raise RuntimeError(f"PhysX returned unmanaged actor {object_id!r}")
+            decision = controller.observe_physics(
                 object_id,
-                struck=object_id in significant_struck_vehicle_ids,
+                struck=object_id in physics_step.struck_object_ids,
                 body=body,
-                track_position=track_position,
-                track_orientation_xyzw=track_orientation,
-                track_velocity_mps=track_velocity,
                 dt_s=dt_s,
             )
             if decision is None:
-                detached = native_detached
-            else:
-                detached = decision.detached_from_track
-                # Do not let the track motor erase momentum while the visual
-                # effect's short impact-measurement window is still open.
-                drive_enabled = (
-                    decision.drive_enabled
-                    and object_id not in self._pending_struck_vehicle_ids
+                raise RuntimeError(
+                    f"actor controller rejected owned actor {object_id!r}"
                 )
-                pending_controls.append((object_id, drive_enabled, detached))
+            detached = decision.detached_from_track
+            pending_controls.append((object_id, decision.drive_enabled, detached))
+            actor_bodies[object_id] = body
             actor_samples.append(
                 (object_id, body.position_m, body.orientation_xyzw, detached)
             )
@@ -714,6 +907,11 @@ class GamePhysicsWorld:
             entity = self._entities_by_id[object_id]
             entity.transform.position_m = position.copy()
             entity.transform.orientation_xyzw = orientation.copy()
+            body = actor_bodies[object_id]
+            entity.rigid_body.linear_velocity_mps = body.linear_velocity_mps.copy()
+            entity.rigid_body.angular_velocity_radps = (
+                body.angular_velocity_radps.copy()
+            )
             entity.detached_from_track = detached
         self._detached_entity_ids = detached_ids
 
@@ -807,7 +1005,12 @@ class GamePhysicsWorld:
         samples_by_frame: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]],
     ) -> tuple[DynamicActorTrajectory, ...]:
         """Pack PhysX object samples for Ludus RGB and BEV HD-map rendering."""
-        if not self.graph.objects or not samples_by_frame:
+        controller_objects = tuple(
+            scene_object
+            for controller in getattr(self, "_actor_controllers", ())
+            for scene_object in controller.active_objects
+        )
+        if (not self.graph.objects and not controller_objects) or not samples_by_frame:
             return ()
         result: list[DynamicActorTrajectory] = []
         simulated_timestamps = np.asarray(timestamps_us, dtype=np.int64)
@@ -817,7 +1020,8 @@ class GamePhysicsWorld:
         simulated_ids = {
             object_id for frame in samples_by_id for object_id in frame.keys()
         }
-        for scene_object in self.graph.objects:
+        render_objects = (*self.graph.objects, *controller_objects)
+        for scene_object in render_objects:
             physically_simulated = scene_object.object_id in simulated_ids
             if physically_simulated:
                 detached = any(
@@ -843,7 +1047,6 @@ class GamePhysicsWorld:
                 )
                 trajectory_timestamps = simulated_timestamps
             else:
-                result.append(self._recorded_trajectories_by_id[scene_object.object_id])
                 continue
             result.append(
                 DynamicActorTrajectory(

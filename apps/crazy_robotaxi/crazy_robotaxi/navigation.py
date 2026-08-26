@@ -36,6 +36,49 @@ _INFERRED_LANE_HALF_WIDTH_M = 2.0
 """Half-width used when a legacy scene provides only a recorded route."""
 
 
+def _triangulate_clockwise_polygon(polygon: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Triangulate a simple clockwise polygon while preserving its full area."""
+    vertices = [np.asarray(point[:2], dtype=np.float64) for point in polygon]
+    triangles: list[np.ndarray] = []
+
+    def cross(first: np.ndarray, second: np.ndarray, third: np.ndarray) -> float:
+        first_edge = second - first
+        second_edge = third - first
+        return float(first_edge[0] * second_edge[1] - first_edge[1] * second_edge[0])
+
+    while len(vertices) > 3:
+        removed = False
+        for index, current in enumerate(vertices):
+            previous_index = (index - 1) % len(vertices)
+            following_index = (index + 1) % len(vertices)
+            previous = vertices[previous_index]
+            following = vertices[following_index]
+            signed_area = cross(previous, current, following)
+            if abs(signed_area) <= _MIN_SEGMENT_LENGTH_M:
+                vertices.pop(index)
+                removed = True
+                break
+            if signed_area > 0.0:
+                continue
+            contains_vertex = any(
+                other_index not in {previous_index, index, following_index}
+                and cross(previous, current, other) < -_MIN_SEGMENT_LENGTH_M
+                and cross(current, following, other) < -_MIN_SEGMENT_LENGTH_M
+                and cross(following, previous, other) < -_MIN_SEGMENT_LENGTH_M
+                for other_index, other in enumerate(vertices)
+            )
+            if contains_vertex:
+                continue
+            triangles.append(np.asarray((previous, current, following)))
+            vertices.pop(index)
+            removed = True
+            break
+        if not removed:
+            raise ValueError("Could not triangulate fare-region polygon")
+    triangles.append(np.asarray(vertices))
+    return tuple(triangles)
+
+
 @dataclass(frozen=True)
 class NavigationLane:
     """Directed lane centerline."""
@@ -49,10 +92,39 @@ class NavigationLane:
     allows_taxi_stops: bool = True
     """Whether pickup and dropoff candidates may be sampled from this lane."""
 
+    lane_id: str | None = None
+    """Stable semantic lane identifier; ``None`` denotes legacy geometry."""
+
+    successor_ids: tuple[str, ...] | None = None
+    """Explicit legal successors; ``None`` enables legacy endpoint inference."""
+
+    element_id: str | None = None
+    """Owning semantic road or node identifier when sourced from a game map."""
+
+
+@dataclass(frozen=True)
+class NavigationFareRegion:
+    """Surface geometry from which non-road fare targets are sampled."""
+
+    region_id: str
+    """Stable source element identifier."""
+
+    kind: str
+    """Sampling mode: ``area`` for polygons or ``boundary`` for polylines."""
+
+    geometry_world: tuple[npt.NDArray[np.float32], ...]
+    """World-space polygon or exposed-boundary polylines."""
+
+    arrival_lane_ids: tuple[str, ...]
+    """Lane endpoints where routed travel to the region stops."""
+
+    departure_lane_ids: tuple[str, ...]
+    """Lane endpoints where routed travel from the region begins."""
+
 
 @dataclass(frozen=True)
 class NavigationWaypoint:
-    """Sampled target position tied to a directed lane."""
+    """Physical fare target with directed routing anchors."""
 
     xyz_m: npt.NDArray[np.float32]
     """World-space waypoint position."""
@@ -65,6 +137,15 @@ class NavigationWaypoint:
 
     passenger_xyz_m: npt.NDArray[np.float32] | None = None
     """Waiting-passenger ground point, or ``None`` to use ``xyz_m``."""
+
+    arrival_anchors: tuple[LanePosition, ...] = ()
+    """Possible road-graph endpoints used when routing to this target."""
+
+    departure_anchors: tuple[LanePosition, ...] = ()
+    """Possible road-graph origins used when routing away from this target."""
+
+    element_id: str | None = None
+    """Road or node whose vicinity controls passenger conditioning visibility."""
 
 
 @dataclass(frozen=True)
@@ -134,7 +215,14 @@ class TaxiNavigationMap:
                 else _normalize_polyline(lane.road_edge_world)
             )
             normalized_lanes.append(
-                NavigationLane(points, road_edge, lane.allows_taxi_stops)
+                NavigationLane(
+                    points,
+                    road_edge,
+                    lane.allows_taxi_stops,
+                    lane.lane_id,
+                    lane.successor_ids,
+                    lane.element_id,
+                )
             )
             cumulative_distances.append(cumulative)
             road_edge_cumulative_distances.append(
@@ -238,11 +326,125 @@ class TaxiNavigationMap:
                         lane_index,
                         float(distance_m),
                         passenger_point,
+                        element_id=self._lanes[lane_index].element_id,
                     )
                 )
         if len(sampled) < 2:
             raise ValueError("Taxi mode requires at least two distinct road waypoints.")
         return tuple(sampled)
+
+    def sample_fare_regions(
+        self,
+        regions: tuple[NavigationFareRegion, ...],
+        spacing_m: float,
+        rng: np.random.Generator,
+    ) -> tuple[NavigationWaypoint, ...]:
+        """Sample physical targets from node boundaries and parking-lot areas.
+
+        Args:
+            regions: Compiled surface regions and their routing endpoints.
+            spacing_m: Nominal spacing controlling target density.
+            rng: Random generator used for reproducible placement.
+
+        Returns:
+            Physical targets carrying arrival and departure routing anchors.
+        """
+        lane_indices = {
+            lane.lane_id: index
+            for index, lane in enumerate(self._lanes)
+            if lane.lane_id is not None
+        }
+
+        def anchors(
+            lane_ids: tuple[str, ...], *, arrival: bool
+        ) -> tuple[LanePosition, ...]:
+            return tuple(
+                LanePosition(
+                    lane_index=index,
+                    distance_along_lane_m=(
+                        float(self._lane_lengths[index]) if arrival else 0.0
+                    ),
+                    lateral_distance_m=0.0,
+                    heading_error_rad=0.0,
+                )
+                for lane_id in lane_ids
+                for index in (lane_indices.get(lane_id),)
+                if index is not None
+            )
+
+        result: list[NavigationWaypoint] = []
+        for region in regions:
+            arrivals = anchors(region.arrival_lane_ids, arrival=True)
+            departures = anchors(region.departure_lane_ids, arrival=False)
+            if not arrivals or not departures:
+                continue
+            points: list[np.ndarray] = []
+            if region.kind == "area":
+                polygon = np.asarray(region.geometry_world[0], dtype=np.float64)
+                area = abs(
+                    0.5
+                    * float(
+                        np.dot(polygon[:, 0], np.roll(polygon[:, 1], -1))
+                        - np.dot(polygon[:, 1], np.roll(polygon[:, 0], -1))
+                    )
+                )
+                count = max(1, int(math.ceil(area / (spacing_m * spacing_m))))
+                triangles = _triangulate_clockwise_polygon(polygon[:, :2])
+                triangle_areas = np.asarray(
+                    [
+                        abs(
+                            (triangle[1, 0] - triangle[0, 0])
+                            * (triangle[2, 1] - triangle[0, 1])
+                            - (triangle[1, 1] - triangle[0, 1])
+                            * (triangle[2, 0] - triangle[0, 0])
+                        )
+                        * 0.5
+                        for triangle in triangles
+                    ]
+                )
+                probabilities = triangle_areas / np.sum(triangle_areas)
+                for _index in range(count):
+                    triangle = triangles[
+                        int(rng.choice(len(triangles), p=probabilities))
+                    ]
+                    first_random, second_random = rng.random(2)
+                    root = math.sqrt(float(first_random))
+                    candidate = (
+                        (1.0 - root) * triangle[0]
+                        + root * (1.0 - second_random) * triangle[1]
+                        + root * second_random * triangle[2]
+                    )
+                    points.append(np.asarray([candidate[0], candidate[1], 0.0]))
+            elif region.kind == "boundary":
+                offset = float(rng.uniform(0.0, spacing_m))
+                for polyline in region.geometry_world:
+                    line = np.asarray(polyline, dtype=np.float32)
+                    lengths = np.linalg.norm(np.diff(line[:, :2], axis=0), axis=1)
+                    total = float(np.sum(lengths))
+                    distances = np.arange(offset, total + 1.0e-6, spacing_m)
+                    if not len(distances):
+                        distances = np.asarray([total * 0.5])
+                    cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+                    points.extend(
+                        _point_at_distance(line, cumulative, float(distance))
+                        for distance in distances
+                    )
+            else:
+                raise ValueError(f"Unsupported fare-region kind {region.kind!r}")
+            primary = arrivals[0]
+            result.extend(
+                NavigationWaypoint(
+                    xyz_m=np.asarray(point, dtype=np.float32),
+                    lane_index=primary.lane_index,
+                    distance_along_lane_m=primary.distance_along_lane_m,
+                    passenger_xyz_m=np.asarray(point, dtype=np.float32),
+                    arrival_anchors=arrivals,
+                    departure_anchors=departures,
+                    element_id=region.region_id,
+                )
+                for point in points
+            )
+        return tuple(result)
 
     def point_at(
         self, lane_index: int, distance_along_lane_m: float
@@ -350,34 +552,37 @@ class TaxiNavigationMap:
     ) -> RoutePlan | None:
         """Return the shortest directed route between two lane positions."""
         distances_to_start, predecessors = self._shortest_tree(start)
-        direct_distance = math.inf
-        if (
-            destination.lane_index == start.lane_index
-            and destination.distance_along_lane_m >= start.distance_along_lane_m
-        ):
-            direct_distance = (
-                destination.distance_along_lane_m - start.distance_along_lane_m
-            )
-        graph_distance = (
-            float(distances_to_start[destination.lane_index])
-            + destination.distance_along_lane_m
+        anchors = destination.arrival_anchors or (
+            LanePosition(
+                destination.lane_index,
+                destination.distance_along_lane_m,
+                0.0,
+                0.0,
+            ),
         )
-        if math.isfinite(direct_distance) and direct_distance <= graph_distance:
-            lane_path = (start.lane_index,)
-            distance_m = direct_distance
-        elif math.isfinite(graph_distance):
-            lane_path = self._reconstruct_path(
-                start.lane_index, destination.lane_index, predecessors
+        plans: list[RoutePlan] = []
+        for anchor in anchors:
+            direct_distance = math.inf
+            if (
+                anchor.lane_index == start.lane_index
+                and anchor.distance_along_lane_m >= start.distance_along_lane_m
+            ):
+                direct_distance = (
+                    anchor.distance_along_lane_m - start.distance_along_lane_m
+                )
+            graph_distance = (
+                float(distances_to_start[anchor.lane_index])
+                + anchor.distance_along_lane_m
             )
-            if not lane_path:
-                return None
-            distance_m = graph_distance
-        else:
-            return None
-        return RoutePlan(
-            lane_indices=lane_path,
-            distance_m=max(0.0, float(distance_m)),
-        )
+            if math.isfinite(direct_distance) and direct_distance <= graph_distance:
+                plans.append(RoutePlan((start.lane_index,), direct_distance))
+            elif math.isfinite(graph_distance):
+                lane_path = self._reconstruct_path(
+                    start.lane_index, anchor.lane_index, predecessors
+                )
+                if lane_path:
+                    plans.append(RoutePlan(lane_path, graph_distance))
+        return min(plans, key=lambda plan: plan.distance_m, default=None)
 
     def route_distances(
         self,
@@ -388,24 +593,52 @@ class TaxiNavigationMap:
         distances_to_start, _predecessors = self._shortest_tree(start)
         result: list[float] = []
         for destination in destinations:
-            direct_distance = math.inf
-            if (
-                destination.lane_index == start.lane_index
-                and destination.distance_along_lane_m >= start.distance_along_lane_m
-            ):
-                direct_distance = (
-                    destination.distance_along_lane_m - start.distance_along_lane_m
-                )
-            graph_distance = (
-                float(distances_to_start[destination.lane_index])
-                + destination.distance_along_lane_m
+            anchors = destination.arrival_anchors or (
+                LanePosition(
+                    destination.lane_index,
+                    destination.distance_along_lane_m,
+                    0.0,
+                    0.0,
+                ),
             )
-            result.append(min(direct_distance, graph_distance))
+            distances: list[float] = []
+            for anchor in anchors:
+                direct_distance = math.inf
+                if (
+                    anchor.lane_index == start.lane_index
+                    and anchor.distance_along_lane_m >= start.distance_along_lane_m
+                ):
+                    direct_distance = (
+                        anchor.distance_along_lane_m - start.distance_along_lane_m
+                    )
+                graph_distance = (
+                    float(distances_to_start[anchor.lane_index])
+                    + anchor.distance_along_lane_m
+                )
+                distances.append(min(direct_distance, graph_distance))
+            result.append(min(distances, default=math.inf))
         return tuple(result)
 
     def _build_adjacency(
         self, endpoint_snap_tolerance_m: float
     ) -> tuple[tuple[tuple[int, float], ...], ...]:
+        if all(
+            lane.lane_id is not None and lane.successor_ids is not None
+            for lane in self._lanes
+        ):
+            indices = {
+                lane.lane_id: index
+                for index, lane in enumerate(self._lanes)
+                if lane.lane_id is not None
+            }
+            return tuple(
+                tuple(
+                    (indices[successor], 0.0)
+                    for successor in lane.successor_ids or ()
+                    if successor in indices
+                )
+                for lane in self._lanes
+            )
         cell_size = endpoint_snap_tolerance_m
         start_buckets: dict[tuple[int, int], list[int]] = {}
         for lane_index, lane in enumerate(self._lanes):

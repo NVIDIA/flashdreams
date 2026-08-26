@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 crazy-robotaxi = "crazy_robotaxi.cli:main"
+crazy-robotaxi-map = "crazy_robotaxi.map_cli:main"
 
 [project.entry-points."flashdreams.runner_configs"]
 crazy-robotaxi = "crazy_robotaxi.runner:CRAZY_ROBOTAXI_RUNNER"
@@ -43,7 +44,9 @@ crazy_robotaxi = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",
     "assets/README.md",
+    "assets/*.npz",
     "assets/wheel_and_pedals/*.png",
+    "maps/*.robotaxi.yaml",
 ]
 
 [tool.uv]

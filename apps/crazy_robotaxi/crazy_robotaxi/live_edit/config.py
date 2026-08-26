@@ -14,6 +14,7 @@ import argparse
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, cast
 
 _CORRECTOR_MODES = ("fused", "unfused", "off")
 
@@ -417,36 +418,25 @@ class LiveEditWeatherConfig:
 
 @dataclass(frozen=True)
 class LiveEditObstacleConfig:
-    """Obstacle events: a real scene actor track cloned into the lane ahead.
-
-    Synthetic boxes render correctly in the conditioning but never
-    materialize (mask-verified 2026-08-10); a bit-faithful clone of a real
-    perception track does, and MOVING clones materialize solidly
-    (probe_moving_clone.py, 2026-08-13). The event clones a moving vehicle
-    track from the scene bundle, retimes it to "now", and rigidly shifts it
-    to start ahead of the ego.
-    """
+    """Track-backed general-obstacle events, initially shipping vehicles."""
 
     enabled: bool = False
     """Whether the obstacle ability responds to the spawn key."""
 
     count: int = 1
-    """Clones per spawn request. ``1`` is the classic single obstacle; more
-    makes a "traffic" event: each clone uses a DIFFERENT crossing/oncoming
-    template track (never a pace-matched lead car — those render at ghost
-    strength) staggered ahead of the ego by :attr:`spacing_m`."""
+    """Cars per spawn request. Additional cars alternate crossing direction
+    and are staggered by :attr:`spacing_m` and :attr:`stagger_chunks`."""
 
     spawn_ahead_m: float = 16.0
-    """Meters ahead of the ego (along its heading) where the first clone
-    starts; clone ``i`` starts ``i * spacing_m`` further out."""
+    """Ahead distance for the first event in the selected placement mode."""
 
     spacing_m: float = 8.0
-    """Extra ahead-distance per additional clone (count > 1). The default
-    puts a 4-clone burst across a 16-40 m band — the model's validated
+    """Extra ahead-distance per additional car (count > 1). The default
+    puts a 4-car burst across a 16-40 m band — the model's validated
     materialization range."""
 
     stagger_chunks: int = 1
-    """Chunks between consecutive clone spawns in one burst. ``0`` spawns
+    """Chunks between consecutive car spawns in one burst. ``0`` spawns
     the whole burst in one chunk; a small stagger both eases the model into
     the event and spreads the passes out on screen."""
 
@@ -454,46 +444,52 @@ class LiveEditObstacleConfig:
     """Meters to the left (+) / right (-) of the ego heading at spawn."""
 
     active_chunks: int = 10
-    """Despawn after this many generated chunks (also capped by the
-    template track's own coverage)."""
+    """Despawn each non-static event after this many generated chunks.
+
+    Source-track exhaustion can end an event sooner."""
 
     min_drift_m: float = 15.0
-    """Minimum ground-plane travel for a track to count as moving."""
+    """Minimum ground-plane displacement for a moving template."""
 
     min_coverage_s: float = 4.0
-    """Minimum template track duration."""
+    """Minimum source-track duration for a moving template."""
 
     length_range_m: tuple[float, float] = (3.4, 5.6)
-    """Car-sized bbox length filter for template tracks."""
+    """Inclusive vehicle-length filter for obstacle templates."""
 
     collision_radius_m: float = 3.0
-    """Ego XY distance at which a hit is logged (visual/log only; the
-    clone is not registered with PhysX)."""
+    """Ego XY distance at which a visual-only event logs a hit."""
+
+    physics: bool = False
+    """Register obstacles with PhysX. False preserves PR494's visual-only
+    conditioning behavior; true makes collisions authoritative."""
+
+    placement: Literal["ego-relative", "road-ahead"] = "ego-relative"
+    """Placement resolver: ``ego-relative`` preserves PR494 behavior;
+    ``road-ahead`` walks the compiled directed-lane graph."""
 
     static_count: int = 0
-    """Static roadblock: this many PARKED-track clones placed midroad ahead
-    of the spawn pose, in the conditioning from the session's first chunk,
-    persisting until a rollout reset (which re-anchors them). Slots start
+    """Static roadblock cars placed ahead of the spawn pose from the first
+    chunk and retained until reset. Slots start
     ``static_ahead_m`` out, ``spacing_m`` apart, laterals alternating
     right/left by ``static_lateral_m`` so the ego can weave between them.
-    Pair with ``guide_scale`` ~2.0: probed 2026-08-23 — unguided static
-    clones render at ghost strength even when present from chunk 0 (the
-    initial camera frame shows the road empty), s=2.0 materializes solid
-    stopped cars in the 5-25 m band; mid-stream static spawns at s=2.5
-    break up. ``0`` disables."""
+    In visual mode, pair with ``guide_scale`` ~2.0: unguided static
+    boxes can render at ghost strength when the initial camera frame shows
+    the road empty, while s=2.0 materializes solid
+    stopped cars in the 5-25 m band. ``0`` disables."""
 
     static_ahead_m: float = 28.0
-    """Meters ahead of the spawn pose where the first static clone sits
+    """Meters ahead of the spawn pose where the first static car sits
     (nearer slots fight the initial frame hardest and stay ghost)."""
 
     static_lateral_m: float = 2.8
-    """Lateral offset magnitude of the alternating static-clone slots."""
+    """Lateral offset magnitude of the alternating static-car slots."""
 
     guide_scale: float = 0.0
     """Box-axis guidance strength (flow extrapolated along the
     with-box/without-box conditioning direction). ``0`` disables the
-    guidance hook entirely (clone renders at ghost strength); ``2.0`` is the
-    validated in-game operating point (solid vehicle, in-box |diff| ~18 vs
+    guidance hook entirely (the event may render at ghost strength); ``2.0``
+    is the validated in-game operating point (solid vehicle, in-box |diff| ~18 vs
     ~7 unguided, out-box clean; ``3.0`` breaks up at near range).
     CUDA-graph safe (2026-08-21): during an event each denoise step replays
     the captured graph twice with the box/no-box conditioning staged in, so
@@ -501,7 +497,7 @@ class LiveEditObstacleConfig:
     graph-free rebuild. Not wired for the native optimized-DiT executor."""
 
     annotate: bool = False
-    """Draw the clone's projected 3D box outline into presented frames
+    """Draw each event's projected 3D box outline into presented frames
     (evidence/demo aid)."""
 
     def __post_init__(self) -> None:
@@ -518,14 +514,20 @@ class LiveEditObstacleConfig:
             raise ValueError("active_chunks must be positive")
         if self.min_drift_m < 0.0:
             raise ValueError("min_drift_m must be non-negative")
+        if self.min_coverage_s < 0.0:
+            raise ValueError("min_coverage_s must be non-negative")
+        if not 0.0 < self.length_range_m[0] <= self.length_range_m[1]:
+            raise ValueError("length_range_m must be a positive (lo, hi) pair")
         if self.static_count < 0:
             raise ValueError("static_count must be non-negative")
         if self.static_ahead_m <= 0.0:
             raise ValueError("static_ahead_m must be positive")
         if self.guide_scale < 0.0:
             raise ValueError("guide_scale must be non-negative")
-        if not 0.0 < self.length_range_m[0] <= self.length_range_m[1]:
-            raise ValueError("length_range_m must be a positive (lo, hi) pair")
+        if self.placement not in {"ego-relative", "road-ahead"}:
+            raise ValueError(
+                "obstacle placement must be 'ego-relative' or 'road-ahead'"
+            )
 
 
 @dataclass(frozen=True)
@@ -964,31 +966,46 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-obstacle",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable obstacle events (cloned moving scene vehicle; O key).",
+        help="Enable track-backed obstacle events (O key).",
+    )
+    group.add_argument(
+        "--live-edit-obstacle-physics",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Give obstacle events PhysX bodies (default: visual-only PR494 "
+            "conditioning behavior)."
+        ),
+    )
+    group.add_argument(
+        "--live-edit-obstacle-placement",
+        choices=("ego-relative", "road-ahead"),
+        default="ego-relative",
+        help=(
+            "Place obstacles from the current ego pose (default) or along "
+            "the compiled directed-lane graph."
+        ),
     )
     group.add_argument(
         "--live-edit-obstacle-count",
         type=int,
         default=1,
         help=(
-            "Clones per obstacle spawn (1 = single obstacle; 3-5 makes a "
-            "traffic event of distinct crossing/oncoming vehicles staggered "
-            "ahead of the ego)."
+            "Cars per obstacle spawn (1 = single obstacle; 3-5 makes a "
+            "staggered crossing event)."
         ),
     )
     group.add_argument(
         "--live-edit-obstacle-stagger-chunks",
         type=int,
         default=1,
-        help=(
-            "Chunks between consecutive clone spawns in one burst (0 = all at once)."
-        ),
+        help=("Chunks between consecutive car spawns in one burst (0 = all at once)."),
     )
     group.add_argument(
         "--live-edit-obstacle-ahead-m",
         type=float,
         default=16.0,
-        help="Meters ahead of the ego where the obstacle clone starts.",
+        help="Ahead distance where the first obstacle event starts.",
     )
     group.add_argument(
         "--live-edit-obstacle-chunks",
@@ -1001,7 +1018,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=0,
         help=(
-            "Static roadblock: N parked-track clones placed midroad from the "
+            "Static roadblock: N track-backed stopped cars placed midroad from the "
             "session's first chunk (alternating laterals; pair with "
             "--live-edit-obstacle-guide-scale 2.0; 0 disables)."
         ),
@@ -1010,14 +1027,14 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-obstacle-static-ahead-m",
         type=float,
         default=28.0,
-        help="Meters ahead of spawn where the first static clone sits.",
+        help="Meters ahead of spawn where the first static car sits.",
     )
     group.add_argument(
         "--live-edit-obstacle-static-lateral-m",
         type=float,
         default=2.8,
         help=(
-            "Lateral offset magnitude of the alternating static-clone slots "
+            "Lateral offset magnitude of the alternating static-car slots "
             "(bigger leaves the ego a wider slalom line)."
         ),
     )
@@ -1026,7 +1043,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=0.0,
         help=(
-            "Box-axis guidance strength over the clone (0 disables; 3.0 was "
+            "Box-axis guidance strength over each event (0 disables; 3.0 was "
             "the fully-opaque probe operating point)."
         ),
     )
@@ -1034,7 +1051,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-obstacle-annotate",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Draw the obstacle clone's projected box outline (evidence aid).",
+        help="Draw the obstacle event's projected box outline (evidence aid).",
     )
     group.add_argument(
         "--live-edit-coins",
@@ -1223,6 +1240,11 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
         perf_log_every_frames=int(args.live_edit_perf_log),
         obstacle=LiveEditObstacleConfig(
             enabled=bool(args.live_edit_obstacle),
+            physics=bool(args.live_edit_obstacle_physics),
+            placement=cast(
+                Literal["ego-relative", "road-ahead"],
+                args.live_edit_obstacle_placement,
+            ),
             count=int(args.live_edit_obstacle_count),
             stagger_chunks=int(args.live_edit_obstacle_stagger_chunks),
             spawn_ahead_m=float(args.live_edit_obstacle_ahead_m),

@@ -27,7 +27,6 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     DriverCommand,
     SceneBundle,
@@ -120,7 +119,7 @@ class InteractiveDriveApplication(Protocol):
         """Configure application-aware presentation before a scene loads."""
         ...
 
-    def load_scene(self, scene: SceneBundle, map_bounds: MapBounds | None) -> None:
+    def load_scene(self, scene: SceneBundle) -> None:
         """Load application-specific data for ``scene``."""
         ...
 

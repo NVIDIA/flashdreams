@@ -80,7 +80,11 @@ def make_trajectory(chunk_size: int) -> TrajectoryChunk:
 class FakeVideoModelBackend:
     """Deterministic backend stub used by pipeline and loop tests."""
 
-    def __init__(self, frames_per_render: int, rgb_value: int = 0) -> None:
+    def __init__(
+        self,
+        frames_per_render: int,
+        rgb_value: int = 0,
+    ) -> None:
         self._frames_per_render = frames_per_render
         self._rgb_value = rgb_value
         self.warmup_model_calls = 0

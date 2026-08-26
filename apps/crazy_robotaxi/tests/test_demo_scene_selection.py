@@ -5,27 +5,42 @@ from __future__ import annotations
 
 import argparse
 import types
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from crazy_robotaxi import cli as demo_mod
 from crazy_robotaxi.cli import (
     SceneOption,
-    _materialize_synthetic_scene_for_picker,
     _resolve_scene_variant,
     _validate_presenter_mode,
     build_parser,
 )
+from omnidreams_game_engine.demo import build_parser as build_engine_demo_parser
+
+pytestmark = pytest.mark.ci_cpu
 
 
-def test_auto_start_flag_and_deprecated_alias() -> None:
+@pytest.mark.parametrize(
+    "removed_flag",
+    ("--auto-start", "--no-auto-start", "--autoload-scene", "--no-autoload-scene"),
+)
+def test_removed_auto_start_flags_are_rejected(removed_flag: str) -> None:
     parser = build_parser()
 
-    assert parser.parse_args([]).auto_start is False
-    assert parser.parse_args(["--auto-start"]).auto_start is True
-    # --autoload-scene is kept as a backward-compatible alias for --auto-start.
-    assert parser.parse_args(["--autoload-scene"]).auto_start is True
-    assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
+    with pytest.raises(SystemExit):
+        parser.parse_args([removed_flag])
+
+
+@pytest.mark.parametrize("parser_factory", [build_parser, build_engine_demo_parser])
+def test_map_directory_flag_replaces_scene_directory(
+    parser_factory: Callable[[], argparse.ArgumentParser],
+) -> None:
+    parser = parser_factory()
+
+    assert parser.parse_args(["--map-dir", "maps"]).scene_dir == Path("maps")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--scene-dir", "scenes"])
 
 
 def test_bare_native_taxi_mode_is_rejected() -> None:
@@ -43,52 +58,52 @@ def test_browser_taxi_mode_may_imply_no_hud() -> None:
     _validate_presenter_mode(args)
 
 
-def test_resolve_scene_variant_prefers_weather_archive_path_for_default(
-    tmp_path: Path,
-) -> None:
-    scene_uuid = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-    base = (tmp_path / f"clipgt-{scene_uuid}.usdz").resolve()
-    snow = (tmp_path / f"clipgt-{scene_uuid}-snow.usdz").resolve()
+def test_resolve_scene_variant_uses_default_map_variant(tmp_path: Path) -> None:
+    game_map = (tmp_path / "city.robotaxi.yaml").resolve()
     option = SceneOption(
-        label="Quiet Suburban Boulevard",
-        path=base,
+        label="City",
+        path=game_map,
         variants=("default", "rain", "snow"),
-        variant_paths={"default": base, "snow": snow},
+        variant_paths={
+            "default": game_map,
+            "rain": game_map,
+            "snow": game_map,
+        },
     )
 
-    assert _resolve_scene_variant((option,), snow, "default") == "snow"
+    assert _resolve_scene_variant((option,), game_map, "default") == "default"
 
 
-def test_resolve_scene_variant_keeps_explicit_weather_choice(tmp_path: Path) -> None:
-    scene_uuid = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-    base = (tmp_path / f"clipgt-{scene_uuid}.usdz").resolve()
-    snow = (tmp_path / f"clipgt-{scene_uuid}-snow.usdz").resolve()
-    rain = (tmp_path / f"clipgt-{scene_uuid}-rain.usdz").resolve()
+def test_resolve_scene_variant_keeps_explicit_choice(tmp_path: Path) -> None:
+    game_map = (tmp_path / "city.robotaxi.yaml").resolve()
     option = SceneOption(
-        label="Quiet Suburban Boulevard",
-        path=base,
+        label="City",
+        path=game_map,
         variants=("default", "rain", "snow"),
-        variant_paths={"default": base, "rain": rain, "snow": snow},
+        variant_paths={variant: game_map for variant in ("default", "rain", "snow")},
     )
 
-    assert _resolve_scene_variant((option,), snow, "rain") == "rain"
+    assert _resolve_scene_variant((option,), game_map, "rain") == "rain"
 
 
-def test_resolve_scene_variant_legacy_option_without_variant_paths(
+def test_resolve_scene_variant_falls_back_to_first_authored_variant(
     tmp_path: Path,
 ) -> None:
-    scene = (tmp_path / "legacy.usdz").resolve()
-    option = SceneOption(label="legacy", path=scene, variants=("1", "2"))
+    game_map = (tmp_path / "city.robotaxi.yaml").resolve()
+    option = SceneOption(
+        label="City",
+        path=game_map,
+        variants=("default", "rain"),
+        variant_paths={"default": game_map, "rain": game_map},
+    )
 
-    assert _resolve_scene_variant((option,), scene, "default") == "1"
-    assert _resolve_scene_variant((option,), scene, "2") == "2"
+    assert _resolve_scene_variant((option,), game_map, "missing") == "default"
 
 
 class _FakePresenter:
-    """Records the scene-selection calls ``_run_streaming`` makes."""
+    """Records the scene lifecycle calls ``_run_streaming`` makes."""
 
     def __init__(self, **_kwargs: object) -> None:
-        self.wait_for_scene_selection_calls = 0
         self.acknowledged: list[tuple[Path, str]] = []
         # Probe callables passed to wait_while_preloading, plus an ordered
         # call log so a test can assert the preload wait happens *before* the
@@ -97,19 +112,11 @@ class _FakePresenter:
         self.calls: list[str] = []
         self.closed = False
 
-    def set_model_status(self, **_kwargs: object) -> None: ...
-
     def set_scene_selection_locked(self, *_args: object) -> None: ...
 
     def wait_while_preloading(self, probe: object) -> None:
         self.wait_while_preloading_probes.append(probe)
         self.calls.append("wait_while_preloading")
-
-    def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        # The whole point of --auto-start is that this never runs; record any
-        # call so the test can assert the picker was skipped.
-        self.wait_for_scene_selection_calls += 1
-        return None
 
     def acknowledge_scene_change(self, scene_path: Path, variant: str) -> None:
         self.acknowledged.append((scene_path, variant))
@@ -131,8 +138,7 @@ class _FakeApp:
     ) -> None:
         self.loaded: list[tuple[Path, str]] = []
         self.ran = 0
-        # Successive return values for preload_in_progress(); the auto-start
-        # path checks it once before deciding to wait on the preloader.
+        # Successive return values for preload_in_progress().
         self._preload_states = list(preload_states)
 
     def model_ready(self) -> bool:
@@ -154,16 +160,17 @@ class _FakeApp:
 
 
 @pytest.mark.parametrize("preloading", [False, True])
-def test_run_streaming_auto_start_skips_scene_picker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preloading: bool
+def test_run_streaming_starts_command_line_map(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preloading: bool,
 ) -> None:
-    scene = tmp_path / "scene.usdz"
+    scene = tmp_path / "scene.robotaxi.yaml"
     scene.write_bytes(b"")
     option = SceneOption(label="scene", path=scene, variants=("default",))
 
     presenter = _FakePresenter()
-    # When preloading, preload_in_progress() reports True on the first check so
-    # the auto-start path must wait for the preloader, then False afterwards.
+    # When preloading, preload_in_progress() reports True on the first check.
     app = _FakeApp(preload_states=(True, False) if preloading else (False,))
 
     monkeypatch.setattr(
@@ -197,15 +204,10 @@ def test_run_streaming_auto_start_skips_scene_picker(
         stream_mjpeg="8080",
         preload_scenes=False,
         prompt=None,
-        auto_start=True,
-        synthetic_scene=False,
-        synthetic_initial_rgb=None,
-        synthetic_prompt=None,
     )
 
     demo_mod._run_streaming(args)
 
-    assert presenter.wait_for_scene_selection_calls == 0
     assert app.loaded == [(scene, "default")]
     assert app.ran == 1
     assert presenter.acknowledged[0] == (scene, "default")
@@ -220,39 +222,3 @@ def test_run_streaming_auto_start_skips_scene_picker(
         )
     else:
         assert presenter.wait_while_preloading_probes == []
-
-
-def test_materialize_synthetic_scene_for_picker_consumes_synthetic_args(
-    monkeypatch, tmp_path: Path
-) -> None:
-    parser = build_parser()
-    args = parser.parse_args(
-        [
-            "--synthetic-scene",
-            "--synthetic-initial-rgb",
-            "seed.png",
-            "--synthetic-prompt",
-            "drive forward",
-        ]
-    )
-    built_scene = tmp_path / "synthetic.usdz"
-    calls: list[tuple[Path | None, str | None]] = []
-
-    def fake_build_synthetic_scene_to_temp(
-        *, initial_rgb_path: Path | None = None, prompt: str | None = None
-    ) -> Path:
-        calls.append((initial_rgb_path, prompt))
-        return built_scene
-
-    monkeypatch.setattr(
-        "crazy_robotaxi.cli.build_synthetic_scene_to_temp",
-        fake_build_synthetic_scene_to_temp,
-    )
-
-    _materialize_synthetic_scene_for_picker(args)
-
-    assert calls == [(Path("seed.png"), "drive forward")]
-    assert args.scene == built_scene
-    assert args.synthetic_scene is False
-    assert args.synthetic_initial_rgb is None
-    assert args.synthetic_prompt is None

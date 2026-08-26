@@ -1,0 +1,100 @@
+schema_version: 1
+id: crazy-robotaxi-minimal-loop
+name: Minimal Loop and Parking Lot
+
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 20.0
+  intersection_connector_samples: 8
+
+profiles:
+  neighborhood:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, forward]
+    speed_limit_mps: 13.4
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - id: hub
+    type: intersection
+    pose: {x_m: 0, y_m: 0}
+
+  - id: dead_end
+    type: cul_de_sac
+    pose: {x_m: 0, y_m: 30}
+    culdesac_radius_m: 10
+
+  - id: neighborhood_lot
+    type: parking_lot
+    connected_to: hub
+    opening_vertex: 2
+    vertices:
+      - {x_m: -35, y_m: -7}
+      - {x_m: -3, y_m: -7}
+      - {x_m: 3, y_m: -7}
+      - {x_m: 35, y_m: -7}
+      - {x_m: 35, y_m: -27}
+      - {x_m: -35, y_m: -27}
+
+  - id: neighborhood_loop_northeast_corner
+    type: road_joint
+    pose: {x_m: -50, y_m: 75}
+
+  - id: neighborhood_loop_northwest_corner
+    type: road_joint
+    pose: {x_m: 50, y_m: 75}
+
+  - id: neighborhood_loop_southeast_corner
+    type: road_joint
+    pose: {x_m: -50, y_m: 0}
+
+  - id: neighborhood_loop_southwest_corner
+    type: road_joint
+    pose: {x_m: 50, y_m: 0}
+
+roads:
+  - id: neighborhood_loop_north
+    from: neighborhood_loop_northeast_corner
+    to: neighborhood_loop_northwest_corner
+    profile: neighborhood
+
+  - id: neighborhood_loop_southeast
+    from: neighborhood_loop_southeast_corner
+    to: hub
+    profile: neighborhood
+
+  - id: neighborhood_loop_southwest
+    from: neighborhood_loop_southwest_corner
+    to: hub
+    profile: neighborhood
+
+  - id: neighborhood_loop_east
+    from: neighborhood_loop_northeast_corner
+    to: neighborhood_loop_southeast_corner
+    profile: neighborhood
+
+  - id: neighborhood_loop_west
+    from: neighborhood_loop_northwest_corner
+    to: neighborhood_loop_southwest_corner
+    profile: neighborhood
+
+  - id: dead_end_road
+    from: hub
+    to: dead_end
+    profile: neighborhood
+
+spawns:
+  - id: taxi_start
+    road: neighborhood_loop_southwest
+    lane: 1
+    distance_m: 5
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: >-
+          A forward-facing view from a taxi moving through a quiet suburban
+          neighborhood in daylight, with houses, low commercial buildings,
+          landscaping, and parked cars.

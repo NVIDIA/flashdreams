@@ -30,6 +30,57 @@ class TaxiVehicleConfig(VehicleConfig):
     max_handbrake_yaw_rate_radps: float = 1.5
     max_lateral_accel_mps2: float = 8.5
     max_body_roll_rad: float = 0.16
+    curb_collision_restitution: float = 0.45
+    """Rebound coefficient for map curbs and other static barriers."""
+
+    curb_forward_momentum_retention: float = 0.85
+    """Minimum forward-speed fraction retained through a glancing curb impact."""
+
+    input_dt_cap_s: float = 0.1
+    """Maximum elapsed input time applied by one keyboard update."""
+
+    input_activation_threshold: float = 0.01
+    """Minimum pedal or steering magnitude treated as active input."""
+
+    keyboard_steer_rate_per_s: float = 3.5
+    """Keyboard steering-input rise rate."""
+
+    keyboard_steer_return_rate_per_s: float = 5.0
+    """Keyboard steering-input centering rate."""
+
+    direction_change_accel_multiplier: float = 1.5
+    """Braking multiplier while changing travel direction."""
+
+    speed_taper_knee_fraction: float = 0.62
+    """Fraction of maximum speed where acceleration tapering changes regime."""
+
+    speed_taper_low_floor: float = 0.2
+    """Minimum acceleration fraction below the speed-taper knee."""
+
+    speed_taper_high_floor: float = 0.05
+    """Minimum acceleration fraction above the speed-taper knee."""
+
+    speed_taper_exponent: float = 3.0
+    """Acceleration falloff exponent above the speed-taper knee."""
+
+    manual_coast_decel_mps2: float = 0.5
+    """Manual-control deceleration while neither pedal is active."""
+
+    ragdoll_grip_rate: float = 4.0
+    """Lateral-velocity damping rate during collision recovery."""
+
+    ragdoll_yaw_response_rate: float = 8.0
+    """Yaw response rate during collision recovery."""
+
+    handbrake_yaw_response_rate: float = 4.0
+    """Yaw response rate while the handbrake is active."""
+
+    handbrake_lateral_damping_rate: float = 2.0
+    """Lateral-velocity damping rate while the handbrake is active."""
+
+    handbrake_lateral_accel_scale: float = 0.35
+    """Body-roll acceleration scale while the handbrake is active."""
+
     speed_limit_enabled: bool = True
     actor_collision_enabled: bool = True
     static_collision_enabled: bool = True
@@ -50,8 +101,9 @@ class TaxiKeyboardState:
 class TaxiKeyboardDriveState:
     """Taxi-only snappy steering, handbrake, and brake-to-reverse controls."""
 
-    def __init__(self, control: Any) -> None:
+    def __init__(self, control: Any, vehicle: TaxiVehicleConfig | None = None) -> None:
         self._control = control
+        self._vehicle = vehicle or TaxiVehicleConfig()
         self._pressed: set[str] = set()
         self._state = TaxiKeyboardState()
         self._last_update_s = time.monotonic()
@@ -88,14 +140,18 @@ class TaxiKeyboardDriveState:
     def update(self) -> TaxiKeyboardState:
         """Advance the input smoother and publish one Taxi drive command."""
         now = time.monotonic()
-        dt_s = max(0.0, min(0.1, now - self._last_update_s))
+        dt_s = max(0.0, min(self._vehicle.input_dt_cap_s, now - self._last_update_s))
         self._last_update_s = now
         target_steer = 0.0
         if {"a", "left"} & self._pressed:
             target_steer += 1.0
         if {"d", "right"} & self._pressed:
             target_steer -= 1.0
-        steer_rate = 3.5 if abs(target_steer) > 0.0 else 5.0
+        steer_rate = (
+            self._vehicle.keyboard_steer_rate_per_s
+            if abs(target_steer) > 0.0
+            else self._vehicle.keyboard_steer_return_rate_per_s
+        )
         steer = _move_towards(self._state.steering, target_steer, steer_rate * dt_s)
         throttle = 1.0 if {"w", "up"} & self._pressed else 0.0
         brake = 1.0 if {"s", "down"} & self._pressed else 0.0
@@ -139,17 +195,19 @@ class TaxiKeyboardDriveState:
     def _update_target_speed(
         self, *, throttle: float, brake: float, handbrake: bool, dt_s: float
     ) -> float:
-        vehicle = TaxiVehicleConfig()
+        vehicle = self._vehicle
         speed = self._state.target_speed_mps
         if handbrake:
             speed = _move_towards(speed, 0.0, vehicle.handbrake_decel_mps2 * dt_s)
-        elif throttle > 0.01:
+        elif throttle > vehicle.input_activation_threshold:
             accel = vehicle.max_accel_mps2 * throttle * dt_s
             if speed < 0.0:
-                speed = min(0.0, speed + accel * 1.5)
+                speed = min(
+                    0.0, speed + accel * vehicle.direction_change_accel_multiplier
+                )
             else:
                 speed += accel
-        elif brake > 0.01:
+        elif brake > vehicle.input_activation_threshold:
             if speed > 0.0:
                 speed = max(0.0, speed - vehicle.max_brake_mps2 * brake * dt_s)
             else:
@@ -213,7 +271,7 @@ def integrate_taxi_vehicle(
         speed = _move_towards(speed, 0.0, vehicle.handbrake_decel_mps2 * dt_s)
     elif command.manual_control:
         intended_direction = -1.0 if command.reverse else 1.0
-        if command.brake > 0.01:
+        if command.brake > vehicle.input_activation_threshold:
             speed = _apply_brake_or_reverse(
                 speed,
                 command,
@@ -222,32 +280,38 @@ def integrate_taxi_vehicle(
                 reverse_accel_mps2=vehicle.reverse_accel_mps2,
                 max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
             )
-        elif command.throttle > 0.01:
+        elif command.throttle > vehicle.input_activation_threshold:
             accel = vehicle.max_accel_mps2 * command.throttle * dt_s
             if intended_direction < 0.0:
                 speed -= accel
             elif vehicle.speed_limit_enabled:
                 max_speed = vehicle.max_speed_mps
                 current = abs(speed)
-                high_speed_knee = max_speed * 0.62
+                high_speed_knee = max_speed * vehicle.speed_taper_knee_fraction
                 if current < high_speed_knee:
-                    taper = max(0.2, 1.0 - (current / high_speed_knee) ** 2 * 0.5)
+                    taper = max(
+                        vehicle.speed_taper_low_floor,
+                        1.0 - (current / high_speed_knee) ** 2 * 0.5,
+                    )
                 else:
                     excess = (current - high_speed_knee) / max(
                         1e-6, max_speed - high_speed_knee
                     )
-                    taper = max(0.05, 0.5 * (1.0 - excess) ** 3)
+                    taper = max(
+                        vehicle.speed_taper_high_floor,
+                        0.5 * (1.0 - excess) ** vehicle.speed_taper_exponent,
+                    )
                 speed += accel * taper
             else:
                 speed += accel
         else:
-            speed = _move_towards(speed, 0.0, 0.5 * dt_s)
+            speed = _move_towards(speed, 0.0, vehicle.manual_coast_decel_mps2 * dt_s)
         if vehicle.speed_limit_enabled:
             speed = float(
                 np.clip(speed, -vehicle.max_reverse_speed_mps, vehicle.max_speed_mps)
             )
     else:
-        if command.brake > 0.01:
+        if command.brake > vehicle.input_activation_threshold:
             speed = _apply_brake_or_reverse(
                 speed,
                 command,
@@ -256,11 +320,15 @@ def integrate_taxi_vehicle(
                 reverse_accel_mps2=vehicle.reverse_accel_mps2,
                 max_reverse_speed_mps=vehicle.max_reverse_speed_mps,
             )
-        elif command.throttle > 0.01:
+        elif command.throttle > vehicle.input_activation_threshold:
             intended_direction = -1.0 if command.reverse else 1.0
             accel_delta = command.throttle * vehicle.max_accel_mps2 * dt_s
             if speed * intended_direction < 0.0:
-                speed = _move_towards(speed, 0.0, accel_delta * 1.5)
+                speed = _move_towards(
+                    speed,
+                    0.0,
+                    accel_delta * vehicle.direction_change_accel_multiplier,
+                )
             else:
                 speed += intended_direction * accel_delta
         else:
@@ -307,23 +375,25 @@ def integrate_taxi_vehicle(
     )
     if state.ragdoll_active:
         lateral_speed = float(np.dot(velocity, left))
-        grip = float(np.clip(vehicle.tire_grip * dt_s * 4.0, 0.0, 1.0))
+        grip = float(
+            np.clip(vehicle.tire_grip * dt_s * vehicle.ragdoll_grip_rate, 0.0, 1.0)
+        )
         velocity -= left * lateral_speed * grip
         longitudinal_speed = float(np.dot(velocity, forward))
         velocity += forward * (speed - longitudinal_speed)
-        response = 1.0 - math.exp(-8.0 * dt_s)
+        response = 1.0 - math.exp(-vehicle.ragdoll_yaw_response_rate * dt_s)
         yaw_rate = (
             state.yaw_rate_radps
             + (commanded_yaw_rate - state.yaw_rate_radps) * response
         )
     elif command.handbrake:
-        response = 1.0 - math.exp(-4.0 * dt_s)
+        response = 1.0 - math.exp(-vehicle.handbrake_yaw_response_rate * dt_s)
         yaw_rate = (
             state.yaw_rate_radps
             + (commanded_yaw_rate - state.yaw_rate_radps) * response
         )
         lateral_speed = float(np.dot(velocity, left))
-        lateral_speed *= max(0.0, 1.0 - 2.0 * dt_s)
+        lateral_speed *= max(0.0, 1.0 - vehicle.handbrake_lateral_damping_rate * dt_s)
     else:
         # Normal steering is an arcade control target, while PhysX remains
         # responsible for contact impulses and tire forces. Running a second
@@ -346,7 +416,11 @@ def integrate_taxi_vehicle(
     y_m = state.y_m + float(velocity[1]) * dt_s
 
     longitudinal_accel = (speed - state.speed_mps) / max(dt_s, 1e-6)
-    lateral_accel = speed * yaw_rate * (0.35 if command.handbrake else 1.0)
+    lateral_accel = (
+        speed
+        * yaw_rate
+        * (vehicle.handbrake_lateral_accel_scale if command.handbrake else 1.0)
+    )
     target_pitch = float(
         np.clip(
             -longitudinal_accel

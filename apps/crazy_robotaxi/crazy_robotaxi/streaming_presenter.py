@@ -36,6 +36,7 @@ from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
@@ -58,7 +59,6 @@ from PIL import Image, ImageDraw
 
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
-    project_segment_pose_to_bev,
     project_target_to_bev,
     project_taxi_markers_to_camera,
 )
@@ -345,9 +345,7 @@ _INDEX_HTML = """<!doctype html>
     overflow: hidden; background: #222; pointer-events: none;
   }
   .taxi-map img { display: block; width: 100%; height: auto; }
-  .taxi-boundaries, #taxi-pins { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .taxi-boundaries { overflow: hidden; }
-  .taxi-boundaries line { stroke: rgb(235, 50, 50); stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+  #taxi-pins { position: absolute; inset: 0; width: 100%; height: 100%; }
   .taxi-pin {
     position: absolute; width: 18px; height: 18px; border-radius: 50%;
     border: 3px solid white; background: #76b900;
@@ -400,122 +398,6 @@ _INDEX_HTML = """<!doctype html>
     border-color: white;
     color: #111;
   }
-  .scene-picker {
-    position: fixed; bottom: 16px; right: 16px;
-    background: rgba(0, 0, 0, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 10px;
-    color: white;
-    font-size: 12px;
-    display: flex; flex-direction: column;
-    max-height: 60vh;
-    backdrop-filter: blur(6px);
-    overflow: hidden;
-    /* Animate the collapse so the toggle feels physical rather than a
-       hard show/hide. ``max-height`` is the lever rather than ``display``
-       because ``display: none`` short-circuits transitions. */
-    transition: max-height 0.18s ease-out;
-  }
-  .scene-picker.hidden { display: none; }
-  .scene-picker.collapsed { max-height: 38px; }
-  .scene-picker-toggle {
-    background: none; border: none; color: white;
-    padding: 9px 12px;
-    display: flex; align-items: center; gap: 8px;
-    cursor: pointer;
-    font-size: 11px; font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    width: 100%;
-    text-align: left;
-    flex-shrink: 0;
-    pointer-events: auto;
-    user-select: none;
-  }
-  .scene-picker-toggle:hover { background: rgba(255, 255, 255, 0.06); }
-  .scene-picker-count {
-    opacity: 0.55;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 11px;
-  }
-  .scene-picker-chevron {
-    margin-left: auto;
-    font-size: 10px;
-    transition: transform 0.18s ease-out;
-  }
-  .scene-picker.collapsed .scene-picker-chevron {
-    transform: rotate(-90deg);
-  }
-  .scene-picker-list {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: 0 10px 10px 10px;
-    overflow-y: auto;
-  }
-  /* Hide the list's scroll viewport entirely while the panel is
-     collapsed so no scrollbar artifacts leak through the parent's
-     ``overflow: hidden`` clipping. */
-  .scene-picker.collapsed .scene-picker-list { overflow: hidden; }
-  /* Replace Chromium's default scrollbar (which carries the up/down
-     arrow buttons that were poking out the bottom-right of the
-     collapsed panel) with a slim button-less rail. Firefox's
-     standards-track ``scrollbar-width`` covers the same ground. */
-  .scene-picker-list { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent; }
-  .scene-picker-list::-webkit-scrollbar { width: 6px; }
-  .scene-picker-list::-webkit-scrollbar-track { background: transparent; }
-  .scene-picker-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.22);
-    border-radius: 3px;
-  }
-  .scene-picker-list::-webkit-scrollbar-button { display: none; }
-  .scene-picker-list::-webkit-scrollbar-corner { background: transparent; }
-  .scene-card {
-    width: 160px;
-    border-radius: 6px;
-    overflow: hidden;
-    cursor: pointer;
-    border: 2px solid transparent;
-    transition: border-color 0.1s, transform 0.05s;
-    background: rgba(255, 255, 255, 0.05);
-    pointer-events: auto;
-    user-select: none;
-  }
-  .scene-card:hover { border-color: rgba(120, 200, 255, 0.7); }
-  .scene-card.loading {
-    border-color: rgba(120, 200, 255, 1.0);
-    pointer-events: none;
-    opacity: 0.7;
-  }
-  .scene-card img {
-    width: 100%; height: 72px;
-    object-fit: cover;
-    display: block;
-    background: #222;
-  }
-  .scene-card .scene-label {
-    padding: 6px 8px;
-    font-size: 11px; line-height: 1.3;
-  }
-  /* Weather-variant pills, shown only for multi-variant scenes. */
-  .scene-variants {
-    display: flex; flex-wrap: wrap; gap: 4px;
-    padding: 0 8px 8px 8px;
-  }
-  .variant-pill {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 999px;
-    color: white;
-    font-size: 10px;
-    padding: 2px 8px;
-    cursor: pointer;
-    pointer-events: auto;
-    user-select: none;
-    transition: background-color 0.1s, border-color 0.1s;
-  }
-  .variant-pill:hover { background: rgba(120, 200, 255, 0.3); border-color: rgba(120, 200, 255, 0.7); }
-  .variant-pill.loading { border-color: rgba(120, 200, 255, 1.0); opacity: 0.7; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -530,8 +412,7 @@ _INDEX_HTML = """<!doctype html>
   <div class="taxi-event" id="taxi-event"></div>
 </div>
 <div class="taxi-map hidden" id="taxi-map">
-  <img id="taxi-bev">
-  <svg class="taxi-boundaries" id="taxi-boundaries" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+  <img id="taxi-bev" src="/bev_stream">
   <div id="taxi-pins"></div>
 </div>
 <div class="game-over hidden" id="game-over">
@@ -552,14 +433,6 @@ _INDEX_HTML = """<!doctype html>
   </div>
 </div>
 <div class="hint" id="drive-hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
-<div class="scene-picker hidden" id="scene-picker">
-  <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
-    <span>Scenes</span>
-    <span class="scene-picker-count" id="scene-picker-count"></span>
-    <span class="scene-picker-chevron">&#9662;</span>
-  </button>
-  <div class="scene-picker-list" id="scene-picker-list"></div>
-</div>
 <div class="hud">
   <div class="speed disconnected" id="speed">
     <span class="speed-value" id="speed-value">--</span>
@@ -616,8 +489,7 @@ function send(key, down) {
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
 // Skip key handling when focus is on a form input (e.g. a future
-// settings panel). The scene picker is now click-driven so the
-// keyboard never lands on a button there.
+// settings panel).
 function shouldIgnoreKey(e) {
   const t = e.target;
   if (!t) return false;
@@ -643,7 +515,6 @@ const taxiArrowEl = document.getElementById('taxi-arrow');
 const taxiStatusEl = document.getElementById('taxi-status');
 const taxiEventEl = document.getElementById('taxi-event');
 const taxiMapEl = document.getElementById('taxi-map');
-const taxiBoundariesEl = document.getElementById('taxi-boundaries');
 const taxiPinsEl = document.getElementById('taxi-pins');
 const gameOverEl = document.getElementById('game-over');
 const gameOverTitleEl = document.getElementById('game-over-title');
@@ -727,15 +598,6 @@ function paintTaxi(taxi) {
   const markers = taxi.bev_targets || [];
   const showMap = taxi.bev_enabled;
   taxiMapEl.classList.toggle('hidden', !showMap);
-  taxiBoundariesEl.replaceChildren();
-  (taxi.bev_enclosure_segments || []).forEach(segment => {
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', `${segment.u0 * 100}`);
-    line.setAttribute('y1', `${segment.v0 * 100}`);
-    line.setAttribute('x2', `${segment.u1 * 100}`);
-    line.setAttribute('y2', `${segment.v1 * 100}`);
-    taxiBoundariesEl.appendChild(line);
-  });
   taxiPinsEl.replaceChildren();
   markers.filter(marker => marker.visible).forEach(marker => {
     const pin = document.createElement('div');
@@ -788,110 +650,6 @@ async function pollState() {
 setInterval(pollState, 100);
 pollState();
 
-// Scene picker. Hidden until /scenes returns at least one entry,
-// then renders as a panel in the bottom-right. Auto-expanded on first
-// load because nothing happens until the user picks a scene -- the
-// server is blocked on ``wait_for_scene_selection`` and the MJPEG
-// stream shows the "Select a scene to begin driving" overlay frame.
-// After the first pick it auto-collapses (and click-outside collapses
-// thereafter), so the panel stays out of the way during driving.
-const scenePicker = document.getElementById('scene-picker');
-const scenePickerList = document.getElementById('scene-picker-list');
-const scenePickerToggle = document.getElementById('scene-picker-toggle');
-const scenePickerCount = document.getElementById('scene-picker-count');
-let SCENES = [];
-let firstSceneLoaded = false;
-function setScenePickerCollapsed(collapsed) {
-  scenePicker.classList.toggle('collapsed', collapsed);
-}
-scenePickerToggle.addEventListener('click', () => {
-  setScenePickerCollapsed(!scenePicker.classList.contains('collapsed'));
-});
-// Click outside the panel collapses it -- but only after the user has
-// actually picked their first scene. Pre-selection clicks (e.g. the
-// user clicking on the camera area to dismiss something) don't tuck
-// the picker away, since the panel is the only way to start driving.
-document.addEventListener('mousedown', e => {
-  if (!firstSceneLoaded) return;
-  if (scenePicker.classList.contains('hidden')) return;
-  if (scenePicker.contains(e.target)) return;
-  setScenePickerCollapsed(true);
-});
-async function fetchScenes() {
-  try {
-    const r = await fetch(withToken('/scenes'), { cache: 'no-store' });
-    if (!r.ok) return;
-    const data = await r.json();
-    SCENES = Array.isArray(data.scenes) ? data.scenes : [];
-    scenePickerCount.textContent = SCENES.length ? `(${SCENES.length})` : '';
-    if (!SCENES.length) {
-      scenePicker.classList.add('hidden');
-      return;
-    }
-    scenePickerList.innerHTML = '';
-    SCENES.forEach((s, i) => {
-      const card = document.createElement('div');
-      card.className = 'scene-card';
-      card.dataset.idx = String(i);
-      if (s.has_thumbnail) {
-        const img = document.createElement('img');
-        img.src = withToken('/thumbnail?scene=' + encodeURIComponent(s.path));
-        img.alt = '';
-        img.onerror = () => { img.style.display = 'none'; };
-        card.appendChild(img);
-      }
-      const label = document.createElement('div');
-      label.className = 'scene-label';
-      label.textContent = s.label || ('Scene ' + (i + 1));
-      card.appendChild(label);
-      // Clicking the card (outside a pill) loads the default variant.
-      card.addEventListener('click', () => loadScene(i, card));
-      const variants = Array.isArray(s.variants) ? s.variants : [];
-      if (variants.length > 1) {
-        const row = document.createElement('div');
-        row.className = 'scene-variants';
-        variants.forEach(v => {
-          const pill = document.createElement('button');
-          pill.className = 'variant-pill';
-          pill.type = 'button';
-          pill.textContent = variantLabel(v);
-          pill.addEventListener('click', e => {
-            e.stopPropagation();   // don't also trigger the card's default-variant load
-            loadScene(i, card, v, pill);
-          });
-          row.appendChild(pill);
-        });
-        card.appendChild(row);
-      }
-      scenePickerList.appendChild(card);
-    });
-    scenePicker.classList.remove('hidden');
-  } catch {}
-}
-function variantLabel(v) {
-  const labels = {
-    default: 'Default', clear: 'Clear', snow: 'Snow', rain: 'Rain',
-  };
-  return labels[v] || (v.charAt(0).toUpperCase() + v.slice(1));
-}
-async function loadScene(idx, card, variant, pill) {
-  const scene = SCENES[idx];
-  if (!scene) return;
-  (pill || card).classList.add('loading');
-  try {
-    let url = '/scene/select?scene=' + encodeURIComponent(scene.path);
-    // No variant -> server uses the scene's default; a pill selects one.
-    if (variant) url += '&variant=' + encodeURIComponent(variant);
-    await fetch(withToken(url), { method: 'GET', cache: 'no-store' });
-  } catch {}
-  // Tuck the panel away so the user gets the camera view back; the
-  // scene transition itself is driven by the server-side loop. From
-  // this point on, click-outside dismissal is enabled too.
-  firstSceneLoaded = true;
-  setScenePickerCollapsed(true);
-  setTimeout(() => { (pill || card).classList.remove('loading'); }, 1500);
-}
-fetchScenes();
 </script>
 </body>
 </html>
@@ -938,7 +696,6 @@ class MJPEGStreamingPresenter:
         self._bev_config: BevConfig | None = None
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
-        self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._jpeg_quality = int(jpeg_quality)
         if not 1 <= self._jpeg_quality <= 100:
             raise ValueError(
@@ -974,22 +731,9 @@ class MJPEGStreamingPresenter:
         # wrapper then calls ``acknowledge_scene_change`` and re-enters
         # the long-lived engine with the new scene (model stays resident).
         self._pending_scene_change: tuple[Path, str] | None = None
-        # Pre-cached idle overlay frames keyed by message. Lazily filled on
-        # the first call to :meth:`_publish_idle_frame`. Cached so the
-        # heartbeat republish in ``wait_for_scene_selection`` doesn't redo
-        # the PIL text render every 2 s; keyed by message so the "Loading
-        # world model..." (warmup) and "Select a scene to begin driving"
-        # (ready) variants are each rendered at most once.
-        self._idle_frame_cache_by_message: dict[str, np.ndarray] = {}
-        # Model-warmup status, wired by the demo via :meth:`set_model_status`
-        # (mirrors the slangpy HUD). Defaults inert so the idle overlay
-        # reads "Select a scene to begin driving" if never wired.
-        self._model_can_prewarm = False
-        self._model_ready_probe: Callable[[], bool] = lambda: True
-        # Scene-selection lock (wired by the demo with --preload-scenes).
-        # While the probe returns True, /scene/select is rejected and the
-        # idle frame reads "Preloading scenes..." so the browser can't pick
-        # a scene until every scene is cached.
+        # Map-switching lock (wired by the demo with --preload-scenes).
+        # While the probe returns True, /scene/select is rejected so the
+        # browser cannot switch maps until every map is cached.
         self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
         # Keyboard drive integrator. Late-imported because ``demo``
         # imports the streaming presenter via the CLI's presenter
@@ -1051,64 +795,12 @@ class MJPEGStreamingPresenter:
         del scene_path, variant  # accepted for symmetry with the slangpy HUD API
         self._pending_scene_change = None
 
-    def set_model_status(
-        self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
-    ) -> None:
-        """Wire the idle overlay text to model-warmup progress (mirrors the HUD).
-
-        While ``can_prewarm`` and not ``ready_probe()``, the idle frame reads
-        "Loading world model..." instead of the "select a scene" prompt.
-        """
-        self._model_can_prewarm = bool(can_prewarm)
-        self._model_ready_probe = ready_probe
-
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
         """Reject ``/scene/select`` while ``probe()`` returns True (--preload-scenes).
 
-        Locks scene picking until every scene is cached; idle overlay then
-        reads "Preloading scenes...".
+        Locks map switching until every map is cached.
         """
         self._scene_selection_locked_probe = probe
-
-    def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        """Block until the browser POSTs a scene selection (or the presenter closes).
-
-        Publishes an idle overlay frame, re-published on a 2 s heartbeat so a
-        late-connecting browser still gets the placeholder promptly. Returns
-        ``(scene_path, variant)`` on selection, or ``None`` if closed first.
-        """
-        idle_heartbeat_s = 2.0
-        last_publish = 0.0
-        while True:
-            now = time.monotonic()
-            if now - last_publish >= idle_heartbeat_s:
-                self._publish_idle_frame()
-                last_publish = now
-            if self._stop_event.wait(timeout=0.1):
-                return None
-            if self._pending_scene_change is not None:
-                return self._pending_scene_change
-
-    def _publish_idle_frame(self) -> None:
-        """Stream the cached idle placeholder frame.
-
-        Overlay text follows warmup / lock state; each variant's PIL render is
-        memoised so the heartbeat doesn't re-pay the text-overlay cost.
-        """
-        if self._model_can_prewarm and not self._model_ready_probe():
-            message = "Loading world model..."
-        elif self._scene_selection_locked_probe():
-            message = "Preloading scenes..."
-        else:
-            message = "Select a scene to begin driving"
-        cached = self._idle_frame_cache_by_message.get(message)
-        if cached is None:
-            base = np.zeros(
-                (self._raster.height, self._raster.width, 3), dtype=np.uint8
-            )
-            cached = render_loading_overlay(base, message=message)
-            self._idle_frame_cache_by_message[message] = cached
-        self._publish(cached)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""
@@ -1118,7 +810,7 @@ class MJPEGStreamingPresenter:
             _KeyboardDriveSink(keyboard)
         )
 
-    def configure_taxi_hud(self, bev: BevConfig) -> None:
+    def configure_taxi_hud(self, bev: BevConfig, vehicle: Any = None) -> None:
         """Configure BEV projection used by browser taxi overlays."""
         from crazy_robotaxi.driving import (
             TaxiKeyboardDriveState,
@@ -1126,22 +818,17 @@ class MJPEGStreamingPresenter:
 
         self._taxi_enabled = True
         self._bev_config = bev
-        self._keyboard_drive_factory = TaxiKeyboardDriveState
+        self._keyboard_drive_factory = lambda sink: TaxiKeyboardDriveState(
+            sink, vehicle
+        )
         self._keyboard_drive = TaxiKeyboardDriveState(
-            _KeyboardDriveSink(self._keyboard)
+            _KeyboardDriveSink(self._keyboard), vehicle
         )
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Configure camera projection for world-anchored taxi markers."""
         self._taxi_camera_calibration = calibration
         self._taxi_camera_models.clear()
-
-    def configure_taxi_enclosure(self, segments_world: np.ndarray) -> None:
-        """Configure static Taxi-only closure lines drawn over the browser BEV."""
-        segments = np.asarray(segments_world, dtype=np.float32)
-        if segments.ndim != 3 or segments.shape[1:] != (2, 3):
-            raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
-        self._taxi_enclosure_segments_world = segments.copy()
 
     def process_events(self) -> None:
         # Update the integrator at simulation cadence regardless of how often
@@ -1165,7 +852,14 @@ class MJPEGStreamingPresenter:
                 )
             )
         elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            _prefetch_to_numpy(frame.model_rgb_host_uint8)
+            _prefetch_to_numpy(
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=self._raster.width,
+                    height=self._raster.height,
+                )
+            )
         else:
             _prefetch_to_numpy(frame.rgb_host_uint8)
         if frame.bev_host_uint8 is not None:
@@ -1197,7 +891,13 @@ class MJPEGStreamingPresenter:
             )
         elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
             image = _with_status_overlay(
-                frame.model_rgb_host_uint8, frame.status_message
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=self._raster.width,
+                    height=self._raster.height,
+                ),
+                frame.status_message,
             )
         else:
             image = _with_status_overlay(frame.rgb_host_uint8, frame.status_message)
@@ -1446,32 +1146,6 @@ class MJPEGStreamingPresenter:
                 taxi_payload["bev_targets"] = bev_targets
             else:
                 taxi_payload["bev_targets"] = []
-            bev_enclosure_segments = []
-            if (
-                frame is not None
-                and frame.bev_rig_to_world is not None
-                and self._bev_config is not None
-            ):
-                for segment in getattr(
-                    self,
-                    "_taxi_enclosure_segments_world",
-                    np.empty((0, 2, 3), dtype=np.float32),
-                ):
-                    projected = project_segment_pose_to_bev(
-                        segment, frame.bev_rig_to_world, self._bev_config
-                    )
-                    if projected is None:
-                        continue
-                    start, end = projected
-                    bev_enclosure_segments.append(
-                        {
-                            "u0": start[0],
-                            "v0": start[1],
-                            "u1": end[0],
-                            "v1": end[1],
-                        }
-                    )
-            taxi_payload["bev_enclosure_segments"] = bev_enclosure_segments
             result["taxi"] = taxi_payload
         return result
 
@@ -1582,10 +1256,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            # Aggressive no-cache so a browser that still has a
-            # pre-scene-picker tab open doesn't keep rendering the old
-            # HTML after a server upgrade. The page is tiny (~10 KB) so
-            # bypassing the cache on every reload costs nothing.
+            # Always serve the current control page after a server restart.
             self.send_header(
                 "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
             )

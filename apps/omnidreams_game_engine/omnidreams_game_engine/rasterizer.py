@@ -124,8 +124,8 @@ class _LudusConditionRasterizerImpl:
         self.ctx.set_max_tessellation_levels(cube=3)
         # Use thinner BEV linework so the small map panel doesn't get
         # swallowed by the heavier polylines designed for the main view.
-        bev_line_width = max(2.0, float(raster.line_width_px) * 0.4)
-        bev_pole_width = max(2.0, float(raster.pole_width_px) * 0.6)
+        bev_line_width = max(1.5, float(raster.line_width_px) * 0.2)
+        bev_pole_width = max(1.5, float(raster.pole_width_px) * 0.4)
         self.ctx.set_line_widths(
             polyline_regular=float(raster.line_width_px),
             polyline_bev=bev_line_width,

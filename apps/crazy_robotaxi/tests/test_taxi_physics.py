@@ -19,10 +19,12 @@ from crazy_robotaxi.driving import (
 from crazy_robotaxi.physics import (
     TaxiPhysicsWorld,
     inset_vehicle_chassis,
-    select_traffic_tracks,
     step_taxi_physics_world,
 )
-from omnidreams_game_engine.config import ChunkConfig
+from ludus_renderer import BodyState
+from omnidreams_game_engine.config import ChunkConfig, VehicleConfig
+from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.simulation.components import (
     rigid_body_model_from_vehicle_config,
 )
@@ -30,6 +32,10 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     sample_chunk_trajectory,
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
+from omnidreams_game_engine.simulation.map_traffic import (
+    MapTrafficController,
+    MapTrafficPhase,
+)
 from omnidreams_game_engine.types import (
     DriverCommand,
     PhysicsDebugFrame,
@@ -43,7 +49,6 @@ pytestmark = pytest.mark.ci_cpu
 @dataclass(frozen=True)
 class _Scene:
     scene_id: str = "taxi-physics-test"
-    vehicle_bbox_tracks: tuple[object, ...] = ()
     line_layers: tuple[WorldLineSegments, ...] = ()
     polygon_layers: tuple[object, ...] = ()
 
@@ -55,19 +60,6 @@ def _scene(*, line_layers: tuple[WorldLineSegments, ...] = ()) -> _Scene:
 def _yaw_from_quaternion_xyzw(quaternion: np.ndarray) -> float:
     x, y, z, w = [float(value) for value in quaternion]
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-
-
-def test_taxi_traffic_filter_is_stable_and_keeps_non_motor_actors() -> None:
-    tracks = tuple(
-        SimpleNamespace(track_id=f"car-{index}", object_type="Car")
-        for index in range(10)
-    ) + (SimpleNamespace(track_id="person-1", object_type="Pedestrian"),)
-
-    selected = select_traffic_tracks(tracks, 0.4, "scene-a")
-
-    assert selected == select_traffic_tracks(tracks, 0.4, "scene-a")
-    assert len([track for track in selected if track.object_type == "Car"]) == 4
-    assert tracks[-1] in selected
 
 
 def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
@@ -86,24 +78,378 @@ def test_taxi_chassis_inset_does_not_change_visual_extents() -> None:
     )
 
 
-def test_taxi_enclosure_is_added_only_to_private_physics_scene() -> None:
+def test_map_traffic_controller_holds_a_car_for_same_lane_headway() -> None:
+    centerline = np.asarray(
+        [[0, 0, 0], [100, 0, 0], [100, 50, 0], [0, 50, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    speed_limits = np.full(len(centerline), 10.0, dtype=np.float32)
+
+    def definition(vehicle_id: str, start_distance_m: float) -> GameMapTrafficVehicle:
+        return GameMapTrafficVehicle(
+            vehicle_id=vehicle_id,
+            node_ids=("a", "b"),
+            end_behavior="wrap",
+            vehicle_type="car",
+            dimensions_lwh_m=(4.5, 1.8, 1.5),
+            speed_mps=None,
+            start_distance_m=start_distance_m,
+            centerline_world=centerline,
+            speed_limits_mps=speed_limits,
+            route_element_ids=("test-road",) * (len(centerline) - 1),
+        )
+
+    controller = MapTrafficController(
+        (definition("following", 0), definition("leading", 10)), VehicleConfig()
+    )
+    controller.set_vicinity(
+        GameMapVicinity("test-road", frozenset({"test-road"}), frozenset({"test-road"}))
+    )
+    assert controller.max_drive_speeds_mps == {
+        "map-traffic:following": 10.0,
+        "map-traffic:leading": 10.0,
+    }
+    ego = BodyState(
+        position_m=np.asarray([-100, 0, 0.8], dtype=np.float32),
+        orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+
+    targets = controller.prepare_step(ego, 0.0)
+
+    scales = {target.object_id: target.velocity_scale for target in targets}
+    assert scales["map-traffic:following"] == 0.0
+    assert scales["map-traffic:leading"] == 1.0
+
+
+def test_map_traffic_advances_only_inactive_car_without_publishing_it() -> None:
+    centerline = np.asarray(
+        [[0, 0, 0], [100, 0, 0], [100, 50, 0], [0, 50, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    speed_limits = np.full(len(centerline), 10.0, dtype=np.float32)
+
+    def definition(vehicle_id: str, element_id: str, start_m: float):
+        return GameMapTrafficVehicle(
+            vehicle_id=vehicle_id,
+            node_ids=("a", "b"),
+            end_behavior="wrap",
+            vehicle_type="car",
+            dimensions_lwh_m=(4.5, 1.8, 1.5),
+            speed_mps=None,
+            start_distance_m=start_m,
+            centerline_world=centerline,
+            speed_limits_mps=speed_limits,
+            route_element_ids=(element_id,) * (len(centerline) - 1),
+        )
+
+    controller = MapTrafficController(
+        (definition("near", "near-road", 1.0), definition("far", "far-road", 20.0)),
+        VehicleConfig(),
+    )
+    controller.set_vicinity(
+        GameMapVicinity("near-road", frozenset({"near-road"}), frozenset({"near-road"}))
+    )
+    near_id = "map-traffic:near"
+    far_id = "map-traffic:far"
+    near_timestamp_before = controller._states_by_id[near_id].timestamp_us
+    far_timestamp_before = controller._states_by_id[far_id].timestamp_us
+    ego = BodyState(
+        position_m=np.asarray([-100, -100, 0.8], dtype=np.float32),
+        orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+
+    targets = controller.prepare_step(ego, 1.0 / 30.0)
+
+    assert controller.active_object_ids == {near_id}
+    assert tuple(target.object_id for target in targets) == (near_id,)
+    assert controller._states_by_id[near_id].timestamp_us == pytest.approx(
+        near_timestamp_before, abs=1.0
+    )
+    assert controller._states_by_id[far_id].timestamp_us > far_timestamp_before
+
+
+def _recovery_controller() -> tuple[MapTrafficController, str]:
+    centerline = np.asarray(
+        [[0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    definition = GameMapTrafficVehicle(
+        vehicle_id="recovering",
+        node_ids=("a", "b"),
+        end_behavior="wrap",
+        vehicle_type="car",
+        dimensions_lwh_m=(4.5, 1.8, 1.5),
+        speed_mps=None,
+        start_distance_m=2.0,
+        centerline_world=centerline,
+        speed_limits_mps=np.full(len(centerline), 10.0, dtype=np.float32),
+        route_element_ids=("south", "east", "north", "west"),
+    )
+    controller = MapTrafficController((definition,), VehicleConfig())
+    controller.set_vicinity(
+        GameMapVicinity(
+            "south",
+            frozenset({"south", "east", "north", "west"}),
+            frozenset({"south", "east", "north", "west"}),
+        )
+    )
+    return controller, "map-traffic:recovering"
+
+
+def _body_at(
+    position_xy: tuple[float, float],
+    *,
+    yaw_rad: float = 0.0,
+    linear_velocity_xy: tuple[float, float] = (0.0, 0.0),
+    angular_speed_radps: float = 0.0,
+) -> BodyState:
+    return BodyState(
+        position_m=np.asarray([*position_xy, 0.75], dtype=np.float32),
+        orientation_xyzw=np.asarray(
+            [0.0, 0.0, math.sin(yaw_rad * 0.5), math.cos(yaw_rad * 0.5)],
+            dtype=np.float32,
+        ),
+        linear_velocity_mps=np.asarray([*linear_velocity_xy, 0.0], dtype=np.float32),
+        angular_velocity_radps=np.asarray(
+            [0.0, 0.0, angular_speed_radps], dtype=np.float32
+        ),
+    )
+
+
+def test_active_map_traffic_progress_is_anchored_to_its_physical_body() -> None:
+    controller, object_id = _recovery_controller()
+    state = controller.state(object_id)
+    assert state is not None
+    initial_timestamp_us = state.timestamp_us
+    initial_position, initial_orientation, _ = state.scene_object.sample(
+        int(initial_timestamp_us)
+    )
+    body = BodyState(
+        position_m=initial_position.copy(),
+        orientation_xyzw=initial_orientation.copy(),
+        linear_velocity_mps=np.zeros(3, dtype=np.float32),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    ego = _body_at((-100.0, -100.0))
+
+    targets = ()
+    for _ in range(10):
+        targets = controller.prepare_step(ego, 1.0)
+
+    assert state.timestamp_us == pytest.approx(initial_timestamp_us, abs=1.0)
+    assert {target.timestamp_us for target in targets} == {
+        int(initial_timestamp_us + 350_000)
+    }
+
+    body.position_m[:2] = (5.0, 0.0)
+    controller.observe_physics(
+        object_id,
+        struck=False,
+        body=body,
+        dt_s=1.0 / 30.0,
+    )
+    targets = controller.prepare_step(ego, 10.0)
+
+    assert state.timestamp_us == pytest.approx(500_000, abs=1.0)
+    assert targets[0].timestamp_us == pytest.approx(850_000, abs=1.0)
+
+
+def test_active_map_traffic_walks_its_route_cursor_without_global_search() -> None:
+    centerline = np.asarray(
+        [[x, 0, 0] for x in range(21)] + [[20, 20, 0], [0, 20, 0], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    definition = GameMapTrafficVehicle(
+        vehicle_id="cursor",
+        node_ids=("a", "b"),
+        end_behavior="wrap",
+        vehicle_type="car",
+        dimensions_lwh_m=(4.5, 1.8, 1.5),
+        speed_mps=None,
+        start_distance_m=1.0,
+        centerline_world=centerline,
+        speed_limits_mps=np.full(len(centerline), 10.0, dtype=np.float32),
+        route_element_ids=("road",) * (len(centerline) - 1),
+    )
+    controller = MapTrafficController((definition,), VehicleConfig())
+    controller.set_vicinity(
+        GameMapVicinity("road", frozenset({"road"}), frozenset({"road"}))
+    )
+    state = controller.state("map-traffic:cursor")
+    assert state is not None
+    body = _body_at((12.4, 0.0), linear_velocity_xy=(10.0, 0.0))
+    controller.observe_physics(
+        state.object_id,
+        struck=False,
+        body=body,
+        dt_s=1.0 / 30.0,
+    )
+    with patch.object(
+        controller,
+        "_nearest_route_projection",
+        side_effect=AssertionError("normal traversal used a global route search"),
+    ):
+        controller.prepare_step(_body_at((-100.0, -100.0)), 1.0 / 30.0)
+
+    assert state.route_segment_index == 12
+    assert state.timestamp_us == pytest.approx(1_240_000, abs=1.0)
+
+
+def test_map_traffic_collision_freezes_route_until_nearest_route_recovery() -> None:
+    controller, object_id = _recovery_controller()
+    state = controller.state(object_id)
+    assert state is not None
+    frozen_timestamp_us = state.timestamp_us
+
+    decision = controller.observe_physics(
+        object_id,
+        struck=True,
+        body=_body_at((18.0, 8.0), yaw_rad=math.pi),
+        dt_s=0.25,
+    )
+    assert decision is not None
+    assert decision.drive_enabled is False
+    assert decision.detached_from_track is True
+    assert state.phase is MapTrafficPhase.COLLISION
+
+    targets = controller.prepare_step(_body_at((-100.0, -100.0)), 0.5)
+    assert state.timestamp_us == frozen_timestamp_us
+    assert targets[0].velocity_scale == 0.0
+
+    stopped = _body_at((18.0, 8.0), yaw_rad=math.pi)
+    for _ in range(4):
+        decision = controller.observe_physics(
+            object_id, struck=False, body=stopped, dt_s=0.25
+        )
+    assert decision is not None
+    assert decision.drive_enabled is True
+    assert decision.detached_from_track is False
+    assert state.phase is MapTrafficPhase.RECOVERING
+    projected_position, projected_orientation, projected_velocity = (
+        state.scene_object.sample(int(state.timestamp_us))
+    )
+    np.testing.assert_allclose(projected_position[:2], [20.0, 8.0], atol=1.0e-4)
+    assert state.route_segment_index == 1
+
+    # Track stabilization is reattached, but gameplay recovery continues until the
+    # physical pose and velocity match the route.
+    decision = controller.observe_physics(
+        object_id,
+        struck=False,
+        body=_body_at(tuple(projected_position[:2]), yaw_rad=math.pi),
+        dt_s=0.25,
+    )
+    assert decision is not None
+    assert decision.detached_from_track is False
+    assert state.phase is MapTrafficPhase.RECOVERING
+    np.testing.assert_allclose(state.position_m[:2], projected_position[:2])
+
+    recovered = BodyState(
+        position_m=projected_position.copy(),
+        orientation_xyzw=projected_orientation.copy(),
+        linear_velocity_mps=projected_velocity.copy(),
+        angular_velocity_radps=np.zeros(3, dtype=np.float32),
+    )
+    decision = controller.observe_physics(
+        object_id, struck=False, body=recovered, dt_s=0.25
+    )
+    assert decision is not None
+    assert decision.detached_from_track is False
+    assert state.phase is MapTrafficPhase.TRAVERSING
+
+
+def test_map_traffic_collision_settling_has_a_maximum_duration() -> None:
+    controller, object_id = _recovery_controller()
+    unsettled = _body_at((18.0, 8.0), angular_speed_radps=1.0)
+    controller.observe_physics(
+        object_id,
+        struck=True,
+        body=unsettled,
+        dt_s=0.25,
+    )
+
+    for _ in range(11):
+        decision = controller.observe_physics(
+            object_id,
+            struck=False,
+            body=unsettled,
+            dt_s=0.25,
+        )
+        assert decision is not None
+        assert decision.drive_enabled is False
+        assert decision.detached_from_track is True
+
+    decision = controller.observe_physics(
+        object_id,
+        struck=False,
+        body=unsettled,
+        dt_s=0.25,
+    )
+
+    state = controller.state(object_id)
+    assert state is not None
+    assert decision is not None
+    assert decision.drive_enabled is True
+    assert decision.detached_from_track is False
+    assert state.phase is MapTrafficPhase.RECOVERING
+
+
+def test_map_traffic_recollision_and_offscreen_reset_share_one_state() -> None:
+    controller, object_id = _recovery_controller()
+    state = controller.state(object_id)
+    assert state is not None
+    displaced = _body_at((19.0, 9.0))
+    controller.observe_physics(object_id, struck=True, body=displaced, dt_s=0.25)
+    for _ in range(4):
+        controller.observe_physics(object_id, struck=False, body=displaced, dt_s=0.25)
+    assert state.phase is MapTrafficPhase.RECOVERING
+
+    decision = controller.observe_physics(
+        object_id, struck=True, body=_body_at((17.0, 10.0)), dt_s=0.25
+    )
+    assert decision is not None
+    assert decision.drive_enabled is False
+    assert state.phase is MapTrafficPhase.COLLISION
+
+    changed = controller.set_vicinity(
+        GameMapVicinity("other", frozenset({"other"}), frozenset({"other"}))
+    )
+    assert changed is True
+    assert controller.active_object_ids == frozenset()
+    assert state.phase is MapTrafficPhase.TRAVERSING
+    assert state.decision.detached_from_track is False
+    route_position, route_orientation, route_velocity = state.scene_object.sample(
+        int(state.timestamp_us)
+    )
+    np.testing.assert_array_equal(state.position_m, route_position)
+    np.testing.assert_array_equal(state.orientation_xyzw, route_orientation)
+    np.testing.assert_array_equal(state.linear_velocity_mps, route_velocity)
+
+
+def test_taxi_curbs_are_physics_barriers_without_a_render_layer() -> None:
     scene = _scene()
-    enclosure = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
+    curbs = np.asarray([[[5.0, -3.0, 0.0], [5.0, 3.0, 0.0]]], dtype=np.float32)
+    config = TaxiVehicleConfig()
 
     with patch.object(GamePhysicsWorld, "__init__", return_value=None) as initialize:
         TaxiPhysicsWorld(
             scene,
-            TaxiVehicleConfig(),
-            traffic_density=1.0,
-            enclosure_segments_world=enclosure,
+            config,
+            curb_segments_world=curbs,
         )
 
-    physics_scene = initialize.call_args.args[0]
-    assert scene.line_layers == ()
-    assert len(physics_scene.line_layers) == 1
-    assert physics_scene.line_layers[0].layer_name == "crazy_robotaxi_enclosure_walls"
-    np.testing.assert_allclose(physics_scene.line_layers[0].segments_world, enclosure)
-    assert len(GamePhysicsWorld._build_barriers(physics_scene)) == 1
+        physics_scene = initialize.call_args.args[0]
+        assert scene.line_layers == ()
+        assert physics_scene.line_layers == ()
+        np.testing.assert_array_equal(
+            initialize.call_args.kwargs["static_barrier_segments_world"], curbs
+        )
+        assert initialize.call_args.kwargs["static_barrier_restitution"] == 0.45
+        assert config.collision_restitution == VehicleConfig().collision_restitution
 
 
 def test_taxi_physics_keeps_app_heading_after_contact_resolution() -> None:
@@ -239,7 +585,9 @@ def test_taxi_physics_hook_receives_the_active_driver_command() -> None:
         last_step_timings = None
 
         def synchronize_window(
-            self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+            self,
+            center_xy_m: np.ndarray,
+            timestamp_us: int | None = None,
         ) -> None:
             del center_xy_m, timestamp_us
 
@@ -269,7 +617,7 @@ def test_taxi_physics_hook_receives_the_active_driver_command() -> None:
     sample_chunk_trajectory(
         start_state=VehicleState(0.0, 0.0, 0.0, 0.0, 5.0, 0.0),
         start_timestamp_us=0,
-        command=command,
+        commands=(command,) * 2,
         chunk_size=2,
         chunk_config=ChunkConfig(fps=30),
         vehicle_config=TaxiVehicleConfig(),
@@ -295,9 +643,9 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
     world = TaxiPhysicsWorld(
         _scene(line_layers=(boundary,)),
         config,
-        traffic_density=1.0,
+        curb_segments_world=boundary.segments_world,
     )
-    initial_yaw = math.radians(15.0)
+    initial_yaw = math.radians(30.0)
     state = VehicleState(
         x_m=-5.0,
         y_m=-3.0,
@@ -310,10 +658,14 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
     )
     command = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
     contact_detected = False
+    contact_velocity_y_mps = 0.0
+    contact_requested_speed_mps = 0.0
+    contact_resolved_speed_mps = 0.0
 
     try:
         for frame_index in range(90):
             state = integrate_taxi_vehicle(state, command, 1.0 / 30.0, config)
+            requested_speed_mps = state.speed_mps
             state, _ = world.step_with_command(
                 state,
                 command,
@@ -323,19 +675,27 @@ def test_taxi_native_heading_matches_app_heading_after_boundary_contact() -> Non
             native_state = world._world.state_buffer[world._world._ego_slot]
             native_yaw = _yaw_from_quaternion_xyzw(native_state[3:7])
             assert native_yaw == pytest.approx(state.yaw_rad, abs=1.0e-5)
-            contact_detected |= state.ragdoll_active
+            if state.ragdoll_active and not contact_detected:
+                contact_detected = True
+                contact_velocity_y_mps = float(state.velocity_y_mps or 0.0)
+                contact_requested_speed_mps = requested_speed_mps
+                contact_resolved_speed_mps = state.speed_mps
             if contact_detected and frame_index > 20:
                 break
     finally:
         world.close()
 
     assert contact_detected is True
+    assert contact_velocity_y_mps < -0.75
+    assert contact_resolved_speed_mps >= (
+        contact_requested_speed_mps * config.curb_forward_momentum_retention - 1.0e-5
+    )
     assert state.yaw_rad == pytest.approx(initial_yaw, abs=1.0e-5)
 
 
 def test_taxi_handbrake_turn_remains_bounded_through_physx() -> None:
     config = TaxiVehicleConfig(drag_mps2=0.0)
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(
         x_m=0.0,
         y_m=0.0,
@@ -378,7 +738,7 @@ def test_taxi_handbrake_turn_remains_bounded_through_physx() -> None:
 
 def test_taxi_normal_steering_tracks_arcade_heading_through_physx() -> None:
     config = TaxiVehicleConfig(drag_mps2=0.0)
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(
         x_m=0.0,
         y_m=0.0,
@@ -409,7 +769,7 @@ def test_taxi_normal_steering_tracks_arcade_heading_through_physx() -> None:
 
 def test_taxi_acceleration_and_braking_remain_arcade_responsive_through_physx() -> None:
     config = TaxiVehicleConfig()
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     throttle = DriverCommand(throttle=1.0, steer_is_direct=True, manual_control=True)
 
@@ -446,7 +806,7 @@ def test_taxi_acceleration_and_braking_remain_arcade_responsive_through_physx() 
 
 def test_taxi_pedal_brake_builds_reverse_speed_through_physx() -> None:
     config = TaxiVehicleConfig()
-    world = TaxiPhysicsWorld(_scene(), config, traffic_density=1.0)
+    world = TaxiPhysicsWorld(_scene(), config)
     state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     reverse = DriverCommand(brake=1.0, steer_is_direct=True, manual_control=True)
 

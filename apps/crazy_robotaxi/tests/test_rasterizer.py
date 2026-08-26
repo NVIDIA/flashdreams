@@ -87,6 +87,44 @@ def test_rasterizer_keeps_adaptive_cube_tessellation_enabled(monkeypatch) -> Non
     assert configured_cube_levels == [3]
 
 
+def test_rasterizer_uses_thinner_linework_for_bev(monkeypatch) -> None:
+    configured_widths: list[dict[str, float]] = []
+
+    class _Context:
+        def __init__(self, *, device) -> None:
+            self.device = device
+
+        def set_depth_scaling(self, enabled: bool) -> None:
+            pass
+
+        def set_msaa_samples(self, samples: int) -> None:
+            pass
+
+        def set_max_tessellation_levels(self, *, cube: int) -> None:
+            pass
+
+        def set_line_widths(self, **kwargs: float) -> None:
+            configured_widths.append(kwargs)
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(rasterizer_module, "LudusCudaTimestampedContext", _Context)
+
+    _LudusConditionRasterizerImpl(
+        RasterConfig(line_width_px=12.0, pole_width_px=8.0), None
+    )
+
+    assert len(configured_widths) == 1
+    assert configured_widths[0] == pytest.approx(
+        {
+            "polyline_regular": 12.0,
+            "polyline_bev": 2.4,
+            "ego_traj_regular": 8.0,
+            "ego_traj_bev": 3.2,
+            "wireframe": 4.0,
+        }
+    )
+
+
 def _impl_for_render_chunk(*, use_cuda_frames: bool) -> _LudusConditionRasterizerImpl:
     impl = _LudusConditionRasterizerImpl.__new__(_LudusConditionRasterizerImpl)
     impl._scene_data = _LoadedSceneData(clipgt_scene=object(), scene_adapter=object())

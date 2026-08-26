@@ -14,6 +14,10 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import numpy.typing as npt
 from omnidreams_game_engine.camera import FThetaCameraModel
+from omnidreams_game_engine.game_map.vicinity import (
+    GameMapVicinity,
+    GameMapVicinityResolver,
+)
 from omnidreams_game_engine.math3d import (
     extract_yaw_from_transform,
     invert_transform,
@@ -21,7 +25,6 @@ from omnidreams_game_engine.math3d import (
     rig_pose_from_state,
     rig_pose_from_vehicle_state,
 )
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     CameraCalibration,
     TrajectoryChunk,
@@ -38,6 +41,7 @@ from crazy_robotaxi.high_scores import (
 )
 from crazy_robotaxi.navigation import (
     LanePosition,
+    NavigationFareRegion,
     NavigationLane,
     NavigationWaypoint,
     RoutePlan,
@@ -62,9 +66,6 @@ class TaxiGameConfig:
     vehicle: TaxiVehicleConfig = TaxiVehicleConfig()
     """Taxi-only control and vehicle-dynamics configuration."""
 
-    traffic_density: float = 0.4
-    """Fraction of recorded motor traffic retained in Taxi mode."""
-
     seed: int | None = None
     """Debug seed mixed with the scene ID; ``None`` uses fresh entropy."""
 
@@ -73,9 +74,6 @@ class TaxiGameConfig:
 
     pickup_grid_spacing_m: float = 60.0
     """Grid spacing used to distribute simultaneous pickup points across the map."""
-
-    waypoint_edge_margin_m: float = 100.0
-    """Minimum map-boundary clearance for pickup and dropoff targets."""
 
     pickup_min_distance_m: float = 20.0
     """Minimum straight-line distance from the ego to a newly selected pickup."""
@@ -131,14 +129,16 @@ class TaxiGameConfig:
     alignment_diagnostics_enabled: bool = False
     """Whether the rollout captures frame-synchronized alignment evidence."""
 
+    ground_snap_max_absolute_rotation_deg: float = 10.0
+    """Maximum ground rotation accepted by the taxi ground snapper."""
+
+    ground_snap_settle_fraction: float = 0.25
+    """Fraction of stale ground attitude removed after an invalid sample."""
+
     def __post_init__(self) -> None:
         """Validate Taxi-only values at configuration time."""
-        if not 0.0 < self.traffic_density <= 1.0:
-            raise ValueError("traffic_density must be greater than 0 and at most 1")
         if self.pickup_grid_spacing_m <= 0.0:
             raise ValueError("pickup_grid_spacing_m must be positive")
-        if self.waypoint_edge_margin_m < 0.0:
-            raise ValueError("waypoint_edge_margin_m must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -513,15 +513,18 @@ class TaxiGameController:
         reference_route_world: npt.NDArray[np.float32],
         navigation_routes_world: tuple[npt.NDArray[np.float32], ...] = (),
         navigation_lanes: tuple[NavigationLane, ...] = (),
+        fare_regions: tuple[NavigationFareRegion, ...] = (),
         initial_state: VehicleState,
         config: TaxiGameConfig,
         initial_camera: CameraCalibration | None = None,
-        map_bounds: MapBounds | None = None,
         high_score_store: HighScoreStore | None = None,
+        vicinity_resolver: GameMapVicinityResolver | None = None,
     ) -> None:
         self._config = config
         rng_seed = None if config.seed is None else _stable_seed(scene_id, config.seed)
         self._rng = np.random.default_rng(rng_seed)
+        self._vicinity_resolver = vicinity_resolver
+        self._vicinity: GameMapVicinity | None = None
         offset = float(self._rng.uniform(0.0, config.waypoint_spacing_m))
         if navigation_lanes:
             self._navigation = TaxiNavigationMap(navigation_lanes)
@@ -533,8 +536,10 @@ class TaxiGameController:
             )
         self._waypoints = self._navigation.sample_waypoints(
             config.waypoint_spacing_m, offset
+        ) + self._navigation.sample_fare_regions(
+            fare_regions, config.waypoint_spacing_m, self._rng
         )
-        self._eligible_waypoint_indices = self._safe_waypoint_indices(map_bounds)
+        self._eligible_waypoint_indices = tuple(range(len(self._waypoints)))
         self._pickup_point_indices = self._sample_pickup_point_indices()
         self._phase: TaxiPhase = "seeking_pickup"
         self._session_state: TaxiSessionState = "playing"
@@ -664,6 +669,12 @@ class TaxiGameController:
     def _snapshot_for_pose(
         self, x_m: float, y_m: float, yaw_rad: float
     ) -> TaxiGameSnapshot:
+        if self._vicinity_resolver is not None:
+            self._vicinity = self._vicinity_resolver.resolve(
+                x_m,
+                y_m,
+                previous=self._vicinity,
+            )
         target_index = (
             min(
                 self._available_pickup_indices,
@@ -689,6 +700,16 @@ class TaxiGameController:
             yaw_rad,
             float(target[0]),
             float(target[1]),
+        )
+        passenger_indices = tuple(
+            index
+            for index in self._available_pickup_indices
+            if self._waypoints[index].element_id is None
+            or (
+                self._vicinity is not None
+                and self._waypoints[index].element_id
+                in self._vicinity.pedestrian_element_ids
+            )
         )
         return TaxiGameSnapshot(
             phase=self._phase,
@@ -725,7 +746,7 @@ class TaxiGameController:
             pickup_passengers_xyz_m=(
                 tuple(
                     _passenger_xyz_tuple(self._waypoints[index])
-                    for index in self._available_pickup_indices
+                    for index in passenger_indices
                 )
                 if self._phase == "seeking_pickup"
                 else ()
@@ -786,27 +807,6 @@ class TaxiGameController:
         if len(selected) >= 2:
             return selected
         return self._eligible_waypoint_indices[:2]
-
-    def _safe_waypoint_indices(self, map_bounds: MapBounds | None) -> tuple[int, ...]:
-        """Return targets separated from the playable map boundary."""
-        if map_bounds is None or self._config.waypoint_edge_margin_m == 0.0:
-            return tuple(range(len(self._waypoints)))
-        margin = self._config.waypoint_edge_margin_m
-        eligible = tuple(
-            index
-            for index, waypoint in enumerate(self._waypoints)
-            if map_bounds.x_min + margin
-            <= float(waypoint.xyz_m[0])
-            <= map_bounds.x_max - margin
-            and map_bounds.y_min + margin
-            <= float(waypoint.xyz_m[1])
-            <= map_bounds.y_max - margin
-        )
-        if len(eligible) < 2:
-            raise ValueError(
-                "Taxi map-boundary margin leaves fewer than two eligible waypoints."
-            )
-        return eligible
 
     def _collected_pickup_index(self, x_m: float, y_m: float) -> int | None:
         """Return the closest available pickup inside its activation radius."""
@@ -979,15 +979,22 @@ class TaxiGameController:
             vehicle_state.yaw_rad,
         )
         pickup = self._waypoints[pickup_index]
-        fallback_source = LanePosition(
-            lane_index=pickup.lane_index,
-            distance_along_lane_m=pickup.distance_along_lane_m,
-            lateral_distance_m=0.0,
-            heading_error_rad=0.0,
+        fallback_sources = pickup.departure_anchors or (
+            LanePosition(
+                lane_index=pickup.lane_index,
+                distance_along_lane_m=pickup.distance_along_lane_m,
+                lateral_distance_m=0.0,
+                heading_error_rad=0.0,
+            ),
         )
-        source_candidates = tuple(
-            source for source in sources if source.lateral_distance_m <= 12.0
-        ) or (fallback_source,)
+        source_candidates = (
+            fallback_sources
+            if pickup.departure_anchors
+            else tuple(
+                source for source in sources if source.lateral_distance_m <= 12.0
+            )
+            or fallback_sources
+        )
 
         for source in source_candidates:
             route_distances = self._navigation.route_distances(source, self._waypoints)

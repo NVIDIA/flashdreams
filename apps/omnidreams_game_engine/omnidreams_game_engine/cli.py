@@ -10,7 +10,6 @@ from pathlib import Path
 from loguru import logger
 from omnidreams.hf_org import DEFAULT_HF_ORG, apply_cli_to_env
 from omnidreams.hf_org import ENV_VAR as _HF_ORG_ENV_VAR
-from omnidreams.scenes import local_scene_archive_path
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.plugins.registry import discover_postprocess_presets
@@ -27,26 +26,15 @@ from omnidreams_game_engine.config import (
     WorldModelProfileConfig,
 )
 from omnidreams_game_engine.log import configure_logging
-from omnidreams_game_engine.synthetic_scene import build_synthetic_scene_to_temp
 from omnidreams_game_engine.world_model.manifest import (
     load_world_model_manifest,
     resolve_world_model_manifest_path,
 )
 
-# Package root (from this file's location) so packaged-asset defaults below
-# resolve relative to the install, not the user's cwd. Bundled configs live at
-# ``interactive_drive/configs/``; scene USDZs are staged into
-# ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/`` (shared with the webrtc server).
+# Package root (from this file's location) so packaged config paths resolve
+# relative to the install, not the user's cwd.
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _CONFIGS_ROOT = _PACKAGE_ROOT / "configs"
-
-# Default scene UUID staged by ``omnidreams-prepare`` (clear-weather base
-# archive in nvidia/omni-dreams-scenes).
-DEFAULT_SCENE_UUID = "0d404ff7-2b66-498c-b047-1ed8cded60d4"
-
-# Default scene path under the shared ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``
-# cache, so a scene staged by the desktop demo or webrtc server is visible to both.
-DEFAULT_SCENE = local_scene_archive_path(DEFAULT_SCENE_UUID)
 
 
 def resolve_manifest_path(path: str | Path) -> Path:
@@ -65,49 +53,17 @@ def build_parser() -> argparse.ArgumentParser:
         description="Single-process flashdreams driving demo"
     )
     parser.add_argument(
-        "--scene",
+        "--map",
+        dest="scene",
         type=Path,
-        default=DEFAULT_SCENE,
-        help=(
-            "Path to the input USDZ scene. Defaults to the scene staged by "
-            f"prepare.py at {DEFAULT_SCENE}; any UUID from "
-            "nvidia/omni-dreams-scenes/scenes/ works once staged."
-        ),
+        default=None,
+        metavar="PATH",
+        help="Path to a .robotaxi.yaml game map.",
     )
     parser.add_argument(
-        "--synthetic-scene",
+        "--force-map-recompile",
         action="store_true",
-        help=(
-            "Skip the USDZ download / staging and build a procedural,"
-            " HD-map-data-free scene at startup instead. Useful for"
-            " demos in territories where the real-world scenes can't be"
-            " distributed. The generated scene is a wavy 2-lane road"
-            " with a single intersection; pair with --synthetic-initial-rgb"
-            " to supply a natural-looking starting camera frame."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-initial-rgb",
-        type=Path,
-        default=None,
-        help=(
-            "Path to a JPG / PNG used as the initial camera frame when"
-            " --synthetic-scene is set. The world model is trained on"
-            " natural driving frames, so a real photo (any forward-facing"
-            " roadway) gives noticeably better generation than the"
-            " default debug gradient. Resized to the raster resolution"
-            " automatically."
-        ),
-    )
-    parser.add_argument(
-        "--synthetic-prompt",
-        default=None,
-        help=(
-            "Optional text prompt embedded in the synthetic scene."
-            " Mutually overridable by --prompt at run time. When omitted,"
-            " the synthetic-scene builder uses a generic forward-driving"
-            " caption."
-        ),
+        help="Rebuild each selected map's compiled cache once in this process.",
     )
     # ``--backend`` exists primarily for the test suite, which exercises
     # the raster path (~30s warmup) instead of the full omnidreams pipeline
@@ -128,10 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variant",
         default="default",
-        help=(
-            "Scene variant to load: weather siblings (default, rain, snow) or "
-            "legacy in-archive numbered variants (1, 2, 3)."
-        ),
+        help="Visual variant defined by the game map.",
     )
     parser.add_argument("--prompt", default=None, help="Optional prompt override")
     parser.add_argument(
@@ -203,8 +156,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="ORG",
         help=(
-            "Hugging Face org that hosts the omni-dreams repos (models /"
-            f" samples / scenes). Defaults to {DEFAULT_HF_ORG!r}."
+            "Hugging Face org that hosts the omni-dreams model and sample"
+            f" repos. Defaults to {DEFAULT_HF_ORG!r}."
             f" Equivalent to setting {_HF_ORG_ENV_VAR}; the flag wins when"
             " both are present. Stamped into the env var early in main()"
             " so every downstream HF lookup -- including URLs read from"
@@ -301,74 +254,6 @@ def build_parser() -> argparse.ArgumentParser:
             " below ``bev-fov-deg / 2``."
         ),
     )
-    parser.add_argument(
-        "--oob-warn-proximity",
-        type=float,
-        default=None,
-        metavar="FLOAT",
-        help=(
-            "Proximity at which the loop overlays "
-            "'Approaching map edge, turn back to avoid respawn' on the "
-            "frame. Mirrors alpasim's ``oob_proximity``: 0.0 is solidly "
-            "inside the navigable AABB+margin, 1.0 is at the AABB+margin "
-            "edge (the warning band ramps linearly across a 100 m zone "
-            "inside the edge), 2.0 is the off-map sentinel. Default 0.6, "
-            "matching alpasim's 'approaching' threshold."
-        ),
-    )
-    parser.add_argument(
-        "--oob-respawn-proximity",
-        type=float,
-        default=None,
-        metavar="FLOAT",
-        help=(
-            "Proximity above which the loop fires the auto-respawn (after "
-            "``--oob-respawn-debounce-chunks`` consecutive chunks at this "
-            "level). Default 2.0, matching alpasim: a hard binary trigger "
-            "that only fires when the ego has actually crossed the "
-            "AABB+margin boundary. Set to 2.5 (or any value > 2.0) to "
-            "disable auto-respawn entirely while keeping the warning "
-            "overlay."
-        ),
-    )
-    parser.add_argument(
-        "--oob-respawn-debounce-chunks",
-        type=int,
-        default=None,
-        metavar="N",
-        help=(
-            "Number of consecutive chunks the proximity must stay at or "
-            "above ``--oob-respawn-proximity`` before the auto-respawn "
-            "fires. Default 1, matching alpasim's immediate-on-step "
-            "behaviour. Raise this for an added buffer; useful mainly "
-            "if you've lowered the respawn threshold below 2.0."
-        ),
-    )
-    parser.add_argument(
-        "--oob-margin-m",
-        type=float,
-        default=None,
-        metavar="METERS",
-        help=(
-            "Margin (in metres) added around the scene's spatial-content "
-            "AABB before any in-bounds check. The respawn fires only "
-            "once the ego is past AABB+margin, so larger values give "
-            "more room to leave the explicitly mapped area. Default 50, "
-            "matching alpasim. Bump to 200+ on scenes whose geometry "
-            "layers don't cover the full driveable area."
-        ),
-    )
-    parser.add_argument(
-        "--oob-warning-zone-m",
-        type=float,
-        default=None,
-        metavar="METERS",
-        help=(
-            "Depth of the linear warning-ramp band inside the AABB+margin "
-            "edge. Default 100, matching alpasim. Set to 0 to disable the "
-            "ramp and only ever show the binary on/off respawn signal."
-        ),
-    )
     return parser
 
 
@@ -385,28 +270,6 @@ def _parse_resolution(value: str) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise SystemExit(f"--bev-resolution must be positive: {value!r}")
     return width, height
-
-
-def _oob_kwargs(args: argparse.Namespace) -> dict[str, float | int]:
-    """Forward only the OOB flags the user actually passed.
-
-    Each ``--oob-*`` flag defaults to ``None`` so the
-    :class:`AppConfig` field defaults stay authoritative; we only add
-    a kwarg to the ``AppConfig(**kwargs)`` call when the user passed
-    an explicit value.
-    """
-    overrides: dict[str, float | int] = {}
-    if args.oob_warn_proximity is not None:
-        overrides["oob_warn_proximity"] = float(args.oob_warn_proximity)
-    if args.oob_respawn_proximity is not None:
-        overrides["oob_respawn_proximity"] = float(args.oob_respawn_proximity)
-    if args.oob_respawn_debounce_chunks is not None:
-        overrides["oob_respawn_debounce_chunks"] = int(args.oob_respawn_debounce_chunks)
-    if args.oob_margin_m is not None:
-        overrides["oob_margin_m"] = float(args.oob_margin_m)
-    if args.oob_warning_zone_m is not None:
-        overrides["oob_warning_zone_m"] = float(args.oob_warning_zone_m)
-    return overrides
 
 
 def main() -> None:
@@ -428,8 +291,7 @@ def prepare_config_and_backend(
     hand it to a long-lived :class:`InteractiveDriveApp` that switches scenes in
     place (keeping the warmed model resident).
     """
-    # Stamp the resolved HF org into the env var before anything fetches
-    # (manifest, scene staging, model build read it lazily).
+    # Stamp the resolved HF org before manifest and model artifact resolution.
     resolved_org = apply_cli_to_env(args.hf_org)
     if resolved_org != DEFAULT_HF_ORG:
         logger.info(
@@ -437,21 +299,8 @@ def prepare_config_and_backend(
         )
 
     scene_path = args.scene
-    if args.synthetic_scene:
-        # Materialise a procedural USDZ to a temp dir for this process.
-        # The scene loader treats it like any other USDZ; downstream code
-        # paths (rasterizer, world model, presenter) need no changes.
-        scene_path = build_synthetic_scene_to_temp(
-            initial_rgb_path=args.synthetic_initial_rgb,
-            prompt=args.synthetic_prompt,
-        )
-        logger.info(
-            f"[interactive-drive] synthetic scene materialised at {scene_path}",
-        )
-    elif args.synthetic_initial_rgb is not None or args.synthetic_prompt is not None:
-        raise SystemExit(
-            "--synthetic-initial-rgb / --synthetic-prompt require --synthetic-scene"
-        )
+    if scene_path is None:
+        raise SystemExit("--map is required")
 
     bev_width, bev_height = _parse_resolution(args.bev_resolution)
     bev_config = BevConfig(
@@ -472,6 +321,7 @@ def prepare_config_and_backend(
         camera_name=args.camera,
         variant=args.variant,
         prompt_override=args.prompt,
+        force_map_recompile=bool(args.force_map_recompile),
         manifest_path=manifest_path,
         raster=RasterConfig(
             compute_device=args.compute_device,
@@ -487,7 +337,6 @@ def prepare_config_and_backend(
         stream_mjpeg_bind=args.stream_mjpeg,
         stop_after_consumed_chunks=args.stop_after_chunks,
         visual_flare_enabled=False if args.disable_visual_flare else None,
-        **_oob_kwargs(args),
     )
 
     backend: RenderBackend

@@ -1,0 +1,81 @@
+schema_version: 1
+id: traffic-intersection-test
+name: Traffic Intersection Test
+
+compiler:
+  sample_spacing_m: 1
+  ground_margin_m: 10
+  intersection_connector_samples: 8
+
+profiles:
+  wide:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 12
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: SOLID_GROUP, color: YELLOW}
+      - {style: DASHED_SINGLE, color: WHITE}
+  narrow:
+    lane_width_m: 3.2
+    curb_offset_m: 0.5
+    curb: false
+    lanes: [backward, forward]
+    speed_limit_mps: 12
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - id: center
+    type: intersection
+    pose: {x_m: 0, y_m: 0}
+    lane_transition_length_m: 20
+  - {id: north_joint, type: road_joint, pose: {x_m: 0, y_m: 100}}
+  - {id: south_joint, type: road_joint, pose: {x_m: 0, y_m: -100}}
+  - {id: east_joint, type: road_joint, pose: {x_m: 100, y_m: 0}}
+  - {id: west_joint, type: road_joint, pose: {x_m: -100, y_m: 0}}
+  - id: north_end
+    type: cul_de_sac
+    pose: {x_m: 0, y_m: 200}
+    culdesac_radius_m: 12
+  - id: south_end
+    type: cul_de_sac
+    pose: {x_m: 0, y_m: -200}
+    culdesac_radius_m: 12
+  - id: east_end
+    type: cul_de_sac
+    pose: {x_m: 200, y_m: 0}
+    culdesac_radius_m: 12
+  - id: west_end
+    type: cul_de_sac
+    pose: {x_m: -200, y_m: 0}
+    culdesac_radius_m: 12
+
+roads:
+  - {id: north_road, from: center, to: north_joint, profile: narrow}
+  - {id: south_road, from: center, to: south_joint, profile: wide}
+  - {id: east_road, from: center, to: east_joint, profile: narrow}
+  - {id: west_road, from: center, to: west_joint, profile: narrow}
+  - {id: north_outer, from: north_joint, to: north_end, profile: narrow}
+  - {id: south_outer, from: south_joint, to: south_end, profile: wide}
+  - {id: east_outer, from: east_joint, to: east_end, profile: narrow}
+  - {id: west_outer, from: west_joint, to: west_end, profile: narrow}
+
+spawns:
+  - id: start
+    road: north_outer
+    lane: 0
+    distance_m: 20
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: A car approaching a four-way intersection.
+
+traffic:
+  - id: turning_car
+    nodes: [north_end, center, east_end]
+    end_behavior: reverse
+    start_distance_m: 30

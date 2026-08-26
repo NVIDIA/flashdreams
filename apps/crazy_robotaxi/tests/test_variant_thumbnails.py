@@ -1,72 +1,72 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Per-variant thumbnail discovery feeding the HUD variant dropdown."""
+"""Map thumbnails feeding the HUD variant dropdown."""
 
 from __future__ import annotations
 
-import io
-import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
-from omnidreams_game_engine.demo import (
-    SCENE_THUMB_SIZE,
-    _discover_variants,
-    _load_variant_thumbnails,
+import pytest
+import yaml
+from crazy_robotaxi import cli as crazy_cli
+from omnidreams_game_engine import demo as engine_demo
+
+pytestmark = pytest.mark.ci_cpu
+
+_MAP = (
+    Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / "minimal_loop.robotaxi.yaml"
 )
-from omnidreams_game_engine.scene_fixture import build_synthetic_scene_usdz
-from PIL import Image
 
 
-def test_load_variant_thumbnails_one_per_variant(tmp_path: Path) -> None:
-    # The synthetic bundle ships first_image.png + first_image_1/2.png, so
-    # each variant must get its own distinctly-rendered preview.
-    scene_path = build_synthetic_scene_usdz(tmp_path / "scene.usdz", length_frames=60)
-    # Numbered variants exist, so the bare "default" (a duplicate of "1") is
-    # dropped and "1" becomes the default selection.
-    variants = _discover_variants(scene_path)
-    assert variants == ("1", "2")
+@pytest.mark.parametrize(
+    "build_option",
+    [crazy_cli._scene_option_for_game_map, engine_demo._scene_option_for_game_map],
+)
+def test_map_option_uses_authored_seed_image(
+    build_option: Callable[[Path], object],
+) -> None:
+    option = build_option(_MAP)
 
-    thumbs = _load_variant_thumbnails(scene_path, variants)
-    assert set(thumbs) == {"1", "2"}
-    for thumb in thumbs.values():
-        assert isinstance(thumb, Image.Image)
-        assert thumb.size == SCENE_THUMB_SIZE
-    # The per-variant first images are distinct (variant_1/2 are shifted),
-    # so the rendered thumbnails must not collapse to one shared image.
-    rendered = {variant: thumb.tobytes() for variant, thumb in thumbs.items()}
-    assert len(set(rendered.values())) == 2
+    assert option.label == "Minimal Loop and Parking Lot"
+    assert option.variants == ("default",)
+    assert option.thumbnail is not None
+    assert option.thumbnail.size == crazy_cli.SCENE_THUMB_SIZE
+    assert set(option.variant_thumbnails) == {"default"}
+    assert option.variant_paths == {"default": _MAP}
 
 
-def test_discover_variants_default_only_when_unnumbered(tmp_path: Path) -> None:
-    # A scene with only the bare prompt / first_image (no numbered variants)
-    # exposes a single "default".
-    scene_path = tmp_path / "plain.usdz"
-    buf = io.BytesIO()
-    Image.new("RGB", (32, 32), color=(5, 5, 5)).save(buf, format="PNG")
-    with zipfile.ZipFile(scene_path, "w") as zf:
-        zf.writestr("first_image.png", buf.getvalue())
-        zf.writestr("prompt.txt", "a plain scene")
-    assert _discover_variants(scene_path) == ("default",)
+@pytest.mark.parametrize(
+    "build_option",
+    [crazy_cli._scene_option_for_game_map, engine_demo._scene_option_for_game_map],
+)
+def test_map_option_generates_thumbnail_when_seed_image_is_omitted(
+    build_option: Callable[[Path], object], tmp_path: Path
+) -> None:
+    document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
+    del document["spawns"][0]["variants"]["default"]["image"]
+    path = tmp_path / "fallback.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    option = build_option(path)
+
+    assert option.thumbnail is not None
+    assert option.thumbnail.size == crazy_cli.SCENE_THUMB_SIZE
+    assert set(option.variant_thumbnails) == {"default"}
 
 
-def test_load_variant_thumbnails_falls_back_to_default(tmp_path: Path) -> None:
-    # A bundle with only first_image.png (no per-variant images): every
-    # requested variant should reuse the single default thumbnail.
-    scene_path = tmp_path / "default_only.usdz"
-    buf = io.BytesIO()
-    Image.new("RGB", (64, 32), color=(10, 120, 200)).save(buf, format="PNG")
-    with zipfile.ZipFile(scene_path, "w") as zf:
-        zf.writestr("first_image.png", buf.getvalue())
+@pytest.mark.parametrize(
+    "discover",
+    [crazy_cli._discover_scene_options, engine_demo._discover_scene_options],
+)
+def test_map_discovery_ignores_archives(
+    discover: Callable[[Path, Path], tuple[object, ...]], tmp_path: Path
+) -> None:
+    (tmp_path / "recorded.usdz").write_bytes(b"not a map")
 
-    thumbs = _load_variant_thumbnails(scene_path, ("default", "1"))
-    assert set(thumbs) == {"default", "1"}
-    assert thumbs["1"] is thumbs["default"]
+    options = discover(tmp_path, _MAP)
 
-
-def test_load_variant_thumbnails_missing_images_returns_empty(tmp_path: Path) -> None:
-    # No first_image*.png at all -> empty mapping (HUD draws text-only rows).
-    scene_path = tmp_path / "empty.usdz"
-    with zipfile.ZipFile(scene_path, "w") as zf:
-        zf.writestr("metadata.yaml", "scene_id: x\n")
-    assert _load_variant_thumbnails(scene_path, ("default",)) == {}
+    assert options
+    assert all(option.path.name.endswith(".robotaxi.yaml") for option in options)
+    assert _MAP.resolve() in {option.path for option in options}

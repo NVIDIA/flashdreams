@@ -822,7 +822,7 @@ class ConfigApp:
             justify="left",
             text=(
                 "Optionally bind one button to toggle reverse, one to reset / "
-                "respawn, and one to exit the scene (back to the scene selector). "
+                "respawn, and one to exit the scene. "
                 "Click Bind, then press the button on your device. Leave unbound "
                 "to skip -- you can always reset with the R key and exit with the "
                 "X key."

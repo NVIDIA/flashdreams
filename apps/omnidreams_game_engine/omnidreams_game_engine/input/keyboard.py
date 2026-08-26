@@ -65,7 +65,7 @@ class KeyboardState:
             self._reset_pending = True
 
     def request_exit_scene(self) -> None:
-        """Request a return to the scene selector from a bound device button."""
+        """Request that the current scene end from a bound device button."""
         with self._lock:
             self._exit_scene_pending = True
 

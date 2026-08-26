@@ -91,7 +91,7 @@ def test_sample_chunk_trajectory_advances_pose_and_time() -> None:
     chunk = sample_chunk_trajectory(
         start_state=state,
         start_timestamp_us=1000,
-        command=command,
+        commands=(command,) * 4,
         chunk_size=4,
         chunk_config=ChunkConfig(fps=10, initial_chunk_frames=2, chunk_frames=2),
         vehicle_config=VehicleConfig(),

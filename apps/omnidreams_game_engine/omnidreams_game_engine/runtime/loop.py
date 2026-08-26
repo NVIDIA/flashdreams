@@ -7,7 +7,7 @@ import os
 import queue
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -121,12 +121,6 @@ class MainLoopState:
     frame_count: int
     chunks_outstanding: int
     last_consumed_chunk_index: int | None
-    # Out-of-bounds overlay text, refreshed each tick from
-    # ``simulation.last_proximity``. ``None`` when solidly in-bounds.
-    oob_message: str | None
-    # Consecutive chunks at/above ``LoopConfig.oob_respawn_proximity``; the
-    # auto-respawn fires once it reaches ``oob_respawn_debounce_chunks``.
-    oob_respawn_streak: int
 
     def __init__(self) -> None:
         self.next_present_time = time.perf_counter()
@@ -134,8 +128,69 @@ class MainLoopState:
         self.frame_count = 0
         self.chunks_outstanding = 0
         self.last_consumed_chunk_index = None
-        self.oob_message = None
-        self.oob_respawn_streak = 0
+
+
+class CommandTimeline:
+    """Preserve control transitions observed between model chunk requests."""
+
+    def __init__(self) -> None:
+        self._latest = DriverCommand()
+        self._observed = False
+        self._pending: list[tuple[float, DriverCommand]] = []
+        self.overflow_count = 0
+
+    def observe(self, command: DriverCommand, sample_time: float) -> None:
+        if not self._observed or command != self._latest:
+            self._pending.append((float(sample_time), command))
+            self._latest = command
+            self._observed = True
+
+    def commands_for_chunk(
+        self, *, chunk_size: int, frame_interval_s: float
+    ) -> tuple[DriverCommand, ...]:
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        transitions = self._pending
+        self._pending = []
+        if not transitions:
+            return tuple(self._latest for _ in range(chunk_size))
+        if len(transitions) > chunk_size:
+            dropped = len(transitions) - chunk_size
+            self.overflow_count += dropped
+            logger.warning(
+                "Dropped {} oldest control transitions that could not fit in a "
+                "{}-frame model chunk ({} dropped total)",
+                dropped,
+                chunk_size,
+                self.overflow_count,
+            )
+            transitions = transitions[-chunk_size:]
+
+        scheduled: list[DriverCommand] = []
+        safe_frame_interval_s = max(float(frame_interval_s), 1e-9)
+        for index, (sample_time, command) in enumerate(transitions):
+            if index + 1 >= len(transitions):
+                break
+            duration_s = max(0.0, transitions[index + 1][0] - sample_time)
+            frame_count = max(1, round(duration_s / safe_frame_interval_s))
+            scheduled.extend(command for _ in range(frame_count))
+        scheduled.extend(
+            transitions[-1][1] for _ in range(max(1, chunk_size - len(scheduled)))
+        )
+        if len(scheduled) > chunk_size:
+            # Preserve the newest transitions when a long or noisy history cannot
+            # fit in one fixed-size model block.
+            dropped = len(scheduled) - chunk_size
+            self.overflow_count += dropped
+            logger.warning(
+                "Dropped {} oldest scheduled controls that could not fit in a "
+                "{}-frame model chunk ({} dropped total)",
+                dropped,
+                chunk_size,
+                self.overflow_count,
+            )
+            scheduled = scheduled[-chunk_size:]
+        return tuple(scheduled[:chunk_size])
 
 
 @dataclass(frozen=True)
@@ -145,17 +200,6 @@ class LoopConfig:
     frame_interval_s: float
     poll_timeout_s: float = 0.001
     history_capacity: int = 16
-    # OOB thresholds applied to ``simulation.last_proximity`` (see
-    # :meth:`MapBounds.proximity` for the 0.0 / (0,1] / 2.0 semantics).
-    # Defaults match the alpasim driver: warn at the "approaching" 0.6,
-    # respawn at the 2.0 off-map sentinel. Both no-op when the scene has no
-    # geometry (proximity reads 0.0).
-    oob_warn_proximity: float = 0.6
-    oob_respawn_proximity: float = 2.0
-    # Consecutive chunks at/above ``oob_respawn_proximity`` before the
-    # auto-respawn fires. Default 1 matches alpasim (immediate respawn);
-    # raise it to debounce measurement noise.
-    oob_respawn_debounce_chunks: int = 1
     # When set, the loop exits cleanly once chunk index N has been consumed
     # off the present queue. Chunk 0 is warmup and excluded from the trace,
     # so consuming chunks 0..N yields N traced chunks (1..N).
@@ -163,11 +207,6 @@ class LoopConfig:
     visual_flare_enabled: bool = True
     capture_physics_debug: bool = False
     """Whether to capture PhysX geometry independently of the selected view."""
-
-
-# OOB overlay strings, module-level so the HUD can match on them for styling.
-OOB_WARN_MESSAGE = "Approaching map edge, turn back to avoid respawn"
-OOB_RESPAWN_MESSAGE = "Respawning..."
 
 
 def should_request_chunk(state: MainLoopState) -> bool:
@@ -193,7 +232,7 @@ def _advance_present_deadline(
 def make_chunk_request(
     state: MainLoopState,
     simulation: SimulationBackend,
-    command: DriverCommand,
+    commands: Sequence[DriverCommand],
     input_sample_time: float,
     chunk_history: ChunkHistory,
     config: LoopConfig,
@@ -214,8 +253,12 @@ def make_chunk_request(
     set_physx_debug_enabled = getattr(simulation, "set_physx_debug_enabled", None)
     if callable(set_physx_debug_enabled):
         set_physx_debug_enabled(view_mode == "physx" or config.capture_physics_debug)
+    if len(commands) != chunk_size:
+        raise ValueError(
+            f"commands must match requested chunk size; got {len(commands)} for {chunk_size}"
+        )
     trajectory = simulation.pose_chunk(
-        command=command,
+        commands=commands,
         chunk_size=chunk_size,
         frame_interval_s=config.frame_interval_s,
         extrapolation_offset_s=0.0,
@@ -264,24 +307,14 @@ def present_queued_frame(
     queued_frame: QueuedFrame,
     presenter: PresenterBackend,
     view_mode: str,
-    oob_message: str | None = None,
     trace_context: TraceContext | None = None,
     trace_dependencies: list[int] | None = None,
 ) -> float:
-    """Hand a freshly-dequeued frame to the presenter.
-
-    ``oob_message`` is merged into the frame's ``status_message`` only for
-    the duration of this present call (via :func:`dataclasses.replace`),
-    so the original ``QueuedFrame`` keeps whatever message the backend
-    attached -- e.g. the world-model's "Optimizing world model..."
-    transition text on the first chunk's last frame stays intact across
-    re-presents that intersperse the warmup window with an OOB warning.
-    """
+    """Hand a freshly-dequeued frame to the presenter."""
     frame_times = queued_frame.chunk_times.frames[queued_frame.frame_index]
     frame_times.sample_display_pose_time = time.perf_counter()
-    display_frame = _frame_with_overlay(queued_frame.frame, oob_message)
     present_call_begin_time = time.perf_counter()
-    presenter.present_frame(display_frame, view_mode=view_mode)
+    presenter.present_frame(queued_frame.frame, view_mode=view_mode)
     present_time = time.perf_counter()
     frame_times.present_time = present_time
     if trace_context is not None:
@@ -309,108 +342,6 @@ def present_queued_frame(
             frame_interval_s=_chunk_frame_interval_s(queued_frame.chunk_times),
         )
     return present_time
-
-
-def _frame_with_overlay(
-    frame: PresentedFrame, oob_message: str | None
-) -> PresentedFrame:
-    """Return ``frame`` with ``oob_message`` merged into ``status_message``.
-
-    The OOB message wins over an existing ``status_message`` because it's
-    a more time-sensitive affordance (the user is about to be teleported);
-    returns the frame unchanged when there's no OOB message to merge in.
-    """
-    if oob_message is None:
-        return frame
-    return replace(frame, status_message=oob_message)
-
-
-def update_oob_state(
-    state: MainLoopState, simulation: SimulationBackend, config: LoopConfig
-) -> bool:
-    """Refresh ``state.oob_message`` from the simulation's OOB proximity.
-
-    Reads ``simulation.last_proximity`` defensively (defaults to ``0.0`` for
-    backends that don't track OOB). Returns ``True`` only on the chunk that
-    fires the auto-respawn, which requires proximity to stay at/above
-    :attr:`LoopConfig.oob_respawn_proximity` for
-    :attr:`LoopConfig.oob_respawn_debounce_chunks` consecutive chunks
-    (debouncing single-chunk spikes from a corner ray missing the mesh).
-    """
-    proximity = float(getattr(simulation, "last_proximity", 0.0))
-    previous_message = state.oob_message
-
-    if proximity >= config.oob_respawn_proximity:
-        state.oob_respawn_streak += 1
-        state.oob_message = OOB_RESPAWN_MESSAGE
-        if state.oob_respawn_streak >= max(1, config.oob_respawn_debounce_chunks):
-            _log_oob_transition(
-                previous_message,
-                OOB_RESPAWN_MESSAGE,
-                proximity,
-                streak=state.oob_respawn_streak,
-                action="firing respawn",
-            )
-            return True
-        if previous_message != OOB_RESPAWN_MESSAGE:
-            _log_oob_transition(
-                previous_message,
-                OOB_RESPAWN_MESSAGE,
-                proximity,
-                streak=state.oob_respawn_streak,
-                action="respawn pending",
-            )
-        return False
-
-    # Below respawn threshold; reset the debounce streak so a brief dip
-    # back into the warning band can't accumulate toward a respawn.
-    state.oob_respawn_streak = 0
-
-    if proximity >= config.oob_warn_proximity:
-        state.oob_message = OOB_WARN_MESSAGE
-        if previous_message != OOB_WARN_MESSAGE:
-            _log_oob_transition(
-                previous_message,
-                OOB_WARN_MESSAGE,
-                proximity,
-                streak=0,
-                action="warning",
-            )
-        return False
-
-    state.oob_message = None
-    if previous_message is not None:
-        _log_oob_transition(
-            previous_message,
-            None,
-            proximity,
-            streak=0,
-            action="cleared",
-        )
-    return False
-
-
-def _log_oob_transition(
-    previous: str | None,
-    current: str | None,
-    proximity: float,
-    *,
-    streak: int,
-    action: str,
-) -> None:
-    """Log OOB state transitions to stderr, once per state edge."""
-    prev_label = "in-bounds" if previous is None else _truncate(previous, 32)
-    curr_label = "in-bounds" if current is None else _truncate(current, 32)
-    logger.info(
-        f"[loop] oob {prev_label!r} -> {curr_label!r}"
-        f" proximity={proximity:.3f} streak={streak} action={action}",
-    )
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "\u2026"
 
 
 def push_telemetry(
@@ -476,18 +407,17 @@ def run_main_loop(
     request, so sim cadence is gated by display-driven requests, not the poll
     rate. ``initial_presented_frame`` seeds the re-present path used while the
     pipeline warms up; ``loading_status`` (if given) supplies the loading-phase
-    overlay text until the first real frame, with the OOB warning taking
-    precedence.
+    overlay text until the first real frame.
 
-    Returns ``True`` when the user requested a reset or the OOB auto-respawn
-    fired (caller rebuilds the simulation and re-runs), ``False`` when the
-    presenter requested close.
+    Returns ``True`` when the user requested a reset (the caller rebuilds the
+    simulation and re-runs), or ``False`` when the presenter requested close.
     """
     state = MainLoopState()
     last_presented_frame: PresentedFrame = initial_presented_frame
     ready_frames: deque[QueuedFrame] = deque()
     chunk_history = ChunkHistory(config.history_capacity)
     visual_flare_events = VisualFlareEventQueue()
+    command_timeline = CommandTimeline()
     trigger_visual_flare_callback = getattr(
         presenter, "trigger_visual_flare", _noop_visual_flare
     )
@@ -512,6 +442,7 @@ def run_main_loop(
         )
         input_sample_begin = time.perf_counter()
         sampled = input_backend.sample()
+        command_timeline.observe(sampled.command, sampled.sample_time)
         input_sample_end = time.perf_counter()
         last_input_sample_event = _trace_main_range(
             active_trace,
@@ -528,10 +459,18 @@ def run_main_loop(
         if should_request_chunk(state) and (
             runtime_application is None or runtime_application.is_running
         ):
+            request_chunk_size = (
+                config.initial_chunk_size
+                if state.next_chunk_index == 0
+                else config.chunk_size
+            )
             chunk_request = make_chunk_request(
                 state=state,
                 simulation=simulation,
-                command=sampled.command,
+                commands=command_timeline.commands_for_chunk(
+                    chunk_size=request_chunk_size,
+                    frame_interval_s=config.frame_interval_s,
+                ),
                 input_sample_time=sampled.sample_time,
                 chunk_history=chunk_history,
                 config=config,
@@ -539,12 +478,20 @@ def run_main_loop(
                 trace_context=active_trace,
                 view_mode=view_mode,
             )
-            if (
-                config.visual_flare_enabled
-                and chunk_request.trajectory.actor_collision_detected
+            if config.visual_flare_enabled and (
+                chunk_request.trajectory.actor_collision_detected
+                or chunk_request.trajectory.static_collision_detected
             ):
+                collision_indices = [
+                    index
+                    for index in (
+                        chunk_request.trajectory.actor_collision_frame_index,
+                        chunk_request.trajectory.static_collision_frame_index,
+                    )
+                    if index is not None
+                ]
                 collision_frame_index = (
-                    chunk_request.trajectory.actor_collision_frame_index
+                    min(collision_indices) if collision_indices else 0
                 )
                 visual_flare_events.schedule(
                     chunk_index=chunk_request.chunk_times.chunk_index,
@@ -565,13 +512,6 @@ def run_main_loop(
                     ),
                 )
             pipeline.request_pose_chunk(chunk_request)
-            # The pose chunk just advanced authoritative state, so refresh the
-            # OOB overlay from the new boundary frame and auto-respawn (same
-            # ``return True`` as a manual reset) when far enough off-map.
-            if (
-                runtime_application is None or runtime_application.is_running
-            ) and update_oob_state(state, simulation, config):
-                return True
             # Republish telemetry per chunk so read-side observers (e.g. the
             # presenter's ``/state`` endpoint) see the latest state.
             if runtime_application is None:
@@ -626,7 +566,6 @@ def run_main_loop(
                 queued_frame,
                 presenter,
                 view_mode=view_mode,
-                oob_message=state.oob_message,
                 trace_context=present_trace,
                 trace_dependencies=event_dependencies(
                     queued_frame.worker_ready_event_id,
@@ -648,18 +587,15 @@ def run_main_loop(
             # present, so drop it instead of carrying it forward as a
             # dependency of some later, unrelated present.
             last_present_wait_event = None
-            # Re-present the last frame with the current overlay: OOB warning
-            # wins, else the loading-phase status until the first real frame.
-            # The merged frame is local so ``last_presented_frame`` is unchanged.
-            overlay = state.oob_message
-            if (
-                overlay is None
-                and loading_status is not None
-                and state.frame_count == 0
-            ):
-                overlay = loading_status()
+            display_frame = last_presented_frame
+            if loading_status is not None and state.frame_count == 0:
+                status_message = loading_status()
+                if status_message is not None:
+                    display_frame = replace(
+                        last_presented_frame, status_message=status_message
+                    )
             presenter.present_frame(
-                _frame_with_overlay(last_presented_frame, overlay),
+                display_frame,
                 view_mode=view_mode,
             )
 

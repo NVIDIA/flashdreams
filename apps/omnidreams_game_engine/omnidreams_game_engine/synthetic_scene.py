@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Runtime helpers for booting interactive-drive without HD-map content.
+"""Helpers for constructing procedural scene fixtures.
 
 Produces a fully procedural USDZ with the same on-disk layout the scene
 loader expects (synthetic trajectory + lane lines + intersection geometry +
 a caller-supplied initial RGB), so the world-model runtime runs unchanged and
-unaware the scene is procedural. Thin wrapper around
-``scene_fixture.build_synthetic_scene_usdz`` that adds an ``--initial-rgb``
-path so demos can seed a real driving photo instead of the test gradient.
+unaware the scene is procedural. This wraps
+``scene_fixture.build_synthetic_scene_usdz`` with file-based image input.
 """
 
 from __future__ import annotations
@@ -25,15 +24,12 @@ from omnidreams_game_engine.scene_fixture import build_synthetic_scene_usdz
 
 # Internal frame-rate of the underlying scene_fixture trajectory and the
 # nominal driving speed it bakes in. ``length_km`` is converted to
-# ``length_frames`` via these so the runtime API stays in km (which is
-# what users actually want to reason about) instead of seconds-of-clock-
-# time-at-a-fixed-speed.
+# ``length_frames`` using these constants.
 _SCENE_FIXTURE_FPS = 30
 _SCENE_FIXTURE_SPEED_MPS = 10.0
 
 # "Golden track" length handed to the scene loader: 20 km at 10 m/s = 60 000
-# frames (~12 MB temp USDZ, ~600 ms at startup), well past any demo session.
-# Exposed as a kwarg only (not on the CLI) so tests can build smaller scenes.
+# frames (~12 MB temp USDZ). Tests can request smaller scenes.
 _DEFAULT_LENGTH_KM = 20.0
 
 

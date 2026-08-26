@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from flashdreams.serving.realtime.timing import TraceSink
 from loguru import logger
 from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.application import (
@@ -32,8 +32,8 @@ from omnidreams_game_engine.application import (
 )
 from omnidreams_game_engine.backends.base import RenderBackend
 from omnidreams_game_engine.config import AppConfig
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinityResolver
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     SceneBundle,
     TrajectoryChunk,
@@ -50,6 +50,7 @@ from crazy_robotaxi.game import (
     TaxiGameConfig,
     TaxiGameController,
 )
+from crazy_robotaxi.game_settings import load_game_settings
 from crazy_robotaxi.high_scores import (
     default_high_scores_path,
 )
@@ -69,6 +70,7 @@ from crazy_robotaxi.physics import (
 from crazy_robotaxi.scene import (
     load_scene_data,
 )
+from flashdreams.serving.realtime.timing import TraceSink
 
 
 class CrazyRobotaxiRuntime:
@@ -187,14 +189,16 @@ class CrazyRobotaxiApplication:
         self._presenter_config = presenter_config
         self._reference_route_world: Any | None = None
         self._navigation_lanes: tuple[Any, ...] = ()
+        self._fare_regions: tuple[Any, ...] = ()
+        self._vicinity_resolver: GameMapVicinityResolver | None = None
         self._ground_snapper: GroundSnapper | None = None
-        self._map_bounds: MapBounds | None = None
-        self._enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
+        self._curb_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._live_edit = live_edit or LiveEditConfig()
         self._style_ability = style_ability
         self._live_edit_presenter: Any | None = None
         self._coin_lanes: tuple[NavigationLane, ...] = ()
         self._nitro_ability: Any | None = None
+        self._obstacle_ability: Any | None = None
         if self._live_edit.items.enabled:
             from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
 
@@ -210,16 +214,18 @@ class CrazyRobotaxiApplication:
         """Configure application presentation before scene loading."""
         configure = getattr(presenter, "configure_taxi_hud", None)
         if callable(configure):
-            configure(self._presenter_config)
+            configure(self._presenter_config, self._config.vehicle)
 
-    def load_scene(self, scene: SceneBundle, map_bounds: MapBounds | None) -> None:
+    def load_scene(self, scene: SceneBundle) -> None:
         """Accept scene data already loaded by Interactive Drive."""
         scene_data = load_scene_data(scene)
         self._reference_route_world = scene_data.reference_route_world
         self._navigation_lanes = scene_data.navigation_lanes
-        self._enclosure_segments_world = scene_data.enclosure_segments_world
-        self._ground_snapper = _build_taxi_ground_snapper(scene)
-        self._map_bounds = map_bounds
+        self._fare_regions = scene_data.fare_regions
+        assert scene.game_map is not None
+        self._vicinity_resolver = GameMapVicinityResolver(scene.game_map)
+        self._curb_segments_world = scene_data.curb_segments_world
+        self._ground_snapper = _build_taxi_ground_snapper(scene, self._config)
         if self._live_edit.coins.enabled or self._live_edit.items.enabled:
             # Lay coins/items along the driving-lane graph; legacy scenes
             # without mapped lanes fall back to the recorded ego route.
@@ -231,8 +237,8 @@ class CrazyRobotaxiApplication:
                 ),
             )
         logger.info(
-            "[crazy-robotaxi] play-area enclosure: perimeter_segments={}",
-            len(scene_data.perimeter_segments_world),
+            "[crazy-robotaxi] compiled curb segments={}",
+            len(scene_data.curb_segments_world),
         )
 
     def configure_scene_presenter(self, presenter: Any, scene: SceneBundle) -> None:
@@ -240,9 +246,6 @@ class CrazyRobotaxiApplication:
         configure = getattr(presenter, "configure_taxi_camera", None)
         if callable(configure):
             configure(scene.selected_camera)
-        configure_enclosure = getattr(presenter, "configure_taxi_enclosure", None)
-        if callable(configure_enclosure):
-            configure_enclosure(self._enclosure_segments_world)
 
     def rollout_spec(
         self,
@@ -262,6 +265,21 @@ class CrazyRobotaxiApplication:
             integrate_fn = integrate_with_nitro(
                 self._nitro_ability, integrate_taxi_vehicle
             )
+        self._obstacle_ability = None
+        if self._live_edit.obstacle.enabled:
+            from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
+
+            self._obstacle_ability = ObstacleAbility(
+                self._live_edit.obstacle,
+                game_map=scene.game_map,
+                ground_vertices=scene.ground_mesh_vertices,
+                vehicle=self._config.vehicle,
+            )
+        actor_controllers = (
+            (self._obstacle_ability,)
+            if self._obstacle_ability is not None and self._live_edit.obstacle.physics
+            else ()
+        )
         return RolloutSpec(
             vehicle_config=self._config.vehicle,
             initial_speed_mps=0.0,
@@ -269,8 +287,8 @@ class CrazyRobotaxiApplication:
             physics_world_factory=lambda active_scene, vehicle: TaxiPhysicsWorld(
                 active_scene,
                 vehicle,
-                traffic_density=self._config.traffic_density,
-                enclosure_segments_world=self._enclosure_segments_world,
+                curb_segments_world=self._curb_segments_world,
+                actor_controllers=actor_controllers,
             ),
             physics_step_fn=step_taxi_physics_world,
             visual_flare_enabled=False,
@@ -289,10 +307,11 @@ class CrazyRobotaxiApplication:
             scene_id=scene.scene_id,
             reference_route_world=self._reference_route_world,
             navigation_lanes=self._navigation_lanes,
+            fare_regions=self._fare_regions,
             initial_state=simulation.current_state,
             config=self._config,
             initial_camera=scene.selected_camera,
-            map_bounds=self._map_bounds,
+            vicinity_resolver=self._vicinity_resolver,
         )
         coin_ability: CoinAbility | None = None
         if self._live_edit.coins.enabled and self._coin_lanes:
@@ -328,14 +347,7 @@ class CrazyRobotaxiApplication:
                 f"[live-edit] item course laid out: "
                 f"{item_ability.remaining_count} items"
             )
-        obstacle_ability: Any | None = None
-        if self._live_edit.obstacle.enabled:
-            from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
-
-            # Rebuilt per rollout so events/hits reset with the game.
-            obstacle_ability = ObstacleAbility.from_scene(
-                scene, self._live_edit.obstacle
-            )
+        obstacle_ability = self._obstacle_ability
         if self._live_edit_presenter is not None:
             self._live_edit_presenter.set_coin_ability(coin_ability)
             self._live_edit_presenter.set_obstacle_ability(obstacle_ability)
@@ -441,9 +453,11 @@ def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
         if args.taxi_highscores is not None
         else default_high_scores_path()
     )
-    return TaxiGameConfig(
-        enabled=True,
-        traffic_density=float(args.traffic_density),
+    config = getattr(args, "_game_settings", None) or load_game_settings(
+        args.game_config
+    )
+    return replace(
+        config,
         seed=None if args.taxi_seed is None else int(args.taxi_seed),
         high_scores_path=high_scores_path,
         alignment_diagnostics_enabled=(
@@ -452,20 +466,26 @@ def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:
     )
 
 
-def _build_taxi_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
+def _build_taxi_ground_snapper(
+    scene: SceneBundle, config: TaxiGameConfig
+) -> GroundSnapper | None:
     if scene.ground_mesh_vertices is None or scene.ground_mesh_faces is None:
         return None
     return GroundSnapper(
         scene.ground_mesh_vertices,
         scene.ground_mesh_faces,
-        max_absolute_rotation_deg=10.0,
-        invalid_sample_handler=settle_invalid_ground_attitude,
+        max_absolute_rotation_deg=config.ground_snap_max_absolute_rotation_deg,
+        invalid_sample_handler=partial(
+            settle_invalid_ground_attitude,
+            settle_fraction=config.ground_snap_settle_fraction,
+        ),
     )
 
 
-def settle_invalid_ground_attitude(state: VehicleState) -> VehicleState:
+def settle_invalid_ground_attitude(
+    state: VehicleState, *, settle_fraction: float = 0.25
+) -> VehicleState:
     """Ease stale ground attitude toward level after an invalid Taxi sample."""
-    settle_fraction = 0.25
     pitch = state.pitch_rad * (1.0 - settle_fraction)
     roll = state.roll_rad * (1.0 - settle_fraction)
     if abs(pitch) < 1.0e-4:

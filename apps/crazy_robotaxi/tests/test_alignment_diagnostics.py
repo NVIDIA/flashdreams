@@ -17,6 +17,7 @@ from crazy_robotaxi.alignment_diagnostics import (
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.types import (
     CameraCalibration,
+    DriverCommand,
     PhysicsDebugFrame,
     PresentedFrame,
     VehicleState,
@@ -97,6 +98,13 @@ def _frame() -> PresentedFrame:
         physx_debug=debug,
         rig_to_world=rig_pose_from_vehicle_state(state),
         vehicle_state=state,
+        driver_command=DriverCommand(throttle=1.0, steer=-0.5),
+        impact_kind="static",
+        model_motion_metrics={
+            "axis": "impact",
+            "mismatched": True,
+            "elapsed_ms": 1.25,
+        },
     )
 
 
@@ -129,6 +137,9 @@ def test_diagnostic_presenter_writes_synchronized_artifact(tmp_path: Path) -> No
     assert float(rows[0]["state_rig_yaw_error_rad"]) == pytest.approx(0.0, abs=1e-6)
     assert float(rows[0]["state_physx_yaw_error_rad"]) == pytest.approx(0.0, abs=1e-6)
     assert float(rows[0]["state_physx_xy_error_m"]) == pytest.approx(0.0)
+    assert float(rows[0]["command_throttle"]) == pytest.approx(1.0)
+    assert rows[0]["impact_kind"] == "static"
+    assert rows[0]["motion_axis"] == "impact"
     assert diagnostic_frame.exists()
     with Image.open(diagnostic_frame) as image:
         assert image.width > image.height

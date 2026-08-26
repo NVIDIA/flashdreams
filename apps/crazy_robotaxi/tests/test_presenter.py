@@ -868,31 +868,6 @@ def test_taxi_hud_bev_draws_nearby_targets_and_omits_distant_ones(
     assert not np.any(np.all(np.asarray(distant_canvas) == marker_color, axis=-1))
 
 
-def test_taxi_hud_bev_draws_visible_enclosure_segment() -> None:
-    presenter = CrazyRobotaxiHudPresenter.__new__(CrazyRobotaxiHudPresenter)
-    presenter._bev_config = BevConfig(
-        width=64,
-        height=64,
-        height_m=15.0,
-        fov_deg=60.0,
-        tilt_deg=0.0,
-    )
-    presenter.configure_taxi_enclosure(
-        np.asarray([[[-100.0, 0.0, 0.0], [100.0, 0.0, 0.0]]], dtype=np.float32)
-    )
-    presenter._latest_presented_frame = PresentedFrame(
-        timestamp_us=0,
-        rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
-        depth_host_f32=None,
-        bev_rig_to_world=np.eye(4, dtype=np.float32),
-    )
-    canvas = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
-
-    presenter._draw_bev_taxi_enclosure(ImageDraw.Draw(canvas), (20, 10, 80, 70))
-
-    assert np.any(np.all(np.asarray(canvas) == (235, 50, 50, 255), axis=-1))
-
-
 def test_hud_bev_update_keeps_lazy_source_unmaterialized() -> None:
     presenter = _hud_presenter_without_window()
     lazy = _LazyFrame()
@@ -1130,7 +1105,6 @@ def test_hud_postprocess_control_toggles_configured_preset() -> None:
     presenter._postprocess_rect = (10, 20, 110, 52)
     presenter._panel_chrome_cache_key = object()
     presenter._panel_chrome_cache = object()
-    presenter._scene_dropdown_open = False
     presenter._variant_dropdown_open = False
     presenter.set_postprocess_control(
         preset="rtx-super-resolution",
@@ -1153,32 +1127,12 @@ def test_hud_postprocess_control_ignores_click_without_configured_preset() -> No
     presenter._postprocess_preset = ""
     presenter._postprocess_enabled = False
     presenter._postprocess_callback = calls.append
-    presenter._scene_dropdown_open = False
     presenter._variant_dropdown_open = False
 
     presenter._handle_click((20, 30))
 
     assert calls == []
     assert presenter._postprocess_enabled is False
-
-
-def test_hud_scene_dropdown_blocks_underlying_upsample_toggle() -> None:
-    presenter = _hud_presenter_without_window()
-    calls: list[bool] = []
-    presenter._postprocess_rect = (10, 20, 110, 52)
-    presenter._postprocess_preset = "rtx-super-resolution-ultra"
-    presenter._postprocess_enabled = True
-    presenter._postprocess_callback = calls.append
-    presenter._scene_dropdown_open = True
-    presenter._variant_dropdown_open = False
-    presenter._scene_item_rects = []
-    presenter._scene_header_rect = None
-    presenter._scene_selection_locked_probe = lambda: False
-
-    presenter._handle_click((20, 30))
-
-    assert calls == []
-    assert presenter._postprocess_enabled is True
 
 
 def test_hud_resize_uses_actual_window_size_without_model_resolution_clamp() -> None:
@@ -1415,7 +1369,6 @@ def _hud_presenter_for_exit(selected_variant: str) -> SlangPyHudPresenter:
     presenter._should_close_flag = True
     presenter._keyboard = _ExitSceneKeyboard()
     # State cleared by _reset_scene_view_state.
-    presenter._scene_dropdown_open = True
     presenter._variant_dropdown_open = True
     presenter._camera_resize_cache_key = object()
     presenter._camera_resize_cache = object()

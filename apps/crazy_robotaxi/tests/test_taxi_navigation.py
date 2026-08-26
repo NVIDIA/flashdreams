@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from crazy_robotaxi.navigation import (
     LanePosition,
+    NavigationFareRegion,
     NavigationLane,
     NavigationWaypoint,
     TaxiNavigationMap,
@@ -63,6 +64,77 @@ def test_route_does_not_traverse_lane_against_its_direction() -> None:
     )
 
     assert navigation.route(_position(0, 8.0), destination) is None
+
+
+def test_parking_target_is_sampled_in_polygon_and_routes_only_to_entrance() -> None:
+    navigation = TaxiNavigationMap(
+        (
+            NavigationLane(
+                np.asarray([[0, 0, 0], [10, 0, 0]], dtype=np.float32),
+                lane_id="arrival",
+                successor_ids=(),
+            ),
+            NavigationLane(
+                np.asarray([[10, 0, 0], [0, 0, 0]], dtype=np.float32),
+                lane_id="departure",
+                successor_ids=(),
+            ),
+        )
+    )
+    region = NavigationFareRegion(
+        region_id="lot",
+        kind="area",
+        geometry_world=(
+            np.asarray(
+                [[20, 20, 0], [20, 30, 0], [30, 30, 0], [30, 20, 0]],
+                dtype=np.float32,
+            ),
+        ),
+        arrival_lane_ids=("arrival",),
+        departure_lane_ids=("departure",),
+    )
+
+    waypoint = navigation.sample_fare_regions(
+        (region,), spacing_m=20, rng=np.random.default_rng(7)
+    )[0]
+    route = navigation.route(_position(0, 2), waypoint)
+
+    assert 20 <= waypoint.xyz_m[0] <= 30
+    assert 20 <= waypoint.xyz_m[1] <= 30
+    assert waypoint.departure_anchors[0].lane_index == 1
+    assert route is not None
+    assert route.distance_m == pytest.approx(8.0)
+
+
+def test_concave_parking_targets_stay_inside_polygon() -> None:
+    navigation = TaxiNavigationMap(
+        (
+            NavigationLane(
+                np.asarray([[0, 0, 0], [10, 0, 0]], dtype=np.float32),
+                lane_id="road",
+                successor_ids=(),
+            ),
+        )
+    )
+    region = NavigationFareRegion(
+        region_id="concave_lot",
+        kind="area",
+        geometry_world=(
+            np.asarray(
+                [[0, 0, 0], [0, 10, 0], [4, 10, 0], [4, 4, 0], [10, 4, 0], [10, 0, 0]],
+                dtype=np.float32,
+            ),
+        ),
+        arrival_lane_ids=("road",),
+        departure_lane_ids=("road",),
+    )
+
+    waypoints = navigation.sample_fare_regions(
+        (region,), spacing_m=2, rng=np.random.default_rng(19)
+    )
+
+    assert waypoints
+    assert all(point.xyz_m[0] <= 4 or point.xyz_m[1] <= 4 for point in waypoints)
 
 
 def test_lane_matching_prefers_vehicle_heading_on_overlapping_lanes() -> None:

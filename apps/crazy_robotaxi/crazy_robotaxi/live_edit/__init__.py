@@ -25,9 +25,9 @@ abilities, each behind its own ``--live-edit-*`` flag:
   weather/skin state machines at the next chunk boundary — the same path
   the key requests take (the keys stay live alongside).
 - **Obstacle events** (:mod:`crazy_robotaxi.live_edit.obstacle_ability`,
-  key ``o``): a real moving scene-vehicle track cloned, retimed, and
-  shifted ahead of the ego through the ``advance_frames`` dynamic-actor
-  seam; optional box-axis guidance on the model side.
+  key ``o``): generated crossing cars with a gameplay-owned lifecycle,
+  optional compiled-road placement, optional PhysX materialization, and
+  optional box-axis guidance on the model side.
 
 Wiring map (composition-root seams, all live in ``crazy_robotaxi``):
 

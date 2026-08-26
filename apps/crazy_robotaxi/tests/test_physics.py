@@ -291,7 +291,7 @@ def test_sample_chunk_trajectory_without_snapper_is_unchanged() -> None:
     chunk = sample_chunk_trajectory(
         start_state=state,
         start_timestamp_us=0,
-        command=DriverCommand(throttle=1.0),
+        commands=(DriverCommand(throttle=1.0),) * 10,
         chunk_size=10,
         chunk_config=ChunkConfig(fps=30),
         vehicle_config=VehicleConfig(),
@@ -312,9 +312,12 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
         def __init__(self) -> None:
             self._step_index = 0
             self.last_step_actor_collision = False
+            self.last_step_static_barrier_impact = False
 
         def synchronize_window(
-            self, center_xy_m: np.ndarray, timestamp_us: int | None = None
+            self,
+            center_xy_m: np.ndarray,
+            timestamp_us: int | None = None,
         ) -> None:
             del center_xy_m, timestamp_us
 
@@ -326,6 +329,7 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
         ) -> tuple[VehicleState, tuple[object, ...]]:
             del timestamp_us, dt_s
             self.last_step_actor_collision = self._step_index == 1
+            self.last_step_static_barrier_impact = self._step_index == 0
             self._step_index += 1
             return state, ()
 
@@ -344,7 +348,7 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
     chunk = sample_chunk_trajectory(
         start_state=_state(),
         start_timestamp_us=0,
-        command=DriverCommand(),
+        commands=(DriverCommand(),) * 2,
         chunk_size=2,
         chunk_config=ChunkConfig(fps=30),
         vehicle_config=VehicleConfig(),
@@ -355,6 +359,8 @@ def test_sample_chunk_trajectory_tracks_only_physx_calls(
     assert chunk.physx_elapsed_s == pytest.approx(0.010)
     assert chunk.actor_collision_detected is True
     assert chunk.actor_collision_frame_index == 1
+    assert chunk.static_collision_detected is True
+    assert chunk.static_collision_frame_index == 0
 
 
 def test_sample_chunk_trajectory_with_snapper_follows_slope() -> None:
@@ -366,7 +372,7 @@ def test_sample_chunk_trajectory_with_snapper_follows_slope() -> None:
     chunk = sample_chunk_trajectory(
         start_state=state,
         start_timestamp_us=0,
-        command=DriverCommand(throttle=1.0),
+        commands=(DriverCommand(throttle=1.0),) * 30,
         chunk_size=30,  # ~1s of driving
         chunk_config=chunk_cfg,
         vehicle_config=vehicle,
@@ -397,7 +403,7 @@ def test_sample_chunk_trajectory_levels_stale_attitude_off_mesh() -> None:
     chunk = sample_chunk_trajectory(
         start_state=state,
         start_timestamp_us=0,
-        command=DriverCommand(),
+        commands=(DriverCommand(),) * 30,
         chunk_size=30,
         chunk_config=ChunkConfig(fps=30),
         vehicle_config=VehicleConfig(),

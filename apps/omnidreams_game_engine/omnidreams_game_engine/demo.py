@@ -11,21 +11,24 @@ import select
 import struct
 import threading
 import time
-import zipfile
-from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from loguru import logger
-from omnidreams import scenes as _scenes
-from omnidreams.scenes import normalise_scene_uuid, scenes_cache_root
 from PIL import Image
 
 from omnidreams_game_engine import cli as _cli
 from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.game_map import (
+    GAME_MAP_SUFFIX,
+    load_game_map,
+    load_game_map_header,
+    render_spawn_first_frame,
+    resolve_seed_asset,
+)
 from omnidreams_game_engine.input.wheel_profiles import (
     EV_ABS,
     EV_KEY,
@@ -46,7 +49,6 @@ from omnidreams_game_engine.input.wheel_profiles import (
     user_wheel_profiles_dir,
 )
 from omnidreams_game_engine.log import configure_logging
-from omnidreams_game_engine.synthetic_scene import build_synthetic_scene_to_temp
 
 # Private aliases for the evdev helpers (canonical defs in
 # ``input/wheel_profiles.py``, shared with the configuration tool).
@@ -109,8 +111,7 @@ class SceneOption:
     # dropdown. Variants without a dedicated preview map to the default image
     # so every row still shows a preview.
     variant_thumbnails: dict[str, Image.Image] = field(default_factory=dict)
-    # Variant slug -> its USDZ archive. Distinct sibling files for the current
-    # per-weather dataset; the single ``path`` for legacy in-zip-variant scenes.
+    # Variant slug -> the authored map containing that variant.
     variant_paths: dict[str, Path] = field(default_factory=dict)
 
 
@@ -492,7 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     Union of: the backend args from
     :func:`omnidreams_game_engine.cli.build_parser`; HUD args
-    (``--scene-dir``, ``--wheel-*``, ...) ignored under ``--no-hud`` /
+    (``--map-dir``, ``--wheel-*``, ...) ignored under ``--no-hud`` /
     ``--stream-mjpeg``; and the ``--no-hud`` toggle (bare Vulkan window).
     """
     parser = _cli.build_parser()
@@ -521,20 +522,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-hud",
         action="store_true",
         help=(
-            "Skip the HUD chrome and run the backend with a bare slangpy"
-            " Vulkan window (matching the legacy lightweight demo)."
+            "Skip the HUD chrome and run the backend with a bare slangpy Vulkan window."
         ),
     )
     parser.add_argument(
-        "--scene-dir",
+        "--map-dir",
+        dest="scene_dir",
         type=Path,
-        default=scenes_cache_root(),
-        help=(
-            "Directory of USDZ scenes shown in the HUD scene selector. "
-            "Defaults to ``$FLASHDREAMS_CACHE_DIR/omnidreams-scenes/``, "
-            "the shared cache root used by both this demo and the "
-            "centralized ``webrtc`` scene pipeline."
-        ),
+        default=Path.cwd(),
+        metavar="DIRECTORY",
+        help="Directory of .robotaxi.yaml maps available for scene switching.",
     )
     parser.add_argument(
         "--auto-start",
@@ -542,7 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Start loading --scene immediately instead of opening the HUD on"
+            "Start loading --map immediately instead of opening the HUD on"
             " Load Scene. Distinct from --preload-scenes (which only warms the"
             " parse cache in the background)."
         ),
@@ -561,10 +558,10 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Parse every scene in --scene-dir in the background at startup so"
-            " switching scenes skips the USDZ parse (the per-scene geometry"
+            "Parse every map in --map-dir in the background at startup so"
+            " switching scenes skips map compilation and archive parsing (geometry"
             " upload and first-chunk generation still happen on switch)."
-            " Off by default; uses more memory the more scenes are staged."
+            " Off by default; uses more memory as more maps are loaded."
         ),
     )
     parser.add_argument(
@@ -620,86 +617,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _has_discoverable_scenes(scene_dir: Path, scene: Path) -> bool:
-    """Whether the scene picker would find any staged USDZ to offer.
-
-    Mirrors :func:`_discover_scene_options`'s directory sweep -- the
-    ``--scene-dir`` cache plus the requested scene's own folder -- so the
-    default-scene autostage can be skipped when a curated set of scenes is
-    already present.
-    """
-    for directory in (scene_dir, scene.parent):
-        resolved = _project_path(directory)
-        if resolved.is_dir() and any(resolved.glob("*.usdz")):
-            return True
-    return False
-
-
-def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) -> Path:
-    """Auto-download the default scene UUID on first launch.
-
-    Triggers only for a missing ``clipgt-<uuid>.usdz`` under the shared scenes
-    cache root; external / non-clipgt paths are returned unchanged. With
-    ``allow_skip`` (any scene-picker mode), a missing default is skipped when
-    the picker already has staged scenes, so a curated set never blocks on the
-    default UUID. ``omnidreams-prepare`` remains the way to pre-stage arbitrary
-    UUIDs.
-    """
-    if scene.exists():
-        return scene
-    if allow_skip and _has_discoverable_scenes(scene_dir, scene):
-        logger.info(
-            f"[interactive-drive] default scene '{scene.name}' is not staged; "
-            f"using the scenes already present under {scene_dir} instead.",
-        )
-        return scene
-    cache_dir = scenes_cache_root().resolve()
-    if scene.resolve().parent != cache_dir:
-        return scene
-    stem = scene.stem
-    if not stem.startswith("clipgt-"):
-        return scene
-    bare_uuid = normalise_scene_uuid(stem)
-    if not os.environ.get("HF_TOKEN"):
-        raise SystemExit(
-            f"Scene '{scene.name}' is not staged yet and HF_TOKEN is not set.\n"
-            "Either export HF_TOKEN to enable auto-staging on launch, or run:\n"
-            f"  uv run --package flashdreams-omnidreams omnidreams-prepare --scene-uuid {bare_uuid}"
-        )
-    logger.info(
-        f"[interactive-drive] Scene '{stem}' not found locally; "
-        "auto-staging from Hugging Face (one-time download)..."
-    )
-    from omnidreams.prepare import stage_scene
-
-    staged_default = stage_scene(bare_uuid, force=False)
-    # Also stage the scene's other weather variants so the HUD shows a
-    # Default/Rain/Snow selector; discovery globs the cache dir for them.
-    try:
-        sibling_variants = [
-            variant
-            for uuid, variant in _scenes.list_available_scene_files()
-            if uuid == bare_uuid and variant != _scenes.SCENE_VARIANT_DEFAULT
-        ]
-    except Exception as exc:  # noqa: BLE001 - best-effort; base scene already staged
-        logger.info(
-            f"[interactive-drive] could not enumerate scene variants ({exc}); "
-            "staged the base scene only.",
-        )
-        sibling_variants = []
-    for variant in sibling_variants:
-        try:
-            stage_scene(bare_uuid, variant=variant, force=False)
-        except Exception as exc:  # noqa: BLE001 - skip a variant, keep the rest
-            logger.info(
-                f"[interactive-drive] failed to stage variant {variant!r} "
-                f"({exc}); skipping.",
-            )
-    return staged_default
-
-
 def main() -> None:
-    """Run the legacy parser entry point used by internal development tools."""
+    """Run the parser entry point used by internal development tools."""
     _run_namespace(build_parser().parse_args())
 
 
@@ -739,21 +658,9 @@ def _coerce_launch_path(key: str, value: object) -> object:
 def _run_namespace(args: argparse.Namespace) -> None:
     """Execute one already-resolved local-window namespace."""
     configure_logging()
-    if not args.synthetic_scene:
-        # Only the bare ``--no-hud`` backend has no scene picker; the HUD
-        # and MJPEG paths both let the user pick from ``--scene-dir``, so a
-        # missing default scene there is fine as long as the directory
-        # already has other scenes staged (see _maybe_autostage_scene).
-        uses_scene_picker = args.stream_mjpeg is not None or not args.no_hud
-        args.scene = _maybe_autostage_scene(
-            args.scene, scene_dir=args.scene_dir, allow_skip=uses_scene_picker
-        )
     # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
-    # MJPEG presenter (HTTP server, browser session) survives across
-    # scene-change requests posted by the in-page picker. ``--no-hud``
-    # without MJPEG drops straight through to the bare CLI's Vulkan
-    # window, which has no scene picker UI of its own. The default path
-    # is the slangpy HUD with full chrome.
+    # MJPEG presenter survives scene changes. ``--no-hud`` without MJPEG
+    # drops straight through to the bare CLI's Vulkan window.
     if args.stream_mjpeg is not None:
         _run_streaming(args)
         return
@@ -768,11 +675,11 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     """Run the engine with the slangpy + PIL HUD presenter in one process.
 
     Builds one ``SlangPyHudPresenter`` and one long-lived
-    :class:`InteractiveDriveApp` at startup (model warmup overlaps the
-    scene-selection wait), then loops over scene-change requests calling
-    ``app.load_scene`` / ``app.run_scene`` per scene. The warmed model and the
-    window stay alive across switches (``close_presenter_on_exit=False``); the
-    wheel binds once to the app's single ``KeyboardState``.
+    :class:`InteractiveDriveApp` at startup, then loops over scene-change
+    requests calling ``app.load_scene`` / ``app.run_scene`` per scene. The
+    warmed model and the window stay alive across switches
+    (``close_presenter_on_exit=False``); the wheel binds once to the app's
+    single ``KeyboardState``.
     """
     from omnidreams_game_engine.input.keyboard import KeyboardState
     from omnidreams_game_engine.slangpy_hud_presenter import (
@@ -782,17 +689,16 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
-    _materialize_synthetic_scene_for_picker(args)
     scene_options = _discover_scene_options(args.scene_dir, args.scene)
-    if not args.scene.exists() and scene_options:
+    if (args.scene is None or not args.scene.exists()) and scene_options:
         args.scene = scene_options[0].path
     # Validate paths up front so a typo in ``--manifest`` /
-    # ``--scene-dir`` / ``--control-assets-dir`` fails immediately,
+    # ``--map-dir`` / ``--control-assets-dir`` fails immediately,
     # before we open the slangpy window and the user wastes 30s on
     # world-model warmup that's about to ENOENT. Scene path is
     # validated lazily because ``_discover_scene_options`` already
     # backfills ``args.scene`` from the directory, so a missing
-    # ``--scene`` is only fatal if the directory is empty too.
+    # ``--map`` is only fatal if the directory is empty too.
     if args.backend == "omnidreams":
         if args.manifest is None:
             raise SystemExit("--manifest is required for the omnidreams backend")
@@ -802,21 +708,16 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
                 " (typo? expected a path or bundled config name like "
                 "example_world_model.yaml)"
             )
+    if args.scene is None:
+        raise SystemExit("--map is required when --map-dir contains no maps")
     if not scene_options and not args.scene.exists():
-        raise SystemExit(
-            f"--scene path does not exist and --scene-dir contains no scenes: {args.scene}"
-        )
+        raise SystemExit(f"--map path does not exist: {args.scene}")
     control_assets = _load_control_assets(args.control_assets_dir)
     wheel_selection = None if args.no_wheel else _select_wheel(args)
 
-    # Construct the presenter UPFRONT, before any backend, so the demo
-    # can open the HUD window in "Load Scene" mode and wait for the
-    # user to pick a scene from the dropdown when ``--auto-start``
-    # is off. The placeholder ``KeyboardState`` is rebound to each
-    # successive ``InteractiveDriveApp``'s real keyboard via
-    # ``presenter.bind_keyboard`` in the factory below; no engine is
-    # listening to the placeholder, so events are harmlessly dropped
-    # during the initial wait.
+    # Construct the presenter before the backend. The placeholder
+    # ``KeyboardState`` is rebound to the app's real keyboard via
+    # ``presenter.bind_keyboard`` in the factory below.
     placeholder_keyboard = KeyboardState()
     presenter = SlangPyHudPresenter(
         raster=RasterConfig(),
@@ -827,13 +728,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         wheel=None,
     )
 
-    # Build the backend + engine ONCE, up front. Constructing the app
-    # starts the (scene-independent) model warmup on the pipeline worker
-    # thread immediately, so the long weight-load + compile overlaps with
-    # the user's scene-selection wait below instead of starting only after
-    # the first pick. The app owns one long-lived KeyboardState and rebinds
-    # the presenter to it; scenes are switched in place via
-    # ``app.load_scene`` so the warmed model is never rebuilt.
+    # Build the backend + engine once. The app owns one long-lived
+    # KeyboardState and rebinds the presenter to it; scenes are switched in
+    # place via ``app.load_scene`` so the warmed model is never rebuilt.
     config, backend = _cli.prepare_config_and_backend(args)
     app = InteractiveDriveApp(
         config=config,
@@ -848,11 +745,9 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         callback=app.set_postprocess_enabled,
     )
 
-    # Attach the wheel up front, bound to the app's long-lived keyboard, so
-    # the HUD's steering / pedal chrome reacts to the physical device during
-    # the initial scene-selection wait -- not only once a scene is running.
-    # The evdev reader thread starts now and runs for the process lifetime;
-    # the single keyboard means it never needs rebinding across scenes.
+    # Attach the wheel up front, bound to the app's long-lived keyboard. The
+    # evdev reader thread starts now and runs for the process lifetime; the
+    # single keyboard means it never needs rebinding across scenes.
     wheel: Any = None
     if wheel_selection is not None:
         profile, device_paths = wheel_selection
@@ -870,40 +765,19 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
             for opt in scene_options
             for variant in (opt.variants or ("default",))
         )
-        # Lock scene selection until every scene is cached so the user only
+        # Lock scene changes until every scene is cached so the user only
         # ever hits the instant (cache-hit) switch path.
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
-    # First scene: prefer the resolved ``config.scene_path`` so
-    # ``--synthetic-scene`` (materialised to a temp USDZ) and any autostaged
-    # default are honoured; a dropdown selection overrides it below.
     scene_path: Any = config.scene_path
     variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
-    presenter.acknowledge_scene_change(scene_path, variant)
     try:
-        # ``need_selection`` drives the scene-selection wait: True on first
-        # launch (unless ``--auto-start``) and again every time the user
-        # exits a scene back to the selector. While waiting the engine is
-        # idle, so the video model stops generating -- the whole point of the
-        # exit-scene affordance for long-running demos -- without closing the
-        # window or dropping the warmed model.
-        need_selection = not args.auto_start
-        # --auto-start + --preload-scenes: wait for the preloader to finish
-        # before the auto-load below so it hits the cache instead of racing
-        # the background thread with a second parse of the same USDZ.
-        if args.auto_start and app.preload_in_progress():
+        if app.preload_in_progress():
             presenter.wait_while_preloading(app.preload_in_progress)
+        presenter.acknowledge_scene_change(scene_path, variant)
         while True:
-            if need_selection:
-                request = presenter.wait_for_scene_selection()
-                if request is None:
-                    break  # window closed before any scene was loaded
-                scene_path, variant = request
-                presenter.acknowledge_scene_change(scene_path, variant)
-                need_selection = False
-
             presenter.set_engine_active(True)
-            # load_scene parses the USDZ on a background thread while keeping
+            # load_scene compiles the map on a background thread while keeping
             # the window responsive; it returns False if the window closed
             # (or a new scene was requested) before the parse finished, so
             # we skip run_scene and let the pending checks below decide
@@ -912,11 +786,8 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
                 app.run_scene()
             presenter.set_engine_active(False)
             if presenter.pending_exit_scene:
-                # ``x`` / bound exit button: tear down the rollout and go
-                # back to the selector over the same presenter.
                 presenter.acknowledge_exit_scene()
-                need_selection = True
-                continue
+                break
             requested = presenter.pending_scene_change
             if requested is None:
                 # Window closed (X / ESC) during load or run; we're done.
@@ -933,8 +804,7 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
     Like :func:`_run_slangpy_hud` but with a long-lived
     :class:`MJPEGStreamingPresenter`: the HTTP server / browser sessions stay
-    alive across scene swaps while only the scene is rebuilt. Scene options are
-    serialised to JSON for the in-browser ``/scenes`` dropdown.
+    alive across scene swaps while only the scene is rebuilt.
     """
     from omnidreams_game_engine.input.keyboard import KeyboardState
     from omnidreams_game_engine.streaming_presenter import (
@@ -944,9 +814,8 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
-    _materialize_synthetic_scene_for_picker(args)
     scene_options = _discover_scene_options(args.scene_dir, args.scene)
-    if not args.scene.exists() and scene_options:
+    if (args.scene is None or not args.scene.exists()) and scene_options:
         args.scene = scene_options[0].path
     if args.backend == "omnidreams":
         if args.manifest is None:
@@ -957,10 +826,10 @@ def _run_streaming(args: argparse.Namespace) -> None:
                 " (typo? expected a path or bundled config name like "
                 "example_world_model.yaml)"
             )
+    if args.scene is None:
+        raise SystemExit("--map is required when --map-dir contains no maps")
     if not scene_options and not args.scene.exists():
-        raise SystemExit(
-            f"--scene path does not exist and --scene-dir contains no scenes: {args.scene}"
-        )
+        raise SystemExit(f"--map path does not exist: {args.scene}")
 
     # JSON-serialisable form of the discovered scenes for the browser
     # ``/scenes`` endpoint. Thumbnails are JPEG-encoded once at startup
@@ -1003,11 +872,9 @@ def _run_streaming(args: argparse.Namespace) -> None:
         thumbnails=thumbnails,
     )
 
-    # Build the backend + engine once so the model warms up (on the
-    # pipeline worker thread) while the browser is still choosing the first
-    # scene. The app rebinds the presenter to its long-lived keyboard and
-    # switches scenes in place via ``app.load_scene``, keeping the warmed
-    # model resident across scene changes.
+    # Build the backend + engine once. The app rebinds the presenter to its
+    # long-lived keyboard and switches scenes in place via ``app.load_scene``,
+    # keeping the warmed model resident across scene changes.
     config, backend = _cli.prepare_config_and_backend(args)
     app = InteractiveDriveApp(
         config=config,
@@ -1028,39 +895,14 @@ def _run_streaming(args: argparse.Namespace) -> None:
         presenter.set_scene_selection_locked(app.preload_in_progress)
 
     try:
-        if args.auto_start:
-            # Headless / scriptable start: skip the browser scene picker and
-            # load the resolved ``--scene`` (or the first discovered scene)
-            # immediately. This lets the demo run with no GUI/browser.
-            # --auto-start + --preload-scenes: let the preloader finish first
-            # so the auto-load hits the cache instead of racing a second parse.
-            if app.preload_in_progress():
-                presenter.wait_while_preloading(app.preload_in_progress)
-            scene_path = config.scene_path
-            variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
-            presenter.acknowledge_scene_change(scene_path, variant)
-            logger.info(
-                f"[demo] streaming auto-start scene -> {scene_path.name} "
-                f"variant={variant!r}",
-            )
-        else:
-            # Don't auto-load: always wait for the browser to pick the first
-            # scene. There's no Vulkan window to show progress in, so the
-            # presenter publishes an idle overlay frame ("Loading world
-            # model..." while warmup runs in the background, then "Select a
-            # scene to begin") so connected browsers have something to render
-            # while the wait spins.
-            logger.info(
-                "[demo] streaming presenter waiting for first scene selection...",
-            )
-            request = presenter.wait_for_scene_selection()
-            if request is None:
-                return  # presenter closed before any selection (Ctrl-C)
-            scene_path, variant = request
-            presenter.acknowledge_scene_change(scene_path, variant)
-            logger.info(
-                f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
-            )
+        if app.preload_in_progress():
+            presenter.wait_while_preloading(app.preload_in_progress)
+        scene_path = config.scene_path
+        variant = _resolve_scene_variant(scene_options, scene_path, config.variant)
+        presenter.acknowledge_scene_change(scene_path, variant)
+        logger.info(
+            f"[demo] streaming initial scene -> {scene_path.name} variant={variant!r}",
+        )
 
         while True:
             # load_scene parses the USDZ on a background thread while the
@@ -1113,32 +955,6 @@ def _resolve_demo_paths(args: argparse.Namespace) -> None:
         args.control_assets_dir = _project_path(args.control_assets_dir)
 
 
-def _materialize_synthetic_scene_for_picker(args: argparse.Namespace) -> None:
-    """Build ``--synthetic-scene`` before scene-picker discovery.
-
-    The single-scene ``--no-hud`` path lets ``cli.prepare_config_and_backend``
-    materialize the synthetic USDZ. HUD and MJPEG modes discover scenes first
-    so the picker can show options before a scene is loaded; those modes need
-    the temporary USDZ to exist before discovery runs.
-    """
-    if not args.synthetic_scene:
-        return
-    scene_path = build_synthetic_scene_to_temp(
-        initial_rgb_path=args.synthetic_initial_rgb,
-        prompt=args.synthetic_prompt,
-    )
-    logger.info(
-        "[interactive-drive] synthetic scene materialised at {}",
-        scene_path,
-    )
-    args.scene = scene_path
-    # The synthetic inputs have been consumed into the temp USDZ. Clear them so
-    # the later shared backend builder treats the scene as a normal archive.
-    args.synthetic_scene = False
-    args.synthetic_initial_rgb = None
-    args.synthetic_prompt = None
-
-
 def _project_path(path: Path) -> Path:
     path = Path(path).expanduser()
     if path.is_absolute():
@@ -1149,28 +965,19 @@ def _project_path(path: Path) -> Path:
 
 
 def _discover_scene_options(
-    scene_dir: Path, selected_scene: Path
+    scene_dir: Path, selected_scene: Path | None
 ) -> tuple[SceneOption, ...]:
     paths: set[Path] = set()
-    if selected_scene.exists():
+    if selected_scene is not None and selected_scene.exists():
         paths.add(selected_scene.resolve())
     if scene_dir.is_dir():
-        paths.update(path.resolve() for path in scene_dir.glob("*.usdz"))
-    if selected_scene.parent.is_dir():
-        paths.update(path.resolve() for path in selected_scene.parent.glob("*.usdz"))
+        paths.update(path.resolve() for path in scene_dir.glob(f"*{GAME_MAP_SUFFIX}"))
+    if selected_scene is not None and selected_scene.parent.is_dir():
+        paths.update(
+            path.resolve() for path in selected_scene.parent.glob(f"*{GAME_MAP_SUFFIX}")
+        )
 
-    # Group archives by scene UUID so the per-weather sibling files
-    # (``clipgt-<uuid>-<variant>.usdz``) collapse into one scene with a variant
-    # selector. Single-archive scenes stay a group of one.
-    grouped: dict[str, dict[str, Path]] = {}
-    for path in sorted(paths):
-        uuid, variant = _scenes.parse_scene_stem(path.stem)
-        grouped.setdefault(uuid, {})[variant] = path
-
-    options = tuple(
-        _scene_option_for_group(variant_paths)
-        for _uuid, variant_paths in sorted(grouped.items())
-    )
+    options = tuple(_scene_option_for_game_map(path) for path in sorted(paths))
     logger.info(
         "[demo] discovered scenes: "
         + (
@@ -1184,99 +991,46 @@ def _discover_scene_options(
     return options
 
 
-def _order_variants(variants: Iterable[str]) -> tuple[str, ...]:
-    """Order variant slugs with ``default`` first, then the rest sorted."""
-    unique = set(variants)
-    ordered = ["default"] if "default" in unique else []
-    ordered.extend(sorted(unique - {"default"}))
-    return tuple(ordered)
-
-
-def _scene_option_for_group(variant_paths: dict[str, Path]) -> SceneOption:
-    """Build one :class:`SceneOption` from a scene's variant archive(s).
-
-    Multiple siblings => the weather variants are the files. A single archive
-    => fall back to in-zip variant discovery (legacy / synthetic scenes).
-    """
-    if len(variant_paths) > 1:
-        variants = _order_variants(variant_paths.keys())
-        base_path = variant_paths.get("default") or variant_paths[variants[0]]
-        resolved_paths = dict(variant_paths)
-        variant_thumbnails = _load_variant_file_thumbnails(resolved_paths, variants)
-    else:
-        base_path = next(iter(variant_paths.values()))
-        variants = _discover_variants(base_path)
-        resolved_paths = {variant: base_path for variant in variants}
-        variant_thumbnails = _load_variant_thumbnails(base_path, variants)
-    # Use the first variant's preview for the scene row so the scene and
-    # variant dropdowns agree, falling back to the standalone loader.
-    thumbnail = (
-        variant_thumbnails.get(variants[0])
-        or variant_thumbnails.get("default")
-        or _load_scene_thumbnail(base_path)
-    )
+def _scene_option_for_game_map(path: Path) -> SceneOption:
+    """Build scene metadata from the authored game map."""
+    header = load_game_map_header(path)
+    variants = tuple(variant.name for variant in header.variants)
+    thumbnails: dict[str, Image.Image] = {}
+    generated_thumbnail: Image.Image | None = None
+    for variant in header.variants:
+        if variant.image is None:
+            if generated_thumbnail is None:
+                game_map = load_game_map(path)
+                generated_thumbnail = _make_thumbnail(
+                    Image.fromarray(
+                        render_spawn_first_frame(game_map, game_map.default_spawn)
+                    ),
+                    SCENE_THUMB_SIZE,
+                )
+            thumbnails[variant.name] = generated_thumbnail.copy()
+            continue
+        try:
+            with Image.open(resolve_seed_asset(path, variant.image)) as image:
+                thumbnails[variant.name] = _make_thumbnail(
+                    image.convert("RGB"), SCENE_THUMB_SIZE
+                )
+        except OSError:
+            continue
+    thumbnail = thumbnails.get("default") or next(iter(thumbnails.values()), None)
     return SceneOption(
-        label=_scene_label(base_path),
-        path=base_path,
+        label=header.name,
+        path=path,
         variants=variants,
         thumbnail=thumbnail,
-        variant_thumbnails=variant_thumbnails,
-        variant_paths=resolved_paths,
+        variant_thumbnails=thumbnails,
+        variant_paths={variant: path for variant in variants},
     )
-
-
-def _scene_label(path: Path) -> str:
-    scene_names = {
-        "0d404ff7-2b66-498c-b047-1ed8cded60d4": "Quiet Suburban Boulevard",
-        "7bd1eb2f-c375-44ee-b4ca-55473e0773a9": "Late Night Arrival in the Neighborhood",
-        "e2993759-36e1-4d97-868f-e2a737f1eb68": "Afternoon Commute Past the Park",
-    }
-    # Key by bare UUID so the label is stable across weather variant archives.
-    uuid, _variant = _scenes.parse_scene_stem(path.stem)
-    return scene_names.get(uuid, path.stem)
-
-
-def _discover_variants(scene_path: Path) -> tuple[str, ...]:
-    variants: set[str] = set()
-    try:
-        with zipfile.ZipFile(scene_path, "r") as zf:
-            for name in zf.namelist():
-                if "/" in name:
-                    continue
-                stem = Path(name).stem
-                if name.startswith("first_image") and name.endswith(".png"):
-                    variant = _scenes.variant_from_stem(stem, "first_image")
-                elif name.startswith("prompt") and name.endswith(".txt"):
-                    variant = _scenes.variant_from_stem(stem, "prompt")
-                else:
-                    continue
-                if variant is not None:
-                    variants.add(variant)
-    except (OSError, zipfile.BadZipFile):
-        return ("default",)
-    # A bare ``default`` (prompt.txt / first_image.png) duplicates the first
-    # numbered variant, so when numbered variants exist we expose just those --
-    # "1" is then the default selection. Scenes with no numbered variants show
-    # a single "default".
-    numbered = [value for value in variants if value != "default"]
-    if numbered:
-        numbered.sort(key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else v))
-        return tuple(numbered)
-    return ("default",)
 
 
 def _resolve_scene_variant(
     scene_options: tuple[SceneOption, ...], scene_path: Any, variant: str
 ) -> str:
-    """Return a variant that actually exists for *scene_path*.
-
-    Numbered scenes no longer carry a bare ``default`` entry, so a configured
-    ``--variant default`` (or anything the scene lacks) falls back to the
-    scene's first variant rather than a selection the dropdown can't show.
-    For weather sibling archives, the path itself is also a source of truth:
-    ``clipgt-...-snow.usdz`` with the default CLI variant should start as
-    ``snow``, not silently load the clear/base archive.
-    """
+    """Return a variant that exists for *scene_path*."""
     for option in scene_options:
         path_variant = _scene_option_variant_for_path(option, scene_path)
         if path_variant is None:
@@ -1298,9 +1052,6 @@ def _scene_option_variant_for_path(option: SceneOption, scene_path: Any) -> str 
         resolved = None
     raw = str(scene_path)
 
-    # ``variant_paths`` is the authoritative map for weather sibling archives.
-    # For legacy single-archive scenes it maps every in-zip variant to the same
-    # path, so the first variant intentionally matches the old fallback.
     for variant, path in option.variant_paths.items():
         if _same_scene_path(path, raw, resolved):
             return variant
@@ -1315,86 +1066,6 @@ def _same_scene_path(path: Path, raw: str, resolved: Path | None) -> bool:
     return (resolved is not None and path == resolved) or str(path) == raw
 
 
-def _load_scene_thumbnail(scene_path: Path) -> Image.Image | None:
-    try:
-        with zipfile.ZipFile(scene_path, "r") as zf:
-            names = [
-                name
-                for name in zf.namelist()
-                if "/" not in name
-                and name.startswith("first_image")
-                and name.endswith(".png")
-            ]
-            if not names:
-                return None
-            name = "first_image.png" if "first_image.png" in names else sorted(names)[0]
-            with Image.open(io.BytesIO(zf.read(name))) as image:
-                return _make_thumbnail(image.convert("RGB"), SCENE_THUMB_SIZE)
-    except (OSError, zipfile.BadZipFile):
-        return None
-
-
-def _load_variant_thumbnails(
-    scene_path: Path, variants: tuple[str, ...]
-) -> dict[str, Image.Image]:
-    """Per-variant preview thumbnails for the HUD variant dropdown.
-
-    Mirrors :func:`scene_loader._discover_first_images`: a bundle may ship
-    ``first_image_<variant>.png`` per variant alongside ``first_image.png``
-    (the ``"default"`` variant). Each referenced image is decoded once;
-    variants without a dedicated image fall back to the default so every
-    dropdown row still shows a preview. Returns an empty mapping when the
-    archive has no parseable first images.
-    """
-    decoded: dict[str, Image.Image] = {}
-    try:
-        with zipfile.ZipFile(scene_path, "r") as zf:
-            names_by_variant: dict[str, str] = {}
-            for name in zf.namelist():
-                if (
-                    "/" in name
-                    or not name.startswith("first_image")
-                    or not name.endswith(".png")
-                ):
-                    continue
-                variant = _scenes.variant_from_stem(Path(name).stem, "first_image")
-                if variant is not None:
-                    names_by_variant[variant] = name
-            for variant, name in names_by_variant.items():
-                with Image.open(io.BytesIO(zf.read(name))) as image:
-                    decoded[variant] = _make_thumbnail(
-                        image.convert("RGB"), SCENE_THUMB_SIZE
-                    )
-    except (OSError, zipfile.BadZipFile):
-        return {}
-    if not decoded:
-        return {}
-    default = decoded.get("default") or next(iter(decoded.values()))
-    return {variant: decoded.get(variant, default) for variant in variants}
-
-
-def _load_variant_file_thumbnails(
-    variant_paths: dict[str, Path], variants: tuple[str, ...]
-) -> dict[str, Image.Image]:
-    """Per-variant thumbnails when each variant is its own archive.
-
-    Each preview comes from that variant file's ``first_image.png``; variants
-    with no usable preview reuse the default. Empty mapping if nothing decoded.
-    """
-    decoded: dict[str, Image.Image] = {}
-    for variant in variants:
-        path = variant_paths.get(variant)
-        if path is None:
-            continue
-        thumb = _load_scene_thumbnail(path)
-        if thumb is not None:
-            decoded[variant] = thumb
-    if not decoded:
-        return {}
-    fallback = decoded.get("default") or next(iter(decoded.values()))
-    return {variant: decoded.get(variant, fallback) for variant in variants}
-
-
 def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     thumb = Image.new("RGB", size, (20, 20, 30))
     fitted = _fit_image(image, size)
@@ -1404,15 +1075,10 @@ def _make_thumbnail(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 def _variant_label(variant: str) -> str:
     labels = {
-        # Per-weather variant archives.
         "default": "Default (Clear)",
         "clear": "Clear",
         "snow": "Snowstorm",
         "rain": "Night Rain",
-        # Legacy in-archive numbered variants.
-        "1": "Bright Midday Sun",
-        "2": "Snowstorm",
-        "3": "Night with Heavy Rain",
     }
     return labels.get(variant, variant)
 

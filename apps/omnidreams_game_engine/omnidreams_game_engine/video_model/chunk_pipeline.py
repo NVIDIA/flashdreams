@@ -102,8 +102,7 @@ class ChunkPipeline:
         self._worker_error_lock = threading.Lock()
         self._worker_error: BaseException | None = None
         # Set once ``warmup_model`` finishes on the worker thread (or fails).
-        # Lets callers overlap the scene-selection wait with the model load
-        # and show a "ready" affordance once the model is resident.
+        # Lets callers detect when the model is resident.
         self._model_ready = threading.Event()
         # Set once the worker queues its first generated chunk -- i.e. the
         # one-time first-chunk optimization is done. Never cleared; the model
@@ -282,6 +281,16 @@ class ChunkPipeline:
                     frame,
                     rig_to_world=trajectory.rig_poses_world[frame_index].copy(),
                     vehicle_state=replace(trajectory.vehicle_states[frame_index]),
+                    driver_command=trajectory.applied_commands[frame_index],
+                    impact_kind=(
+                        "actor"
+                        if trajectory.actor_collision_frame_index == frame_index
+                        else (
+                            "static"
+                            if trajectory.static_collision_frame_index == frame_index
+                            else None
+                        )
+                    ),
                     application_state=application_state,
                 )
                 frame_times = chunk_times.frames[frame_index]

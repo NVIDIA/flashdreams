@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +23,7 @@ from omnidreams_game_engine.config import (
     RasterConfig,
     WorldModelProfileConfig,
 )
+from omnidreams_game_engine.motion_conformance import compare_motion
 from omnidreams_game_engine.rasterizer import LudusConditionRasterizer
 from omnidreams_game_engine.types import (
     FrameChunk,
@@ -49,6 +52,7 @@ class WorldModelRenderBackend(RenderBackend):
         postprocess: VideoPostprocessChainConfig | None = None,
         *,
         synchronize_bev_with_rgb: bool = False,
+        motion_conformance_diagnostics_enabled: bool = False,
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
         self._manifest = manifest
@@ -65,6 +69,9 @@ class WorldModelRenderBackend(RenderBackend):
         )
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
+        self._motion_conformance_diagnostics_enabled = bool(
+            motion_conformance_diagnostics_enabled
+        )
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
 
     @property
@@ -230,6 +237,12 @@ class WorldModelRenderBackend(RenderBackend):
         model_frames = self._session.continue_generation(condition_frames)
         model_end = time.perf_counter()
         merged_frames = self._merge_frames(raster_chunk.frames, model_frames)
+        merged_frames = self._annotate_motion_conformance(
+            trajectory=trajectory,
+            condition_frames=condition_frames,
+            model_frames=model_frames,
+            merged_frames=merged_frames,
+        )
         merge_end = time.perf_counter()
         self._next_chunk_count += 1
         total_ms = (merge_end - chunk_start) * 1000.0
@@ -278,6 +291,42 @@ class WorldModelRenderBackend(RenderBackend):
                 merge_start_time=model_end,
                 merge_ready_time=merge_end,
             ),
+        )
+
+    def _annotate_motion_conformance(
+        self,
+        *,
+        trajectory: TrajectoryChunk,
+        condition_frames: Sequence[object],
+        model_frames: Sequence[object],
+        merged_frames: tuple[PresentedFrame, ...],
+    ) -> tuple[PresentedFrame, ...]:
+        """Attach opt-in diagnostics without changing generated presentation."""
+        if not self._motion_conformance_diagnostics_enabled:
+            return merged_frames
+        start = trajectory.vehicle_states[0]
+        end = trajectory.vehicle_states[-1]
+        yaw_delta = (end.yaw_rad - start.yaw_rad + math.pi) % (2.0 * math.pi) - math.pi
+        longitudinal_delta = (end.x_m - start.x_m) * math.cos(start.yaw_rad) + (
+            end.y_m - start.y_m
+        ) * math.sin(start.yaw_rad)
+        try:
+            result = compare_motion(
+                condition_frames,
+                model_frames,
+                yaw_delta_rad=yaw_delta,
+                longitudinal_delta_m=longitudinal_delta,
+            )
+            metrics = result.as_metrics()
+            if result.mismatched:
+                logger.warning(
+                    "[world-model] diagnostic motion mismatch metrics={}", metrics
+                )
+        except Exception as exc:  # noqa: BLE001 - diagnostics must not stop play
+            logger.warning(f"[world-model] motion conformance skipped: {exc!r}")
+            metrics = {"mismatched": False, "axis": "error"}
+        return tuple(
+            replace(frame, model_motion_metrics=metrics) for frame in merged_frames
         )
 
     def reset(self) -> None:

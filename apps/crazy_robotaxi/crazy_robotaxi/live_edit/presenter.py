@@ -275,7 +275,7 @@ class LiveEditPresenter:
         self._coin_ability = coin_ability
 
     def set_obstacle_ability(self, obstacle_ability: ObstacleAbility | None) -> None:
-        """Bind the per-rollout obstacle ability (chips + box annotation)."""
+        """Bind the per-rollout obstacle controller (chips + box annotation)."""
         self._obstacle_ability = obstacle_ability
 
     def set_item_ability(self, item_ability: Any | None) -> None:
@@ -559,7 +559,7 @@ class LiveEditPresenter:
         )
 
     def _annotate_obstacle(self, rgb: np.ndarray, frame: PresentedFrame) -> np.ndarray:
-        """Outline each obstacle clone's 3D box (evidence aid, flag-gated)."""
+        """Outline each obstacle event's 3D box (evidence aid, flag-gated)."""
         obstacle = self._obstacle_ability
         if (
             not self._config.obstacle.annotate
@@ -596,11 +596,10 @@ class LiveEditPresenter:
             center = event.center_at(int(frame.timestamp_us))
             if center is None:
                 continue
-            # Nearest-sample orientation is plenty for an annotation outline.
-            sample = int(
-                np.argmin(np.abs(event.timestamps_us - np.int64(frame.timestamp_us)))
-            )
-            rotation = _quat_to_matrix(event.orientations_xyzw[sample])
+            orientation = event.orientation_at(int(frame.timestamp_us))
+            if orientation is None:
+                continue
+            rotation = _quat_to_matrix(orientation)
             half = np.asarray(event.dimensions_lwh, dtype=np.float32) / 2.0
             corners = center[None, :] + (signs * half[None, :]) @ rotation.T
             uv, _depth, forward = camera_model.project_world(

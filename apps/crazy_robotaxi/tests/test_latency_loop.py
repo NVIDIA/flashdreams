@@ -272,6 +272,30 @@ class _FakeInputBackend:
         return SampledInput(command=DriverCommand(), sample_time=time.perf_counter())
 
 
+def test_command_timeline_preserves_short_press_and_release() -> None:
+    timeline = loop_module.CommandTimeline()
+    pressed = DriverCommand(steer=1.0)
+    released = DriverCommand()
+    timeline.observe(pressed, 10.0)
+    timeline.observe(released, 10.05)
+
+    commands = timeline.commands_for_chunk(chunk_size=8, frame_interval_s=1.0 / 30.0)
+
+    assert commands[:2] == (pressed, pressed)
+    assert commands[2:] == (released,) * 6
+
+
+def test_command_timeline_holds_latest_command_without_new_edges() -> None:
+    timeline = loop_module.CommandTimeline()
+    reverse = DriverCommand(throttle=1.0, reverse=True)
+    timeline.observe(reverse, 20.0)
+    first = timeline.commands_for_chunk(chunk_size=8, frame_interval_s=1.0 / 30.0)
+    second = timeline.commands_for_chunk(chunk_size=8, frame_interval_s=1.0 / 30.0)
+
+    assert first == (reverse,) * 8
+    assert second == (reverse,) * 8
+
+
 class _TaxiRuntime:
     def __init__(
         self, controller: TaxiGameController, controls: _FakeRuntimeControls
@@ -329,12 +353,13 @@ class _FakeSimulation:
 
     def pose_chunk(
         self,
-        command: DriverCommand,
+        commands: tuple[DriverCommand, ...],
         chunk_size: int,
         frame_interval_s: float,
         extrapolation_offset_s: float,
     ) -> TrajectoryChunk:
-        del command, frame_interval_s, extrapolation_offset_s
+        assert len(commands) == chunk_size
+        del frame_interval_s, extrapolation_offset_s
         self.pose_chunk_calls += 1
         return replace(
             make_trajectory(chunk_size),
@@ -351,7 +376,7 @@ def test_chunk_request_gates_physx_debug_capture_on_view_mode(
     loop_module.make_chunk_request(
         state=loop_module.MainLoopState(),
         simulation=simulation,
-        command=DriverCommand(),
+        commands=(DriverCommand(),),
         input_sample_time=time.perf_counter(),
         chunk_history=loop_module.ChunkHistory(4),
         config=_loop_config(frame_interval_s=1.0 / 30.0),
@@ -366,7 +391,7 @@ def test_chunk_request_can_force_physx_debug_capture_for_diagnostics() -> None:
     loop_module.make_chunk_request(
         state=loop_module.MainLoopState(),
         simulation=simulation,
-        command=DriverCommand(),
+        commands=(DriverCommand(),),
         input_sample_time=time.perf_counter(),
         chunk_history=loop_module.ChunkHistory(4),
         config=replace(

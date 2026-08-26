@@ -207,135 +207,11 @@ _INDEX_HTML = """<!doctype html>
     border-color: white;
     color: #111;
   }
-  .scene-picker {
-    position: fixed; bottom: 16px; right: 16px;
-    background: rgba(0, 0, 0, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 10px;
-    color: white;
-    font-size: 12px;
-    display: flex; flex-direction: column;
-    max-height: 60vh;
-    backdrop-filter: blur(6px);
-    overflow: hidden;
-    /* Animate the collapse so the toggle feels physical rather than a
-       hard show/hide. ``max-height`` is the lever rather than ``display``
-       because ``display: none`` short-circuits transitions. */
-    transition: max-height 0.18s ease-out;
-  }
-  .scene-picker.hidden { display: none; }
-  .scene-picker.collapsed { max-height: 38px; }
-  .scene-picker-toggle {
-    background: none; border: none; color: white;
-    padding: 9px 12px;
-    display: flex; align-items: center; gap: 8px;
-    cursor: pointer;
-    font-size: 11px; font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    width: 100%;
-    text-align: left;
-    flex-shrink: 0;
-    pointer-events: auto;
-    user-select: none;
-  }
-  .scene-picker-toggle:hover { background: rgba(255, 255, 255, 0.06); }
-  .scene-picker-count {
-    opacity: 0.55;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 11px;
-  }
-  .scene-picker-chevron {
-    margin-left: auto;
-    font-size: 10px;
-    transition: transform 0.18s ease-out;
-  }
-  .scene-picker.collapsed .scene-picker-chevron {
-    transform: rotate(-90deg);
-  }
-  .scene-picker-list {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: 0 10px 10px 10px;
-    overflow-y: auto;
-  }
-  /* Hide the list's scroll viewport entirely while the panel is
-     collapsed so no scrollbar artifacts leak through the parent's
-     ``overflow: hidden`` clipping. */
-  .scene-picker.collapsed .scene-picker-list { overflow: hidden; }
-  /* Replace Chromium's default scrollbar (which carries the up/down
-     arrow buttons that were poking out the bottom-right of the
-     collapsed panel) with a slim button-less rail. Firefox's
-     standards-track ``scrollbar-width`` covers the same ground. */
-  .scene-picker-list { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent; }
-  .scene-picker-list::-webkit-scrollbar { width: 6px; }
-  .scene-picker-list::-webkit-scrollbar-track { background: transparent; }
-  .scene-picker-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.22);
-    border-radius: 3px;
-  }
-  .scene-picker-list::-webkit-scrollbar-button { display: none; }
-  .scene-picker-list::-webkit-scrollbar-corner { background: transparent; }
-  .scene-card {
-    width: 160px;
-    border-radius: 6px;
-    overflow: hidden;
-    cursor: pointer;
-    border: 2px solid transparent;
-    transition: border-color 0.1s, transform 0.05s;
-    background: rgba(255, 255, 255, 0.05);
-    pointer-events: auto;
-    user-select: none;
-  }
-  .scene-card:hover { border-color: rgba(120, 200, 255, 0.7); }
-  .scene-card.loading {
-    border-color: rgba(120, 200, 255, 1.0);
-    pointer-events: none;
-    opacity: 0.7;
-  }
-  .scene-card img {
-    width: 100%; height: 72px;
-    object-fit: cover;
-    display: block;
-    background: #222;
-  }
-  .scene-card .scene-label {
-    padding: 6px 8px;
-    font-size: 11px; line-height: 1.3;
-  }
-  /* Weather-variant pills, shown only for multi-variant scenes. */
-  .scene-variants {
-    display: flex; flex-wrap: wrap; gap: 4px;
-    padding: 0 8px 8px 8px;
-  }
-  .variant-pill {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 999px;
-    color: white;
-    font-size: 10px;
-    padding: 2px 8px;
-    cursor: pointer;
-    pointer-events: auto;
-    user-select: none;
-    transition: background-color 0.1s, border-color 0.1s;
-  }
-  .variant-pill:hover { background: rgba(120, 200, 255, 0.3); border-color: rgba(120, 200, 255, 0.7); }
-  .variant-pill.loading { border-color: rgba(120, 200, 255, 1.0); opacity: 0.7; pointer-events: none; }
 </style>
 </head>
 <body>
 <img id="stream" src="/stream">
 <div class="hint">WASD / Arrows = Drive &middot; 1 = World-Model RGB &middot; 2 = HDMap &middot; 3 = PhysX &middot; R = Reset Rollout</div>
-<div class="scene-picker hidden" id="scene-picker">
-  <button class="scene-picker-toggle" id="scene-picker-toggle" type="button">
-    <span>Scenes</span>
-    <span class="scene-picker-count" id="scene-picker-count"></span>
-    <span class="scene-picker-chevron">&#9662;</span>
-  </button>
-  <div class="scene-picker-list" id="scene-picker-list"></div>
-</div>
 <div class="hud">
   <div class="speed disconnected" id="speed">
     <span class="speed-value" id="speed-value">--</span>
@@ -381,8 +257,7 @@ function send(key, down) {
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
 // Skip key handling when focus is on a form input (e.g. a future
-// settings panel). The scene picker is now click-driven so the
-// keyboard never lands on a button there.
+// settings panel).
 function shouldIgnoreKey(e) {
   const t = e.target;
   if (!t) return false;
@@ -422,110 +297,6 @@ async function pollState() {
 setInterval(pollState, 100);
 pollState();
 
-// Scene picker. Hidden until /scenes returns at least one entry,
-// then renders as a panel in the bottom-right. Auto-expanded on first
-// load because nothing happens until the user picks a scene -- the
-// server is blocked on ``wait_for_scene_selection`` and the MJPEG
-// stream shows the "Select a scene to begin driving" overlay frame.
-// After the first pick it auto-collapses (and click-outside collapses
-// thereafter), so the panel stays out of the way during driving.
-const scenePicker = document.getElementById('scene-picker');
-const scenePickerList = document.getElementById('scene-picker-list');
-const scenePickerToggle = document.getElementById('scene-picker-toggle');
-const scenePickerCount = document.getElementById('scene-picker-count');
-let SCENES = [];
-let firstSceneLoaded = false;
-function setScenePickerCollapsed(collapsed) {
-  scenePicker.classList.toggle('collapsed', collapsed);
-}
-scenePickerToggle.addEventListener('click', () => {
-  setScenePickerCollapsed(!scenePicker.classList.contains('collapsed'));
-});
-// Click outside the panel collapses it -- but only after the user has
-// actually picked their first scene. Pre-selection clicks (e.g. the
-// user clicking on the camera area to dismiss something) don't tuck
-// the picker away, since the panel is the only way to start driving.
-document.addEventListener('mousedown', e => {
-  if (!firstSceneLoaded) return;
-  if (scenePicker.classList.contains('hidden')) return;
-  if (scenePicker.contains(e.target)) return;
-  setScenePickerCollapsed(true);
-});
-async function fetchScenes() {
-  try {
-    const r = await fetch('/scenes', { cache: 'no-store' });
-    if (!r.ok) return;
-    const data = await r.json();
-    SCENES = Array.isArray(data.scenes) ? data.scenes : [];
-    scenePickerCount.textContent = SCENES.length ? `(${SCENES.length})` : '';
-    if (!SCENES.length) {
-      scenePicker.classList.add('hidden');
-      return;
-    }
-    scenePickerList.innerHTML = '';
-    SCENES.forEach((s, i) => {
-      const card = document.createElement('div');
-      card.className = 'scene-card';
-      card.dataset.idx = String(i);
-      if (s.has_thumbnail) {
-        const img = document.createElement('img');
-        img.src = '/thumbnail?scene=' + encodeURIComponent(s.path);
-        img.alt = '';
-        img.onerror = () => { img.style.display = 'none'; };
-        card.appendChild(img);
-      }
-      const label = document.createElement('div');
-      label.className = 'scene-label';
-      label.textContent = s.label || ('Scene ' + (i + 1));
-      card.appendChild(label);
-      // Clicking the card (outside a pill) loads the default variant.
-      card.addEventListener('click', () => loadScene(i, card));
-      const variants = Array.isArray(s.variants) ? s.variants : [];
-      if (variants.length > 1) {
-        const row = document.createElement('div');
-        row.className = 'scene-variants';
-        variants.forEach(v => {
-          const pill = document.createElement('button');
-          pill.className = 'variant-pill';
-          pill.type = 'button';
-          pill.textContent = variantLabel(v);
-          pill.addEventListener('click', e => {
-            e.stopPropagation();   // don't also trigger the card's default-variant load
-            loadScene(i, card, v, pill);
-          });
-          row.appendChild(pill);
-        });
-        card.appendChild(row);
-      }
-      scenePickerList.appendChild(card);
-    });
-    scenePicker.classList.remove('hidden');
-  } catch {}
-}
-function variantLabel(v) {
-  const labels = {
-    default: 'Default', clear: 'Clear', snow: 'Snow', rain: 'Rain',
-  };
-  return labels[v] || (v.charAt(0).toUpperCase() + v.slice(1));
-}
-async function loadScene(idx, card, variant, pill) {
-  const scene = SCENES[idx];
-  if (!scene) return;
-  (pill || card).classList.add('loading');
-  try {
-    let url = '/scene/select?scene=' + encodeURIComponent(scene.path);
-    // No variant -> server uses the scene's default; a pill selects one.
-    if (variant) url += '&variant=' + encodeURIComponent(variant);
-    await fetch(url, { method: 'GET', cache: 'no-store' });
-  } catch {}
-  // Tuck the panel away so the user gets the camera view back; the
-  // scene transition itself is driven by the server-side loop. From
-  // this point on, click-outside dismissal is enabled too.
-  firstSceneLoaded = true;
-  setScenePickerCollapsed(true);
-  setTimeout(() => { (pill || card).classList.remove('loading'); }, 1500);
-}
-fetchScenes();
 </script>
 </body>
 </html>
@@ -752,7 +523,14 @@ class MJPEGStreamingPresenter:
                 )
             )
         elif view_mode == "model_rgb" and frame.model_rgb_host_uint8 is not None:
-            _prefetch_to_numpy(frame.model_rgb_host_uint8)
+            _prefetch_to_numpy(
+                select_presented_rgb(
+                    frame,
+                    view_mode,
+                    width=self._raster.width,
+                    height=self._raster.height,
+                )
+            )
         else:
             _prefetch_to_numpy(frame.rgb_host_uint8)
         if frame.bev_host_uint8 is not None:
@@ -789,7 +567,13 @@ class MJPEGStreamingPresenter:
             self._publish(
                 with_flare(
                     _with_status_overlay(
-                        frame.model_rgb_host_uint8, frame.status_message
+                        select_presented_rgb(
+                            frame,
+                            view_mode,
+                            width=self._raster.width,
+                            height=self._raster.height,
+                        ),
+                        frame.status_message,
                     )
                 )
             )
@@ -986,10 +770,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            # Aggressive no-cache so a browser that still has a
-            # pre-scene-picker tab open doesn't keep rendering the old
-            # HTML after a server upgrade. The page is tiny (~10 KB) so
-            # bypassing the cache on every reload costs nothing.
+            # Always serve the current control page after a server restart.
             self.send_header(
                 "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
             )

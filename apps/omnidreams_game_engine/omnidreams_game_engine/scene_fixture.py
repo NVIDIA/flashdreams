@@ -15,12 +15,14 @@ import pyarrow.parquet as pq
 import yaml
 from PIL import Image
 
+from omnidreams_game_engine.camera_defaults import (
+    DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
+    default_front_camera_rig,
+)
 from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 
 _SCENE_ID = "synthetic-test-scene"
-_CAMERA_CLIPGT_NAME = "camera:front:wide:120fov"
-_CAMERA_LOGICAL_NAME = "camera_front_wide_120fov"
 _FPS = 30
 # Default trajectory length: 180 frames (6 s @ 30 fps, ~60 m) is enough for the
 # scene-loader tests; the runtime helper passes a larger ``length_frames``.
@@ -38,11 +40,8 @@ _FORWARD_SPEED_MPS = 10.0
 _LANE_LINE_OFFSET_M = 1.8
 _ROAD_BOUNDARY_OFFSET_M = 9.0
 _POLE_OFFSET_M = 9.5
-# Periodic roadside furniture spacing (poles ~50 m like streetlamps, plus parked
-# cars / signs on alternating shoulders), anchored to the wavy centerline.
+# Periodic roadside furniture spacing, anchored to the wavy centerline.
 _POLE_PERIOD_M = 50.0
-_PARKED_CAR_PERIOD_M = 150.0
-_PARKED_CAR_LATERAL_M = 5.0
 _TRAFFIC_SIGN_PERIOD_M = 200.0
 _TRAFFIC_SIGN_LATERAL_M = 7.0
 _TRAFFIC_SIGN_HEIGHT_M = 2.5
@@ -296,40 +295,6 @@ def _traffic_light_rows() -> list[dict[str, object]]:
     ]
 
 
-_OBSTACLE_TRACKS: tuple[dict[str, object], ...] = (
-    {
-        "trackline_id": "car-001",
-        "category": "Automobile",  # -> Car bbox color
-        "center": (25.0, -1.8, 0.8),
-        "size": (4.7, 2.0, 1.6),
-    },
-    {
-        "trackline_id": "truck-001",
-        "category": "Heavy_Truck",  # -> Truck bbox color
-        "center": (48.0, 2.0, 1.75),
-        "size": (9.0, 2.6, 3.5),
-    },
-    {
-        "trackline_id": "pedestrian-001",
-        "category": "Pedestrian",
-        "center": (18.0, 4.0, 0.9),
-        "size": (0.6, 0.6, 1.8),
-    },
-    {
-        "trackline_id": "cyclist-001",
-        "category": "Cyclist",
-        "center": (23.0, -3.5, 0.9),
-        "size": (1.8, 0.5, 1.5),
-    },
-    {
-        "trackline_id": "debris-001",
-        "category": "Debris",  # -> Others bbox color
-        "center": (43.0, -5.0, 0.35),
-        "size": (0.8, 0.8, 0.7),
-    },
-)
-
-
 def _periodic_poles(
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -469,144 +434,7 @@ def _periodic_traffic_signs(
     return rows
 
 
-def _periodic_parked_cars(
-    x_m: np.ndarray,
-    y_m: np.ndarray,
-    yaw_rad: np.ndarray,
-    *,
-    period_m: float = _PARKED_CAR_PERIOD_M,
-    lateral_offset_m: float = _PARKED_CAR_LATERAL_M,
-) -> list[dict[str, object]]:
-    """Emit parked-car obstacle definitions on alternating shoulders along
-    the trajectory.
-
-    Each entry has the same shape as ``_OBSTACLE_TRACKS`` so the existing
-    ``_obstacle_rows`` plumbing can append them. The car's yaw is set to
-    the centerline yaw so cars look parked parallel to the road, not
-    randomly oriented.
-    """
-    if len(x_m) == 0:
-        return []
-    tracks: list[dict[str, object]] = []
-    next_x = period_m
-    side_idx = 0
-    while next_x < float(x_m[-1]):
-        # Find the trajectory frame closest to ``next_x``.
-        i = int(np.searchsorted(x_m, next_x))
-        if i >= len(x_m):
-            break
-        side = 1.0 if side_idx % 2 == 0 else -1.0
-        cx = float(x_m[i])
-        cy = float(y_m[i])
-        cyaw = float(yaw_rad[i])
-        dx = -math.sin(cyaw) * lateral_offset_m * side
-        dy = math.cos(cyaw) * lateral_offset_m * side
-        tracks.append(
-            {
-                "trackline_id": f"parked-car-{side_idx:04d}",
-                "category": "Automobile",
-                "center": (cx + dx, cy + dy, 0.8),
-                "size": (4.7, 2.0, 1.6),
-                "yaw_rad": cyaw,
-            }
-        )
-        next_x += period_m
-        side_idx += 1
-    return tracks
-
-
-def _obstacle_rows(
-    timestamps_us: np.ndarray, extra_tracks: tuple[dict[str, object], ...] = ()
-) -> list[dict[str, object]]:
-    """Emit two stationary samples per track at the first and last trajectory
-    timestamps so ``WorldVehicleBBoxTrack.interpolate_at_timestamp`` resolves at
-    every render frame without needing extrapolation."""
-    sample_frames = (0, int(len(timestamps_us)) - 1)
-    rows: list[dict[str, object]] = []
-    for track in (*_OBSTACLE_TRACKS, *extra_tracks):
-        center_xyz = track["center"]
-        size_xyz = track["size"]
-        assert isinstance(center_xyz, tuple) and isinstance(size_xyz, tuple)
-        track_yaw = float(track.get("yaw_rad", 0.0))  # type: ignore[arg-type]
-        for sample_idx, frame_idx in enumerate(sample_frames):
-            rows.append(
-                {
-                    "key": {
-                        "clip_id": _SCENE_ID,
-                        "timestamp_micros": int(timestamps_us[frame_idx]),
-                        "label_class_id": f"{track['trackline_id']}_s{sample_idx}",
-                    },
-                    "obstacle": {
-                        "trackline_id": track["trackline_id"],
-                        "center": _point_xyz(*center_xyz),
-                        "size": _point_xyz(*size_xyz),
-                        "orientation": _orientation_from_yaw(track_yaw),
-                        "category": track["category"],
-                    },
-                    "version": 1,
-                }
-            )
-    return rows
-
-
 def _calibration_row() -> list[dict[str, object]]:
-    # Pinned to the production `camera:front:wide:120fov` calibration extracted
-    # from the clipgt sample scene so synthetic-scene renders exercise the same
-    # ftheta polynomial and mounting pose as real CI data.
-    rig = {
-        "rig": {
-            "properties": {},
-            "vehicle": {},
-            "vehicleio": {},
-            "sensors": [
-                {
-                    "name": _CAMERA_CLIPGT_NAME,
-                    "protocol": "camera.virtual",
-                    "parameter": "video=synthetic/camera_front_wide_120fov.mp4",
-                    "nominalSensor2Rig_FLU": {
-                        "roll-pitch-yaw": [
-                            0.292217969894409,
-                            0.464194804430008,
-                            -0.191304489970207,
-                        ],
-                        "t": [
-                            1.69035196304321,
-                            0.00553808081895113,
-                            1.45306670665741,
-                        ],
-                    },
-                    "correction_sensor_R_FLU": {
-                        "roll-pitch-yaw": [
-                            -0.1592078059911728,
-                            0.11539523303508759,
-                            0.5026581287384033,
-                        ],
-                    },
-                    "correction_rig_T": [
-                        -0.057110343128442764,
-                        -0.0032010308932513,
-                        0.008508340455591679,
-                    ],
-                    "properties": {
-                        "width": "3848",
-                        "height": "2168",
-                        "cx": "1921.318705874846",
-                        "cy": "1076.978854184438",
-                        "Model": "ftheta",
-                        "polynomial-type": "pixeldistance-to-angle",
-                        "polynomial": (
-                            "0 0.0005385247479413695 -1.598462177407655e-09 "
-                            "6.250864794463573e-12 -2.194585699335322e-15 "
-                            "4.525222700710391e-19"
-                        ),
-                        "linear-c": "1.000000",
-                        "linear-d": "0.000000",
-                        "linear-e": "0.000000",
-                    },
-                }
-            ],
-        }
-    }
     return [
         {
             "key": {
@@ -614,7 +442,10 @@ def _calibration_row() -> list[dict[str, object]]:
                 "timestamp_micros": int(_START_TIMESTAMP_US),
                 "label_class_id": "calibration",
             },
-            "calibration_estimate": {"name": "default", "rig_json": json.dumps(rig)},
+            "calibration_estimate": {
+                "name": "default",
+                "rig_json": json.dumps(default_front_camera_rig()),
+            },
             "version": 1,
         }
     ]
@@ -680,7 +511,10 @@ def _metadata_doc(num_frames: int = _DEFAULT_TRAJECTORY_FRAMES) -> dict[str, obj
         "scene_id": _SCENE_ID,
         "dataset_hash": "synthetic-dataset-hash",
         "is_resumable": False,
-        "sensors": {"camera_ids": [_CAMERA_LOGICAL_NAME], "lidar_ids": []},
+        "sensors": {
+            "camera_ids": [DEFAULT_FRONT_CAMERA_LOGICAL_NAME],
+            "lidar_ids": [],
+        },
         "time_range": {
             "start": int(_START_TIMESTAMP_US),
             "end": int(
@@ -732,10 +566,7 @@ def build_synthetic_scene_usdz(
     """Build a procedural USDZ that the scene loader can ingest unchanged.
 
     The geometry (trajectory, lane lines, road boundary, intersection,
-    crosswalk, poles, signs, lights, obstacles) is fixed and deterministic.
-    Three optional overrides exist for the runtime "synthetic-scene" mode
-    where we want a real-looking demo without shipping any HD-map data:
-
+    crosswalk, poles, signs, and lights) is fixed and deterministic.
     Args:
         path: Destination USDZ file.
         initial_rgb: ``(H, W, 3)`` ``uint8`` RGB image to embed as
@@ -746,11 +577,10 @@ def build_synthetic_scene_usdz(
         prompt: Default text prompt embedded as ``prompt.txt``. Defaults to a
             generic forward-driving description.
         length_frames: How many trajectory frames the synthetic road carries.
-            Lane lines, road boundaries, and obstacle tracks are all spec'd
-            along this trajectory, so larger values produce more drivable
-            road. Default 180 (~6 s, 60 m at the default 10 m/s) keeps the
-            test fixture small; runtime callers typically pass 18 000
-            (~10 minutes, ~6 km) so a demo never runs out of road. The
+            Lane lines and road boundaries are spec'd along this trajectory,
+            so larger values produce more drivable road. Default 180
+            (~6 s, 60 m at the default 10 m/s) keeps the
+            test fixture small. The
             single intersection / crosswalk / road-island stay anchored at
             their original near-start coordinates regardless of length.
     """
@@ -803,10 +633,6 @@ def build_synthetic_scene_usdz(
     # past the road boundary. The world model needs *some* visible
     # structure to condition on; black HDMap frames produce drift.
     pole_polylines.extend(_off_road_poles(x_m, y_m, yaw_rad))
-    # Periodic parked cars on alternating shoulders so the sides of the
-    # road don't read as empty over multi-km drives.
-    extra_obstacles = tuple(_periodic_parked_cars(x_m, y_m, yaw_rad))
-
     base_rgb = _initial_rgb() if initial_rgb is None else _normalise_rgb(initial_rgb)
     variant1_rgb = _first_image_variant(base_rgb, shift_px=16)
     variant2_rgb = _first_image_variant(base_rgb, shift_px=48)
@@ -937,10 +763,4 @@ def build_synthetic_scene_usdz(
                 ],
             ),
         )
-        _write_parquet_entry(
-            zf,
-            "clipgt/obstacle.parquet",
-            _obstacle_rows(timestamps_us, extra_tracks=extra_obstacles),
-        )
-
     return path

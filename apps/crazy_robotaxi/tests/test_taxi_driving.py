@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from crazy_robotaxi import runtime_cli as cli
 from crazy_robotaxi.app import (
@@ -19,6 +21,7 @@ from crazy_robotaxi.game import TaxiGameConfig
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
+from crazy_robotaxi.live_edit.config import LiveEditConfig, LiveEditObstacleConfig
 from crazy_robotaxi.runtime_cli import build_parser
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.input.keyboard import KeyboardState
@@ -44,13 +47,19 @@ def test_taxi_config_does_not_enable_base_game_mode() -> None:
     assert config.vehicle == TaxiVehicleConfig()
 
 
-def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
+def test_taxi_cli_keeps_base_mode_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_kwargs: object())
 
     config, _backend = cli.prepare_config_and_backend(
-        args := build_parser().parse_args(["--taxi-game", "--traffic-density", "0.25"])
+        args := build_parser().parse_args(
+            [
+                "--map",
+                "city.robotaxi.yaml",
+                "--taxi-game",
+            ]
+        )
     )
     taxi_config = taxi_config_from_args(args)
 
@@ -58,7 +67,6 @@ def test_taxi_cli_keeps_base_mode_disabled_and_owns_traffic_density(
     assert config.vehicle.actor_collision_enabled is False
     assert config.visual_flare_enabled is False
     assert taxi_config.enabled is True
-    assert taxi_config.traffic_density == pytest.approx(0.25)
     assert taxi_config.vehicle.actor_collision_enabled is True
 
 
@@ -87,6 +95,41 @@ def test_taxi_rollout_aligns_model_frame_zero_with_initial_pose() -> None:
     )
 
     assert rollout.include_initial_state_in_first_chunk is True
+
+
+def test_physical_obstacle_controller_is_shared_with_physics_world(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_physics_world(scene, vehicle, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("crazy_robotaxi.app.TaxiPhysicsWorld", fake_physics_world)
+    application = CrazyRobotaxiApplication(
+        TaxiGameConfig(enabled=True),
+        CrazyRobotaxiKeyboardState(),
+        presenter_config=None,
+        live_edit=LiveEditConfig(
+            obstacle=LiveEditObstacleConfig(enabled=True, physics=True)
+        ),
+    )
+    scene = SimpleNamespace(
+        game_map=SimpleNamespace(lanes=()), ground_mesh_vertices=None
+    )
+    rollout = application.rollout_spec(
+        scene,
+        default_vehicle=VehicleConfig(),
+        default_visual_flare_enabled=True,
+    )
+
+    rollout.physics_world_factory(scene, TaxiVehicleConfig())
+
+    actor_controllers = captured["actor_controllers"]
+    assert isinstance(actor_controllers, tuple)
+    (physics_controller,) = actor_controllers
+    assert physics_controller is application._obstacle_ability
 
 
 def test_taxi_brake_enters_reverse_while_base_brake_does_not() -> None:
@@ -128,9 +171,3 @@ def test_space_remains_upstream_stop_until_taxi_controls_are_enabled() -> None:
 
     assert taxi_command.stop is False
     assert taxi_command.handbrake is True
-
-
-@pytest.mark.parametrize("density", [0.0, -0.1, 1.1])
-def test_taxi_config_rejects_invalid_traffic_density(density: float) -> None:
-    with pytest.raises(ValueError, match="traffic_density"):
-        TaxiGameConfig(traffic_density=density)

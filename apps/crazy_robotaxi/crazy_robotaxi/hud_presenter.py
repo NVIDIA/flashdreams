@@ -16,10 +16,10 @@
 """Single-process native HUD presenter for Crazy Robotaxi.
 
 Plugs into the same engine seam as ``SlangPyPresenter`` (``--no-hud``), but
-draws PIL chrome (panel, dropdowns, BEV minimap, speed/wheel/pedals) over the
+draws PIL chrome (panel, controls, BEV minimap, speed/wheel/pedals) over the
 camera frame -- composited on CUDA when interop is available, else on the CPU.
-Input goes straight to ``KeyboardState``; dropdown scene/variant changes are
-handled by the demo's outer loop over this same long-lived window.
+Input goes straight to ``KeyboardState``; scene and variant changes are handled
+by the demo's outer loop over this same long-lived window.
 """
 
 from __future__ import annotations
@@ -62,7 +62,6 @@ from PIL import Image, ImageDraw, ImageFont
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     TaxiGameSnapshot,
-    project_segment_pose_to_bev,
     project_target_pose_to_bev,
     project_taxi_markers_to_camera,
 )
@@ -434,7 +433,6 @@ class SlangPyHudPresenter:
         self._wheel = wheel
         self._taxi_camera_calibration: CameraCalibration | None = None
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
-        self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._taxi_name_buffer = ""
         self._last_taxi_session_state: str | None = None
         # Composition-root key extensions (e.g. live-edit abilities): keysym
@@ -447,15 +445,11 @@ class SlangPyHudPresenter:
         # Late-imports of helpers we need at runtime; ``demo`` imports
         # this module via the presenter factory, so direct top-level
         # imports would be circular.
-        from crazy_robotaxi.cli import (
-            KeyboardDriveState,
-            _scene_label,
-        )
+        from crazy_robotaxi.cli import KeyboardDriveState
 
         self._keyboard_drive = KeyboardDriveState(
             KeyboardStateDriveSink(keyboard, source="keyboard")
         )
-        self._scene_label_fn = _scene_label
 
         # Window + device + surface setup mirrors SlangPyPresenter's
         # but with a resizable HUD-sized window and a display texture
@@ -516,7 +510,6 @@ class SlangPyHudPresenter:
         self._wheel_base_size: int | None = None
         self._wheel_rotation_cache: _LRUCache = _LRUCache(maxsize=480)
         self._pedal_cache: _LRUCache = _LRUCache(maxsize=16)
-        self._scene_thumb_cache: dict[Any, Image.Image | None] = {}
         self._variant_thumb_cache: dict[tuple[Any, str], Image.Image | None] = {}
         self._bev_panel_cache_key: _BevPanelKey | None = None
         self._bev_panel_cache: Image.Image | None = None
@@ -571,14 +564,10 @@ class SlangPyHudPresenter:
         # slangpy uploads to per frame. See :func:`_allocate_canvas`.
         self._canvas_buffer, self._canvas = _allocate_canvas(*self._configured_size)
 
-        self._scene_dropdown_open = False
         self._variant_dropdown_open = False
-        self._scene_header_rect: tuple[int, int, int, int] | None = None
         self._variant_header_rect: tuple[int, int, int, int] | None = None
         self._postprocess_rect: tuple[int, int, int, int] | None = None
-        self._scene_item_rects: list[tuple[tuple[int, int, int, int], Any]] = []
         self._variant_item_rects: list[tuple[tuple[int, int, int, int], str]] = []
-        self._hovered_scene_label: str | None = None
         self._hovered_variant: str | None = None
         self._mouse_pos: tuple[int, int] = (0, 0)
         self._speed_mph: float = 0.0
@@ -588,33 +577,26 @@ class SlangPyHudPresenter:
         self._current_scene = args.scene
         self._selected_variant = args.variant
         self._has_camera_frame = False
-        # ``_engine_active`` is False during the initial scene-selection
-        # wait (when the user hasn't picked a scene yet AND
-        # ``--auto-start`` was off) and during the brief gap between
-        # scene changes. Drives the camera-area placeholder text together
-        # with the model-warmup state below. Toggled by the demo wrapper
-        # via :meth:`set_engine_active` around each scene's run.
+        # ``_engine_active`` is False during the brief gap between scene
+        # changes. It drives the camera-area placeholder text together with
+        # the model-warmup state below.
         self._engine_active = False
         # Model-warmup status, wired by the demo via :meth:`set_model_status`.
-        # ``_model_can_prewarm`` is True when the model loads at startup
-        # (so the selection wait shows "Loading world model..." instead of
-        # "Load Scene"); ``_model_ready_probe`` returns True once warmup
-        # has finished. Defaults are inert so a presenter used without the
-        # wiring (or before it) behaves like the old "Load Scene" prompt.
+        # ``_model_can_prewarm`` is True when the model loads at startup;
+        # ``_model_ready_probe`` returns True once warmup has finished.
         self._model_can_prewarm = False
         self._model_ready_probe: Callable[[], bool] = lambda: True
-        # Scene-selection lock, wired by the demo via
+        # Scene-change lock, wired by the demo via
         # :meth:`set_scene_selection_locked` when --preload-scenes is on.
-        # While the probe returns True the scene/variant dropdowns ignore
-        # clicks and the placeholder shows a "Preloading scenes..." hint, so
-        # the user can't pick a scene until every scene is cached.
+        # While the probe returns True, changes wait until every scene is
+        # cached.
         self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
         self._postprocess_preset = ""
         self._postprocess_enabled = False
         self._postprocess_callback: Callable[[bool], None] = lambda enabled: None
 
-        # Scene-change request set by the dropdown click handlers. The
-        # outer demo loop checks this after each ``app.run_scene`` returns:
+        # The outer demo loop checks scene-change requests after each
+        # ``app.run_scene`` returns:
         # if non-None, it calls ``app.load_scene`` for the requested scene
         # and re-enters the engine over the SAME presenter so the slangpy
         # window (and the warmed model) stay alive.
@@ -622,9 +604,8 @@ class SlangPyHudPresenter:
         # Exit-to-selection request set by the ``x`` key or a wheel's bound
         # exit button. The outer demo loop checks this (ahead of
         # ``pending_scene_change``) after each ``app.run_scene`` returns: when
-        # set it tears down the rollout and re-enters the scene selector over
-        # the SAME presenter, so a long-running demo can stop the video model
-        # generating without closing the window or reloading the model.
+        # set it tears down the rollout. A future main menu can handle the
+        # request without rebuilding the presenter or reloading the model.
         self._pending_exit_scene = False
 
         self._key_codes = self._build_key_codes()
@@ -1453,15 +1434,13 @@ class SlangPyHudPresenter:
                 if self._model_can_prewarm and not self._model_ready_probe():
                     placeholder = "Loading world model..."
                 elif self._scene_selection_locked():
-                    placeholder = "Preloading scenes..."
-                elif self._model_can_prewarm:
-                    placeholder = "Ready - pick a scene"
+                    placeholder = "Preloading maps..."
                 else:
-                    placeholder = "Load Scene"
+                    placeholder = "Preparing map..."
             elif not self._model_ready_probe():
                 placeholder = "Loading World Model"
             else:
-                placeholder = "Loading Scene..."
+                placeholder = "Loading Map..."
             self._draw_camera_placeholder(canvas, draw, camera_area, placeholder)
 
         # Poll the drive sink *every* tick (before the conditional panel draw):
@@ -1479,8 +1458,6 @@ class SlangPyHudPresenter:
         )
         self._draw_taxi_hud(draw, camera_area)
 
-        if self._scene_dropdown_open:
-            self._draw_scene_dropdown(canvas, draw)
         if self._variant_dropdown_open:
             self._draw_variant_dropdown(canvas, draw)
 
@@ -1887,16 +1864,15 @@ class SlangPyHudPresenter:
             font=self._font_large,
         )
         if message in (
-            "Load Scene",
-            "Loading Scene...",
+            "Preparing map...",
+            "Loading Map...",
             "Loading world model...",
-            "Ready - pick a scene",
-            "Preloading scenes...",
+            "Preloading maps...",
         ):
             hint = (
-                "Preloading scenes, please wait..."
+                "Preloading maps, please wait..."
                 if self._scene_selection_locked()
-                else "Pick a scene from the panel on the right"
+                else "Use the map dropdown to switch maps"
             )
             hbox = _measure_text(self._font_small, hint)
             hw = hbox[2] - hbox[0]
@@ -1976,15 +1952,9 @@ class SlangPyHudPresenter:
         header_x = px + margin
         header_w = panel_size[0] - margin * 2
         header_y = py + 8
-        variant_y = header_y + bar_h + 4
+        variant_y = header_y
         postprocess_available = bool(self._postprocess_preset)
         postprocess_y = variant_y + bar_h + 4
-        self._scene_header_rect = (
-            header_x,
-            header_y,
-            header_x + header_w,
-            header_y + bar_h,
-        )
         self._variant_header_rect = (
             header_x,
             variant_y,
@@ -2054,21 +2024,13 @@ class SlangPyHudPresenter:
         has_multiple_variants = (
             current_scene_option is not None and len(current_scene_option.variants) > 1
         )
-        # ``_engine_active`` is part of the cache key because the scene
-        # header label changes shape ("Select Scene" when the engine
-        # isn't running, "Running clipgt-...\u2026" when it is). The
-        # demo wrapper also explicitly invalidates the cache around
-        # ``set_engine_active``; the key entry here is belt-and-braces.
         key = (
             panel_size,
             str(self._current_scene),
             self._selected_variant,
-            self._scene_dropdown_open,
             self._variant_dropdown_open,
             has_multiple_variants,
             self._engine_active,
-            # Scene header reads "Preloading scenes..." while locked, so the
-            # lock state has to invalidate the cached chrome too.
             self._scene_selection_locked(),
             self._postprocess_preset,
             self._postprocess_enabled,
@@ -2088,45 +2050,9 @@ class SlangPyHudPresenter:
         header_w = panel_w - margin * 2
         header_y = 8
 
-        # Scene header bar. Reserve room on the left for the green
-        # status dot and on the right for the dropdown arrow; the
-        # remaining width is what the scene label gets to use, and we
-        # truncate-with-ellipsis to fit.
-        scene_rect = (margin, header_y, margin + header_w, header_y + bar_h)
-        d.rounded_rectangle(scene_rect, radius=6, fill=HEADER_BG + (255,))
-        d.ellipse(
-            (margin + 8, header_y + 11, margin + 18, header_y + 21),
-            fill=NVIDIA_GREEN + (255,),
-        )
-        if self._engine_active:
-            scene_label_full = (
-                f"Running {self._scene_label_fn(self._current_scene)}\u2026"
-            )
-        elif self._scene_selection_locked():
-            scene_label_full = "Preloading scenes\u2026"
-        else:
-            scene_label_full = "Select Scene"
-        scene_label_max_w = header_w - 26 - 30  # 26 left for dot, 30 right for arrow
-        scene_label = _truncate_text_to_width(
-            self._font_small, scene_label_full, scene_label_max_w
-        )
-        d.text(
-            (margin + 26, header_y + 6),
-            scene_label,
-            fill=TEXT_COLOR,
-            font=self._font_small,
-        )
-        scene_arrow = "\u25b2" if self._scene_dropdown_open else "\u25bc"
-        d.text(
-            (margin + header_w - 24, header_y + 6),
-            scene_arrow,
-            fill=LABEL_COLOR,
-            font=self._font_small,
-        )
-
         # Variant header bar. Same truncation pattern in case the
         # variant string is unusually long.
-        variant_y = header_y + bar_h + 4
+        variant_y = header_y
         variant_rect = (margin, variant_y, margin + header_w, variant_y + bar_h)
         d.rounded_rectangle(variant_rect, radius=6, fill=HEADER_BG + (255,))
         variant_full = f"Variant: {self._selected_variant}"
@@ -2161,9 +2087,7 @@ class SlangPyHudPresenter:
                 margin + header_w,
                 postprocess_y + bar_h,
             )
-            postprocess_clickable = not (
-                self._scene_dropdown_open or self._variant_dropdown_open
-            )
+            postprocess_clickable = not self._variant_dropdown_open
             d.rounded_rectangle(postprocess_rect, radius=6, fill=HEADER_BG + (255,))
             d.text(
                 (margin + 10, postprocess_y + 6),
@@ -2528,7 +2452,6 @@ class SlangPyHudPresenter:
             inner[1] + offset_y + scaled_h,
         )
         marker_size = max(10, min(inner_w, inner_h) // 14)
-        self._draw_bev_taxi_enclosure(draw, content_rect)
         self._draw_bev_taxi_target(draw, content_rect, marker_size)
 
         ego_dimensions = getattr(self, "_latest_ego_dimensions_lwh", None)
@@ -2539,43 +2462,6 @@ class SlangPyHudPresenter:
         if ego_dimensions is None:
             ego_dimensions = _DEFAULT_EGO_DIMENSIONS_LWH
         self._draw_bev_ego_footprint(draw, content_rect, ego_dimensions, bev)
-
-    def _draw_bev_taxi_enclosure(
-        self,
-        draw: ImageDraw.ImageDraw,
-        content_rect: tuple[int, int, int, int],
-    ) -> None:
-        frame = getattr(self, "_latest_presented_frame", None)
-        bev = self._bev_config
-        if (
-            frame is None
-            or frame.bev_rig_to_world is None
-            or bev is None
-            or not bev.enabled
-        ):
-            return
-        left, top, right, bottom = content_rect
-        content_w = right - left
-        content_h = bottom - top
-        if content_w <= 0 or content_h <= 0:
-            return
-        for segment in self._taxi_enclosure_segments_world:
-            projected = project_segment_pose_to_bev(
-                segment, frame.bev_rig_to_world, bev
-            )
-            if projected is None:
-                continue
-            start, end = projected
-            draw.line(
-                (
-                    round(left + start[0] * content_w),
-                    round(top + start[1] * content_h),
-                    round(left + end[0] * content_w),
-                    round(top + end[1] * content_h),
-                ),
-                fill=(235, 50, 50, 255),
-                width=4,
-            )
 
     def _draw_bev_taxi_target(
         self,
@@ -2684,56 +2570,7 @@ class SlangPyHudPresenter:
         # is unambiguous even when the footprint is only a few pixels wide.
         draw.line((footprint[0], footprint[1]), fill=(220, 255, 170, 255), width=2)
 
-    # -- Dropdowns ---------------------------------------------------
-
-    def _draw_scene_dropdown(
-        self, canvas: Image.Image, draw: ImageDraw.ImageDraw
-    ) -> None:
-        if self._scene_header_rect is None:
-            return
-        sx, _sy, sr, sb = self._scene_header_rect
-        if not self._scene_options:
-            empty = (sx, sb + 2, sr, sb + 36)
-            draw.rounded_rectangle(empty, radius=6, fill=(70, 35, 35, 255))
-            draw.text(
-                (sx + 12, sb + 9),
-                f"No scenes found in {self._args.scene_dir}",
-                fill=(255, 220, 220),
-                font=self._font_tiny,
-            )
-            return
-
-        item_h = 80
-        items_top = sb + 2
-        bg = (sx, items_top - 1, sr, items_top + len(self._scene_options) * item_h + 1)
-        draw.rounded_rectangle(bg, radius=6, fill=(35, 35, 50, 255))
-        draw.rounded_rectangle(bg, radius=6, outline=(60, 60, 80, 255), width=1)
-
-        self._scene_item_rects = []
-        for idx, scene in enumerate(self._scene_options):
-            top = items_top + idx * item_h
-            rect = (sx, top, sr, top + item_h)
-            self._scene_item_rects.append((rect, scene))
-            if self._scene_option_matches_current(scene):
-                draw.rectangle(rect, fill=ACTIVE_BG + (255,))
-            elif scene.label == self._hovered_scene_label:
-                draw.rectangle(rect, fill=HOVER_BG + (255,))
-            text_x = rect[0] + 12
-            text_y = top + item_h // 2 - 8
-            thumb = self._get_scene_thumbnail(scene)
-            if thumb is not None:
-                tw, th = thumb.size
-                tx = rect[0] + 6
-                ty = top + max(0, (item_h - th) // 2)
-                canvas.paste(thumb, (tx, ty))
-                draw.rectangle(
-                    (tx, ty, tx + tw, ty + th), outline=(60, 60, 80, 255), width=1
-                )
-                text_x = tx + tw + 10
-            label = _truncate_text_to_width(
-                self._font_tiny, scene.label, max(0, rect[2] - text_x - 8)
-            )
-            draw.text((text_x, text_y), label, fill=TEXT_COLOR, font=self._font_tiny)
+    # -- Variant dropdown --------------------------------------------
 
     def _draw_variant_dropdown(
         self, canvas: Image.Image, draw: ImageDraw.ImageDraw
@@ -2745,7 +2582,7 @@ class SlangPyHudPresenter:
             return
         vx, vy, vr, vb = self._variant_header_rect
         # Taller rows when the scene ships per-variant previews, matching the
-        # scene dropdown; fall back to compact text-only rows otherwise.
+        # picker; fall back to compact text-only rows otherwise.
         has_thumbs = bool(scene_option.variant_thumbnails)
         item_h = 80 if has_thumbs else 34
         items_top = vb + 2
@@ -2783,18 +2620,6 @@ class SlangPyHudPresenter:
                 self._font_tiny, variant, max(0, rect[2] - text_x - 8)
             )
             draw.text((text_x, text_y), label, fill=TEXT_COLOR, font=self._font_tiny)
-
-    def _get_scene_thumbnail(self, scene: Any) -> Image.Image | None:
-        if scene.path in self._scene_thumb_cache:
-            return self._scene_thumb_cache[scene.path]
-        if scene.thumbnail is None:
-            self._scene_thumb_cache[scene.path] = None
-            return None
-        thumb = scene.thumbnail
-        if thumb.mode != "RGBA":
-            thumb = thumb.convert("RGBA")
-        self._scene_thumb_cache[scene.path] = thumb
-        return thumb
 
     def _get_variant_thumbnail(self, scene: Any, variant: str) -> Image.Image | None:
         key = (scene.path, variant)
@@ -3054,13 +2879,7 @@ class SlangPyHudPresenter:
             self._handle_click(self._mouse_pos)
 
     def _update_hover(self, pos: tuple[int, int]) -> None:
-        self._hovered_scene_label = None
         self._hovered_variant = None
-        if self._scene_dropdown_open:
-            for rect, scene in self._scene_item_rects:
-                if _rect_contains(rect, pos):
-                    self._hovered_scene_label = scene.label
-                    break
         if self._variant_dropdown_open:
             for rect, variant in self._variant_item_rects:
                 if _rect_contains(rect, pos):
@@ -3068,7 +2887,7 @@ class SlangPyHudPresenter:
                     break
 
     def _handle_click(self, pos: tuple[int, int]) -> None:
-        dropdown_open = self._scene_dropdown_open or self._variant_dropdown_open
+        dropdown_open = self._variant_dropdown_open
         if (
             not dropdown_open
             and self._postprocess_rect
@@ -3085,13 +2904,10 @@ class SlangPyHudPresenter:
                     self._postprocess_preset,
                 )
             return
-        # While scenes are still preloading, the scene/variant dropdowns are
-        # locked (the only mouse-clickable HUD elements), so ignore clicks
-        # until every scene is cached and selection is instant.
+        # Ignore variant changes until preloading completes.
         if self._scene_selection_locked():
             return
-        # Variant dropdown sits on top of the scene dropdown items, so
-        # check it first.
+        # Handle variant rows before the header or underlying controls.
         if self._variant_dropdown_open:
             for rect, variant in self._variant_item_rects:
                 if _rect_contains(rect, pos):
@@ -3105,27 +2921,9 @@ class SlangPyHudPresenter:
             self._variant_dropdown_open = False
             return
 
-        if self._scene_dropdown_open:
-            for rect, scene in self._scene_item_rects:
-                if _rect_contains(rect, pos):
-                    self._restart_backend(scene)
-                    return
-            if self._scene_header_rect and _rect_contains(self._scene_header_rect, pos):
-                self._scene_dropdown_open = False
-                return
-            self._scene_dropdown_open = False
-            return
-
-        if self._scene_header_rect and _rect_contains(self._scene_header_rect, pos):
-            self._scene_dropdown_open = True
-            self._variant_dropdown_open = False
-            self._panel_chrome_cache_key = None
-            return
-
         # The variant dropdown is only meaningful once a scene is actually
-        # loaded/running. Before that (the initial selection wait and the gap
-        # between scene switches) the engine is inactive, so ignore clicks on
-        # the variant header.
+        # loaded/running. Between scene switches the engine is inactive, so
+        # ignore clicks on the variant header.
         current_scene_option = self._current_scene_option()
         if (
             self._engine_active
@@ -3135,15 +2933,9 @@ class SlangPyHudPresenter:
             and len(current_scene_option.variants) > 1
         ):
             self._variant_dropdown_open = True
-            self._scene_dropdown_open = False
             self._panel_chrome_cache_key = None
 
     # -- Scene / variant restart -------------------------------------
-
-    def _restart_backend(self, scene: Any) -> None:
-        logger.info(f"[demo] switching scene -> {scene.label}")
-        new_variant = scene.variants[0] if scene.variants else "default"
-        self._signal_scene_change(scene.path, new_variant)
 
     def _restart_variant(self, variant: str) -> None:
         if variant == self._selected_variant:
@@ -3163,7 +2955,7 @@ class SlangPyHudPresenter:
         self._args.scene = scene_path
         self._args.variant = variant
         self._pending_scene_change = (scene_path, variant)
-        # An explicit scene pick supersedes any pending exit-to-selection.
+        # An explicit scene change supersedes any pending exit request.
         self._pending_exit_scene = False
         self._should_close_flag = True
         # Drop the wheel-set DriverCommand so a stale steer/throttle doesn't
@@ -3172,15 +2964,14 @@ class SlangPyHudPresenter:
 
     @property
     def pending_scene_change(self) -> tuple[Any, str] | None:
-        """``(scene_path, variant)`` if a dropdown click is pending, else None."""
+        """Return the requested ``(scene_path, variant)``, if any."""
         return self._pending_scene_change
 
     def exit_scene(self) -> None:
-        """Request a return to the scene selector, keeping the window alive.
+        """Request that the current scene end while keeping the window alive.
 
-        Like :meth:`_signal_scene_change` but sets ``_pending_exit_scene`` so
-        the outer loop re-enters :meth:`wait_for_scene_selection`. No-op unless
-        a scene is running.
+        A future main menu can consume this separately from a direct scene
+        change. No-op unless a scene is running.
         """
         if not self._engine_active:
             return
@@ -3194,16 +2985,11 @@ class SlangPyHudPresenter:
 
     @property
     def pending_exit_scene(self) -> bool:
-        """True when the user asked to exit back to the scene selector."""
+        """Return whether the user asked to end the current scene."""
         return self._pending_exit_scene
 
     def acknowledge_exit_scene(self) -> None:
-        """Clear the exit request and reset per-rollout view state for the selector.
-
-        Called before the outer loop re-enters :meth:`wait_for_scene_selection`;
-        resets the close flag, the selected variant, and the last rollout's
-        camera/BEV/speed so the selector doesn't ghost them.
-        """
+        """Clear the exit request and reset per-rollout view state."""
         self._pending_exit_scene = False
         self._should_close_flag = False
         self._reset_selected_variant_to_default()
@@ -3224,12 +3010,7 @@ class SlangPyHudPresenter:
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
     ) -> None:
-        """Wire the camera-placeholder text to model-warmup progress.
-
-        ``can_prewarm`` True (default world-model path) shows "Loading world
-        model..." then "Ready - pick a scene"; False keeps "Load Scene".
-        ``ready_probe`` (polled each tick) flips to ready once warmup finishes.
-        """
+        """Wire map-loading placeholder text to model-warmup progress."""
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
 
@@ -3248,10 +3029,10 @@ class SlangPyHudPresenter:
         self._panel_chrome_cache = None
 
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
-        """Lock scene/variant selection while ``probe()`` returns True (--preload-scenes).
+        """Lock map/variant dropdowns while ``probe()`` is true.
 
-        Dropdowns ignore clicks until every scene is cached; the placeholder
-        shows a "Preloading scenes..." hint.
+        Dropdowns ignore clicks until every map is cached; the placeholder
+        shows a "Preloading maps..." hint.
         """
         self._scene_selection_locked_probe = probe
 
@@ -3259,10 +3040,10 @@ class SlangPyHudPresenter:
         return self._scene_selection_locked_probe()
 
     def set_engine_active(self, active: bool) -> None:
-        """Toggle the scene-running chrome / placeholder text.
+        """Toggle the map-running chrome / transition placeholder.
 
-        ``active=False`` is the selection wait and the gap between switches;
-        ``True`` is a scene running/loading. Called by the demo around each run.
+        ``active=False`` is the brief gap between map switches; ``True`` is a
+        map running/loading. Crazy Robotaxi loads its initial map immediately.
         """
         self._engine_active = bool(active)
         if not self._engine_active:
@@ -3274,37 +3055,14 @@ class SlangPyHudPresenter:
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
 
-    def wait_for_scene_selection(self) -> tuple[Any, str] | None:
-        """Run a chrome-only event loop until the user picks a scene.
-
-        Opens the HUD window with no engine and a "Load Scene" placeholder;
-        returns ``(scene_path, variant)`` on selection or ``None`` if the
-        window closes first. ~60 fps (5 ms sleep) of chrome render + present.
-        """
-        prior_engine_active = self._engine_active
-        self.set_engine_active(False)
-        try:
-            while not self.should_close:
-                self.process_events()
-                if self._pending_scene_change is not None:
-                    request = self._pending_scene_change
-                    return request
-                # Render chrome + "Load Scene" placeholder.
-                self._render_canvas(None)
-                self._present_canvas()
-                time.sleep(EVENT_POLL_INTERVAL_S)
-            return None
-        finally:
-            self.set_engine_active(prior_engine_active)
-
     def wait_while_preloading(self, in_progress: Callable[[], bool]) -> None:
-        """Pump the "Preloading scenes..." chrome until ``in_progress()`` clears.
+        """Pump the "Preloading maps..." chrome until ``in_progress()`` clears.
 
-        Used by ``--auto-start`` + ``--preload-scenes`` so the auto-loaded
-        scene waits for the background preloader to finish (and is served from
-        its cache) instead of racing it with a second parse of the same USDZ.
+        Used by ``--preload-scenes`` so the selected map waits for the
+        background preloader to finish instead of racing it with a second
+        compile.
         Returns early if the window closes. Keeps the engine inactive so the
-        camera area shows the locked "Preloading scenes..." placeholder.
+        camera area shows the locked "Preloading maps..." placeholder.
         """
         prior_engine_active = self._engine_active
         self.set_engine_active(False)
@@ -3337,7 +3095,6 @@ class SlangPyHudPresenter:
         :meth:`acknowledge_exit_scene` so the next state starts clean instead
         of ghosting the just-ended rollout.
         """
-        self._scene_dropdown_open = False
         self._variant_dropdown_open = False
         # The next backend renders into a fresh ``rgb_host_uint8`` buffer
         # so the camera resize cache (keyed on ``id(buffer)``) is now
@@ -3389,7 +3146,7 @@ class SlangPyHudPresenter:
             KeyboardStateDriveSink(keyboard, source="keyboard")
         )
 
-    def configure_taxi_hud(self, bev: BevConfig) -> None:
+    def configure_taxi_hud(self, bev: BevConfig, vehicle: Any = None) -> None:
         """Configure BEV projection used by taxi target overlays."""
         from crazy_robotaxi.driving import (
             TaxiKeyboardDriveState,
@@ -3397,20 +3154,13 @@ class SlangPyHudPresenter:
 
         self._bev_config = bev
         self._keyboard_drive = TaxiKeyboardDriveState(
-            KeyboardStateDriveSink(self._keyboard, source="keyboard")
+            KeyboardStateDriveSink(self._keyboard, source="keyboard"), vehicle
         )
 
     def configure_taxi_camera(self, calibration: CameraCalibration) -> None:
         """Configure camera projection for world-anchored taxi markers."""
         self._taxi_camera_calibration = calibration
         self._taxi_camera_models.clear()
-
-    def configure_taxi_enclosure(self, segments_world: np.ndarray) -> None:
-        """Configure static Taxi-only closure lines drawn over the BEV."""
-        segments = np.asarray(segments_world, dtype=np.float32)
-        if segments.ndim != 3 or segments.shape[1:] != (2, 3):
-            raise ValueError("Taxi enclosure segments must have shape (N, 2, 3).")
-        self._taxi_enclosure_segments_world = segments.copy()
 
 
 # -- Module-level helpers ---------------------------------------------

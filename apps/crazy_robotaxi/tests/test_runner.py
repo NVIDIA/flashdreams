@@ -36,7 +36,7 @@ def test_runner_registry_metadata_uses_public_slug() -> None:
     assert CRAZY_ROBOTAXI_RUNNER.description
 
 
-def test_runner_delegates_to_standalone_legacy_cli(
+def test_runner_delegates_to_standalone_cli(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Translate typed runner fields without constructing the GPU pipeline."""
@@ -47,12 +47,12 @@ def test_runner_delegates_to_standalone_legacy_cli(
     )
     config = replace(
         CRAZY_ROBOTAXI_RUNNER,
-        scene=Path("city.usdz"),
+        map=Path("city.robotaxi.yaml"),
         world_model_manifest=Path("example_world_model_perf.yaml"),
+        renderer_config=Path("renderer.yaml"),
+        game_config=Path("game.yaml"),
         backend="raster",
         stream_mjpeg="127.0.0.1:8080",
-        auto_start=True,
-        synthetic_scene=True,
         synthetic_model=False,
         taxi_seed=7,
         taxi_highscores=Path("scores.csv"),
@@ -65,10 +65,14 @@ def test_runner_delegates_to_standalone_legacy_cli(
         [
             "--camera",
             "front",
-            "--scene",
-            "city.usdz",
+            "--map",
+            "city.robotaxi.yaml",
             "--manifest",
             "example_world_model_perf.yaml",
+            "--renderer-config",
+            "renderer.yaml",
+            "--game-config",
+            "game.yaml",
             "--backend",
             "raster",
             "--stream-mjpeg",
@@ -77,8 +81,6 @@ def test_runner_delegates_to_standalone_legacy_cli(
             "7",
             "--taxi-highscores",
             "scores.csv",
-            "--synthetic-scene",
-            "--auto-start",
             "--no-synthetic-model",
         ]
     ]

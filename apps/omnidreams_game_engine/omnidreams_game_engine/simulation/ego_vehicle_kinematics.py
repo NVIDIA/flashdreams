@@ -3,7 +3,7 @@
 
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from loguru import logger
@@ -17,7 +17,6 @@ from omnidreams_game_engine.simulation.components import (
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.simulation.map_bounds import MapBounds
 from omnidreams_game_engine.types import (
     DriverCommand,
     PhysXChunkTimings,
@@ -307,7 +306,7 @@ def integrate_vehicle(
 def sample_chunk_trajectory(
     start_state: VehicleState,
     start_timestamp_us: int,
-    command: DriverCommand,
+    commands: Sequence[DriverCommand],
     chunk_size: int,
     chunk_config: ChunkConfig,
     vehicle_config: VehicleConfig,
@@ -320,6 +319,10 @@ def sample_chunk_trajectory(
     physics_step_fn: PhysicsStepFn = step_physics_world,
     include_start_state: bool = False,
 ) -> TrajectoryChunk:
+    if len(commands) != chunk_size:
+        raise ValueError(
+            f"commands must match chunk_size; got {len(commands)} for {chunk_size}"
+        )
     timestamps = np.array(
         [
             start_timestamp_us + frame_idx * chunk_config.frame_interval_us
@@ -343,6 +346,8 @@ def sample_chunk_trajectory(
     max_detached_actors = 0
     actor_collision_detected = False
     actor_collision_frame_index: int | None = None
+    static_collision_detected = False
+    static_collision_frame_index: int | None = None
     if physics_world is not None:
         physx_started_at = time.perf_counter()
         physics_world.synchronize_window(
@@ -353,6 +358,7 @@ def sample_chunk_trajectory(
         physx_sync_s += sync_elapsed_s
         physx_elapsed_s += sync_elapsed_s
     for frame_idx in range(chunk_size):
+        command = commands[frame_idx]
         use_start_state = include_start_state and frame_idx == 0
         if not use_start_state:
             state = integrate_fn(
@@ -386,6 +392,12 @@ def sample_chunk_trajectory(
             actor_collision_detected |= actor_collision_this_frame
             if actor_collision_this_frame and actor_collision_frame_index is None:
                 actor_collision_frame_index = frame_idx
+            static_collision_this_frame = bool(
+                getattr(physics_world, "last_step_static_barrier_impact", False)
+            )
+            static_collision_detected |= static_collision_this_frame
+            if static_collision_this_frame and static_collision_frame_index is None:
+                static_collision_frame_index = frame_idx
             physx_elapsed_s += time.perf_counter() - physx_started_at
             step_timings = getattr(physics_world, "last_step_timings", None)
             if step_timings is not None:
@@ -417,10 +429,13 @@ def sample_chunk_trajectory(
         rig_poses_world=poses,
         vehicle_states=tuple(vehicle_states),
         boundary_state_after_chunk=state,
+        applied_commands=tuple(commands),
         dynamic_actors=dynamic_actors,
         physics_debug_frames=tuple(physics_debug_frames),
         actor_collision_detected=actor_collision_detected,
         actor_collision_frame_index=actor_collision_frame_index,
+        static_collision_detected=static_collision_detected,
+        static_collision_frame_index=static_collision_frame_index,
         physx_elapsed_s=physx_elapsed_s if physics_world is not None else None,
         physx_timings=(
             PhysXChunkTimings(
@@ -466,33 +481,6 @@ def build_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
     return GroundSnapper(scene.ground_mesh_vertices, scene.ground_mesh_faces)
 
 
-def build_map_bounds(scene: SceneBundle) -> MapBounds | None:
-    """Compute OOB bounds from every spatial layer in ``scene``.
-
-    Decoupled from :func:`build_ground_snapper` because the OOB check
-    cares about the union of all geometry (lane markers, vehicle
-    tracks, polygons, ground), not just the ground mesh -- many scenes
-    ship a ground mesh that's a small strip representing only the road
-    surface, which would respawn the user the moment they drove onto a
-    sidewalk. Logs the resulting AABB so it's easy to confirm the
-    bounds match the scene's playable area.
-    """
-    bounds = MapBounds.from_scene(scene)
-    if bounds is None:
-        logger.info(
-            "[ego_vehicle_kinematics] scene has no spatial geometry; "
-            "OOB respawn will not fire.",
-        )
-        return None
-    logger.info(
-        f"[ego_vehicle_kinematics] map bounds: "
-        f"x=[{bounds.x_min:.1f}, {bounds.x_max:.1f}] ({bounds.width_m:.1f} m), "
-        f"y=[{bounds.y_min:.1f}, {bounds.y_max:.1f}] ({bounds.height_m:.1f} m). "
-        "Adds 50 m margin + 100 m warning zone for OOB.",
-    )
-    return bounds
-
-
 class EgoVehicleKinematics:
     def __init__(
         self,
@@ -500,9 +488,6 @@ class EgoVehicleKinematics:
         vehicle_config: VehicleConfig,
         ground_snapper: GroundSnapper | None,
         initial_timestamp_us: int,
-        map_bounds: MapBounds | None = None,
-        oob_margin_m: float = 50.0,
-        oob_warning_zone_m: float = 100.0,
         scene: SceneBundle | None = None,
         integrate_fn: Callable[
             [VehicleState, DriverCommand, float, VehicleConfig], VehicleState
@@ -517,9 +502,6 @@ class EgoVehicleKinematics:
         self._vehicle_config = vehicle_config
         self._ground_snapper = ground_snapper
         self._next_timestamp_us = initial_timestamp_us
-        self._map_bounds = map_bounds
-        self._oob_margin_m = float(oob_margin_m)
-        self._oob_warning_zone_m = float(oob_warning_zone_m)
         self._integrate_fn = integrate_fn
         self._physics_step_fn = physics_step_fn
         self._include_initial_state_in_next_chunk = bool(
@@ -547,24 +529,6 @@ class EgoVehicleKinematics:
             *actors,
         )
 
-    @property
-    def last_proximity(self) -> float:
-        """Out-of-bounds proximity of the latest simulated frame.
-
-        Delegates to :meth:`MapBounds.proximity` (see it for the
-        0.0 / (0,1] / 2.0 semantics) against the union AABB of every spatial
-        layer, not just ``mesh_ground.ply`` -- a road-only ground mesh would
-        respawn the ego the moment it touched a sidewalk. Returns ``0.0`` when
-        the scene has no geometry (the OOB respawn path no-ops).
-        """
-        if self._map_bounds is None:
-            return 0.0
-        return self._map_bounds.proximity(
-            (self._state.x_m, self._state.y_m),
-            margin_m=self._oob_margin_m,
-            warning_zone_m=self._oob_warning_zone_m,
-        )
-
     def close(self) -> None:
         """Release the Ludus PhysX scene owned by this rollout."""
         if self._physics_world is not None:
@@ -573,7 +537,7 @@ class EgoVehicleKinematics:
 
     def pose_chunk(
         self,
-        command: DriverCommand,
+        commands: Sequence[DriverCommand],
         chunk_size: int,
         frame_interval_s: float,
         extrapolation_offset_s: float,
@@ -590,7 +554,7 @@ class EgoVehicleKinematics:
         trajectory = sample_chunk_trajectory(
             start_state=self._state,
             start_timestamp_us=self._next_timestamp_us,
-            command=command,
+            commands=commands,
             chunk_size=chunk_size,
             chunk_config=chunk_config,
             vehicle_config=self._vehicle_config,

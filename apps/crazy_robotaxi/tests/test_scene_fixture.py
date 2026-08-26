@@ -48,12 +48,3 @@ def test_build_synthetic_scene_usdz_round_trip() -> None:
         "road_islands",
     }
     assert all(len(layer.polygons_world) > 0 for layer in bundle.polygon_layers)
-
-    # One track per BBOX_V3_COLORS category (Car, Truck, Pedestrian, Cyclist,
-    # Others). Each track has two samples covering the full trajectory span so
-    # ``interpolate_at_timestamp`` resolves at every render frame.
-    track_types = {track.object_type for track in bundle.vehicle_bbox_tracks}
-    assert track_types == {"Car", "Truck", "Pedestrian", "Cyclist", "Others"}
-    for track in bundle.vehicle_bbox_tracks:
-        assert len(track.timestamps_us) == 2
-        assert track.interpolate_at_timestamp(bundle.initial_timestamp_us) is not None
