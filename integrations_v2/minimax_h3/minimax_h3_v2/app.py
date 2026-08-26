@@ -220,6 +220,7 @@ class MiniMaxH3Application(IApplication):
         settings = _settings_from_namespace(namespace)
         inputs = _decode_inputs(self.workflow, namespace)
         config = MiniMaxH3InferenceConfig(
+            workflow=self.workflow,
             device=namespace.device,
             attention_backend=namespace.attention,
             cache_dir=namespace.cache_dir,

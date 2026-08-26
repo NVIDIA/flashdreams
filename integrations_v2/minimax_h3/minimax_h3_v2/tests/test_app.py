@@ -245,6 +245,7 @@ def test_t2va_returns_maximum_aligned_video_audio_and_resets(tmp_path: Path) -> 
     )
     assert engine.config.device == "cpu"
     assert engine.config.attention_backend == "math"
+    assert engine.config.workflow == "t2va"
 
     session.model_loop.reset()
     assert not session.model_loop.is_finished()

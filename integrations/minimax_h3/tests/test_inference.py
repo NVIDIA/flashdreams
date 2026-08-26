@@ -273,6 +273,7 @@ def test_default_resources_resolve_pinned_subfolders_offline(
 ) -> None:
     """Resolve metadata and Qwen weights through one pinned local snapshot."""
     import huggingface_hub
+    import minimax_h3.inference as inference_module
 
     snapshot_dir = tmp_path / "snapshot"
     processor_dir = snapshot_dir / "processor"
@@ -330,11 +331,25 @@ def test_default_resources_resolve_pinned_subfolders_offline(
     monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
+    disk_checks: list[Path] = []
+
+    def decreasing_disk(path: Path) -> SimpleNamespace:
+        disk_checks.append(path)
+        free_gib = 151 if len(disk_checks) == 1 else 1
+        return SimpleNamespace(free=free_gib * 2**30)
+
+    monkeypatch.setattr(inference_module.shutil, "disk_usage", decreasing_disk)
+
     resources = DefaultMiniMaxH3Resources(
-        MiniMaxH3InferenceConfig(device="cpu", cache_dir=tmp_path / "cache")
+        MiniMaxH3InferenceConfig(
+            workflow="t2va",
+            device="cpu",
+            cache_dir=tmp_path / "cache",
+        )
     )
     encoder = resources.load_text_encoder()
 
+    assert len(disk_checks) == 1
     assert downloads[0]["allow_patterns"] == ["tokenizer/*", "processor/*"]
     assert downloads[1]["allow_patterns"] == ["text_encoder/*"]
     assert all(call["revision"] == resources.config.revision for call in downloads)
@@ -564,6 +579,9 @@ def test_staged_t2va_returns_synchronized_v2_media() -> None:
         "conditioning_s",
         "prepare_s",
         "denoise_s",
+        "transformer_load_s",
+        "denoise_compute_s",
+        "transformer_release_s",
         "video_decode_s",
         "audio_decode_s",
         "total_s",
@@ -709,6 +727,8 @@ def test_request_and_capacity_reject_unsupported_work_before_weights() -> None:
         validate_execution_capacity(MiniMaxH3InferenceConfig(device="cpu"))
     with pytest.raises(ValueError, match="finite and non-negative"):
         MiniMaxH3InferenceConfig(checkpoint_min_free_gb=float("nan"))
+    with pytest.raises(ValueError, match="unsupported MiniMax H3 workflow"):
+        MiniMaxH3InferenceConfig(workflow="unknown")  # type: ignore[arg-type]
 
 
 def test_complete_cached_component_skips_download_capacity_check(

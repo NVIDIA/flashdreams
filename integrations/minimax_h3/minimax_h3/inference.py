@@ -111,6 +111,7 @@ class MiniMaxH3InferenceConfig:
 
     model_id: str = MODEL_ID
     revision: str = MODEL_REVISION
+    workflow: MiniMaxH3Workflow | None = None
     device: str = "cuda"
     attention_backend: Literal["flash", "cudnn", "efficient", "math"] = "flash"
     cache_dir: Path | None = None
@@ -121,6 +122,8 @@ class MiniMaxH3InferenceConfig:
             raise ValueError("model_id cannot be empty")
         if self.revision != MODEL_REVISION:
             raise ValueError(f"MiniMax H3 requires pinned revision {MODEL_REVISION}")
+        if self.workflow not in (None, "t2va", "fl2va", "ref2va"):
+            raise ValueError(f"unsupported MiniMax H3 workflow {self.workflow!r}")
         if not self.device.strip():
             raise ValueError("device cannot be empty")
         if self.attention_backend not in ("flash", "cudnn", "efficient", "math"):
@@ -267,7 +270,9 @@ class DefaultMiniMaxH3Resources:
         )
 
         self.config = config
-        _validate_component_download_capacity(config, ("tokenizer", "processor"))
+        _validate_component_download_capacity(
+            config, _components_for_workflow(config.workflow)
+        )
         self._snapshot_dir = Path(
             snapshot_download(
                 repo_id=config.model_id,
@@ -304,7 +309,6 @@ class DefaultMiniMaxH3Resources:
         """Download one pinned allowlisted component and return its local path."""
         from huggingface_hub import snapshot_download
 
-        _validate_component_download_capacity(self.config, (component,))
         snapshot_dir = Path(
             snapshot_download(
                 repo_id=self.config.model_id,
@@ -475,7 +479,11 @@ class MiniMaxH3InferenceEngine:
         prepare_seconds = state_finished - state_started
 
         denoise_started = state_finished
-        joint = self._denoise(request, state)
+        joint, denoise_breakdown = self._denoise(
+            request,
+            state,
+            synchronized_time=synchronized_time,
+        )
         denoise_finished = synchronized_time()
         denoise_seconds = denoise_finished - denoise_started
 
@@ -483,6 +491,18 @@ class MiniMaxH3InferenceEngine:
         video = self._decode_video(joint)
         video_finished = synchronized_time()
         video_decode_seconds = video_finished - video_started
+        expected_video_shape = (
+            request.num_frames,
+            3,
+            request.height,
+            request.width,
+        )
+        if tuple(video.shape) != expected_video_shape:
+            raise RuntimeError(
+                "MiniMax H3 decoded video must have shape "
+                f"{expected_video_shape}, got {tuple(video.shape)}"
+            )
+        actual_frame_count = video.shape[0]
         audio_started = video_finished
         audio = self._decode_audio(joint)
         finished = synchronized_time()
@@ -495,12 +515,13 @@ class MiniMaxH3InferenceEngine:
             "conditioning_s": conditioning_seconds,
             "prepare_s": prepare_seconds,
             "denoise_s": denoise_seconds,
+            **denoise_breakdown,
             "video_decode_s": video_decode_seconds,
             "audio_decode_s": audio_decode_seconds,
             "total_s": total_seconds,
-            "generated_fps": request.num_frames / total_seconds,
+            "generated_fps": actual_frame_count / total_seconds,
             "peak_gpu_memory_gib": peak,
-            "aligned_frame_count": request.num_frames,
+            "aligned_frame_count": actual_frame_count,
             "audio_sample_count": audio.samples.shape[1],
         }
         return MiniMaxH3InferenceResult(video=video, audio=audio, metrics=metrics)
@@ -658,10 +679,14 @@ class MiniMaxH3InferenceEngine:
         self,
         request: MiniMaxH3InferenceRequest,
         state: MiniMaxH3DenoiseState,
-    ) -> MiniMaxH3JointLatents:
+        *,
+        synchronized_time: Callable[[], float],
+    ) -> tuple[MiniMaxH3JointLatents, dict[str, float]]:
+        load_started = synchronized_time()
         model = self.resources.load_diffusion_model(
             request.workflow, request.num_inference_steps
         )
+        load_finished = synchronized_time()
         try:
             if request.lora_path is not None:
                 load_lora(
@@ -682,10 +707,22 @@ class MiniMaxH3InferenceEngine:
                     store.save(identity, progress)
 
                 checkpoint = save_checkpoint
-            return model.generate_joint(state, resume=resume, checkpoint=checkpoint)
+            joint = model.generate_joint(
+                state,
+                resume=resume,
+                checkpoint=checkpoint,
+            )
+            compute_finished = synchronized_time()
         finally:
+            release_started = synchronized_time()
             self.resources.release(model)
             del model
+            release_finished = synchronized_time()
+        return joint, {
+            "transformer_load_s": load_finished - load_started,
+            "denoise_compute_s": compute_finished - load_finished,
+            "transformer_release_s": release_finished - release_started,
+        }
 
     def _decode_video(self, joint: MiniMaxH3JointLatents) -> Tensor:
         video_vae = self.resources.load_video_vae()
@@ -777,6 +814,18 @@ def _validate_component_download_capacity(
             f"{required_gib:g} GiB free in the model cache filesystem, "
             f"found {free_disk / 2**30:.1f} GiB"
         )
+
+
+def _components_for_workflow(
+    workflow: MiniMaxH3Workflow | None,
+) -> tuple[str, ...]:
+    """Return every component covered by one initial download preflight."""
+    common = ("tokenizer", "processor", "text_encoder", "vae", "audio_vae")
+    if workflow == "ref2va":
+        return (*common, "transformer_ref")
+    if workflow in ("t2va", "fl2va"):
+        return (*common, "transformer")
+    return (*common, "transformer", "transformer_ref")
 
 
 def _component_is_complete(snapshot_dir: Path, component: str) -> bool:
