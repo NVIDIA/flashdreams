@@ -393,12 +393,24 @@ class _NoiseEmbedder(nn.Module):
 
     def __init__(self, spec: WaypointModelSpec) -> None:
         super().__init__()
+        if spec.noise_embedding_dim % 2:
+            raise ValueError("Waypoint noise embedding width must be even")
         self.register_buffer(
             "freq",
-            torch.logspace(0, -1, steps=256, base=10_000.0, dtype=torch.float32),
+            torch.logspace(
+                0,
+                -1,
+                steps=spec.noise_embedding_dim // 2,
+                base=10_000.0,
+                dtype=torch.float32,
+            ),
             persistent=False,
         )
-        self.mlp = _TwoLayerMLP(512, spec.d_model * spec.mlp_ratio, spec.d_model)
+        self.mlp = _TwoLayerMLP(
+            spec.noise_embedding_dim,
+            spec.d_model * spec.mlp_ratio,
+            spec.d_model,
+        )
 
     def _apply(self, fn):
         """Move the conditioner while retaining FP32 Fourier-MLP arithmetic."""
@@ -600,7 +612,7 @@ class WaypointDiT(nn.Module):
             Noise embedding with shape ``[*sigma.shape, D]``.
         """
         features = sinusoidal_noise_embedding(
-            512,
+            self.spec.noise_embedding_dim,
             sigma,
             frequencies=self.denoise_step_emb.freq,
         )

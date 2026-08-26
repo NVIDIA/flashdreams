@@ -84,6 +84,7 @@ def test_waypoint_1_5_static_contract() -> None:
     assert WAYPOINT_1_5.global_pinned_dilation == 8
     assert WAYPOINT_1_5.value_residual
     assert WAYPOINT_1_5.noise_conditioning == "wan"
+    assert WAYPOINT_1_5.noise_embedding_dim == 512
     assert WAYPOINT_1_5.rope_theta == 10_000.0
     assert WAYPOINT_1_5.rope_nyquist_fraction == 0.8
     assert not WAYPOINT_1_5.text_conditioning

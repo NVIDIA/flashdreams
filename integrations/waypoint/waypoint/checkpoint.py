@@ -17,27 +17,12 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Mapping
 
 import torch
 from torch import nn
 
 from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
-
-
-@dataclass(frozen=True, kw_only=True)
-class CheckpointInventory:
-    """Small, CPU-only description of a safetensors checkpoint."""
-
-    tensor_count: int
-    """Number of tensors in the safetensors artifact."""
-    dtypes: dict[str, int]
-    """Count of tensors by safetensors dtype label."""
-    total_elements: int
-    """Total scalar element count across all tensors."""
 
 
 def expected_waypoint_1_5_checkpoint_shapes(
@@ -58,7 +43,7 @@ def expected_waypoint_1_5_checkpoint_shapes(
         "ctrl_cfg.null_emb": (1, 1, d_model),
         "ctrl_emb.mlp.fc1.weight": (hidden_dim, spec.n_buttons + 3),
         "ctrl_emb.mlp.fc2.weight": (d_model, hidden_dim),
-        "denoise_step_emb.mlp.fc1.weight": (hidden_dim, 512),
+        "denoise_step_emb.mlp.fc1.weight": (hidden_dim, spec.noise_embedding_dim),
         "denoise_step_emb.mlp.fc2.weight": (d_model, hidden_dim),
         "out_norm.fc.weight": (2 * d_model, d_model),
         "patchify.weight": (
@@ -206,85 +191,3 @@ def load_waypoint_state_dict(
         {key: tuple(tensor.shape) for key, tensor in state_dict.items()}, spec=spec
     )
     module.load_state_dict(state_dict, strict=True)
-
-
-def inspect_safetensors_checkpoint(path: Path) -> CheckpointInventory:
-    """Read safetensors headers without materializing tensor payloads.
-
-    Args:
-        path: Local safetensors artifact to inspect.
-
-    Returns:
-        Tensor-count, dtype, and element-count metadata.
-
-    Raises:
-        ImportError: An importable ``safetensors`` build is unavailable.
-    """
-    try:
-        from safetensors import safe_open
-    except ImportError as error:  # pragma: no cover - import environment dependent.
-        raise ImportError(
-            "Inspecting a Waypoint checkpoint requires an importable safetensors build. "
-            "Install the FlashDreams checkpoint dependencies first."
-        ) from error
-
-    dtypes: Counter[str] = Counter()
-    total_elements = 0
-    with safe_open(str(path), framework="pt", device="cpu") as checkpoint:
-        keys = list(checkpoint.keys())
-        for key in keys:
-            tensor_slice = checkpoint.get_slice(key)
-            dtypes[str(tensor_slice.get_dtype())] += 1
-            shape = tensor_slice.get_shape()
-            elements = 1
-            for dimension in shape:
-                elements *= dimension
-            total_elements += elements
-    return CheckpointInventory(
-        tensor_count=len(keys), dtypes=dict(dtypes), total_elements=total_elements
-    )
-
-
-def validate_waypoint_1_5_checkpoint(path: Path) -> CheckpointInventory:
-    """Validate published Waypoint 1.5 safetensors metadata before native loading.
-
-    This validates raw artifact identity only. The caller must still load it
-    into a checkpoint-compatible module.
-
-    Args:
-        path: Local Waypoint 1.5 safetensors artifact.
-
-    Returns:
-        Validated artifact metadata.
-
-    Raises:
-        ImportError: An importable ``safetensors`` build is unavailable.
-        ValueError: The raw key layout or metadata differs from Waypoint 1.5.
-    """
-    try:
-        from safetensors import safe_open
-    except ImportError as error:  # pragma: no cover - import environment dependent.
-        raise ImportError(
-            "Validating a Waypoint checkpoint requires an importable safetensors build."
-        ) from error
-
-    dtypes: Counter[str] = Counter()
-    total_elements = 0
-    shapes: dict[str, tuple[int, ...]] = {}
-    with safe_open(str(path), framework="pt", device="cpu") as checkpoint:
-        for key in checkpoint.keys():
-            tensor_slice = checkpoint.get_slice(key)
-            shape = tuple(tensor_slice.get_shape())
-            shapes[key] = shape
-            dtypes[str(tensor_slice.get_dtype())] += 1
-            elements = 1
-            for dimension in shape:
-                elements *= dimension
-            total_elements += elements
-    validate_waypoint_1_5_checkpoint_shapes(shapes)
-    inventory = CheckpointInventory(
-        tensor_count=len(shapes), dtypes=dict(dtypes), total_elements=total_elements
-    )
-    if inventory.dtypes != {"BF16": 393} or inventory.total_elements != 1_860_823_096:
-        raise ValueError(f"Waypoint 1.5 checkpoint metadata mismatch: {inventory}")
-    return inventory

@@ -72,6 +72,8 @@ class WaypointModelSpec:
     """Whether attention outputs use an additional learned gate."""
     noise_conditioning: str
     """Published noise-conditioning family used by the checkpoint."""
+    noise_embedding_dim: int
+    """Width of the Fourier features consumed by the noise-conditioning MLP."""
     rope_theta: float
     """Base frequency of the geometric temporal rotary spectrum."""
     rope_nyquist_fraction: float
@@ -170,6 +172,7 @@ WAYPOINT_1_5 = WaypointModelSpec(
     value_residual=True,
     gated_attention=False,
     noise_conditioning="wan",
+    noise_embedding_dim=512,
     rope_theta=10_000.0,
     rope_nyquist_fraction=0.8,
     scheduler_sigmas=(1.0, 0.9, 0.75, 0.3, 0.0),
