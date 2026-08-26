@@ -27,11 +27,23 @@ _MODEL_FPS_WINDOW_SECONDS = 2.0
 """Wall-time window used to estimate generated-frame throughput."""
 
 
+# TODO: Move this to a util file, and simplify the time to advance() logic
+# This is needed because we need to know the real model throughput so that we can
+# pace the model frame presentation to make the playback smooth.
 class _PresentationClock:
     """Schedule model-frame advances at recent model throughput."""
 
-    def __init__(self, frames_per_second: int) -> None:
-        self._fallback_frame_interval = 1.0 / frames_per_second
+    def __init__(
+        self,
+        frames_per_second: int,
+        maximum_frames_per_second: int | None = None,
+    ) -> None:
+        maximum_frames_per_second = maximum_frames_per_second or frames_per_second
+        self._minimum_frame_interval = 1.0 / maximum_frames_per_second
+        self._fallback_frame_interval = max(
+            1.0 / frames_per_second,
+            self._minimum_frame_interval,
+        )
         self._frame_interval = self._fallback_frame_interval
         self._next_frame_at: float | None = None
         self._generation: int | None = None
@@ -106,6 +118,8 @@ class _PresentationClock:
         self._observations.clear()
 
     def _update_frame_interval(self, now: float) -> None:
+        # This function observes the model's FPS over the most recent 2 seconds
+        # and update the _frame_interval accordingly.
         cutoff = now - _MODEL_FPS_WINDOW_SECONDS
         while len(self._observations) >= 3 and self._observations[1][0] <= cutoff:
             self._observations.popleft()
@@ -124,7 +138,10 @@ class _PresentationClock:
         elapsed = last_at - window_started_at
         generated_frames = last_frames - frames_at_window_start
         if elapsed > 0.0 and generated_frames > 0.0:
-            self._frame_interval = elapsed / generated_frames
+            self._frame_interval = max(
+                elapsed / generated_frames,
+                self._minimum_frame_interval,
+            )
 
 
 def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> bool:
@@ -178,7 +195,10 @@ def run_session(
 
     session_desc = session.session_desc
     tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
-    presentation_clock = _PresentationClock(session_desc.frames_per_second_for_step)
+    presentation_clock = _PresentationClock(
+        session_desc.frames_per_second_for_step,
+        maximum_frames_per_second=session_desc.frames_per_second_for_ui,
+    )
     event_buffer = EventBuffer()
     stop = session._shutdown_event
     presentation_manager = session._presentation_manager

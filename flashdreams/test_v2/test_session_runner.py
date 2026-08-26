@@ -86,6 +86,18 @@ def test_presentation_clock_uses_recent_model_fps() -> None:
     assert clock.is_due(now=2.075, generation=0)
 
 
+def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
+    clock = _PresentationClock(
+        frames_per_second=30,
+        maximum_frames_per_second=60,
+    )
+
+    clock.observe_model_output(now=1.0, generation=0, frame_count=120)
+    clock.observe_model_output(now=2.0, generation=0, frame_count=120)
+
+    assert clock.frames_per_second == 60
+
+
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
     clock = _PresentationClock(frames_per_second=30)
 
