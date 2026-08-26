@@ -12,6 +12,8 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from waypoint import WAYPOINT_1_5, WaypointControl
+from waypoint.pipeline import WaypointInferencePipeline
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
@@ -19,9 +21,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from waypoint import WAYPOINT_1_5, WaypointControl
-from waypoint.pipeline import WaypointInferencePipeline
-
 from waypoint_v2.control_events import ControlEventAdapter
 
 _MODEL_HEIGHT = 512

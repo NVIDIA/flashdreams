@@ -8,6 +8,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from waypoint import WaypointControl
+
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEventData,
     KeyboardInputState,
@@ -16,7 +18,6 @@ from flashdreams.runtime_v2.user_input_event import (
     ResetUserInputEventData,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from waypoint import WaypointControl
 
 _NAMED_KEY_CODES = {
     "ARROWDOWN": 0x28,

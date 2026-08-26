@@ -16,6 +16,9 @@ from typing import cast
 import torch
 from loguru import logger
 from torch import Tensor
+from waypoint import WaypointControl, load_controls_from_file
+from waypoint.config import PIPELINE_WAYPOINT_1_5
+from waypoint.pipeline import WaypointInferencePipeline
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
@@ -27,10 +30,6 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from waypoint import WaypointControl, load_controls_from_file
-from waypoint.config import PIPELINE_WAYPOINT_1_5
-from waypoint.pipeline import WaypointInferencePipeline
-
 from waypoint_v2.session import WaypointSession
 
 _OUTPUT_WIDTH = 1280

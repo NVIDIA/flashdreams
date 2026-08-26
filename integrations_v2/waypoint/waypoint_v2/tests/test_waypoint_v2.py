@@ -17,6 +17,9 @@ from numpy import uint64
 from torch import Tensor
 from waypoint import WaypointControl
 from waypoint.pipeline import WaypointInferencePipeline
+from waypoint_v2.app import WaypointApplication, load_seed_display_frames
+from waypoint_v2.control_events import ControlEventAdapter
+from waypoint_v2.session import WaypointModelLoop, WaypointSession
 
 from flashdreams.api_v2.user_input_event_data import UserInputEventData
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
@@ -36,9 +39,6 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from waypoint_v2.app import WaypointApplication, load_seed_display_frames
-from waypoint_v2.control_events import ControlEventAdapter
-from waypoint_v2.session import WaypointModelLoop, WaypointSession
 
 pytestmark = pytest.mark.ci_cpu
 
