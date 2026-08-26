@@ -68,7 +68,7 @@ def test_session_frame_rates_are_strict_positive_integers(
 ) -> None:
     """Reject values that fail later loop timing and encoder contracts."""
     with pytest.raises(ValueError, match="positive integer"):
-        SessionDesc(**{field: value})  # type: ignore[arg-type]
+        SessionDesc(**{field: value})  # ty: ignore[invalid-argument-type]
 
 
 class CallLog:
@@ -575,7 +575,7 @@ def test_presentation_rejects_an_untyped_audio_payload() -> None:
         output=torch.zeros(1, 3, 1, 1),
         frame_count=1,
         output_layout=VideoTensorLayout.tchw,
-        audio=object(),  # type: ignore[arg-type]
+        audio=object(),  # ty: ignore[invalid-argument-type]
     )
 
     with pytest.raises(TypeError, match="AudioOutput"):

@@ -17,12 +17,16 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
+import numpy.typing as npt
 import pytest
 import torch
 from minimax_h3.reference_conditioning import (
     MiniMaxH3AudioReference,
     MiniMaxH3ImageReference,
+    MiniMaxH3Reference,
     MiniMaxH3VideoReference,
     encode_references,
     normalize_references,
@@ -58,14 +62,19 @@ def test_normalize_references_preserves_order_and_maximum_alignment() -> None:
         "audio",
         "video",
     ]
-    assert isinstance(normalized[0].image, Image.Image)
-    assert normalized[0].image.size == (128, 64)
+    normalized_image, normalized_audio, normalized_video = normalized
+    assert isinstance(normalized_image, MiniMaxH3ImageReference)
+    assert isinstance(normalized_audio, MiniMaxH3AudioReference)
+    assert isinstance(normalized_video, MiniMaxH3VideoReference)
+    assert isinstance(normalized_image.image, Image.Image)
+    assert normalized_image.image.size == (128, 64)
     torch.testing.assert_close(
-        normalized[1].audio,
+        normalized_audio.audio,
         torch.arange(8, dtype=torch.float32).repeat(2, 1),
     )
-    assert normalized[1].sample_rate == 32000
-    assert normalized[2].frames.shape == (2, 32, 64, 3)
+    assert normalized_audio.sample_rate == 32000
+    assert isinstance(normalized_video.frames, np.ndarray)
+    assert normalized_video.frames.shape == (2, 32, 64, 3)
 
 
 def test_video_normalization_matches_whole_frame_resampling() -> None:
@@ -79,9 +88,13 @@ def test_video_normalization_matches_whole_frame_resampling() -> None:
         **_normalization_options(),
     )[0]
 
+    assert isinstance(normalized, MiniMaxH3VideoReference)
+    assert isinstance(normalized.frames, np.ndarray)
     assert normalized.fps == 24
-    assert normalized.frames[:, 0, 0, 0].tolist() == [1, 1, 2, 2, 3, 3]
-    assert normalized.frames.flags.c_contiguous
+    frames_array = cast(npt.NDArray[np.uint8], normalized.frames)
+    pixels = frames_array.tolist()
+    assert [frame[0][0][0] for frame in pixels] == [1, 1, 2, 2, 3, 3]
+    assert frames_array.flags.c_contiguous
 
 
 def test_audio_normalization_truncates_and_upmixes_without_resampler() -> None:
@@ -96,6 +109,8 @@ def test_audio_normalization_truncates_and_upmixes_without_resampler() -> None:
         **_normalization_options(),
     )[1]
 
+    assert isinstance(normalized, MiniMaxH3AudioReference)
+    assert isinstance(normalized.audio, torch.Tensor)
     assert normalized.audio.dtype == torch.float32
     assert normalized.audio.device.type == "cpu"
     assert normalized.audio.shape == (2, 165_333)
@@ -178,15 +193,22 @@ def test_encode_references_filters_modalities_in_semantic_order() -> None:
     """Encode visual and audio-bearing subsequences without reordering either."""
     video_vae = _VideoVAE()
     audio_vae = _AudioVAE()
-    references = [
-        MiniMaxH3ImageReference(Image.new("RGB", (32, 32), color=(255, 0, 0))),
-        MiniMaxH3VideoReference(
-            frames=np.full((25, 32, 32, 3), 64, dtype=np.uint8),
-            fps=24.0,
-            audio=torch.full((2, 8), 0.25),
-            sample_rate=32000,
-        ),
-        MiniMaxH3AudioReference(torch.full((2, 6), 0.5), sample_rate=32000),
+    image_reference = MiniMaxH3ImageReference(
+        Image.new("RGB", (32, 32), color=(255, 0, 0))
+    )
+    video_reference = MiniMaxH3VideoReference(
+        frames=np.full((25, 32, 32, 3), 64, dtype=np.uint8),
+        fps=24.0,
+        audio=torch.full((2, 8), 0.25),
+        sample_rate=32000,
+    )
+    audio_reference = MiniMaxH3AudioReference(
+        torch.full((2, 6), 0.5), sample_rate=32000
+    )
+    references: list[MiniMaxH3Reference] = [
+        image_reference,
+        video_reference,
+        audio_reference,
     ]
 
     encoded = encode_references(video_vae, audio_vae, references, device="cpu")
@@ -204,8 +226,10 @@ def test_encode_references_filters_modalities_in_semantic_order() -> None:
     assert video_vae.inputs[1].shape == (1, 3, 22, 32, 32)
     assert float(video_vae.inputs[0][0, 0, 0, 0, 0]) == 1.0
     assert float(video_vae.inputs[1][0, 0, 0, 0, 0]) == pytest.approx(64 / 255)
-    torch.testing.assert_close(audio_vae.inputs[0], references[1].audio)
-    torch.testing.assert_close(audio_vae.inputs[1], references[2].audio)
+    assert isinstance(video_reference.audio, torch.Tensor)
+    assert isinstance(audio_reference.audio, torch.Tensor)
+    torch.testing.assert_close(audio_vae.inputs[0], video_reference.audio)
+    torch.testing.assert_close(audio_vae.inputs[1], audio_reference.audio)
 
 
 def test_encode_references_requires_normalized_media() -> None:

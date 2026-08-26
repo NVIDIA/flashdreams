@@ -31,7 +31,7 @@ def test_audio_output_rejects_malformed_shapes(
 
 def test_audio_output_requires_a_tensor() -> None:
     with pytest.raises(TypeError, match="torch.Tensor"):
-        AudioOutput(samples=[[0.0]], sample_rate=_AUDIO_RATE)  # type: ignore[arg-type]
+        AudioOutput(samples=[[0.0]], sample_rate=_AUDIO_RATE)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("sample_rate", [0, -1, True, 8_000.0])
@@ -39,7 +39,7 @@ def test_audio_output_rejects_invalid_sample_rates(sample_rate: object) -> None:
     with pytest.raises(ValueError, match="positive integer"):
         AudioOutput(
             samples=torch.zeros(2, 8),
-            sample_rate=sample_rate,  # type: ignore[arg-type]
+            sample_rate=sample_rate,  # ty: ignore[invalid-argument-type]
         )
 
 
@@ -49,7 +49,7 @@ def test_audio_output_rejects_invalid_offsets(sample_offset: object) -> None:
         AudioOutput(
             samples=torch.zeros(2, 8),
             sample_rate=_AUDIO_RATE,
-            sample_offset=sample_offset,  # type: ignore[arg-type]
+            sample_offset=sample_offset,  # ty: ignore[invalid-argument-type]
         )
 
 
@@ -106,4 +106,4 @@ def test_session_desc_accepts_paired_audio_contract() -> None:
 )
 def test_session_desc_rejects_invalid_audio_contract(kwargs: dict[str, object]) -> None:
     with pytest.raises(ValueError):
-        SessionDesc(**kwargs)  # type: ignore[arg-type]
+        SessionDesc(**kwargs)  # ty: ignore[invalid-argument-type]

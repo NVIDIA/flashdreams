@@ -157,9 +157,18 @@ def _install_fake_muxer(
 ) -> list[_FakeMuxer]:
     muxers: list[_FakeMuxer] = []
 
-    def create_muxer(**kwargs: object) -> _FakeMuxer:
+    def create_muxer(
+        *,
+        video_path: str | Path,
+        audio_path: str | Path,
+        output_path: str | Path,
+        **kwargs: object,
+    ) -> _FakeMuxer:
+        del kwargs
         muxer = _FakeMuxer(
-            **kwargs,
+            video_path=video_path,
+            audio_path=audio_path,
+            output_path=output_path,
             fail_close=fail_close,
             fail_abort_once=fail_abort_once,
         )
@@ -393,8 +402,8 @@ def test_encoder_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> None:
         height=_HEIGHT,
         frames_per_second=30,
     )
-    encoder._process = Process()  # type: ignore[assignment]
-    encoder._error_reader = Reader()  # type: ignore[assignment]
+    encoder._process = Process()  # ty: ignore[invalid-assignment]
+    encoder._error_reader = Reader()  # ty: ignore[invalid-assignment]
 
     encoder.abort()
     encoder.abort()
@@ -441,8 +450,8 @@ def test_encoder_wait_failure_keeps_child_owned_until_abort(tmp_path: Path) -> N
         height=_HEIGHT,
         frames_per_second=30,
     )
-    encoder._process = Process()  # type: ignore[assignment]
-    encoder._error_reader = Reader()  # type: ignore[assignment]
+    encoder._process = Process()  # ty: ignore[invalid-assignment]
+    encoder._error_reader = Reader()  # ty: ignore[invalid-assignment]
 
     with pytest.raises(InterruptedError, match="wait interrupted"):
         encoder.close()
@@ -743,7 +752,7 @@ def test_failed_audio_stager_abort_retains_transaction_for_retry(
             real_stream.close()
 
     stream = Stream()
-    stager._stream = stream  # type: ignore[assignment]
+    stager._stream = stream  # ty: ignore[invalid-assignment]
 
     with pytest.raises(RuntimeError, match="audio close interrupted"):
         sink.abort()

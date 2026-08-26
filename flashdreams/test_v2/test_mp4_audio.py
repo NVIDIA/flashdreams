@@ -116,7 +116,7 @@ def test_audio_stager_retains_stream_when_abort_close_fails(tmp_path: Path) -> N
     assert stager._stream is not None
     stager._stream.close()
     stream = Stream()
-    stager._stream = stream  # type: ignore[assignment]
+    stager._stream = stream  # ty: ignore[invalid-assignment]
 
     with pytest.raises(RuntimeError, match="audio close interrupted"):
         stager.abort()
@@ -322,7 +322,7 @@ def test_audio_muxer_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> No
         channels=1,
         ffmpeg_path="/usr/bin/ffmpeg",
     )
-    muxer._process = Process()  # type: ignore[assignment]
+    muxer._process = Process()  # ty: ignore[invalid-assignment]
 
     muxer.abort()
     muxer.abort()
@@ -359,7 +359,7 @@ def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> No
         channels=1,
         ffmpeg_path="/usr/bin/ffmpeg",
     )
-    muxer._process = process  # type: ignore[assignment]
+    muxer._process = process  # ty: ignore[invalid-assignment]
 
     with pytest.raises(RuntimeError, match="mux wait interrupted"):
         muxer.abort()

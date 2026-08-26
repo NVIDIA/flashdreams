@@ -30,6 +30,7 @@ from minimax_h3.inference import (
     MiniMaxH3InferenceConfig,
     MiniMaxH3InferenceEngine,
     MiniMaxH3InferenceRequest,
+    MiniMaxH3Workflow,
     validate_execution_capacity,
 )
 from minimax_h3.latent_checkpoint import MiniMaxH3LatentCheckpointStore
@@ -128,7 +129,7 @@ class _TextEncoder(nn.Module):
     @property
     def dtype(self) -> torch.dtype:
         """Return the conditioner computation dtype."""
-        return self.anchor.dtype
+        return torch.bfloat16
 
 
 class _VideoVAE(nn.Module):
@@ -245,9 +246,13 @@ class _Resources:
         self.events.append("load:audio_vae")
         return _AudioVAE()
 
-    def load_diffusion_model(self, workflow: str, steps: int) -> nn.Module:
+    def load_diffusion_model(
+        self,
+        workflow: MiniMaxH3Workflow,
+        num_inference_steps: int,
+    ) -> nn.Module:
         """Load the requested fake workflow transformer stage."""
-        self.events.append(f"load:transformer:{workflow}:{steps}")
+        self.events.append(f"load:transformer:{workflow}:{num_inference_steps}")
         return _DiffusionModel(self.resumes)
 
     def release(self, module: nn.Module) -> None:
@@ -670,7 +675,7 @@ def test_staged_conditioning_workflows_use_native_vaes(workflow: str) -> None:
 
     result = engine.generate(
         MiniMaxH3InferenceRequest(
-            workflow=workflow,  # type: ignore[arg-type]
+            workflow=workflow,  # ty: ignore[invalid-argument-type]
             prompt="prompt",
             width=32,
             height=32,
@@ -739,7 +744,7 @@ def test_request_and_capacity_reject_unsupported_work_before_weights() -> None:
             prompt="prompt",
             width=32,
             height=32,
-            first_image=object(),  # type: ignore[arg-type]
+            first_image=object(),  # ty: ignore[invalid-argument-type]
         )
     with pytest.raises(ValueError, match="requires a first image"):
         MiniMaxH3InferenceRequest(
@@ -750,7 +755,7 @@ def test_request_and_capacity_reject_unsupported_work_before_weights() -> None:
     with pytest.raises(ValueError, match="finite and non-negative"):
         MiniMaxH3InferenceConfig(checkpoint_min_free_gb=float("nan"))
     with pytest.raises(ValueError, match="unsupported MiniMax H3 workflow"):
-        MiniMaxH3InferenceConfig(workflow="unknown")  # type: ignore[arg-type]
+        MiniMaxH3InferenceConfig(workflow="unknown")  # ty: ignore[invalid-argument-type]
 
 
 def test_complete_cached_component_skips_download_capacity_check(

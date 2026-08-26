@@ -110,4 +110,4 @@ def test_prepare_keyframes_rejects_incomplete_requests() -> None:
     with pytest.raises(ValueError, match="passed together"):
         prepare_keyframes(first_image=first, height=32)
     with pytest.raises(ValueError, match="PIL"):
-        prepare_keyframes(first_image=np.zeros((32, 32, 3)))  # type: ignore[arg-type]
+        prepare_keyframes(first_image=np.zeros((32, 32, 3)))  # ty: ignore[invalid-argument-type]

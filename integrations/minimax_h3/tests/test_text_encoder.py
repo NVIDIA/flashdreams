@@ -75,7 +75,7 @@ class _ImageProcessor:
         self, *, images: list[object], return_tensors: str
     ) -> dict[str, torch.Tensor]:
         assert return_tensors == "pt"
-        if images == ["image"]:
+        if len(images) == 1:
             return {
                 "pixel_values": torch.arange(6, dtype=torch.float32).reshape(1, 6),
                 "image_grid_thw": torch.tensor([[1, 2, 4]]),
@@ -223,7 +223,7 @@ def test_ref2va_presentation_preserves_order_and_timestamps() -> None:
         _Processor(),
         "prompt",
         [
-            MiniMaxH3ImageReference("image"),
+            MiniMaxH3ImageReference(np.zeros((2, 2, 3), dtype=np.uint8)),
             MiniMaxH3VideoReference(
                 frames=video_frames,
                 fps=24.0,
