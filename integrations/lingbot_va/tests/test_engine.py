@@ -17,6 +17,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
@@ -34,6 +35,11 @@ from lingbot_va.scheduler import LingbotVAFlowMatchSchedulerConfig
 from lingbot_va.transformer import LingbotVATransformerConfig
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _config(**changes: Any) -> LingbotVAEngineConfig:
+    """Build a config with an explicit inert input directory."""
+    return LingbotVAEngineConfig(input_image_dir=Path("."), **changes)
 
 
 class _StandInEngine(LingbotVAEngine):
@@ -58,7 +64,7 @@ class _FailingEngine(LingbotVAEngine):
 
 
 def test_pipeline_config_applies_every_model_override(tmp_path: Path) -> None:
-    config = LingbotVAEngineConfig(
+    config = _config(
         seed=17,
         compile_network=False,
         guidance_scale=2.5,
@@ -92,7 +98,7 @@ def test_pipeline_config_applies_every_model_override(tmp_path: Path) -> None:
 
 
 def test_engine_is_one_run_and_close_is_idempotent() -> None:
-    engine = _StandInEngine(LingbotVAEngineConfig())
+    engine = _StandInEngine(_config())
 
     output = engine.run()
 
@@ -108,7 +114,7 @@ def test_engine_is_one_run_and_close_is_idempotent() -> None:
 
 
 def test_engine_failure_closes_partial_state() -> None:
-    engine = _FailingEngine(LingbotVAEngineConfig())
+    engine = _FailingEngine(_config())
 
     with pytest.raises(RuntimeError, match="inference failed"):
         engine.run()
@@ -134,7 +140,7 @@ def test_validate_input_images_returns_camera_mapping(tmp_path: Path) -> None:
 
 
 def test_expected_shape_scales_only_with_chunk_count() -> None:
-    config = LingbotVAEngineConfig(num_chunks=3)
+    config = _config(num_chunks=3)
 
     assert expected_output_shape(config) == (21, 3, 256, 320)
 
@@ -142,13 +148,13 @@ def test_expected_shape_scales_only_with_chunk_count() -> None:
 @pytest.mark.parametrize(
     ("config_factory", "message"),
     [
-        (lambda: LingbotVAEngineConfig(num_chunks=0), "num_chunks"),
+        (lambda: _config(num_chunks=0), "num_chunks"),
         (
-            lambda: LingbotVAEngineConfig(video_inference_steps=0),
+            lambda: _config(video_inference_steps=0),
             "step counts",
         ),
-        (lambda: LingbotVAEngineConfig(video_snr_shift=0.0), "SNR shifts"),
-        (lambda: LingbotVAEngineConfig(guidance_scale=-1.0), "guidance scales"),
+        (lambda: _config(video_snr_shift=0.0), "SNR shifts"),
+        (lambda: _config(guidance_scale=-1.0), "guidance scales"),
     ],
 )
 def test_engine_config_rejects_invalid_values(

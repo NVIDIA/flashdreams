@@ -19,16 +19,20 @@ uv run --project integrations_v2/lingbot_va flashdreams-run-v2 \
     -- \
     --checkpoint-root robbyant/lingbot-va-posttrain-robotwin \
     --checkpoint-revision 8c9dea8abbc5c91cc9e18bc3264b8915083bbe70 \
-    --input-image-dir assets/example_data/lingbot-va/robotwin \
+    --input-image-dir /path/to/robotwin-images \
     --num-chunks 10
 ```
 
 The application describes its natural session before initialization: TCHW,
 256x320, 10 FPS, blocking backpressure, present-only-new behavior, and an
-`actions[step, channel]` tensor artifact. Model loading is lazy on the model
-thread. The finite loop emits one complete rollout and then reports finished.
+`actions[step, channel]` tensor artifact. Runtime backpressure and presentation
+overrides are preserved; fixed model output properties are validated. Model
+loading is lazy on the model thread, and the finite loop emits one complete
+rollout before reporting finished.
 
-Use `-- --help` after the application slug for checkpoint, input, compilation,
+`--input-image-dir` is required because no camera images are bundled. Use
+`-- --help` after the application slug for checkpoint, input, compilation,
 offload, seed, guidance, inference-step, and scheduler-shift overrides. The
-model package README documents checkpoint modes, camera/action contracts,
-provenance, opt-in GPU tests, measured parity evidence, and limitations.
+[model package README](../../integrations/lingbot_va/README.md) documents input
+provenance, checkpoint modes, camera/action contracts, lifecycle, opt-in GPU
+tests, measured parity evidence, and limitations.

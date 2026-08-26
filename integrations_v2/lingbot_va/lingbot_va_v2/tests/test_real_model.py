@@ -18,14 +18,16 @@
 The production-path test downloads about 23 GiB unless a resolved snapshot is
 provided and writes a short MP4, metrics JSON, and actions array::
 
-    LINGBOT_VA_REAL_MODEL_RUN=1 uv run --no-sync pytest \
-        integrations_v2/lingbot_va -m ci_gpu -s
+    LINGBOT_VA_REAL_MODEL_RUN=1 \
+    LINGBOT_VA_INPUT_DIR=/path/to/robotwin-images \
+    uv run --no-sync pytest integrations_v2/lingbot_va -m ci_gpu -s
 
 The separate compile gate is intentionally explicit because cold Inductor
 autotuning can take minutes::
 
-    LINGBOT_VA_REAL_MODEL_COMPILE_RUN=1 uv run --no-sync pytest \
-        integrations_v2/lingbot_va -m ci_gpu -s -k compile
+    LINGBOT_VA_REAL_MODEL_COMPILE_RUN=1 \
+    LINGBOT_VA_INPUT_DIR=/path/to/robotwin-images \
+    uv run --no-sync pytest integrations_v2/lingbot_va -m ci_gpu -s -k compile
 """
 
 from __future__ import annotations
@@ -56,8 +58,6 @@ from flashdreams.t2v_v2.testing import real_model_run_skip_reason
 pytestmark = pytest.mark.ci_gpu
 
 _CHECKPOINT_REVISION = "8c9dea8abbc5c91cc9e18bc3264b8915083bbe70"
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-_DEFAULT_INPUT_DIR = _REPOSITORY_ROOT / "assets/example_data/lingbot-va/robotwin"
 _RUN_SKIP = real_model_run_skip_reason("LINGBOT_VA_REAL_MODEL_RUN")
 
 
@@ -79,8 +79,14 @@ def _checkpoint_root() -> str:
 
 
 def _input_dir() -> Path:
-    """Return an optional three-camera input override or checked-in example."""
-    return Path(os.environ.get("LINGBOT_VA_INPUT_DIR", _DEFAULT_INPUT_DIR))
+    """Return the explicitly supplied three-camera input directory."""
+    value = os.environ.get("LINGBOT_VA_INPUT_DIR")
+    if value is None:
+        raise RuntimeError(
+            "Set LINGBOT_VA_INPUT_DIR to a directory containing the three "
+            "Robotwin camera PNGs."
+        )
+    return Path(value)
 
 
 @pytest.mark.skipif(_RUN_SKIP is not None, reason=_RUN_SKIP or "")
@@ -94,7 +100,7 @@ def test_real_model_v2_offload_writes_video_actions_and_metrics(
         application,
         Mp4ClientWindow(video_path),
         metrics_output_sink=MetricsOutputSink(metrics_path),
-        tensor_artifact_output_sink=TensorArtifactOutputSink(tmp_path),
+        model_output_sinks=[TensorArtifactOutputSink(tmp_path)],
     ).run(
         application.session_desc(),
         [

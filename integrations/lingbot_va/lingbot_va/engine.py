@@ -46,7 +46,6 @@ from lingbot_va.action import LingbotVAActionProcessor
 from lingbot_va.config import PIPELINE_LINGBOT_VA_ROBOTWIN_I2AV
 from lingbot_va.constants import (
     DEFAULT_CHECKPOINT_ROOT,
-    DEFAULT_INPUT_IMAGE_DIR,
     DEFAULT_PROMPT,
     ROBOTWIN_ACTION_GUIDANCE_SCALE,
     ROBOTWIN_ACTION_INFERENCE_STEPS,
@@ -71,7 +70,7 @@ class LingbotVAEngineConfig:
 
     checkpoint_root: str | Path = DEFAULT_CHECKPOINT_ROOT
     checkpoint_revision: str | None = None
-    input_image_dir: Path = DEFAULT_INPUT_IMAGE_DIR
+    input_image_dir: Path
     prompt: str | Path = DEFAULT_PROMPT
     num_chunks: int = 10
     seed: int = 42

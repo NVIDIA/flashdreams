@@ -230,11 +230,37 @@ def test_create_session_rejects_misdescribed_robotwin_output(tmp_path: Path) -> 
         app.create_session(replace(app.session_desc(), video_width=640))
 
 
+def test_create_session_preserves_runtime_policies(tmp_path: Path) -> None:
+    app = _init_app(tmp_path, _FakeEngineFactory())
+    requested = replace(
+        app.session_desc(),
+        backpressure_mode=BackpressureMode.DROP_OLDEST,
+        presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
+        metadata={"caller": "preserved"},
+    )
+
+    session = app.create_session(requested)
+
+    assert session.session_desc.backpressure_mode is BackpressureMode.DROP_OLDEST
+    assert (
+        session.session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
+    )
+    assert session.session_desc.metadata["caller"] == "preserved"
+    assert session.session_desc.metadata["action_dim"] == 30
+
+
 def test_create_session_before_init_fails() -> None:
     app = LingbotVAApplication(_FakeEngineFactory())
 
     with pytest.raises(RuntimeError, match="init"):
         app.create_session(app.session_desc())
+
+
+def test_init_requires_an_explicit_input_image_directory() -> None:
+    app = LingbotVAApplication(_FakeEngineFactory())
+
+    with pytest.raises(SystemExit):
+        app.init(["--device", "cpu"])
 
 
 def test_init_rejects_missing_camera_inputs(tmp_path: Path) -> None:
@@ -338,7 +364,7 @@ def test_runtime_routes_actions_through_generic_sink(tmp_path: Path) -> None:
     run_session(
         session,
         window,
-        tensor_artifact_output_sink=TensorArtifactOutputSink(artifact_dir),
+        model_output_sinks=[TensorArtifactOutputSink(artifact_dir)],
     )
 
     assert window.closed

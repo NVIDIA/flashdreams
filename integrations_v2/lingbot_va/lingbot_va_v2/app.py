@@ -19,14 +19,13 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
 from lingbot_va._loaders import validate_checkpoint_root
 from lingbot_va.constants import (
     DEFAULT_CHECKPOINT_ROOT,
-    DEFAULT_INPUT_IMAGE_DIR,
     DEFAULT_PROMPT,
     ROBOTWIN_ACTION_DIM,
     ROBOTWIN_ACTION_GUIDANCE_SCALE,
@@ -244,9 +243,15 @@ class LingbotVAApplication(IApplication):
             )
         canonical = _session_desc()
         _validate_requested_session(session_desc, canonical)
+        resolved = replace(
+            canonical,
+            backpressure_mode=session_desc.backpressure_mode,
+            presentation_mode=session_desc.presentation_mode,
+            metadata={**session_desc.metadata, **canonical.metadata},
+        )
         return LingbotVASession(
             self._config,
-            canonical,
+            resolved,
             self._engine_factory,
         )
 
@@ -262,7 +267,8 @@ def _parse_args(commandline_args: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--input-image-dir",
         type=Path,
-        default=DEFAULT_INPUT_IMAGE_DIR,
+        required=True,
+        help="Directory containing the three Robotwin camera PNGs.",
     )
     prompt_group = parser.add_mutually_exclusive_group()
     prompt_group.add_argument("--prompt", default=DEFAULT_PROMPT)
@@ -332,11 +338,9 @@ def _validate_requested_session(
     requested: SessionDesc,
     canonical: SessionDesc,
 ) -> None:
-    """Reject runtime requests that would misdescribe fixed Robotwin output."""
+    """Reject fixed-output changes while accepting runtime presentation policies."""
     fields = (
         "output_layout",
-        "backpressure_mode",
-        "presentation_mode",
         "frames_per_second_for_ui",
         "frames_per_second_for_step",
         "video_width",

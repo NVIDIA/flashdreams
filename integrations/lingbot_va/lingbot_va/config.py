@@ -78,6 +78,3 @@ PIPELINE_LINGBOT_VA_ROBOTWIN_I2AV = LingbotVAInferencePipelineConfig(
         shift=ROBOTWIN_ACTION_SNR_SHIFT,
     ),
 )
-PIPELINE_CONFIGS: dict[str, LingbotVAInferencePipelineConfig] = {
-    PIPELINE_LINGBOT_VA_ROBOTWIN_I2AV.name: PIPELINE_LINGBOT_VA_ROBOTWIN_I2AV,
-}

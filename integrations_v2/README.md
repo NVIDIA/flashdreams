@@ -23,6 +23,7 @@ follows is already done for you.
 - `t2v_self_forcing`, `t2v_causal_forcing`, `t2v_fastvideo_causal_wan22`,
   `t2v_wan21`, `t2v_cosmos_predict2` — real models, each a thin wrapper over
   `flashdreams.t2v_v2`.
+- `lingbot_va` — the LingBot-VA Robotwin image-to-action/video model.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
 

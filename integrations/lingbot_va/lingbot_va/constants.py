@@ -17,12 +17,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 RUNNER_NAME_ROBOTWIN_I2AV = "lingbot-va-robotwin-i2av"
 DEFAULT_CHECKPOINT_ROOT = "robbyant/lingbot-va-posttrain-robotwin"
-DEFAULT_INPUT_IMAGE_DIR = Path("assets/example_data/lingbot-va/robotwin")
-DEFAULT_OUTPUT_DIR = Path("outputs/lingbot_va/robotwin_i2av")
 DEFAULT_PROMPT = (
     "Grab the medium-sized white mug, rotate it, place it on the table, "
     "and hook it onto the smooth dark gray rack."
