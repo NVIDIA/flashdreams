@@ -38,3 +38,6 @@ The application already declares and returns synchronized audio. Publishing it
 in the built-in MP4 mode remains gated on an explicitly approved public MP4
 audio codec; the existing video-only sink rejects audio rather than silently
 dropping it.
+
+See [ROLLOUT.md](ROLLOUT.md) for pinned revisions, CPU/CUDA gates, real-weight
+RTX PRO results, and the remaining MP4-audio approval boundary.
