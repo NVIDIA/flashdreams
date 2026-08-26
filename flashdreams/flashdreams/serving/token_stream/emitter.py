@@ -79,7 +79,12 @@ class TokenFrameEmitter:
 
         total = int(latent.shape[0])
         for frame_idx in range(total):
-            result = self._codec.encode_frame(latent[frame_idx])
+            # Encode off the event loop. encode_frame is synchronous GPU work, and a
+            # compiling codec (SAS pays a one-time multi-second Triton JIT on its first
+            # call) blocks heartbeat handling long enough to trip the 10 s client
+            # liveness watchdog, killing the session before its first frame lands.
+            # Awaiting each frame in turn keeps the send order the framing relies on.
+            result = await asyncio.to_thread(self._codec.encode_frame, latent[frame_idx])
             frame = framing.pack_frame(
                 chunk_id=chunk_index,
                 frame_idx=frame_idx,

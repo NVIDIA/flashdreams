@@ -6,6 +6,7 @@
 // decoding any token frame.
 
 import { RawFloat16Decoder } from "./raw_f16.js"
+import { SASDecoder } from "./sas.js"
 
 /**
  * Codec id -> decoder instance. Keys must match the server-side
@@ -13,6 +14,13 @@ import { RawFloat16Decoder } from "./raw_f16.js"
  */
 export const TOKEN_CODEC_REGISTRY = new Map([
   ["raw_f16", new RawFloat16Decoder()],
+  // One entry per SAS preset the server can advertise, since SASTokenCodec.codec_id is
+  // built from num_bits and n_stages. Separate instances rather than one shared object
+  // so per-session configure() state cannot leak across codecs; the class itself is
+  // preset-agnostic and reads every parameter from the session header.
+  ["sas-int8-8s", new SASDecoder("sas-int8-8s")],
+  ["sas-int4-8s", new SASDecoder("sas-int4-8s")],
+  ["sas-int2-8s", new SASDecoder("sas-int2-8s")],
 ])
 
 /**

@@ -176,6 +176,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--token-codec",
+        type=str,
+        default="raw",
+        choices=["raw", "sas"],
+        help=(
+            "Token-stream codec. 'raw' is the uncompressed float16 reference; "
+            "'sas' runs cascaded PRQ (int8-8s) via the vendored "
+            "sol_media_compression kernels. Only meaningful with "
+            "--enable-token-stream."
+        ),
+    )
+    parser.add_argument(
         "--enable-token-stream",
         "--enable_token_stream",
         dest="enable_token_stream",
@@ -328,6 +340,7 @@ def build_runtime_config(
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         encoder_backend="default" if args.prefer_sw_encoder else "auto",
         enable_token_stream=getattr(args, "enable_token_stream", False),
+        token_codec=getattr(args, "token_codec", "raw"),
     )
 
 

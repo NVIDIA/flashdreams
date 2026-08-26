@@ -56,6 +56,11 @@ from flashdreams.infra.postprocess import (
 )
 from flashdreams.plugins.registry import resolve_postprocess_preset
 from flashdreams.serving.token_stream import TokenStreamConfig
+from flashdreams.serving.token_stream.codec import (
+    RawFloat16TokenCodecConfig,
+    SASTokenCodecConfig,
+    TokenCodecConfig,
+)
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -429,6 +434,23 @@ class OmnidreamsRuntimeError(RuntimeError):
     """Raised when the Omnidreams WebRTC runtime is used incorrectly."""
 
 
+def _make_token_codec_config(name: str) -> TokenCodecConfig:
+    """Map the --token-codec string onto a codec config.
+
+    Kept as a plain lookup rather than a registry so an unknown name fails at session
+    setup with the valid options listed, instead of silently falling back to raw and
+    quietly invalidating a measurement run.
+    """
+    key = (name or "raw").lower()
+    if key == "raw":
+        return RawFloat16TokenCodecConfig()
+    if key == "sas":
+        # int8-8s: the highest-fidelity preset the reference kernels can express.
+        # 16-bit is unreachable -- quant_pack.py:136 and accumulate.py:136 both cap at 8.
+        return SASTokenCodecConfig(num_bits=8, n_stages=8, n_clusters=256, block_size=16)
+    raise ValueError(f"unknown token codec {name!r}; expected one of: raw, sas")
+
+
 @dataclass(slots=True)
 class OmnidreamsRuntimeConfig:
     pipeline_config_name: str = (
@@ -454,6 +476,9 @@ class OmnidreamsRuntimeConfig:
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
     enable_token_stream: bool = False
+    token_codec: str = "raw"
+    """Token-stream codec: "raw" (uncompressed float16 reference) or "sas"
+    (cascaded PRQ via the vendored sol_media_compression kernels)."""
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
@@ -1128,7 +1153,8 @@ class OmnidreamsWebRTCSessionManager(
             fps=runtime_config.fps,
             client_liveness_timeout_s=client_liveness_timeout_s,
             token_stream_config=TokenStreamConfig(
-                enabled=runtime_config.enable_token_stream
+                enabled=runtime_config.enable_token_stream,
+                codec=_make_token_codec_config(runtime_config.token_codec),
             ),
         )
         self._pending_session_input: OmnidreamsSessionInput | None = None
