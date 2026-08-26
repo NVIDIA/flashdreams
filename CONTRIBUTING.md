@@ -320,8 +320,9 @@ the declared minimums. This means:
 
 ## Working with a single integration package
 
-The workspace contains many integration packages under `integrations/`.
-A full `uv sync` installs dependencies for *all* of them. If you only
+The workspace contains many integration packages under `integrations/` and
+`integrations_v2/`. A full `uv sync` installs dependencies for *all* of them.
+If you only
 need one (e.g. you're working on `omnidreams`), use the distribution
 package name with `--package` to sync only that package's dependencies:
 
@@ -346,10 +347,12 @@ Available integration packages:
 | `integrations/flashvsr` | `flashdreams-flashvsr` |
 | `integrations/hy_worldplay` | `flashdreams-hy-worldplay` |
 | `integrations/lingbot` | `flashdreams-lingbot` |
+| `integrations/minimax_h3` | `flashdreams-minimax-h3` |
 | `integrations/omnidreams` | `flashdreams-omnidreams` |
 | `integrations/self_forcing` | `flashdreams-self-forcing` |
 | `integrations/wan21` | `flashdreams-wan21` |
 | `integrations/wan22` | `flashdreams-wan22` |
+| `integrations_v2/minimax_h3` | `flashdreams-minimax-h3-v2` |
 
 The nested `integrations/omnidreams/ludus-renderer` workspace package is
 named `ludus-renderer` and is installed as part of Omnidreams workflows
