@@ -56,6 +56,13 @@ class ApplicationRunner:
             commandline_args: Arguments owned and parsed by the application.
         """
         run_started = False
+        application_closed = False
+
+        def close_before_output_commit() -> None:
+            nonlocal application_closed
+            self._application.close()
+            application_closed = True
+
         try:
             self._application.init(commandline_args)
             session = self._application.create_session(session_desc)
@@ -64,15 +71,17 @@ class ApplicationRunner:
                 session,
                 self._client_window,
                 metrics_output_sink=self._metrics_output_sink,
+                before_output_commit=close_before_output_commit,
             )
         finally:
             if not run_started:
                 _close_client_window(self._client_window)
                 if self._metrics_output_sink is not None:
                     _close_output_sink(self._metrics_output_sink)
-            _close_application(
-                self._application, run_failed=sys.exc_info()[0] is not None
-            )
+            if not application_closed:
+                _close_application(
+                    self._application, run_failed=sys.exc_info()[0] is not None
+                )
 
 
 def _close_client_window(client_window: IClientWindow) -> None:

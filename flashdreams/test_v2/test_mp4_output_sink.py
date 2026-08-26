@@ -13,6 +13,8 @@ import torch
 from torch import Tensor
 
 import flashdreams.runtime_v2.mp4_output_sink as mp4_sink_module
+import flashdreams.runtime_v2.video_encoder as video_encoder_module
+from flashdreams.runtime_v2.audio_output import AudioOutput
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -74,6 +76,37 @@ class _FakeEncoder:
         self.abort_calls += 1
 
 
+class _FakeMuxer:
+    """Capture staged PCM and create a recognizable synchronized file."""
+
+    def __init__(
+        self,
+        *,
+        video_path: str | Path,
+        audio_path: str | Path,
+        output_path: str | Path,
+        fail_close: bool = False,
+        **kwargs: object,
+    ) -> None:
+        del kwargs
+        self.video_path = Path(video_path)
+        self.audio_path = Path(audio_path)
+        self.output_path = Path(output_path)
+        self.fail_close = fail_close
+        self.audio_bytes = b""
+        self.abort_calls = 0
+
+    def close(self) -> None:
+        self.audio_bytes = self.audio_path.read_bytes()
+        self.output_path.write_bytes(b"partial synchronized output")
+        if self.fail_close:
+            raise RuntimeError("mux close failed")
+        self.output_path.write_bytes(b"complete synchronized output")
+
+    def abort(self) -> None:
+        self.abort_calls += 1
+
+
 def _install_fake_encoder(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -96,6 +129,20 @@ def _install_fake_encoder(
     return encoders
 
 
+def _install_fake_muxer(
+    monkeypatch: pytest.MonkeyPatch, *, fail_close: bool = False
+) -> list[_FakeMuxer]:
+    muxers: list[_FakeMuxer] = []
+
+    def create_muxer(**kwargs: object) -> _FakeMuxer:
+        muxer = _FakeMuxer(**kwargs, fail_close=fail_close)
+        muxers.append(muxer)
+        return muxer
+
+    monkeypatch.setattr(mp4_sink_module, "Mp4AudioMuxer", create_muxer)
+    return muxers
+
+
 def _staging_paths(path: Path) -> list[Path]:
     return list(path.parent.glob(f".{path.name}.*"))
 
@@ -106,14 +153,16 @@ def _session_desc(
     width: int = _WIDTH,
     height: int = _HEIGHT,
     audio: bool = False,
+    fps: int = 30,
+    audio_sample_rate: int = 8_000,
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
-        frames_per_second_for_ui=30,
-        frames_per_second_for_step=30,
+        frames_per_second_for_ui=fps,
+        frames_per_second_for_step=fps,
         video_width=width,
         video_height=height,
-        audio_sample_rate=8_000 if audio else None,
+        audio_sample_rate=audio_sample_rate if audio else None,
         audio_channels=2 if audio else None,
     )
 
@@ -137,6 +186,7 @@ def _result(
     step_index: int = 0,
     layout: VideoTensorLayout = VideoTensorLayout.bcthw,
     dtype: torch.dtype = torch.float32,
+    audio: AudioOutput | None = None,
 ) -> StepResult:
     """Return a result of solid frames, one per colour."""
     frames = torch.zeros((len(colours), 3, _HEIGHT, _WIDTH), dtype=dtype)
@@ -148,6 +198,7 @@ def _result(
         output=_in_layout(frames, layout),
         frame_count=len(colours),
         output_layout=layout,
+        audio=audio,
     )
 
 
@@ -329,6 +380,108 @@ def test_encoder_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> None:
     ]
 
 
+def test_encoder_wait_failure_keeps_child_owned_until_abort(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class Stream:
+        def close(self) -> None:
+            calls.append("stdin.close")
+
+    class Process:
+        stdin = Stream()
+        waits = 0
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            calls.append("process.terminate")
+
+        def wait(self) -> int:
+            self.waits += 1
+            calls.append(f"process.wait({self.waits})")
+            if self.waits == 1:
+                raise InterruptedError("wait interrupted")
+            return -15
+
+    class Reader:
+        def join(self) -> None:
+            calls.append("reader.join")
+
+    encoder = Mp4Encoder(
+        tmp_path / "staged.mp4",
+        width=_WIDTH,
+        height=_HEIGHT,
+        frames_per_second=30,
+    )
+    encoder._process = Process()  # type: ignore[assignment]
+    encoder._error_reader = Reader()  # type: ignore[assignment]
+
+    with pytest.raises(InterruptedError, match="wait interrupted"):
+        encoder.close()
+    encoder.abort()
+
+    assert calls == [
+        "stdin.close",
+        "process.wait(1)",
+        "process.terminate",
+        "stdin.close",
+        "process.wait(2)",
+        "reader.join",
+    ]
+
+
+def test_encoder_reader_start_failure_terminates_spawned_ffmpeg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    class Stream:
+        def close(self) -> None:
+            calls.append("stdin.close")
+
+        def write(self, data: bytes) -> None:
+            del data
+
+    class Process:
+        stdin = Stream()
+        stderr = object()
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            calls.append("process.terminate")
+
+        def wait(self) -> int:
+            calls.append("process.wait")
+            return -15
+
+    class Reader:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def start(self) -> None:
+            raise RuntimeError("reader start failed")
+
+    monkeypatch.setattr(
+        video_encoder_module.subprocess, "Popen", lambda *args, **kwargs: Process()
+    )
+    monkeypatch.setattr(video_encoder_module.threading, "Thread", Reader)
+    encoder = Mp4Encoder(
+        tmp_path / "staged.mp4",
+        width=_WIDTH,
+        height=_HEIGHT,
+        frames_per_second=30,
+    )
+
+    with pytest.raises(RuntimeError, match="reader start failed"):
+        encoder.write(np.zeros((1, _HEIGHT, _WIDTH, 3), dtype=np.uint8))
+
+    assert calls == ["process.terminate", "stdin.close", "process.wait"]
+    assert encoder._process is None
+
+
 def test_write_before_open_raises(tmp_path: Path) -> None:
     sink = Mp4OutputSink(tmp_path / "out.mp4")
 
@@ -348,14 +501,121 @@ def test_open_rejects_odd_frame_dimensions(
         sink.open(_session_desc(width=width, height=height))
 
 
-def test_open_rejects_audio_while_the_sink_is_video_only(tmp_path: Path) -> None:
+def test_open_rejects_audio_without_an_explicit_codec(tmp_path: Path) -> None:
     path = tmp_path / "out.mp4"
     sink = Mp4OutputSink(path)
 
-    with pytest.raises(ValueError, match="does not support audio"):
+    with pytest.raises(ValueError, match="explicitly selected audio codec"):
         sink.open(_session_desc(audio=True))
 
     assert not path.exists()
+
+
+def test_audio_result_is_rejected_when_the_session_declared_none(
+    tmp_path: Path,
+) -> None:
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+    sink.open(_session_desc())
+    audio = AudioOutput(samples=torch.zeros((2, 1)), sample_rate=8_000)
+
+    with pytest.raises(ValueError, match="declared none"):
+        sink.write(_result([_RED], audio=audio))
+    sink.abort()
+
+
+@pytest.mark.parametrize(
+    ("audio", "message"),
+    [
+        (AudioOutput(samples=torch.zeros((2, 1)), sample_rate=16_000), "8000 Hz"),
+        (AudioOutput(samples=torch.zeros((1, 1)), sample_rate=8_000), "2 audio channels"),
+    ],
+)
+def test_audio_result_must_match_the_declared_format(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    audio: AudioOutput,
+    message: str,
+) -> None:
+    _install_fake_encoder(monkeypatch)
+    sink = Mp4OutputSink(tmp_path / "out.mp4", audio_codec="reviewed-codec")
+    sink.open(_session_desc(audio=True))
+
+    with pytest.raises(ValueError, match=message):
+        sink.write(_result([_RED], audio=audio))
+    sink.abort()
+
+
+@pytest.mark.parametrize(
+    ("frame_count", "native_samples", "expected_samples"),
+    [
+        (124, 165_600, 165_333),
+        (362, 482_400, 482_667),
+    ],
+)
+def test_audio_is_aligned_to_the_written_video_timeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    frame_count: int,
+    native_samples: int,
+    expected_samples: int,
+) -> None:
+    _install_fake_encoder(monkeypatch)
+    muxers = _install_fake_muxer(monkeypatch)
+    path = tmp_path / "out.mp4"
+    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    audio = AudioOutput(
+        samples=torch.full((2, native_samples), 0.25),
+        sample_rate=32_000,
+    )
+
+    sink.open(_session_desc(audio=True, fps=24, audio_sample_rate=32_000))
+    sink.write(_result([_RED] * frame_count, audio=audio))
+    sink.close()
+
+    assert path.read_bytes() == b"complete synchronized output"
+    assert len(muxers[0].audio_bytes) == expected_samples * 2 * 4
+    if expected_samples > native_samples:
+        assert muxers[0].audio_bytes[-(expected_samples - native_samples) * 8 :] == (
+            b"\0" * ((expected_samples - native_samples) * 8)
+        )
+    assert _staging_paths(path) == []
+
+
+def test_missing_audio_is_padded_with_timeline_silence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_fake_encoder(monkeypatch)
+    muxers = _install_fake_muxer(monkeypatch)
+    path = tmp_path / "out.mp4"
+    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+
+    sink.open(_session_desc(audio=True))
+    sink.write(_result([_RED, _BLACK, _RED]))
+    sink.close()
+
+    expected_samples = round(3 * 8_000 / 30)
+    assert muxers[0].audio_bytes == b"\0" * (expected_samples * 2 * 4)
+
+
+def test_mux_failure_preserves_target_and_can_be_aborted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_fake_encoder(monkeypatch)
+    muxers = _install_fake_muxer(monkeypatch, fail_close=True)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    audio = AudioOutput(samples=torch.zeros((2, 100)), sample_rate=8_000)
+    sink.open(_session_desc(audio=True))
+    sink.write(_result([_RED], audio=audio))
+
+    with pytest.raises(RuntimeError, match="mux close failed"):
+        sink.close()
+    sink.abort()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+    assert muxers[0].abort_calls == 1
 
 
 def test_write_rejects_a_layout_the_sink_was_not_opened_for(tmp_path: Path) -> None:

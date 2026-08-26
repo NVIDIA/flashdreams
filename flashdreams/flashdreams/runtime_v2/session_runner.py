@@ -5,6 +5,7 @@
 
 import logging
 import threading
+from collections.abc import Callable
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -40,6 +41,7 @@ def run_session(
     window: IClientWindow,
     *,
     metrics_output_sink: OutputSink | None = None,
+    before_output_commit: Callable[[], None] | None = None,
     steps: int | None = None,
     max_pending: int = 2,
 ) -> None:
@@ -58,6 +60,8 @@ def run_session(
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
+        before_output_commit: Final application cleanup that must succeed before
+            abortable output transactions can be published.
         steps: Maximum model steps; ``None`` runs until stopped.
         max_pending: Maximum model steps waiting to be shown.
 
@@ -221,6 +225,12 @@ def run_session(
         except BaseException as error:
             cleanup_failures.append(error)
 
+        if before_output_commit is not None:
+            try:
+                before_output_commit()
+            except BaseException as error:
+                cleanup_failures.append(error)
+
         abort_transactions = bool(
             cancelled or high_level_failure or loop_failures or cleanup_failures
         )
@@ -241,11 +251,14 @@ def run_session(
                 except BaseException as abort_error:
                     cleanup_failures.append(abort_error)
 
-    primary_failure = high_level_failure
+    primary_failure: BaseException | None = None
     if loop_failures:
-        if primary_failure is None:
-            primary_failure = loop_failures.pop(0)
+        primary_failure = loop_failures.pop(0)
         cleanup_failures.extend(loop_failures)
+        if high_level_failure is not None:
+            cleanup_failures.append(high_level_failure)
+    else:
+        primary_failure = high_level_failure
     if primary_failure is None and cleanup_failures:
         primary_failure = cleanup_failures.pop(0)
     for error in cleanup_failures:

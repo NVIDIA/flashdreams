@@ -153,6 +153,13 @@ class _AbortableWindow(_Window):
         self._calls.append("window.abort")
 
 
+class _SilentAbortableWindow(_AbortableWindow):
+    """Record a transactional file-style window with no client events."""
+
+    def get_user_input_events(self) -> UserInputEvents:
+        return UserInputEvents([])
+
+
 class _MetricsSink:
     """Record model results delivered independently of the client window."""
 
@@ -232,6 +239,34 @@ def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
 
     assert [result.step_index for result in window.results] == [0, 1, 2]
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+def test_application_closes_before_transactional_output_commits() -> None:
+    calls: list[str] = []
+    window = _SilentAbortableWindow(calls)
+
+    ApplicationRunner(_Application(calls, session_length=1), window).run(
+        _session_desc()
+    )
+
+    assert calls[-3:] == ["session.close", "application.close", "window.close"]
+
+
+def test_application_close_failure_aborts_transactional_output(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls: list[str] = []
+    window = _SilentAbortableWindow(calls)
+    application = _Application(calls, fail_to_close=True, session_length=1)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="application close failed"):
+            ApplicationRunner(application, window).run(_session_desc())
+
+    assert "window.close" not in calls
+    assert calls.index("session.close") < calls.index("window.abort")
+    assert calls.count("application.close") == 2
+    assert "application close failed" in caplog.text
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:

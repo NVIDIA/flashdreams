@@ -104,7 +104,6 @@ class Mp4Encoder:
         process = self._process
         if process is None:
             return
-        self._process = None
         assert process.stdin is not None
         failure: BaseException | None = None
         try:
@@ -115,8 +114,10 @@ class Mp4Encoder:
         except BaseException as error:
             failure = error
         exit_code: int | None = None
+        waited = False
         try:
             exit_code = process.wait()
+            waited = True
         except BaseException as error:
             if failure is None:
                 failure = error
@@ -124,12 +125,12 @@ class Mp4Encoder:
                 cast(Any, failure).add_note(
                     f"Waiting for ffmpeg also failed: {error!r}"
                 )
-        finally:
+        if waited:
             error_reader = self._error_reader
-            self._error_reader = None
             if error_reader is not None:
                 try:
                     error_reader.join()
+                    self._error_reader = None
                 except BaseException as error:
                     if failure is None:
                         failure = error
@@ -137,6 +138,7 @@ class Mp4Encoder:
                         cast(Any, failure).add_note(
                             f"Joining the ffmpeg error reader also failed: {error!r}"
                         )
+            self._process = None
         if failure is not None:
             raise failure
         if exit_code != 0:
@@ -151,7 +153,8 @@ class Mp4Encoder:
         process = self._process
         if process is None:
             return
-        self._process = None
+        failure: BaseException | None = None
+        waited = False
         try:
             if process.poll() is None:
                 try:
@@ -161,13 +164,31 @@ class Mp4Encoder:
             if process.stdin is not None:
                 try:
                     process.stdin.close()
-                except (BrokenPipeError, OSError):
+                except (BrokenPipeError, OSError, ValueError):
                     pass
-            process.wait()
+            try:
+                process.wait()
+                waited = True
+            except BaseException as error:
+                failure = error
         finally:
             if self._error_reader is not None:
-                self._error_reader.join()
-                self._error_reader = None
+                if waited:
+                    try:
+                        self._error_reader.join()
+                        self._error_reader = None
+                    except BaseException as error:
+                        if failure is None:
+                            failure = error
+                        else:
+                            cast(Any, failure).add_note(
+                                "Joining the ffmpeg error reader also failed: "
+                                f"{error!r}"
+                            )
+            if waited:
+                self._process = None
+        if failure is not None:
+            raise failure
 
     def _start(self) -> subprocess.Popen[bytes]:
         """Start ffmpeg, reading raw frames from its standard input."""
@@ -178,6 +199,7 @@ class Mp4Encoder:
         process = subprocess.Popen(
             self._command(ffmpeg), stdin=subprocess.PIPE, stderr=subprocess.PIPE
         )
+        self._process = process
         # Drain the diagnostics on a thread of their own: ffmpeg blocks once
         # that pipe fills, and only a failure reads them, at the end of the run.
         self._errors = []
@@ -187,8 +209,22 @@ class Mp4Encoder:
             name="flashdreams-mp4-errors",
             daemon=True,
         )
-        self._error_reader.start()
-        self._process = process
+        try:
+            self._error_reader.start()
+        except BaseException as error:
+            self._error_reader = None
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                if process.stdin is not None:
+                    process.stdin.close()
+                process.wait()
+                self._process = None
+            except BaseException as cleanup_error:
+                cast(Any, error).add_note(
+                    f"FFmpeg startup cleanup also failed: {cleanup_error!r}"
+                )
+            raise
         return process
 
     def _command(self, ffmpeg: str) -> list[str]:

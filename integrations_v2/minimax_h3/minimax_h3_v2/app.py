@@ -271,11 +271,11 @@ class MiniMaxH3Application(IApplication):
         """Release application-owned shared inference metadata once."""
         if self._closed:
             return
-        self._closed = True
         engine = self._engine
-        self._engine = None
         if engine is not None:
             engine.close()
+        self._engine = None
+        self._closed = True
 
 
 def _parse_arguments(
