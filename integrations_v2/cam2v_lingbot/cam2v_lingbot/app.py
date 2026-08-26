@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 from cam2v import Cam2VApplication, Cam2VApplicationDefaults
+from lingbot.config import RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
 from flashdreams.api_v2.application import IApplication
-from lingbot.config import RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
 from .conditioning import resolve_lingbot_conditioning
 

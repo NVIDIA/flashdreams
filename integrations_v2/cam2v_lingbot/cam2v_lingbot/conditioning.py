@@ -11,7 +11,6 @@ from typing import Any
 
 import numpy as np
 import torch
-
 from cam2v import Cam2VConditioning
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
@@ -51,7 +50,11 @@ def resolve_lingbot_conditioning(values: Mapping[str, Any]) -> Cam2VConditioning
         image_path = image_path or example_dir / "image.jpg"
         pose_path = pose_path or example_dir / "poses.npy"
         intrinsic_path = intrinsic_path or example_dir / "intrinsics.npy"
-        if not prompt and prompt_path is None and example_idx in _EXAMPLE_PROMPT_INDICES:
+        if (
+            not prompt
+            and prompt_path is None
+            and example_idx in _EXAMPLE_PROMPT_INDICES
+        ):
             prompt_path = example_dir / "prompt.txt"
 
     first_frame_path = _require_existing_path(image_path, label="image_path")
@@ -110,8 +113,7 @@ def _load_base_intrinsics(
         intrinsics = intrinsics[None, :]
     if intrinsics.ndim != 2 or intrinsics.shape[0] == 0 or intrinsics.shape[1] != 4:
         raise ValueError(
-            "Lingbot intrinsics must have shape [T, 4], got "
-            f"{tuple(intrinsics.shape)}."
+            f"Lingbot intrinsics must have shape [T, 4], got {tuple(intrinsics.shape)}."
         )
     scale = np.array(
         [
@@ -141,9 +143,7 @@ def _infer_world_scale(path: Path) -> float:
         (compatible_frame_count - 1) // _TEMPORAL_COMPRESSION_RATIO
     ) + 1
     if encoded_frame_count < _TRANSFORMER_CHUNK_FRAMES:
-        minimum = (
-            (_TRANSFORMER_CHUNK_FRAMES - 1) * _TEMPORAL_COMPRESSION_RATIO + 1
-        )
+        minimum = (_TRANSFORMER_CHUNK_FRAMES - 1) * _TEMPORAL_COMPRESSION_RATIO + 1
         raise ValueError(
             f"Expected at least {minimum} poses to infer world scale, "
             f"got {raw_frame_count}."

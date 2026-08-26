@@ -12,8 +12,7 @@ import pytest
 import tomli as tomllib
 import torch
 from cam2v import Cam2VApplication, Cam2VConditioning
-from cam2v_lingbot import LingbotCam2VApplication, create_app
-from cam2v_lingbot import conditioning
+from cam2v_lingbot import LingbotCam2VApplication, conditioning, create_app
 from lingbot.config import RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
 pytestmark = pytest.mark.ci_cpu
