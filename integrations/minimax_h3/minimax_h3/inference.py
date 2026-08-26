@@ -357,7 +357,7 @@ class MiniMaxH3InferenceEngine:
         if resources is None:
             validate_execution_capacity(self.config)
             resources = DefaultMiniMaxH3Resources(self.config)
-        self.resources = resources
+        self.resources: MiniMaxH3Resources = resources
         self._closed = False
 
     @torch.no_grad()
@@ -499,13 +499,6 @@ class MiniMaxH3InferenceEngine:
         conditioned: _ConditionedRequest,
     ) -> MiniMaxH3DenoiseState:
         generator = torch.Generator(device="cpu").manual_seed(request.seed)
-        common = {
-            "num_frames": request.num_frames,
-            "height": request.height,
-            "width": request.width,
-            "generator": generator,
-            "device": "cpu",
-        }
         if request.workflow == "ref2va":
             if conditioned.encoded_references is None:
                 raise RuntimeError("REF2VA reference encoding is missing")
@@ -514,14 +507,22 @@ class MiniMaxH3InferenceEngine:
                 conditioned.text.text_token_tags,
                 conditioned.normalized_references,
                 conditioned.encoded_references,
-                **common,
+                num_frames=request.num_frames,
+                height=request.height,
+                width=request.width,
+                generator=generator,
+                device="cpu",
             )
         return prepare_denoise_state(
             conditioned.text.prompt_embeds,
             conditioned.text.text_token_tags,
             condition_latents=conditioned.encoded_video,
             keyframe_anchors=conditioned.keyframe_anchors,
-            **common,
+            num_frames=request.num_frames,
+            height=request.height,
+            width=request.width,
+            generator=generator,
+            device="cpu",
         )
 
     def _checkpoint_identity(
@@ -575,7 +576,11 @@ class MiniMaxH3InferenceEngine:
                 identity = self._checkpoint_identity(request)
                 if store.path.is_file() and not request.restart:
                     resume = store.load(identity)
-                checkpoint = lambda progress: store.save(identity, progress)
+
+                def save_checkpoint(progress: MiniMaxH3DenoiseProgress) -> None:
+                    store.save(identity, progress)
+
+                checkpoint = save_checkpoint
             return model.generate_joint(
                 state, resume=resume, checkpoint=checkpoint
             )
