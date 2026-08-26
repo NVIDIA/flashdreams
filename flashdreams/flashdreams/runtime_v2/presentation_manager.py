@@ -16,13 +16,13 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class PresentationManager:
-    """Buffer model output for a session's UI thread.
+    """Buffer model output for a session's io-thread.
 
-    The model thread publishes a chunk of channels per step into a bounded
-    queue; the UI thread calls :meth:`advance` once per tick to move to the next
-    frame. A chunk holding several frames is walked frame by frame before
-    another is taken, so a step that generated twelve frames is presented over
-    twelve ticks rather than eleven being skipped.
+    The model-generation-thread publishes a chunk of channels per step into a
+    bounded queue; the io-thread calls :meth:`advance` once per tick to move to
+    the next frame. A chunk holding several frames is walked frame by frame
+    before another is taken, so a step that generated twelve frames is
+    presented over twelve ticks rather than eleven being skipped.
 
     :class:`BackpressureMode` decides what publishing does when the queue is
     full. Chunks that could not be kept are counted in
@@ -39,6 +39,7 @@ class PresentationManager:
         self._presented_chunk: list[StepResult] | None = None
         self._frame_index = -1
         self._audio_presented = False
+        self._presented_frame_count = 0
         self.dropped_for_space = 0
         """Chunks dropped because the UI could not keep up with the model."""
 
@@ -82,9 +83,9 @@ class PresentationManager:
     ) -> None:
         """Add one completed model step to the presentation queue.
 
-        Called on the model thread. ``BLOCK`` waits here when the queue is full,
-        until there is room or the session stops; ``DROP_OLDEST`` evicts instead
-        and returns.
+        Called on the model-generation-thread. ``BLOCK`` waits here when the
+        queue is full, until there is room or the session stops;
+        ``DROP_OLDEST`` evicts instead and returns.
 
         Args:
             generation: Reset generation the chunk was generated in. A chunk
@@ -124,7 +125,7 @@ class PresentationManager:
     def advance(self, generation: int) -> tuple[bool, list[StepResult] | None]:
         """Move to the next model frame, if one is available.
 
-        Called on the UI thread, once per tick. A ``generation`` other than the
+        Called on the io-thread, once per tick. A ``generation`` other than the
         last one seen drops what is being presented, so nothing generated before
         a reset survives it.
 
@@ -141,33 +142,26 @@ class PresentationManager:
             self._presented_chunk = None
             self._frame_index = -1
             self._audio_presented = False
-
-        if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
-            chunk = self._take_buffered_chunk(generation, latest=True)
-            if chunk is not None:
-                if (
-                    self._presented_chunk is not None
-                    and self._frame_index + 1 < self._presented_chunk[0].frame_count
-                ):
-                    self.dropped_for_space += 1
-                self._presented_chunk = chunk
-                self._frame_index = 0
-                self._audio_presented = False
-                return True, chunk
+            self._presented_frame_count = 0
 
         if (
             self._presented_chunk is not None
             and self._frame_index + 1 < self._presented_chunk[0].frame_count
         ):
             self._frame_index += 1
+            self._presented_frame_count += 1
             return True, None
 
-        chunk = self._take_buffered_chunk(generation, latest=False)
+        chunk = self._take_buffered_chunk(
+            generation,
+            latest=self._backpressure_mode is BackpressureMode.DROP_OLDEST,
+        )
         if chunk is None:
             return False, None
         self._presented_chunk = chunk
         self._frame_index = 0
         self._audio_presented = False
+        self._presented_frame_count += 1
         return True, chunk
 
     def presented_audio(self) -> AudioOutput | None:
@@ -183,6 +177,11 @@ class PresentationManager:
             ),
             None,
         )
+
+    @property
+    def presented_frame_count(self) -> int:
+        """Return frames selected one-by-one in the current generation."""
+        return self._presented_frame_count
 
     def presented_frame(self, channel_index: int) -> Tensor | None:
         """Return the current ``[C, H, W]`` frame from one model channel."""
@@ -237,6 +236,7 @@ class PresentationManager:
         self._presented_chunk = None
         self._frame_index = -1
         self._audio_presented = False
+        self._presented_frame_count = 0
         while True:
             try:
                 self._buffer.get_nowait()

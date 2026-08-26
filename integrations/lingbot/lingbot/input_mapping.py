@@ -44,10 +44,7 @@ from flashdreams.runtime.inputs import (
 )
 from flashdreams.runtime.mapping import InputMappingSchema
 from flashdreams.runtime.types import StepRequest
-from lingbot.controls import (
-    CameraPoseIntegrator,
-    PoseSegment,
-)
+from lingbot.controls import CameraPoseIntegrator, PoseSegment
 
 FIELD_CAMERA_TRAJECTORY = "camera_trajectory"
 FIELD_CAMERA_INTRINSICS = "camera_intrinsics"

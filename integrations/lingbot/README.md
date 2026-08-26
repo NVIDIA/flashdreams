@@ -90,6 +90,13 @@ uv run flashdreams-run lingbot-world-fast \
     --prompt "your text prompt here" --total-blocks 21
 ```
 
+## FlashDreams v2 Cam2V application
+
+The v2 `cam2v-lingbot` application lives in the standalone
+[`integrations_v2/cam2v_lingbot`](../../integrations_v2/cam2v_lingbot/README.md)
+package. This distribution continues to own the Lingbot model, runners, and
+legacy serving paths consumed by that application.
+
 Multi-GPU via context-parallelism (Wan 2.1 CP assumes `cp_size == world_size`):
 
 ```bash

@@ -18,6 +18,8 @@ follows is already done for you.
 - `red_screen` — the smallest interactive one, streaming to a browser.
 - `slangpy_ui_demo` — three applications that draw widgets over model output,
   and the reference for writing a UI loop.
+- `cam2v_lingbot` — the Lingbot World specialization of the shared interactive
+  camera-to-video application.
 - `minimax_h3` — native synchronized text, keyframe, and reference-conditioned
   video-and-audio generation, with one finite result per session.
 - `t2v_self_forcing`, `t2v_causal_forcing`, `t2v_fastvideo_causal_wan22`,

@@ -25,7 +25,7 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -70,6 +70,74 @@ def test_session_frame_rates_are_strict_positive_integers(
     """Reject values that fail later loop timing and encoder contracts."""
     with pytest.raises(ValueError, match="positive integer"):
         SessionDesc(**{field: value})  # ty: ignore[invalid-argument-type]
+
+
+def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
+    clock = _PresentationClock(frames_per_second=4)
+
+    assert clock.is_due(now=1.0, generation=0)
+    clock.mark_advanced(now=1.0)
+    assert not clock.is_due(now=1.24, generation=0)
+    assert clock.is_due(now=1.25, generation=0)
+
+    clock.mark_advanced(now=2.0)
+    assert not clock.is_due(now=2.24, generation=0)
+    assert clock.is_due(now=2.25, generation=0)
+    assert clock.is_due(now=2.0, generation=1)
+
+
+def test_presentation_clock_uses_recent_model_fps() -> None:
+    clock = _PresentationClock(frames_per_second=16)
+
+    clock.observe_model_output(now=1.0, generation=0, frame_count=12)
+    assert clock.frames_per_second == 16
+
+    clock.observe_model_output(now=1.9, generation=0, frame_count=12)
+    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+
+    assert clock.is_due(now=2.0, generation=0)
+    clock.mark_advanced(now=2.0)
+    assert not clock.is_due(now=2.074, generation=0)
+    assert clock.is_due(now=2.075, generation=0)
+
+
+def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
+    clock = _PresentationClock(
+        frames_per_second=30,
+        maximum_frames_per_second=60,
+    )
+
+    clock.observe_model_output(now=1.0, generation=0, frame_count=120)
+    clock.observe_model_output(now=2.0, generation=0, frame_count=120)
+
+    assert clock.frames_per_second == 60
+
+
+def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
+    clock = _PresentationClock(frames_per_second=30)
+
+    clock.observe_model_output(now=0.0, generation=0, frame_count=10)
+    clock.observe_model_output(now=1.0, generation=0, frame_count=10)
+    assert clock.frames_per_second == pytest.approx(10.0)
+
+    clock.observe_model_output(now=2.0, generation=0, frame_count=20)
+    assert clock.frames_per_second == pytest.approx(15.0)
+
+    clock.observe_model_output(now=3.0, generation=0, frame_count=20)
+    assert clock.frames_per_second == pytest.approx(20.0)
+
+
+def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
+    clock = _PresentationClock(frames_per_second=16)
+    clock.observe_model_output(now=1.0, generation=0, frame_count=12)
+    clock.observe_model_output(now=2.0, generation=0, frame_count=12)
+    assert clock.frames_per_second == pytest.approx(12.0)
+
+    assert clock.is_due(now=2.1, generation=1)
+    assert clock.frames_per_second == 16
+
+    clock.observe_model_output(now=2.2, generation=0, frame_count=120)
+    assert clock.frames_per_second == 16
 
 
 class CallLog:
@@ -452,6 +520,40 @@ def test_run_session_calls_ui_run_on_the_io_thread() -> None:
     assert log.threads_for("session.step(0)") == {_STEP_THREAD_NAME}
 
 
+def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
+    """Keep the io-thread responsive during a slow model-generation step."""
+    log = CallLog()
+    input_processed = threading.Event()
+
+    class SlowModelSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            assert input_processed.wait(timeout=1.0)
+            return super().step(step_index, events)
+
+        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            if events.get_events():
+                input_processed.set()
+            return super().run_ui(step_index, events)
+
+    session = SlowModelSession(
+        _session_desc(
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
+            ui_fps=100,
+            model_fps=1,
+        ),
+        log,
+    )
+    window = RecordingClientWindow(
+        log,
+        [UserInputEvents([]), _key_event()],
+    )
+
+    run_session(session, window, steps=1)
+
+    assert input_processed.is_set()
+    assert "ui_loop.step" in log.calls
+
+
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
     log = CallLog()
 
@@ -517,6 +619,7 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert held is not None
     assert torch.equal(held.output, first.output)
     assert not manager.advance(1)[0]
+    assert manager.presented_frame_count == 0
     assert ui.step(2, UserInputEvents([])) is None
 
 
@@ -592,8 +695,8 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
             self._log.record(f"session.step({step_index})")
             return StepResult(
                 step_index=step_index,
-                output=torch.arange(6, dtype=torch.float32).reshape(1, 3, 2, 1, 1),
-                frame_count=2,
+                output=torch.arange(36, dtype=torch.float32).reshape(1, 3, 12, 1, 1),
+                frame_count=12,
                 output_layout=self.session_desc.output_layout,
                 metrics={"total_ms": 1.5},
             )
@@ -620,17 +723,39 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
         steps=1,
     )
 
-    assert [result.frame_count for result in window.results] == [1, 1]
-    assert [result.output[0, 0, 0, 0, 0].item() for result in window.results] == [0, 1]
-    assert [result.metrics for result in window.results] == [
-        {"ui_ms": 0.25},
-        {"ui_ms": 0.25},
-    ]
+    assert [result.frame_count for result in window.results] == [1] * 12
+    assert [result.output[0, 0, 0, 0, 0].item() for result in window.results] == list(
+        range(12)
+    )
+    assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
     assert len(metrics.results) == 1
     assert metrics.results[0].metrics == {"total_ms": 1.5}
 
 
-def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:
+def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
+    log = CallLog()
+
+    class DefaultUISession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    session = DefaultUISession(
+        _session_desc(
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            ui_fps=100,
+            model_fps=30,
+        ),
+        log,
+    )
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=3)
+
+    assert [result.step_index for result in window.results] == [0, 1, 2]
+
+
+def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
     manager = PresentationManager()
     manager.configure(
         max_pending=1,
@@ -642,18 +767,38 @@ def test_drop_oldest_preempts_the_rest_of_a_stale_chunk() -> None:
     def result(step_index: int, frames: int) -> StepResult:
         return StepResult(
             step_index=step_index,
-            output=torch.full((frames, 3, 1, 1), float(step_index)),
+            output=(
+                torch.arange(frames, dtype=torch.float32).reshape(frames, 1, 1, 1)
+                + step_index * 10
+            ).expand(-1, 3, -1, -1),
             frame_count=frames,
             output_layout=VideoTensorLayout.tchw,
         )
 
-    manager.publish(0, [result(0, 2)])
+    manager.publish(0, [result(0, 3)])
     assert manager.advance(0)[0]
+    assert manager.presented_frame_count == 1
     manager.publish(0, [result(1, 1)])
+    manager.publish(0, [result(2, 1)])
+
+    assert manager.advance(0)[0]
+    second = manager.presented_frame(0)
+    assert second is not None
+    assert second[0, 0, 0] == 1
+    assert manager.presented_frame_count == 2
+
+    assert manager.advance(0)[0]
+    third = manager.presented_frame(0)
+    assert third is not None
+    assert third[0, 0, 0] == 2
+    assert manager.presented_frame_count == 3
+
     assert manager.advance(0)[0]
     newest = manager.presented_frame(0)
     assert newest is not None
-    assert newest[0, 0, 0] == 1
+    assert newest[0, 0, 0] == 20
+    assert manager.presented_frame_count == 4
+    assert manager.dropped_for_space == 1
 
 
 def test_run_session_opens_window_with_the_resolved_session_desc() -> None:
@@ -698,7 +843,7 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
 
     run_session(session, window, steps=2)
 
-    # Ignore UI calls when checking the model thread's order.
+    # Ignore UI calls when checking the model-generation-loop order.
     calls = [call for call in log.calls if call.startswith("session.reset")] + [
         call for call in log.calls if call.startswith("session.step(")
     ]

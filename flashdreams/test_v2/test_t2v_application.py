@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
@@ -149,6 +149,7 @@ def _session_desc(
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
+        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
         frames_per_second_for_ui=60,
         frames_per_second_for_step=_FPS,
         video_width=width,

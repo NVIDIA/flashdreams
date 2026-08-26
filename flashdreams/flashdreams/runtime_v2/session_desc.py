@@ -11,7 +11,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class BackpressureMode(Enum):
-    """What the model thread does when the presentation queue is full."""
+    """What the model-generation-thread does when its output queue is full."""
 
     BLOCK = "block"
     """Wait when the presentation queue is full."""
@@ -21,7 +21,7 @@ class BackpressureMode(Enum):
 
 
 class PresentationMode(Enum):
-    """What the UI thread does when no new model frame is ready."""
+    """What the UI loop does when no new model frame is ready."""
 
     ONLY_PRESENT_NEW = "only_present_new"
     """Present only after advancing to a new model frame."""
@@ -43,16 +43,16 @@ class SessionDesc:
     """Declared tensor layout for generated video results."""
 
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
-    """What the model thread does when the presentation queue is full."""
+    """What the model-generation-thread does when its output queue is full."""
 
     presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEWEST
-    """What the UI thread does when no new model frame is ready."""
+    """What the UI loop does when no new model frame is ready."""
 
     frames_per_second_for_ui: int = 60
-    """Rate to read input and present finished results at, in frames per second."""
+    """Rate to read input and run continuous UI redraws, in frames per second."""
 
     frames_per_second_for_step: int = 30
-    """Maximum model-loop iterations per second."""
+    """Initial video rate and maximum model-loop iterations per second."""
 
     video_width: int = 1280
     """Output video width in pixels."""

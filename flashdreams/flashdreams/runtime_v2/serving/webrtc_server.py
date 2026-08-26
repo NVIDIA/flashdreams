@@ -12,9 +12,10 @@ import socket
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import torch
@@ -22,8 +23,9 @@ from aiohttp import web
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+from loguru import logger
 
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEventData,
@@ -40,52 +42,168 @@ _WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
 _BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
 _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
+_CUDA_EVENT_POLL_SECONDS = 0.001
+"""Polling interval that keeps CUDA waits off the WebRTC event-loop thread."""
+
+_INTERACTIVE_FRAME_QUEUE_SIZE = 1
+"""Pending sender frames retained for latest-frame presentation."""
+
+_RGBArray: TypeAlias = np.ndarray[Any, np.dtype[np.uint8]]
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingRGBFrame:
+    """Pinned host frame whose asynchronous CUDA transfer is in flight."""
+
+    host_frames: torch.Tensor
+    """Pinned ``[T, H, W, C]`` uint8 storage shared by one result."""
+
+    frame_index: int
+    """Frame selected from ``host_frames`` after the transfer completes."""
+
+    ready_event: torch.cuda.Event
+    """Event recorded after the device-to-host transfer."""
+
+    async def resolve(self) -> _RGBArray:
+        """Wait without blocking the event loop and return the host array."""
+        while not self.ready_event.query():
+            await asyncio.sleep(_CUDA_EVENT_POLL_SECONDS)
+        return np.asarray(self.host_frames[self.frame_index].numpy())
+
+
+_QueuedRGBFrame: TypeAlias = _RGBArray | _PendingRGBFrame
+
+
+@dataclass(frozen=True, slots=True)
+class _PresentedRGBFrame:
+    """One prepared frame with its io-thread presentation time."""
+
+    frame: _QueuedRGBFrame
+    """RGB pixels, possibly awaiting an asynchronous CUDA transfer."""
+
+    presented_at: float
+    """Event-loop timestamp at which the io-thread submitted this frame."""
+
+
+class _FramePacer:
+    """Pace source frames against drift-free absolute deadlines."""
+
+    def __init__(self, frames_per_second: int) -> None:
+        self._minimum_interval = 1.0 / frames_per_second
+        self._last_source_at: float | None = None
+        self._next_frame_at: float | None = None
+
+    def delay_seconds(self, *, now: float, source_at: float) -> float:
+        """Return the delay before presenting one source frame.
+
+        Small scheduling overruns are recovered by the next absolute deadline
+        instead of accumulating. A stall of at least one frame interval
+        reanchors the schedule so queued frames are not emitted in a burst.
+        """
+        last_source_at = self._last_source_at
+        next_frame_at = self._next_frame_at
+        self._last_source_at = source_at
+        if last_source_at is None or next_frame_at is None:
+            self._next_frame_at = now
+            return 0.0
+
+        source_interval = max(
+            self._minimum_interval,
+            source_at - last_source_at,
+        )
+        next_frame_at += source_interval
+        if now - next_frame_at >= self._minimum_interval:
+            next_frame_at = now
+        self._next_frame_at = next_frame_at
+        return max(0.0, next_frame_at - now)
+
 
 class _VideoTrack(MediaStreamTrack):
     """Video track whose frames are supplied by the server."""
 
     kind = "video"
 
-    def __init__(self, frames_per_second: int) -> None:
+    def __init__(self, frames_per_second: int, *, drop_oldest: bool = False) -> None:
+        """Configure frame pacing and optional latest-frame delivery.
+
+        Args:
+            frames_per_second: RTP clock and maximum delivery rate.
+            drop_oldest: Whether a newly presented frame replaces a queued one.
+        """
         super().__init__()
         self._frames_per_second = frames_per_second
+        self._frame_interval = 1.0 / frames_per_second
         self._time_base = Fraction(1, frames_per_second)
-        self._frames: asyncio.Queue[np.ndarray[Any, np.dtype[np.uint8]] | None] = (
-            asyncio.Queue()
+        self._drop_oldest = drop_oldest
+        self._frames: asyncio.Queue[_PresentedRGBFrame | None] = asyncio.Queue(
+            maxsize=_INTERACTIVE_FRAME_QUEUE_SIZE if drop_oldest else 0
         )
-        self._next_frame_time: float | None = None
-        self._pts = 0
+        self._retired_pending_frames: list[_PendingRGBFrame] = []
+        self._dropped_for_lag = 0
+        self._pacer = _FramePacer(frames_per_second)
+        self._presentation_started_at: float | None = None
+        self._next_pts = 0
         self._closed = False
 
-    async def enqueue(
-        self, frames: tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]
-    ) -> None:
+    @property
+    def dropped_for_lag(self) -> int:
+        """Return the number of stale sender frames replaced before encoding."""
+        return self._dropped_for_lag
+
+    def qsize(self) -> int:
+        """Return the number of frames waiting for the WebRTC sender."""
+        return self._frames.qsize()
+
+    async def enqueue(self, frames: tuple[_QueuedRGBFrame, ...]) -> None:
         """Append generated RGB frames for the WebRTC sender."""
         if self._closed:
             return
-        for frame in frames:
-            await self._frames.put(frame)
+        self._reap_retired_pending_frames()
+        presented_at = asyncio.get_running_loop().time()
+        for frame_index, frame in enumerate(frames):
+            presented_frame = _PresentedRGBFrame(
+                frame=frame,
+                presented_at=presented_at + frame_index * self._frame_interval,
+            )
+            if self._drop_oldest:
+                self._drop_queued_frame()
+                self._frames.put_nowait(presented_frame)
+            else:
+                await self._frames.put(presented_frame)
 
     async def recv(self) -> VideoFrame:
         """Return the next generated frame when aiortc requests one."""
         if self._closed:
             raise MediaStreamError
-        frame = await self._frames.get()
-        if frame is None:
+        presented_frame = await self._frames.get()
+        if presented_frame is None:
             raise MediaStreamError
+        self._reap_retired_pending_frames()
+        queued_frame = presented_frame.frame
+        frame = (
+            await queued_frame.resolve()
+            if isinstance(queued_frame, _PendingRGBFrame)
+            else queued_frame
+        )
 
         loop = asyncio.get_running_loop()
         now = loop.time()
-        if self._next_frame_time is None:
-            self._next_frame_time = now
-        else:
-            self._next_frame_time += 1.0 / self._frames_per_second
-            await asyncio.sleep(max(0.0, self._next_frame_time - now))
+        wait_seconds = self._pacer.delay_seconds(
+            now=now,
+            source_at=presented_frame.presented_at,
+        )
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+
+        if self._presentation_started_at is None:
+            self._presentation_started_at = presented_frame.presented_at
+        elapsed = presented_frame.presented_at - self._presentation_started_at
+        pts = max(self._next_pts, round(elapsed * self._frames_per_second))
 
         video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
-        video_frame.pts = self._pts
+        video_frame.pts = pts
         video_frame.time_base = self._time_base
-        self._pts += 1
+        self._next_pts = pts + 1
         return video_frame
 
     async def close(self) -> None:
@@ -93,8 +211,42 @@ class _VideoTrack(MediaStreamTrack):
         if self._closed:
             return
         self._closed = True
+        while True:
+            try:
+                queued = self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if queued is not None:
+                self._retire_pending_frame(queued.frame)
+        if self._retired_pending_frames:
+            await asyncio.gather(
+                *(frame.resolve() for frame in self._retired_pending_frames)
+            )
+            self._retired_pending_frames.clear()
         self._frames.put_nowait(None)
         self.stop()
+
+    def _drop_queued_frame(self) -> None:
+        if not self._frames.full():
+            return
+        try:
+            stale = self._frames.get_nowait()
+        except asyncio.QueueEmpty:
+            return
+        if stale is not None:
+            self._retire_pending_frame(stale.frame)
+            self._dropped_for_lag += 1
+
+    def _retire_pending_frame(self, frame: _QueuedRGBFrame) -> None:
+        if isinstance(frame, _PendingRGBFrame) and not frame.ready_event.query():
+            self._retired_pending_frames.append(frame)
+
+    def _reap_retired_pending_frames(self) -> None:
+        self._retired_pending_frames = [
+            frame
+            for frame in self._retired_pending_frames
+            if not frame.ready_event.query()
+        ]
 
 
 class WebRTCServer:
@@ -219,11 +371,16 @@ class WebRTCServer:
         session_desc = self._session_desc
         if session_desc is None:
             raise RuntimeError("Open the WebRTC server before writing.")
-        frames = _result_to_rgb_frames(result, session_desc)
+        frames = _validated_result_frames(result, session_desc)
+        if self._video_track is None:
+            return
+        queued_frames = _prepare_rgb_frames(frames)
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
-        future = asyncio.run_coroutine_threadsafe(self._enqueue_frames(frames), loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._enqueue_frames(queued_frames), loop
+        )
         future.result()
 
     def close(self) -> None:
@@ -325,7 +482,12 @@ class WebRTCServer:
             )
 
         peer_connection = RTCPeerConnection()
-        video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
+        video_track = _VideoTrack(
+            session_desc.frames_per_second_for_ui,
+            drop_oldest=(
+                session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
+            ),
+        )
         peer_connection.addTrack(video_track)
         self._peer_connection = peer_connection
         self._video_track = video_track
@@ -454,6 +616,13 @@ class WebRTCServer:
             return
         timestamp_us = np.uint64((time.monotonic_ns() - session_start_ns) // 1_000)
         event = UserInputEvent(timestamp=timestamp_us, event_data=event_data)
+        if isinstance(event_data, KeyboardUserInputEventData):
+            logger.info(
+                "WebRTC received keyboard event key={} state={} timestamp_us={}",
+                event_data.key,
+                event_data.state.value,
+                int(timestamp_us),
+            )
         callback = self._input_callback
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")
@@ -469,9 +638,7 @@ class WebRTCServer:
         if not self._closed:
             self._append_event(CloseUserInputEventData())
 
-    async def _enqueue_frames(
-        self, frames: tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]
-    ) -> None:
+    async def _enqueue_frames(self, frames: tuple[_QueuedRGBFrame, ...]) -> None:
         """Append frames to the active media track, if connected."""
         track = self._video_track
         if track is not None:
@@ -511,10 +678,10 @@ def _normalized_coordinate(value: object, *, label: str) -> float:
     return result
 
 
-def _result_to_rgb_frames(
+def _validated_result_frames(
     result: StepResult, session_desc: SessionDesc
-) -> tuple[np.ndarray[Any, np.dtype[np.uint8]], ...]:
-    """Convert one result to time-major RGB uint8 frames."""
+) -> torch.Tensor:
+    """Return validated time-major frames without materializing them on the host."""
     output = result.output.detach()
     if result.output_layout == VideoTensorLayout.tchw:
         frames = output
@@ -546,10 +713,40 @@ def _result_to_rgb_frames(
     if result.output_layout != session_desc.output_layout:
         raise ValueError("StepResult.output_layout does not match SessionDesc.")
 
+    return frames
+
+
+def _rgb_uint8_thwc(frames: torch.Tensor) -> torch.Tensor:
+    """Convert validated frames to contiguous ``[T, H, W, C]`` uint8 storage."""
+
     if frames.shape[1] == 1:
         frames = frames.repeat(1, 3, 1, 1)
     if frames.is_floating_point():
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
-    frames = frames.permute(0, 2, 3, 1).contiguous().cpu()
-    return tuple(np.asarray(frame.numpy()) for frame in frames)
+    return frames.permute(0, 2, 3, 1).contiguous()
+
+
+def _prepare_rgb_frames(frames: torch.Tensor) -> tuple[_QueuedRGBFrame, ...]:
+    """Prepare RGB frames without synchronizing the calling thread on CUDA work."""
+    frames = _rgb_uint8_thwc(frames)
+    if not frames.is_cuda:
+        return tuple(np.asarray(frame.numpy()) for frame in frames.cpu())
+
+    host_frames = torch.empty(
+        frames.shape,
+        dtype=torch.uint8,
+        device="cpu",
+        pin_memory=True,
+    )
+    host_frames.copy_(frames, non_blocking=True)
+    ready_event = torch.cuda.Event()
+    ready_event.record(torch.cuda.current_stream(frames.device))
+    return tuple(
+        _PendingRGBFrame(
+            host_frames=host_frames,
+            frame_index=frame_index,
+            ready_event=ready_event,
+        )
+        for frame_index in range(frames.shape[0])
+    )

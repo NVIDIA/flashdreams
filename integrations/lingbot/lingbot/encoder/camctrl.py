@@ -44,16 +44,16 @@ from .utils import (
 
 @dataclass(kw_only=True)
 class CamCtrlInput:
-    """Per-AR-step camera payload."""
+    """Per-AR-step camera payload consumed by the Lingbot encoder."""
 
     intrinsics: Tensor
-    """Per-frame camera intrinsics of shape ``[..., T, 4]`` (fx, fy, cx, cy)."""
+    """Per-frame camera intrinsics shaped ``[..., T, 4]``."""
 
     poses: Tensor
-    """Per-frame camera-to-world poses of shape ``[..., T, 4, 4]``."""
+    """Per-frame camera-to-world poses shaped ``[..., T, 4, 4]``."""
 
     world_scale: float
-    """Scalar applied to translations when normalizing world coordinates."""
+    """Scale applied to translations when normalizing world coordinates."""
 
 
 @dataclass(kw_only=True)
