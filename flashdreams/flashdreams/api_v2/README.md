@@ -62,6 +62,8 @@ self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 `state` is required for a model loop and optional for a UI loop. Each loop's rate
 comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
+Both values are strictly positive integers; this keeps file encoders, pacing,
+and WebRTC time bases on one exact public contract.
 
 The io-thread initially selects frames from model chunks at
 `frames_per_second_for_step`, then uses the model-generation-thread's rolling
@@ -119,6 +121,26 @@ four channels. Four channels is RGBA, and composites over what is beneath it.
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
 other range converts before returning.
+
+### Synchronized audio
+
+A session that emits audio sets both `SessionDesc.audio_sample_rate` and
+`SessionDesc.audio_channels`; setting only one is invalid. Mono and stereo are
+supported by the model-neutral contract. A sink that cannot consume the
+declared format rejects the session from `open`, before generation starts.
+
+`StepResult.audio` is an optional `AudioOutput`. Its floating-point `samples`
+have channel-major shape `[channels, samples]`, contain only finite normalized
+PCM in `[-1, 1]`, and carry the declared sample rate. `sample_offset` is the
+absolute zero-based position of the payload on the session audio timeline. A
+forward gap is therefore explicit silence; overlapping or backward payloads
+are invalid for the built-in MP4 sink.
+
+Only one channel in a model chunk may carry audio. The presentation manager
+makes that payload available once, with the chunk's first presented frame.
+`BlitModelOutputToScreenLoop` forwards it automatically. A custom UI loop owns
+that decision and calls `presented_model_audio()` at most once per chunk before
+attaching the returned payload to its own `StepResult`.
 
 ## A minimal application
 

@@ -16,6 +16,7 @@ import pytest
 import torch
 
 from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.output_sink import AbortableOutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
@@ -87,6 +88,14 @@ class FakeSession(ISession):
         return
 
 
+class FailingSession(FakeSession):
+    """Fail generation after the transactional window has opened."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        del step_index, events
+        raise RuntimeError("model failed")
+
+
 def _session_desc() -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
@@ -124,8 +133,22 @@ def test_there_is_never_any_input_to_report(tmp_path: Path) -> None:
     """A run polls on every tick, and a file has no client to answer."""
     window = Mp4ClientWindow(tmp_path / "clip.mp4")
 
+    assert isinstance(window, AbortableOutputSink)
     assert window.get_user_input_events().get_events() == []
     assert window.get_user_input_events().get_events() == []
+
+
+def test_failed_generation_preserves_target_and_removes_staging(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"existing target")
+
+    with pytest.raises(RuntimeError, match="model failed"):
+        run_session(FailingSession(_session_desc()), Mp4ClientWindow(path), steps=1)
+
+    assert path.read_bytes() == b"existing target"
+    assert list(tmp_path.glob(f".{path.name}.*")) == []
 
 
 @needs_ffmpeg
