@@ -88,6 +88,37 @@ widgets and returns the composed frame to `SlangPyUILoop`, which applies the
 widget overlay. UI callbacks send validated game actions back to the model loop
 with `invoke_async`; they never call game state directly.
 
+## Pre-presentation startup
+
+```mermaid
+sequenceDiagram
+    participant UI as V2 UI thread
+    participant Model as V2 model thread
+    participant Rollout as WorldModelRollout
+
+    UI->>UI: Render animated loading HUD
+    Model->>Rollout: Construct engine and cache
+    loop AR shapes 0..3
+        Model-->>UI: invoke_async(warmup phase)
+        Model->>Rollout: Neutral hidden step
+        Rollout->>Rollout: Compile / autotune first-use shape
+    end
+    Model->>Rollout: reset engine + cache
+    Model-->>UI: invoke_async(starting game)
+    Model->>Rollout: First gameplay step at AR index 0
+    Rollout-->>UI: First presentable RGB + metadata
+```
+
+The default four hidden blocks cover the initial, cache-filling, and first
+steady-state shapes of the chunk2/window6 model. They run on the model thread
+while the independently paced UI thread continues rendering loading progress.
+Process-lifetime compiled kernels and autotune results remain available after
+warmup. Resetting the rollout before gameplay discards warmup simulation, game
+rules, conditioning, and autoregressive-cache state. CUDA graphs whose kernels
+reference that cache are safely re-armed against the fresh gameplay cache;
+they are never replayed against stale warmup storage. `--prewarm-blocks 0`
+preserves a direct cold-start path for diagnosis and comparison.
+
 ## Model-loop step
 
 ```mermaid

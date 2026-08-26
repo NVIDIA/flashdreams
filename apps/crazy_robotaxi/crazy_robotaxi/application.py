@@ -41,6 +41,9 @@ _DEFAULT_RENDERER = _ROOT / "configs" / "default_renderer.yaml"
 _VIDEO_FPS = 30
 """Generation and UI cadence; each UI tick advances one generated frame."""
 
+_DEFAULT_PREWARM_BLOCKS = 4
+"""Blocks covering chunk2 cache filling and the first steady-state AR shape."""
+
 _MODEL_PRESETS = {
     "standard": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline,
     "perf": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline,
@@ -59,6 +62,8 @@ class ApplicationConfig:
     device: str
     total_blocks: int | None
     pipeline_profiling: bool
+    prewarm_blocks: int
+    """Hidden neutral blocks generated before the first presented game frame."""
 
 
 PipelineFactory = Callable[[Any, str], Any]
@@ -99,6 +104,8 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError("--total-blocks must be positive")
         if args.game_time_s is not None and args.game_time_s <= 0.0:
             raise ValueError("--game-time-s must be positive")
+        if args.prewarm_blocks < 0:
+            raise ValueError("--prewarm-blocks must be non-negative")
         renderer = load_renderer_settings(args.renderer_config)
         settings = load_game_settings(args.game_config)
         game = settings.game
@@ -146,6 +153,7 @@ class CrazyRobotaxiApplication(IApplication):
             device=args.device,
             total_blocks=args.total_blocks,
             pipeline_profiling=bool(args.profile_pipeline),
+            prewarm_blocks=args.prewarm_blocks,
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
@@ -225,5 +233,14 @@ def _parser() -> argparse.ArgumentParser:
         "--profile-pipeline",
         action="store_true",
         help="synchronize each chunk and emit diagnostic GPU stage timings",
+    )
+    parser.add_argument(
+        "--prewarm-blocks",
+        type=int,
+        default=_DEFAULT_PREWARM_BLOCKS,
+        help=(
+            "generate hidden neutral blocks before presentation to compile and "
+            "autotune AR shapes (default: 4; 0 disables)"
+        ),
     )
     return parser

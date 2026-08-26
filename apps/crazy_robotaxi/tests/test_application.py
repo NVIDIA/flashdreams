@@ -14,7 +14,11 @@ from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.session import CrazyRobotaxiModelLoop
 from crazy_robotaxi.ui import CrazyRobotaxiSlangPyUILoop
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
-from omnidreams_game_engine.types import CameraCalibration, SceneDefinition
+from omnidreams_game_engine.types import (
+    CameraCalibration,
+    DriverCommand,
+    SceneDefinition,
+)
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -98,6 +102,77 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
     assert _MODEL_PRESETS["standard"].enable_sync_and_profile
+
+
+@pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])
+def test_application_configures_prepresentation_warmup(prewarm_blocks: int) -> None:
+    app = CrazyRobotaxiApplication(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(["--prewarm-blocks", str(prewarm_blocks)])
+
+    assert app._config is not None
+    assert app._config.prewarm_blocks == prewarm_blocks
+
+
+def test_application_rejects_negative_prewarm_blocks() -> None:
+    app = CrazyRobotaxiApplication()
+
+    with pytest.raises(ValueError, match="must be non-negative"):
+        app.init(["--prewarm-blocks", "-1"])
+
+
+def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> None:
+    class FakeRollout:
+        def __init__(self, **kwargs) -> None:
+            del kwargs
+            self.steps: list[tuple[int, tuple[DriverCommand, ...]]] = []
+            self.reset_count = 0
+
+        def frame_count(self, autoregressive_index: int) -> int:
+            return autoregressive_index + 1
+
+        def step(self, *, autoregressive_index: int, commands):
+            self.steps.append((autoregressive_index, commands))
+            return object()
+
+        def reset(self) -> None:
+            self.reset_count += 1
+
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr("crazy_robotaxi.session.WorldModelRollout", FakeRollout)
+    app = CrazyRobotaxiApplication(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(["--device", "cpu", "--prewarm-blocks", "4"])
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+
+    rollout = model_loop.state.ensure_rollout()
+    ui_loop._run_message_batch()
+
+    assert [index for index, _ in rollout.steps] == [0, 1, 2, 3]
+    assert [len(commands) for _, commands in rollout.steps] == [1, 2, 3, 4]
+    assert all(
+        command == DriverCommand()
+        for _, commands in rollout.steps
+        for command in commands
+    )
+    assert rollout.reset_count == 1
+    assert model_loop.state.blocks_generated == 0
+    assert model_loop.state.prewarm_complete
+    assert ui_loop.state._loading_status == "STARTING GAME"
+
+    assert model_loop.state.ensure_rollout() is rollout
+    assert len(rollout.steps) == 4
+    model_loop.state.reset()
+    assert rollout.reset_count == 2
+    assert len(rollout.steps) == 4
 
 
 def test_taxi_physics_uses_spatial_and_traffic_topology_refreshes_only() -> None:

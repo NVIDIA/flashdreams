@@ -379,6 +379,26 @@ def test_hud_builds_real_slangpy_imgui_widgets_without_a_renderer() -> None:
     assert state._widgets.score.text == "SCORE  001200    HIGH  009000"
 
 
+def test_hud_animates_prepresentation_warmup_status() -> None:
+    state = TaxiHudState(160, 96, _calibration())
+    state.set_loading_status("WARMING WORLD MODEL  2/4")
+    ui = SimpleNamespace(
+        screen=None,
+        Window=spy.ui.Window,
+        Text=spy.ui.Text,
+        InputText=spy.ui.InputText,
+        Button=spy.ui.Button,
+        InputTextFlags=spy.ui.InputTextFlags,
+    )
+
+    state.draw(ui, ui_tick=30)
+
+    assert state._widgets is not None
+    assert state._widgets.status_window.visible
+    assert state._widgets.score.text == "WARMING WORLD MODEL  2/4..."
+    assert state._widgets.time.text.startswith("ELAPSED  ")
+
+
 def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
     state = TaxiHudState(160, 96, _calibration())
     model_loop = _SubmissionLoop()

@@ -65,6 +65,22 @@ removes an avoidable pause source, but it does not make a model preset whose
 steady-state throughput is below 30 fps meet that rate; use `--model-preset
 perf` when its quality/performance tradeoff is appropriate.
 
+All model presets generate four neutral, hidden blocks before publishing the
+first gameplay frame. The responsive ImGui HUD shows the current warmup block,
+an animated activity marker, and elapsed time while compilation and autotuning
+run. After warmup, the app recreates simulation, rules, conditioning, and the
+autoregressive cache, so warmup does not consume game time, move the taxi,
+advance the visible AR index, or count toward `--total-blocks`. Cache-bound
+CUDA graphs safely re-arm against the new gameplay cache, so shorter first-use
+hitches can remain. This moves the multi-second pauses ahead of presentation;
+it does not reduce total cold-start time. Disable it for comparisons or startup
+debugging with:
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
+  --prewarm-blocks 0
+```
+
 ## Authored maps
 
 Maps are strict semantic `.robotaxi.yaml` documents. Validate or compile them

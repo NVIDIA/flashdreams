@@ -15,7 +15,7 @@ import torch
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.model import WorldModelRollout
-from omnidreams_game_engine.types import SceneDefinition
+from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -57,9 +57,14 @@ class ModelState:
     blocks_generated: int = 0
     finished: bool = False
     realtime_miss_count: int = 0
+    prewarm_complete: bool = False
+    """Whether startup AR-shape warmup has completed for this session."""
+
+    prewarm_wall_ms: float = 0.0
+    """Wall time spent in hidden startup generation, excluding rollout creation."""
 
     def ensure_rollout(self) -> WorldModelRollout:
-        """Build renderer, PhysX, game, and cache on the model thread."""
+        """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
         if self.rollout is None:
             frame_interval_s = 1.0 / self.session_desc.frames_per_second_for_step
             self.rollout = WorldModelRollout(
@@ -74,7 +79,52 @@ class ModelState:
                     device=self.config.device,
                 ),
             )
+        if not self.prewarm_complete:
+            self._prewarm_rollout()
         return self.rollout
+
+    def _prewarm_rollout(self) -> None:
+        rollout = self.rollout
+        assert rollout is not None
+        block_count = self.config.prewarm_blocks
+        if block_count == 0:
+            self.prewarm_complete = True
+            return
+
+        started = time.perf_counter()
+        _LOGGER.info(
+            "[crazy-robotaxi] prewarming %d hidden AR blocks before presentation",
+            block_count,
+        )
+        for autoregressive_index in range(block_count):
+            current_block = autoregressive_index + 1
+            self._set_loading_status(
+                f"WARMING WORLD MODEL  {current_block}/{block_count}"
+            )
+            frame_count = rollout.frame_count(autoregressive_index)
+            generated = rollout.step(
+                autoregressive_index=autoregressive_index,
+                commands=tuple(DriverCommand() for _ in range(frame_count)),
+            )
+            del generated
+
+        # Retain process-lifetime compiled kernels and autotune results, but
+        # discard every gameplay, conditioning, and AR-cache mutation. Cache-
+        # bound CUDA graphs re-arm safely against the new storage.
+        rollout.reset()
+        self.prewarm_wall_ms = (time.perf_counter() - started) * 1000.0
+        self.prewarm_complete = True
+        self._set_loading_status("STARTING GAME")
+        _LOGGER.info(
+            "[crazy-robotaxi] prewarm complete in %.1f s; rollout reset for gameplay",
+            self.prewarm_wall_ms / 1000.0,
+        )
+
+    def _set_loading_status(self, status: str) -> None:
+        invoke_async(
+            self.ui_loop,
+            lambda ui_state, value=status: ui_state.set_loading_status(value),
+        )
 
     def reset(self) -> None:
         self.driver_input.reset()
@@ -103,10 +153,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
-        step_wall_started = time.perf_counter()
-        step_cpu_started = time.thread_time()
         state = self.state
         rollout = state.ensure_rollout()
+        step_wall_started = time.perf_counter()
+        step_cpu_started = time.thread_time()
         snapshot = rollout.engine.current_game_frame
         if not isinstance(snapshot, TaxiGameSnapshot):
             raise TypeError("Taxi engine returned a non-taxi game frame")
@@ -149,6 +199,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             )
             bev_overlay_cpu_ms = (time.thread_time() - bev_cpu_started) * 1000.0
             metrics = dict(generated.metrics)
+            if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
+                metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
+                metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
             state.last_video = video[-1:].detach()
             state.last_bev_overlay = (
                 None if bev_overlay is None else bev_overlay[-1:].detach()

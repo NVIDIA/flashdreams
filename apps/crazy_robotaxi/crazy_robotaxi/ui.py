@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -113,6 +114,12 @@ class TaxiHudState:
     _submission_pending: bool = False
     """Whether a validated name is already queued for the model thread."""
 
+    _loading_status: str = "LOADING WORLD MODEL"
+    """Current startup phase shown until the first model frame is presented."""
+
+    _loading_started_at_s: float = field(default_factory=time.monotonic)
+    """Monotonic timestamp used to make startup progress visibly live."""
+
     def publish(self, frames: Sequence[TaxiHudFrame]) -> None:
         """Publish immutable model-frame state to the UI-owned lookup."""
         for frame in frames:
@@ -134,6 +141,10 @@ class TaxiHudState:
                 self._submission_pending = False
             self._current = selected
         return self._current
+
+    def set_loading_status(self, status: str) -> None:
+        """Update the startup phase from a model-loop message."""
+        self._loading_status = status
 
     def waypoint_layer(self, frame: Tensor) -> Tensor | None:
         """Return the cached marker layer aligned with ``frame``.
@@ -166,13 +177,16 @@ class TaxiHudState:
         self._waypoint_layer = layer
         return layer
 
-    def draw(self, ui: Any) -> None:
+    def draw(self, ui: Any, ui_tick: int = 0) -> None:
         """Create or update the retained ImGui HUD widget tree."""
         widgets = self._ensure_widgets(ui)
         hud_frame = self._current
         if hud_frame is None:
-            widgets.score.text = "LOADING WORLD MODEL"
-            widgets.time.text = ""
+            dots = "." * (1 + (ui_tick // 15) % 3)
+            elapsed_s = max(0, int(time.monotonic() - self._loading_started_at_s))
+            widgets.status_window.visible = True
+            widgets.score.text = f"{self._loading_status}{dots}"
+            widgets.time.text = f"ELAPSED  {elapsed_s}s"
             widgets.objective.text = ""
             widgets.fare_time.text = ""
             widgets.event.text = ""
@@ -205,6 +219,8 @@ class TaxiHudState:
         self._waypoint_layer = None
         self._validation_message = ""
         self._submission_pending = False
+        self._loading_status = "LOADING WORLD MODEL"
+        self._loading_started_at_s = time.monotonic()
         if self._widgets is not None:
             self._widgets.name_input.value = ""
             self._widgets.name_input.enabled = True
@@ -345,13 +361,13 @@ class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
         self, ui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the current generated frame beneath it."""
-        del step_index, events
+        del events
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
         bev_overlay = frames[1] if len(frames) > 1 else None
         if video is not None:
             self.state.select_presented_frame(video)
-        self.state.draw(ui)
+        self.state.draw(ui, step_index)
         if video is None:
             return None
         world = video.to(torch.float32)
