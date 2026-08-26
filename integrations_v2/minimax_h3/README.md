@@ -34,10 +34,13 @@ Still images are decoded with Pillow. Video and audio use executables named
 `ffprobe` and `ffmpeg` installed on the host and available on `PATH`; the
 package does not bundle or discover a Python-provided FFmpeg.
 
-The application already declares and returns synchronized audio. Publishing it
-in the built-in MP4 mode remains gated on an explicitly approved public MP4
-audio codec; the existing video-only sink rejects audio rather than silently
-dropping it.
+The built-in MP4 mode publishes synchronized audio as AAC-LC at 192 kbit/s.
+Before creating output staging or beginning model generation it asks the host
+`ffmpeg` executable to encode one silent frame using the session's exact
+sample rate and channel count. Video and normalized `f32le` PCM remain private
+until the completed streams are muxed and atomically replace the requested
+output. Audio is padded or trimmed to the exact written-video timeline rather
+than being silently dropped or allowed to drift.
 
 See [ROLLOUT.md](ROLLOUT.md) for pinned revisions, CPU/CUDA gates, real-weight
-RTX PRO results, and the remaining MP4-audio approval boundary.
+RTX PRO results, and external `ffmpeg`/`ffprobe` validation.

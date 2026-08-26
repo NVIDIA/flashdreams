@@ -190,15 +190,20 @@ MP4 publication is transactional. Video, normalized PCM, and any synchronized
 mux are written below a unique private sibling directory. The final file
 replaces the requested target atomically only after the application has closed
 successfully and every encoder has exited successfully. Exceptional exits abort
-active child processes, remove staged output, and preserve an existing target.
+active child processes and preserve an existing target. If an abort is
+interrupted, the runtime makes one bounded final retry. A recovered transient
+failure removes staging; a persistent failure is reported while the sink
+retains ownership for an explicit later retry.
 
 Audio is staged as interleaved `f32le`. Forward offsets become silence, and the
 complete stream is padded or truncated to
 `round(written_frames * sample_rate / fps)` before muxing. Both video encoding
 and audio muxing invoke an administrator- or user-provided `ffmpeg` executable
 on `PATH`; the runtime does not use an in-process or Python-bundled FFmpeg. An
-audio session is rejected unless its MP4 sink was constructed with an explicit
-product-approved audio codec. WebRTC output currently rejects audio.
+audio session is published as AAC-LC at 192 kbit/s. Before creating staging or
+starting inference, the MP4 sink runs a bounded one-frame encode through that
+same resolved host executable using the declared sample rate and channel
+count. WebRTC output currently rejects audio.
 
 What a sink expects of the pixel values it is handed is part of the result
 contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).
