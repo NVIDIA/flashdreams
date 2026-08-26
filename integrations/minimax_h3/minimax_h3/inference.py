@@ -454,6 +454,14 @@ class MiniMaxH3InferenceEngine:
         """Condition, jointly denoise, and decode one finite H3 request."""
         if self._closed:
             raise RuntimeError("MiniMax H3 inference engine is closed")
+        if (
+            self.config.workflow is not None
+            and request.workflow != self.config.workflow
+        ):
+            raise ValueError(
+                f"MiniMax H3 engine was configured for {self.config.workflow}, "
+                f"not {request.workflow}"
+            )
         cuda_device = (
             torch.device(self.config.device)
             if torch.cuda.is_available() and self.config.device.startswith("cuda")

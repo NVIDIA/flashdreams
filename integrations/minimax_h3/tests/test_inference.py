@@ -609,6 +609,28 @@ def test_staged_t2va_returns_synchronized_v2_media() -> None:
         )
 
 
+def test_engine_rejects_a_workflow_that_was_not_preflighted() -> None:
+    """Do not load a transformer omitted from the workflow capacity check."""
+    resources = _Resources()
+    engine = MiniMaxH3InferenceEngine(
+        MiniMaxH3InferenceConfig(device="cpu", workflow="ref2va"),
+        resources=resources,
+    )
+
+    with pytest.raises(ValueError, match="configured for ref2va, not t2va"):
+        engine.generate(
+            MiniMaxH3InferenceRequest(
+                workflow="t2va",
+                prompt="prompt",
+                width=32,
+                height=32,
+                num_inference_steps=2,
+            )
+        )
+
+    assert resources.events == []
+
+
 def test_staged_engine_resumes_both_packed_streams(tmp_path: Path) -> None:
     """Publish one paired record and pass it back to the next denoise stage."""
     resources = _Resources()
