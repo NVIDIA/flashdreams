@@ -203,7 +203,11 @@ on `PATH`; the runtime does not use an in-process or Python-bundled FFmpeg. An
 audio session is published as AAC-LC at 192 kbit/s. Before creating staging or
 starting inference, the MP4 sink runs a bounded one-frame encode through that
 same resolved host executable using the declared sample rate and channel
-count. WebRTC output currently rejects audio.
+count. The final mux deadline scales with the written media duration. On a
+timeout, terminate and kill waits are separately bounded; a child that still
+cannot be reaped remains owned by the sink for a later abort retry rather than
+having its staging removed underneath it. WebRTC output currently rejects
+audio.
 
 What a sink expects of the pixel values it is handed is part of the result
 contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).

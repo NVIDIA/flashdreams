@@ -76,6 +76,17 @@ def test_runner_io_keeps_host_media_reader_compatibility(
     assert calls == ["clip.mp4"]
 
 
+def test_runner_video_fps_preserves_the_mediapy_install_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "mediapy", None)
+
+    with pytest.raises(ImportError, match="install the FlashVSR media extras"):
+        runner_io.read_video_fps(
+            "clip.mp4", install_hint="install the FlashVSR media extras"
+        )
+
+
 def test_resolve_prompt_value_reads_first_non_empty_line(tmp_path: Path) -> None:
     prompt_path = tmp_path / "prompt.txt"
     prompt_path.write_text("\n  first prompt  \nsecond prompt\n")

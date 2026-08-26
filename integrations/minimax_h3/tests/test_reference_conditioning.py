@@ -232,6 +232,34 @@ def test_encode_references_filters_modalities_in_semantic_order() -> None:
     torch.testing.assert_close(audio_vae.inputs[1], audio_reference.audio)
 
 
+def test_read_only_decoded_video_normalizes_and_encodes() -> None:
+    """Accept the zero-copy read-only arrays returned by host FFmpeg decoding."""
+    raw = np.full((25, 32, 32, 3), 64, dtype=np.uint8).tobytes()
+    decoded = np.frombuffer(raw, dtype=np.uint8).reshape(25, 32, 32, 3)
+    assert not decoded.flags.writeable
+
+    normalized = normalize_references(
+        [MiniMaxH3VideoReference(frames=decoded, fps=24.0)],
+        num_frames=124,
+        **_normalization_options(),
+    )[0]
+    assert isinstance(normalized, MiniMaxH3VideoReference)
+    assert isinstance(normalized.frames, np.ndarray)
+    assert not normalized.frames.flags.writeable
+
+    video_vae = _VideoVAE()
+    encoded = encode_references(
+        video_vae,
+        _AudioVAE(),
+        [normalized],
+        device="cpu",
+    )
+
+    assert len(encoded.video) == 1
+    assert video_vae.inputs[0].shape == (1, 3, 22, 32, 32)
+    assert float(video_vae.inputs[0][0, 0, 0, 0, 0]) == pytest.approx(64 / 255)
+
+
 def test_encode_references_requires_normalized_media() -> None:
     """Reject raw array images before invoking either native VAE."""
     with pytest.raises(ValueError, match="image references must be normalized"):
