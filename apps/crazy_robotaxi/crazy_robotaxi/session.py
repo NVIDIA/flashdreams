@@ -24,7 +24,7 @@ from crazy_robotaxi.ui import (
     TaxiHudState,
     build_hud_frames,
 )
-from crazy_robotaxi.world_overlay import render_bev_overlay, render_waypoint_layers
+from crazy_robotaxi.world_overlay import render_bev_overlay
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -164,18 +164,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             metrics = {}
             bev_overlay_cpu_ms = 0.0
 
-        waypoint_cpu_started = time.thread_time()
-        waypoint_layers = render_waypoint_layers(
-            game_frames,
-            poses,
-            state.scene.selected_camera,
-            width=state.session_desc.video_width,
-            height=state.session_desc.video_height,
-            device=video.device,
-            dtype=video.dtype if video.is_floating_point() else torch.float32,
-        )
-        waypoint_cpu_ms = (time.thread_time() - waypoint_cpu_started) * 1000.0
-        hud_frames = build_hud_frames(video, game_frames)
+        hud_frames = build_hud_frames(video, game_frames, poses)
         invoke_async(
             state.ui_loop,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
@@ -198,17 +187,17 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             chunk_duration_ms = (
                 count / state.session_desc.frames_per_second_for_step * 1000.0
             )
-            realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
             metrics.update(
                 {
                     "bev_overlay_cpu_ms": bev_overlay_cpu_ms,
-                    "waypoint_overlay_cpu_ms": waypoint_cpu_ms,
-                    "model_step_wall_ms": model_step_wall_ms,
                     "model_step_cpu_ms": model_step_cpu_ms,
                     "chunk_duration_ms": chunk_duration_ms,
-                    "realtime_margin_ms": realtime_margin_ms,
                 }
             )
+            if state.config.pipeline_profiling:
+                realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
+                metrics["model_step_wall_ms"] = model_step_wall_ms
+                metrics["realtime_margin_ms"] = realtime_margin_ms
             physx = engine_step.trajectory.physx_timings
             if physx is not None:
                 metrics.update(
@@ -221,7 +210,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         "physx_bridge_ms": physx.bridge_ms,
                     }
                 )
-            if realtime_margin_ms < 0.0:
+            if state.config.pipeline_profiling and realtime_margin_ms < 0.0:
                 state.realtime_miss_count += 1
                 if (
                     state.realtime_miss_count <= 3
@@ -230,14 +219,13 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     _LOGGER.warning(
                         "[crazy-robotaxi] chunk missed realtime budget: "
                         "step=%d frames=%d overrun_ms=%.1f wall_ms=%.1f "
-                        "cpu_ms=%.1f engine_cpu_ms=%.1f waypoint_cpu_ms=%.1f",
+                        "cpu_ms=%.1f engine_cpu_ms=%.1f",
                         step_index,
                         count,
                         -realtime_margin_ms,
                         model_step_wall_ms,
                         model_step_cpu_ms,
                         float(metrics.get("engine_cpu_ms", 0.0)),
-                        waypoint_cpu_ms,
                     )
         results = [
             StepResult(
@@ -246,12 +234,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
                 metrics=metrics,
-            ),
-            StepResult(
-                step_index=step_index,
-                output=waypoint_layers,
-                frame_count=count,
-                output_layout=VideoTensorLayout.tchw,
             ),
         ]
         if bev_overlay is not None:
@@ -299,6 +281,7 @@ class CrazyRobotaxiSession(ISession):
         hud_state = TaxiHudState(
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
+            calibration=self._scene.selected_camera,
         )
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiSlangPyUILoop,

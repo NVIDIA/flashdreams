@@ -5,12 +5,15 @@
 
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
-from crazy_robotaxi.application import CrazyRobotaxiApplication
+from crazy_robotaxi.application import _MODEL_PRESETS, CrazyRobotaxiApplication
+from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.session import CrazyRobotaxiModelLoop
 from crazy_robotaxi.ui import CrazyRobotaxiSlangPyUILoop
+from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import CameraCalibration, SceneDefinition
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -69,6 +72,48 @@ def test_application_registers_model_and_slangpy_ui_loops() -> None:
     assert model_loop.state.rollout is None
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ([], False),
+        (["--profile-pipeline"], True),
+    ],
+)
+def test_pipeline_profiling_is_an_app_local_opt_in(
+    arguments: list[str],
+    expected: bool,
+) -> None:
+    configured = []
+    app = CrazyRobotaxiApplication(
+        pipeline_factory=lambda config, device: configured.append(config) or object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(arguments)
+
+    app.create_session(app.session_desc())
+
+    assert configured[0].enable_sync_and_profile is expected
+    assert app._config is not None
+    assert app._config.pipeline_profiling is expected
+    assert _MODEL_PRESETS["standard"].enable_sync_and_profile
+
+
+def test_taxi_physics_uses_spatial_and_traffic_topology_refreshes_only() -> None:
+    world = object.__new__(TaxiPhysicsWorld)
+    world.graph = type("Graph", (), {"objects": ()})()
+    world._physics_center_xy = np.zeros(2, dtype=np.float32)
+    center = np.asarray([40.0, -4.0], dtype=np.float32)
+    with patch.object(
+        GamePhysicsWorld,
+        "synchronize_window",
+        return_value=True,
+    ) as synchronize:
+        changed = world.synchronize_window(center, timestamp_us=2_000_000)
+
+    assert changed
+    synchronize.assert_called_once_with(center, timestamp_us=None)
 
 
 def test_application_rejects_geometry_the_model_does_not_produce() -> None:

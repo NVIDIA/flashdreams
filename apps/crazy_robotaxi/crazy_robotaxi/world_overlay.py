@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from functools import lru_cache
 
 import numpy as np
 import torch
@@ -42,6 +43,30 @@ _DROPOFF_COLOR = (0.5686275, 0.1764706, -0.60784316)
 _BLACK = (-1.0, -1.0, -1.0)
 _WHITE = (1.0, 1.0, 1.0)
 _LABEL_BACKGROUND = (-0.9372549, -0.9372549, -0.90588236)
+
+_BLACK_RING = 0
+_PICKUP_RING = 1
+_DROPOFF_RING = 2
+_BLACK_BEACON = 3
+_PICKUP_SOLID = 4
+_DROPOFF_SOLID = 5
+_WHITE_SOLID = 6
+_LABEL_PANEL = 7
+
+_WAYPOINT_PALETTE = np.asarray(
+    (
+        (*_BLACK, 220.0 / 255.0),
+        (*_PICKUP_COLOR, 245.0 / 255.0),
+        (*_DROPOFF_COLOR, 245.0 / 255.0),
+        (*_BLACK, 235.0 / 255.0),
+        (*_PICKUP_COLOR, 1.0),
+        (*_DROPOFF_COLOR, 1.0),
+        (*_WHITE, 1.0),
+        (*_LABEL_BACKGROUND, 225.0 / 255.0),
+    ),
+    dtype=np.float32,
+)
+"""Painter styles uploaded once for each frame-aligned waypoint batch."""
 
 _GLYPHS = {
     "C": ("1111", "1000", "1000", "1000", "1000", "1000", "1111"),
@@ -154,11 +179,7 @@ def render_waypoint_layers(
         output_width=width,
         output_height=height,
     )
-    layers = torch.zeros(
-        (frame_count, 4, height, width),
-        device=device,
-        dtype=dtype,
-    )
+    styles = np.full((frame_count, height, width), -1, dtype=np.int8)
     for frame_index, snapshot in enumerate(snapshots):
         if not isinstance(snapshot, TaxiGameSnapshot):
             raise TypeError("Waypoint layer received a non-taxi game snapshot")
@@ -171,7 +192,12 @@ def render_waypoint_layers(
             image_width=width,
             image_height=height,
         )
-        color = _PICKUP_COLOR if snapshot.phase == "seeking_pickup" else _DROPOFF_COLOR
+        if snapshot.phase == "seeking_pickup":
+            ring_style = _PICKUP_RING
+            solid_style = _PICKUP_SOLID
+        else:
+            ring_style = _DROPOFF_RING
+            solid_style = _DROPOFF_SOLID
         label = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
         ring_edges = []
         beacons = []
@@ -179,15 +205,28 @@ def render_waypoint_layers(
             ring_edges.extend(projection.ring_edges_uv)
             beacons.append((projection.anchor_uv, _beacon_top(projection)))
 
-        layer = layers[frame_index]
-        _paint_lines(layer, ring_edges, width, height, 7, _BLACK, 220.0 / 255.0)
-        _paint_lines(layer, ring_edges, width, height, 4, color, 245.0 / 255.0)
-        _paint_lines(layer, beacons, width, height, 9, _BLACK, 235.0 / 255.0)
-        _paint_lines(layer, beacons, width, height, 5, color, 1.0)
+        layer = styles[frame_index]
+        _paint_lines(layer, ring_edges, width, height, 7, _BLACK_RING)
+        _paint_lines(layer, ring_edges, width, height, 4, ring_style)
+        _paint_lines(layer, beacons, width, height, 9, _BLACK_BEACON)
+        _paint_lines(layer, beacons, width, height, 5, solid_style)
         for projection, (_, top) in zip(projections, beacons, strict=True):
-            _paint_marker_anchor(layer, projection.anchor_uv, width, height, color)
-            _paint_marker_label(layer, top, label, width, height, color)
-    return layers
+            _paint_marker_anchor(
+                layer,
+                projection.anchor_uv,
+                width,
+                height,
+                solid_style,
+            )
+            _paint_marker_label(
+                layer,
+                top,
+                label,
+                width,
+                height,
+                solid_style,
+            )
+    return _materialize_waypoint_layers(styles, device=device, dtype=dtype)
 
 
 def _beacon_top(projection: TaxiCameraMarkerProjection) -> tuple[float, float]:
@@ -205,56 +244,45 @@ def _beacon_top(projection: TaxiCameraMarkerProjection) -> tuple[float, float]:
 
 
 def _paint_lines(
-    layer: Tensor,
+    layer: np.ndarray,
     lines: Sequence[tuple[tuple[float, float], tuple[float, float]]],
     width: int,
     height: int,
     width_px: int,
-    color: tuple[float, float, float],
-    alpha: float,
+    style: int,
 ) -> None:
     if not lines:
         return
-    pixels = [
-        _line_pixels(
-            start,
-            end,
-            width=width,
-            height=height,
-            width_px=width_px,
-        )
-        for start, end in lines
-    ]
+    x, y = _line_pixels(lines, width=width, height=height, width_px=width_px)
     _paint_pixels(
         layer,
-        np.concatenate([points[0] for points in pixels]),
-        np.concatenate([points[1] for points in pixels]),
-        color,
-        alpha,
+        x,
+        y,
+        style,
     )
 
 
 def _paint_marker_anchor(
-    layer: Tensor,
+    layer: np.ndarray,
     anchor: tuple[float, float],
     width: int,
     height: int,
-    color: tuple[float, float, float],
+    style: int,
 ) -> None:
     center_x, center_y = int(round(anchor[0])), int(round(anchor[1]))
     x, y = _disk_pixels(center_x, center_y, 9, width, height)
-    _paint_pixels(layer, x, y, color, 1.0)
+    _paint_pixels(layer, x, y, style)
     x, y = _ring_pixels(center_x, center_y, 6, 9, width, height)
-    _paint_pixels(layer, x, y, _WHITE, 1.0)
+    _paint_pixels(layer, x, y, _WHITE_SOLID)
 
 
 def _paint_marker_label(
-    layer: Tensor,
+    layer: np.ndarray,
     top: tuple[float, float],
     label: str,
     width: int,
     height: int,
-    color: tuple[float, float, float],
+    style: int,
 ) -> None:
     scale = max(1, min(width, height) // 360)
     text_x, text_y = _text_pixels(label, scale)
@@ -268,7 +296,7 @@ def _paint_marker_label(
     right = text_left + text_width + 4 * scale
     bottom = text_top + text_height + 3 * scale
     x, y = _rectangle_pixels(left, top_y, right, bottom, width, height)
-    _paint_pixels(layer, x, y, _LABEL_BACKGROUND, 225.0 / 255.0)
+    _paint_pixels(layer, x, y, _LABEL_PANEL)
     border = max(1, scale)
     border_lines = (
         ((left, top_y), (right, top_y)),
@@ -276,60 +304,74 @@ def _paint_marker_label(
         ((right, bottom), (left, bottom)),
         ((left, bottom), (left, top_y)),
     )
-    _paint_lines(layer, border_lines, width, height, border, color, 1.0)
-    _paint_pixels(layer, text_x + text_left, text_y + text_top, color, 1.0)
+    _paint_lines(layer, border_lines, width, height, border, style)
+    _paint_pixels(
+        layer,
+        text_x + text_left,
+        text_y + text_top,
+        style,
+        clip=True,
+    )
 
 
 def _paint_pixels(
-    layer: Tensor,
+    layer: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
-    color: tuple[float, float, float],
-    alpha: float,
+    style: int,
+    *,
+    clip: bool = False,
 ) -> None:
-    height, width = int(layer.shape[-2]), int(layer.shape[-1])
-    valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
-    x = x[valid]
-    y = y[valid]
+    if clip:
+        height, width = layer.shape
+        valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
+        x = x[valid]
+        y = y[valid]
     if x.size == 0:
         return
-    x_tensor = torch.from_numpy(x).to(device=layer.device)
-    y_tensor = torch.from_numpy(y).to(device=layer.device)
-    layer[:3, y_tensor, x_tensor] = torch.tensor(
-        color,
-        device=layer.device,
-        dtype=layer.dtype,
-    ).view(3, 1)
-    layer[3, y_tensor, x_tensor] = alpha
+    layer[y, x] = style
 
 
 def _line_pixels(
-    start: tuple[float, float],
-    end: tuple[float, float],
+    lines: Sequence[tuple[tuple[float, float], tuple[float, float]]],
     *,
     width: int,
     height: int,
     width_px: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    delta_x = float(end[0] - start[0])
-    delta_y = float(end[1] - start[1])
-    sample_count = max(2, int(math.ceil(max(abs(delta_x), abs(delta_y)))) + 1)
-    center_x = np.rint(np.linspace(start[0], end[0], sample_count)).astype(np.int32)
-    center_y = np.rint(np.linspace(start[1], end[1], sample_count)).astype(np.int32)
+    endpoints = np.asarray(lines, dtype=np.float64)
+    starts = endpoints[:, 0]
+    deltas = endpoints[:, 1] - starts
+    sample_counts = np.maximum(
+        2,
+        np.ceil(np.max(np.abs(deltas), axis=1)).astype(np.int32) + 1,
+    )
+    sample_index = np.arange(int(sample_counts.max()), dtype=np.float64)[None]
+    fraction = sample_index / (sample_counts[:, None] - 1)
+    selected_samples = sample_index < sample_counts[:, None]
+    center_x = np.rint(starts[:, 0, None] + deltas[:, 0, None] * fraction).astype(
+        np.int32
+    )
+    center_y = np.rint(starts[:, 1, None] + deltas[:, 1, None] * fraction).astype(
+        np.int32
+    )
+    offset_x, offset_y = _line_offsets(width_px)
+    x = center_x[:, :, None] + offset_x
+    y = center_y[:, :, None] + offset_y
+    valid = (
+        selected_samples[:, :, None] & (x >= 0) & (x < width) & (y >= 0) & (y < height)
+    )
+    return x[valid], y[valid]
+
+
+@lru_cache(maxsize=None)
+def _line_offsets(width_px: int) -> tuple[np.ndarray, np.ndarray]:
     radius = max(0.0, (float(width_px) - 1.0) / 2.0)
-    line_x = []
-    line_y = []
     integer_radius = int(math.ceil(radius))
-    for offset_y in range(-integer_radius, integer_radius + 1):
-        for offset_x in range(-integer_radius, integer_radius + 1):
-            if offset_x * offset_x + offset_y * offset_y > radius * radius:
-                continue
-            x = center_x + offset_x
-            y = center_y + offset_y
-            valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
-            line_x.append(x[valid])
-            line_y.append(y[valid])
-    return np.concatenate(line_x), np.concatenate(line_y)
+    offsets = np.arange(-integer_radius, integer_radius + 1, dtype=np.int32)
+    offset_x, offset_y = np.meshgrid(offsets, offsets)
+    selected = offset_x * offset_x + offset_y * offset_y <= radius * radius
+    return offset_x[selected], offset_y[selected]
 
 
 def _disk_pixels(
@@ -339,13 +381,19 @@ def _disk_pixels(
     width: int,
     height: int,
 ) -> tuple[np.ndarray, np.ndarray]:
+    offset_x, offset_y = _disk_offsets(radius)
+    x = center_x + offset_x
+    y = center_y + offset_y
+    valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
+    return x[valid], y[valid]
+
+
+@lru_cache(maxsize=None)
+def _disk_offsets(radius: int) -> tuple[np.ndarray, np.ndarray]:
     offsets = np.arange(-radius, radius + 1, dtype=np.int32)
     offset_x, offset_y = np.meshgrid(offsets, offsets)
     selected = offset_x * offset_x + offset_y * offset_y <= radius * radius
-    x = center_x + offset_x[selected]
-    y = center_y + offset_y[selected]
-    valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
-    return x[valid], y[valid]
+    return offset_x[selected], offset_y[selected]
 
 
 def _ring_pixels(
@@ -356,16 +404,25 @@ def _ring_pixels(
     width: int,
     height: int,
 ) -> tuple[np.ndarray, np.ndarray]:
+    offset_x, offset_y = _ring_offsets(inner_radius, outer_radius)
+    x = center_x + offset_x
+    y = center_y + offset_y
+    valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
+    return x[valid], y[valid]
+
+
+@lru_cache(maxsize=None)
+def _ring_offsets(
+    inner_radius: int,
+    outer_radius: int,
+) -> tuple[np.ndarray, np.ndarray]:
     offsets = np.arange(-outer_radius, outer_radius + 1, dtype=np.int32)
     offset_x, offset_y = np.meshgrid(offsets, offsets)
     distance_squared = offset_x * offset_x + offset_y * offset_y
     selected = (distance_squared >= inner_radius * inner_radius) & (
         distance_squared <= outer_radius * outer_radius
     )
-    x = center_x + offset_x[selected]
-    y = center_y + offset_y[selected]
-    valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
-    return x[valid], y[valid]
+    return offset_x[selected], offset_y[selected]
 
 
 def _rectangle_pixels(
@@ -389,6 +446,7 @@ def _rectangle_pixels(
     return x.ravel(), y.ravel()
 
 
+@lru_cache(maxsize=None)
 def _text_pixels(text: str, scale: int) -> tuple[np.ndarray, np.ndarray]:
     x_values = []
     y_values = []
@@ -405,6 +463,26 @@ def _text_pixels(text: str, scale: int) -> tuple[np.ndarray, np.ndarray]:
                         y_values.append(row * scale + offset_y)
         cursor += (len(glyph[0]) + 1) * scale
     return np.asarray(x_values, dtype=np.int32), np.asarray(y_values, dtype=np.int32)
+
+
+def _materialize_waypoint_layers(
+    styles: np.ndarray,
+    *,
+    device: torch.device | str,
+    dtype: torch.dtype,
+) -> Tensor:
+    style_tensor = torch.from_numpy(styles).to(device=device)
+    transparent = torch.zeros((1, 4), device=device, dtype=dtype)
+    palette = torch.cat(
+        (
+            transparent,
+            torch.as_tensor(_WAYPOINT_PALETTE, device=device, dtype=dtype),
+        )
+    )
+    # A GPU nonzero() has a data-dependent output size and therefore waits for
+    # all earlier work on the stream before returning to Python. Dense palette
+    # lookup keeps materialization asynchronous; style -1 selects transparent.
+    return palette[style_tensor.to(torch.int64) + 1].permute(0, 3, 1, 2).contiguous()
 
 
 __all__ = ["render_bev_overlay", "render_waypoint_layers"]

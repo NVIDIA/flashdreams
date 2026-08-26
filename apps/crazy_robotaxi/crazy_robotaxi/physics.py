@@ -10,7 +10,7 @@ from dataclasses import replace
 
 import numpy as np
 from loguru import logger
-from ludus_renderer import RigidBodyModel
+from ludus_renderer import PhysicsObjectGraph, RigidBodyModel
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     DriverCommand,
@@ -22,6 +22,8 @@ from omnidreams_game_engine.types import (
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 
 _CHASSIS_INSET_M = 0.16
+_TAXI_PHYSX_RECENTER_DISTANCE_M = 32.0
+"""Taxi spatial collision horizon recenter threshold."""
 
 
 def inset_vehicle_chassis(model: RigidBodyModel) -> RigidBodyModel:
@@ -76,6 +78,77 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             len(curb_segments),
         )
         self._last_contact_resolved_state: VehicleState | None = None
+
+    def synchronize_window(
+        self,
+        center_xy_m: np.ndarray,
+        timestamp_us: int | None = None,
+    ) -> bool:
+        """Refresh Taxi collision topology only when its spatial window changes.
+
+        Crazy Robotaxi's base graph contains static semantic barriers and its
+        moving actors are all owned by ``MapTrafficController``. The base
+        implementation already detects map-traffic vicinity changes on every
+        call, so its periodic timestamp-only rebuild merely re-filters the same
+        thousands of static curb segments. Passing no timestamp retains spatial
+        recentering and traffic additions/removals without that redundant scan.
+        """
+        del timestamp_us
+        center = np.asarray(center_xy_m, dtype=np.float32)
+        if center.shape != (2,):
+            raise ValueError("center_xy_m must have shape (2,)")
+        if self.graph.objects or (
+            float(np.linalg.norm(center - self._physics_center_xy))
+            >= _TAXI_PHYSX_RECENTER_DISTANCE_M
+        ):
+            return super().synchronize_window(center, timestamp_us=None)
+
+        traffic_topology_changed = False
+        if self._vicinity_resolver is not None:
+            self._map_vicinity = self._vicinity_resolver.resolve(
+                float(center[0]),
+                float(center[1]),
+                previous=self._map_vicinity,
+            )
+            traffic_topology_changed = self._map_traffic.set_vicinity(
+                self._map_vicinity
+            )
+        if not traffic_topology_changed:
+            return False
+
+        incoming = self._map_traffic.active_objects
+        incoming_ids = {scene_object.object_id for scene_object in incoming}
+        retained_detached = tuple(
+            scene_object
+            for scene_object in self._physics_graph.objects
+            if scene_object.object_id in self._detached_entity_ids
+            and scene_object.object_id in self._map_traffic.active_object_ids
+            and scene_object.object_id not in incoming_ids
+        )
+        objects = incoming + retained_detached
+        # This graph is a desired-state message for PhysX, not a graph that is
+        # spatially queried. Building it from ``objects=...`` would construct a
+        # transient track index on every traffic-boundary crossing.
+        physics_graph = PhysicsObjectGraph()
+        physics_graph.objects = objects
+        physics_graph.object_index = {
+            scene_object.object_id: index for index, scene_object in enumerate(objects)
+        }
+        physics_graph.barriers = self._physics_graph.barriers
+        self._world.synchronize(
+            physics_graph,
+            initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
+        )
+        existing_entities = {entity.entity_id: entity for entity in self._entities}
+        self._entities = [
+            existing_entities.get(scene_object.object_id)
+            or self._entity_from_object(scene_object)
+            for scene_object in physics_graph.objects
+        ]
+        self._entities_by_id = {entity.entity_id: entity for entity in self._entities}
+        self._detached_entity_ids.intersection_update(self._entities_by_id)
+        self._physics_graph = physics_graph
+        return True
 
     def step_with_command(
         self,

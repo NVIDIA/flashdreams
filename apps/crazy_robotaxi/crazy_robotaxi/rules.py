@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -398,58 +398,98 @@ def project_taxi_marker_to_camera(
     image. This deliberately does not clamp off-screen targets to an edge; the
     always-visible direction arrow already covers that case.
     """
+    projections = _project_taxi_targets_to_camera(
+        (snapshot.target_xyz_m,),
+        target_radius_m=snapshot.target_radius_m,
+        rig_to_world=rig_to_world,
+        camera_model=camera_model,
+        image_width=image_width,
+        image_height=image_height,
+        ring_samples=ring_samples,
+        beacon_height_m=beacon_height_m,
+    )
+    return projections[0] if projections else None
+
+
+def _project_taxi_targets_to_camera(
+    targets_xyz_m: tuple[tuple[float, float, float], ...],
+    *,
+    target_radius_m: float,
+    rig_to_world: npt.NDArray[np.float32],
+    camera_model: FThetaCameraModel,
+    image_width: int,
+    image_height: int,
+    ring_samples: int = 32,
+    beacon_height_m: float = 3.5,
+) -> tuple[TaxiCameraMarkerProjection, ...]:
     if image_width <= 0 or image_height <= 0:
         raise ValueError("Taxi camera image dimensions must be positive.")
     if ring_samples < 3:
         raise ValueError("Taxi target ring requires at least three samples.")
+    if not targets_xyz_m:
+        return ()
 
-    target = np.asarray(snapshot.target_xyz_m, dtype=np.float32)
+    targets = np.asarray(targets_xyz_m, dtype=np.float32)
     angles = np.linspace(
         0.0, 2.0 * math.pi, ring_samples, endpoint=False, dtype=np.float32
     )
-    ring = np.repeat(target[None, :], ring_samples, axis=0)
-    ring[:, 0] += np.float32(snapshot.target_radius_m) * np.cos(angles)
-    ring[:, 1] += np.float32(snapshot.target_radius_m) * np.sin(angles)
+    rings = np.repeat(targets[:, None, :], ring_samples, axis=1)
+    rings[:, :, 0] += np.float32(target_radius_m) * np.cos(angles)
+    rings[:, :, 1] += np.float32(target_radius_m) * np.sin(angles)
+    beacons = targets + np.asarray([0.0, 0.0, beacon_height_m], dtype=np.float32)
     points = np.concatenate(
-        (
-            target[None, :],
-            (target + np.array([0.0, 0.0, beacon_height_m], dtype=np.float32))[None, :],
-            ring,
-        ),
-        axis=0,
+        (targets[:, None, :], beacons[:, None, :], rings),
+        axis=1,
     )
-    uv, _depth, forward = camera_model.project_world(points, rig_to_world)
+    uv, _depth, forward = camera_model.project_world(
+        points.reshape(-1, 3),
+        rig_to_world,
+    )
+    uv = uv.reshape(len(targets), ring_samples + 2, 2)
+    forward = forward.reshape(len(targets), ring_samples + 2)
     inside = (
         forward
-        & (uv[:, 0] >= 0.0)
-        & (uv[:, 0] < float(image_width))
-        & (uv[:, 1] >= 0.0)
-        & (uv[:, 1] < float(image_height))
+        & (uv[:, :, 0] >= 0.0)
+        & (uv[:, :, 0] < float(image_width))
+        & (uv[:, :, 1] >= 0.0)
+        & (uv[:, :, 1] < float(image_height))
     )
-    if not bool(inside[0]):
-        return None
 
-    ring_edges: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    for index in range(ring_samples):
-        left = 2 + index
-        right = 2 + ((index + 1) % ring_samples)
-        if bool(inside[left] and inside[right]):
-            ring_edges.append(
-                (
-                    (float(uv[left, 0]), float(uv[left, 1])),
-                    (float(uv[right, 0]), float(uv[right, 1])),
+    projections = []
+    ego_x = float(rig_to_world[0, 3])
+    ego_y = float(rig_to_world[1, 3])
+    for target_index, target in enumerate(targets):
+        if not bool(inside[target_index, 0]):
+            continue
+        target_uv = uv[target_index]
+        target_inside = inside[target_index]
+        ring_edges: list[tuple[tuple[float, float], tuple[float, float]]] = []
+        for ring_index in range(ring_samples):
+            left = 2 + ring_index
+            right = 2 + ((ring_index + 1) % ring_samples)
+            if bool(target_inside[left] and target_inside[right]):
+                ring_edges.append(
+                    (
+                        (float(target_uv[left, 0]), float(target_uv[left, 1])),
+                        (float(target_uv[right, 0]), float(target_uv[right, 1])),
+                    )
                 )
+        projections.append(
+            TaxiCameraMarkerProjection(
+                anchor_uv=(float(target_uv[0, 0]), float(target_uv[0, 1])),
+                beacon_top_uv=(
+                    (float(target_uv[1, 0]), float(target_uv[1, 1]))
+                    if bool(target_inside[1])
+                    else None
+                ),
+                ring_edges_uv=tuple(ring_edges),
+                distance_m=math.hypot(
+                    float(target[0]) - ego_x,
+                    float(target[1]) - ego_y,
+                ),
             )
-
-    return TaxiCameraMarkerProjection(
-        anchor_uv=(float(uv[0, 0]), float(uv[0, 1])),
-        beacon_top_uv=((float(uv[1, 0]), float(uv[1, 1])) if bool(inside[1]) else None),
-        ring_edges_uv=tuple(ring_edges),
-        distance_m=math.hypot(
-            float(target[0]) - float(rig_to_world[0, 3]),
-            float(target[1]) - float(rig_to_world[1, 3]),
-        ),
-    )
+        )
+    return tuple(projections)
 
 
 def project_taxi_markers_to_camera(
@@ -471,17 +511,14 @@ def project_taxi_markers_to_camera(
         )
     else:
         targets = (snapshot.target_xyz_m,)
-    projections = [
-        project_taxi_marker_to_camera(
-            replace(snapshot, target_xyz_m=target),
-            rig_to_world,
-            camera_model,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        for target in targets
-    ]
-    return tuple(projection for projection in projections if projection is not None)
+    return _project_taxi_targets_to_camera(
+        targets,
+        target_radius_m=snapshot.target_radius_m,
+        rig_to_world=rig_to_world,
+        camera_model=camera_model,
+        image_width=image_width,
+        image_height=image_height,
+    )
 
 
 def _nearest_visible_pickup_targets(

@@ -5,11 +5,14 @@ and `omnidreams-game-engine`. FlashDreams owns input collection, reset
 generations, presentation buffering, client windows, and the two-thread
 runtime. The UI loop uses FlashDreams' SlangPy renderer for the game HUD and
 composites it over model frames for local and WebRTC clients.
-Camera-projected waypoint rings, beacons, and labels are carried as a
-frame-aligned world layer; they are not ImGui windows. The optional BEV view
-is likewise published as a frame-aligned RGBA model-result layer. The
-`CrazyRobotaxiSlangPyUILoop` composites video, waypoints, and BEV through V2's
-presentation manager before the base loop applies the SlangPy ImGui HUD.
+Camera-projected waypoint rings, beacons, and labels are rendered as a
+frame-aligned world layer on the UI thread; they are not ImGui windows. The
+model loop publishes immutable snapshot-and-pose metadata for each generated
+frame, and the UI loop rasterizes each presented waypoint layer once and
+caches it while that frame remains visible. The optional BEV view is published
+as an RGBA model-result layer. `CrazyRobotaxiSlangPyUILoop` composites video,
+waypoints, and BEV through V2's presentation manager before the base loop
+applies the SlangPy ImGui HUD.
 
 ```bash
 uv sync --package crazy-robotaxi
@@ -34,22 +37,33 @@ loop through V2's asynchronous loop-message contract.
 
 ## Performance diagnostics
 
-Crazy Robotaxi emits model, engine, overlay, and complete model-step timing
-metrics. Capture them while reproducing a chunk pause with:
+Crazy Robotaxi emits lightweight model-thread, engine, overlay, and PhysX
+timings during normal play. Capture synchronized model-step and GPU-stage
+diagnostics while reproducing a chunk pause with:
 
 ```bash
 uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc \
-  --stats-path /tmp/crazy-robotaxi-stats.json
+  --stats-path /tmp/crazy-robotaxi-stats.json -- \
+  --profile-pipeline
 ```
 
-The runtime also warns when a model step exceeds the duration of the frames it
-produces. The live `model_step_wall_ms`, `model_step_cpu_ms`, `engine_cpu_ms`,
-`simulation_cpu_ms`, `rules_cpu_ms`, `conditioning_cpu_ms`,
-`waypoint_overlay_cpu_ms`, and `physx_*_ms` metrics separate a throughput miss
-from app-side CPU work; the pipeline's `encode_ms`, `diffuse_ms`, `decode_ms`,
-and `finalize_ms` metrics identify the corresponding GPU stage. The JSON sink
-normalizes `_ms` metric names to `_s`. Exclude the first chunks when judging
-steady state because compilation and graph capture are startup costs.
+Pipeline profiling is diagnostic and disabled during normal play because its
+CUDA synchronization creates a CPU spin hotspot and prevents pipeline overlap.
+With `--profile-pipeline`, the runtime also warns when a model step exceeds the
+duration of the frames it produces. The live `model_step_wall_ms`,
+`model_step_cpu_ms`, `engine_cpu_ms`,
+`simulation_cpu_ms`, `rules_cpu_ms`, `conditioning_cpu_ms`, and `physx_*_ms`
+metrics separate a throughput miss from model-thread CPU work; the pipeline's
+`encode_ms`, `diffuse_ms`, `decode_ms`, and `finalize_ms` metrics identify the
+corresponding GPU stage. Waypoint rasterization is UI-thread work and is not
+included in model-step metrics. The JSON sink normalizes `_ms` metric names to
+`_s`. Exclude the first chunks when judging steady state because compilation
+and graph capture are startup costs.
+
+Presentation remains fixed at 30 fps. Disabling diagnostic synchronization
+removes an avoidable pause source, but it does not make a model preset whose
+steady-state throughput is below 30 fps meet that rate; use `--model-preset
+perf` when its quality/performance tradeoff is appropriate.
 
 ## Authored maps
 

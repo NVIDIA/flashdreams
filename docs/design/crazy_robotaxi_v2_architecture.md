@@ -49,8 +49,8 @@ flowchart TD
     end
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
-        BUFFER["PresentationManager<br/>RGB + RGBA waypoint/BEV channels"]
-        HUD["CrazyRobotaxiSlangPyUILoop<br/>HUD widgets + name entry"]
+        BUFFER["PresentationManager<br/>RGB + optional RGBA BEV channels"]
+        HUD["CrazyRobotaxiSlangPyUILoop<br/>waypoint cache + HUD widgets"]
         COMPOSE["RGB → waypoint → BEV composition<br/>then SlangPy ImGui HUD"]
         WINDOW["V2 client window<br/>WebRTC / MP4 / supported host"]
     end
@@ -63,7 +63,7 @@ flowchart TD
     PIPELINE --> CACHE
     INPUT --> ENGINE
     ENGINE --> HUDSTATE
-    ENGINE -->|"RGB + RGBA waypoint + optional RGBA BEV"| BUFFER
+    ENGINE -->|"RGB + optional RGBA BEV"| BUFFER
     HUDSTATE -->|"invoke_async"| HUD
     HUD -->|"invoke_async game actions"| ENGINE
     BUFFER --> HUD --> COMPOSE --> WINDOW
@@ -76,17 +76,17 @@ description, lazily constructs the shared pipeline, prepares immutable scene
 data, and returns an uninitialized session.
 
 The session registers a model loop and a `CrazyRobotaxiSlangPyUILoop`. The
-model loop emits generated RGB frames, a transparent camera-projected
-waypoint layer, and, when configured, a frame-aligned transparent BEV layer.
-For each generated frame it also publishes an immutable `TaxiHudFrame` to the
-UI loop with `invoke_async`.
-The UI loop selects the HUD snapshot aligned with the currently presented
-model frame and uses V2's `PresentationManager` to compose the in-world
-waypoint geometry and BEV layer over the generated frame. It updates its
-retained ImGui widgets and returns the composed frame to `SlangPyUILoop`,
-which applies the widget overlay. UI callbacks send validated game actions
-back to the model loop with `invoke_async`; they never call game state
-directly.
+model loop emits generated RGB frames and, when configured, a frame-aligned
+transparent BEV layer. For each generated frame it publishes an immutable
+`TaxiHudFrame` containing its game snapshot and camera pose to the UI loop with
+`invoke_async`. The UI loop selects the metadata aligned with the currently
+presented model frame, rasterizes and caches that frame's in-world waypoint
+geometry, and uses V2's `PresentationManager` to compose waypoints and BEV over
+the generated frame. This avoids constructing an entire chunk of full-size
+waypoint tensors at the model-step boundary. It updates its retained ImGui
+widgets and returns the composed frame to `SlangPyUILoop`, which applies the
+widget overlay. UI callbacks send validated game actions back to the model loop
+with `invoke_async`; they never call game state directly.
 
 ## Model-loop step
 
@@ -105,11 +105,10 @@ flowchart LR
     GENERATE["pipeline.generate"]
     FINALIZE["pipeline.finalize"]
     POST["optional session-local postprocess stream"]
-    WAYPOINTS["camera-projected RGBA<br/>world-waypoint layers"]
     BEV["raw BEV frames → frame-aligned<br/>RGBA presentation layers"]
-    HUDFRAMES["immutable TaxiHudFrame batch"]
+    HUDFRAMES["immutable TaxiHudFrame batch<br/>snapshot + camera pose"]
     SEND["invoke_async(UI loop)"]
-    RESULTS["list[StepResult]<br/>RGB + RGBA waypoint + optional RGBA BEV"]
+    RESULTS["list[StepResult]<br/>RGB + optional RGBA BEV"]
 
     EVENTS --> REDUCE
     COUNT --> COMMANDS
@@ -122,13 +121,11 @@ flowchart LR
     ACTORS --> CONDITION
     SIM --> CONDITION
     CONDITION --> TENSOR --> GENERATE --> FINALIZE --> POST
-    SNAPSHOTS --> WAYPOINTS
-    SIM --> WAYPOINTS
     CONDITION --> BEV
     SNAPSHOTS --> HUDFRAMES
+    SIM --> HUDFRAMES
     HUDFRAMES --> SEND
     POST --> RESULTS
-    WAYPOINTS --> RESULTS
     BEV --> RESULTS
 ```
 
@@ -149,20 +146,19 @@ trajectory = engine_step.trajectory
 hdmap = condition_renderer.render(trajectory)       # [B,V,T,3,H,W]
 video = pipeline.generate(autoregressive_index, cache, hdmap)
 metrics = pipeline.finalize(autoregressive_index, cache)
-waypoints = render_waypoint_layers(game_snapshots, poses, camera)
 bev_overlay = render_bev_overlay(condition.bev_tchw, output_size)
-invoke_async(ui_loop, publish_hud_frames(game_snapshots, video))
-return [video StepResult, waypoints StepResult, optional bev_overlay StepResult]
+invoke_async(ui_loop, publish_hud_frames(game_snapshots, poses, video))
+return [video StepResult, optional bev_overlay StepResult]
 ```
 
 The UI loop uses V2's `SlangPyUILoop` and `presented_model_frames()`;
-its `step_ui()` method composites the frame-aligned model-result layers with
-`PresentationManager.composite()`, then the base loop composites the SlangPy
-widget overlay over that back buffer. Raw BEV resizing therefore happens once
-per generated chunk rather than once per UI tick. There is no image widget and
-there is no intermediate render backend, local adapter, model session, chunk
-request, private command queue, private frame queue, or legacy
-`PresentedFrame` aggregate.
+its `step_ui()` method renders a waypoint layer only when the presented frame
+changes, composites the frame-aligned layers with
+`PresentationManager.composite()`, then lets the base loop composite the
+SlangPy widget overlay over that back buffer. Raw BEV resizing still happens
+once per generated chunk. There is no image widget and there is no intermediate
+render backend, local adapter, model session, chunk request, private command
+queue, private frame queue, or legacy `PresentedFrame` aggregate.
 
 ## Game-engine internals
 
@@ -236,7 +232,7 @@ flowchart LR
     FARES --> PASSENGERS
     FARES <--> SCORES
     FARES --> FRAME --> HUDSTATE --> IMGUI
-    FRAME --> WAYPOINTS
+    HUDSTATE --> WAYPOINTS
     PASSENGERS --> FRAME
 ```
 
@@ -278,9 +274,10 @@ stateDiagram-v2
 ```
 
 While awaiting a name, no new world-model block is generated. The model loop
-re-emits the last generated RGB frame with a transparent waypoint layer and
-publishes an updated immutable HUD frame. ImGui owns the editable name buffer
-and submits a validated name to the model loop with `invoke_async`. The model
+re-emits the last generated RGB frame and publishes an updated immutable HUD
+frame; the UI loop replaces its cached waypoint layer from that metadata.
+ImGui owns the editable name buffer and submits a validated name to the model
+loop with `invoke_async`. The model
 loop reports `is_finished()` only after a leaderboard frame has been emitted
 (or an explicit finite block limit is reached), allowing MP4 mode to terminate
 without a client close event.
@@ -327,7 +324,7 @@ apps/crazy_robotaxi/
     application.py            # IApplication composition root
     session.py                # ISession + model/UI loop wiring
     ui.py                     # ImGui HUD state and SlangPy UI loop
-    world_overlay.py          # frame-aligned waypoint and BEV RGBA layers
+    world_overlay.py          # UI waypoint and frame-aligned BEV RGBA layers
     rules.py                  # taxi fare state machine
     dynamics.py               # arcade taxi controls
     physics.py                # taxi collision policy

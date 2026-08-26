@@ -58,6 +58,7 @@ class ApplicationConfig:
     driver_input: DriverInputConfig
     device: str
     total_blocks: int | None
+    pipeline_profiling: bool
 
 
 PipelineFactory = Callable[[Any, str], Any]
@@ -126,6 +127,10 @@ class CrazyRobotaxiApplication(IApplication):
                 pipeline_config,
                 diffusion_model={"seed": int(args.seed)},
             )
+        pipeline_config = derive_config(
+            pipeline_config,
+            enable_sync_and_profile=bool(args.profile_pipeline),
+        )
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
             scene_request=SceneRequest(
@@ -140,6 +145,7 @@ class CrazyRobotaxiApplication(IApplication):
             driver_input=settings.driver_input,
             device=args.device,
             total_blocks=args.total_blocks,
+            pipeline_profiling=bool(args.profile_pipeline),
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
@@ -215,4 +221,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int)
     parser.add_argument("--high-scores", type=Path)
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction)
+    parser.add_argument(
+        "--profile-pipeline",
+        action="store_true",
+        help="synchronize each chunk and emit diagnostic GPU stage timings",
+    )
     return parser

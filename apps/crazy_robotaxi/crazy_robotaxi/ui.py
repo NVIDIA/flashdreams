@@ -23,11 +23,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+import numpy.typing as npt
 import torch
+from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
 from crazy_robotaxi.high_scores import validate_player_name
 from crazy_robotaxi.rules import TaxiGameSnapshot
+from crazy_robotaxi.world_overlay import render_waypoint_layers
 from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -45,6 +49,9 @@ class TaxiHudFrame:
 
     snapshot: TaxiGameSnapshot
     """Taxi rules snapshot for the corresponding simulation frame."""
+
+    rig_pose_world: npt.NDArray[np.float32]
+    """Read-only rig pose that generated the corresponding video frame."""
 
 
 @dataclass(slots=True)
@@ -79,6 +86,9 @@ class TaxiHudState:
     height: int
     """Presentation height in pixels."""
 
+    calibration: CameraCalibration
+    """Camera calibration used to project world markers on the UI thread."""
+
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
 
@@ -87,6 +97,12 @@ class TaxiHudState:
 
     _current: TaxiHudFrame | None = None
     """Snapshot aligned with the frame currently beneath ImGui."""
+
+    _waypoint_source: TaxiHudFrame | None = None
+    """Frame metadata used by the cached waypoint layer."""
+
+    _waypoint_layer: Tensor | None = None
+    """Cached world overlay for the currently presented generated frame."""
 
     _widgets: _HudWidgets | None = None
     """Lazily created retained widgets."""
@@ -118,6 +134,37 @@ class TaxiHudState:
                 self._submission_pending = False
             self._current = selected
         return self._current
+
+    def waypoint_layer(self, frame: Tensor) -> Tensor | None:
+        """Return the cached marker layer aligned with ``frame``.
+
+        Rasterizing one presented frame on the UI thread avoids constructing a
+        full chunk of large RGBA tensors at the model-step boundary. The V2
+        presentation manager may show the same generated frame for multiple UI
+        ticks, so the completed layer is retained until frame metadata changes.
+        """
+        source = self._frames.get(int(frame.data_ptr()))
+        if source is None:
+            return None
+        cached = self._waypoint_layer
+        if (
+            source is self._waypoint_source
+            and cached is not None
+            and cached.device == frame.device
+        ):
+            return cached
+        layer = render_waypoint_layers(
+            (source.snapshot,),
+            source.rig_pose_world[None, ...],
+            self.calibration,
+            width=self.width,
+            height=self.height,
+            device=frame.device,
+            dtype=torch.float32,
+        )[0]
+        self._waypoint_source = source
+        self._waypoint_layer = layer
+        return layer
 
     def draw(self, ui: Any) -> None:
         """Create or update the retained ImGui HUD widget tree."""
@@ -154,6 +201,8 @@ class TaxiHudState:
         """Clear per-generation HUD snapshots and editable UI state."""
         self._frames.clear()
         self._current = None
+        self._waypoint_source = None
+        self._waypoint_layer = None
         self._validation_message = ""
         self._submission_pending = False
         if self._widgets is not None:
@@ -299,19 +348,16 @@ class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
         del step_index, events
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
-        waypoints = frames[1] if len(frames) > 1 else None
-        bev_overlay = frames[2] if len(frames) > 2 else None
+        bev_overlay = frames[1] if len(frames) > 1 else None
         if video is not None:
             self.state.select_presented_frame(video)
         self.state.draw(ui)
         if video is None:
             return None
-        if waypoints is None or waypoints.shape[0] != 4:
-            raise ValueError("Waypoint presentation frames must use [4,H,W]")
-        world = self._presentation_manager.composite(
-            video.to(torch.float32),
-            waypoints.to(device=video.device, dtype=torch.float32),
-        )
+        world = video.to(torch.float32)
+        waypoints = self.state.waypoint_layer(video)
+        if waypoints is not None:
+            world = self._presentation_manager.composite(world, waypoints)
         if bev_overlay is None:
             return world
         if bev_overlay.shape[0] != 4:
@@ -330,19 +376,26 @@ class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
 def build_hud_frames(
     video_tchw: Tensor,
     snapshots: Sequence[object],
+    rig_poses_world: npt.NDArray[np.float32],
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
     if len(snapshots) != frame_count:
         raise ValueError("Video and game snapshots must align")
+    poses = np.asarray(rig_poses_world, dtype=np.float32)
+    if poses.shape != (frame_count, 4, 4):
+        raise ValueError("Video and rig poses must align")
     frames = []
     for index, snapshot in enumerate(snapshots):
         if not isinstance(snapshot, TaxiGameSnapshot):
             raise TypeError("Taxi HUD received a non-taxi game snapshot")
+        pose = poses[index].copy()
+        pose.setflags(write=False)
         frames.append(
             TaxiHudFrame(
                 frame_key=int(video_tchw[index].data_ptr()),
                 snapshot=snapshot,
+                rig_pose_world=pose,
             )
         )
     return tuple(frames)
