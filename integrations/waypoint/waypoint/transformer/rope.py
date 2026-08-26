@@ -48,8 +48,9 @@ def apply_waypoint_ortho_rope(tokens: Tensor, cosine: Tensor, sine: Tensor) -> T
     # Projection channels arrive as adjacent real/imaginary pairs. The attention
     # kernel receives the rotated result in its packed real-half / imaginary-half
     # layout, matching Waypoint's grouped-query projections.
-    first = tokens.float()[..., 0::2]
-    second = tokens.float()[..., 1::2]
+    promoted = tokens.float()
+    first = promoted[..., 0::2]
+    second = promoted[..., 1::2]
     cosine = cosine.unsqueeze(0).float()
     sine = sine.unsqueeze(0).float()
     rotated = torch.cat(

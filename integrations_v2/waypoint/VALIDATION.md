@@ -65,10 +65,11 @@ measurements used a fresh process, the same checkpoints, the pinned example
 seed and controls, `--actions 40 --seed 464 --profile`, and actions 20 through
 40 as the steady-state window.
 
-| Fixed-cache mask handling | Mean | Median | p90 | Peak allocated |
+| Optimization stage | Mean | Median | p90 | Peak allocated |
 |---|---:|---:|---:|---:|
 | Rebuild every evaluation | 88.514 ms | 88.427 ms | 88.964 ms | 6.033 GiB |
 | Reuse by visibility pattern | 69.605 ms | 69.507 ms | 70.670 ms | 6.061 GiB |
+| Reuse plus one FP32 RoPE promotion | 68.791 ms | 68.887 ms | 69.737 ms | 6.061 GiB |
 
 Mask reuse reduced median action latency by 21.4%, to 57.55 generated frames/s,
 at a 0.028 GiB peak-allocation cost. The before/after 40-action MP4s were
@@ -77,7 +78,9 @@ byte-identical (SHA-256
 The CUDA local/global cache test also traversed eight frames, including ring
 wraparound, and verified that repeated provisional evaluations reuse the same
 `BlockMask` object while remaining equivalent to compact reference attention.
-The native MP4 is 1024x512 and contains exactly 164 frames.
+Reusing each Q/K tensor's FP32 RoPE promotion reduced median latency by another
+0.9% and retained the same MP4 hash. The native MP4 is 1024x512 and contains
+exactly 164 frames.
 
 ## Official implementation parity
 
