@@ -286,8 +286,9 @@ class _WaypointBlock(nn.Module):
         super().__init__()
         self.attn = _WaypointAttention(spec)
         self.attn_cond_head = _ConditionHead(spec.d_model)
-        if has_control_fusion:
-            self.ctrl_mlpfusion = _ControlFusion(spec.d_model)
+        self.ctrl_mlpfusion: _ControlFusion | None = (
+            _ControlFusion(spec.d_model) if has_control_fusion else None
+        )
         self.dit_mlp = _TwoLayerMLP(
             spec.d_model,
             spec.d_model * spec.mlp_ratio,
@@ -339,7 +340,7 @@ class _WaypointBlock(nn.Module):
         )
         tokens = tokens + adaptive_gate(attn_residual, attn_gate)
 
-        if control is not None and hasattr(self, "ctrl_mlpfusion"):
+        if control is not None and self.ctrl_mlpfusion is not None:
             if control.shape != tokens.shape:
                 raise ValueError(
                     "Waypoint control tokens must match hidden states, got "
