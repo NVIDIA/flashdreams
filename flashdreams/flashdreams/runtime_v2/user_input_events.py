@@ -9,13 +9,6 @@ from flashdreams.runtime_v2.user_input_event import UserInputEvent
 
 
 @dataclass(frozen=True)
-class UserInputEventsData:
-    """Sorted events held by one :class:`UserInputEvents` batch."""
-
-    events: list[UserInputEvent]
-    """Input events ordered by timestamp."""
-
-
 class UserInputEvents:
     """One batch of user input events, sorted by timestamp and not modifiable.
 
@@ -24,7 +17,7 @@ class UserInputEvents:
     neither end has to.
     """
 
-    _data: UserInputEventsData
+    _data: list[UserInputEvent]
     """Immutable event collection data."""
 
     def __init__(self, events: list[UserInputEvent]) -> None:
@@ -33,10 +26,8 @@ class UserInputEvents:
         Args:
             events: Events to hold, in any order.
         """
-        self._data = UserInputEventsData(
-            events=sorted(events, key=lambda event: event.get_timestamp()),
-        )
+        self._data = sorted(events, key=lambda event: event.get_timestamp())
 
     def get_events(self) -> list[UserInputEvent]:
         """Return a copy of the events, oldest first."""
-        return list(self._data.events)
+        return list(self._data)
