@@ -62,6 +62,20 @@ def test_fixed_cuda_attention_matches_compact_reference(layer_index: int) -> Non
             key=key,
             value=value,
         )
+        fixed.set_frozen(True)
+        provisional_view = fixed.update(
+            layer_index=layer_index,
+            frame_index=frame_index,
+            key=key,
+            value=value,
+        )
+        repeated_view = fixed.update(
+            layer_index=layer_index,
+            frame_index=frame_index,
+            key=key,
+            value=value,
+        )
+        assert repeated_view.block_mask is provisional_view.block_mask
         fixed.set_frozen(False)
         fixed_view = fixed.update(
             layer_index=layer_index,
@@ -69,6 +83,7 @@ def test_fixed_cuda_attention_matches_compact_reference(layer_index: int) -> Non
             key=key,
             value=value,
         )
+        assert fixed_view.block_mask is provisional_view.block_mask
         fixed.set_frozen(True)
 
         reference = F.scaled_dot_product_attention(

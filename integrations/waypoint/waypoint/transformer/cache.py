@@ -107,9 +107,10 @@ class _FixedKVLayer:
     """One lazy fixed-capacity K/V store used by the published runtime."""
 
     kv: Tensor
-    written: Tensor
+    written_frames: list[bool]
     history_tokens: int
     pinned_dilation: int
+    block_masks: dict[tuple[bool, ...], BlockMask] = field(default_factory=dict)
 
 
 @dataclass(kw_only=True)
@@ -232,16 +233,7 @@ class WaypointKVCache:
                     device=key.device,
                     dtype=key.dtype,
                 ),
-                written=torch.cat(
-                    (
-                        torch.zeros(
-                            history_tokens, device=key.device, dtype=torch.bool
-                        ),
-                        torch.ones(
-                            tokens_per_frame, device=key.device, dtype=torch.bool
-                        ),
-                    )
-                ),
+                written_frames=[False] * frame_capacity + [True],
                 history_tokens=history_tokens,
                 pinned_dilation=pinned_dilation,
             )
@@ -258,14 +250,26 @@ class WaypointKVCache:
         state.kv[..., tail_slice, :].copy_(current)
 
         write_step = frame_index % state.pinned_dilation == 0
-        visible = state.written.clone()
-        visible[ring_slice] &= not write_step
-        block_mask = _fixed_block_mask(tokens_per_frame, visible)
+        visible_frames = list(state.written_frames)
+        ring_frame = ring_start // tokens_per_frame
+        if write_step:
+            # The ring slot still represents the evicted historical frame while the
+            # provisional current frame is exposed through the tail slot. Hide it
+            # even after commit so the current frame is never attended to twice.
+            visible_frames[ring_frame] = False
+        visibility = tuple(visible_frames)
+        block_mask = state.block_masks.get(visibility)
+        if block_mask is None:
+            block_mask = _fixed_block_mask(
+                tokens_per_frame, visibility, device=key.device
+            )
+            state.block_masks[visibility] = block_mask
 
         if not self._fixed_frozen:
             destination = ring_slice if write_step else tail_slice
             state.kv[..., destination, :].copy_(current)
-            state.written[destination] = True
+            if write_step:
+                state.written_frames[ring_frame] = True
 
         key_full, value_full = state.kv.unbind(0)
         return WaypointKVView(
@@ -302,7 +306,12 @@ class WaypointKVCache:
             )
 
 
-def _fixed_block_mask(tokens_per_frame: int, written: Tensor) -> BlockMask:
+def _fixed_block_mask(
+    tokens_per_frame: int,
+    written_frames: tuple[bool, ...],
+    *,
+    device: torch.device,
+) -> BlockMask:
     """Create one visibility contract for compiled and eager attention.
 
     ``full_kv_*`` is the compiled kernel's efficient representation of active
@@ -312,32 +321,39 @@ def _fixed_block_mask(tokens_per_frame: int, written: Tensor) -> BlockMask:
     compiled path.
     """
     block_size = _DEFAULT_SPARSE_BLOCK_SIZE
-    if tokens_per_frame % block_size or written.numel() % block_size:
+    if tokens_per_frame % block_size:
         raise ValueError("Waypoint fixed attention requires block-aligned cache sizes")
     query_blocks = tokens_per_frame // block_size
-    key_blocks = written.numel() // block_size
-    visible = written.view(key_blocks, block_size)
-    if not torch.equal(visible.any(-1), visible.all(-1)):
-        raise RuntimeError("Waypoint fixed cache visibility must be block aligned")
-    active = visible.all(-1).nonzero(as_tuple=False).flatten().to(torch.int32)
+    blocks_per_frame = tokens_per_frame // block_size
+    key_blocks = len(written_frames) * blocks_per_frame
+    active_blocks = [
+        frame_index * blocks_per_frame + block_offset
+        for frame_index, is_written in enumerate(written_frames)
+        if is_written
+        for block_offset in range(blocks_per_frame)
+    ]
+    active = torch.tensor(active_blocks, dtype=torch.int32, device=device)
     # ``BlockMask`` stores a key-block list for *each* query block.  Every
     # Waypoint query token sees the same cache slots, but omitting the query
     # axis makes the mask structurally different and leaves the attention
     # backend to interpret a malformed index tensor.
     full_indices = torch.zeros(
-        1, 1, query_blocks, key_blocks, dtype=torch.int32, device=written.device
+        1, 1, query_blocks, key_blocks, dtype=torch.int32, device=device
     )
     full_indices[..., : active.numel()] = active
     full_count = torch.full(
         (1, 1, query_blocks),
         active.numel(),
         dtype=torch.int32,
-        device=written.device,
+        device=device,
     )
     empty_count = torch.zeros_like(full_count)
     empty_indices = torch.zeros(
-        1, 1, query_blocks, key_blocks, dtype=torch.int32, device=written.device
+        1, 1, query_blocks, key_blocks, dtype=torch.int32, device=device
     )
+    visible_tokens = torch.tensor(
+        written_frames, dtype=torch.bool, device=device
+    ).repeat_interleave(tokens_per_frame)
 
     def visible_slot(
         batch_index: Tensor,
@@ -346,7 +362,7 @@ def _fixed_block_mask(tokens_per_frame: int, written: Tensor) -> BlockMask:
         key_index: Tensor,
     ) -> Tensor:
         del batch_index, head_index, query_index
-        return written[key_index]
+        return visible_tokens[key_index]
 
     return BlockMask.from_kv_blocks(
         empty_count,
@@ -355,6 +371,6 @@ def _fixed_block_mask(tokens_per_frame: int, written: Tensor) -> BlockMask:
         full_indices,
         BLOCK_SIZE=block_size,
         mask_mod=visible_slot,
-        seq_lengths=(tokens_per_frame, written.numel()),
+        seq_lengths=(tokens_per_frame, visible_tokens.numel()),
         compute_q_blocks=False,
     )

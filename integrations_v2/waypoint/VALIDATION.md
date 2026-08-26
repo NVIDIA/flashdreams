@@ -57,6 +57,28 @@ generation throughput. For context, the PR discussion reported 286.04 ms at
 action 20 and 235.39 ms at action 40 on an RTX 5090; this comparison is not
 hardware-normalized.
 
+### Review follow-up: native output and cached masks
+
+On 2026-08-26, the same RTX PRO was used to validate the review-driven native
+1024x512 presentation contract and fixed-cache visibility-mask reuse. Both
+measurements used a fresh process, the same checkpoints, the pinned example
+seed and controls, `--actions 40 --seed 464 --profile`, and actions 20 through
+40 as the steady-state window.
+
+| Fixed-cache mask handling | Mean | Median | p90 | Peak allocated |
+|---|---:|---:|---:|---:|
+| Rebuild every evaluation | 88.514 ms | 88.427 ms | 88.964 ms | 6.033 GiB |
+| Reuse by visibility pattern | 69.605 ms | 69.507 ms | 70.670 ms | 6.061 GiB |
+
+Mask reuse reduced median action latency by 21.4%, to 57.55 generated frames/s,
+at a 0.028 GiB peak-allocation cost. The before/after 40-action MP4s were
+byte-identical (SHA-256
+`d2730c2357c77c25616c9c602eb68bfd2bec80a311b31ee3d6417faf02d5268c`).
+The CUDA local/global cache test also traversed eight frames, including ring
+wraparound, and verified that repeated provisional evaluations reuse the same
+`BlockMask` object while remaining equivalent to compact reference attention.
+The native MP4 is 1024x512 and contains exactly 164 frames.
+
 ## Official implementation parity
 
 Parity uses the same BF16 checkpoint and inputs in the integrated transformer
