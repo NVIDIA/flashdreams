@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from typing import Literal
+from unittest.mock import patch
 
 import mediapy
 import pytest
@@ -81,6 +82,19 @@ def test_hy15_taehv_configs_select_raw_32_channel_latents() -> None:
     assert decoder.checkpoint_path == AVAILABLE_TAEHV_CHECKPOINT_PATHS["hy1_5"]
     assert encoder.state_dict_transform is legacy_to_blocks_keys
     assert decoder.state_dict_transform is legacy_to_blocks_keys
+
+
+@pytest.mark.ci_cpu
+def test_taehv_rejects_an_incomplete_meta_checkpoint() -> None:
+    """Permissive key loading must not leave runtime module state on meta."""
+    with torch.device("meta"):
+        codec = TAEHV(checkpoint_path=None, use_cuda_graph=False)
+
+    with (
+        patch("flashdreams.recipes.taehv.impl.load_checkpoint", return_value={}),
+        pytest.raises(RuntimeError, match="left module tensors on meta"),
+    ):
+        codec.load_from_checkpoint("unused", state_dict_transform=dict)
 
 
 @torch.no_grad()

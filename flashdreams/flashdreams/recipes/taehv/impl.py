@@ -520,6 +520,19 @@ class TAEHV(nn.Module):
         # ``assign=True`` moves checkpoint tensors into meta parameters directly;
         # ``strict=False`` lets decoder-only instances ignore encoder weights.
         self.load_state_dict(sd, strict=False, assign=True)
+        meta_tensors = [
+            f"parameter {name}"
+            for name, parameter in self.named_parameters()
+            if parameter.is_meta
+        ]
+        meta_tensors.extend(
+            f"buffer {name}" for name, buffer in self.named_buffers() if buffer.is_meta
+        )
+        if meta_tensors:
+            raise RuntimeError(
+                "TAEHV checkpoint left module tensors on meta: "
+                f"{meta_tensors[:5]} ({len(meta_tensors)} total)"
+            )
 
         self.eval().requires_grad_(False)
 
