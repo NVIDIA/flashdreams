@@ -5,6 +5,7 @@
 
 import logging
 import threading
+from pathlib import Path
 
 import pytest
 import torch
@@ -1105,8 +1106,45 @@ def test_first_model_failure_survives_all_cleanup_failures(
     assert "model close failed second" in caplog.text
     assert "session close failed" in caplog.text
     assert "abort failed" in caplog.text
-    assert log.calls[-2:] == ["session.close", "window.abort"]
-    assert log.calls.count("window.abort") == 1
+    assert log.calls[-3:] == ["session.close", "window.abort", "window.abort"]
+    assert log.calls.count("window.abort") == 2
+
+
+def test_failed_abort_gets_one_final_retry(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Retry retained transaction ownership and preserve the public target."""
+    log = CallLog()
+    target = tmp_path / "output.mp4"
+    target.write_bytes(b"existing")
+    staging = tmp_path / ".output.mp4.staging"
+    staging.mkdir()
+    partial = staging / "partial.mp4"
+    partial.write_bytes(b"incomplete")
+
+    class FailOnceCleanupWindow(TransactionalRecordingClientWindow):
+        abort_attempts = 0
+
+        def abort(self) -> None:
+            self._log.record("window.abort")
+            self.abort_attempts += 1
+            if self.abort_attempts == 1:
+                raise RuntimeError("abort interrupted once")
+            partial.unlink()
+            staging.rmdir()
+
+    window = FailOnceCleanupWindow(log, fail_to_write=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="write failed"):
+            run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert "abort interrupted once" in caplog.text
+    assert log.calls[-3:] == ["session.close", "window.abort", "window.abort"]
+    assert window.abort_attempts == 2
+    assert not staging.exists()
+    assert target.read_bytes() == b"existing"
 
 
 def test_queued_loop_failure_outranks_a_main_thread_failure(

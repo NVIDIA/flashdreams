@@ -234,12 +234,14 @@ def run_session(
         abort_transactions = bool(
             cancelled or high_level_failure or loop_failures or cleanup_failures
         )
+        abort_retry_sinks: list[AbortableOutputSink] = []
         for output_sink in abortable_sinks:
             if abort_transactions:
                 try:
                     output_sink.abort()
                 except BaseException as error:
                     cleanup_failures.append(error)
+                    abort_retry_sinks.append(output_sink)
                 continue
             try:
                 output_sink.close()
@@ -250,6 +252,17 @@ def run_session(
                     output_sink.abort()
                 except BaseException as abort_error:
                     cleanup_failures.append(abort_error)
+                    abort_retry_sinks.append(output_sink)
+
+        # An abortable sink retains ownership when cleanup is interrupted. Give
+        # every failed transaction one bounded final pass after all other sinks
+        # have been serviced, so transient child waits or filesystem cleanup do
+        # not become leaked processes or staging directories.
+        for output_sink in abort_retry_sinks:
+            try:
+                output_sink.abort()
+            except BaseException as error:
+                cleanup_failures.append(error)
 
     primary_failure: BaseException | None = None
     if loop_failures:

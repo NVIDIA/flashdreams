@@ -179,6 +179,30 @@ def test_audio_codec_preflight_encodes_the_exact_session_format(
     assert options["check"] is False
 
 
+def test_audio_codec_preflight_canonicalizes_a_relative_executable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    commands: list[list[str]] = []
+
+    class Completed:
+        returncode = 0
+        stderr = b""
+
+    def run(command: list[str], **kwargs: object) -> Completed:
+        del kwargs
+        commands.append(command)
+        return Completed()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "bin/ffmpeg")
+    monkeypatch.setattr(mp4_audio_module.subprocess, "run", run)
+    expected = str((tmp_path / "bin/ffmpeg").resolve())
+
+    assert preflight_audio_codec(sample_rate=32_000, channels=2) == expected
+    assert commands[0][0] == expected
+
+
 def test_audio_codec_preflight_rejects_failed_aac_encoding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

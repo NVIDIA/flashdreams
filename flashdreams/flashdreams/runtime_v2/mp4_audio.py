@@ -52,10 +52,11 @@ def preflight_audio_codec(*, sample_rate: int, channels: int) -> str:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise RuntimeError("Writing MP4 audio needs an ffmpeg executable on PATH.")
+    ffmpeg_path = str(Path(ffmpeg).resolve())
     try:
         completed = subprocess.run(
             [
-                ffmpeg,
+                ffmpeg_path,
                 "-hide_banner",
                 "-nostdin",
                 "-loglevel",
@@ -95,7 +96,7 @@ def preflight_audio_codec(*, sample_rate: int, channels: int) -> str:
             "Host ffmpeg cannot encode this session as AAC-LC at 192 kbit/s: "
             f"{reported or 'no output'}"
         )
-    return ffmpeg
+    return ffmpeg_path
 
 
 class F32leAudioStager:
