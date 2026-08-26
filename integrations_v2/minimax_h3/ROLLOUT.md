@@ -1,17 +1,23 @@
 # MiniMax H3 V2 rollout record
 
-Validation was performed on 2026-08-25 against these immutable sources:
+Real-weight artifact validation was performed on 2026-08-25. Clean
+post-review verification was performed on 2026-08-26 against these immutable
+sources:
 
 - FlashDreams main and V2 design-document baseline
   `e6e1c002fc6996aa5d53894ccbb342a05a0e0582` (PR #515);
+- latest merged-main compatibility baseline
+  `6512f042420e5b6fd85dddbfcdb43db0218505e0` (PR #514);
 - source PR #457 head
   `9962455fe0220e726b9d6484c64d8faf19873b14`;
 - full-quality benchmark runtime and codec head
   `0b3ed9e8b0f4489d29ab23c98da6df3df21897dc`;
-- final production head
+- real-weight artifact-validation head
   `4e91a25b4a09339ee2530cbff5d3a41aefc59d22`;
 - contribution-audit head (documentation-only after production validation)
   `e49a971d96858c784b674e44cc7f8eb94ae4420c`;
+- merged Claude-review-fix head
+  `437c4b38b81dce10763c5eae7198053b7e29b96f`;
 - Diffusers parity oracle
   `175fe6b2419a01db9c2ceabd01ec37d2c0305fc2`;
 - MiniMax model revision
@@ -55,7 +61,7 @@ an explicit later retry rather than falsely claiming cleanup.
 
 ## Automated gates
 
-The final clean detached checkout passed:
+The artifact-validation checkout passed:
 
 - the exact repository-wide contribution CPU tier with 2,056 passed, 2 skipped,
   and 346 GPU/manual tests deselected;
@@ -66,6 +72,17 @@ The final clean detached checkout passed:
 - repository-pinned Ruff 0.12.7 lint and format checks;
 - offline `uv lock --check`;
 - DCO on every integration commit.
+
+The merged Claude-review-fix head then passed from a clean detached checkout:
+
+- every full pre-commit hook, including repository-pinned Ruff lint/format,
+  full-workspace `ty`, `uv lock --check`, version sync, whitespace, EOF, and
+  symlink checks;
+- the exact repository-wide `ci_cpu` tier with 2,100 passed, 2 skipped, and
+  346 GPU/manual tests deselected in 102.88 seconds;
+- focused post-merge and review suites covering 222 and 107 CPU tests,
+  respectively, including real external-`ffmpeg`/`ffprobe` media round trips;
+- DCO sign-off on the latest-main merge and both review-fix commits.
 
 The repository-wide tier used the same development dependency setup as CPU CI,
 followed by the command documented in `CONTRIBUTING.md`:
@@ -89,6 +106,13 @@ The native transformer, video VAE, and audio VAE matched the oracle: 3 passed
 and 82 deselected. Production-boundary searches found no Diffusers, PyAV,
 Python/bundled FFmpeg, V1 runner, application-owned output path, or video
 writer in either H3 production package.
+
+The 2026-08-26 fixes do not change native H3 model math, weights, scheduling,
+or GPU placement, so the immutable real-weight artifacts and performance
+measurements below remain tied to the artifact-validation head rather than
+being relabeled as results from the review-fix head. The affected host-media,
+Python 3.10 cleanup, application lifecycle, and final-mux paths were exercised
+by the clean CPU tier, including the installed external FFmpeg executables.
 
 ## Real-weight validation method
 
@@ -116,7 +140,7 @@ The exact run-specific arguments were:
 | `04-fl2va.mp4` | FL2VA, 768x768, 5 s, 30 steps, seed 47 | first and last frames extracted from artifact 01 |
 | `05-ref2va-video-audio.mp4` | REF2VA, 768x768, 5 s, 30 steps, seed 47 | artifact 01 as video reference plus its extracted stereo WAV |
 | `06-t2va-max-duration.mp4` | T2VA, 256x256, 15 s, 2 steps, seed 49 | temporal/mux boundary case |
-| `07-t2va-final-head-smoke.mp4` | T2VA, 768x768, 5 s, 2 steps, seed 50 | final-head AAC smoke; excluded from performance aggregates |
+| `07-t2va-final-head-smoke.mp4` | T2VA, 768x768, 5 s, 2 steps, seed 50 | artifact-validation-head AAC smoke; excluded from performance aggregates |
 
 The maximum-duration request intentionally used one denoise update at 256x256.
 It proves real-weight temporal alignment and mux behavior, not canonical
@@ -205,7 +229,7 @@ REF2VA is
 `13027de768531b63c5da13ecfd8607601e171486b2b50e8e901569dd9ee8a26e`;
 the maximum-duration boundary artifact is
 `ee485c9f21dbebc73741e772cd4cd073093563c35f68dfa6495440a5168d9be7`.
-The final-head smoke completed in 59.238 model seconds and 72.87 wall seconds
+The artifact-validation-head smoke completed in 59.238 model seconds and 72.87 wall seconds
 at 65.561 GiB peak GPU memory.
 
 The validation directory also preserves the complete output of
