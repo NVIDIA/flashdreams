@@ -24,6 +24,11 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig,
+    QKVFusionOption,
+    SDPABackend,
+)
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
@@ -31,6 +36,7 @@ from flashdreams.core.distributed.context_parallel import (
 from flashdreams.infra.config import InstantiateConfig
 
 from .modules import (
+    AttentionBackend,
     Block,
     BlockCache,
     FinalLayer,
@@ -119,6 +125,28 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     cp_method: Literal["ring", "ulysses"] = "ring"
     """Context-parallel attention method for transformer attention ops."""
 
+    self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
+    """Self-attention implementation used by every DiT block."""
+
+    cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
+    """Text and cross-view attention implementation used by every DiT block."""
+
+    self_attn_optimized_impl_config: OptimizedImplConfig = field(
+        default_factory=lambda: OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FULL,
+            sdpa_backend=SDPABackend.FA2,
+        )
+    )
+    """Optimized implementation policy used by accelerated self-attention."""
+
+    cross_attn_optimized_impl_config: OptimizedImplConfig = field(
+        default_factory=lambda: OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FUSE_KV,
+            sdpa_backend=SDPABackend.FA2,
+        )
+    )
+    """Optimized implementation policy used by accelerated cross-attention."""
+
     view_condition_dim: int = 16
     """Embedding dim for the per-view conditioning vector."""
 
@@ -132,6 +160,8 @@ class CosmosDiTNetwork(nn.Module):
     def __init__(self, config: CosmosDiTNetworkConfig):
         super().__init__()
         self.config = config
+        self.self_attn_optimized_impl_config = config.self_attn_optimized_impl_config
+        self.cross_attn_optimized_impl_config = config.cross_attn_optimized_impl_config
 
         # add 1 for the condition mask
         in_channels = config.in_channels + 1
@@ -177,6 +207,10 @@ class CosmosDiTNetwork(nn.Module):
                     adaln_lora_dim=self.config.adaln_lora_dim,
                     enable_cross_view_attn=self.config.enable_cross_view_attn,
                     cp_method=self.config.cp_method,
+                    self_attention_backend=self.config.self_attention_backend,
+                    cross_attention_backend=self.config.cross_attention_backend,
+                    self_attn_optimized_impl_config=self.self_attn_optimized_impl_config,
+                    cross_attn_optimized_impl_config=self.cross_attn_optimized_impl_config,
                 )
                 for _ in range(self.config.num_blocks)
             ]

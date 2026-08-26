@@ -17,6 +17,7 @@
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
 
 import torch
@@ -25,8 +26,32 @@ from einops import rearrange, repeat
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.accelerated.multi_head_attention import (
+    AttentionConfig,
+    AttentionType,
+    QKNormScope,
+    RoPEConfig,
+    RoPEScope,
+    RoPEStyle,
+)
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig,
+    OptimizedMultiHeadAttention,
+    QKVFusionOption,
+    SDPABackend,
+)
 from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
 from flashdreams.core.attention.rope import apply_rope_freqs
+
+
+class AttentionBackend(str, Enum):
+    """Attention implementation used by an Omnidreams DiT block."""
+
+    OMNIDREAMS = "omnidreams"
+    """Use the integration's context-parallel cuDNN attention."""
+
+    OPTIMIZED = "optimized"
+    """Use optimized attention for the selected branch."""
 
 
 class GPT2FeedForward(nn.Module):
@@ -282,6 +307,7 @@ class MultiHeadAttention(nn.Module):
         self.attn_op.set_context_parallel_group(cp_group=cp_group)
 
     def is_context_parallel_enabled(self) -> bool:
+        """Whether context parallelism is active for attention."""
         return self.attn_op.is_context_parallel_enabled()
 
     def context_parallel_size(self) -> int:
@@ -306,7 +332,7 @@ class MultiHeadAttention(nn.Module):
         """
         batch_shape = context.shape[:-2]
         batch_size = math.prod(batch_shape)
-        L = context.shape[-2]
+        L, D = context.shape[-2:]
         n, d = self.n_heads, self.head_dim
 
         k = self.k_norm(self.k_proj(context).reshape(batch_size, L, n, d))
@@ -337,7 +363,7 @@ class MultiHeadAttention(nn.Module):
         """Append K/V computed from ``x`` into an existing ``kv_cache``."""
         return self._compute_or_update_kv_cache(x, kv_cache, rope_freqs)
 
-    def apply_kv(
+    def query_kv(
         self,
         x: Tensor,
         kv_cache: BlockKVCache,
@@ -390,13 +416,13 @@ class MultiHeadAttention(nn.Module):
         """
         if update_kv_cache:
             kv_cache = self.update_kv(x, kv_cache, rope_freqs)
-        return self.apply_kv(x, kv_cache, rope_freqs)
+        return self.query_kv(x, kv_cache, rope_freqs)
 
 
 class SelfAttention(MultiHeadAttention):
     """Self-attention: queries and K/V are derived from the same ``x`` each step."""
 
-    def initialize_cache(
+    def allocate_kv_cache(
         self,
         batch_size: int,
         chunk_size: int,
@@ -405,7 +431,7 @@ class SelfAttention(MultiHeadAttention):
         device: torch.device,
         dtype: torch.dtype,
     ) -> BlockKVCache:
-        """Initialize KV cache for streaming self-attention.
+        """Allocate a KV cache for streaming self-attention.
 
         Args:
             batch_size: Flattened batch size used by attention.
@@ -443,14 +469,6 @@ class SelfAttention(MultiHeadAttention):
 class CrossAttention(MultiHeadAttention):
     """Cross-attention: K/V live only in ``kv_cache``; ``forward`` does not refresh them."""
 
-    def initialize_cache(
-        self,
-        context: Tensor,  # [B, V, L, D]
-    ) -> BlockKVCache:
-        """Initialize cross-attention cache from the provided context."""
-        cache = self.compute_kv(context)
-        return cache
-
     def forward(
         self,
         x: Tensor,
@@ -458,6 +476,263 @@ class CrossAttention(MultiHeadAttention):
     ) -> Tensor:
         """Attend with queries from ``x``; populate or roll ``kv_cache`` outside this call."""
         return super().forward(x, kv_cache, rope_freqs=None, update_kv_cache=False)
+
+
+class OptimizedCrossAttention(OptimizedMultiHeadAttention):
+    """Static-context cross-attention backed by TMA FlashAttention2."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the canonical query projection."""
+        return self.q_proj
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the canonical key projection."""
+        return self.k_proj
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the canonical value projection."""
+        return self.v_proj
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the canonical output projection."""
+        return self.output_proj
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return the canonical query normalization."""
+        return self.q_norm
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return the canonical key normalization."""
+        return self.k_norm
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+        cp_method: Literal["ring", "ulysses"] = "ring",
+        optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FUSE_KV,
+            sdpa_backend=SDPABackend.FA2,
+        ),
+    ) -> None:
+        """Initialize bias-free optimized cross-attention.
+
+        Args:
+            query_dim: Feature dimension of query tokens and projected output.
+            context_dim: Feature dimension of key/value tokens. ``None`` uses
+                ``query_dim``.
+            n_heads: Number of attention heads.
+            head_dim: Per-head feature dimension.
+            cp_method: Ignored context-parallel method retained for constructor
+                compatibility with Omnidreams attention.
+            optimized_impl_config: optimized backend and projection-fusion policies.
+        """
+        del cp_method
+        super().__init__(
+            attention_type=AttentionType.CROSS_ATTENTION,
+            attention_config=AttentionConfig(
+                query_dim=query_dim,
+                context_dim=context_dim,
+                n_heads=n_heads,
+                head_dim=head_dim,
+                qk_norm_eps=1e-6,
+                qk_norm_scope=QKNormScope.HEAD,
+            ),
+            optimized_impl_config=optimized_impl_config,
+        )
+        assert self.attention_config.context_dim is not None
+        self.q_proj = nn.Linear(
+            self.attention_config.query_dim,
+            self.attention_config.inner_dim,
+            bias=False,
+        )
+        self.k_proj = nn.Linear(
+            self.attention_config.context_dim,
+            self.attention_config.inner_dim,
+            bias=False,
+        )
+        self.v_proj = nn.Linear(
+            self.attention_config.context_dim,
+            self.attention_config.inner_dim,
+            bias=False,
+        )
+        self.output_proj = nn.Linear(
+            self.attention_config.inner_dim,
+            self.attention_config.query_dim,
+            bias=False,
+        )
+        self.q_norm = nn.RMSNorm(
+            self.attention_config.head_dim, eps=self.attention_config.qk_norm_eps
+        )
+        self.k_norm = nn.RMSNorm(
+            self.attention_config.head_dim, eps=self.attention_config.qk_norm_eps
+        )
+        self._initialize_derived_weights()
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Reject context parallelism unsupported by Optimized attention.
+
+        Args:
+            cp_group: Context-parallel process group; ``None`` is a no-op.
+
+        Raises:
+            NotImplementedError: ``cp_group`` is not ``None``.
+        """
+        if cp_group is not None:
+            raise NotImplementedError(
+                "The Optimized attention backend does not support context parallelism"
+            )
+
+    def is_context_parallel_enabled(self) -> bool:
+        """Return whether context parallelism is enabled."""
+        return False
+
+    def context_parallel_size(self) -> int:
+        """Return the singleton context-parallel world size."""
+        return 1
+
+
+class OptimizedSelfAttention(OptimizedMultiHeadAttention):
+    """Accelerated self-attention adapted to the Omnidreams contract."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the canonical query projection."""
+        return self.q_proj
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the canonical key projection."""
+        return self.k_proj
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the canonical value projection."""
+        return self.v_proj
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the canonical output projection."""
+        return self.output_proj
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return the canonical query normalization."""
+        return self.q_norm
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return the canonical key normalization."""
+        return self.k_norm
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+        cp_method: Literal["ring", "ulysses"] = "ring",
+        optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FULL,
+            sdpa_backend=SDPABackend.FA2,
+        ),
+    ) -> None:
+        """Initialize bias-free optimized self-attention.
+
+        Args:
+            query_dim: Feature dimension of input and output tokens.
+            context_dim: Self-attention context dimension. ``None`` uses
+                ``query_dim``.
+            n_heads: Number of attention heads.
+            head_dim: Per-head feature dimension.
+            cp_method: Ignored context-parallel method retained for constructor
+                compatibility with Omnidreams attention.
+            optimized_impl_config: optimized backend and projection-fusion policies.
+
+        Raises:
+            ValueError: ``context_dim`` differs from ``query_dim``.
+        """
+        del cp_method
+        context_dim = query_dim if context_dim is None else context_dim
+        if context_dim != query_dim:
+            raise ValueError(
+                "Optimized self-attention requires context_dim to equal query_dim; "
+                f"got {context_dim} and {query_dim}"
+            )
+        super().__init__(
+            attention_type=AttentionType.SELF_ATTENTION,
+            attention_config=AttentionConfig(
+                query_dim=query_dim,
+                context_dim=context_dim,
+                n_heads=n_heads,
+                head_dim=head_dim,
+                qk_norm_eps=1e-6,
+                qk_norm_scope=QKNormScope.HEAD,
+                rope_config=RoPEConfig(
+                    style=RoPEStyle.SPLIT,
+                    scope=RoPEScope.BEFORE_KV_CACHE,
+                ),
+            ),
+            optimized_impl_config=optimized_impl_config,
+        )
+        assert self.attention_config.context_dim is not None
+        self.q_proj = nn.Linear(
+            self.attention_config.query_dim,
+            self.attention_config.inner_dim,
+            bias=False,
+        )
+        self.k_proj = nn.Linear(
+            self.attention_config.context_dim,
+            self.attention_config.inner_dim,
+            bias=False,
+        )
+        self.v_proj = nn.Linear(
+            self.attention_config.context_dim,
+            self.attention_config.inner_dim,
+            bias=False,
+        )
+        self.output_proj = nn.Linear(
+            self.attention_config.inner_dim,
+            self.attention_config.query_dim,
+            bias=False,
+        )
+        self.q_norm = nn.RMSNorm(
+            self.attention_config.head_dim, eps=self.attention_config.qk_norm_eps
+        )
+        self.k_norm = nn.RMSNorm(
+            self.attention_config.head_dim, eps=self.attention_config.qk_norm_eps
+        )
+        self._initialize_derived_weights()
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Reject context parallelism unsupported by Optimized attention.
+
+        Args:
+            cp_group: Context-parallel process group; ``None`` is a no-op.
+
+        Raises:
+            NotImplementedError: ``cp_group`` is not ``None``.
+        """
+        if cp_group is not None:
+            raise NotImplementedError(
+                "The Optimized attention backend does not support context parallelism"
+            )
+
+    def is_context_parallel_enabled(self) -> bool:
+        """Return whether context parallelism is enabled."""
+        return False
+
+    def context_parallel_size(self) -> int:
+        """Return the singleton context-parallel world size."""
+        return 1
 
 
 @dataclass
@@ -487,34 +762,69 @@ class Block(nn.Module):
         adaln_lora_dim: int = 256,
         enable_cross_view_attn: bool = False,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS,
+        cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS,
+        self_attn_optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FULL,
+            sdpa_backend=SDPABackend.FA2,
+        ),
+        cross_attn_optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FUSE_KV,
+            sdpa_backend=SDPABackend.FA2,
+        ),
     ) -> None:
         super().__init__()
         self.x_dim = x_dim
         self.enable_cross_view_attn = enable_cross_view_attn
+        self.self_attention_backend = AttentionBackend(self_attention_backend)
+        self.cross_attention_backend = AttentionBackend(cross_attention_backend)
+        self.self_attn_optimized_impl_config = self_attn_optimized_impl_config
+        self.cross_attn_optimized_impl_config = cross_attn_optimized_impl_config
 
         # Self-attention
         self.layer_norm_self_attn = nn.LayerNorm(
             x_dim, elementwise_affine=False, eps=1e-6
-        )
-        self.self_attn = SelfAttention(
-            query_dim=x_dim,
-            context_dim=None,
-            n_heads=num_heads,
-            head_dim=x_dim // num_heads,
-            cp_method=cp_method,
         )
 
         # Cross-attention
         self.layer_norm_cross_attn = nn.LayerNorm(
             x_dim, elementwise_affine=False, eps=1e-6
         )
-        self.cross_attn = CrossAttention(
-            query_dim=x_dim,
-            context_dim=context_dim,
-            n_heads=num_heads,
-            head_dim=x_dim // num_heads,
-            cp_method=cp_method,
-        )
+        if self.self_attention_backend is AttentionBackend.OMNIDREAMS:
+            self.self_attn = SelfAttention(
+                query_dim=x_dim,
+                context_dim=None,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+            )
+        else:
+            self.self_attn = OptimizedSelfAttention(
+                query_dim=x_dim,
+                context_dim=None,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+                optimized_impl_config=self.self_attn_optimized_impl_config,
+            )
+
+        if self.cross_attention_backend is AttentionBackend.OMNIDREAMS:
+            self.cross_attn = CrossAttention(
+                query_dim=x_dim,
+                context_dim=context_dim,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+            )
+        else:
+            self.cross_attn = OptimizedCrossAttention(
+                query_dim=x_dim,
+                context_dim=context_dim,
+                n_heads=num_heads,
+                head_dim=x_dim // num_heads,
+                cp_method=cp_method,
+                optimized_impl_config=self.cross_attn_optimized_impl_config,
+            )
 
         # MLP
         self.layer_norm_mlp = nn.LayerNorm(x_dim, elementwise_affine=False, eps=1e-6)
@@ -555,13 +865,23 @@ class Block(nn.Module):
                 x_dim, elementwise_affine=True, eps=1e-6
             )
             # dense cross view attention
-            self.cross_view_attn = CrossAttention(
-                query_dim=x_dim,
-                context_dim=x_dim,
-                n_heads=num_heads,
-                head_dim=x_dim // num_heads,
-                cp_method=cp_method,
-            )
+            if self.cross_attention_backend is AttentionBackend.OMNIDREAMS:
+                self.cross_view_attn = CrossAttention(
+                    query_dim=x_dim,
+                    context_dim=x_dim,
+                    n_heads=num_heads,
+                    head_dim=x_dim // num_heads,
+                    cp_method=cp_method,
+                )
+            else:
+                self.cross_view_attn = OptimizedCrossAttention(
+                    query_dim=x_dim,
+                    context_dim=x_dim,
+                    n_heads=num_heads,
+                    head_dim=x_dim // num_heads,
+                    cp_method=cp_method,
+                    optimized_impl_config=self.cross_attn_optimized_impl_config,
+                )
 
     def set_context_parallel_group(
         self,
@@ -598,7 +918,7 @@ class Block(nn.Module):
         num_views = context.shape[1]
         self_attn_batch_size = batch_size * num_views
         return BlockCache(
-            self_attn=self.self_attn.initialize_cache(
+            self_attn=self.self_attn.allocate_kv_cache(
                 self_attn_batch_size,
                 chunk_size,
                 window_size,
@@ -606,7 +926,7 @@ class Block(nn.Module):
                 device=device,
                 dtype=dtype,
             ),
-            cross_attn=self.cross_attn.initialize_cache(context),
+            cross_attn=self.cross_attn.compute_kv(context),
         )
 
     def forward(
