@@ -98,9 +98,9 @@ class F32leAudioStager:
     def abort(self) -> None:
         """Close the private staging file without treating it as complete."""
         stream = self._stream
-        self._stream = None
         if stream is not None:
             stream.close()
+            self._stream = None
 
     def _write_silence(self, samples: int, stream: BinaryIO) -> None:
         """Append ``samples`` of zero-valued interleaved PCM."""

@@ -98,6 +98,32 @@ def test_audio_stager_rejects_a_payload_of_another_format(
     stager.abort()
 
 
+def test_audio_stager_retains_stream_when_abort_close_fails(tmp_path: Path) -> None:
+    """A later abort can retry a staging handle whose close was interrupted."""
+    calls: list[str] = []
+
+    class Stream:
+        def close(self) -> None:
+            calls.append("close")
+            if len(calls) == 1:
+                raise RuntimeError("audio close interrupted")
+
+    stager = F32leAudioStager(tmp_path / "audio.f32le", sample_rate=8_000, channels=1)
+    assert stager._stream is not None
+    stager._stream.close()
+    stream = Stream()
+    stager._stream = stream  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="audio close interrupted"):
+        stager.abort()
+    assert stager._stream is stream
+
+    stager.abort()
+
+    assert stager._stream is None
+    assert calls == ["close", "close"]
+
+
 def test_audio_muxer_builds_external_stream_copy_command(tmp_path: Path) -> None:
     muxer = Mp4AudioMuxer(
         video_path=tmp_path / "video.mp4",

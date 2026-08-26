@@ -666,6 +666,46 @@ def test_failed_mux_abort_retains_ownership_and_staging_for_retry(
     assert muxers[0].abort_calls == 2
 
 
+def test_failed_audio_stager_abort_retains_transaction_for_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep private staging while an audio file handle may still be open."""
+    _install_fake_encoder(monkeypatch)
+    path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
+    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    sink.open(_session_desc(audio=True))
+    stager = sink._audio_stager
+    assert stager is not None and stager._stream is not None
+    real_stream = stager._stream
+    calls: list[str] = []
+
+    class Stream:
+        def close(self) -> None:
+            calls.append("close")
+            if len(calls) == 1:
+                raise RuntimeError("audio close interrupted")
+            real_stream.close()
+
+    stream = Stream()
+    stager._stream = stream  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="audio close interrupted"):
+        sink.abort()
+
+    assert sink._audio_stager is stager
+    assert stager._stream is stream
+    assert path.read_bytes() == b"existing target"
+    assert len(_staging_paths(path)) == 1
+
+    sink.abort()
+
+    assert sink._audio_stager is None
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+    assert calls == ["close", "close"]
+
+
 def test_write_rejects_a_layout_the_sink_was_not_opened_for(tmp_path: Path) -> None:
     sink = Mp4OutputSink(tmp_path / "out.mp4")
     sink.open(_session_desc(VideoTensorLayout.bcthw))
