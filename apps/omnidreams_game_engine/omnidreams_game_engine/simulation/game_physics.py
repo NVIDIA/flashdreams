@@ -38,6 +38,9 @@ from omnidreams_game_engine.game_map.vicinity import (
     GameMapVicinity,
     GameMapVicinityResolver,
 )
+from omnidreams_game_engine.simulation.actor_controller import (
+    PhysicsActorController,
+)
 from omnidreams_game_engine.simulation.components import (
     BoxColliderComponent,
     GameEntity,
@@ -247,6 +250,7 @@ class GamePhysicsWorld:
         model_adapter: Callable[[RigidBodyModel], RigidBodyModel] | None = None,
         static_barrier_segments_world: np.ndarray | None = None,
         static_barrier_restitution: float | None = None,
+        actor_controllers: tuple[PhysicsActorController, ...] = (),
     ) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
@@ -262,6 +266,10 @@ class GamePhysicsWorld:
         self._map_traffic = MapTrafficController(
             () if game_map is None else game_map.traffic,
             vehicle,
+        )
+        self._actor_controllers: tuple[PhysicsActorController, ...] = (
+            self._map_traffic,
+            *actor_controllers,
         )
         if (
             vehicle.static_collision_enabled
@@ -308,7 +316,8 @@ class GamePhysicsWorld:
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=initial_timestamp_us,
         )
-        self._physics_graph = self._with_active_map_traffic(base_physics_graph)
+        self._physics_graph = self._with_active_controller_objects(base_physics_graph)
+        self._synchronized_controller_ids = self._controller_active_ids()
         self._physics_center_xy = initial_xy.copy()
         self._physics_timestamp_us = initial_timestamp_us
         self._entities = [
@@ -332,40 +341,91 @@ class GamePhysicsWorld:
             self._ego_model,
             actor_collision_enabled=vehicle.actor_collision_enabled,
             max_actor_drive_speed_mps=_NON_EGO_MAX_DRIVE_SPEED_MPS,
-            max_actor_drive_speeds_mps=self._map_traffic.max_drive_speeds_mps,
+            max_actor_drive_speeds_mps=self._controller_drive_speed_caps(),
         )
         self._world.synchronize(
             self._physics_graph,
             timestamp_us=initial_timestamp_us,
-            initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
+            initial_object_timestamps_us=self._controller_initial_timestamps(),
         )
         self._refresh_debug_barriers()
         logger.info(
             "[physics] PhysX graph ready in {:.1f} ms; objects={}/{} barriers={}/{} simulation_radius_m={:.0f}",
             (time.perf_counter() - started_at) * 1000.0,
             len(self._physics_graph.objects),
-            len(self.graph.objects) + len(self._map_traffic.objects),
+            len(self.graph.objects)
+            + sum(len(controller.objects) for controller in self._actor_controllers),
             len(self._physics_graph.barriers),
             len(self.graph.barriers),
             _PHYSX_SIMULATION_RADIUS_M,
         )
 
-    def _with_active_map_traffic(
+    def _controller_owners(self) -> dict[str, PhysicsActorController]:
+        """Return the unique gameplay owner of every controller actor."""
+        owners: dict[str, PhysicsActorController] = {}
+        scene_ids = {scene_object.object_id for scene_object in self.graph.objects}
+        for controller in self._actor_controllers:
+            for object_id in controller.object_ids:
+                if object_id in scene_ids:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} conflicts with a scene actor"
+                    )
+                if object_id in owners:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} has multiple owners"
+                    )
+                owners[object_id] = controller
+        return owners
+
+    def _controller_active_ids(self) -> frozenset[str]:
+        return frozenset(
+            object_id
+            for controller in self._actor_controllers
+            for object_id in controller.active_object_ids
+        )
+
+    def _controller_initial_timestamps(self) -> dict[str, int]:
+        timestamps: dict[str, int] = {}
+        for controller in self._actor_controllers:
+            for object_id, timestamp_us in controller.active_timestamps_us.items():
+                if object_id in timestamps:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} has multiple timestamps"
+                    )
+                timestamps[object_id] = timestamp_us
+        return timestamps
+
+    def _controller_drive_speed_caps(self) -> dict[str, float]:
+        speed_caps: dict[str, float] = {}
+        for controller in self._actor_controllers:
+            for object_id, speed_mps in controller.max_drive_speeds_mps.items():
+                if object_id in speed_caps:
+                    raise ValueError(
+                        f"controller actor ID {object_id!r} has multiple speed caps"
+                    )
+                speed_caps[object_id] = speed_mps
+        return speed_caps
+
+    def _with_active_controller_objects(
         self, physics_graph: PhysicsObjectGraph
     ) -> PhysicsObjectGraph:
-        """Add only graph-nearby procedural traffic to a PhysX window."""
+        """Add active gameplay-owned actors to a PhysX window."""
         incoming_ids = {
             scene_object.object_id for scene_object in physics_graph.objects
         }
-        additions = tuple(
-            scene_object
-            for scene_object in self._map_traffic.active_objects
-            if scene_object.object_id not in incoming_ids
-        )
+        additions: list[SceneObject] = []
+        for controller in self._actor_controllers:
+            for scene_object in controller.active_objects:
+                if scene_object.object_id in incoming_ids:
+                    raise ValueError(
+                        f"active actor ID {scene_object.object_id!r} is duplicated"
+                    )
+                incoming_ids.add(scene_object.object_id)
+                additions.append(scene_object)
         if not additions:
             return physics_graph
         return PhysicsObjectGraph(
-            objects=physics_graph.objects + additions,
+            objects=physics_graph.objects + tuple(additions),
             barriers=physics_graph.barriers,
         )
 
@@ -444,6 +504,8 @@ class GamePhysicsWorld:
         self,
         center_xy_m: np.ndarray,
         timestamp_us: int | None = None,
+        *,
+        force_controller_refresh: bool = False,
     ) -> bool:
         """Incrementally recenter active PhysX topology when the ego moves."""
         center = np.asarray(center_xy_m, dtype=np.float32)
@@ -468,22 +530,29 @@ class GamePhysicsWorld:
             <= timestamp_us - self._physics_timestamp_us
             < _PHYSX_TOPOLOGY_REFRESH_INTERVAL_US
         )
-        if center_is_current and timestamp_is_current and not traffic_topology_changed:
+        if (
+            center_is_current
+            and timestamp_is_current
+            and not traffic_topology_changed
+            and not force_controller_refresh
+        ):
             return False
         physics_graph = self.graph.copy_for_physx(
             center,
             _PHYSX_SIMULATION_RADIUS_M,
             timestamp_us=timestamp_us,
         )
-        physics_graph = self._with_active_map_traffic(physics_graph)
+        physics_graph = self._with_active_controller_objects(physics_graph)
         incoming_ids = {obj.object_id for obj in physics_graph.objects}
+        controller_ids = frozenset(self._controller_owners())
+        active_controller_ids = self._controller_active_ids()
         retained_detached = tuple(
             obj
             for obj in self._physics_graph.objects
             if obj.object_id in self._detached_entity_ids
             and (
-                obj.object_id not in self._map_traffic.object_ids
-                or obj.object_id in self._map_traffic.active_object_ids
+                obj.object_id not in controller_ids
+                or obj.object_id in active_controller_ids
             )
             and obj.object_id not in incoming_ids
         )
@@ -492,10 +561,13 @@ class GamePhysicsWorld:
                 objects=physics_graph.objects + retained_detached,
                 barriers=physics_graph.barriers,
             )
+        self._world.max_actor_drive_speeds_mps.update(
+            self._controller_drive_speed_caps()
+        )
         self._world.synchronize(
             physics_graph,
             timestamp_us=timestamp_us,
-            initial_object_timestamps_us=self._map_traffic.active_timestamps_us,
+            initial_object_timestamps_us=self._controller_initial_timestamps(),
         )
         existing_entities = {entity.entity_id: entity for entity in self._entities}
         self._entities = [
@@ -506,6 +578,7 @@ class GamePhysicsWorld:
         self._entities_by_id = {entity.entity_id: entity for entity in self._entities}
         self._detached_entity_ids.intersection_update(self._entities_by_id)
         self._physics_graph = physics_graph
+        self._synchronized_controller_ids = active_controller_ids
         self._physics_center_xy = center.copy()
         if timestamp_us is not None:
             self._physics_timestamp_us = timestamp_us
@@ -684,7 +757,16 @@ class GamePhysicsWorld:
         ego_before_step = _body_state_from_vehicle(
             state, self._ego_model.half_extents_m[2]
         )
-        self._map_traffic.prepare_step(self._world, ego_before_step, dt_s)
+        for controller in self._actor_controllers:
+            controller.prepare_topology(ego_before_step)
+        if self._controller_active_ids() != self._synchronized_controller_ids:
+            self.synchronize_window(
+                np.asarray(ego_before_step.position_m[:2], dtype=np.float32),
+                timestamp_us,
+                force_controller_refresh=True,
+            )
+        for controller in self._actor_controllers:
+            controller.prepare_step(self._world, ego_before_step, dt_s)
         physics_step = self._world.step_compact(
             ego_before_step,
             timestamp_us,
@@ -742,13 +824,13 @@ class GamePhysicsWorld:
                     continue
                 impact_normal_xy = separation_xy / separation_m
                 traffic_state = self._map_traffic.state(object_id)
-                if traffic_state is None:
-                    continue
-                _, _, track_velocity_mps = scene_object.sample(
-                    int(traffic_state.timestamp_us)
-                )
+                actor_velocity_mps = body.linear_velocity_mps
+                if traffic_state is not None:
+                    _, _, actor_velocity_mps = scene_object.sample(
+                        int(traffic_state.timestamp_us)
+                    )
                 relative_velocity_xy = (
-                    track_velocity_mps[:2] - ego_before_step.linear_velocity_mps[:2]
+                    actor_velocity_mps[:2] - ego_before_step.linear_velocity_mps[:2]
                 )
                 closing_speed_mps = -float(
                     np.dot(relative_velocity_xy, impact_normal_xy)
@@ -790,17 +872,25 @@ class GamePhysicsWorld:
             self._pending_struck_vehicle_ids.clear()
         actor_samples = []
         pending_controls = []
+        controller_owners = self._controller_owners()
+        actor_bodies: dict[str, BodyState] = {}
         for object_id, body, _native_detached in physics_step.actor_samples:
-            decision = self._map_traffic.observe_physics(
+            controller = controller_owners.get(object_id)
+            if controller is None:
+                raise RuntimeError(f"PhysX returned unmanaged actor {object_id!r}")
+            decision = controller.observe_physics(
                 object_id,
                 struck=object_id in physics_step.struck_object_ids,
                 body=body,
                 dt_s=dt_s,
             )
             if decision is None:
-                raise RuntimeError(f"PhysX returned unmanaged NPC {object_id!r}")
+                raise RuntimeError(
+                    f"actor controller rejected owned actor {object_id!r}"
+                )
             detached = decision.detached_from_track
             pending_controls.append((object_id, decision.drive_enabled, detached))
+            actor_bodies[object_id] = body
             actor_samples.append(
                 (object_id, body.position_m, body.orientation_xyzw, detached)
             )
@@ -813,14 +903,10 @@ class GamePhysicsWorld:
             entity = self._entities_by_id[object_id]
             entity.transform.position_m = position.copy()
             entity.transform.orientation_xyzw = orientation.copy()
-            traffic_state = self._map_traffic.state(object_id)
-            if traffic_state is None:
-                raise RuntimeError(f"Missing state for managed NPC {object_id!r}")
-            entity.rigid_body.linear_velocity_mps = (
-                traffic_state.linear_velocity_mps.copy()
-            )
+            body = actor_bodies[object_id]
+            entity.rigid_body.linear_velocity_mps = body.linear_velocity_mps.copy()
             entity.rigid_body.angular_velocity_radps = (
-                traffic_state.angular_velocity_radps.copy()
+                body.angular_velocity_radps.copy()
             )
             entity.detached_from_track = detached
         self._detached_entity_ids = detached_ids
@@ -915,9 +1001,12 @@ class GamePhysicsWorld:
         samples_by_frame: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]],
     ) -> tuple[DynamicActorTrajectory, ...]:
         """Pack PhysX object samples for Ludus RGB and BEV HD-map rendering."""
-        map_traffic = getattr(self, "_map_traffic", None)
-        active_map_objects = () if map_traffic is None else map_traffic.active_objects
-        if (not self.graph.objects and not active_map_objects) or not samples_by_frame:
+        controller_objects = tuple(
+            scene_object
+            for controller in getattr(self, "_actor_controllers", ())
+            for scene_object in controller.active_objects
+        )
+        if (not self.graph.objects and not controller_objects) or not samples_by_frame:
             return ()
         result: list[DynamicActorTrajectory] = []
         simulated_timestamps = np.asarray(timestamps_us, dtype=np.int64)
@@ -927,7 +1016,7 @@ class GamePhysicsWorld:
         simulated_ids = {
             object_id for frame in samples_by_id for object_id in frame.keys()
         }
-        render_objects = (*self.graph.objects, *active_map_objects)
+        render_objects = (*self.graph.objects, *controller_objects)
         for scene_object in render_objects:
             physically_simulated = scene_object.object_id in simulated_ids
             if physically_simulated:

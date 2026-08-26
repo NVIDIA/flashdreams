@@ -15,7 +15,6 @@ LOG="$4"
 
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 W="$(dirname "$KIT")"
-SP="$(dirname "$W")"
 F=/localhome/local-wenqingw/projs/flashdreams/integrations/omnidreams
 
 RESTART_DELAY_S=10
@@ -28,8 +27,8 @@ while true; do
     uv run crazy-robotaxi \
         --stream-mjpeg "$HOST:$PORT" \
         --stream-token "$TOKEN" \
-        --scene-dir "$SP/robotaxi_e2e/scene_dir" \
-        --variant 1 --auto-start \
+        --map "$W/apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml" \
+        --variant default --auto-start \
         --live-edit-corrector-mode fused \
         --live-edit-style \
         --live-edit-style-lora "$F/edit_sft/outputs/lora_style_v6_step1600.pt" \

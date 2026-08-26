@@ -93,16 +93,21 @@ group "live edit"):
   chip counts the boost down next to the other ability chips.
   `--live-edit-item-types` restricts the course mix (e.g. `nitro` for a
   single-effect capture course; default cycles all kinds equally).
-- **Obstacle / traffic** (`--live-edit-obstacle`, spawn with `O`): cloned
-  scene vehicles. `--live-edit-obstacle-count N` turns one key press into a
-  traffic burst of N distinct crossing/oncoming clones staggered ahead of
-  the ego (`--live-edit-obstacle-stagger-chunks` apart in time; each
-  despawns after its own pass). Conditioning-only unless
-  `--live-edit-obstacle-guide-scale > 0`, which adds a second forward per
-  step while an event is active. The guidance is CUDA-graph safe (guided
-  steps replay the captured graph twice with box/no-box conditioning
-  staged in), so the accelerated pipeline stays on; event chunks cost ~2x
-  model time, non-event chunks are unchanged.
+- **Obstacle events** (`--live-edit-obstacle`, spawn with `O`): generated
+  crossing cars owned by a dedicated event controller; they do not depend
+  on recorded-scene tracks or participate in NPC routes/recovery.
+  The event/archetype layer is general, but the public catalog currently
+  exposes only cars.
+  `--live-edit-obstacle-count N` creates a staggered burst. Placement is
+  ego-relative by default; `--live-edit-obstacle-placement road-ahead`
+  resolves the spawn along the compiled directed-lane graph. Events remain
+  visual-only by default for PR494 compatibility;
+  `--live-edit-obstacle-physics` gives them PhysX bodies that detach from
+  their scripts when struck. `--live-edit-obstacle-guide-scale > 0` adds a
+  second forward per step while an event is active. The guidance is
+  CUDA-graph safe (guided steps replay the captured graph twice with
+  box/no-box conditioning staged in), so the accelerated pipeline stays on;
+  event chunks cost ~2x model time, non-event chunks are unchanged.
 - **Drift correctors** (`--live-edit-style-corrector`,
   `--live-edit-base-corrector`, `--live-edit-weather-corrector`): optional
   per-state weight-merged correctors. `--live-edit-corrector-mode off`

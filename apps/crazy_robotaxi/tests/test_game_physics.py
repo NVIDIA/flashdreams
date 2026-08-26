@@ -25,6 +25,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
+from crazy_robotaxi.live_edit.config import LiveEditObstacleConfig
+from crazy_robotaxi.live_edit.obstacle_events import ObstacleAbility
 from ludus_renderer import (
     PRIM_OBSTACLE,
     BodyState,
@@ -97,6 +99,96 @@ def _test_scene_object() -> SceneObject:
             [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], dtype=np.float32
         ),
     )
+
+
+def test_external_actor_controllers_merge_active_objects_by_unique_id() -> None:
+    scene_object = _test_scene_object()
+    controller = SimpleNamespace(
+        objects=(scene_object,),
+        active_objects=(scene_object,),
+        active_object_ids=frozenset({scene_object.object_id}),
+        active_timestamps_us={scene_object.object_id: 0},
+        object_ids=frozenset({scene_object.object_id}),
+        max_drive_speeds_mps={scene_object.object_id: 5.0},
+    )
+    world = GamePhysicsWorld.__new__(GamePhysicsWorld)
+    world.graph = PhysicsObjectGraph()
+    world._actor_controllers = (controller,)
+
+    graph = world._with_active_controller_objects(PhysicsObjectGraph())
+
+    assert graph.objects == (scene_object,)
+    assert world._controller_owners() == {scene_object.object_id: controller}
+    assert world._controller_initial_timestamps() == {scene_object.object_id: 0}
+
+
+def test_external_actor_controller_ids_must_have_one_owner() -> None:
+    scene_object = _test_scene_object()
+    controller = SimpleNamespace(
+        object_ids=frozenset({scene_object.object_id}),
+    )
+    world = GamePhysicsWorld.__new__(GamePhysicsWorld)
+    world.graph = PhysicsObjectGraph()
+    world._actor_controllers = (controller, controller)
+
+    with pytest.raises(ValueError, match="multiple owners"):
+        world._controller_owners()
+
+
+def test_external_actor_physics_samples_become_renderer_trajectories() -> None:
+    scene_object = _test_scene_object()
+    controller = SimpleNamespace(active_objects=(scene_object,))
+    world = GamePhysicsWorld.__new__(GamePhysicsWorld)
+    world.graph = PhysicsObjectGraph()
+    world._actor_controllers = (controller,)
+    orientation = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    samples = [
+        (
+            (
+                scene_object.object_id,
+                np.asarray([5.0 + frame, 0.0, 0.8], dtype=np.float32),
+                orientation,
+                frame == 1,
+            ),
+        )
+        for frame in range(2)
+    ]
+
+    (trajectory,) = world.build_trajectories(
+        np.asarray([0, 33_333], dtype=np.int64), samples
+    )
+
+    assert trajectory.entity_id == scene_object.object_id
+    assert trajectory.translations_world[:, 0] == pytest.approx([5.0, 6.0])
+    assert trajectory.detached_from_track
+
+
+def test_physical_obstacle_is_inserted_and_removed_by_its_controller() -> None:
+    ability = ObstacleAbility(
+        LiveEditObstacleConfig(
+            enabled=True,
+            physics=True,
+            spawn_ahead_m=10.0,
+            active_chunks=1,
+        )
+    )
+    ability.request_spawn()
+    world = GamePhysicsWorld(_scene(), VehicleConfig(), actor_controllers=(ability,))
+    try:
+        _state, first_samples = world.step(_moving_ego(), 0, 1.0 / 30.0)
+        assert len(first_samples) == 1
+        object_id = first_samples[0][0]
+        assert object_id in world._active_collider_ids
+
+        # Physical mode only consumes the chunk boundary for lifetime; its
+        # renderer actor already came from GamePhysicsWorld.build_trajectories.
+        ability.advance_frames(SimpleNamespace())  # type: ignore[arg-type]
+        _state, later_samples = world.step(_moving_ego(), 33_333, 1.0 / 30.0)
+
+        assert later_samples == ()
+        assert object_id not in world._active_collider_ids
+    finally:
+        world.close()
 
 
 def _moving_ego() -> VehicleState:

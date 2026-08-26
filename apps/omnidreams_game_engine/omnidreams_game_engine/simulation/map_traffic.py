@@ -15,6 +15,7 @@ from ludus_renderer import BodyState, PhysXWorld, SceneObject
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
+from omnidreams_game_engine.simulation.actor_controller import ActorControlDecision
 from omnidreams_game_engine.simulation.components import rigid_body_model_for_object
 
 _OBJECT_ID_PREFIX = "map-traffic:"
@@ -47,12 +48,9 @@ class MapTrafficPhase(str, Enum):
     RECOVERING = "recovering"
 
 
-@dataclass(frozen=True)
-class MapTrafficDecision:
-    """Native actuator and renderer state derived from an NPC's phase."""
-
-    drive_enabled: bool
-    detached_from_track: bool
+# Compatibility name for callers and tests written before external gameplay
+# actor controllers were supported.
+MapTrafficDecision = ActorControlDecision
 
 
 @dataclass
@@ -76,9 +74,9 @@ class MapTrafficVehicleState:
     collision_duration_s: float = 0.0
 
     @property
-    def decision(self) -> MapTrafficDecision:
+    def decision(self) -> ActorControlDecision:
         """Return control outputs derived solely from the gameplay phase."""
-        return MapTrafficDecision(
+        return ActorControlDecision(
             drive_enabled=self.phase is not MapTrafficPhase.COLLISION,
             detached_from_track=self.phase is MapTrafficPhase.COLLISION,
         )
@@ -544,6 +542,10 @@ class MapTrafficController:
                 1.0,
             )
         )
+
+    def prepare_topology(self, ego: BodyState) -> None:
+        """Keep the stable authored traffic set unchanged between steps."""
+        del ego
 
     def prepare_step(self, world: PhysXWorld, ego: BodyState, dt_s: float) -> None:
         """Advance all logical cars and publish active tracks in one native batch."""

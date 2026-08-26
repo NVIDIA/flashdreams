@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from crazy_robotaxi import runtime_cli as cli
 from crazy_robotaxi.app import (
@@ -19,6 +21,7 @@ from crazy_robotaxi.game import TaxiGameConfig
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
+from crazy_robotaxi.live_edit.config import LiveEditConfig, LiveEditObstacleConfig
 from crazy_robotaxi.runtime_cli import build_parser
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.input.keyboard import KeyboardState
@@ -92,6 +95,41 @@ def test_taxi_rollout_aligns_model_frame_zero_with_initial_pose() -> None:
     )
 
     assert rollout.include_initial_state_in_first_chunk is True
+
+
+def test_physical_obstacle_controller_is_shared_with_physics_world(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_physics_world(scene, vehicle, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("crazy_robotaxi.app.TaxiPhysicsWorld", fake_physics_world)
+    application = CrazyRobotaxiApplication(
+        TaxiGameConfig(enabled=True),
+        CrazyRobotaxiKeyboardState(),
+        presenter_config=None,
+        live_edit=LiveEditConfig(
+            obstacle=LiveEditObstacleConfig(enabled=True, physics=True)
+        ),
+    )
+    scene = SimpleNamespace(
+        game_map=SimpleNamespace(lanes=()), ground_mesh_vertices=None
+    )
+    rollout = application.rollout_spec(
+        scene,
+        default_vehicle=VehicleConfig(),
+        default_visual_flare_enabled=True,
+    )
+
+    rollout.physics_world_factory(scene, TaxiVehicleConfig())
+
+    actor_controllers = captured["actor_controllers"]
+    assert isinstance(actor_controllers, tuple)
+    (physics_controller,) = actor_controllers
+    assert physics_controller is application._obstacle_ability
 
 
 def test_taxi_brake_enters_reverse_while_base_brake_does_not() -> None:

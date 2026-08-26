@@ -183,6 +183,7 @@ class CrazyRobotaxiApplication:
         *,
         live_edit: LiveEditConfig | None = None,
         style_ability: Any | None = None,
+        obstacle_chunk_duration_s: float = 8.0 / 30.0,
     ) -> None:
         self._config = config
         self._keyboard = keyboard
@@ -198,6 +199,8 @@ class CrazyRobotaxiApplication:
         self._live_edit_presenter: Any | None = None
         self._coin_lanes: tuple[NavigationLane, ...] = ()
         self._nitro_ability: Any | None = None
+        self._obstacle_ability: Any | None = None
+        self._obstacle_chunk_duration_s = obstacle_chunk_duration_s
         if self._live_edit.items.enabled:
             from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
 
@@ -264,6 +267,22 @@ class CrazyRobotaxiApplication:
             integrate_fn = integrate_with_nitro(
                 self._nitro_ability, integrate_taxi_vehicle
             )
+        self._obstacle_ability = None
+        if self._live_edit.obstacle.enabled:
+            from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
+
+            self._obstacle_ability = ObstacleAbility(
+                self._live_edit.obstacle,
+                game_map=scene.game_map,
+                ground_vertices=scene.ground_mesh_vertices,
+                vehicle=self._config.vehicle,
+                chunk_duration_s=self._obstacle_chunk_duration_s,
+            )
+        actor_controllers = (
+            (self._obstacle_ability,)
+            if self._obstacle_ability is not None and self._live_edit.obstacle.physics
+            else ()
+        )
         return RolloutSpec(
             vehicle_config=self._config.vehicle,
             initial_speed_mps=0.0,
@@ -272,6 +291,7 @@ class CrazyRobotaxiApplication:
                 active_scene,
                 vehicle,
                 curb_segments_world=self._curb_segments_world,
+                actor_controllers=actor_controllers,
             ),
             physics_step_fn=step_taxi_physics_world,
             visual_flare_enabled=False,
@@ -330,14 +350,7 @@ class CrazyRobotaxiApplication:
                 f"[live-edit] item course laid out: "
                 f"{item_ability.remaining_count} items"
             )
-        obstacle_ability: Any | None = None
-        if self._live_edit.obstacle.enabled:
-            from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
-
-            # Rebuilt per rollout so events/hits reset with the game.
-            obstacle_ability = ObstacleAbility.from_scene(
-                scene, self._live_edit.obstacle
-            )
+        obstacle_ability = self._obstacle_ability
         if self._live_edit_presenter is not None:
             self._live_edit_presenter.set_coin_ability(coin_ability)
             self._live_edit_presenter.set_obstacle_ability(obstacle_ability)
@@ -413,6 +426,9 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             config.bev,
             live_edit=live_edit,
             style_ability=style_ability,
+            obstacle_chunk_duration_s=(
+                config.chunk.chunk_frames / float(config.chunk.fps)
+            ),
         )
         super().__init__(
             config=config,

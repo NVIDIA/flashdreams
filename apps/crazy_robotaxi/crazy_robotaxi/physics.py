@@ -11,6 +11,9 @@ from dataclasses import replace
 import numpy as np
 from loguru import logger
 from ludus_renderer import RigidBodyModel
+from omnidreams_game_engine.simulation.actor_controller import (
+    PhysicsActorController,
+)
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     DriverCommand,
@@ -49,6 +52,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         vehicle: TaxiVehicleConfig,
         *,
         curb_segments_world: np.ndarray | None = None,
+        actor_controllers: tuple[PhysicsActorController, ...] = (),
     ) -> None:
         curb_segments = np.asarray(
             curb_segments_world
@@ -68,6 +72,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
                 else None
             ),
             static_barrier_restitution=vehicle.curb_collision_restitution,
+            actor_controllers=actor_controllers,
         )
         self._taxi_vehicle = vehicle
         logger.info(
