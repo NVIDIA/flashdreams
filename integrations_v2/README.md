@@ -167,6 +167,13 @@ one channel. `is_finished` is what ends a run writing to a file, since an MP4
 window never sends a close event. And `reset` raises by default, so implement it
 even when the body is one line — a browser client can ask for one at any time.
 
+A synchronized application declares `audio_sample_rate` and `audio_channels`
+together in its `SessionDesc`, then may attach one `AudioOutput` to one channel
+in a generated chunk. Audio is channel-major normalized PCM on an absolute
+sample timeline. The default UI forwards a chunk's payload once, with its first
+presented frame; a custom UI must call `presented_model_audio()` and forward the
+result itself.
+
 Register no UI loop unless you need one. The default composites every model
 channel into one frame, which is what all of these except `slangpy_ui_demo` do.
 

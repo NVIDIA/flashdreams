@@ -9,6 +9,7 @@ import threading
 import torch
 from torch import Tensor
 
+from flashdreams.runtime_v2.audio_output import AudioOutput
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -37,6 +38,7 @@ class PresentationManager:
         self._generation = 0
         self._presented_chunk: list[StepResult] | None = None
         self._frame_index = -1
+        self._audio_presented = False
         self._presented_frame_count = 0
         self.dropped_for_space = 0
         """Chunks dropped because the UI could not keep up with the model."""
@@ -102,6 +104,13 @@ class PresentationManager:
         frame_count = chunk[0].frame_count
         if frame_count <= 0 or any(item.frame_count != frame_count for item in chunk):
             raise ValueError("Every channel in a chunk must have the same frame_count.")
+        if any(
+            item.audio is not None and not isinstance(item.audio, AudioOutput)
+            for item in chunk
+        ):
+            raise TypeError("A presented chunk's audio payload must be an AudioOutput.")
+        if sum(item.audio is not None for item in chunk) > 1:
+            raise ValueError("A presented chunk can carry only one audio payload.")
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             self._publish_latest(pending)
@@ -132,6 +141,7 @@ class PresentationManager:
             self._generation = generation
             self._presented_chunk = None
             self._frame_index = -1
+            self._audio_presented = False
             self._presented_frame_count = 0
 
         if (
@@ -150,8 +160,23 @@ class PresentationManager:
             return False, None
         self._presented_chunk = chunk
         self._frame_index = 0
+        self._audio_presented = False
         self._presented_frame_count += 1
         return True, chunk
+
+    def presented_audio(self) -> AudioOutput | None:
+        """Return a chunk's audio once, with the chunk's first presented frame."""
+        if self._presented_chunk is None or self._audio_presented:
+            return None
+        self._audio_presented = True
+        return next(
+            (
+                result.audio
+                for result in self._presented_chunk
+                if result.audio is not None
+            ),
+            None,
+        )
 
     @property
     def presented_frame_count(self) -> int:
@@ -210,6 +235,7 @@ class PresentationManager:
         """Discard buffered and currently presented model results."""
         self._presented_chunk = None
         self._frame_index = -1
+        self._audio_presented = False
         self._presented_frame_count = 0
         while True:
             try:

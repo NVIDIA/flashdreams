@@ -26,6 +26,10 @@ class OutputSink(Protocol):
             session_desc: Output description declared by the session. The sink
                 configures itself from it and may reject a description it
                 cannot present.
+
+        Raises:
+            ValueError: The description declares output this sink cannot
+                consume, including audio for a video-only sink.
         """
         ...
 
@@ -44,3 +48,25 @@ class OutputSink(Protocol):
     def close(self) -> None:
         """Finish pending writes and release resources."""
         ...
+
+
+@runtime_checkable
+class AbortableOutputSink(OutputSink, Protocol):
+    """An output sink that can discard an incomplete session atomically.
+
+    Both terminal operations must be idempotent. The runtime calls ``close``
+    only for a successful run. It calls ``abort`` after cancellation or failure,
+    including when ``open``, ``write``, or ``close`` raised partway through.
+
+    Atomicity is per sink. A run with multiple abortable sinks does not provide
+    a cross-sink prepare/commit transaction, so one sink may publish before a
+    later sink's commit fails.
+    """
+
+    @abstractmethod
+    def abort(self) -> None:
+        """Release resources and discard all unpublished output."""
+        ...
+
+
+__all__ = ["AbortableOutputSink", "OutputSink"]
