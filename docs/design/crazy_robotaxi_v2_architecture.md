@@ -42,7 +42,7 @@ flowchart TD
     end
 
     subgraph MODELTHREAD["FlashDreams V2 model thread"]
-        INPUT["DriverInput<br/>held driving keys"]
+        INPUT["DriverInput<br/>timestamped transition timeline"]
         ENGINE["GameEngine"]
         CACHE["session-local OmniDreams cache"]
         HUDSTATE["immutable TaxiHudFrame batches"]
@@ -162,10 +162,12 @@ flowchart LR
 
 The output-frame count is learned from the pipeline before simulation, so
 simulation, conditioning, generated video, game snapshots, and immutable HUD
-frames have one authoritative `T`. Input edges update retained held state;
-steering and speed commands are advanced at the simulation frame interval to
-produce a command for every frame rather than one command per model
-invocation.
+frames have one authoritative `T`. Input edges update retained held state and
+their timestamps preserve transitions that arrive while a model step is in
+flight. The next step maps those transitions onto its fixed-size command
+sequence, coalescing sub-frame states and retaining the newest states if the
+chunk cannot represent all of them. Steering and speed commands advance at the
+simulation frame interval rather than once per model invocation.
 
 The direct model contract is:
 

@@ -29,6 +29,17 @@ def _events(*data: UserInputEventData) -> UserInputEvents:
     )
 
 
+def _timed_events(
+    *events: tuple[int, UserInputEventData],
+) -> UserInputEvents:
+    return UserInputEvents(
+        [
+            UserInputEvent(timestamp=np.uint64(timestamp_us), event_data=data)
+            for timestamp_us, data in events
+        ]
+    )
+
+
 def _key(key: str, state: KeyboardInputState) -> KeyboardUserInputEventData:
     return KeyboardUserInputEventData(key=key, state=state)
 
@@ -61,6 +72,10 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
     )
     assert all(command.throttle == 1.0 for command in first.commands)
     assert retained.commands[0].steer == pytest.approx(0.8)
+    assert first.transition_timestamps_us == (1, 1, 1)
+    assert first.transition_count == 2
+    assert first.dropped_transition_count == 0
+    assert retained.transition_timestamps_us == (None,)
 
 
 def test_focus_loss_releases_drive_state() -> None:
@@ -83,3 +98,69 @@ def test_focus_loss_releases_drive_state() -> None:
 
     assert result.commands[0].throttle == 0.0
     assert not result.commands[0].reverse
+
+
+def test_short_press_and_release_are_preserved_in_the_next_chunk() -> None:
+    reducer = DriverInput()
+
+    result = reducer.reduce(
+        _timed_events(
+            (1_000_000, _key("w", KeyboardInputState.PRESSED)),
+            (1_100_000, _key("w", KeyboardInputState.RELEASED)),
+        ),
+        frame_count=5,
+        frame_interval_s=0.05,
+    )
+
+    assert [command.throttle for command in result.commands] == [
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert result.transition_timestamps_us == (
+        1_000_000,
+        1_000_000,
+        1_100_000,
+        1_100_000,
+        1_100_000,
+    )
+    assert result.transition_count == 2
+    assert result.dropped_transition_count == 0
+
+
+def test_duplicate_key_events_do_not_create_transitions() -> None:
+    reducer = DriverInput()
+
+    result = reducer.reduce(
+        _timed_events(
+            (10, _key("w", KeyboardInputState.PRESSED)),
+            (20, _key("w", KeyboardInputState.PRESSED)),
+        ),
+        frame_count=2,
+        frame_interval_s=1.0 / 30.0,
+    )
+
+    assert result.transition_count == 1
+    assert result.transition_timestamps_us == (10, 10)
+    assert result.ignored_event_count == 1
+
+
+def test_transition_overflow_preserves_the_newest_controls() -> None:
+    reducer = DriverInput()
+
+    result = reducer.reduce(
+        _timed_events(
+            (10_000, _key("w", KeyboardInputState.PRESSED)),
+            (50_000, _key("w", KeyboardInputState.RELEASED)),
+            (90_000, _key("w", KeyboardInputState.PRESSED)),
+        ),
+        frame_count=2,
+        frame_interval_s=1.0 / 30.0,
+    )
+
+    assert [command.throttle for command in result.commands] == [0.0, 1.0]
+    assert result.transition_timestamps_us == (50_000, 90_000)
+    assert result.transition_count == 3
+    assert result.dropped_transition_count == 1

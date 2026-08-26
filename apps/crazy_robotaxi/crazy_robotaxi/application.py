@@ -65,6 +65,9 @@ class ApplicationConfig:
     prewarm_blocks: int
     """Hidden neutral blocks generated before the first presented game frame."""
 
+    profile_input_latency: bool
+    """Whether the UI displays and logs input-to-model-frame diagnostics."""
+
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -154,6 +157,7 @@ class CrazyRobotaxiApplication(IApplication):
             total_blocks=args.total_blocks,
             pipeline_profiling=bool(args.profile_pipeline),
             prewarm_blocks=args.prewarm_blocks,
+            profile_input_latency=bool(args.profile_input_latency),
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
@@ -242,5 +246,10 @@ def _parser() -> argparse.ArgumentParser:
             "generate hidden neutral blocks before presentation to compile and "
             "autotune AR shapes (default: 4; 0 disables)"
         ),
+    )
+    parser.add_argument(
+        "--profile-input-latency",
+        action="store_true",
+        help="show and log UI-input-to-model-frame latency diagnostics",
     )
     return parser

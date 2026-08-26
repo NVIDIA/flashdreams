@@ -61,7 +61,15 @@ def test_application_registers_model_and_slangpy_ui_loops() -> None:
         scene_factory=lambda request, raster: _scene(),
     )
     desc = app.session_desc()
-    app.init(["--device", "cpu", "--total-blocks", "2"])
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--total-blocks",
+            "2",
+            "--profile-input-latency",
+        ]
+    )
 
     session = app.create_session(desc)
     session.init()
@@ -76,6 +84,7 @@ def test_application_registers_model_and_slangpy_ui_loops() -> None:
     assert model_loop.state.rollout is None
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
+    assert ui_loop.state.profile_input_latency
 
 
 @pytest.mark.parametrize(
@@ -102,6 +111,25 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
     assert _MODEL_PRESETS["standard"].enable_sync_and_profile
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ([], False),
+        (["--profile-input-latency"], True),
+    ],
+)
+def test_input_latency_profiling_is_an_app_local_opt_in(
+    arguments: list[str],
+    expected: bool,
+) -> None:
+    app = CrazyRobotaxiApplication()
+
+    app.init(arguments)
+
+    assert app._config is not None
+    assert app._config.profile_input_latency is expected
 
 
 @pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])

@@ -36,6 +36,11 @@ from omnidreams_game_engine.types import CameraCalibration
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEventData,
+    UserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -185,6 +190,37 @@ def test_hud_frames_are_immutable_messages_keyed_to_video_storage() -> None:
     assert frames[0].snapshot is snapshots[0]
     np.testing.assert_array_equal(frames[0].rig_pose_world, poses[0])
     assert not frames[0].rig_pose_world.flags.writeable
+
+
+def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+    snapshots = (_snapshot(), _snapshot())
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
+
+    frames = build_hud_frames(
+        video,
+        snapshots,
+        poses,
+        transition_timestamps_us=(100, 200),
+        input_transition_count=4,
+        input_ignored_event_count=2,
+        input_dropped_transition_count=1,
+    )
+
+    assert [frame.transition_timestamp_us for frame in frames] == [100, 200]
+    assert frames[0].input_transition_count == 4
+    assert frames[0].input_ignored_event_count == 2
+    assert frames[0].input_dropped_transition_count == 1
+
+
+def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
+    with pytest.raises(ValueError, match="Input transitions"):
+        build_hud_frames(
+            torch.zeros(2, 3, 96, 160),
+            (_snapshot(), _snapshot()),
+            np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+            transition_timestamps_us=(100,),
+        )
 
 
 def test_waypoints_are_rendered_as_frame_aligned_world_layers() -> None:
@@ -397,6 +433,70 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     assert state._widgets.status_window.visible
     assert state._widgets.score.text == "WARMING WORLD MODEL  2/4..."
     assert state._widgets.time.text.startswith("ELAPSED  ")
+
+
+def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
+    video = torch.zeros(1, 3, 96, 160)
+    state = TaxiHudState(
+        160,
+        96,
+        _calibration(),
+        profile_input_latency=True,
+    )
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                UserInputEvent(
+                    timestamp=np.uint64(100),
+                    event_data=KeyboardUserInputEventData(
+                        key="ArrowLeft",
+                        state=KeyboardInputState.PRESSED,
+                    ),
+                )
+            ]
+        )
+    )
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            transition_timestamps_us=(100,),
+            input_transition_count=1,
+            input_ignored_event_count=2,
+            input_dropped_transition_count=0,
+        )
+    )
+
+    state.select_presented_frame(video[0])
+    state.draw(_FakeUI())
+
+    assert state._latest_input_latency_ms is not None
+    assert state._widgets is not None
+    assert state._widgets.input_window is not None
+    input_state = state._widgets.input_state
+    input_latency = state._widgets.input_latency
+    assert input_state is not None
+    assert input_latency is not None
+    assert "A [X]" in input_state.text
+    assert "UI TO MODEL FRAME" in input_latency.text
+    assert "TRANSITIONS  1" in input_latency.text
+    assert "IGNORED  2" in input_latency.text
+
+    state.reset()
+    assert not state._profile_pressed
+    assert state._latest_input_latency_ms is None
+
+
+def test_input_latency_widgets_are_absent_by_default() -> None:
+    state = TaxiHudState(160, 96, _calibration())
+
+    state.draw(_FakeUI())
+
+    assert state._widgets is not None
+    assert state._widgets.input_window is None
+    assert state._widgets.input_state is None
+    assert state._widgets.input_latency is None
 
 
 def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:

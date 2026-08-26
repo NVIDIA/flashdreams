@@ -63,6 +63,15 @@ class ModelState:
     prewarm_wall_ms: float = 0.0
     """Wall time spent in hidden startup generation, excluding rollout creation."""
 
+    input_transition_count: int = 0
+    """Cumulative resolved drive transitions consumed by model steps."""
+
+    input_ignored_event_count: int = 0
+    """Cumulative redundant drive events consumed by model steps."""
+
+    input_dropped_transition_count: int = 0
+    """Cumulative transitions displaced by fixed-size model chunks."""
+
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
         if self.rollout is None:
@@ -134,6 +143,9 @@ class ModelState:
         self.last_video = None
         self.last_bev_overlay = None
         self.last_pose = None
+        self.input_transition_count = 0
+        self.input_ignored_event_count = 0
+        self.input_dropped_transition_count = 0
         if self.rollout is not None:
             self.rollout.reset()
 
@@ -167,6 +179,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 frame_count=frame_count,
                 frame_interval_s=(1.0 / state.session_desc.frames_per_second_for_step),
             )
+            state.input_transition_count += input_batch.transition_count
+            state.input_ignored_event_count += input_batch.ignored_event_count
+            state.input_dropped_transition_count += input_batch.dropped_transition_count
             generated = rollout.step(
                 autoregressive_index=state.blocks_generated,
                 commands=input_batch.commands,
@@ -199,6 +214,16 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             )
             bev_overlay_cpu_ms = (time.thread_time() - bev_cpu_started) * 1000.0
             metrics = dict(generated.metrics)
+            metrics.update(
+                {
+                    "input_transition_count": input_batch.transition_count,
+                    "input_ignored_event_count": input_batch.ignored_event_count,
+                    "input_dropped_transition_count": (
+                        input_batch.dropped_transition_count
+                    ),
+                }
+            )
+            transition_timestamps_us = input_batch.transition_timestamps_us
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
@@ -216,8 +241,17 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             bev_overlay = state.last_bev_overlay
             metrics = {}
             bev_overlay_cpu_ms = 0.0
+            transition_timestamps_us = (None,) * int(video.shape[0])
 
-        hud_frames = build_hud_frames(video, game_frames, poses)
+        hud_frames = build_hud_frames(
+            video,
+            game_frames,
+            poses,
+            transition_timestamps_us=transition_timestamps_us,
+            input_transition_count=state.input_transition_count,
+            input_ignored_event_count=state.input_ignored_event_count,
+            input_dropped_transition_count=state.input_dropped_transition_count,
+        )
         invoke_async(
             state.ui_loop,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
@@ -335,6 +369,7 @@ class CrazyRobotaxiSession(ISession):
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
             calibration=self._scene.selected_camera,
+            profile_input_latency=self._config.profile_input_latency,
         )
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiSlangPyUILoop,

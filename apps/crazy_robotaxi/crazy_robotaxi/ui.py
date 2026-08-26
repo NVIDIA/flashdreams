@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections import OrderedDict
@@ -35,10 +36,23 @@ from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.world_overlay import render_waypoint_layers
 from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
+from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEventData,
+    KeyboardInputState,
+    KeyboardUserInputEventData,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _MAX_BUFFERED_HUD_FRAMES = 64
 """Maximum frame-aligned snapshots retained across pending model chunks."""
+
+_MAX_BUFFERED_INPUT_EVENTS = 64
+"""Maximum diagnostic event receipts retained before model-frame correlation."""
+
+_PROFILE_DRIVE_KEYS = frozenset(
+    {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
+)
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +67,18 @@ class TaxiHudFrame:
 
     rig_pose_world: npt.NDArray[np.float32]
     """Read-only rig pose that generated the corresponding video frame."""
+
+    transition_timestamp_us: int | None = None
+    """V2 input transition represented by this frame, when one was received."""
+
+    input_transition_count: int = 0
+    """Cumulative resolved drive transitions consumed by the model loop."""
+
+    input_ignored_event_count: int = 0
+    """Cumulative redundant drive events ignored by the model loop."""
+
+    input_dropped_transition_count: int = 0
+    """Cumulative transitions displaced by fixed-size model chunks."""
 
 
 @dataclass(slots=True)
@@ -75,6 +101,9 @@ class _HudWidgets:
     submit: Any
     validation: Any
     leaderboard: Any
+    input_window: Any | None
+    input_state: Any | None
+    input_latency: Any | None
 
 
 @dataclass(slots=True)
@@ -89,6 +118,9 @@ class TaxiHudState:
 
     calibration: CameraCalibration
     """Camera calibration used to project world markers on the UI thread."""
+
+    profile_input_latency: bool = False
+    """Whether input arrival and model-frame latency diagnostics are visible."""
 
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
@@ -120,6 +152,18 @@ class TaxiHudState:
     _loading_started_at_s: float = field(default_factory=time.monotonic)
     """Monotonic timestamp used to make startup progress visibly live."""
 
+    _profile_pressed: set[str] = field(default_factory=set)
+    """Normalized drive keys currently held according to UI-thread events."""
+
+    _input_received_at_s: OrderedDict[int, float] = field(default_factory=OrderedDict)
+    """UI receipt times keyed by V2 session-relative event timestamp."""
+
+    _reported_input_timestamps_us: set[int] = field(default_factory=set)
+    """Input transitions already correlated with a presented model frame."""
+
+    _latest_input_latency_ms: float | None = None
+    """Latest UI-ingress-to-model-frame-selection latency measurement."""
+
     def publish(self, frames: Sequence[TaxiHudFrame]) -> None:
         """Publish immutable model-frame state to the UI-owned lookup."""
         for frame in frames:
@@ -140,7 +184,56 @@ class TaxiHudState:
                 self._validation_message = ""
                 self._submission_pending = False
             self._current = selected
+            self._record_presented_input(selected)
         return self._current
+
+    def consume_input_events(self, events: UserInputEvents) -> None:
+        """Track responsive drive state and receipt times on the UI thread."""
+        if not self.profile_input_latency:
+            return
+        for event in events.get_events():
+            data = event.get_event_data()
+            recognized = False
+            if isinstance(data, FocusUserInputEventData) and not data.focused:
+                self._profile_pressed.clear()
+                recognized = True
+            elif isinstance(data, KeyboardUserInputEventData):
+                key = _normalize_profile_key(str(data.key))
+                if key not in _PROFILE_DRIVE_KEYS:
+                    continue
+                recognized = True
+                if data.state is KeyboardInputState.PRESSED:
+                    self._profile_pressed.add(key)
+                else:
+                    self._profile_pressed.discard(key)
+            if not recognized:
+                continue
+            timestamp_us = int(event.get_timestamp())
+            self._input_received_at_s.setdefault(timestamp_us, time.perf_counter())
+            self._input_received_at_s.move_to_end(timestamp_us)
+        while len(self._input_received_at_s) > _MAX_BUFFERED_INPUT_EVENTS:
+            self._input_received_at_s.popitem(last=False)
+
+    def _record_presented_input(self, selected: TaxiHudFrame) -> None:
+        if not self.profile_input_latency:
+            return
+        timestamp_us = selected.transition_timestamp_us
+        if timestamp_us is None or timestamp_us in self._reported_input_timestamps_us:
+            return
+        received_at_s = self._input_received_at_s.pop(timestamp_us, None)
+        if received_at_s is None:
+            return
+        self._reported_input_timestamps_us.add(timestamp_us)
+        self._latest_input_latency_ms = (time.perf_counter() - received_at_s) * 1000.0
+        _LOGGER.info(
+            "[crazy-robotaxi] input-to-model-frame latency: event_us=%d "
+            "ui_to_frame_ms=%.1f transitions=%d ignored=%d dropped=%d",
+            timestamp_us,
+            self._latest_input_latency_ms,
+            selected.input_transition_count,
+            selected.input_ignored_event_count,
+            selected.input_dropped_transition_count,
+        )
 
     def set_loading_status(self, status: str) -> None:
         """Update the startup phase from a model-loop message."""
@@ -180,6 +273,7 @@ class TaxiHudState:
     def draw(self, ui: Any, ui_tick: int = 0) -> None:
         """Create or update the retained ImGui HUD widget tree."""
         widgets = self._ensure_widgets(ui)
+        self._update_input_diagnostic(widgets)
         hud_frame = self._current
         if hud_frame is None:
             dots = "." * (1 + (ui_tick // 15) % 3)
@@ -221,6 +315,10 @@ class TaxiHudState:
         self._submission_pending = False
         self._loading_status = "LOADING WORLD MODEL"
         self._loading_started_at_s = time.monotonic()
+        self._profile_pressed.clear()
+        self._input_received_at_s.clear()
+        self._reported_input_timestamps_us.clear()
+        self._latest_input_latency_ms = None
         if self._widgets is not None:
             self._widgets.name_input.value = ""
             self._widgets.name_input.enabled = True
@@ -275,6 +373,18 @@ class TaxiHudState:
         )
         validation = ui.Text(terminal_window, "")
         leaderboard = ui.Text(terminal_window, "")
+        input_window = None
+        input_state = None
+        input_latency = None
+        if self.profile_input_latency:
+            input_window = ui.Window(
+                ui.screen,
+                "Input Latency",
+                position=(14.0, float(max(14, self.height - 124))),
+                size=(440.0, 110.0),
+            )
+            input_state = ui.Text(input_window, "")
+            input_latency = ui.Text(input_window, "")
         self._widgets = _HudWidgets(
             status_window=status_window,
             score=score,
@@ -292,8 +402,45 @@ class TaxiHudState:
             submit=submit,
             validation=validation,
             leaderboard=leaderboard,
+            input_window=input_window,
+            input_state=input_state,
+            input_latency=input_latency,
         )
         return self._widgets
+
+    def _update_input_diagnostic(self, widgets: _HudWidgets) -> None:
+        if not self.profile_input_latency:
+            return
+        assert widgets.input_window is not None
+        assert widgets.input_state is not None
+        assert widgets.input_latency is not None
+        pressed = self._profile_pressed
+        widgets.input_state.text = "  ".join(
+            f"{label} [{'X' if bool(keys & pressed) else ' '}]"
+            for label, keys in (
+                ("W", {"w", "up"}),
+                ("A", {"a", "left"}),
+                ("S", {"s", "down"}),
+                ("D", {"d", "right"}),
+                ("SPACE", {"space"}),
+            )
+        )
+        current = self._current
+        latency = self._latest_input_latency_ms
+        if current is None:
+            counts = "TRANSITIONS  0    IGNORED  0    DROPPED  0"
+        else:
+            counts = (
+                f"TRANSITIONS  {current.input_transition_count}    "
+                f"IGNORED  {current.input_ignored_event_count}    "
+                f"DROPPED  {current.input_dropped_transition_count}"
+            )
+        latency_label = (
+            "UI TO MODEL FRAME  --"
+            if latency is None
+            else f"UI TO MODEL FRAME  {latency:.1f} ms"
+        )
+        widgets.input_latency.text = f"{latency_label}\n{counts}"
 
     def _update_terminal(
         self, widgets: _HudWidgets, snapshot: TaxiGameSnapshot
@@ -361,7 +508,7 @@ class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
         self, ui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the current generated frame beneath it."""
-        del events
+        self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
         bev_overlay = frames[1] if len(frames) > 1 else None
@@ -393,6 +540,11 @@ def build_hud_frames(
     video_tchw: Tensor,
     snapshots: Sequence[object],
     rig_poses_world: npt.NDArray[np.float32],
+    *,
+    transition_timestamps_us: Sequence[int | None] | None = None,
+    input_transition_count: int = 0,
+    input_ignored_event_count: int = 0,
+    input_dropped_transition_count: int = 0,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -401,6 +553,10 @@ def build_hud_frames(
     poses = np.asarray(rig_poses_world, dtype=np.float32)
     if poses.shape != (frame_count, 4, 4):
         raise ValueError("Video and rig poses must align")
+    if transition_timestamps_us is None:
+        transition_timestamps_us = (None,) * frame_count
+    if len(transition_timestamps_us) != frame_count:
+        raise ValueError("Input transitions and video frames must align")
     frames = []
     for index, snapshot in enumerate(snapshots):
         if not isinstance(snapshot, TaxiGameSnapshot):
@@ -412,9 +568,26 @@ def build_hud_frames(
                 frame_key=int(video_tchw[index].data_ptr()),
                 snapshot=snapshot,
                 rig_pose_world=pose,
+                transition_timestamp_us=transition_timestamps_us[index],
+                input_transition_count=input_transition_count,
+                input_ignored_event_count=input_ignored_event_count,
+                input_dropped_transition_count=input_dropped_transition_count,
             )
         )
     return tuple(frames)
+
+
+def _normalize_profile_key(key: str) -> str:
+    if key == " ":
+        return "space"
+    normalized = key.strip().lower()
+    return {
+        "arrowup": "up",
+        "arrowdown": "down",
+        "arrowleft": "left",
+        "arrowright": "right",
+        "spacebar": "space",
+    }.get(normalized, normalized)
 
 
 def _score_label(snapshot: TaxiGameSnapshot) -> str:

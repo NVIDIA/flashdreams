@@ -65,6 +65,24 @@ removes an avoidable pause source, but it does not make a model preset whose
 steady-state throughput is below 30 fps meet that rate; use `--model-preset
 perf` when its quality/performance tradeoff is appropriate.
 
+Profile interactive input separately with:
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
+  --model-preset perf \
+  --profile-input-latency
+```
+
+This opt-in adds a UI-thread key indicator and logs the time from V2 UI event
+receipt to the first presented model frame carrying that transition. It also
+shows resolved, redundant, and capacity-dropped transition counts. The normal
+HUD does not construct these widgets when the flag is absent. The indicator's
+physical-key-to-browser delay still includes WebRTC transport latency, while
+the reported `UI TO MODEL FRAME` value isolates the synchronous app/model
+portion. See the
+[V2 latency handoff](../../docs/design/crazy_robotaxi_v2_input_latency.md) for
+the known runtime boundary.
+
 All model presets generate four neutral, hidden blocks before publishing the
 first gameplay frame. The responsive ImGui HUD shows the current warmup block,
 an animated activity marker, and elapsed time while compilation and autotuning
