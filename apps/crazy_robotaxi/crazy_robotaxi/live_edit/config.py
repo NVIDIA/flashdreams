@@ -418,7 +418,7 @@ class LiveEditWeatherConfig:
 
 @dataclass(frozen=True)
 class LiveEditObstacleConfig:
-    """Generated general-obstacle events, initially shipping a Car kind."""
+    """Track-backed general-obstacle events, initially shipping vehicles."""
 
     enabled: bool = False
     """Whether the obstacle ability responds to the spawn key."""
@@ -444,7 +444,18 @@ class LiveEditObstacleConfig:
     """Meters to the left (+) / right (-) of the ego heading at spawn."""
 
     active_chunks: int = 10
-    """Despawn each non-static event after this many generated chunks."""
+    """Despawn each non-static event after this many generated chunks.
+
+    Source-track exhaustion can end an event sooner."""
+
+    min_drift_m: float = 15.0
+    """Minimum ground-plane displacement for a moving template."""
+
+    min_coverage_s: float = 4.0
+    """Minimum source-track duration for a moving template."""
+
+    length_range_m: tuple[float, float] = (3.4, 5.6)
+    """Inclusive vehicle-length filter for obstacle templates."""
 
     collision_radius_m: float = 3.0
     """Ego XY distance at which a visual-only event logs a hit."""
@@ -501,6 +512,12 @@ class LiveEditObstacleConfig:
             raise ValueError("spawn_ahead_m must be positive")
         if self.active_chunks <= 0:
             raise ValueError("active_chunks must be positive")
+        if self.min_drift_m < 0.0:
+            raise ValueError("min_drift_m must be non-negative")
+        if self.min_coverage_s < 0.0:
+            raise ValueError("min_coverage_s must be non-negative")
+        if not 0.0 < self.length_range_m[0] <= self.length_range_m[1]:
+            raise ValueError("length_range_m must be a positive (lo, hi) pair")
         if self.static_count < 0:
             raise ValueError("static_count must be non-negative")
         if self.static_ahead_m <= 0.0:
@@ -949,7 +966,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-obstacle",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable generated obstacle events (O key).",
+        help="Enable track-backed obstacle events (O key).",
     )
     group.add_argument(
         "--live-edit-obstacle-physics",
@@ -1001,7 +1018,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=0,
         help=(
-            "Static roadblock: N generated stopped cars placed midroad from the "
+            "Static roadblock: N track-backed stopped cars placed midroad from the "
             "session's first chunk (alternating laterals; pair with "
             "--live-edit-obstacle-guide-scale 2.0; 0 disables)."
         ),

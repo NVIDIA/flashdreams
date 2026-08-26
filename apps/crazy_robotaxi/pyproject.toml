@@ -44,6 +44,7 @@ crazy_robotaxi = [
     "configs/*.yaml",
     "configs/wheels/*.yaml",
     "assets/README.md",
+    "assets/*.npz",
     "assets/wheel_and_pedals/*.png",
     "maps/*.robotaxi.yaml",
 ]

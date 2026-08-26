@@ -29,7 +29,8 @@ from crazy_robotaxi.live_edit.obstacle_ability import (
     ObstacleAbility,
     ObstacleGuidance,
     ObstaclePhase,
-    build_generated_event,
+    ObstacleTemplate,
+    build_obstacle_event,
     local_ground_z,
     road_ahead_pose,
 )
@@ -397,10 +398,52 @@ class TestComposeSwapTarget:
             )
 
 
-## Generated obstacle events
+## Track-backed obstacle events
 
 
 _OBSTACLE = LiveEditObstacleConfig(enabled=True, spawn_ahead_m=20.0, active_chunks=3)
+
+
+def _obstacle_template(
+    template_index: int,
+    *,
+    end_xy: tuple[float, float] = (0.0, 20.0),
+    parked: bool = False,
+) -> ObstacleTemplate:
+    timestamps = np.linspace(0, 5_000_000, 16, dtype=np.int64)
+    end = np.asarray((0.0, 0.0) if parked else end_xy, dtype=np.float32)
+    translations = np.zeros((16, 3), dtype=np.float32)
+    translations[:, :2] = np.linspace(np.zeros(2), end, 16, dtype=np.float32)
+    yaw = 0.0 if parked else float(np.arctan2(end[1], end[0]))
+    orientation = np.asarray(
+        [0.0, 0.0, np.sin(yaw * 0.5), np.cos(yaw * 0.5)], dtype=np.float32
+    )
+    return ObstacleTemplate(
+        template_index=template_index,
+        object_type="Car",
+        timestamps_us=timestamps,
+        translations_local_m=translations,
+        orientations_xyzw=np.repeat(orientation[None, :], 16, axis=0),
+        dimensions_lwh=np.asarray([4.5, 1.8, 1.5], dtype=np.float32),
+        source_ground_offset_m=0.75,
+    )
+
+
+_MOVING_TEMPLATES = (
+    _obstacle_template(0, end_xy=(0.0, 20.0)),
+    _obstacle_template(1, end_xy=(0.0, -20.0)),
+    _obstacle_template(2, end_xy=(1.0, 20.0)),
+    _obstacle_template(3, end_xy=(-1.0, -20.0)),
+)
+_PARKED_TEMPLATES = (_obstacle_template(4, parked=True),)
+
+
+def _obstacle_ability(config: LiveEditObstacleConfig) -> ObstacleAbility:
+    return ObstacleAbility(
+        config,
+        templates=_MOVING_TEMPLATES,
+        parked_templates=_PARKED_TEMPLATES,
+    )
 
 
 def _chunk(start_us: int, *, frames: int = 4, ego_x: float = 0.0) -> TrajectoryChunk:
@@ -422,9 +465,9 @@ def _chunk(start_us: int, *, frames: int = 4, ego_x: float = 0.0) -> TrajectoryC
     )
 
 
-class TestGeneratedObstacleEvents:
+class TestTrackBackedObstacleEvents:
     def test_visual_event_uses_pr494_ego_relative_placement_by_default(self) -> None:
-        ability = ObstacleAbility(_OBSTACLE, chunk_duration_s=0.1)
+        ability = _obstacle_ability(_OBSTACLE)
         ability.request_spawn()
 
         (actor,) = ability.advance_frames(_chunk(1_000_000))
@@ -435,9 +478,17 @@ class TestGeneratedObstacleEvents:
         assert actor.translations_world[0, 1] == pytest.approx(0.0)
         motion = actor.translations_world[-1] - actor.translations_world[0]
         assert abs(float(motion[1])) > abs(float(motion[0]))
+        assert len(actor.timestamps_us) == 16
+        assert np.diff(actor.timestamps_us) == pytest.approx(
+            np.diff(_MOVING_TEMPLATES[0].timestamps_us)
+        )
+        assert actor.orientations_xyzw == pytest.approx(
+            _MOVING_TEMPLATES[0].orientations_xyzw
+        )
+        assert actor.dimensions_lwh == pytest.approx([4.5, 1.8, 1.5])
 
     def test_visual_event_despawns_after_its_configured_chunks(self) -> None:
-        ability = ObstacleAbility(_OBSTACLE)
+        ability = _obstacle_ability(_OBSTACLE)
         ability.request_spawn()
         assert ability.advance_frames(_chunk(0))
         assert ability.advance_frames(_chunk(133_332))
@@ -446,7 +497,7 @@ class TestGeneratedObstacleEvents:
         assert ability.advance_frames(_chunk(400_000)) == ()
 
     def test_visual_proximity_hit_is_logged_once(self) -> None:
-        ability = ObstacleAbility(_OBSTACLE)
+        ability = _obstacle_ability(_OBSTACLE)
         ability.request_spawn()
         ability.advance_frames(_chunk(0))
         ability.advance_frames(_chunk(133_332, ego_x=20.0))
@@ -462,7 +513,7 @@ class TestGeneratedObstacleEvents:
             static_ahead_m=28.0,
             static_lateral_m=2.8,
         )
-        ability = ObstacleAbility(config)
+        ability = _obstacle_ability(config)
 
         first = ability.advance_frames(_chunk(0))
         later = ability.advance_frames(_chunk(60_000_000))
@@ -482,7 +533,7 @@ class TestGeneratedObstacleEvents:
             active_chunks=10,
             spawn_ahead_m=20.0,
         )
-        ability = ObstacleAbility(config)
+        ability = _obstacle_ability(config)
         ability.request_spawn()
 
         first = ability.advance_frames(_chunk(0))
@@ -502,7 +553,7 @@ class TestGeneratedObstacleEvents:
         config = LiveEditObstacleConfig(
             enabled=True, physics=True, spawn_ahead_m=20.0, active_chunks=3
         )
-        ability = ObstacleAbility(config)
+        ability = _obstacle_ability(config)
         ability.request_spawn()
         ego = BodyState(
             position_m=np.asarray([0.0, 0.0, 0.8], dtype=np.float32),
@@ -513,6 +564,10 @@ class TestGeneratedObstacleEvents:
         ability.prepare_topology(ego)
         targets = ability.prepare_step(ego, 1.0 / 30.0)
         (scene_object,) = ability.active_objects
+        assert len(scene_object.timestamps_us) == 16
+        assert ability.max_drive_speeds_mps[scene_object.object_id] == pytest.approx(
+            4.0
+        )
         assert tuple(target.object_id for target in targets) == (
             scene_object.object_id,
         )
@@ -577,7 +632,61 @@ class TestGeneratedObstacleEvents:
         assert position[:2] == pytest.approx([17.0, 0.0])
         assert heading == pytest.approx(0.0)
 
-    def test_generated_event_grounds_the_car_center(self) -> None:
+    def test_road_ahead_rotates_the_source_track_across_the_lane(self) -> None:
+        lane = SimpleNamespace(
+            lane_id="lane",
+            centerline_world=np.asarray([[0, 0, 0], [50, 0, 0]], dtype=np.float32),
+            successor_ids=(),
+        )
+        game_map = SimpleNamespace(lanes=(lane,))
+        config = LiveEditObstacleConfig(
+            enabled=True, spawn_ahead_m=20.0, placement="road-ahead"
+        )
+        ego = VehicleState(
+            x_m=0.0,
+            y_m=0.0,
+            z_m=0.0,
+            yaw_rad=0.0,
+            speed_mps=0.0,
+            steer_rad=0.0,
+        )
+
+        event = build_obstacle_event(
+            _obstacle_template(10, end_xy=(20.0, 0.0)),
+            ego_state=ego,
+            spawn_timestamp_us=0,
+            config=config,
+            entity_id=f"{OBSTACLE_ENTITY_PREFIX}-road-ahead",
+            game_map=game_map,
+        )
+
+        motion = event.translations_world[-1] - event.translations_world[0]
+        assert motion[:2] == pytest.approx([0.0, 20.0], abs=1.0e-5)
+        assert event.translations_world[0, :2] == pytest.approx([20.0, 0.0])
+
+    def test_physical_drive_speed_is_capped_at_fifteen_mph(self) -> None:
+        fast = _obstacle_template(10, end_xy=(100.0, 0.0))
+        ability = ObstacleAbility(
+            LiveEditObstacleConfig(enabled=True, physics=True),
+            templates=(fast,),
+            parked_templates=(),
+        )
+        ability.request_spawn()
+        ego = BodyState(
+            position_m=np.asarray([0.0, 0.0, 0.8], dtype=np.float32),
+            orientation_xyzw=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+            linear_velocity_mps=np.zeros(3, dtype=np.float32),
+            angular_velocity_radps=np.zeros(3, dtype=np.float32),
+        )
+
+        ability.prepare_topology(ego)
+
+        (scene_object,) = ability.active_objects
+        assert ability.max_drive_speeds_mps[scene_object.object_id] == pytest.approx(
+            15.0 * 0.44704
+        )
+
+    def test_track_backed_event_grounds_the_car_center(self) -> None:
         config = LiveEditObstacleConfig(enabled=True, spawn_ahead_m=20.0)
         ego = VehicleState(
             x_m=0.0,
@@ -587,10 +696,10 @@ class TestGeneratedObstacleEvents:
             speed_mps=0.0,
             steer_rad=0.0,
         )
-        event = build_generated_event(
+        event = build_obstacle_event(
+            _MOVING_TEMPLATES[0],
             ego_state=ego,
             spawn_timestamp_us=0,
-            duration_us=1_000_000,
             config=config,
             entity_id=f"{OBSTACLE_ENTITY_PREFIX}-test",
             ground_vertices=np.asarray([[20.0, 0.0, 2.0]], dtype=np.float32),
@@ -636,7 +745,7 @@ class TestObstacleGuidance:
 
                 return Chunk(frames=(Frame("nobox"),))
 
-        ability = ObstacleAbility(_OBSTACLE)
+        ability = _obstacle_ability(_OBSTACLE)
         ability.request_spawn()
         (obstacle_actor,) = ability.advance_frames(_chunk(0))
         chunk = _chunk(0)

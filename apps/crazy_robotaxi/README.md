@@ -98,11 +98,10 @@ group "live edit"):
   chip counts the boost down next to the other ability chips.
   `--live-edit-item-types` restricts the course mix (e.g. `nitro` for a
   single-effect capture course; default cycles all kinds equally).
-- **Obstacle events** (`--live-edit-obstacle`, spawn with `O`): generated
-  crossing cars owned by a dedicated event controller; they do not depend
-  on recorded-scene tracks or participate in NPC routes/recovery.
-  The event/archetype layer is general, but the public catalog currently
-  exposes only cars.
+- **Obstacle events** (`--live-edit-obstacle`, spawn with `O`): crossing
+  vehicles cloned from a small bundled catalog of real perception tracks.
+  The catalog is map-independent, so obstacles do not require a recorded
+  scene and remain separate from NPC routes and recovery.
   `--live-edit-obstacle-count N` creates a staggered burst. Placement is
   ego-relative by default; `--live-edit-obstacle-placement road-ahead`
   resolves the spawn along the compiled directed-lane graph. Events remain

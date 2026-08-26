@@ -184,7 +184,9 @@ def test_physical_obstacle_is_inserted_and_removed_by_its_controller() -> None:
 
         # Physical mode only consumes the chunk boundary for lifetime; its
         # renderer actor already came from GamePhysicsWorld.build_trajectories.
-        ability.advance_frames(SimpleNamespace())  # type: ignore[arg-type]
+        ability.advance_frames(  # type: ignore[arg-type]
+            SimpleNamespace(timestamps_us=np.asarray([0], dtype=np.int64))
+        )
         _state, later_samples = world.step(_moving_ego(), 33_333, 1.0 / 30.0)
 
         assert later_samples == ()

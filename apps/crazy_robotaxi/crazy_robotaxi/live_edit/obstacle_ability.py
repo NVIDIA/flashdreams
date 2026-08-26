@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Generated obstacle events and optional model-side box-axis guidance.
+"""Track-backed obstacle events and optional model-side box-axis guidance.
 
 Gameplay state, placement, rendering, and optional physics live in
 :mod:`crazy_robotaxi.live_edit.obstacle_events`. This module retains the
@@ -18,10 +18,11 @@ from crazy_robotaxi.live_edit.config import LiveEditObstacleConfig
 from crazy_robotaxi.live_edit.obstacle_events import (
     OBSTACLE_ENTITY_PREFIX,
     ObstacleAbility,
-    ObstacleArchetype,
     ObstacleEvent,
     ObstaclePhase,
-    build_generated_event,
+    ObstacleTemplate,
+    ObstacleTemplateCatalog,
+    build_obstacle_event,
     local_ground_z,
     road_ahead_pose,
 )

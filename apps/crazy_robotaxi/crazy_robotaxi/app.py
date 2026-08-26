@@ -183,7 +183,6 @@ class CrazyRobotaxiApplication:
         *,
         live_edit: LiveEditConfig | None = None,
         style_ability: Any | None = None,
-        obstacle_chunk_duration_s: float = 8.0 / 30.0,
     ) -> None:
         self._config = config
         self._keyboard = keyboard
@@ -200,7 +199,6 @@ class CrazyRobotaxiApplication:
         self._coin_lanes: tuple[NavigationLane, ...] = ()
         self._nitro_ability: Any | None = None
         self._obstacle_ability: Any | None = None
-        self._obstacle_chunk_duration_s = obstacle_chunk_duration_s
         if self._live_edit.items.enabled:
             from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
 
@@ -276,7 +274,6 @@ class CrazyRobotaxiApplication:
                 game_map=scene.game_map,
                 ground_vertices=scene.ground_mesh_vertices,
                 vehicle=self._config.vehicle,
-                chunk_duration_s=self._obstacle_chunk_duration_s,
             )
         actor_controllers = (
             (self._obstacle_ability,)
@@ -426,9 +423,6 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             config.bev,
             live_edit=live_edit,
             style_ability=style_ability,
-            obstacle_chunk_duration_s=(
-                config.chunk.chunk_frames / float(config.chunk.fps)
-            ),
         )
         super().__init__(
             config=config,
