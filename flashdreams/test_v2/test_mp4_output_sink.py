@@ -3,6 +3,7 @@
 
 """CPU test for the output sink that writes an MP4 file."""
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,6 +27,11 @@ pytestmark = pytest.mark.ci_cpu
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None,
     reason="encoding and reading an MP4 back needs ffmpeg on PATH",
+)
+
+needs_ffmpeg_and_ffprobe = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="validating synchronized MP4 output needs ffmpeg and ffprobe on PATH",
 )
 
 _WIDTH = 16
@@ -130,6 +136,16 @@ def _install_fake_encoder(
         return encoder
 
     monkeypatch.setattr(mp4_sink_module, "Mp4Encoder", create_encoder)
+
+    def preflight_audio_codec(**kwargs: int) -> str:
+        del kwargs
+        return "/host/ffmpeg"
+
+    monkeypatch.setattr(
+        mp4_sink_module,
+        "preflight_audio_codec",
+        preflight_audio_codec,
+    )
     return encoders
 
 
@@ -512,14 +528,53 @@ def test_open_rejects_odd_frame_dimensions(
         sink.open(_session_desc(width=width, height=height))
 
 
-def test_open_rejects_audio_without_an_explicit_codec(tmp_path: Path) -> None:
+def test_video_only_open_does_not_preflight_an_audio_codec(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_preflight(**kwargs: int) -> str:
+        raise AssertionError(f"unexpected audio preflight: {kwargs}")
+
+    monkeypatch.setattr(
+        mp4_sink_module,
+        "preflight_audio_codec",
+        unexpected_preflight,
+    )
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+
+    sink.open(_session_desc())
+    sink.abort()
+
+
+def test_open_preflights_the_audio_codec_before_creating_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "out.mp4"
+    path.write_bytes(b"existing target")
     sink = Mp4OutputSink(path)
 
-    with pytest.raises(ValueError, match="explicitly selected audio codec"):
+    def fail_preflight(*, sample_rate: int, channels: int) -> str:
+        assert sample_rate == 8_000
+        assert channels == 2
+        raise RuntimeError("host has no AAC encoder")
+
+    monkeypatch.setattr(mp4_sink_module, "preflight_audio_codec", fail_preflight)
+
+    with pytest.raises(RuntimeError, match="no AAC encoder"):
         sink.open(_session_desc(audio=True))
 
-    assert not path.exists()
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
+
+    monkeypatch.setattr(
+        mp4_sink_module,
+        "preflight_audio_codec",
+        lambda **kwargs: "/host/ffmpeg",
+    )
+    sink.open(_session_desc(audio=True))
+    sink.abort()
+
+    assert path.read_bytes() == b"existing target"
+    assert _staging_paths(path) == []
 
 
 def test_audio_result_is_rejected_when_the_session_declared_none(
@@ -551,7 +606,7 @@ def test_audio_result_must_match_the_declared_format(
     message: str,
 ) -> None:
     _install_fake_encoder(monkeypatch)
-    sink = Mp4OutputSink(tmp_path / "out.mp4", audio_codec="reviewed-codec")
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
     sink.open(_session_desc(audio=True))
 
     with pytest.raises(ValueError, match=message):
@@ -576,7 +631,7 @@ def test_audio_is_aligned_to_the_written_video_timeline(
     _install_fake_encoder(monkeypatch)
     muxers = _install_fake_muxer(monkeypatch)
     path = tmp_path / "out.mp4"
-    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    sink = Mp4OutputSink(path)
     audio = AudioOutput(
         samples=torch.full((2, native_samples), 0.25),
         sample_rate=32_000,
@@ -601,7 +656,7 @@ def test_missing_audio_is_padded_with_timeline_silence(
     _install_fake_encoder(monkeypatch)
     muxers = _install_fake_muxer(monkeypatch)
     path = tmp_path / "out.mp4"
-    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    sink = Mp4OutputSink(path)
 
     sink.open(_session_desc(audio=True))
     sink.write(_result([_RED, _BLACK, _RED]))
@@ -618,7 +673,7 @@ def test_mux_failure_preserves_target_and_can_be_aborted(
     muxers = _install_fake_muxer(monkeypatch, fail_close=True)
     path = tmp_path / "out.mp4"
     path.write_bytes(b"existing target")
-    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    sink = Mp4OutputSink(path)
     audio = AudioOutput(samples=torch.zeros((2, 100)), sample_rate=8_000)
     sink.open(_session_desc(audio=True))
     sink.write(_result([_RED], audio=audio))
@@ -644,7 +699,7 @@ def test_failed_mux_abort_retains_ownership_and_staging_for_retry(
     )
     path = tmp_path / "out.mp4"
     path.write_bytes(b"existing target")
-    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    sink = Mp4OutputSink(path)
     audio = AudioOutput(samples=torch.zeros((2, 100)), sample_rate=8_000)
     sink.open(_session_desc(audio=True))
     sink.write(_result([_RED], audio=audio))
@@ -673,7 +728,7 @@ def test_failed_audio_stager_abort_retains_transaction_for_retry(
     _install_fake_encoder(monkeypatch)
     path = tmp_path / "out.mp4"
     path.write_bytes(b"existing target")
-    sink = Mp4OutputSink(path, audio_codec="reviewed-codec")
+    sink = Mp4OutputSink(path)
     sink.open(_session_desc(audio=True))
     stager = sink._audio_stager
     assert stager is not None and stager._stream is not None
@@ -884,3 +939,57 @@ def test_close_can_run_twice(tmp_path: Path) -> None:
     sink.close()
 
     assert len(_decode(path)) == 1
+
+
+@needs_ffmpeg_and_ffprobe
+def test_sink_writes_synchronized_aac_lc_through_external_tools(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "synchronized.mp4"
+    sample_rate = 32_000
+    frame_count = 24
+    timeline = torch.arange(sample_rate, dtype=torch.float32) / sample_rate
+    tone = 0.25 * torch.sin(2 * torch.pi * 440 * timeline)
+    audio = AudioOutput(
+        samples=torch.stack((tone, tone)),
+        sample_rate=sample_rate,
+    )
+    sink = Mp4OutputSink(path)
+
+    sink.open(_session_desc(audio=True, fps=24, audio_sample_rate=sample_rate))
+    sink.write(_result([_RED] * frame_count, audio=audio))
+    sink.close()
+
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-show_entries",
+            (
+                "stream=codec_type,codec_name,profile,sample_rate,channels,"
+                "nb_read_frames,duration"
+            ),
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    streams = json.loads(completed.stdout)["streams"]
+    video = next(stream for stream in streams if stream["codec_type"] == "video")
+    encoded_audio = next(
+        stream for stream in streams if stream["codec_type"] == "audio"
+    )
+
+    assert video["codec_name"] == "h264"
+    assert int(video["nb_read_frames"]) == frame_count
+    assert float(video["duration"]) == pytest.approx(1.0, abs=1 / 24)
+    assert encoded_audio["codec_name"] == "aac"
+    assert encoded_audio["profile"] == "LC"
+    assert int(encoded_audio["sample_rate"]) == sample_rate
+    assert int(encoded_audio["channels"]) == 2
+    assert float(encoded_audio["duration"]) == pytest.approx(1.0, abs=1 / 24)
+    assert _staging_paths(path) == []

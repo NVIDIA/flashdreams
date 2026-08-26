@@ -13,6 +13,90 @@ from flashdreams.runtime_v2.audio_output import AudioOutput, normalized_pcm
 _FLOAT32_BYTES = 4
 """Bytes in one staged ``f32le`` channel sample."""
 
+_AAC_FRAME_SAMPLES = 1024
+"""Samples in one AAC-LC frame used for the preflight encode."""
+
+
+_AUDIO_CODEC_ARGUMENTS = (
+    "-c:a",
+    "aac",
+    "-profile:a",
+    "aac_low",
+    "-b:a",
+    "192k",
+)
+"""Fixed public MP4 audio encoding: AAC-LC at 192 kbit/s."""
+
+
+_PREFLIGHT_TIMEOUT_SECONDS = 10
+"""Maximum time the tiny external AAC capability check may take."""
+
+
+def preflight_audio_codec(*, sample_rate: int, channels: int) -> str:
+    """Resolve host FFmpeg and prove the exact public audio encoding works.
+
+    This check runs before model generation so a missing product dependency
+    does not waste a rollout only to fail during the final mux.
+
+    Args:
+        sample_rate: PCM sample rate the session will publish.
+        channels: PCM channel count the session will publish.
+
+    Returns:
+        Resolved path to the host ``ffmpeg`` executable.
+
+    Raises:
+        RuntimeError: FFmpeg is unavailable or cannot encode the session format
+            as AAC-LC at the approved bitrate within the timeout.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("Writing MP4 audio needs an ffmpeg executable on PATH.")
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-f",
+                "f32le",
+                "-ar",
+                str(sample_rate),
+                "-ac",
+                str(channels),
+                "-i",
+                "pipe:0",
+                "-frames:a",
+                "1",
+                *_AUDIO_CODEC_ARGUMENTS,
+                "-f",
+                "null",
+                "-",
+            ],
+            input=b"\0" * (_AAC_FRAME_SAMPLES * channels * _FLOAT32_BYTES),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=_PREFLIGHT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "Timed out while checking the host ffmpeg AAC-LC encoder."
+        ) from error
+    except OSError as error:
+        raise RuntimeError(
+            f"Could not check the host ffmpeg AAC-LC encoder: {error}"
+        ) from error
+    if completed.returncode != 0:
+        reported = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            "Host ffmpeg cannot encode this session as AAC-LC at 192 kbit/s: "
+            f"{reported or 'no output'}"
+        )
+    return ffmpeg
+
 
 class F32leAudioStager:
     """Write normalized audio to a private interleaved ``f32le`` file."""
@@ -126,7 +210,7 @@ class Mp4AudioMuxer:
         output_path: str | Path,
         sample_rate: int,
         channels: int,
-        audio_codec: str,
+        ffmpeg_path: str,
     ) -> None:
         """
         Args:
@@ -135,19 +219,14 @@ class Mp4AudioMuxer:
             output_path: Staged synchronized MP4 to create.
             sample_rate: PCM sample rate.
             channels: PCM channel count.
-            audio_codec: Host FFmpeg encoder selected for the public MP4.
-
-        Raises:
-            ValueError: ``audio_codec`` is empty.
+            ffmpeg_path: Host executable resolved by the early exact preflight.
         """
-        if not audio_codec:
-            raise ValueError("An audio codec must be selected explicitly.")
         self._video_path = Path(video_path)
         self._audio_path = Path(audio_path)
         self._output_path = Path(output_path)
         self._sample_rate = sample_rate
         self._channels = channels
-        self._audio_codec = audio_codec
+        self._ffmpeg_path = ffmpeg_path
         self._process: subprocess.Popen[bytes] | None = None
         self._finished = False
 
@@ -159,12 +238,9 @@ class Mp4AudioMuxer:
         """
         if self._finished:
             return
-        ffmpeg = shutil.which("ffmpeg")
-        if ffmpeg is None:
-            raise RuntimeError("Writing MP4 audio needs an ffmpeg executable on PATH.")
         try:
             process = subprocess.Popen(
-                self._command(ffmpeg),
+                self._command(self._ffmpeg_path),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
@@ -219,12 +295,15 @@ class Mp4AudioMuxer:
             "1:a:0",
             "-c:v",
             "copy",
-            "-c:a",
-            self._audio_codec,
+            *_AUDIO_CODEC_ARGUMENTS,
             "-movflags",
             "+faststart",
             str(self._output_path),
         ]
 
 
-__all__ = ["F32leAudioStager", "Mp4AudioMuxer"]
+__all__ = [
+    "F32leAudioStager",
+    "Mp4AudioMuxer",
+    "preflight_audio_codec",
+]

@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from flashdreams.api_v2.output_sink import AbortableOutputSink
-from flashdreams.runtime_v2.mp4_audio import F32leAudioStager, Mp4AudioMuxer
+from flashdreams.runtime_v2.mp4_audio import (
+    F32leAudioStager,
+    Mp4AudioMuxer,
+    preflight_audio_codec,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_frames
@@ -30,20 +34,17 @@ class Mp4OutputSink(AbortableOutputSink):
     :class:`~flashdreams.api_v2.output_sink.OutputSink`.
     """
 
-    def __init__(self, path: str | Path, *, audio_codec: str | None = None) -> None:
+    def __init__(self, path: str | Path) -> None:
         """
         Args:
             path: File to write. Parent directories are created.
-            audio_codec: Host FFmpeg audio encoder selected for synchronized
-                output. An audio session is rejected unless this product-level
-                choice is explicit.
         """
         self._path = Path(path)
-        self._audio_codec = audio_codec
         self._session_desc: SessionDesc | None = None
         self._encoder: Mp4Encoder | None = None
         self._audio_stager: F32leAudioStager | None = None
         self._muxer: Mp4AudioMuxer | None = None
+        self._audio_ffmpeg_path: str | None = None
         self._staging_dir: Path | None = None
         self._staged_video_path: Path | None = None
         self._staged_output_path: Path | None = None
@@ -61,17 +62,19 @@ class Mp4OutputSink(AbortableOutputSink):
                 becomes the rate the file plays back at.
 
         Raises:
-            ValueError: The frames are an odd number of pixels wide or high, or
-                the session declares audio without an explicitly selected
-                public codec.
+            ValueError: The frames are an odd number of pixels wide or high.
+            RuntimeError: The host cannot encode the declared audio format as
+                the fixed public AAC-LC encoding.
         """
-        if session_desc.audio_sample_rate is not None and self._audio_codec is None:
-            raise ValueError(
-                "Mp4OutputSink needs an explicitly selected audio codec for "
-                "an audio session."
-            )
         if self._session_desc is not None or self._staging_dir is not None:
             raise RuntimeError("Mp4OutputSink is already open.")
+        audio_ffmpeg_path: str | None = None
+        if session_desc.audio_sample_rate is not None:
+            assert session_desc.audio_channels is not None
+            audio_ffmpeg_path = preflight_audio_codec(
+                sample_rate=session_desc.audio_sample_rate,
+                channels=session_desc.audio_channels,
+            )
         self._path.parent.mkdir(parents=True, exist_ok=True)
         staging_dir = Path(
             tempfile.mkdtemp(
@@ -122,6 +125,7 @@ class Mp4OutputSink(AbortableOutputSink):
         self._session_desc = session_desc
         self._encoder = encoder
         self._audio_stager = audio_stager
+        self._audio_ffmpeg_path = audio_ffmpeg_path
         self._staging_dir = staging_dir
         self._staged_video_path = staged_video_path
         self._staged_output_path = staged_output_path
@@ -183,7 +187,7 @@ class Mp4OutputSink(AbortableOutputSink):
             session_desc = self._session_desc
             assert session_desc.audio_sample_rate is not None
             assert session_desc.audio_channels is not None
-            assert self._audio_codec is not None
+            assert self._audio_ffmpeg_path is not None
             expected_samples = round(
                 self._frames_written
                 * session_desc.audio_sample_rate
@@ -200,7 +204,7 @@ class Mp4OutputSink(AbortableOutputSink):
                 output_path=staged_output_path,
                 sample_rate=session_desc.audio_sample_rate,
                 channels=session_desc.audio_channels,
-                audio_codec=self._audio_codec,
+                ffmpeg_path=self._audio_ffmpeg_path,
             )
             self._muxer = muxer
             muxer.close()
@@ -286,6 +290,7 @@ class Mp4OutputSink(AbortableOutputSink):
         self._encoder = None
         self._audio_stager = None
         self._muxer = None
+        self._audio_ffmpeg_path = None
         if clear_staging:
             self._staging_dir = None
             self._staged_video_path = None

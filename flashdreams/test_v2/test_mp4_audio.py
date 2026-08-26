@@ -11,7 +11,11 @@ import torch
 
 import flashdreams.runtime_v2.mp4_audio as mp4_audio_module
 from flashdreams.runtime_v2.audio_output import AudioOutput
-from flashdreams.runtime_v2.mp4_audio import F32leAudioStager, Mp4AudioMuxer
+from flashdreams.runtime_v2.mp4_audio import (
+    F32leAudioStager,
+    Mp4AudioMuxer,
+    preflight_audio_codec,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -124,6 +128,108 @@ def test_audio_stager_retains_stream_when_abort_close_fails(tmp_path: Path) -> N
     assert calls == ["close", "close"]
 
 
+def test_audio_codec_preflight_encodes_the_exact_session_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class Completed:
+        returncode = 0
+        stderr = b""
+
+    def run(command: list[str], **kwargs: object) -> Completed:
+        calls.append((command, kwargs))
+        return Completed()
+
+    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
+    monkeypatch.setattr(mp4_audio_module.subprocess, "run", run)
+
+    assert preflight_audio_codec(sample_rate=32_000, channels=2) == "/host/ffmpeg"
+    assert calls[0][0] == [
+        "/host/ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-f",
+        "f32le",
+        "-ar",
+        "32000",
+        "-ac",
+        "2",
+        "-i",
+        "pipe:0",
+        "-frames:a",
+        "1",
+        "-c:a",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        "192k",
+        "-f",
+        "null",
+        "-",
+    ]
+    options = calls[0][1]
+    assert options["input"] == b"\0" * (1024 * 2 * 4)
+    assert options["stdout"] == mp4_audio_module.subprocess.DEVNULL
+    assert options["stderr"] == mp4_audio_module.subprocess.PIPE
+    assert options["timeout"] == 10
+    assert options["check"] is False
+
+
+def test_audio_codec_preflight_rejects_failed_aac_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Completed:
+        returncode = 1
+        stderr = b"Unknown encoder 'aac'"
+
+    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
+    monkeypatch.setattr(
+        mp4_audio_module.subprocess, "run", lambda *args, **kwargs: Completed()
+    )
+
+    with pytest.raises(RuntimeError, match="Unknown encoder 'aac'"):
+        preflight_audio_codec(sample_rate=32_000, channels=2)
+
+
+def test_audio_codec_preflight_rejects_a_missing_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: None)
+
+    with pytest.raises(RuntimeError, match="ffmpeg executable on PATH"):
+        preflight_audio_codec(sample_rate=32_000, channels=2)
+
+
+def test_audio_codec_preflight_bounds_a_hung_external_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def hang(*args: object, **kwargs: object) -> None:
+        raise mp4_audio_module.subprocess.TimeoutExpired("ffmpeg", 10)
+
+    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
+    monkeypatch.setattr(mp4_audio_module.subprocess, "run", hang)
+
+    with pytest.raises(RuntimeError, match="Timed out"):
+        preflight_audio_codec(sample_rate=32_000, channels=2)
+
+
+def test_audio_codec_preflight_surfaces_an_external_spawn_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_spawn(*args: object, **kwargs: object) -> None:
+        raise OSError("process table full")
+
+    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
+    monkeypatch.setattr(mp4_audio_module.subprocess, "run", fail_spawn)
+
+    with pytest.raises(RuntimeError, match="process table full"):
+        preflight_audio_codec(sample_rate=32_000, channels=2)
+
+
 def test_audio_muxer_builds_external_stream_copy_command(tmp_path: Path) -> None:
     muxer = Mp4AudioMuxer(
         video_path=tmp_path / "video.mp4",
@@ -131,7 +237,7 @@ def test_audio_muxer_builds_external_stream_copy_command(tmp_path: Path) -> None
         output_path=tmp_path / "output.mp4",
         sample_rate=32_000,
         channels=2,
-        audio_codec="reviewed-codec",
+        ffmpeg_path="/usr/bin/ffmpeg",
     )
 
     assert muxer._command("/usr/bin/ffmpeg") == [
@@ -157,7 +263,11 @@ def test_audio_muxer_builds_external_stream_copy_command(tmp_path: Path) -> None
         "-c:v",
         "copy",
         "-c:a",
-        "reviewed-codec",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        "192k",
         "-movflags",
         "+faststart",
         str(tmp_path / "output.mp4"),
@@ -183,7 +293,7 @@ def test_audio_muxer_surfaces_external_process_diagnostics(
         output_path=tmp_path / "output.mp4",
         sample_rate=8_000,
         channels=1,
-        audio_codec="reviewed-codec",
+        ffmpeg_path="/ffmpeg",
     )
 
     with pytest.raises(RuntimeError, match="codec failed"):
@@ -210,7 +320,7 @@ def test_audio_muxer_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> No
         output_path=tmp_path / "output.mp4",
         sample_rate=8_000,
         channels=1,
-        audio_codec="reviewed-codec",
+        ffmpeg_path="/usr/bin/ffmpeg",
     )
     muxer._process = Process()  # type: ignore[assignment]
 
@@ -247,7 +357,7 @@ def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> No
         output_path=tmp_path / "output.mp4",
         sample_rate=8_000,
         channels=1,
-        audio_codec="reviewed-codec",
+        ffmpeg_path="/usr/bin/ffmpeg",
     )
     muxer._process = process  # type: ignore[assignment]
 
