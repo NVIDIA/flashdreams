@@ -28,6 +28,7 @@ members = [
     "flashdreams-hy-worldplay",
     "flashdreams-lingbot",
     "flashdreams-minimax-h3",
+    "flashdreams-minimax-h3-v2",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-red-screen",
@@ -1344,6 +1345,37 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "torch", specifier = ">=2.9" },
     { name = "transformers", specifier = ">=5,<6" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-minimax-h3-v2"
+version = "0.1.0"
+source = { editable = "integrations_v2/minimax_h3" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-minimax-h3" },
+    { name = "mediapy" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "pillow" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "tomli" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-minimax-h3", editable = "integrations/minimax_h3" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
 ]
 provides-extras = ["dev"]
 
