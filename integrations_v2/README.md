@@ -18,6 +18,8 @@ follows is already done for you.
 - `red_screen` — the smallest interactive one, streaming to a browser.
 - `slangpy_ui_demo` — three applications that draw widgets over model output,
   and the reference for writing a UI loop.
+- `minimax_h3` — native synchronized text, keyframe, and reference-conditioned
+  video-and-audio generation, with one finite result per session.
 - `t2v_self_forcing`, `t2v_causal_forcing`, `t2v_fastvideo_causal_wan22`,
   `t2v_wan21`, `t2v_cosmos_predict2` — real models, each a thin wrapper over
   `flashdreams.t2v_v2`.
@@ -164,6 +166,13 @@ Three things catch people out here. A model loop must return a `list`, even of
 one channel. `is_finished` is what ends a run writing to a file, since an MP4
 window never sends a close event. And `reset` raises by default, so implement it
 even when the body is one line — a browser client can ask for one at any time.
+
+A synchronized application declares `audio_sample_rate` and `audio_channels`
+together in its `SessionDesc`, then may attach one `AudioOutput` to one channel
+in a generated chunk. Audio is channel-major normalized PCM on an absolute
+sample timeline. The default UI forwards a chunk's payload once, with its first
+presented frame; a custom UI must call `presented_model_audio()` and forward the
+result itself.
 
 Register no UI loop unless you need one. The default composites every model
 channel into one frame, which is what all of these except `slangpy_ui_demo` do.

@@ -30,9 +30,9 @@ Pass both `--work-dir` and `--job-id` to checkpoint paired video/audio denoise
 state. `--restart` ignores a matching checkpoint. `--lora` currently accepts a
 local Musubi safetensors file whose contents become part of checkpoint identity.
 
-Image and video pixels are decoded by the shared runner media boundary. Audio
-uses executables named `ffprobe` and `ffmpeg` installed on the host and available
-on `PATH`; the package does not bundle or discover a Python-provided FFmpeg.
+Still images are decoded with Pillow. Video and audio use executables named
+`ffprobe` and `ffmpeg` installed on the host and available on `PATH`; the
+package does not bundle or discover a Python-provided FFmpeg.
 
 The application already declares and returns synchronized audio. Publishing it
 in the built-in MP4 mode remains gated on an explicitly approved public MP4

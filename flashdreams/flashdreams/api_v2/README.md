@@ -107,6 +107,26 @@ Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
 other range converts before returning.
 
+### Synchronized audio
+
+A session that emits audio sets both `SessionDesc.audio_sample_rate` and
+`SessionDesc.audio_channels`; setting only one is invalid. Mono and stereo are
+supported by the model-neutral contract. A sink that cannot consume the
+declared format rejects the session from `open`, before generation starts.
+
+`StepResult.audio` is an optional `AudioOutput`. Its floating-point `samples`
+have channel-major shape `[channels, samples]`, contain only finite normalized
+PCM in `[-1, 1]`, and carry the declared sample rate. `sample_offset` is the
+absolute zero-based position of the payload on the session audio timeline. A
+forward gap is therefore explicit silence; overlapping or backward payloads
+are invalid for the built-in MP4 sink.
+
+Only one channel in a model chunk may carry audio. The presentation manager
+makes that payload available once, with the chunk's first presented frame.
+`BlitModelOutputToScreenLoop` forwards it automatically. A custom UI loop owns
+that decision and calls `presented_model_audio()` at most once per chunk before
+attaching the returned payload to its own `StepResult`.
+
 ## A minimal application
 
 Using the default UI loop, so there is only a model loop to write:
