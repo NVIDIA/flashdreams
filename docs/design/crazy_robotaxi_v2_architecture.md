@@ -52,7 +52,7 @@ flowchart TD
         BUFFER["PresentationManager<br/>RGB + optional RGBA BEV channels"]
         HUD["CrazyRobotaxiSlangPyUILoop<br/>waypoint cache + HUD widgets"]
         COMPOSE["RGB → waypoint → BEV composition<br/>then SlangPy ImGui HUD"]
-        WINDOW["V2 client window<br/>WebRTC / MP4 / supported host"]
+        WINDOW["V2 client window<br/>native / WebRTC / MP4"]
     end
 
     HOST --> APP

@@ -4,7 +4,7 @@ Crazy Robotaxi is a FlashDreams V2 application built on the model/UI-loop API
 and `omnidreams-game-engine`. FlashDreams owns input collection, reset
 generations, presentation buffering, client windows, and the two-thread
 runtime. The UI loop uses FlashDreams' SlangPy renderer for the game HUD and
-composites it over model frames for local and WebRTC clients.
+composites it over model frames for native-window, WebRTC, and file clients.
 Camera-projected waypoint rings, beacons, and labels are rendered as a
 frame-aligned world layer on the UI thread; they are not ImGui windows. The
 model loop publishes immutable snapshot-and-pose metadata for each generated
@@ -16,6 +16,16 @@ applies the SlangPy ImGui HUD.
 
 ```bash
 uv sync --package crazy-robotaxi
+uv run flashdreams-run-v2 crazy-robotaxi \
+  --mode native-window \
+  --window-title "Crazy Robotaxi"
+```
+
+Native-window mode keeps the composited frame on the GPU and presents it in a
+local GLFW window. It requires a local display plus SlangPy's Vulkan/CUDA
+interop support. For a browser client instead, run:
+
+```bash
 uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc
 ```
 

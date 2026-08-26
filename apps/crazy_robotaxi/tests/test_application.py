@@ -5,10 +5,12 @@
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import numpy as np
 import pytest
+import torch
 from crazy_robotaxi.application import _MODEL_PRESETS, CrazyRobotaxiApplication
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.session import CrazyRobotaxiModelLoop
@@ -20,6 +22,10 @@ from omnidreams_game_engine.types import (
     SceneDefinition,
 )
 
+from flashdreams.runtime_v2.native_window_client_window import (
+    NativeWindowClientWindow,
+)
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -85,6 +91,71 @@ def test_application_registers_model_and_slangpy_ui_loops() -> None:
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
     assert ui_loop.state.profile_input_latency
+
+
+def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
+    """Keep the app's fixed output contract compatible with V2 native output."""
+
+    class Presenter:
+        should_close = False
+
+        def __init__(self) -> None:
+            self.frames: list[torch.Tensor] = []
+            self.closed = False
+
+        def set_input_callbacks(self, **callbacks: object) -> None:
+            assert set(callbacks) == {"on_keyboard_event", "on_mouse_event"}
+
+        def present_frame(self, frame: torch.Tensor) -> bool:
+            self.frames.append(frame)
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+    desc = CrazyRobotaxiApplication().session_desc()
+    presenter = Presenter()
+    presenter_arguments: dict[str, object] = {}
+
+    def create_presenter(**arguments: object) -> Presenter:
+        presenter_arguments.update(arguments)
+        return presenter
+
+    window = NativeWindowClientWindow(
+        title="Crazy Robotaxi",
+        presenter_factory=cast(Any, create_presenter),
+    )
+    source = torch.zeros(
+        (1, 3, desc.video_height, desc.video_width),
+        dtype=torch.float32,
+    )
+
+    window.open(desc)
+    window.write(
+        StepResult(
+            step_index=0,
+            output=source,
+            frame_count=1,
+            output_layout=desc.output_layout,
+        )
+    )
+    window.close()
+
+    assert presenter_arguments == {
+        "width": desc.video_width,
+        "height": desc.video_height,
+        "title": "Crazy Robotaxi",
+    }
+    assert len(presenter.frames) == 1
+    assert presenter.frames[0].shape == (
+        desc.video_height,
+        desc.video_width,
+        3,
+    )
+    assert presenter.frames[0].device == source.device
+    assert presenter.frames[0].dtype is torch.uint8
+    assert torch.all(presenter.frames[0] == 128)
+    assert presenter.closed
 
 
 @pytest.mark.parametrize(
