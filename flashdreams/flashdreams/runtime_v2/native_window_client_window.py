@@ -430,11 +430,11 @@ class _SlangPyNativeWindowPresenter:
         if self._closed:
             return
         self._closed = True
-        if self._device is not None:
-            self._device.wait_for_idle()
         if self._cuda_rgb_interop is not None:
             self._cuda_rgb_interop.close()
             self._cuda_rgb_interop = None
+        if self._device is not None:
+            self._device.wait_for_idle()
         self._display_texture = None
         self._surface = None
         self._device = None
