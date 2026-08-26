@@ -263,10 +263,7 @@ def _upstream_video_tokens_to_tensor(tokens: Tensor) -> Tensor:
         ROBOTWIN_LATENT_CHANNELS,
     )
     return (
-        tokens.permute(0, 7, 1, 4, 2, 5, 3, 6)
-        .flatten(6, 7)
-        .flatten(4, 5)
-        .flatten(2, 3)
+        tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).flatten(6, 7).flatten(4, 5).flatten(2, 3)
     )
 
 
@@ -335,16 +332,20 @@ def _native_outputs(
             persist=True,
         )
     cache.finalize(0)
-    video = rearrange(
-        video_tokens,
-        "b (f h w) (c kt kh kw) -> b c (f kt) (h kh) (w kw)",
-        f=ROBOTWIN_FRAME_CHUNK_SIZE,
-        h=ROBOTWIN_LATENT_HEIGHT // 2,
-        w=ROBOTWIN_LATENT_WIDTH // 2,
-        kt=1,
-        kh=2,
-        kw=2,
-    ).float().cpu()
+    video = (
+        rearrange(
+            video_tokens,
+            "b (f h w) (c kt kh kw) -> b c (f kt) (h kh) (w kw)",
+            f=ROBOTWIN_FRAME_CHUNK_SIZE,
+            h=ROBOTWIN_LATENT_HEIGHT // 2,
+            w=ROBOTWIN_LATENT_WIDTH // 2,
+            kt=1,
+            kh=2,
+            kw=2,
+        )
+        .float()
+        .cpu()
+    )
     action = action_tokens.float().cpu()
     transformer.network.to("cpu")
     del transformer, cache, video_tokens, action_tokens
@@ -356,7 +357,9 @@ def _native_outputs(
 def _difference(reference: Tensor, actual: Tensor) -> _Difference:
     """Summarize absolute error after checking shape and finiteness."""
     if reference.shape != actual.shape:
-        raise ValueError(f"Shape mismatch: upstream {reference.shape}, native {actual.shape}")
+        raise ValueError(
+            f"Shape mismatch: upstream {reference.shape}, native {actual.shape}"
+        )
     if not torch.isfinite(reference).all() or not torch.isfinite(actual).all():
         raise ValueError("Parity outputs must be finite.")
     error = (reference - actual).abs()
@@ -394,7 +397,9 @@ def main() -> None:
     )
     video_difference = _difference(upstream_video, native_video)
     action_difference = _difference(upstream_action, native_action)
-    print(f"video_shape={tuple(native_video.shape)} video_difference={video_difference}")
+    print(
+        f"video_shape={tuple(native_video.shape)} video_difference={video_difference}"
+    )
     print(
         f"action_shape={tuple(native_action.shape)} "
         f"action_difference={action_difference}"

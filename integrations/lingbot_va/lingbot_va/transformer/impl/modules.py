@@ -43,6 +43,7 @@ from lingbot_va.transformer.impl.kvcache import VAKVCache
 # Cache
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class VABlockCache:
     """Per-block cache for a VA transformer block."""
@@ -54,6 +55,7 @@ class VABlockCache:
 # ---------------------------------------------------------------------------
 # VASelfAttention
 # ---------------------------------------------------------------------------
+
 
 class VASelfAttention(MultiHeadAttention):
     """Self-attention that takes committed KV as plain tensors.
@@ -107,6 +109,7 @@ class VASelfAttention(MultiHeadAttention):
 # ---------------------------------------------------------------------------
 # VABlock
 # ---------------------------------------------------------------------------
+
 
 class VABlock(nn.Module):
     """Transformer block for video-action models.

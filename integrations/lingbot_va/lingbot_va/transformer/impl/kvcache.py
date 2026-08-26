@@ -129,15 +129,21 @@ class VAKVCache:
         """
         batch, _, heads, head_dim = k.shape
         action_k = torch.zeros(
-            batch, self.action_chunk, heads, head_dim,
-            device=k.device, dtype=k.dtype,
+            batch,
+            self.action_chunk,
+            heads,
+            head_dim,
+            device=k.device,
+            dtype=k.dtype,
         )
         action_v = torch.zeros_like(action_k)
         full_k = torch.cat([k, action_k], dim=1)
         full_v = torch.cat([v, action_v], dim=1)
         self.kv_cache.update(full_k, full_v)
 
-    def write_action(self, k: Tensor, v: Tensor, video_k: Tensor, video_v: Tensor) -> None:
+    def write_action(
+        self, k: Tensor, v: Tensor, video_k: Tensor, video_v: Tensor
+    ) -> None:
         """Write full [video|action] KV to the current chunk (overwrite).
 
         Called once on the final action denoising step.

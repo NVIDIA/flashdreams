@@ -22,7 +22,11 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from flashdreams.infra.diffusion.scheduler import FlowPredictor, Scheduler, SchedulerConfig
+from flashdreams.infra.diffusion.scheduler import (
+    FlowPredictor,
+    Scheduler,
+    SchedulerConfig,
+)
 
 
 def warp_sigmas(sigmas: Tensor, shift: float) -> Tensor:
@@ -62,7 +66,9 @@ class LingbotVAFlowMatchScheduler(Scheduler):
         self.register_buffer("timesteps", timesteps, persistent=False)
 
     @staticmethod
-    def build_schedule(config: LingbotVAFlowMatchSchedulerConfig) -> tuple[Tensor, Tensor]:
+    def build_schedule(
+        config: LingbotVAFlowMatchSchedulerConfig,
+    ) -> tuple[Tensor, Tensor]:
         sigma_start = config.sigma_min + (config.sigma_max - config.sigma_min)
         if config.extra_one_step:
             sigmas = torch.linspace(
@@ -93,13 +99,17 @@ class LingbotVAFlowMatchScheduler(Scheduler):
 
     def step(self, model_output: Tensor, timestep: Tensor, sample: Tensor) -> Tensor:
         """Apply one upstream Euler step in sigma space."""
-        timestep_cpu = timestep.detach().to(device=self.timesteps.device, dtype=self.timesteps.dtype)
+        timestep_cpu = timestep.detach().to(
+            device=self.timesteps.device, dtype=self.timesteps.dtype
+        )
         timestep_id = torch.argmin((self.timesteps - timestep_cpu).abs())
         sigma = self.sigmas[timestep_id].to(device=sample.device, dtype=sample.dtype)
         if int(timestep_id.item()) + 1 >= self.sigmas.shape[0]:
             sigma_next = torch.zeros((), device=sample.device, dtype=sample.dtype)
         else:
-            sigma_next = self.sigmas[timestep_id + 1].to(device=sample.device, dtype=sample.dtype)
+            sigma_next = self.sigmas[timestep_id + 1].to(
+                device=sample.device, dtype=sample.dtype
+            )
         return sample + model_output * (sigma_next - sigma)
 
     def sample(
@@ -112,7 +122,9 @@ class LingbotVAFlowMatchScheduler(Scheduler):
         del rng
         sample = initial_noise
         for timestep in self.timesteps:
-            flow = predict_flow(sample, timestep.to(device=sample.device, dtype=sample.dtype))
+            flow = predict_flow(
+                sample, timestep.to(device=sample.device, dtype=sample.dtype)
+            )
             sample = self.step(flow, timestep, sample)
         return sample
 
@@ -124,7 +136,11 @@ class LingbotVAFlowMatchScheduler(Scheduler):
     ) -> Tensor:
         """Apply upstream forward corruption at the nearest scheduler timestep."""
         noise = torch.empty_like(clean_input).normal_(generator=rng)
-        timestep_cpu = timestep.detach().to(device=self.timesteps.device, dtype=self.timesteps.dtype)
+        timestep_cpu = timestep.detach().to(
+            device=self.timesteps.device, dtype=self.timesteps.dtype
+        )
         timestep_id = torch.argmin((self.timesteps - timestep_cpu).abs())
-        sigma = self.sigmas[timestep_id].to(device=clean_input.device, dtype=clean_input.dtype)
+        sigma = self.sigmas[timestep_id].to(
+            device=clean_input.device, dtype=clean_input.dtype
+        )
         return (1.0 - sigma) * clean_input + sigma * noise

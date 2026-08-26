@@ -51,6 +51,7 @@ from lingbot_va.transformer.impl.network import (
 # Cache
 # ---------------------------------------------------------------------------
 
+
 @dataclass(kw_only=True)
 class LingbotVATransformerCache(TransformerAutoregressiveCache):
     """Per-rollout AR cache."""
@@ -86,6 +87,7 @@ class LingbotVATransformerCache(TransformerAutoregressiveCache):
 # Config
 # ---------------------------------------------------------------------------
 
+
 @dataclass(kw_only=True)
 class LingbotVATransformerConfig(TransformerConfig):
     """Config for the native LingBot-VA transformer."""
@@ -113,6 +115,7 @@ class LingbotVATransformerConfig(TransformerConfig):
 # Transformer
 # ---------------------------------------------------------------------------
 
+
 class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
     """Native LingBot-VA transformer with torch.compile support."""
 
@@ -123,7 +126,7 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         self.config: LingbotVATransformerConfig = config
         self._anchor = nn.Parameter(torch.empty(0))
         # Use object.__setattr__ to avoid nn.Module type checks on compiled modules
-        object.__setattr__(self, '_network', None)
+        object.__setattr__(self, "_network", None)
 
     def load_model(self, device: torch.device) -> None:
         """Build, load weights, and optionally compile the network."""
@@ -132,7 +135,9 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         net.eval()
 
         ckpt_path = os.path.join(cfg.checkpoint_root, "transformer")
-        idx_path = os.path.join(ckpt_path, "diffusion_pytorch_model.safetensors.index.json")
+        idx_path = os.path.join(
+            ckpt_path, "diffusion_pytorch_model.safetensors.index.json"
+        )
         if os.path.exists(idx_path):
             ckpt_path = idx_path
         state_dict = load_checkpoint(ckpt_path, map_location="cpu")
@@ -164,7 +169,7 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
                 ),
             )
 
-        object.__setattr__(self, '_network', net)
+        object.__setattr__(self, "_network", net)
 
     @property
     def network(self) -> WanVADiTNetwork:
@@ -239,7 +244,11 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         ).to(noisy_latent.device)
 
         flow_cond, video_kv_cond = self.network.forward_video(
-            noisy_latent, timestep, cache.network_cache, rope_freqs, persist=persist,
+            noisy_latent,
+            timestep,
+            cache.network_cache,
+            rope_freqs,
+            persist=persist,
         )
         if persist:
             assert video_kv_cond is not None
@@ -247,13 +256,19 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
 
         if cache.network_cache_uncond is not None:
             flow_uncond, video_kv_uncond = self.network.forward_video(
-                noisy_latent, timestep, cache.network_cache_uncond, rope_freqs, persist=persist,
+                noisy_latent,
+                timestep,
+                cache.network_cache_uncond,
+                rope_freqs,
+                persist=persist,
             )
             if persist:
                 assert video_kv_uncond is not None
                 cache.video_kv_uncond = video_kv_uncond
             if self.config.guidance_scale > 1.0:
-                return flow_uncond + self.config.guidance_scale * (flow_cond - flow_uncond)
+                return flow_uncond + self.config.guidance_scale * (
+                    flow_cond - flow_uncond
+                )
 
         return flow_cond
 
@@ -296,7 +311,9 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             if persist:
                 cache.video_kv_uncond = None
             if self.config.action_guidance_scale > 1.0:
-                return flow_uncond + self.config.action_guidance_scale * (flow_cond - flow_uncond)
+                return flow_uncond + self.config.action_guidance_scale * (
+                    flow_cond - flow_uncond
+                )
 
         return flow_cond
 

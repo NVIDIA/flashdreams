@@ -50,11 +50,23 @@ _TOPLEVEL_RULES: list[tuple[str, str]] = [
     (r"^condition_embedder\.text_embedder\.linear_2\.(.+)$", r"text_embedding.2.\1"),
     (r"^action_embedder\.(.+)$", r"action_embedder.\1"),
     (r"^action_proj_out\.(.+)$", r"action_head.\1"),
-    (r"^condition_embedder_action\.time_embedder\.linear_1\.(.+)$", r"action_time_embedding.0.\1"),
-    (r"^condition_embedder_action\.time_embedder\.linear_2\.(.+)$", r"action_time_embedding.2.\1"),
+    (
+        r"^condition_embedder_action\.time_embedder\.linear_1\.(.+)$",
+        r"action_time_embedding.0.\1",
+    ),
+    (
+        r"^condition_embedder_action\.time_embedder\.linear_2\.(.+)$",
+        r"action_time_embedding.2.\1",
+    ),
     (r"^condition_embedder_action\.time_proj\.(.+)$", r"action_time_projection.1.\1"),
-    (r"^condition_embedder_action\.text_embedder\.linear_1\.(.+)$", r"action_text_embedding.0.\1"),
-    (r"^condition_embedder_action\.text_embedder\.linear_2\.(.+)$", r"action_text_embedding.2.\1"),
+    (
+        r"^condition_embedder_action\.text_embedder\.linear_1\.(.+)$",
+        r"action_text_embedding.0.\1",
+    ),
+    (
+        r"^condition_embedder_action\.text_embedder\.linear_2\.(.+)$",
+        r"action_text_embedding.2.\1",
+    ),
     (r"^proj_out\.(.+)$", r"head.head.\1"),
     (r"^scale_shift_table$", r"head.modulation"),
 ]

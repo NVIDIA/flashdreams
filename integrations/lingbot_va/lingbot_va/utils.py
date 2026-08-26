@@ -98,7 +98,9 @@ def data_seq_to_patch(
 def resolve_prompt(value: str | Path) -> str:
     """Resolve an inline prompt or a text file whose first non-empty line is used."""
     if isinstance(value, Path):
-        lines = [line.strip() for line in value.read_text().splitlines() if line.strip()]
+        lines = [
+            line.strip() for line in value.read_text().splitlines() if line.strip()
+        ]
         assert lines, f"prompt file {value} has no non-empty lines"
         return lines[0]
     assert value, "prompt must be a non-empty string or a path"

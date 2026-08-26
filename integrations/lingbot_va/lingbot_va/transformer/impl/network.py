@@ -41,6 +41,7 @@ VideoKV = tuple[tuple[Tensor, Tensor], ...]
 # Config
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class WanVADiTNetworkConfig:
     """Network config for the LingBot-VA video-action DiT."""
@@ -67,6 +68,7 @@ class WanVADiTNetworkConfig:
 # Network cache
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class WanVADiTNetworkCache:
     """Per-block caches for the entire network."""
@@ -80,6 +82,7 @@ class WanVADiTNetworkCache:
 # ---------------------------------------------------------------------------
 # RoPE helper
 # ---------------------------------------------------------------------------
+
 
 def compute_rope_freqs_from_grid(
     grid_id: Tensor,
@@ -95,9 +98,27 @@ def compute_rope_freqs_from_grid(
     w_dim = head_dim // 3
     device = grid_id.device
 
-    f_base = 1.0 / (theta ** (torch.arange(0, f_dim, 2, device=device, dtype=torch.float64)[: f_dim // 2] / f_dim))
-    h_base = 1.0 / (theta ** (torch.arange(0, h_dim, 2, device=device, dtype=torch.float64)[: h_dim // 2] / h_dim))
-    w_base = 1.0 / (theta ** (torch.arange(0, w_dim, 2, device=device, dtype=torch.float64)[: w_dim // 2] / w_dim))
+    f_base = 1.0 / (
+        theta
+        ** (
+            torch.arange(0, f_dim, 2, device=device, dtype=torch.float64)[: f_dim // 2]
+            / f_dim
+        )
+    )
+    h_base = 1.0 / (
+        theta
+        ** (
+            torch.arange(0, h_dim, 2, device=device, dtype=torch.float64)[: h_dim // 2]
+            / h_dim
+        )
+    )
+    w_base = 1.0 / (
+        theta
+        ** (
+            torch.arange(0, w_dim, 2, device=device, dtype=torch.float64)[: w_dim // 2]
+            / w_dim
+        )
+    )
 
     f_angles = grid_id[0].to(torch.float64).unsqueeze(-1) * f_base.unsqueeze(0)
     h_angles = grid_id[1].to(torch.float64).unsqueeze(-1) * h_base.unsqueeze(0)
@@ -105,11 +126,14 @@ def compute_rope_freqs_from_grid(
 
     # Interleaved format: each angle duplicated as [theta_0, theta_0, theta_1, theta_1, ...]
     # to match RotaryPositionEmbedding3D._cat_freqs(interleaved=True)
-    freqs = torch.cat([
-        f_angles.repeat_interleave(2, dim=-1),
-        h_angles.repeat_interleave(2, dim=-1),
-        w_angles.repeat_interleave(2, dim=-1),
-    ], dim=-1).float()
+    freqs = torch.cat(
+        [
+            f_angles.repeat_interleave(2, dim=-1),
+            h_angles.repeat_interleave(2, dim=-1),
+            w_angles.repeat_interleave(2, dim=-1),
+        ],
+        dim=-1,
+    ).float()
 
     return freqs.unsqueeze(1).unsqueeze(1)  # [L, 1, 1, head_dim]
 
@@ -117,6 +141,7 @@ def compute_rope_freqs_from_grid(
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
+
 
 class WanVADiTNetwork(nn.Module):
     """Video-Action DiT network with native flashdreams building blocks."""
@@ -171,18 +196,20 @@ class WanVADiTNetwork(nn.Module):
         )
 
         # Shared transformer blocks
-        self.blocks = nn.ModuleList([
-            VABlock(
-                dim=self.dim,
-                ffn_dim=config.ffn_dim,
-                num_heads=config.num_heads,
-                cross_attn_norm=config.cross_attn_norm,
-                eps=config.eps,
-                apply_rope_before_kvcache=config.apply_rope_before_kvcache,
-                cp_method=config.cp_method,
-            )
-            for _ in range(config.num_layers)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                VABlock(
+                    dim=self.dim,
+                    ffn_dim=config.ffn_dim,
+                    num_heads=config.num_heads,
+                    cross_attn_norm=config.cross_attn_norm,
+                    eps=config.eps,
+                    apply_rope_before_kvcache=config.apply_rope_before_kvcache,
+                    cp_method=config.cp_method,
+                )
+                for _ in range(config.num_layers)
+            ]
+        )
 
         # Video output head
         self.head = Head(self.dim, config.out_dim, config.patch_size, config.eps)
@@ -205,17 +232,24 @@ class WanVADiTNetwork(nn.Module):
     def _fuse_shuffle_op_into_last_layer(self) -> None:
         """Fuse channel shuffle into head.head weights (same as WanDiTNetwork)."""
         from einops import rearrange
+
         kt, kh, kw = self.patch_size
         self.head.head.weight.data = rearrange(
             self.head.head.weight,
             "(kt kh kw c) in_dim -> (c kt kh kw) in_dim",
-            kt=kt, kh=kh, kw=kw, c=self.out_dim,
+            kt=kt,
+            kh=kh,
+            kw=kw,
+            c=self.out_dim,
         ).contiguous()
         if self.head.head.bias is not None:
             self.head.head.bias.data = rearrange(
                 self.head.head.bias,
                 "(kt kh kw c) -> (c kt kh kw)",
-                kt=kt, kh=kh, kw=kw, c=self.out_dim,
+                kt=kt,
+                kh=kh,
+                kw=kw,
+                c=self.out_dim,
             ).contiguous()
 
     def initialize_cache(
@@ -243,10 +277,12 @@ class WanVADiTNetwork(nn.Module):
                 dtype=text_embeddings.dtype,
             )
             cross_attn_cache = block.cross_attn.initialize_cache(context_text)
-            block_caches.append(VABlockCache(
-                self_attn=self_attn_cache,
-                cross_attn=cross_attn_cache,
-            ))
+            block_caches.append(
+                VABlockCache(
+                    self_attn=self_attn_cache,
+                    cross_attn=cross_attn_cache,
+                )
+            )
         return WanVADiTNetworkCache(block_caches=block_caches)
 
     def _extract_cache_tensors(
@@ -260,22 +296,30 @@ class WanVADiTNetwork(nn.Module):
             (committed_k_stack, committed_v_stack, cross_k_stack, cross_v_stack)
             All shapes: [num_layers, batch, seq_len, heads, head_dim]
         """
-        committed_k = torch.stack([
-            bc.self_attn.kv_cache._k[:, :bc.self_attn.n_committed_tokens]
-            for bc in cache.block_caches
-        ])
-        committed_v = torch.stack([
-            bc.self_attn.kv_cache._v[:, :bc.self_attn.n_committed_tokens]
-            for bc in cache.block_caches
-        ])
-        cross_k = torch.stack([
-            bc.cross_attn.text._k[:, :bc.cross_attn.text._n_cached]
-            for bc in cache.block_caches
-        ])
-        cross_v = torch.stack([
-            bc.cross_attn.text._v[:, :bc.cross_attn.text._n_cached]
-            for bc in cache.block_caches
-        ])
+        committed_k = torch.stack(
+            [
+                bc.self_attn.kv_cache._k[:, : bc.self_attn.n_committed_tokens]
+                for bc in cache.block_caches
+            ]
+        )
+        committed_v = torch.stack(
+            [
+                bc.self_attn.kv_cache._v[:, : bc.self_attn.n_committed_tokens]
+                for bc in cache.block_caches
+            ]
+        )
+        cross_k = torch.stack(
+            [
+                bc.cross_attn.text._k[:, : bc.cross_attn.text._n_cached]
+                for bc in cache.block_caches
+            ]
+        )
+        cross_v = torch.stack(
+            [
+                bc.cross_attn.text._v[:, : bc.cross_attn.text._n_cached]
+                for bc in cache.block_caches
+            ]
+        )
         return committed_k, committed_v, cross_k, cross_v
 
     def _forward_blocks_video(
@@ -300,7 +344,9 @@ class WanVADiTNetwork(nn.Module):
             (head_output, k_fresh_list, v_fresh_list)
         """
         x = self.patch_embedding(x)
-        e = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x))
+        e = self.time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x)
+        )
         e0 = self.time_projection(e).unflatten(-1, (6, self.dim))
         block_e = e0
         head_e = e.unsqueeze(-2)
@@ -309,9 +355,12 @@ class WanVADiTNetwork(nn.Module):
         v_list: list[Tensor] = []
         for block_idx, block in enumerate(self.blocks):
             x, k_fresh, v_fresh = block(
-                x, block_e,
-                committed_k[block_idx], committed_v[block_idx],
-                cross_k[block_idx], cross_v[block_idx],
+                x,
+                block_e,
+                committed_k[block_idx],
+                committed_v[block_idx],
+                cross_k[block_idx],
+                cross_v[block_idx],
                 rope_freqs,
             )
             k_list.append(k_fresh)
@@ -335,7 +384,9 @@ class WanVADiTNetwork(nn.Module):
             (action_output, k_fresh_list, v_fresh_list)
         """
         x = self.action_embedder(x)
-        e = self.action_time_embedding(sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x))
+        e = self.action_time_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, timesteps).type_as(x)
+        )
         e0 = self.action_time_projection(e).unflatten(-1, (6, self.dim))
         block_e = e0
         head_e = e.unsqueeze(-2)
@@ -344,16 +395,21 @@ class WanVADiTNetwork(nn.Module):
         v_list: list[Tensor] = []
         for block_idx, block in enumerate(self.blocks):
             x, k_fresh, v_fresh = block(
-                x, block_e,
-                committed_k[block_idx], committed_v[block_idx],
-                cross_k[block_idx], cross_v[block_idx],
+                x,
+                block_e,
+                committed_k[block_idx],
+                committed_v[block_idx],
+                cross_k[block_idx],
+                cross_v[block_idx],
                 rope_freqs,
             )
             k_list.append(k_fresh)
             v_list.append(v_fresh)
 
         # Action output: shared modulation + separate projection
-        e_chunks = [c.squeeze(-2) for c in (self.head.modulation + head_e).chunk(2, dim=-2)]
+        e_chunks = [
+            c.squeeze(-2) for c in (self.head.modulation + head_e).chunk(2, dim=-2)
+        ]
         x = self.head.norm(x) * (1 + e_chunks[1]) + e_chunks[0]
         return self.action_head(x), k_list, v_list
 
@@ -380,7 +436,13 @@ class WanVADiTNetwork(nn.Module):
 
         # Compiled block loop (pure tensors, no cache access)
         output, k_list, v_list = self._forward_blocks_video(
-            x, timesteps, committed_k, committed_v, cross_k, cross_v, rope_freqs,
+            x,
+            timesteps,
+            committed_k,
+            committed_v,
+            cross_k,
+            cross_v,
+            rope_freqs,
         )
 
         # Cache write (outside compile boundary)
@@ -428,7 +490,13 @@ class WanVADiTNetwork(nn.Module):
 
         # Compiled block loop (pure tensors, no cache access)
         output, k_list, v_list = self._forward_blocks_action(
-            x, timesteps, committed_k, committed_v, cross_k, cross_v, rope_freqs,
+            x,
+            timesteps,
+            committed_k,
+            committed_v,
+            cross_k,
+            cross_v,
+            rope_freqs,
         )
 
         # Cache write (outside compile boundary)

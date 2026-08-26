@@ -25,16 +25,23 @@ from einops import rearrange
 from torch import Tensor
 from tqdm import tqdm
 
-from flashdreams.infra.pipeline import StreamInferencePipeline, StreamInferencePipelineConfig
+from flashdreams.infra.pipeline import (
+    StreamInferencePipeline,
+    StreamInferencePipelineConfig,
+)
 from flashdreams.infra.pipeline.base import StreamInferencePipelineCache
 
-from lingbot_va.scheduler import LingbotVAFlowMatchScheduler, LingbotVAFlowMatchSchedulerConfig
+from lingbot_va.scheduler import (
+    LingbotVAFlowMatchScheduler,
+    LingbotVAFlowMatchSchedulerConfig,
+)
 from lingbot_va.transformer import LingbotVATransformer, LingbotVATransformerCache
 from lingbot_va.utils import get_mesh_id
 
 
 class LingbotVAOutput(NamedTuple):
     """Output from one AR step of the LingBot-VA pipeline."""
+
     latent: Tensor
     action: Tensor
 
@@ -155,8 +162,12 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
         frame_st_id = autoregressive_index * fcs
 
         # Initial noise
-        latents = torch.randn(1, cfg.latent_channels, fcs, lh, lw, device=device, dtype=dtype)
-        actions = torch.randn(1, cfg.action_dim, fcs, cfg.action_per_frame, 1, device=device, dtype=dtype)
+        latents = torch.randn(
+            1, cfg.latent_channels, fcs, lh, lw, device=device, dtype=dtype
+        )
+        actions = torch.randn(
+            1, cfg.action_dim, fcs, cfg.action_per_frame, 1, device=device, dtype=dtype
+        )
 
         # Timesteps
         video_timesteps = self.video_scheduler.padded_timesteps
@@ -164,10 +175,21 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
 
         # RoPE grid IDs
         video_grid_id = get_mesh_id(
-            fcs // ps[0], lh // ps[1], lw // ps[2], 0, 1, frame_st_id,
+            fcs // ps[0],
+            lh // ps[1],
+            lw // ps[2],
+            0,
+            1,
+            frame_st_id,
         ).to(device)
         action_grid_id = get_mesh_id(
-            fcs, cfg.action_per_frame, 1, 1, 1, frame_st_id, action=True,
+            fcs,
+            cfg.action_per_frame,
+            1,
+            1,
+            1,
+            frame_st_id,
+            action=True,
         ).to(device)
 
         # Open cache window
@@ -183,8 +205,10 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
                 noisy[:, :, 0:1] = latent_cond
             x = rearrange(
                 noisy,
-                'b c (f p1) (h p2) (w p3) -> b (f h w) (c p1 p2 p3)',
-                p1=ps[0], p2=ps[1], p3=ps[2],
+                "b c (f p1) (h p2) (w p3) -> b (f h w) (c p1 p2 p3)",
+                p1=ps[0],
+                p2=ps[1],
+                p3=ps[2],
             )
 
             t_val = float(t)
@@ -195,16 +219,23 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
                 ts[:, :cond_tokens] = 0.0
 
             pred = self.transformer.predict_flow(
-                x, ts, transformer_cache, input={"grid_id": video_grid_id},
+                x,
+                ts,
+                transformer_cache,
+                input={"grid_id": video_grid_id},
                 persist=last_step,
             )
 
             if not last_step:
                 pred = rearrange(
                     pred,
-                    'b (f h w) (c kt kh kw) -> b c (f kt) (h kh) (w kw)',
-                    f=fcs // ps[0], h=lh // ps[1], w=lw // ps[2],
-                    kt=ps[0], kh=ps[1], kw=ps[2],
+                    "b (f h w) (c kt kh kw) -> b c (f kt) (h kh) (w kw)",
+                    f=fcs // ps[0],
+                    h=lh // ps[1],
+                    w=lw // ps[2],
+                    kt=ps[0],
+                    kh=ps[1],
+                    kw=ps[2],
                 )
                 latents = self.video_scheduler.step(pred, t, latents)
 
@@ -215,24 +246,38 @@ class LingbotVAInferencePipeline(StreamInferencePipeline):
         for i, t in enumerate(tqdm(action_timesteps, desc="action denoise")):
             last_step = i == len(action_timesteps) - 1
             action_cond = (
-                torch.zeros(1, cfg.action_dim, 1, cfg.action_per_frame, 1, device=device, dtype=dtype)
-                if frame_st_id == 0 else None
+                torch.zeros(
+                    1,
+                    cfg.action_dim,
+                    1,
+                    cfg.action_per_frame,
+                    1,
+                    device=device,
+                    dtype=dtype,
+                )
+                if frame_st_id == 0
+                else None
             )
 
             noisy_a = actions.clone()
             if action_cond is not None:
                 noisy_a[:, :, 0:1] = action_cond
             noisy_a[:, ~action_mask] *= 0
-            x_a = rearrange(noisy_a, 'b c f h w -> b (f h w) c')
+            x_a = rearrange(noisy_a, "b c f h w -> b (f h w) c")
 
             t_val = float(t)
             n_tokens_a = x_a.shape[1]
-            ts_a = torch.full((1, n_tokens_a), t_val, dtype=torch.float32, device=device)
+            ts_a = torch.full(
+                (1, n_tokens_a), t_val, dtype=torch.float32, device=device
+            )
             if action_cond is not None and frame_st_id == 0:
-                ts_a[:, :cfg.action_per_frame] = 0.0
+                ts_a[:, : cfg.action_per_frame] = 0.0
 
             pred = self.transformer.predict_action_flow(
-                x_a, ts_a, transformer_cache, input={"grid_id": action_grid_id},
+                x_a,
+                ts_a,
+                transformer_cache,
+                input={"grid_id": action_grid_id},
                 persist=last_step,
             )
 
