@@ -22,6 +22,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 if TYPE_CHECKING:
+    from flashdreams.runtime_v2.audio_output import AudioOutput
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
 
 StateT = TypeVar("StateT")
@@ -307,6 +308,11 @@ class IUILoop(ILoop[StateT], ABC):
             empty tuple before the first model result has been presented.
         """
         return self._presentation_manager.presented_frames()
+
+    @final
+    def presented_model_audio(self) -> AudioOutput | None:
+        """Return the current model chunk's audio payload at most once."""
+        return self._presentation_manager.presented_audio()
 
 
 def _contains_close(events: UserInputEvents) -> bool:

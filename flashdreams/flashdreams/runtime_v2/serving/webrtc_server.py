@@ -326,7 +326,11 @@ class WebRTCServer:
 
         Raises:
             RuntimeError: The server is closed or already open.
+            ValueError: The session declares audio, which this video-only
+                server cannot send.
         """
+        if session_desc.audio_sample_rate is not None:
+            raise ValueError("WebRTC output does not support audio.")
         if self._closed:
             raise RuntimeError("Cannot open a closed WebRTC server.")
         if self._session_desc is not None:

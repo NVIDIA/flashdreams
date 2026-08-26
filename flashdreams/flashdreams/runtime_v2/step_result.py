@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from torch import Tensor
 
+from flashdreams.runtime_v2.audio_output import AudioOutput
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
@@ -34,3 +35,6 @@ class StepResult:
     metrics: dict[str, float | int] = field(default_factory=dict)
     """Measurements for this step, such as timings, keyed by name. Recorded only
     when a run asked for a metrics sink, and only from a model loop."""
+
+    audio: AudioOutput | None = None
+    """Optional PCM generated on the same session timeline as these frames."""
