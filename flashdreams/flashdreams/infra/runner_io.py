@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import threading
 from collections.abc import Callable
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
@@ -152,9 +153,97 @@ def read_video_fps(
     *,
     install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
 ) -> float:
-    """Read a video's frame rate from ``mediapy`` metadata."""
-    media = _import_mediapy("Probing video metadata", install_hint=install_hint)
-    return float(media.VideoMetadata.from_path(str(path)).fps)
+    """Read a video's frame rate through host FFprobe."""
+    del install_hint  # Kept for API compatibility with existing callers.
+    _, _, fps = _probe_video_stream(path)
+    return fps
+
+
+def read_video_rgb_with_fps(path: str | Path) -> tuple[np.ndarray, float]:
+    """Decode RGB frames and their rate through host FFmpeg and FFprobe.
+
+    Args:
+        path: Input video file.
+
+    Returns:
+        Contiguous uint8 ``[time, height, width, 3]`` frames and a positive
+        frames-per-second value.
+
+    Raises:
+        ValueError: Stream metadata or decoded bytes are malformed or empty.
+        RuntimeError: Host tools are absent, probing fails, or decoding fails.
+    """
+    width, height, fps = _probe_video_stream(path)
+    command = [
+        _find_ffmpeg_binary(),
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(path),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-sn",
+        "-dn",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "pipe:1",
+    ]
+    process = subprocess.run(command, capture_output=True, check=False)
+    if process.returncode != 0:
+        diagnostic = process.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"ffmpeg could not decode a video stream from {path}: "
+            f"{diagnostic or 'no diagnostic output'}"
+        )
+    frame_bytes = width * height * 3
+    if not process.stdout:
+        raise ValueError(f"decoded video stream is empty: {path}")
+    if len(process.stdout) % frame_bytes:
+        raise ValueError(f"decoded video bytes contain a truncated frame: {path}")
+    frames = np.frombuffer(process.stdout, dtype=np.uint8).reshape(-1, height, width, 3)
+    return frames.copy(), fps
+
+
+def _probe_video_stream(path: str | Path) -> tuple[int, int, float]:
+    """Return first-video-stream width, height, and rate through host FFprobe."""
+    command = [
+        _find_ffprobe_binary(),
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,avg_frame_rate,r_frame_rate",
+        "-of",
+        "json",
+        str(path),
+    ]
+    process = subprocess.run(command, capture_output=True, check=False)
+    if process.returncode != 0:
+        diagnostic = process.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"ffprobe could not inspect a video stream in {path}: "
+            f"{diagnostic or 'no diagnostic output'}"
+        )
+    try:
+        payload = json.loads(process.stdout)
+        stream = payload["streams"][0]
+        width = int(stream["width"])
+        height = int(stream["height"])
+        rate = stream.get("avg_frame_rate") or stream["r_frame_rate"]
+        fps = float(Fraction(rate))
+    except (IndexError, KeyError, TypeError, ValueError, ZeroDivisionError) as error:
+        raise ValueError(
+            f"ffprobe returned invalid video metadata for {path}"
+        ) from error
+    if width <= 0 or height <= 0 or not np.isfinite(fps) or fps <= 0:
+        raise ValueError(f"ffprobe returned invalid video metadata for {path}")
+    return width, height, fps
 
 
 def read_audio_f32(
@@ -477,6 +566,7 @@ def write_video_tensor(
     cmd = [
         _find_ffmpeg_binary(),
         "-y",
+        "-nostdin",
         "-loglevel",
         "error",
         "-f",

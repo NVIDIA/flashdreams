@@ -1066,9 +1066,7 @@ def test_first_model_failure_survives_all_cleanup_failures(
     log = CallLog()
 
     class FailingModelLoop(FakeModelLoop):
-        def step(
-            self, step_index: int, events: UserInputEvents
-        ) -> list[StepResult]:
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
             del step_index, events
             raise RuntimeError("model step failed first")
 
@@ -1096,6 +1094,27 @@ def test_first_model_failure_survives_all_cleanup_failures(
     assert "abort failed" in caplog.text
     assert log.calls[-2:] == ["session.close", "window.abort"]
     assert log.calls.count("window.abort") == 1
+
+
+def test_queued_loop_failure_outranks_a_main_thread_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Preserve the failure priority defined by the V2 API contract."""
+    log = CallLog()
+
+    class QueuedFailureSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self._failure_queue.put(RuntimeError("loop failed first"))
+
+    session = QueuedFailureSession(_session_desc(), log)
+    window = RecordingClientWindow(log, fail_to_open=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="loop failed first"):
+            run_session(session, window, steps=1)
+
+    assert "open failed" in caplog.text
 
 
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:

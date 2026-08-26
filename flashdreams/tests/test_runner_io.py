@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import io
+import shutil
 import sys
 import threading
 import types
@@ -36,6 +37,7 @@ from flashdreams.infra.runner_io import (
     read_first_frame_rgb,
     read_optional_audio_f32,
     read_video_fps,
+    read_video_rgb_with_fps,
     resolve_input_path,
     resolve_prompt_value,
     runner_artifact_path,
@@ -234,25 +236,75 @@ def test_read_first_frame_rgb_rejects_empty_video(
         read_first_frame_rgb(Path("empty.mp4"))
 
 
-def test_read_video_fps_uses_lazy_mediapy_metadata(
+def test_read_video_fps_uses_host_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_media = types.ModuleType("mediapy")
-    calls: list[str] = []
+    commands: list[list[str]] = []
 
-    class VideoMetadata:
-        fps = 23.976
+    def run(command: list[str], **kwargs: Any) -> Any:
+        commands.append(command)
+        assert kwargs == {"capture_output": True, "check": False}
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=b'{"streams":[{"width":16,"height":8,"avg_frame_rate":"24000/1001"}]}',
+            stderr=b"",
+        )
 
-        @classmethod
-        def from_path(cls, path: str) -> "VideoMetadata":
-            calls.append(path)
-            return cls()
+    monkeypatch.setattr(runner_io, "_find_ffprobe_binary", lambda: "/host/ffprobe")
+    monkeypatch.setattr(runner_io.subprocess, "run", run)
 
-    setattr(fake_media, "VideoMetadata", VideoMetadata)
-    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+    assert read_video_fps(Path("clip.mp4")) == pytest.approx(24_000 / 1_001)
+    assert commands[0][0] == "/host/ffprobe"
+    assert commands[0][-1] == "clip.mp4"
 
-    assert read_video_fps(Path("clip.mp4")) == pytest.approx(23.976)
-    assert calls == ["clip.mp4"]
+
+def test_read_video_with_fps_uses_host_executables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    frames = np.arange(2 * 8 * 16 * 3, dtype=np.uint8).reshape(2, 8, 16, 3)
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        commands.append(command)
+        assert kwargs == {"capture_output": True, "check": False}
+        if command[0] == "/host/ffprobe":
+            stdout = b'{"streams":[{"width":16,"height":8,"avg_frame_rate":"24/1"}]}'
+        else:
+            stdout = frames.tobytes()
+        return types.SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
+
+    monkeypatch.setattr(runner_io, "_find_ffprobe_binary", lambda: "/host/ffprobe")
+    monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "/host/ffmpeg")
+    monkeypatch.setattr(runner_io.subprocess, "run", run)
+
+    decoded, fps = read_video_rgb_with_fps(Path("clip.mp4"))
+
+    assert fps == 24.0
+    assert np.array_equal(decoded, frames)
+    assert [command[0] for command in commands] == ["/host/ffprobe", "/host/ffmpeg"]
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="real video decode needs host ffmpeg and ffprobe on PATH",
+)
+def test_video_round_trip_uses_real_host_executables(tmp_path: Path) -> None:
+    path = tmp_path / "clip.mp4"
+    video = torch.stack(
+        (
+            torch.full((3, 8, 16), -1.0),
+            torch.full((3, 8, 16), 1.0),
+        )
+    )
+
+    write_video_tensor(video, path, fps=24, layout="tchw")
+    decoded, fps = read_video_rgb_with_fps(path)
+
+    assert decoded.shape == (2, 8, 16, 3)
+    assert decoded.dtype == np.uint8
+    assert fps == 24.0
+    assert decoded[0].mean() < 10
+    assert decoded[1].mean() > 245
 
 
 def test_read_audio_f32_uses_host_ffmpeg_and_deinterleaves(
@@ -333,9 +385,7 @@ def test_read_optional_audio_f32_distinguishes_absent_stream(
         commands.append(command)
         assert kwargs == {"capture_output": True, "check": False}
         if command[0] == "/host/ffprobe":
-            return types.SimpleNamespace(
-                returncode=0, stdout=probe_stdout, stderr=b""
-            )
+            return types.SimpleNamespace(returncode=0, stdout=probe_stdout, stderr=b"")
         stdout = np.array([0.25, -0.25], dtype="<f4").tobytes()
         return types.SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
 
@@ -343,9 +393,7 @@ def test_read_optional_audio_f32_distinguishes_absent_stream(
     monkeypatch.setattr(runner_io, "_find_ffmpeg_binary", lambda: "/host/ffmpeg")
     monkeypatch.setattr(runner_io.subprocess, "run", run)
 
-    actual = read_optional_audio_f32(
-        "reference.mp4", sample_rate=32000, channels=2
-    )
+    actual = read_optional_audio_f32("reference.mp4", sample_rate=32000, channels=2)
 
     if expected is None:
         assert actual is None

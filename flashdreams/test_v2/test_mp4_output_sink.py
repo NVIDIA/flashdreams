@@ -527,7 +527,10 @@ def test_audio_result_is_rejected_when_the_session_declared_none(
     ("audio", "message"),
     [
         (AudioOutput(samples=torch.zeros((2, 1)), sample_rate=16_000), "8000 Hz"),
-        (AudioOutput(samples=torch.zeros((1, 1)), sample_rate=8_000), "2 audio channels"),
+        (
+            AudioOutput(samples=torch.zeros((1, 1)), sample_rate=8_000),
+            "2 audio channels",
+        ),
     ],
 )
 def test_audio_result_must_match_the_declared_format(

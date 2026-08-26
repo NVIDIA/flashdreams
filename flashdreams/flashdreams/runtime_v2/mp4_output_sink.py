@@ -31,9 +31,7 @@ class Mp4OutputSink(AbortableOutputSink):
     :class:`~flashdreams.api_v2.output_sink.OutputSink`.
     """
 
-    def __init__(
-        self, path: str | Path, *, audio_codec: str | None = None
-    ) -> None:
+    def __init__(self, path: str | Path, *, audio_codec: str | None = None) -> None:
         """
         Args:
             path: File to write. Parent directories are created.
@@ -259,9 +257,7 @@ class Mp4OutputSink(AbortableOutputSink):
             if failure is None:
                 failure = error
             else:
-                cast(Any, failure).add_note(
-                    f"Staging cleanup also failed: {error!r}"
-                )
+                cast(Any, failure).add_note(f"Staging cleanup also failed: {error!r}")
         self._clear_transaction(clear_staging=not cleanup_failed)
         if failure is not None:
             raise failure

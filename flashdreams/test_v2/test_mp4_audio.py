@@ -91,9 +91,7 @@ def test_audio_stager_rejects_overlap_without_changing_staged_audio(
 def test_audio_stager_rejects_a_payload_of_another_format(
     tmp_path: Path, audio: AudioOutput, message: str
 ) -> None:
-    stager = F32leAudioStager(
-        tmp_path / "audio.f32le", sample_rate=8_000, channels=1
-    )
+    stager = F32leAudioStager(tmp_path / "audio.f32le", sample_rate=8_000, channels=1)
 
     with pytest.raises(ValueError, match=message):
         stager.write(audio)

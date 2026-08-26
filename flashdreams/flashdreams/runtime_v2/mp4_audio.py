@@ -57,8 +57,7 @@ class F32leAudioStager:
         stream = self._require_stream()
         if audio.sample_rate != self._sample_rate:
             raise ValueError(
-                f"Expected audio at {self._sample_rate} Hz, got "
-                f"{audio.sample_rate} Hz."
+                f"Expected audio at {self._sample_rate} Hz, got {audio.sample_rate} Hz."
             )
         pcm = normalized_pcm(audio)
         if pcm.shape[0] != self._channels:
