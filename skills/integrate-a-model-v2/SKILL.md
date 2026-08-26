@@ -25,8 +25,9 @@ Before editing, identify the exact merge base or target PR and inspect these fil
 - `integrations_v2/` for packaging and test examples
 
 Do not infer the contract from an older checkout, a review document, or the V1 API. V2 is
-still evolving. Record the target commit, chosen reference integration, published
-checkpoint, and upstream parity implementation in the integration note.
+still evolving. Record the target commit, chosen reference integration, immutable
+checkpoint revision, pinned upstream parity commit, and external-input hashes in the
+integration note.
 
 When rebasing an existing PR, land conflict resolution before the V2 port when practical.
 Keep the target branch's root dependency policy and lockfile, then add only scoped package
@@ -71,6 +72,13 @@ Prefer config plus model-specific subclasses over a forked network. Write down:
 Keep model deltas inside the model integration. Zero-initialize new residual conditioner
 heads where an identity fallback is valid. If a base checkpoint lacks only those heads,
 tolerate exactly those missing keys and remain strict for everything else.
+
+For stateful or multimodal ports, trace caches and conditioning through the lowest shared
+compute boundary. Tests must verify the values actually consumed, not merely that an
+argument passes through a wrapper. Cover every active CFG/guidance branch and assert the
+model-defined ordering of committed history, current peer-modality state, and fresh state.
+Pin a narrow dependency range when the port relies on private upstream APIs, and record
+what must be retested before widening it.
 
 ## Phase 2: prove checkpoint loading
 
@@ -162,12 +170,20 @@ Live input arrives as timestamp-ordered `UserInputEvents`. Convert event edges i
 controls with a pure, unit-tested mapper. Preserve held-key state across batches and use
 only event payloads implemented by the target branch; some modality classes may be stubs.
 
+Derive `SessionDesc` dimensions and per-step frame counts from the decoder's authoritative
+shape mappings. When temporal expansion, causal overlap, compositing, or a presentation
+crop makes that mapping ambiguous, confirm it with a real decoder probe before hardcoding
+the values. Latent chunk geometry alone is not sufficient evidence.
+
 For every video channel, `StepResult` must declare:
 
 - the received `step_index`;
 - a detached tensor whose dimensions match `output_layout`;
 - `frame_count` equal to the tensor's temporal extent;
 - numeric measurements only in `metrics`.
+
+Name measurements with runtime-recognized unit suffixes such as `_s`, `_ms`, `_fps`,
+`_bytes`, `_gib`, and `_count`, and test the normalized sink output.
 
 Current sinks interpret floating tensors as `[-1, 1]` and integer tensors as `[0, 255]`.
 They accept the target's declared `VideoTensorLayout` values but require one sequence for
@@ -200,12 +216,26 @@ Every pytest test gets exactly one repository marker: `ci_cpu`, `ci_gpu`, or `ma
    MP4 and assert frame count plus non-empty, changing imagery.
 4. **Checkpoint tests:** meta-tensor remap bijection and real-key spot checks; make large
    downloads opt-in.
-5. **GPU smoke:** instantiate the real checkpoint, cover first and steady-state blocks,
-   and produce valid output through the V2 runtime.
-6. **Upstream parity:** same checkpoint, input, seed, precision, scheduler, and step count.
-   Report the agreed metric and tolerance; visual review alone is not parity.
-7. **Performance:** compare matched stacks, discard compile/autotune warmup, and separate
+5. **GPU rollout ladder:** load the full checkpoint with strict missing/unexpected-key
+   checks and clean it up; run a minimal eager block, then multiple blocks with default
+   guidance; exercise production V2 sinks; then test supported offload and compilation
+   modes separately.
+6. **Mode parity:** use matched inputs and seeds. Require exact resident/offload output
+   only when the execution graph, kernels, and precision are unchanged; otherwise record
+   explicit tolerances. Compare eager and compiled flows with maximum and mean error
+   bounds. Initialize the selected CUDA context before resetting per-run peak statistics.
+   After `close()`, verify application/loop resources are released while distinguishing
+   live tensor allocations from memory retained by the CUDA allocator.
+7. **Upstream parity:** use the same checkpoint, input, seed, precision, scheduler, and
+   step count. For stateful or multimodal models, compare the closest useful pre-decoder
+   flow boundary available in both implementations across each active modality, guidance
+   branch, and cache transition. Report agreed metrics and tolerances. Visual review or
+   finite final pixels alone are not parity.
+8. **Performance:** compare matched stacks, discard compile/autotune warmup, and separate
    model, decode, transfer, presentation, and encode time.
+
+Keep a reproducible evidence note with immutable revisions, input hashes, hardware and
+software versions, exact commands, acceptance thresholds, outcomes, and claim limits.
 
 Use `flashdreams-run-v2 SLUG -- --help` to inspect application arguments. A representative
 file run is:
@@ -248,8 +278,13 @@ changes in one commit. Never hand-edit `uv.lock`; regenerate it after manifests 
       tested with stand-ins on CPU.
 - [ ] Every returned channel satisfies `StepResult` shape, layout, range, frame-count, and
       metrics rules.
+- [ ] Authoritative decoder mappings, with a real probe where needed, prove the declared
+      dimensions and frame counts.
 - [ ] Deterministic/MP4 runs preserve every frame with safe presentation settings.
 - [ ] Unsupported modalities have a landed generic V2 contract or are explicitly scoped
       out; they are not hidden in video tensors or metadata.
-- [ ] A real GPU rollout succeeds and upstream parity meets the agreed tolerance.
+- [ ] The staged GPU rollout covers eager, multi-block, sink, and every supported offload
+      or compiled path; mode and upstream parity meet recorded tolerances and cleanup is
+      verified.
+- [ ] Reproduction evidence pins inputs, revisions, environment, commands, and claim scope.
 - [ ] CI-pinned lint, type checks, and correctly marked tests pass.
