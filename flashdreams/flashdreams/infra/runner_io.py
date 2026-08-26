@@ -28,6 +28,16 @@ from typing import Any, Literal, TypeAlias
 import numpy as np
 import torch
 
+from flashdreams.core.io.media_input import (
+    read_audio_f32 as read_audio_f32,
+)
+from flashdreams.core.io.media_input import (
+    read_optional_audio_f32 as read_optional_audio_f32,
+)
+from flashdreams.core.io.media_input import (
+    read_video_rgb_with_fps as read_video_rgb_with_fps,
+)
+
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".webp"})
 """Image filename suffixes treated as still images by runner helpers."""
 

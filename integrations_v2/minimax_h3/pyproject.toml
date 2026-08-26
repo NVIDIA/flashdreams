@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-minimax-h3-v2"
+version = "0.1.0"
+description = "Native MiniMax H3 synchronized-media applications for FlashDreams V2."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-minimax-h3",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "tomli>=2.0",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-minimax-h3 = { workspace = true }
+
+[project.entry-points."flashdreams.applications_v2"]
+"minimax-h3-t2va" = "minimax_h3_v2.app:create_t2va_app"
+"minimax-h3-fl2va" = "minimax_h3_v2.app:create_fl2va_app"
+"minimax-h3-ref2va" = "minimax_h3_v2.app:create_ref2va_app"
+
+[tool.setuptools.packages.find]
+include = ["minimax_h3_v2*"]
+
+[tool.uv]
+managed = true
