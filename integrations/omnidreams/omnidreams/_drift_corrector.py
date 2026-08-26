@@ -92,6 +92,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+from omnidreams._module_utils import unwrap_compiled_module
 from torch import Tensor
 
 ## Deploy policy
@@ -300,9 +301,9 @@ def apply_drift_corrector(
     """
     mode = _resolve_mode(mode, unfused)
     unfused = mode == "unfused"
-    network = runner.pipeline.diffusion_model.transformer.network
-    if hasattr(network, "_orig_mod"):  # unwrap torch.compile
-        network = network._orig_mod
+    network = unwrap_compiled_module(
+        runner.pipeline.diffusion_model.transformer.network
+    )
     transformer = runner.pipeline.diffusion_model.transformer
     sd = torch.load(checkpoint, map_location="cpu", weights_only=False)["lora"]
 
@@ -454,9 +455,7 @@ class DriftCorrectorDispatch:
             "network's weights, which the native optimized-DiT executor "
             "bypasses; run with native_dit_acceleration='disabled'."
         )
-        network = transformer.network
-        if hasattr(network, "_orig_mod"):  # unwrap torch.compile
-            network = network._orig_mod
+        network = unwrap_compiled_module(transformer.network)
         self._linears = _target_linears(network)
         self._live = [lin.weight.data for lin in self._linears]
         self._pristine32 = [

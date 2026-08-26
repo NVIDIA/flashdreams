@@ -39,6 +39,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from omnidreams._module_utils import unwrap_compiled_module
 from torch import Tensor
 
 _LORA_TARGETS = (
@@ -91,8 +92,7 @@ class TextEditLoRA:
         *,
         scale: float = 1.0,
     ) -> None:
-        if hasattr(network, "_orig_mod"):  # unwrap torch.compile
-            network = network._orig_mod
+        network = unwrap_compiled_module(network)
         linears = _target_linears(network)
         sd = torch.load(checkpoint, map_location="cpu", weights_only=False)["lora"]
         assert len(sd) == 2 * len(linears), (
