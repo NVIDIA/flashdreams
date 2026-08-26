@@ -302,6 +302,8 @@ class Hy15TAEHVEncoder(StreamingVideoEncoder[TAEHVEncoderCache]):
     def __init__(self, config: Hy15TAEHVEncoderConfig) -> None:
         super().__init__(config)
         self.config: Hy15TAEHVEncoderConfig = config
+        # This instance only establishes the seed latent; its decoder is unused,
+        # so decoder graph/compile settings would add setup work without speeding it up.
         self.taehv = TAEHV(
             checkpoint_path=config.checkpoint_path,
             model_type="hy1_5",

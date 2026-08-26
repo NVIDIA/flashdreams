@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 from waypoint import WAYPOINT_1_5, WaypointControl
 from waypoint.pipeline import WaypointInferencePipeline
@@ -22,9 +21,6 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from waypoint_v2.control_events import ControlEventAdapter
-
-_MODEL_HEIGHT = 512
-_MODEL_WIDTH = 1024
 
 
 @dataclass(slots=True)
@@ -116,6 +112,9 @@ class WaypointModelLoop(IModelLoop[WaypointModelState]):
         state.controls_generated = 0
         state.rng_state = state.initial_rng_state.clone()
         with state.pipeline_lock:
+            # Drop the old cache before allocating its replacement so reset does not
+            # temporarily retain two full KV caches on the GPU.
+            state.cache = None
             state.cache = state.pipeline.initialize_cache(seed_pixels=state.seed_pixels)
 
     def close(self) -> None:
@@ -236,14 +235,7 @@ class WaypointSession(ISession):
 
 
 def _seed_pixels(seed_frames: Tensor) -> Tensor:
-    pixels = seed_frames.add(1.0).mul(0.5)
-    pixels = F.interpolate(
-        pixels,
-        size=(_MODEL_HEIGHT, _MODEL_WIDTH),
-        mode="bilinear",
-        align_corners=False,
-    )
-    return pixels.unsqueeze(0)
+    return seed_frames.add(1.0).mul(0.5).unsqueeze(0)
 
 
 def _presentation_frames(video: Tensor, session_desc: SessionDesc) -> Tensor:
@@ -261,11 +253,10 @@ def _presentation_frames(video: Tensor, session_desc: SessionDesc) -> Tensor:
         )
     target_size = (session_desc.video_height, session_desc.video_width)
     if tuple(output.shape[-2:]) != target_size:
-        output = F.interpolate(
-            output,
-            size=target_size,
-            mode="bilinear",
-            align_corners=False,
+        raise ValueError(
+            "Waypoint pipeline output spatial size must match the session: expected "
+            f"{target_size[1]}x{target_size[0]}, got "
+            f"{output.shape[-1]}x{output.shape[-2]}"
         )
     return output.contiguous()
 

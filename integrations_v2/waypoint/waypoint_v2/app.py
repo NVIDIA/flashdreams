@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import secrets
 import threading
 from collections.abc import Callable, Sequence
@@ -32,8 +33,8 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from waypoint_v2.session import WaypointSession
 
-_OUTPUT_WIDTH = 1280
-_OUTPUT_HEIGHT = 720
+_OUTPUT_WIDTH = 1024
+_OUTPUT_HEIGHT = 512
 _PLAYBACK_FPS = 60
 _EXAMPLE_IMAGE_FILENAME = "crystal_desert_blade.jpg"
 _EXAMPLE_IMAGE_URL = (
@@ -91,7 +92,7 @@ class WaypointApplication(IApplication):
             ValueError: Inputs do not describe a valid file or live rollout.
         """
         parser = argparse.ArgumentParser(
-            prog="waypoint-1.5-1b",
+            prog="flashdreams-run-v2 waypoint-1-5-1b --",
             description="Run Waypoint 1.5 from an image using file or live controls.",
         )
         parser.add_argument("--seed-image", type=Path)
@@ -112,10 +113,7 @@ class WaypointApplication(IApplication):
             raise ValueError("pass --seed-image or --example-data")
         if args.seed is not None and args.seed < 0:
             raise ValueError(f"--seed must be non-negative, got {args.seed}")
-        if (
-            not torch.isfinite(torch.tensor(args.mouse_sensitivity)).item()
-            or args.mouse_sensitivity < 0
-        ):
+        if not math.isfinite(args.mouse_sensitivity) or args.mouse_sensitivity < 0:
             raise ValueError("--mouse-sensitivity must be finite and non-negative")
 
         controls_path = args.controls_file
@@ -148,7 +146,7 @@ class WaypointApplication(IApplication):
         )
 
     def session_desc(self) -> SessionDesc:
-        """Return Waypoint's fixed 720p TCHW presentation contract."""
+        """Return Waypoint's native 1024x512 TCHW presentation contract."""
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
@@ -210,7 +208,7 @@ class WaypointApplication(IApplication):
 
 
 def load_seed_display_frames(path: Path) -> Tensor:
-    """Load one RGB/RGBA image as four normalized 720p TCHW seed frames.
+    """Load one RGB/RGBA image as four normalized 1024x512 TCHW seed frames.
 
     Args:
         path: Image used to establish the initial world state.

@@ -59,7 +59,7 @@ class _FakePipeline:
         self.generate_calls: list[tuple[int, WaypointControl]] = []
 
     def initialize_cache(self, *, seed_pixels: Tensor) -> dict[str, Any]:
-        assert seed_pixels.shape == (1, 4, 3, 512, 1024)
+        assert seed_pixels.shape == (1, 4, 3, 4, 8)
         assert seed_pixels.dtype is torch.float32
         cache: dict[str, Any] = {"autoregressive_index": 0}
         self.initialized_caches.append(cache)
@@ -76,7 +76,7 @@ class _FakePipeline:
         self.generate_calls.append((autoregressive_index, control))
         random_value = torch.rand((), generator=self.diffusion_model.rng)
         control_value = sum(control.buttons) / 1000
-        return (random_value + control_value).expand(1, 4, 3, 2, 4).clone()
+        return (random_value + control_value).expand(1, 4, 3, 4, 8).clone()
 
     def finalize(
         self, autoregressive_index: int, cache: dict[str, Any]
@@ -145,8 +145,8 @@ def test_application_description_is_cheap_and_mp4_complete() -> None:
     app = WaypointApplication()
     session_desc = app.session_desc()
     assert session_desc.output_layout is VideoTensorLayout.tchw
-    assert session_desc.video_width == 1280
-    assert session_desc.video_height == 720
+    assert session_desc.video_width == 1024
+    assert session_desc.video_height == 512
     assert session_desc.frames_per_second_for_step == 60
     assert session_desc.backpressure_mode.value == "block"
     assert session_desc.presentation_mode.value == "only_present_new"
@@ -172,7 +172,7 @@ def test_invalid_session_contract_precedes_image_or_model_work() -> None:
     app.init(["--seed-image", "missing.png", "--seed", "11"])
     with pytest.raises(ValueError, match="tchw"):
         app.create_session(SessionDesc(output_layout=VideoTensorLayout.bcthw))
-    with pytest.raises(ValueError, match="1280x720"):
+    with pytest.raises(ValueError, match="1024x512"):
         app.create_session(
             SessionDesc(
                 output_layout=VideoTensorLayout.tchw,
@@ -192,7 +192,7 @@ def test_application_loads_one_pipeline_for_two_sessions(tmp_path: Path) -> None
     )
     factory_calls: list[tuple[int, torch.device, bool]] = []
     fake_pipeline = _pipeline(19)
-    seed_frames = torch.zeros(1).expand(4, 3, 720, 1280)
+    seed_frames = torch.zeros(1).expand(4, 3, 512, 1024)
 
     def pipeline_factory(
         seed: int, device: torch.device, profile: bool
@@ -226,13 +226,13 @@ def test_application_loads_one_pipeline_for_two_sessions(tmp_path: Path) -> None
 
 
 def test_seed_loader_normalizes_rgb_and_repeats_four_frames(tmp_path: Path) -> None:
-    """Pillow input becomes the exact normalized 720p seed display contract."""
+    """Pillow input becomes the exact normalized native seed display contract."""
     from PIL import Image
 
     path = tmp_path / "seed.png"
     Image.new("RGB", (2, 1), color=(255, 0, 127)).save(path)
     frames = load_seed_display_frames(path)
-    assert frames.shape == (4, 3, 720, 1280)
+    assert frames.shape == (4, 3, 512, 1024)
     assert frames.dtype is torch.float32
     assert torch.equal(frames[0], frames[3])
     assert frames[0, 0, 0, 0].item() == pytest.approx(1.0)

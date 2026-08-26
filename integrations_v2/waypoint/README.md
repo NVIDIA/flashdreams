@@ -40,10 +40,17 @@ Arguments after `--` belong to Waypoint. Run
 `flashdreams-run-v2 waypoint-1-5-1b -- --help` for the complete list. The first
 run downloads the public Waypoint 1.5 1B and TAEHV checkpoints.
 
-The application always declares four-frame `TCHW` results at 1280x720 and
-60 FPS playback. Waypoint generates on its native 1024x512 canvas and the
-adapter resizes results for presentation. File controls use blocking,
-new-results-only presentation so MP4 output retains every generated frame.
+The application declares four-frame `TCHW` results on Waypoint's native
+1024x512 canvas at 60 FPS playback. Seed images are resized once to that native
+canvas; generated frames are presented without another spatial resample. File
+controls use blocking, new-results-only presentation so MP4 output retains
+every generated frame.
+
+Sessions created by one application intentionally start from the configured
+seed, which makes the same control sequence reproducible across reset and
+session recreation. Model modules are shared, and model/RNG work is serialized
+by an application lock while each session restores its own RNG and cache state.
+The current WebRTC runtime accepts one browser client per server process.
 
 See [ADR-1-control-events.md](ADR-1-control-events.md) for the live keyboard and
 mouse contract. Passing `--controls-file` selects finite deterministic mode;

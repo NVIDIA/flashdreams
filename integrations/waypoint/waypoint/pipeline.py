@@ -102,7 +102,8 @@ class WaypointInferencePipeline(StreamInferencePipeline):
             raise TypeError("Waypoint pipeline requires a WaypointTAEHVDecoder")
         if cache.decoder_cache is None:
             raise RuntimeError("Waypoint pipeline requires a decoder cache")
-        decoder_input = seed_latent.permute(0, 2, 1, 3, 4).contiguous()
+        # The decoder permutes this view back before its first contiguous-only op.
+        decoder_input = seed_latent.permute(0, 2, 1, 3, 4)
         self.decoder(
             decoder_input,
             autoregressive_index=0,
