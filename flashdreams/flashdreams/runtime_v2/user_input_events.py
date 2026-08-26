@@ -26,7 +26,11 @@ class UserInputEvents:
         Args:
             events: Events to hold, in any order.
         """
-        self._data = sorted(events, key=lambda event: event.get_timestamp())
+        object.__setattr__(
+            self,
+            "_data",
+            sorted(events, key=lambda event: event.get_timestamp()),
+        )
 
     def get_events(self) -> list[UserInputEvent]:
         """Return a copy of the events, oldest first."""
