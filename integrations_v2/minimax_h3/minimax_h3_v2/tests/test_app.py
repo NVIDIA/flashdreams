@@ -310,11 +310,11 @@ def test_fl2va_decodes_and_hashes_keyframes_before_engine(
     last.write_bytes(b"last")
     events: list[str] = []
 
-    def read_image(path: Path) -> np.ndarray:
+    def read_image(path: Path) -> Image.Image:
         events.append(path.name)
-        return np.zeros((8, 8, 3), dtype=np.uint8)
+        return Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8), mode="RGB")
 
-    monkeypatch.setattr(app_module, "read_image_rgb", read_image)
+    monkeypatch.setattr(app_module, "_read_pil_image", read_image)
     factory = _EngineFactory(events)
     app = MiniMaxH3Application("fl2va", engine_factory=factory)
     app.init(
@@ -351,8 +351,10 @@ def test_ref2va_preserves_order_and_optional_video_soundtrack(
         path.write_bytes(path.name.encode())
     monkeypatch.setattr(
         app_module,
-        "read_image_rgb",
-        lambda _path: np.zeros((8, 8, 3), dtype=np.uint8),
+        "_read_pil_image",
+        lambda _path: Image.fromarray(
+            np.zeros((8, 8, 3), dtype=np.uint8), mode="RGB"
+        ),
     )
     monkeypatch.setattr(
         app_module,

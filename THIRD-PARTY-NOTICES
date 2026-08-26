@@ -52,6 +52,19 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 ================================================================================
+Optional integration: integrations/minimax_h3 and integrations_v2/minimax_h3
+================================================================================
+
+accelerate             Apache-2.0   https://github.com/huggingface/accelerate
+Pillow                 MIT-CMU      https://github.com/python-pillow/Pillow
+
+MiniMax H3 model weights are downloaded from the pinned upstream revision at
+runtime and are not redistributed in this repository. Video and audio media
+I/O invokes administrator- or user-provided ``ffmpeg`` and ``ffprobe``
+executables on ``PATH``; FlashDreams does not bundle those executables or link
+their libraries.
+
+================================================================================
 Optional integration: integrations/omnidreams
 ================================================================================
 

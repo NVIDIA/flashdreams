@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
-import numpy as np
 from PIL import Image
 
 from flashdreams.api_v2.application import IApplication
@@ -20,7 +19,6 @@ from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.runner_io import (
     read_audio_f32,
-    read_image_rgb,
     read_optional_audio_f32,
     read_video_rgb_with_fps,
 )
@@ -446,13 +444,9 @@ def _decode_reference(spec: _ReferenceSpec) -> MiniMaxH3Reference:
 
 
 def _read_pil_image(path: Path) -> Image.Image:
-    """Read and validate one uint8 RGB image through the shared media helper."""
-    pixels = np.asarray(read_image_rgb(path))
-    if pixels.ndim != 3 or pixels.shape[2] != 3 or pixels.dtype != np.uint8:
-        raise ValueError(
-            f"decoded image must have uint8 shape [height, width, 3]: {path}"
-        )
-    return Image.fromarray(pixels, mode="RGB")
+    """Read one local image as detached RGB pixels."""
+    with Image.open(path) as image:
+        return image.convert("RGB")
 
 
 def _optional_file(path: Path | None, *, option: str) -> Path | None:
