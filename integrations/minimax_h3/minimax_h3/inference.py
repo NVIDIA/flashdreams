@@ -409,42 +409,58 @@ class MiniMaxH3InferenceEngine:
         """Condition, jointly denoise, and decode one finite H3 request."""
         if self._closed:
             raise RuntimeError("MiniMax H3 inference engine is closed")
-        started = time.monotonic()
-        if torch.cuda.is_available() and self.config.device.startswith("cuda"):
-            torch.cuda.reset_peak_memory_stats(torch.device(self.config.device))
-        conditioned_started = time.monotonic()
+        cuda_device = (
+            torch.device(self.config.device)
+            if torch.cuda.is_available() and self.config.device.startswith("cuda")
+            else None
+        )
+
+        def synchronized_time() -> float:
+            if cuda_device is not None:
+                torch.cuda.synchronize(cuda_device)
+            return time.monotonic()
+
+        started = synchronized_time()
+        if cuda_device is not None:
+            torch.cuda.reset_peak_memory_stats(cuda_device)
+        conditioned_started = started
         conditioned = self._condition(request)
-        conditioning_seconds = time.monotonic() - conditioned_started
+        conditioned_finished = synchronized_time()
+        conditioning_seconds = conditioned_finished - conditioned_started
 
-        state_started = time.monotonic()
+        state_started = conditioned_finished
         state = self._prepare_state(request, conditioned)
-        prepare_seconds = time.monotonic() - state_started
+        state_finished = synchronized_time()
+        prepare_seconds = state_finished - state_started
 
-        denoise_started = time.monotonic()
+        denoise_started = state_finished
         joint = self._denoise(request, state)
-        denoise_seconds = time.monotonic() - denoise_started
+        denoise_finished = synchronized_time()
+        denoise_seconds = denoise_finished - denoise_started
 
-        video_started = time.monotonic()
+        video_started = denoise_finished
         video = self._decode_video(joint)
-        video_decode_seconds = time.monotonic() - video_started
-        audio_started = time.monotonic()
+        video_finished = synchronized_time()
+        video_decode_seconds = video_finished - video_started
+        audio_started = video_finished
         audio = self._decode_audio(joint)
-        audio_decode_seconds = time.monotonic() - audio_started
+        finished = synchronized_time()
+        audio_decode_seconds = finished - audio_started
         peak = 0.0
-        if torch.cuda.is_available() and self.config.device.startswith("cuda"):
-            peak = torch.cuda.max_memory_allocated(
-                torch.device(self.config.device)
-            ) / 2**30
+        if cuda_device is not None:
+            peak = torch.cuda.max_memory_allocated(cuda_device) / 2**30
+        total_seconds = finished - started
         metrics: dict[str, float | int] = {
-            "conditioning_seconds": conditioning_seconds,
-            "prepare_seconds": prepare_seconds,
-            "denoise_seconds": denoise_seconds,
-            "video_decode_seconds": video_decode_seconds,
-            "audio_decode_seconds": audio_decode_seconds,
-            "total_seconds": time.monotonic() - started,
+            "conditioning_s": conditioning_seconds,
+            "prepare_s": prepare_seconds,
+            "denoise_s": denoise_seconds,
+            "video_decode_s": video_decode_seconds,
+            "audio_decode_s": audio_decode_seconds,
+            "total_s": total_seconds,
+            "generated_fps": request.num_frames / total_seconds,
             "peak_gpu_memory_gib": peak,
-            "aligned_num_frames": request.num_frames,
-            "audio_samples": audio.samples.shape[1],
+            "aligned_frame_count": request.num_frames,
+            "audio_sample_count": audio.samples.shape[1],
         }
         return MiniMaxH3InferenceResult(video=video, audio=audio, metrics=metrics)
 

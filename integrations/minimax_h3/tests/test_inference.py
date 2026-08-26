@@ -385,7 +385,18 @@ def test_staged_t2va_returns_synchronized_v2_media() -> None:
     assert float(result.video.mean()) == -0.5
     assert result.audio.samples.shape == (2, 482_400)
     assert result.audio.sample_rate == 32000
-    assert result.metrics["aligned_num_frames"] == 362
+    assert result.metrics["aligned_frame_count"] == 362
+    assert result.metrics["audio_sample_count"] == 482_400
+    assert {
+        "conditioning_s",
+        "prepare_s",
+        "denoise_s",
+        "video_decode_s",
+        "audio_decode_s",
+        "total_s",
+        "generated_fps",
+        "peak_gpu_memory_gib",
+    } <= result.metrics.keys()
     assert resources.events == [
         "load:text",
         "release:_TextEncoder",
