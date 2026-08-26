@@ -82,6 +82,16 @@ Reusing each Q/K tensor's FP32 RoPE promotion reduced median latency by another
 0.9% and retained the same MP4 hash. The native MP4 is 1024x512 and contains
 exactly 164 frames.
 
+Final review gates also passed the complete pre-commit suite (Ruff check/fix,
+Ruff format, lockfile/version checks, and `ty`), 52 focused CPU tests across
+TAEHV and both Waypoint packages, and the two CUDA fixed-cache tests. The broad
+CPU run passed 1,584 tests with 2 skipped and 337 deselected after excluding
+only `integrations/omnidreams/tests/interactive_drive`; collecting that
+unrelated directory requires the optional `pyvirtualdisplay` and
+`flip_evaluator` packages, which were not installed in the Waypoint worktree.
+The final published-weight one-action MP4 remained byte-identical to the
+post-optimization reference.
+
 ## Official implementation parity
 
 Parity uses the same BF16 checkpoint and inputs in the integrated transformer
