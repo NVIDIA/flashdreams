@@ -16,7 +16,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -70,6 +70,7 @@ def _session_desc(
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
+        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
         frames_per_second_for_ui=60,
         frames_per_second_for_step=_FRAMES_PER_SECOND,
         video_width=width,
