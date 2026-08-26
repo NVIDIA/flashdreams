@@ -7,13 +7,14 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from torch import Tensor
 
+from flashdreams.core.exceptions import add_exception_note
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -122,8 +123,8 @@ class Mp4Encoder:
             if failure is None:
                 failure = error
             else:
-                cast(Any, failure).add_note(
-                    f"Waiting for ffmpeg also failed: {error!r}"
+                add_exception_note(
+                    failure, f"Waiting for ffmpeg also failed: {error!r}"
                 )
         if waited:
             error_reader = self._error_reader
@@ -135,8 +136,9 @@ class Mp4Encoder:
                     if failure is None:
                         failure = error
                     else:
-                        cast(Any, failure).add_note(
-                            f"Joining the ffmpeg error reader also failed: {error!r}"
+                        add_exception_note(
+                            failure,
+                            f"Joining the ffmpeg error reader also failed: {error!r}",
                         )
             self._process = None
         if failure is not None:
@@ -181,9 +183,10 @@ class Mp4Encoder:
                         if failure is None:
                             failure = error
                         else:
-                            cast(Any, failure).add_note(
+                            add_exception_note(
+                                failure,
                                 "Joining the ffmpeg error reader also failed: "
-                                f"{error!r}"
+                                f"{error!r}",
                             )
             if waited:
                 self._process = None
@@ -221,8 +224,8 @@ class Mp4Encoder:
                 process.wait()
                 self._process = None
             except BaseException as cleanup_error:
-                cast(Any, error).add_note(
-                    f"FFmpeg startup cleanup also failed: {cleanup_error!r}"
+                add_exception_note(
+                    error, f"FFmpeg startup cleanup also failed: {cleanup_error!r}"
                 )
             raise
         return process

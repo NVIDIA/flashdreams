@@ -60,8 +60,20 @@ def test_runner_io_keeps_host_media_reader_compatibility(
     assert runner_io.read_audio_f32 is read_audio_f32
     assert runner_io.read_optional_audio_f32 is read_optional_audio_f32
     assert runner_io.read_video_rgb_with_fps is read_video_rgb_with_fps
-    monkeypatch.setattr(runner_io, "_read_host_video_fps", lambda _path: 24.0)
+    calls: list[str] = []
+
+    class VideoMetadata:
+        @classmethod
+        def from_path(cls, path: str) -> object:
+            calls.append(path)
+            return types.SimpleNamespace(fps=24.0)
+
+    fake_media = types.ModuleType("mediapy")
+    setattr(fake_media, "VideoMetadata", VideoMetadata)
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+
     assert runner_io.read_video_fps("clip.mp4", install_hint="unused") == 24.0
+    assert calls == ["clip.mp4"]
 
 
 def test_resolve_prompt_value_reads_first_non_empty_line(tmp_path: Path) -> None:
@@ -272,6 +284,47 @@ def test_read_video_fps_uses_host_ffprobe(
     assert commands[0][-1] == "clip.mp4"
 
 
+def test_read_video_fps_falls_back_from_zero_average_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def run(command: list[str], **kwargs: Any) -> Any:
+        del command, kwargs
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=(
+                b'{"streams":[{"width":16,"height":8,'
+                b'"avg_frame_rate":"0/0","r_frame_rate":"24/1"}]}'
+            ),
+            stderr=b"",
+        )
+
+    monkeypatch.setattr(media_input, "_find_ffprobe_binary", lambda: "/host/ffprobe")
+    monkeypatch.setattr(media_input.subprocess, "run", run)
+
+    assert read_video_fps("clip.mp4") == 24.0
+
+
+def test_read_video_fps_rejects_two_invalid_rates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def run(command: list[str], **kwargs: Any) -> Any:
+        del command, kwargs
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=(
+                b'{"streams":[{"width":16,"height":8,'
+                b'"avg_frame_rate":"0/0","r_frame_rate":"unknown"}]}'
+            ),
+            stderr=b"",
+        )
+
+    monkeypatch.setattr(media_input, "_find_ffprobe_binary", lambda: "/host/ffprobe")
+    monkeypatch.setattr(media_input.subprocess, "run", run)
+
+    with pytest.raises(ValueError, match="invalid video metadata"):
+        read_video_fps("clip.mp4")
+
+
 def test_read_video_with_fps_uses_host_executables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -295,6 +348,9 @@ def test_read_video_with_fps_uses_host_executables(
 
     assert fps == 24.0
     assert np.array_equal(decoded, frames)
+    assert decoded.flags.c_contiguous
+    assert not decoded.flags.owndata
+    assert not decoded.flags.writeable
     assert [command[0] for command in commands] == ["/host/ffprobe", "/host/ffmpeg"]
 
 

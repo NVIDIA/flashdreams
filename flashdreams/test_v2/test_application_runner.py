@@ -252,21 +252,17 @@ def test_application_closes_before_transactional_output_commits() -> None:
     assert calls[-3:] == ["session.close", "application.close", "window.close"]
 
 
-def test_application_close_failure_aborts_transactional_output(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_application_close_failure_aborts_transactional_output() -> None:
     calls: list[str] = []
     window = _SilentAbortableWindow(calls)
     application = _Application(calls, fail_to_close=True, session_length=1)
 
-    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
-        with pytest.raises(RuntimeError, match="application close failed"):
-            ApplicationRunner(application, window).run(_session_desc())
+    with pytest.raises(RuntimeError, match="application close failed"):
+        ApplicationRunner(application, window).run(_session_desc())
 
     assert "window.close" not in calls
     assert calls.index("session.close") < calls.index("window.abort")
-    assert calls.count("application.close") == 2
-    assert "application close failed" in caplog.text
+    assert calls.count("application.close") == 1
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:

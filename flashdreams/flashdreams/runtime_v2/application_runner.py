@@ -60,8 +60,8 @@ class ApplicationRunner:
 
         def close_before_output_commit() -> None:
             nonlocal application_closed
-            self._application.close()
             application_closed = True
+            self._application.close()
 
         try:
             self._application.init(commandline_args)

@@ -3,11 +3,13 @@
 
 """Private PCM staging and external-FFmpeg audio muxing for MP4 output."""
 
+import math
 import shutil
 import subprocess
 from pathlib import Path
 from typing import BinaryIO
 
+from flashdreams.core.exceptions import add_exception_note
 from flashdreams.runtime_v2.audio_output import AudioOutput, normalized_pcm
 
 _FLOAT32_BYTES = 4
@@ -30,6 +32,15 @@ _AUDIO_CODEC_ARGUMENTS = (
 
 _PREFLIGHT_TIMEOUT_SECONDS = 10
 """Maximum time the tiny external AAC capability check may take."""
+
+_MUX_MINIMUM_TIMEOUT_SECONDS = 30.0
+"""Minimum wall time allowed for a real audio mux."""
+
+_MUX_TIMEOUT_PER_MEDIA_SECOND = 2.0
+"""Additional mux allowance per second of staged media."""
+
+_PROCESS_STOP_TIMEOUT_SECONDS = 5.0
+"""Bound for each terminate and kill wait during cleanup."""
 
 
 def preflight_audio_codec(*, sample_rate: int, channels: int) -> str:
@@ -212,6 +223,7 @@ class Mp4AudioMuxer:
         sample_rate: int,
         channels: int,
         ffmpeg_path: str,
+        duration_seconds: float,
     ) -> None:
         """
         Args:
@@ -221,13 +233,24 @@ class Mp4AudioMuxer:
             sample_rate: PCM sample rate.
             channels: PCM channel count.
             ffmpeg_path: Host executable resolved by the early exact preflight.
+            duration_seconds: Staged media duration used to scale the mux
+                deadline.
+
+        Raises:
+            ValueError: ``duration_seconds`` is negative or non-finite.
         """
+        if not math.isfinite(duration_seconds) or duration_seconds < 0:
+            raise ValueError("Audio mux duration must be finite and non-negative.")
         self._video_path = Path(video_path)
         self._audio_path = Path(audio_path)
         self._output_path = Path(output_path)
         self._sample_rate = sample_rate
         self._channels = channels
         self._ffmpeg_path = ffmpeg_path
+        self._timeout_seconds = max(
+            _MUX_MINIMUM_TIMEOUT_SECONDS,
+            duration_seconds * _MUX_TIMEOUT_PER_MEDIA_SECOND,
+        )
         self._process: subprocess.Popen[bytes] | None = None
         self._finished = False
 
@@ -249,7 +272,22 @@ class Mp4AudioMuxer:
         except OSError as error:
             raise RuntimeError(f"Could not start ffmpeg audio mux: {error}") from error
         self._process = process
-        _, errors = process.communicate()
+        try:
+            _, errors = process.communicate(timeout=self._timeout_seconds)
+        except subprocess.TimeoutExpired as error:
+            failure = RuntimeError(
+                "Timed out after "
+                f"{self._timeout_seconds:g} seconds while muxing "
+                f"{self._output_path}."
+            )
+            try:
+                self._terminate_and_reap(process)
+            except BaseException as cleanup_error:
+                add_exception_note(
+                    failure,
+                    f"FFmpeg mux timeout cleanup also failed: {cleanup_error!r}",
+                )
+            raise failure from error
         self._process = None
         if process.returncode != 0:
             reported = errors.decode("utf-8", errors="replace").strip()
@@ -260,17 +298,54 @@ class Mp4AudioMuxer:
         self._finished = True
 
     def abort(self) -> None:
-        """Terminate and wait for an active mux process, if any."""
+        """Terminate and wait for an active mux process, if any.
+
+        Each wait is bounded. Ownership is retained if the process cannot be
+        reaped, so a later abort can retry without deleting files it may use.
+        """
         process = self._process
         if process is None:
             return
+        self._terminate_and_reap(process)
+
+    def _terminate_and_reap(self, process: subprocess.Popen[bytes]) -> None:
+        """Stop ``process`` with bounded terminate/kill escalation."""
+        failure: BaseException | None = None
+        reaped = False
         if process.poll() is None:
             try:
                 process.terminate()
             except ProcessLookupError:
                 pass
-        process.communicate()
-        self._process = None
+            except BaseException as error:
+                failure = error
+        try:
+            process.communicate(timeout=_PROCESS_STOP_TIMEOUT_SECONDS)
+            reaped = True
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            except BaseException as error:
+                failure = _append_secondary_failure(
+                    failure, error, "Killing the ffmpeg audio mux also failed"
+                )
+            try:
+                process.communicate(timeout=_PROCESS_STOP_TIMEOUT_SECONDS)
+                reaped = True
+            except BaseException as error:
+                failure = _append_secondary_failure(
+                    failure, error, "Reaping the killed ffmpeg audio mux also failed"
+                )
+        except BaseException as error:
+            failure = _append_secondary_failure(
+                failure, error, "Reaping the ffmpeg audio mux also failed"
+            )
+        if reaped:
+            self._process = None
+        if failure is not None:
+            raise failure
 
     def _command(self, ffmpeg: str) -> list[str]:
         """Return the external invocation that copies video and encodes audio."""
@@ -301,6 +376,18 @@ class Mp4AudioMuxer:
             "+faststart",
             str(self._output_path),
         ]
+
+
+def _append_secondary_failure(
+    failure: BaseException | None,
+    error: BaseException,
+    message: str,
+) -> BaseException:
+    """Keep the first cleanup failure and annotate later ones."""
+    if failure is None:
+        return error
+    add_exception_note(failure, f"{message}: {error!r}")
+    return failure
 
 
 __all__ = [

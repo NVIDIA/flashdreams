@@ -288,7 +288,15 @@ def _parse_arguments(
     )
     parser.add_argument("--prompt", default=_DEFAULT_PROMPT)
     parser.add_argument("--duration", type=float, default=_DEFAULT_DURATION)
-    parser.add_argument("--steps", type=int, default=_DEFAULT_STEPS)
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=_DEFAULT_STEPS,
+        help=(
+            "sigma-grid points including terminal zero; N points perform "
+            "N-1 Euler/model updates"
+        ),
+    )
     parser.add_argument("--seed", type=int, default=_DEFAULT_SEED)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--job-id")

@@ -11,6 +11,12 @@ input media, stages one native H3 component at a time, and returns a TCHW video
 tensor plus stereo 32 kHz normalized PCM. Production inference does not import
 Diffusers or PyAV.
 
+The native H3 video VAE remains integration-local because its bidirectional,
+whole-clip encode/decode contract does not implement FlashDreams'
+`StreamingVideoDecoder` lifecycle. The finite application lifecycle also stays
+local until a second synchronized one-shot model establishes a reusable base;
+that avoids baking H3-specific reference and audio policy into the framework.
+
 Application arguments go after the V2 command's `--` separator. Output geometry
 and the fixed 24 fps rate remain runtime arguments before that separator:
 
@@ -21,6 +27,9 @@ flashdreams-run-v2 minimax-h3-t2va \
   --prompt "A lantern floating through a rainy night market" \
   --duration 5 --steps 30 --seed 42
 ```
+
+`--steps N` counts sigma-grid points including the terminal zero, so the
+default `--steps 30` performs 29 Euler/model updates.
 
 FL2VA accepts `--image-path` and `--last-image-path`. REF2VA accepts repeated
 ordered specifications such as `--reference image:subject.png`,

@@ -91,6 +91,7 @@ class _FakeMuxer:
         video_path: str | Path,
         audio_path: str | Path,
         output_path: str | Path,
+        duration_seconds: float,
         fail_close: bool = False,
         fail_abort_once: bool = False,
         **kwargs: object,
@@ -99,6 +100,7 @@ class _FakeMuxer:
         self.video_path = Path(video_path)
         self.audio_path = Path(audio_path)
         self.output_path = Path(output_path)
+        self.duration_seconds = duration_seconds
         self.fail_close = fail_close
         self.fail_abort_once = fail_abort_once
         self.audio_bytes = b""
@@ -162,6 +164,7 @@ def _install_fake_muxer(
         video_path: str | Path,
         audio_path: str | Path,
         output_path: str | Path,
+        duration_seconds: float,
         **kwargs: object,
     ) -> _FakeMuxer:
         del kwargs
@@ -169,6 +172,7 @@ def _install_fake_muxer(
             video_path=video_path,
             audio_path=audio_path,
             output_path=output_path,
+            duration_seconds=duration_seconds,
             fail_close=fail_close,
             fail_abort_once=fail_abort_once,
         )
@@ -651,6 +655,7 @@ def test_audio_is_aligned_to_the_written_video_timeline(
     sink.close()
 
     assert path.read_bytes() == b"complete synchronized output"
+    assert muxers[0].duration_seconds == pytest.approx(frame_count / 24)
     assert len(muxers[0].audio_bytes) == expected_samples * 2 * 4
     if expected_samples > native_samples:
         assert muxers[0].audio_bytes[-(expected_samples - native_samples) * 8 :] == (

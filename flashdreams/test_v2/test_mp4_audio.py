@@ -262,6 +262,7 @@ def test_audio_muxer_builds_external_stream_copy_command(tmp_path: Path) -> None
         sample_rate=32_000,
         channels=2,
         ffmpeg_path="/usr/bin/ffmpeg",
+        duration_seconds=5.0,
     )
 
     assert muxer._command("/usr/bin/ffmpeg") == [
@@ -304,7 +305,8 @@ def test_audio_muxer_surfaces_external_process_diagnostics(
     class Process:
         returncode = 7
 
-        def communicate(self) -> tuple[None, bytes]:
+        def communicate(self, timeout: float) -> tuple[None, bytes]:
+            assert timeout == 30.0
             return None, b"codec failed"
 
     monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: f"/{name}")
@@ -318,6 +320,7 @@ def test_audio_muxer_surfaces_external_process_diagnostics(
         sample_rate=8_000,
         channels=1,
         ffmpeg_path="/ffmpeg",
+        duration_seconds=5.0,
     )
 
     with pytest.raises(RuntimeError, match="codec failed"):
@@ -334,8 +337,8 @@ def test_audio_muxer_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> No
         def terminate(self) -> None:
             calls.append("terminate")
 
-        def communicate(self) -> tuple[None, bytes]:
-            calls.append("communicate")
+        def communicate(self, timeout: float) -> tuple[None, bytes]:
+            calls.append(f"communicate({timeout:g})")
             return None, b""
 
     muxer = Mp4AudioMuxer(
@@ -345,13 +348,14 @@ def test_audio_muxer_abort_terminates_and_waits_for_ffmpeg(tmp_path: Path) -> No
         sample_rate=8_000,
         channels=1,
         ffmpeg_path="/usr/bin/ffmpeg",
+        duration_seconds=5.0,
     )
     muxer._process = Process()  # ty: ignore[invalid-assignment]
 
     muxer.abort()
     muxer.abort()
 
-    assert calls == ["terminate", "communicate"]
+    assert calls == ["terminate", "communicate(5)"]
 
 
 def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> None:
@@ -367,8 +371,8 @@ def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> No
         def terminate(self) -> None:
             calls.append("terminate")
 
-        def communicate(self) -> tuple[None, bytes]:
-            calls.append("communicate")
+        def communicate(self, timeout: float) -> tuple[None, bytes]:
+            calls.append(f"communicate({timeout:g})")
             self.communicate_calls += 1
             if self.communicate_calls == 1:
                 raise RuntimeError("mux wait interrupted")
@@ -382,6 +386,7 @@ def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> No
         sample_rate=8_000,
         channels=1,
         ffmpeg_path="/usr/bin/ffmpeg",
+        duration_seconds=5.0,
     )
     muxer._process = process  # ty: ignore[invalid-assignment]
 
@@ -392,4 +397,131 @@ def test_audio_muxer_retains_process_when_abort_wait_fails(tmp_path: Path) -> No
     muxer.abort()
 
     assert muxer._process is None
-    assert calls == ["terminate", "communicate", "terminate", "communicate"]
+    assert calls == [
+        "terminate",
+        "communicate(5)",
+        "terminate",
+        "communicate(5)",
+    ]
+
+
+def test_audio_muxer_timeout_escalates_to_kill_and_reaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    class Process:
+        returncode = None
+        communicate_calls = 0
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            calls.append("terminate")
+
+        def kill(self) -> None:
+            calls.append("kill")
+
+        def communicate(self, timeout: float) -> tuple[None, bytes]:
+            calls.append(f"communicate({timeout:g})")
+            self.communicate_calls += 1
+            if self.communicate_calls < 3:
+                raise mp4_audio_module.subprocess.TimeoutExpired("ffmpeg", timeout)
+            return None, b""
+
+    process = Process()
+    monkeypatch.setattr(
+        mp4_audio_module.subprocess, "Popen", lambda *args, **kwargs: process
+    )
+    muxer = Mp4AudioMuxer(
+        video_path=tmp_path / "video.mp4",
+        audio_path=tmp_path / "audio.f32le",
+        output_path=tmp_path / "output.mp4",
+        sample_rate=8_000,
+        channels=1,
+        ffmpeg_path="/usr/bin/ffmpeg",
+        duration_seconds=20.0,
+    )
+
+    with pytest.raises(RuntimeError, match="Timed out after 40 seconds"):
+        muxer.close()
+
+    assert muxer._process is None
+    assert calls == [
+        "communicate(40)",
+        "terminate",
+        "communicate(5)",
+        "kill",
+        "communicate(5)",
+    ]
+
+
+def test_audio_muxer_timeout_retains_unreaped_child_for_abort_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    class Process:
+        returncode = None
+        allow_reap = False
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            calls.append("terminate")
+
+        def kill(self) -> None:
+            calls.append("kill")
+
+        def communicate(self, timeout: float) -> tuple[None, bytes]:
+            calls.append(f"communicate({timeout:g})")
+            if not self.allow_reap:
+                raise mp4_audio_module.subprocess.TimeoutExpired("ffmpeg", timeout)
+            return None, b""
+
+    process = Process()
+    monkeypatch.setattr(
+        mp4_audio_module.subprocess, "Popen", lambda *args, **kwargs: process
+    )
+    muxer = Mp4AudioMuxer(
+        video_path=tmp_path / "video.mp4",
+        audio_path=tmp_path / "audio.f32le",
+        output_path=tmp_path / "output.mp4",
+        sample_rate=8_000,
+        channels=1,
+        ffmpeg_path="/usr/bin/ffmpeg",
+        duration_seconds=5.0,
+    )
+
+    with pytest.raises(RuntimeError, match="Timed out after 30 seconds"):
+        muxer.close()
+
+    assert muxer._process is process
+    process.allow_reap = True
+    muxer.abort()
+    assert muxer._process is None
+    assert calls == [
+        "communicate(30)",
+        "terminate",
+        "communicate(5)",
+        "kill",
+        "communicate(5)",
+        "terminate",
+        "communicate(5)",
+    ]
+
+
+@pytest.mark.parametrize("duration", [-1.0, float("nan"), float("inf")])
+def test_audio_muxer_rejects_invalid_duration(tmp_path: Path, duration: float) -> None:
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        Mp4AudioMuxer(
+            video_path=tmp_path / "video.mp4",
+            audio_path=tmp_path / "audio.f32le",
+            output_path=tmp_path / "output.mp4",
+            sample_rate=8_000,
+            channels=1,
+            ffmpeg_path="/usr/bin/ffmpeg",
+            duration_seconds=duration,
+        )

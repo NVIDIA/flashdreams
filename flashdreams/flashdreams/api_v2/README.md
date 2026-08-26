@@ -62,6 +62,8 @@ self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 `state` is required for a model loop and optional for a UI loop. Each loop's rate
 comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
+Both values are strictly positive integers; this keeps file encoders, pacing,
+and WebRTC time bases on one exact public contract.
 
 The io-thread initially selects frames from model chunks at
 `frames_per_second_for_step`, then uses the model-generation-thread's rolling

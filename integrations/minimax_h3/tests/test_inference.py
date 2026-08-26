@@ -459,7 +459,9 @@ def test_native_components_load_from_the_selected_snapshot(
     )
     cache_dir = tmp_path / "selected-cache"
     resources = DefaultMiniMaxH3Resources(
-        MiniMaxH3InferenceConfig(device="cpu", cache_dir=cache_dir)
+        MiniMaxH3InferenceConfig(
+            device="cpu", cache_dir=cache_dir, checkpoint_min_free_gb=0
+        )
     )
 
     resources.load_video_vae()

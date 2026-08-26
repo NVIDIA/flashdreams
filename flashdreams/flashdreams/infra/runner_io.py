@@ -35,9 +35,6 @@ from flashdreams.core.io.media_input import (
     read_optional_audio_f32 as read_optional_audio_f32,
 )
 from flashdreams.core.io.media_input import (
-    read_video_fps as _read_host_video_fps,
-)
-from flashdreams.core.io.media_input import (
     read_video_rgb_with_fps as read_video_rgb_with_fps,
 )
 
@@ -165,9 +162,9 @@ def read_video_fps(
     *,
     install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
 ) -> float:
-    """Read a video's frame rate through host FFprobe."""
-    del install_hint  # Kept for API compatibility with existing callers.
-    return _read_host_video_fps(path)
+    """Read a video's frame rate from ``mediapy`` metadata."""
+    media = _import_mediapy("Probing video metadata", install_hint=install_hint)
+    return float(media.VideoMetadata.from_path(str(path)).fps)
 
 
 def read_first_frame_rgb(

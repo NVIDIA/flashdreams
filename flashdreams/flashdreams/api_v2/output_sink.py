@@ -57,6 +57,10 @@ class AbortableOutputSink(OutputSink, Protocol):
     Both terminal operations must be idempotent. The runtime calls ``close``
     only for a successful run. It calls ``abort`` after cancellation or failure,
     including when ``open``, ``write``, or ``close`` raised partway through.
+
+    Atomicity is per sink. A run with multiple abortable sinks does not provide
+    a cross-sink prepare/commit transaction, so one sink may publish before a
+    later sink's commit fails.
     """
 
     @abstractmethod

@@ -39,8 +39,9 @@ def read_video_rgb_with_fps(path: str | Path) -> tuple[np.ndarray, float]:
         path: Input video file.
 
     Returns:
-        Contiguous uint8 ``[time, height, width, 3]`` frames and a positive
-        frames-per-second value.
+        Read-only contiguous uint8 ``[time, height, width, 3]`` frames and a
+        positive frames-per-second value. The array is a zero-copy view of the
+        completed FFmpeg output buffer; callers that mutate it must copy first.
 
     Raises:
         ValueError: Stream metadata or decoded bytes are malformed or empty.
@@ -79,7 +80,7 @@ def read_video_rgb_with_fps(path: str | Path) -> tuple[np.ndarray, float]:
     if len(process.stdout) % frame_bytes:
         raise ValueError(f"decoded video bytes contain a truncated frame: {path}")
     frames = np.frombuffer(process.stdout, dtype=np.uint8).reshape(-1, height, width, 3)
-    return frames.copy(), fps
+    return frames, fps
 
 
 def read_audio_f32(
@@ -163,15 +164,31 @@ def _probe_video_stream(path: str | Path) -> tuple[int, int, float]:
         stream = payload["streams"][0]
         width = int(stream["width"])
         height = int(stream["height"])
-        rate = stream.get("avg_frame_rate") or stream["r_frame_rate"]
-        fps = float(Fraction(rate))
-    except (IndexError, KeyError, TypeError, ValueError, ZeroDivisionError) as error:
+        fps = _first_positive_frame_rate(stream)
+    except (IndexError, KeyError, TypeError, ValueError) as error:
         raise ValueError(
             f"ffprobe returned invalid video metadata for {path}"
         ) from error
     if width <= 0 or height <= 0 or not np.isfinite(fps) or fps <= 0:
         raise ValueError(f"ffprobe returned invalid video metadata for {path}")
     return width, height, fps
+
+
+def _first_positive_frame_rate(stream: object) -> float:
+    """Return the first usable average or real frame rate from FFprobe."""
+    if not isinstance(stream, dict):
+        raise ValueError("video stream metadata must be an object")
+    for field in ("avg_frame_rate", "r_frame_rate"):
+        rate = stream.get(field)
+        if isinstance(rate, bool) or not isinstance(rate, (int, float, str)):
+            continue
+        try:
+            fps = float(Fraction(rate))
+        except (OverflowError, TypeError, ValueError, ZeroDivisionError):
+            continue
+        if np.isfinite(fps) and fps > 0:
+            return fps
+    raise ValueError("video stream metadata has no positive finite frame rate")
 
 
 def _validate_audio_output_format(*, sample_rate: int, channels: int) -> None:

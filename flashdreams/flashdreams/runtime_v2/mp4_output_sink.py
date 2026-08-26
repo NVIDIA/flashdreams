@@ -8,9 +8,9 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, cast
 
 from flashdreams.api_v2.output_sink import AbortableOutputSink
+from flashdreams.core.exceptions import add_exception_note
 from flashdreams.runtime_v2.mp4_audio import (
     F32leAudioStager,
     Mp4AudioMuxer,
@@ -105,21 +105,21 @@ class Mp4OutputSink(AbortableOutputSink):
                 try:
                     audio_stager.abort()
                 except BaseException as cleanup_error:
-                    cast(Any, error).add_note(
-                        f"Audio staging cleanup also failed: {cleanup_error!r}"
+                    add_exception_note(
+                        error, f"Audio staging cleanup also failed: {cleanup_error!r}"
                     )
             if encoder is not None:
                 try:
                     encoder.abort()
                 except BaseException as cleanup_error:
-                    cast(Any, error).add_note(
-                        f"Video encoder cleanup also failed: {cleanup_error!r}"
+                    add_exception_note(
+                        error, f"Video encoder cleanup also failed: {cleanup_error!r}"
                     )
             try:
                 shutil.rmtree(staging_dir)
             except BaseException as cleanup_error:
-                cast(Any, error).add_note(
-                    f"Staging cleanup also failed: {cleanup_error!r}"
+                add_exception_note(
+                    error, f"Staging cleanup also failed: {cleanup_error!r}"
                 )
             raise
         self._session_desc = session_desc
@@ -205,6 +205,9 @@ class Mp4OutputSink(AbortableOutputSink):
                 sample_rate=session_desc.audio_sample_rate,
                 channels=session_desc.audio_channels,
                 ffmpeg_path=self._audio_ffmpeg_path,
+                duration_seconds=(
+                    self._frames_written / session_desc.frames_per_second_for_step
+                ),
             )
             self._muxer = muxer
             muxer.close()
@@ -238,8 +241,8 @@ class Mp4OutputSink(AbortableOutputSink):
                 if failure is None:
                     failure = error
                 else:
-                    cast(Any, failure).add_note(
-                        f"Video encoder cleanup also failed: {error!r}"
+                    add_exception_note(
+                        failure, f"Video encoder cleanup also failed: {error!r}"
                     )
             else:
                 self._encoder = None
@@ -251,8 +254,8 @@ class Mp4OutputSink(AbortableOutputSink):
                 if failure is None:
                     failure = error
                 else:
-                    cast(Any, failure).add_note(
-                        f"Audio staging cleanup also failed: {error!r}"
+                    add_exception_note(
+                        failure, f"Audio staging cleanup also failed: {error!r}"
                     )
             else:
                 self._audio_stager = None
@@ -285,14 +288,13 @@ class Mp4OutputSink(AbortableOutputSink):
                 )
         self._clear_transaction()
 
-    def _clear_transaction(self, *, clear_staging: bool = True) -> None:
+    def _clear_transaction(self) -> None:
         self._session_desc = None
         self._encoder = None
         self._audio_stager = None
         self._muxer = None
         self._audio_ffmpeg_path = None
-        if clear_staging:
-            self._staging_dir = None
-            self._staged_video_path = None
-            self._staged_output_path = None
+        self._staging_dir = None
+        self._staged_video_path = None
+        self._staged_output_path = None
         self._frames_written = 0

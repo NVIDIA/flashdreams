@@ -17,7 +17,11 @@ class BackpressureMode(Enum):
     """Wait when the presentation queue is full."""
 
     DROP_OLDEST = "drop_oldest"
-    """Drop the oldest queued model step."""
+    """Drop the oldest queued model step.
+
+    For synchronized audio output, a dropped step is absent from the staged PCM
+    and becomes timeline silence when the file sink pads to the video duration.
+    """
 
 
 class PresentationMode(Enum):
