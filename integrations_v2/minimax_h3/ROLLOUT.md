@@ -10,6 +10,8 @@ Validation was performed on 2026-08-25 against these immutable sources:
   `0b3ed9e8b0f4489d29ab23c98da6df3df21897dc`;
 - final production head
   `4e91a25b4a09339ee2530cbff5d3a41aefc59d22`;
+- contribution-audit head (documentation-only after production validation)
+  `e49a971d96858c784b674e44cc7f8eb94ae4420c`;
 - Diffusers parity oracle
   `175fe6b2419a01db9c2ceabd01ec37d2c0305fc2`;
 - MiniMax model revision
@@ -55,6 +57,8 @@ an explicit later retry rather than falsely claiming cleanup.
 
 The final clean detached checkout passed:
 
+- the exact repository-wide contribution CPU tier with 2,056 passed, 2 skipped,
+  and 346 GPU/manual tests deselected;
 - 1,070 CPU tests across FlashDreams core, runtime V2, native H3, and H3 V2,
   with 105 GPU/manual tests deselected;
 - the independent complete V2 gate with 296 passed;
@@ -63,10 +67,14 @@ The final clean detached checkout passed:
 - offline `uv lock --check`;
 - DCO on every integration commit.
 
-A repository-wide pytest collection was also attempted. It stopped before
-execution because unrelated OmniDreams tests require the optional
-`pyvirtualdisplay` and `flip_evaluator` packages, which are not installed on
-this host. Those tests are outside the changed core/V2/H3 scope above.
+The repository-wide tier used the same development dependency setup as CPU CI,
+followed by the command documented in `CONTRIBUTING.md`:
+
+```bash
+uv sync --locked --extra dev --group test \
+  --no-install-package transformer-engine-torch
+uv run --group test pytest -m ci_cpu
+```
 
 CUDA parity ran against the exact oracle checkout placed first on
 `PYTHONPATH`:
