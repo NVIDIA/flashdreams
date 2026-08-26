@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import torch
 from cam2v import Cam2VApplication, Cam2VApplicationDefaults
 from lingbot.config import RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
@@ -25,6 +26,8 @@ class LingbotCam2VApplication(Cam2VApplication):
             defaults=Cam2VApplicationDefaults.from_runner_config(
                 RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
                 input_resolver=resolve_lingbot_conditioning,
+                first_frame_dtype=torch.bfloat16,
+                first_frame_interpolation="cubic",
                 install_hint=_INSTALL_HINT,
             )
         )

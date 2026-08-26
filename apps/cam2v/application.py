@@ -202,6 +202,8 @@ class Cam2VApplication(IApplication):
                 conditioning=conditioning,
                 total_blocks=self._total_blocks,
                 device=torch.device(self._device),
+                first_frame_dtype=self.defaults.first_frame_dtype,
+                first_frame_interpolation=self.defaults.first_frame_interpolation,
                 log_every_blocks=self._log_every_blocks,
                 warmup_blocks=self._warmup_blocks,
                 install_hint=self.defaults.install_hint,

@@ -15,7 +15,7 @@ from loguru import logger
 
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.infra.runner_io import load_first_frame_tensor
+from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -56,6 +56,12 @@ class Cam2VSessionConfig:
 
     device: torch.device
     """Device holding model inputs and cache state."""
+
+    first_frame_dtype: torch.dtype
+    """Tensor dtype required by the model's first-frame input."""
+
+    first_frame_interpolation: ResizeInterpolation
+    """Resize interpolation required by the model's image preprocessor."""
 
     log_every_blocks: int
     """Interval between live timing records after warmup."""
@@ -130,8 +136,8 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 pixel_height=state.session_desc.video_height,
                 pixel_width=state.session_desc.video_width,
                 device=state.config.device,
-                dtype=torch.bfloat16,
-                interpolation="cubic",
+                dtype=state.config.first_frame_dtype,
+                interpolation=state.config.first_frame_interpolation,
                 install_hint=state.config.install_hint,
             )
             state.cache = state.pipeline.initialize_cache(

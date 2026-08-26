@@ -46,6 +46,8 @@ def test_application_reuses_lingbot_runner_config() -> None:
     assert application.session_desc().video_width == runner.pixel_width
     assert application.session_desc().video_height == runner.pixel_height
     assert application.session_desc().frames_per_second_for_step == runner.fps
+    assert application.defaults.first_frame_dtype is torch.bfloat16
+    assert application.defaults.first_frame_interpolation == "cubic"
     assert isinstance(create_app(), LingbotCam2VApplication)
 
 

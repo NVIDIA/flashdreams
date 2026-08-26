@@ -161,6 +161,8 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
             conditioning=_conditioning(),
             total_blocks=1,
             device=torch.device("cpu"),
+            first_frame_dtype=torch.float32,
+            first_frame_interpolation="linear",
             log_every_blocks=1,
             warmup_blocks=0,
         ),
@@ -220,6 +222,8 @@ def _input_test_model_loop() -> tuple[Cam2VModelLoop, Cam2VModelState, _Pipeline
             conditioning=_conditioning(),
             total_blocks=4,
             device=torch.device("cpu"),
+            first_frame_dtype=torch.float32,
+            first_frame_interpolation="linear",
             log_every_blocks=1,
             warmup_blocks=4,
         ),
@@ -408,6 +412,8 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
             conditioning=_conditioning(),
             total_blocks=2,
             device=torch.device("cpu"),
+            first_frame_dtype=torch.float32,
+            first_frame_interpolation="linear",
             log_every_blocks=1,
             warmup_blocks=0,
         ),
@@ -438,6 +444,8 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
             total_blocks=3,
             pixel_width=8,
             pixel_height=4,
+            first_frame_dtype=torch.float64,
+            first_frame_interpolation="nearest",
             device="cpu",
             fps=16,
         )
@@ -448,13 +456,15 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
 
     assert isinstance(session, Cam2VSession)
     session.init()
-    ui_loop, _ = session._take_loops()
+    ui_loop, model_loop = session._take_loops()
     assert session.session_desc.video_width == 8
     assert isinstance(ui_loop, BlitModelOutputToScreenLoop)
     assert seen[0]["pixel_width"] == 8
     assert seen[0]["pixel_height"] == 4
     assert seen[0]["fps"] == 16
     assert pipeline_config.pipeline.device == "cpu"
+    assert model_loop.state.config.first_frame_dtype is torch.float64
+    assert model_loop.state.config.first_frame_interpolation == "nearest"
     app.close()
     assert pipeline_config.pipeline.closed
 
@@ -468,6 +478,8 @@ def test_defaults_reject_invalid_timing_configuration() -> None:
             total_blocks=1,
             pixel_width=1,
             pixel_height=1,
+            first_frame_dtype=torch.float32,
+            first_frame_interpolation="default",
             warmup_blocks=-1,
         )
 

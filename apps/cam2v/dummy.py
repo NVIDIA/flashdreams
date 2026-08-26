@@ -201,6 +201,8 @@ class DummyCam2VApplication(Cam2VApplication):
                 total_blocks=10_000,
                 pixel_width=640,
                 pixel_height=360,
+                first_frame_dtype=torch.bfloat16,
+                first_frame_interpolation="cubic",
                 device="cuda",
                 fps=16,
                 ui_fps=60,

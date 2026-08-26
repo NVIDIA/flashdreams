@@ -13,6 +13,7 @@ from typing import Any
 
 import torch
 
+from flashdreams.infra.runner_io import ResizeInterpolation
 from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -69,6 +70,12 @@ class Cam2VApplicationDefaults:
     pixel_height: int
     """Default generated frame height."""
 
+    first_frame_dtype: torch.dtype
+    """Tensor dtype used for the model's normalized first frame."""
+
+    first_frame_interpolation: ResizeInterpolation
+    """Resize interpolation required by the model's image preprocessor."""
+
     device: str = "cuda"
     """Device on which the application constructs the shared pipeline."""
 
@@ -122,6 +129,8 @@ class Cam2VApplicationDefaults:
         runner_config: Any,
         *,
         input_resolver: Cam2VInputResolver,
+        first_frame_dtype: torch.dtype,
+        first_frame_interpolation: ResizeInterpolation,
         total_blocks: int | None = None,
         install_hint: str = "",
     ) -> "Cam2VApplicationDefaults":
@@ -155,6 +164,8 @@ class Cam2VApplicationDefaults:
             ),
             pixel_width=int(runner_config.pixel_width),
             pixel_height=int(runner_config.pixel_height),
+            first_frame_dtype=first_frame_dtype,
+            first_frame_interpolation=first_frame_interpolation,
             device=str(getattr(runner_config, "device", "cuda")),
             fps=int(getattr(runner_config, "fps", 16)),
             output_layout=_output_layout(runner_config),
