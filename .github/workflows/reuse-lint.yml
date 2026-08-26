@@ -97,19 +97,23 @@ jobs:
           excludes+='|^integrations/omnidreams/omnidreams/grpc/protos/.*_pb2'
           missing_copyright_files=()
           missing_license_files=()
+          # Anchor tags to supported source-comment syntax so strings and
+          # docstrings containing SPDX-like text do not satisfy the policy.
+          # REUSE-IgnoreStart
+          copyright_pattern='^[[:space:]]*(#|//|/\*|\*)[[:space:]]*SPDX-FileCopyrightText:[[:space:]]*[^[:space:]]'
+          license_pattern='^[[:space:]]*(#|//|/\*|\*)[[:space:]]*SPDX-License-Identifier:[[:space:]]*[^[:space:]]'
+          # REUSE-IgnoreEnd
           while IFS= read -r f; do
             if printf '%s\n' "$f" | grep -qE "$excludes"; then
               continue
             fi
             header=$(head -n 20 "$f")
-            # REUSE-IgnoreStart
-            if ! printf '%s\n' "$header" | grep -qE 'SPDX-FileCopyrightText:[[:space:]]*[^[:space:]]'; then
+            if ! printf '%s\n' "$header" | grep -qE "$copyright_pattern"; then
               missing_copyright_files+=("$f")
             fi
-            if ! printf '%s\n' "$header" | grep -qE 'SPDX-License-Identifier:[[:space:]]*[^[:space:]]'; then
+            if ! printf '%s\n' "$header" | grep -qE "$license_pattern"; then
               missing_license_files+=("$f")
             fi
-            # REUSE-IgnoreEnd
           done < <(git ls-files \
                      '*.py' '*.pyx' '*.pyi' \
                      '*.c' '*.cc' '*.cpp' '*.cxx' \

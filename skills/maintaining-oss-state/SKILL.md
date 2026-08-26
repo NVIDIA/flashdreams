@@ -85,9 +85,13 @@ fix the underlying file.
 Every first-party source file starts with an inline SPDX header. The
 `reuse-lint` "Inline SPDX headers on first-party source files" step
 requires non-empty `SPDX-FileCopyrightText` and
-`SPDX-License-Identifier` tags in the first 20 lines. It deliberately
-does not prescribe the copyright holder text: public contributors may
-use their own notice, and a file may carry multiple copyright notices.
+`SPDX-License-Identifier` tags on `#`, `//`, or block-comment `*`
+lines in the first 20 lines. Anchoring the tags to comment syntax
+prevents SPDX-like text in strings or docstrings from satisfying the
+policy. The check
+deliberately does not prescribe the copyright holder text: public
+contributors may use their own notice, and a file may carry multiple
+copyright notices.
 
 **Python / shell / TOML / YAML** (`#` line comments):
 
@@ -96,8 +100,8 @@ use their own notice, and a file may carry multiple copyright notices.
 # SPDX-License-Identifier: Apache-2.0
 ```
 
-**C / C++ / CUDA** (`//` line comments): the same two SPDX tags, with
-`//` swapped for `#`.
+**C / C++ / CUDA**: the same two SPDX tags on `//` lines or on `*`
+lines within a `/* ... */` block comment.
 
 Rules:
 
@@ -477,8 +481,10 @@ sections).
    `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`, `.cu`, `.cuh`,
    `.inl`, `.sh`, `.proto`, `Dockerfile` / `*.dockerfile`) carries
    non-empty inline `SPDX-FileCopyrightText` and
-   `SPDX-License-Identifier` tags in its first 20 lines — with the
-   documented exclusions (`cudaraster/**`, generated protobuf stubs).
+   `SPDX-License-Identifier` tags on `#`, `//`, or block-comment `*`
+   lines in its first 20 lines — with the documented exclusions
+   (`cudaraster/**`,
+   generated protobuf stubs).
 5. No file contains the legacy NVIDIA proprietary-banner sentinel
    phrases checked by `.github/workflows/reuse-lint.yml`.
 
