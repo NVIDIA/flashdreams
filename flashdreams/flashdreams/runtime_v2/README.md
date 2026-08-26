@@ -41,7 +41,7 @@ Presenting it:
 
 - `blit_model_output_to_screen_loop.py` is the UI loop a session gets when it
   registers none of its own.
-- `slangpy_ui_loop.py` and `_slangpy_ui_renderer.py` are the UI loop for
+- `slangpy_ui_loop.py` and `slangpy_ui_renderer.py` are the UI loop for
   applications that draw widgets over the model output.
 - `mp4_client_window.py` and `webrtc_client_window.py` are the two windows.
 - `mp4_output_sink.py`, `metrics_output_sink.py`, `video_encoder.py` and
@@ -50,7 +50,7 @@ Presenting it:
 
 Input:
 
-- `user_input_event.py` defines the event data types, `user_input_events.py` the
+- `user_input_event.py` defines the concrete event types, `user_input_events.py` the
   batch of them a source hands over.
 
 ## The command line
@@ -119,7 +119,7 @@ that reader has not seen and moves its cursor to the end, and
 `collect_garbage` deletes the prefix every reader has passed. The UI loop is
 reader 0 and the model loop is reader 1.
 
-Appending also counts resets. Every `ResetUserInputEventData` in a batch bumps
+Appending also counts resets. Every `ResetUserInputEvent` in a batch bumps
 the generation number that loops and the presentation manager compare against
 their own.
 

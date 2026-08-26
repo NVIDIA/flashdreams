@@ -20,7 +20,7 @@ class EventBuffer:
     cursor per registered reader, hands each reader only what it has not seen,
     and drops the prefix they have all passed.
 
-    It also counts resets. Every :class:`ResetUserInputEventData` appended bumps
+    It also counts resets. Every :class:`ResetUserInputEvent` appended bumps
     :attr:`generation`, which the loops and the presentation manager compare
     against their own; that counter is how a reset reaches all of them without
     any of them talking to each other.
