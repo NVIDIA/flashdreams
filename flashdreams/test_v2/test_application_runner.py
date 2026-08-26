@@ -144,6 +144,25 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
+class _ModelSink:
+    """Record complete model-result batches."""
+
+    def __init__(self, calls: list[str]) -> None:
+        self._calls = calls
+        self.batches: list[tuple[int, tuple[StepResult, ...]]] = []
+
+    def open(self, session_desc: SessionDesc) -> None:
+        del session_desc
+        self._calls.append("model_output.open")
+
+    def write(self, generation: int, results: Sequence[StepResult]) -> None:
+        self.batches.append((generation, tuple(results)))
+        self._calls.append(f"model_output.write({generation})")
+
+    def close(self) -> None:
+        self._calls.append("model_output.close")
+
+
 class _MetricsSink:
     """Record model results delivered independently of the client window."""
 
@@ -195,11 +214,24 @@ def test_application_runner_closes_both_when_the_run_never_starts() -> None:
     a window may already be serving a client by then."""
     calls: list[str] = []
     application = _Application(calls, fail_to_init=True)
+    metrics = _MetricsSink(calls)
+    model_output = _ModelSink(calls)
 
     with pytest.raises(RuntimeError, match="application init failed"):
-        ApplicationRunner(application, _Window(calls)).run(_session_desc())
+        ApplicationRunner(
+            application,
+            _Window(calls),
+            metrics_output_sink=metrics,
+            model_output_sinks=[model_output],
+        ).run(_session_desc())
 
-    assert calls == ["application.init([])", "window.close", "application.close"]
+    assert calls == [
+        "application.init([])",
+        "window.close",
+        "metrics.close",
+        "model_output.close",
+        "application.close",
+    ]
 
 
 def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
@@ -230,6 +262,24 @@ def test_application_runner_keeps_metrics_output_separate_from_the_window() -> N
     assert [result.step_index for result in metrics.results] == [0, 1]
     assert calls.index("metrics.open") < calls.index("metrics.write(0)")
     assert calls.index("metrics.write(1)") < calls.index("metrics.close")
+
+
+def test_application_runner_forwards_complete_model_batches() -> None:
+    calls: list[str] = []
+    sink = _ModelSink(calls)
+
+    ApplicationRunner(
+        _Application(calls, session_length=2),
+        _SilentWindow(calls),
+        model_output_sinks=[sink],
+    ).run(_session_desc())
+
+    assert [generation for generation, _ in sink.batches] == [0, 0]
+    assert [
+        tuple(result.step_index for result in batch) for _, batch in sink.batches
+    ] == [(0,), (1,)]
+    assert calls.index("model_output.open") < calls.index("model_output.write(0)")
+    assert calls.index("model_output.write(0)") < calls.index("model_output.close")
 
 
 def test_application_runner_reports_the_run_rather_than_the_close(

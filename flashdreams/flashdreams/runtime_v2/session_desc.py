@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.tensor_artifact import TensorArtifactSchema
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class BackpressureMode(Enum):

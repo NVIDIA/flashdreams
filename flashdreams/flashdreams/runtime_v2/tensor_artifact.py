@@ -34,16 +34,21 @@ class TensorArtifactSchema:
                 "and contain only alphanumerics, dots, underscores, or hyphens."
             )
         if any(not name.strip() for name in self.dimension_names):
-            raise ValueError("Tensor artifact dimension names must be non-empty.")
+            raise ValueError(
+                f"Tensor artifact {self.name!r} dimension names must be non-empty."
+            )
         if len(set(self.dimension_names)) != len(self.dimension_names):
-            raise ValueError("Tensor artifact dimension names must be unique.")
+            raise ValueError(
+                f"Tensor artifact {self.name!r} dimension names must be unique."
+            )
         if self.concatenate_axis is not None and not (
             -len(self.dimension_names)
             <= self.concatenate_axis
             < len(self.dimension_names)
         ):
             raise ValueError(
-                "Tensor artifact concatenate_axis must identify a declared dimension."
+                f"Tensor artifact {self.name!r} concatenate_axis must identify "
+                "a declared dimension."
             )
 
 

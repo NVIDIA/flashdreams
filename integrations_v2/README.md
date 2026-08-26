@@ -170,6 +170,42 @@ even when the body is one line — a browser client can ask for one at any time.
 Register no UI loop unless you need one. The default composites every model
 channel into one frame, which is what all of these except `slangpy_ui_demo` do.
 
+## Emitting tensor artifacts
+
+When a model produces structured tensors beside video, declare each one in the
+application's natural `SessionDesc` and attach a matching output to one model
+result:
+
+```python
+TRAJECTORY_SCHEMA = TensorArtifactSchema(
+    name="trajectory",
+    dimension_names=("sample", "coordinate"),
+    concatenate_axis=0,
+)
+
+SessionDesc(tensor_artifact_schemas=(TRAJECTORY_SCHEMA,))
+
+StepResult(
+    ...,
+    tensor_artifacts=(
+        TensorArtifactOutput(schema=TRAJECTORY_SCHEMA, tensor=trajectory),
+    ),
+)
+```
+
+Define each schema once and reuse it. Artifact names are stable routing and
+filename keys, dimension names define the exact rank and storage order, and the
+concatenation axis joins chunks from successive steps. Use
+`concatenate_axis=None` for a single output per session generation. Every
+declared artifact is optional, but a name may appear at most once across all
+channels returned by one model step; attach it to one channel only.
+
+Artifacts are model outputs, not video channels. A caller must request their
+persistence independently; on the command line,
+`--tensor-artifact-dir DIR` writes one NumPy file per emitted name. Test the
+declared schema, duplicate behavior, reset behavior, and the saved array's exact
+dtype, shape, and values.
+
 ## Running it
 
 ```bash

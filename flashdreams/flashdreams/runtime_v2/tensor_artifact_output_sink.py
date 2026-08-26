@@ -1,27 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Output sink persisting named tensor artifacts as NumPy arrays."""
+"""Model-output sink persisting named tensor artifacts as NumPy arrays."""
 
 from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO
 
 import numpy as np
 import torch
 from torch import Tensor
 
-from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.runtime_v2.model_output_sink import ModelOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.tensor_artifact import TensorArtifactSchema
 
 
-class TensorArtifactOutputSink(OutputSink):
-    """Collect declared tensor outputs and atomically write one ``.npy`` per name."""
+class TensorArtifactOutputSink(ModelOutputSink):
+    """Collect the latest generation and atomically write one ``.npy`` per name."""
 
     def __init__(self, output_dir: str | Path) -> None:
         """
@@ -30,47 +31,111 @@ class TensorArtifactOutputSink(OutputSink):
         """
         self._output_dir = Path(output_dir)
         self._schemas: dict[str, TensorArtifactSchema] | None = None
+        self._generation: int | None = None
         self._chunks: dict[str, list[Tensor]] = {}
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Prepare to collect artifacts declared by ``session_desc``."""
-        self._schemas = {
+        """Prepare to collect artifacts declared by ``session_desc``.
+
+        Raises:
+            ValueError: The session declares no tensor artifacts.
+        """
+        schemas = {
             schema.name: schema for schema in session_desc.tensor_artifact_schemas
         }
-        self._chunks = {name: [] for name in self._schemas}
+        if not schemas:
+            raise ValueError(
+                "TensorArtifactOutputSink requires a session that declares at least "
+                "one tensor artifact."
+            )
+        self._schemas = schemas
+        self._generation = None
+        self._chunks = {name: [] for name in schemas}
 
-    def write(self, result: StepResult) -> None:
-        """Collect the tensor artifacts carried by one model result.
+    def write(self, generation: int, results: Sequence[StepResult]) -> None:
+        """Collect one complete model-step result batch.
+
+        A newer generation discards all buffered older-generation chunks. A
+        late batch from an older generation is ignored.
 
         Raises:
             RuntimeError: Called before :meth:`open`.
-            ValueError: A result is undeclared, duplicated, or changes schema.
+            ValueError: An output is undeclared, duplicated across the result
+                batch, changes schema, cannot be represented by NumPy, or is
+                incompatible with an earlier chunk.
         """
-        if self._schemas is None:
+        schemas = self._schemas
+        if schemas is None:
             raise RuntimeError(
                 "TensorArtifactOutputSink.open() must run before write()."
             )
+        if self._generation is not None and generation < self._generation:
+            return
+        if self._generation is None or generation > self._generation:
+            self._generation = generation
+            self._chunks = {name: [] for name in schemas}
+
         seen: set[str] = set()
-        for artifact in result.tensor_artifacts:
-            name = artifact.schema.name
-            if name in seen:
-                raise ValueError(
-                    f"Step {result.step_index} emitted tensor artifact {name!r} twice."
-                )
-            seen.add(name)
-            expected = self._schemas.get(name)
-            if expected is None:
-                raise ValueError(
-                    f"Tensor artifact {name!r} was not declared by the session."
-                )
-            if artifact.schema != expected:
-                raise ValueError(
-                    f"Tensor artifact {name!r} does not match its session schema."
-                )
-            self._chunks[name].append(artifact.tensor.detach().to("cpu").contiguous())
+        staged: list[tuple[str, Tensor]] = []
+        for result in results:
+            for artifact in result.tensor_artifacts:
+                name = artifact.schema.name
+                if name in seen:
+                    raise ValueError(
+                        f"Model step {result.step_index} emitted tensor artifact "
+                        f"{name!r} more than once across its output channels."
+                    )
+                seen.add(name)
+                expected = schemas.get(name)
+                if expected is None:
+                    raise ValueError(
+                        f"Tensor artifact {name!r} was not declared by the session."
+                    )
+                if artifact.schema != expected:
+                    raise ValueError(
+                        f"Tensor artifact {name!r} does not match its session schema."
+                    )
+                tensor = _numpy_compatible_tensor(name, artifact.tensor)
+                self._validate_next_chunk(expected, tensor)
+                staged.append((name, tensor))
+
+        for name, tensor in staged:
+            self._chunks[name].append(tensor)
+
+    def _validate_next_chunk(
+        self, schema: TensorArtifactSchema, tensor: Tensor
+    ) -> None:
+        """Validate ``tensor`` against chunks already buffered for ``schema``."""
+        chunks = self._chunks[schema.name]
+        if not chunks:
+            return
+        if schema.concatenate_axis is None:
+            raise ValueError(
+                f"Tensor artifact {schema.name!r} permits at most one output "
+                "per generation."
+            )
+        first = chunks[0]
+        if tensor.dtype != first.dtype:
+            raise ValueError(
+                f"Tensor artifact {schema.name!r} changed dtype from "
+                f"{first.dtype} to {tensor.dtype}."
+            )
+        axis = schema.concatenate_axis % tensor.ndim
+        mismatches = [
+            dimension
+            for dimension, (expected, received) in enumerate(
+                zip(first.shape, tensor.shape, strict=True)
+            )
+            if dimension != axis and expected != received
+        ]
+        if mismatches:
+            raise ValueError(
+                f"Tensor artifact {schema.name!r} changed non-concatenated "
+                f"dimensions from {tuple(first.shape)} to {tuple(tensor.shape)}."
+            )
 
     def close(self) -> None:
-        """Write collected tensors and release buffered state.
+        """Persist buffered tensors and release state.
 
         Can be called before :meth:`open` or more than once.
         """
@@ -79,6 +144,7 @@ class TensorArtifactOutputSink(OutputSink):
             return
         chunks = self._chunks
         self._schemas = None
+        self._generation = None
         self._chunks = {}
 
         outputs: dict[str, Tensor] = {}
@@ -86,15 +152,11 @@ class TensorArtifactOutputSink(OutputSink):
             if not artifact_chunks:
                 continue
             schema = schemas[name]
-            if schema.concatenate_axis is None:
-                if len(artifact_chunks) != 1:
-                    raise ValueError(
-                        f"Tensor artifact {name!r} permits one output but received "
-                        f"{len(artifact_chunks)}."
-                    )
-                outputs[name] = artifact_chunks[0]
-            else:
-                outputs[name] = torch.cat(artifact_chunks, dim=schema.concatenate_axis)
+            outputs[name] = (
+                artifact_chunks[0]
+                if schema.concatenate_axis is None
+                else torch.cat(artifact_chunks, dim=schema.concatenate_axis)
+            )
         if not outputs:
             return
 
@@ -103,15 +165,22 @@ class TensorArtifactOutputSink(OutputSink):
         try:
             for name, tensor in outputs.items():
                 destination = self._output_dir / f"{name}.npy"
-                with tempfile.NamedTemporaryFile(
-                    mode="w+b",
-                    prefix=f".{name}.",
-                    suffix=".tmp",
-                    dir=self._output_dir,
-                    delete=False,
-                ) as temporary:
-                    _write_numpy(temporary, tensor)
-                    temporary_path = Path(temporary.name)
+                temporary_path: Path | None = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="w+b",
+                        prefix=f".{name}.",
+                        suffix=".tmp",
+                        dir=self._output_dir,
+                        delete=False,
+                    ) as temporary:
+                        temporary_path = Path(temporary.name)
+                        _write_numpy(temporary.file, tensor)
+                except BaseException:
+                    if temporary_path is not None:
+                        temporary_path.unlink(missing_ok=True)
+                    raise
+                assert temporary_path is not None
                 staged.append((temporary_path, destination))
             for temporary_path, destination in staged:
                 os.replace(temporary_path, destination)
@@ -120,7 +189,20 @@ class TensorArtifactOutputSink(OutputSink):
                 temporary_path.unlink(missing_ok=True)
 
 
-def _write_numpy(file: BinaryIO, tensor: Tensor) -> None:
+def _numpy_compatible_tensor(name: str, tensor: Tensor) -> Tensor:
+    """Detach ``tensor`` onto CPU and prove NumPy can represent its dtype."""
+    try:
+        result = tensor.detach().to("cpu").contiguous()
+        result.numpy()
+    except (RuntimeError, TypeError) as error:
+        raise ValueError(
+            f"Tensor artifact {name!r} with dtype {tensor.dtype} cannot be "
+            "stored as a NumPy array."
+        ) from error
+    return result
+
+
+def _write_numpy(file: IO[bytes], tensor: Tensor) -> None:
     """Write ``tensor`` to an open temporary file and flush it to disk."""
     np.save(file, tensor.numpy(), allow_pickle=False)
     file.flush()

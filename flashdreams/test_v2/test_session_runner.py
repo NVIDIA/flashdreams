@@ -5,7 +5,11 @@
 
 import logging
 import threading
+from collections.abc import Sequence
+from dataclasses import replace
+from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 from numpy import uint64
@@ -25,6 +29,13 @@ from flashdreams.runtime_v2.session_desc import (
 )
 from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.tensor_artifact import (
+    TensorArtifactOutput,
+    TensorArtifactSchema,
+)
+from flashdreams.runtime_v2.tensor_artifact_output_sink import (
+    TensorArtifactOutputSink,
+)
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
@@ -146,6 +157,25 @@ class CallLog:
         """Return the names of the threads that made ``call``."""
         with self._lock:
             return {thread for made, thread in self._calls if made == call}
+
+
+class RecordingModelOutputSink:
+    """Record complete model batches independently of UI presentation."""
+
+    def __init__(self, log: CallLog) -> None:
+        self._log = log
+        self.batches: list[tuple[int, tuple[StepResult, ...]]] = []
+
+    def open(self, session_desc: SessionDesc) -> None:
+        del session_desc
+        self._log.record("model_output.open")
+
+    def write(self, generation: int, results: Sequence[StepResult]) -> None:
+        self._log.record(f"model_output.write({generation})")
+        self.batches.append((generation, tuple(results)))
+
+    def close(self) -> None:
+        self._log.record("model_output.close")
 
 
 class FakeModelLoop(IModelLoop["FakeSession"]):
@@ -603,10 +633,12 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
 
     window = RecordingClientWindow(log)
     metrics = RecordingMetricsSink()
+    model_output = RecordingModelOutputSink(log)
     run_session(
         MultiFrameSession(_session_desc(), log),
         window,
         metrics_output_sink=metrics,
+        model_output_sinks=[model_output],
         steps=1,
     )
 
@@ -617,6 +649,37 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
     assert len(metrics.results) == 1
     assert metrics.results[0].metrics == {"total_ms": 1.5}
+    assert len(model_output.batches) == 1
+    generation, batch = model_output.batches[0]
+    assert generation == 0
+    assert len(batch) == 1
+    assert batch[0].frame_count == 2
+    assert batch[0].metrics == {"total_ms": 1.5}
+    assert log.threads_for("model_output.write(0)") == {_STEP_THREAD_NAME}
+    assert log.threads_for("model_output.open") == {threading.current_thread().name}
+    assert log.threads_for("model_output.close") == {threading.current_thread().name}
+
+
+def test_model_output_sink_failure_still_closes_everything() -> None:
+    log = CallLog()
+
+    class FailingModelOutputSink(RecordingModelOutputSink):
+        def write(self, generation: int, results: Sequence[StepResult]) -> None:
+            super().write(generation, results)
+            raise RuntimeError("model output failed")
+
+    sink = FailingModelOutputSink(log)
+
+    with pytest.raises(RuntimeError, match="model output failed"):
+        run_session(
+            FakeSession(_session_desc(), log),
+            RecordingClientWindow(log),
+            model_output_sinks=[sink],
+            steps=1,
+        )
+
+    assert "model_output.close" in log.calls
+    assert log.calls[-2:] == ["model_output.close", "session.close"]
 
 
 def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
@@ -867,6 +930,66 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     # the step from after the reset reaches the window.
     assert log.calls.count("session.step(0)") == 2
     assert [result.step_index for result in window.results] == [0]
+
+
+def test_tensor_artifacts_keep_only_the_generation_after_an_inflight_reset(
+    tmp_path: Path,
+) -> None:
+    log = CallLog()
+    reset_reported = threading.Event()
+    trajectory = TensorArtifactSchema(
+        name="trajectory",
+        dimension_names=("sample", "coordinate"),
+    )
+
+    class ArtifactSession(FakeSession):
+        def __init__(self, session_desc: SessionDesc, log: CallLog) -> None:
+            super().__init__(session_desc, log)
+            self.emissions = 0
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            if self.emissions == 0:
+                reset_reported.wait()
+            result = super().step(step_index, events)
+            value = float(self.emissions)
+            self.emissions += 1
+            return replace(
+                result,
+                tensor_artifacts=(
+                    TensorArtifactOutput(
+                        schema=trajectory,
+                        tensor=torch.full((1, 2), value),
+                    ),
+                ),
+            )
+
+    class ResettingWindow(RecordingClientWindow):
+        def get_user_input_events(self) -> UserInputEvents:
+            events = super().get_user_input_events()
+            if events.get_events():
+                reset_reported.set()
+            return events
+
+    desc = replace(
+        _session_desc(),
+        tensor_artifact_schemas=(trajectory,),
+    )
+    artifact_dir = tmp_path / "artifacts"
+    sink = TensorArtifactOutputSink(artifact_dir)
+    run_session(
+        ArtifactSession(desc, log),
+        ResettingWindow(
+            log,
+            [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
+        ),
+        model_output_sinks=[sink],
+        steps=2,
+    )
+
+    np.testing.assert_array_equal(
+        np.load(artifact_dir / "trajectory.npy"),
+        np.array([[1.0, 1.0]], dtype=np.float32),
+    )
 
 
 def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:

@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 
 from torch import Tensor
 
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.tensor_artifact import TensorArtifactOutput
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 @dataclass(frozen=True, slots=True)

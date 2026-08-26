@@ -12,8 +12,10 @@ import argparse
 import json
 import shutil
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -34,6 +36,10 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.tensor_artifact import (
+    TensorArtifactOutput,
+    TensorArtifactSchema,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.application import T2VApplication
@@ -55,6 +61,12 @@ _TOTAL_BLOCKS = 3
 
 _PROMPT = "A cat surfing"
 """Prompt the tests generate from."""
+
+_TRAJECTORY = TensorArtifactSchema(
+    name="trajectory",
+    dimension_names=("sample", "coordinate"),
+)
+"""Generic tensor output exposed by the artifact stand-in."""
 
 
 ## Stand-in model
@@ -93,9 +105,11 @@ class UndescribedApplication(IApplication):
 
     def __init__(self) -> None:
         self.asked_for: SessionDesc | None = None
+        self.initialized = False
 
     def init(self, commandline_args: Sequence[str]) -> None:
         del commandline_args
+        self.initialized = True
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         self.asked_for = session_desc
@@ -141,6 +155,43 @@ class OneStepSession(ISession):
 
     def is_finished(self) -> bool:
         return self._generated
+
+
+class ArtifactSession(OneStepSession):
+    """Emit one generic tensor artifact beside the stand-in video."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+        return replace(
+            super().step(step_index, events),
+            tensor_artifacts=(
+                TensorArtifactOutput(
+                    schema=_TRAJECTORY,
+                    tensor=torch.tensor([[1.0, 2.0]]),
+                ),
+            ),
+        )
+
+
+class ArtifactApplication(IApplication):
+    """Declare and create the generic artifact stand-in."""
+
+    def init(self, commandline_args: Sequence[str]) -> None:
+        if commandline_args:
+            raise AssertionError("Artifact stand-in takes no arguments.")
+
+    def session_desc(self) -> SessionDesc:
+        return SessionDesc(
+            output_layout=VideoTensorLayout.bcthw,
+            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            frames_per_second_for_ui=100,
+            frames_per_second_for_step=30,
+            video_width=2,
+            video_height=2,
+            tensor_artifact_schemas=(_TRAJECTORY,),
+        )
+
+    def create_session(self, session_desc: SessionDesc) -> ISession:
+        return ArtifactSession(session_desc)
 
 
 class RecordingWindow(IClientWindow):
@@ -321,6 +372,64 @@ def test_a_run_writes_what_the_application_generated(
     assert path.stat().st_size > 0
     assert pipeline.caches[0]["text"] == [_PROMPT]
     assert pipeline.generated == [0, 1]
+
+
+def test_a_run_can_write_declared_tensor_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    _install(monkeypatch, ArtifactApplication(), RecordingWindow())
+
+    cli.entrypoint(
+        [
+            "stub",
+            "--mode",
+            "webrtc",
+            "--tensor-artifact-dir",
+            str(artifact_dir),
+        ]
+    )
+
+    np.testing.assert_array_equal(
+        np.load(artifact_dir / "trajectory.npy"),
+        np.array([[1.0, 2.0]], dtype=np.float32),
+    )
+
+
+def test_tensor_artifact_output_requires_a_declared_schema_before_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    application = UndescribedApplication()
+    _install(monkeypatch, application)
+
+    class NeverCreatedMode(ClientWindowMode):
+        name = "never-created"
+
+        def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+            del parsed_args
+            raise AssertionError("The CLI must reject this before creating a window.")
+
+    monkeypatch.setattr(cli, "client_window_mode", lambda name: NeverCreatedMode())
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.entrypoint(
+            [
+                "stub",
+                "--mode",
+                "webrtc",
+                "--tensor-artifact-dir",
+                str(tmp_path / "artifacts"),
+            ]
+        )
+
+    assert exit_info.value.code == 2
+    assert "application declares no tensor artifacts" in capsys.readouterr().err
+    assert not application.initialized
+    assert application.asked_for is None
+    assert not (tmp_path / "artifacts").exists()
 
 
 def test_the_model_is_released_when_a_run_fails(

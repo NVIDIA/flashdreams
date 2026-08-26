@@ -160,7 +160,7 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
         "--tensor-artifact-dir",
         type=Path,
         default=None,
-        help="Directory for named tensor outputs such as actions.",
+        help="Directory for named tensor outputs.",
     )
     for mode in _MODES:
         mode.add_arguments(parser)

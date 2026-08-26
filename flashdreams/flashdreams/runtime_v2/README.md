@@ -34,8 +34,11 @@ Running a session:
 - `presentation_manager.py` buffers generated frames between the two threads and
   decides which one the UI sees.
 - `session_desc.py` describes the session being run: frame size, rates, layout,
-  and the two policy knobs below.
-- `step_result.py` is what one generation step produces.
+  named tensor artifacts, and the two policy knobs below.
+- `step_result.py` is what one generation step produces;
+  `tensor_artifact.py` defines its typed non-video outputs.
+- `model_output_sink.py` defines the batch-and-generation-aware sink contract
+  for outputs taken directly from model steps.
 
 Presenting it:
 
@@ -44,8 +47,9 @@ Presenting it:
 - `slangpy_ui_loop.py` and `slangpy_ui_renderer.py` are the UI loop for
   applications that draw widgets over the model output.
 - `mp4_client_window.py` and `webrtc_client_window.py` are the two windows.
-- `mp4_output_sink.py`, `metrics_output_sink.py`, `video_encoder.py` and
-  `video_tensor.py` are what output is written through.
+- `mp4_output_sink.py`, `metrics_output_sink.py`,
+  `tensor_artifact_output_sink.py`, `video_encoder.py` and `video_tensor.py`
+  are what output is written through.
 - `serving/` is the HTTP and WebRTC server behind the browser window.
 
 Input:
@@ -91,6 +95,23 @@ what the model generated while the window still sees one composited frame per
 tick. See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
 and the [benchmark README](../../tools/benchmarks/README.md) for the suite.
 
+`--tensor-artifact-dir DIR` adds a `TensorArtifactOutputSink`. The application
+must declare at least one tensor artifact in its natural session description;
+otherwise the command exits with a usage error before it initializes the
+application or creates a window.
+
+At close, the sink writes one `<artifact-name>.npy` file for each declared
+artifact that was emitted. It concatenates successive chunks on the schema's
+`concatenate_axis`; `None` permits one chunk only. Chunks must have identical
+dtypes and identical non-concatenated dimensions, and their dtype must be
+representable by NumPy. Each file is staged in the target directory and
+installed with an atomic replace. If no artifact was emitted, the directory is
+not created.
+
+Only the newest session generation is persisted. The first result from a newer
+generation clears buffered older results, and a late result from an older
+generation is ignored.
+
 ## Starting and stopping a run
 
 `ApplicationRunner.run` calls `init`, `create_session` and `run_session` in
@@ -99,11 +120,11 @@ succeeded. It also closes the window itself when the run never started, because
 `run_session` is what otherwise owns the window, and a WebRTC window may already
 be serving a browser before the application has finished loading.
 
-`run_session` then opens the window and any metrics sink, collects one batch of
-input, presents one tick, and only then starts the model thread — so a client that
-closed during startup is never generated for. Its main loop services input and
-presents frames until the shutdown event is set, or until the model thread has
-finished and no frames are still pending.
+`run_session` then opens the window and requested auxiliary sinks, collects
+one batch of input, presents one tick, and only then starts the model thread —
+so a client that closed during startup is never generated for. Its main loop
+services input and presents frames until the shutdown event is set, or until
+the model thread has finished and no frames are still pending.
 
 On the way out it sets the shutdown event, joins the model thread, shuts both
 loops down, clears the presentation buffer, unregisters the readers, closes every
@@ -120,8 +141,8 @@ that reader has not seen and moves its cursor to the end, and
 reader 0 and the model loop is reader 1.
 
 Appending also counts resets. Every `ResetUserInputEvent` in a batch bumps
-the generation number that loops and the presentation manager compare against
-their own.
+the generation number that loops, the presentation manager, and model-output
+sinks use to separate old work from the restarted session.
 
 A close event is handled twice over, deliberately: `run_session` sets the
 shutdown event when it sees one in a collected batch, and `ILoop._begin_run` sets
@@ -163,6 +184,12 @@ than frames, so one step of twelve frames counts once.
 A UI loop reads model frames through `presented_model_frame` and
 `presented_model_frames`, composites whatever it wants, and returns one
 `StepResult` that `run_session` writes to the window.
+
+Model outputs take a separate path. A `ModelOutputSink` receives the generation
+number and the complete sequence of channels for every published model step, on
+the model thread. It is therefore independent of what the presentation queue
+keeps and what the UI composites. The metrics sink retains its original
+per-result interface through an adapter to this path.
 
 The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into
