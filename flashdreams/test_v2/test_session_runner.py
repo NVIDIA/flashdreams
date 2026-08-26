@@ -445,7 +445,7 @@ def test_run_session_opens_before_writing_and_closes_after() -> None:
     assert calls[-2:] == ["window.close", "session.close"]
 
 
-def test_run_session_touches_the_window_only_from_the_io_thread() -> None:
+def test_run_session_touches_the_window_only_from_the_ui_thread() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
@@ -453,13 +453,13 @@ def test_run_session_touches_the_window_only_from_the_io_thread() -> None:
     run_session(session, window, steps=2)
 
     # All window calls stay on the thread that called run_session.
-    io_thread_name = threading.current_thread().name
+    ui_thread_name = threading.current_thread().name
     for call in ("window.open", "window.get_user_input_events", "window.close"):
-        assert log.threads_for(call) == {io_thread_name}
-    assert log.threads_for("window.write(0)") == {io_thread_name}
+        assert log.threads_for(call) == {ui_thread_name}
+    assert log.threads_for("window.write(0)") == {ui_thread_name}
 
 
-def test_run_session_calls_ui_run_on_the_io_thread() -> None:
+def test_run_session_calls_ui_run_on_the_ui_thread() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
@@ -706,7 +706,7 @@ def test_run_session_gives_the_first_step_input_already_collected() -> None:
 
     run_session(session, window, steps=2)
 
-    # The I/O thread collects once before generation starts, so input the window
+    # The UI thread collects once before generation starts, so input the window
     # already holds is not missed by step 0.
     assert len(session.observed_events[0].get_events()) == 1
 

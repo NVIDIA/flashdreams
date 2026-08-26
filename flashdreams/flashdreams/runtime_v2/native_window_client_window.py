@@ -81,12 +81,7 @@ class _CudaPresentationFrame:
 
 
 class NativeWindowClientWindow(IClientWindow):
-    """Present UI output through a main-thread GLFW window.
-
-    ``run_session`` owns threading. It calls :meth:`open`,
-    :meth:`get_user_input_events`, and :meth:`close` on its I/O thread, while
-    :meth:`write` runs on the runtime's presentation thread.
-    """
+    """Present UI output through a main-thread GLFW window."""
 
     def __init__(
         self,
@@ -113,15 +108,14 @@ class NativeWindowClientWindow(IClientWindow):
         self._session_started_ns: int | None = None
         self._session_desc: SessionDesc | None = None
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
-        self._close_event_enqueued = threading.Event()
+        self._close_event_enqueued = False
         self._presenter: _SlangPyNativeWindowPresenter | None = None
         self._poll_input_events: list[UserInputEvent] | None = None
-        self._poll_input_thread_id: int | None = None
         self._pending_printable_keys: deque[tuple[str, int]] = deque()
         self._pressed_key_values: dict[str, str] = {}
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Create the GLFW window on the runtime's I/O thread.
+        """Create the GLFW window on the runtime's UI thread.
 
         Args:
             session_desc: Resolved output dimensions and tensor layout.
@@ -153,9 +147,9 @@ class NativeWindowClientWindow(IClientWindow):
 
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
-        self._close_event_enqueued.clear()
+        self._input_events = queue.SimpleQueue()
+        self._close_event_enqueued = False
         self._poll_input_events = None
-        self._poll_input_thread_id = None
         self._pending_printable_keys.clear()
         self._pressed_key_values.clear()
         self._presenter = presenter
@@ -165,7 +159,6 @@ class NativeWindowClientWindow(IClientWindow):
         presenter = self._presenter
         if presenter is not None:
             self._poll_input_events = []
-            self._poll_input_thread_id = threading.get_ident()
             try:
                 presenter.process_events()
                 if presenter.should_close:
@@ -173,7 +166,6 @@ class NativeWindowClientWindow(IClientWindow):
                 polled_input_events = self._poll_input_events
             finally:
                 self._poll_input_events = None
-                self._poll_input_thread_id = None
                 self._pending_printable_keys.clear()
             for event in polled_input_events:
                 self._put_input(event)
@@ -186,7 +178,7 @@ class NativeWindowClientWindow(IClientWindow):
                 return UserInputEvents(events)
 
     def write(self, result: StepResult) -> None:
-        """Convert and submit one UI result from the presentation thread.
+        """Convert and submit one result from the runtime's UI thread.
 
         CUDA output remains GPU-resident. The runtime synchronizes the producer
         stream before handing ``result`` to this method.
@@ -202,7 +194,7 @@ class NativeWindowClientWindow(IClientWindow):
             raise RuntimeError(
                 "NativeWindowClientWindow.open() must run before write()."
             )
-        if self._close_event_enqueued.is_set():
+        if self._close_event_enqueued:
             return
         frames = result_to_rgb24_tensor(result, self._session_desc_or_raise())
         for frame in frames:
@@ -211,20 +203,20 @@ class NativeWindowClientWindow(IClientWindow):
                 ready_event = torch.cuda.Event()
                 ready_event.record(torch.cuda.current_stream(frame.device))
                 presentation_frame = _CudaPresentationFrame(frame, ready_event)
-            if self._close_event_enqueued.is_set():
+            if self._close_event_enqueued:
                 return
             if not presenter.present_frame(presentation_frame):
                 self._on_window_closed()
                 return
 
     def close(self) -> None:
-        """Release SlangPy and the GLFW window on the runtime's I/O thread."""
+        """Release SlangPy and the GLFW window on the runtime's UI thread."""
         presenter = self._presenter
         self._presenter = None
         self._session_started_ns = None
         self._session_desc = None
+        self._input_events = queue.SimpleQueue()
         self._poll_input_events = None
-        self._poll_input_thread_id = None
         self._pending_printable_keys.clear()
         self._pressed_key_values.clear()
         if presenter is not None:
@@ -237,9 +229,8 @@ class NativeWindowClientWindow(IClientWindow):
         return session_desc
 
     def _put_input(self, event: UserInputEvent) -> None:
-        poll_input_events = self._current_poll_input_events()
-        if poll_input_events is not None:
-            poll_input_events.append(event)
+        if self._poll_input_events is not None:
+            self._poll_input_events.append(event)
             return
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
@@ -247,17 +238,11 @@ class NativeWindowClientWindow(IClientWindow):
             replace(event, timestamp=uint64(elapsed_ns // 1_000))
         )
 
-    def _current_poll_input_events(self) -> list[UserInputEvent] | None:
-        """Return the input batch only from its event-polling thread."""
-        if self._poll_input_thread_id == threading.get_ident():
-            return self._poll_input_events
-        return None
-
     def _on_keyboard_event(self, event: spy.KeyboardEvent) -> None:
         if _is_keyboard_input(event):
             text = _keyboard_input_text(event)
             if text is not None:
-                poll_input_events = self._current_poll_input_events()
+                poll_input_events = self._poll_input_events
                 if self._pending_printable_keys and poll_input_events is not None:
                     physical_key, event_index = self._pending_printable_keys.pop()
                     self._pressed_key_values[physical_key] = text
@@ -283,7 +268,7 @@ class NativeWindowClientWindow(IClientWindow):
             keyboard_event.state is KeyboardInputState.PRESSED
             and len(keyboard_event.key) == 1
         ):
-            poll_input_events = self._current_poll_input_events()
+            poll_input_events = self._poll_input_events
             if poll_input_events is not None:
                 event_index = len(poll_input_events)
                 self._put_input(keyboard_event)
@@ -327,9 +312,9 @@ class NativeWindowClientWindow(IClientWindow):
             self._put_input(mouse_event)
 
     def _on_window_closed(self) -> None:
-        if self._close_event_enqueued.is_set():
+        if self._close_event_enqueued:
             return
-        self._close_event_enqueued.set()
+        self._close_event_enqueued = True
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
 
 
@@ -445,6 +430,8 @@ class _SlangPyNativeWindowPresenter:
         if self._closed:
             return
         self._closed = True
+        if self._device is not None:
+            self._device.wait_for_idle()
         if self._cuda_rgb_interop is not None:
             self._cuda_rgb_interop.close()
             self._cuda_rgb_interop = None

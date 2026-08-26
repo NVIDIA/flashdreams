@@ -104,7 +104,7 @@ def _repository_paths() -> tuple[str, ...]:
             if name not in _IGNORED_DIRECTORIES and not name.endswith(".egg-info")
         ]
         relative = Path(directory).relative_to(_ROOT)
-        paths.extend(str(relative / name) for name in file_names)
+        paths.extend((relative / name).as_posix() for name in file_names)
     return tuple(paths)
 
 
@@ -151,7 +151,7 @@ def _file_name_resolves(span: str, document: Path) -> bool:
     if len(matches) == 1 or span.rsplit("/", 1)[-1] in _CONVENTION_NAMES:
         return True
     directory = document.parent
-    prefix = "" if directory == _ROOT else f"{directory.relative_to(_ROOT)}/"
+    prefix = "" if directory == _ROOT else f"{directory.relative_to(_ROOT).as_posix()}/"
     return any(path.startswith(prefix) for path in matches)
 
 

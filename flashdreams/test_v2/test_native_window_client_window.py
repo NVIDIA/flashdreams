@@ -108,9 +108,6 @@ class _Presenter:
         self.presentation_threads: list[int] = []
         self.close_threads: list[int] = []
         self.presented: list[torch.Tensor] = []
-        self.process_started = threading.Event()
-        self.allow_process = threading.Event()
-        self.allow_process.set()
         self.should_close = False
 
     def set_input_callbacks(self, **callbacks: Any) -> None:
@@ -118,8 +115,6 @@ class _Presenter:
 
     def process_events(self) -> None:
         self.event_threads.append(threading.get_ident())
-        self.process_started.set()
-        self.allow_process.wait(timeout=2.0)
         while True:
             try:
                 kind, event = self.pending_events.get_nowait()
@@ -160,6 +155,28 @@ def test_slangpy_presenter_uses_standard_window_event_pump() -> None:
     presenter.process_events()
 
     assert process_count == 1
+
+
+def test_slangpy_presenter_waits_for_gpu_work_before_releasing_resources() -> None:
+    calls: list[str] = []
+    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
+    presenter._closed = False
+    presenter._cuda_rgb_interop = SimpleNamespace(
+        close=lambda: calls.append("interop.close")
+    )
+    presenter._device = SimpleNamespace(
+        wait_for_idle=lambda: calls.append("device.wait_for_idle")
+    )
+    presenter._display_texture = object()
+    presenter._surface = object()
+    presenter._window = SimpleNamespace(close=lambda: calls.append("window.close"))
+
+    presenter.close()
+    presenter.close()
+
+    assert calls == ["interop.close", "device.wait_for_idle", "window.close"]
+    assert presenter._cuda_rgb_interop is None
+    assert presenter._device is None
 
 
 def test_slangpy_presenter_drops_frame_when_shared_buffers_are_busy() -> None:
@@ -210,10 +227,10 @@ def test_slangpy_presenter_drops_ready_frame_when_swapchain_is_unavailable() -> 
     assert discarded == [shared_buffer]
 
 
-def test_window_lifecycle_and_events_stay_on_io_while_write_is_presentation(
+def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    io_thread = threading.get_ident()
+    ui_thread = threading.get_ident()
     presenter = _Presenter()
     factory_threads: list[int] = []
     conversion_threads: list[int] = []
@@ -235,16 +252,17 @@ def test_window_lifecycle_and_events_stay_on_io_while_write_is_presentation(
     window = NativeWindowClientWindow(presenter_factory=cast(Any, create_presenter))
     window.open(_session_desc())
     window.get_user_input_events()
-    presentation = threading.Thread(target=window.write, args=(_result(),))
-    presentation.start()
-    presentation.join(timeout=1.0)
+    window.write(_result())
     window.close()
 
-    assert not presentation.is_alive()
-    assert factory_threads == [io_thread]
-    assert set(presenter.event_threads + presenter.close_threads) == {io_thread}
-    assert conversion_threads == presenter.presentation_threads
-    assert io_thread not in conversion_threads
+    assert (
+        factory_threads
+        == presenter.event_threads
+        == presenter.presentation_threads
+        == presenter.close_threads
+        == conversion_threads
+        == [ui_thread]
+    )
 
 
 def test_slangpy_presenter_binds_interop_to_the_first_cuda_frame_device(
@@ -290,30 +308,6 @@ def test_slangpy_presenter_binds_interop_to_the_first_cuda_frame_device(
         ("set_device", cuda_device),
         ("initialize", True),
     ]
-
-
-def test_blocked_event_pump_does_not_pause_presentation() -> None:
-    presenter = _Presenter()
-    presenter.allow_process.clear()
-    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
-    window.open(_session_desc())
-    presentation_finished = threading.Event()
-
-    def present() -> None:
-        assert presenter.process_started.wait(timeout=1.0)
-        window.write(_result(1))
-        presentation_finished.set()
-        presenter.allow_process.set()
-
-    presentation = threading.Thread(target=present)
-    presentation.start()
-    window.get_user_input_events()
-    presentation.join(timeout=1.0)
-    window.close()
-
-    assert presentation_finished.is_set()
-    assert presenter.event_threads[0] == threading.get_ident()
-    assert presenter.event_threads[0] != presenter.presentation_threads[0]
 
 
 def test_native_window_reports_input_and_close_from_event_pump() -> None:
