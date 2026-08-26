@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from flashdreams.serving.realtime.timing import TraceSink
 from loguru import logger
 from omnidreams_game_engine.app import InteractiveDriveApp
 from omnidreams_game_engine.application import (
@@ -55,6 +56,9 @@ from crazy_robotaxi.high_scores import (
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
 )
+from crazy_robotaxi.live_edit.coin_ability import CoinAbility
+from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.navigation import NavigationLane
 from crazy_robotaxi.passengers import (
     build_pickup_passenger_trajectories,
 )
@@ -65,7 +69,6 @@ from crazy_robotaxi.physics import (
 from crazy_robotaxi.scene import (
     load_scene_data,
 )
-from flashdreams.serving.realtime.timing import TraceSink
 
 
 class CrazyRobotaxiRuntime:
@@ -75,9 +78,20 @@ class CrazyRobotaxiRuntime:
         self,
         controller: TaxiGameController,
         keyboard: CrazyRobotaxiKeyboardState,
+        *,
+        style_ability: Any | None = None,
+        coin_ability: CoinAbility | None = None,
+        obstacle_ability: Any | None = None,
+        item_ability: Any | None = None,
+        item_effects: Any | None = None,
     ) -> None:
         self._controller = controller
         self._keyboard = keyboard
+        self._style_ability = style_ability
+        self._coin_ability = coin_ability
+        self._obstacle_ability = obstacle_ability
+        self._item_ability = item_ability
+        self._item_effects = item_effects
 
     @property
     def is_running(self) -> bool:
@@ -85,7 +99,8 @@ class CrazyRobotaxiRuntime:
         return self._controller.is_playing
 
     def process_events(self, state: VehicleState) -> None:
-        """Consume a pending high-score name submission."""
+        """Drain live-edit key requests and a pending high-score name."""
+        self._process_live_edit_requests()
         submitted_name = self._keyboard.consume_taxi_name_submission()
         if submitted_name is None:
             return
@@ -95,18 +110,57 @@ class CrazyRobotaxiRuntime:
             logger.warning(f"[crazy-robotaxi] ignored high-score submission: {exc}")
         self.publish_boundary(state)
 
+    def _process_live_edit_requests(self) -> None:
+        """Consume rising-edge skin-cycle / coins-toggle key requests."""
+        requests = getattr(self._keyboard, "live_edit", None)
+        if requests is None:
+            return
+        if requests.consume_skin_cycle() and self._style_ability is not None:
+            self._style_ability.request_cycle()
+        if requests.consume_weather_cycle() and self._style_ability is not None:
+            self._style_ability.request_weather_cycle()
+        if requests.consume_obstacle_spawn() and self._obstacle_ability is not None:
+            self._obstacle_ability.request_spawn()
+        if requests.consume_coins_toggle() and self._coin_ability is not None:
+            enabled = self._coin_ability.toggle()
+            logger.info(f"[live-edit] coins {'on' if enabled else 'off'}")
+
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> ApplicationChunkUpdate:
         """Advance the game and add passengers synchronized to pickup state."""
         snapshots = tuple(self._controller.advance_frames(trajectory, frame_interval_s))
+        if self._coin_ability is not None:
+            picked = self._coin_ability.advance_frames(trajectory.vehicle_states)
+            if picked:
+                logger.info(
+                    f"[live-edit] coin pickup +{picked} "
+                    f"total={self._coin_ability.collected_count}"
+                )
+        if self._item_ability is not None and self._item_ability.enabled:
+            # Pickup-driven effects: each pickup queues its effect on the
+            # ability state machines, which land it at the next chunk
+            # boundary — the same path the K/V key requests take.
+            for item_type in self._item_ability.advance_frames(
+                trajectory.vehicle_states
+            ):
+                label = (
+                    self._item_effects.apply(item_type)
+                    if self._item_effects is not None
+                    else f"{item_type.upper()}!"
+                )
+                self._item_ability.flash(label)
+                logger.info(f"[live-edit] item pickup {item_type} -> {label}")
         passengers = build_pickup_passenger_trajectories(
             snapshots, trajectory.timestamps_us
         )
+        obstacles: tuple[Any, ...] = ()
+        if self._obstacle_ability is not None:
+            obstacles = self._obstacle_ability.advance_frames(trajectory)
         return ApplicationChunkUpdate(
             trajectory=replace(
                 trajectory,
-                dynamic_actors=(*trajectory.dynamic_actors, *passengers),
+                dynamic_actors=(*trajectory.dynamic_actors, *passengers, *obstacles),
             ),
             frame_application_states=snapshots,
         )
@@ -124,6 +178,9 @@ class CrazyRobotaxiApplication:
         config: TaxiGameConfig,
         keyboard: CrazyRobotaxiKeyboardState,
         presenter_config: Any,
+        *,
+        live_edit: LiveEditConfig | None = None,
+        style_ability: Any | None = None,
     ) -> None:
         self._config = config
         self._keyboard = keyboard
@@ -133,6 +190,21 @@ class CrazyRobotaxiApplication:
         self._ground_snapper: GroundSnapper | None = None
         self._map_bounds: MapBounds | None = None
         self._enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
+        self._live_edit = live_edit or LiveEditConfig()
+        self._style_ability = style_ability
+        self._live_edit_presenter: Any | None = None
+        self._coin_lanes: tuple[NavigationLane, ...] = ()
+        self._nitro_ability: Any | None = None
+        if self._live_edit.items.enabled:
+            from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+
+            # Application-lifetime (the integrate seam outlives one
+            # rollout); reset per rollout in create_runtime.
+            self._nitro_ability = NitroAbility(self._live_edit.items)
+
+    def attach_live_edit_presenter(self, presenter: Any) -> None:
+        """Bind the live-edit presenter so coin abilities reach the pixels."""
+        self._live_edit_presenter = presenter
 
     def configure_presenter(self, presenter: Any) -> None:
         """Configure application presentation before scene loading."""
@@ -148,6 +220,16 @@ class CrazyRobotaxiApplication:
         self._enclosure_segments_world = scene_data.enclosure_segments_world
         self._ground_snapper = _build_taxi_ground_snapper(scene)
         self._map_bounds = map_bounds
+        if self._live_edit.coins.enabled or self._live_edit.items.enabled:
+            # Lay coins/items along the driving-lane graph; legacy scenes
+            # without mapped lanes fall back to the recorded ego route.
+            self._coin_lanes = scene_data.navigation_lanes or (
+                NavigationLane(
+                    centerline_world=np.asarray(
+                        scene_data.reference_route_world, dtype=np.float32
+                    )
+                ),
+            )
         logger.info(
             "[crazy-robotaxi] play-area enclosure: perimeter_segments={}",
             len(scene_data.perimeter_segments_world),
@@ -171,10 +253,19 @@ class CrazyRobotaxiApplication:
     ) -> RolloutSpec:
         """Return Crazy Robotaxi simulation policy for one rollout."""
         del default_vehicle, default_visual_flare_enabled
+        integrate_fn = integrate_taxi_vehicle
+        if self._nitro_ability is not None:
+            from crazy_robotaxi.live_edit.nitro_ability import integrate_with_nitro
+
+            # Nitro's physics seam: boost each tick's vehicle config while
+            # a pickup is active (instant, no chunk-boundary handshake).
+            integrate_fn = integrate_with_nitro(
+                self._nitro_ability, integrate_taxi_vehicle
+            )
         return RolloutSpec(
             vehicle_config=self._config.vehicle,
             initial_speed_mps=0.0,
-            integrate_fn=integrate_taxi_vehicle,
+            integrate_fn=integrate_fn,
             physics_world_factory=lambda active_scene, vehicle: TaxiPhysicsWorld(
                 active_scene,
                 vehicle,
@@ -203,7 +294,62 @@ class CrazyRobotaxiApplication:
             initial_camera=scene.selected_camera,
             map_bounds=self._map_bounds,
         )
-        return CrazyRobotaxiRuntime(controller, self._keyboard)
+        coin_ability: CoinAbility | None = None
+        if self._live_edit.coins.enabled and self._coin_lanes:
+            # Rebuilt per rollout so a reset restores the full course.
+            coin_ability = CoinAbility.from_lanes(
+                self._coin_lanes, self._live_edit.coins
+            )
+            logger.info(
+                f"[live-edit] coin course laid out: {coin_ability.remaining_count} coins"
+            )
+        item_ability: Any | None = None
+        item_effects: Any | None = None
+        if self._live_edit.items.enabled and self._coin_lanes:
+            from crazy_robotaxi.live_edit.item_ability import (
+                ItemAbility,
+                ItemEffects,
+            )
+
+            # Rebuilt per rollout: a reset restores the course and re-seeds
+            # the mystery RNG (reproducible captures).
+            item_ability = ItemAbility.from_lanes(
+                self._coin_lanes, self._live_edit.items
+            )
+            item_effects = ItemEffects(
+                self._style_ability,
+                self._live_edit.items,
+                nitro_ability=self._nitro_ability,
+            )
+        if self._nitro_ability is not None:
+            # A rollout reset always starts unboosted.
+            self._nitro_ability.reset()
+            logger.info(
+                f"[live-edit] item course laid out: "
+                f"{item_ability.remaining_count} items"
+            )
+        obstacle_ability: Any | None = None
+        if self._live_edit.obstacle.enabled:
+            from crazy_robotaxi.live_edit.obstacle_ability import ObstacleAbility
+
+            # Rebuilt per rollout so events/hits reset with the game.
+            obstacle_ability = ObstacleAbility.from_scene(
+                scene, self._live_edit.obstacle
+            )
+        if self._live_edit_presenter is not None:
+            self._live_edit_presenter.set_coin_ability(coin_ability)
+            self._live_edit_presenter.set_obstacle_ability(obstacle_ability)
+            self._live_edit_presenter.set_item_ability(item_ability)
+            self._live_edit_presenter.set_nitro_ability(self._nitro_ability)
+        return CrazyRobotaxiRuntime(
+            controller,
+            self._keyboard,
+            style_ability=self._style_ability,
+            coin_ability=coin_ability,
+            obstacle_ability=obstacle_ability,
+            item_ability=item_ability,
+            item_effects=item_effects,
+        )
 
 
 class CrazyRobotaxiApp(InteractiveDriveApp):
@@ -219,8 +365,30 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
         alignment_diagnostics_root: Path | None = None,
         trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
+        live_edit_config: LiveEditConfig | None = None,
     ) -> None:
         keyboard = CrazyRobotaxiKeyboardState()
+        live_edit = live_edit_config or LiveEditConfig()
+        style_ability = None
+        if live_edit.obstacle.enabled and live_edit.obstacle.guide_scale > 0.0:
+            from crazy_robotaxi.live_edit.obstacle_ability import (
+                install_obstacle_guidance_on_backend,
+            )
+
+            # Before the style install so both share one CUDA-graph-free
+            # session swap (marker-coordinated) and one warmup wrap each.
+            install_obstacle_guidance_on_backend(backend, live_edit.obstacle)
+        if live_edit.style.enabled or live_edit.weather.enabled:
+            from crazy_robotaxi.live_edit.style_ability import (
+                StyleAbility,
+                install_style_ability_on_backend,
+            )
+
+            # Must run before super().__init__ starts model warmup on the
+            # pipeline worker: the corrector needs a CUDA-graph-free session
+            # and the LoRA attach is deferred to the end of warmup_model.
+            style_ability = StyleAbility(live_edit.style, live_edit.weather)
+            install_style_ability_on_backend(backend, style_ability)
         if alignment_diagnostics_root is not None:
             from crazy_robotaxi.alignment_diagnostics import (
                 AlignmentDiagnosticPresenter,
@@ -237,6 +405,13 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             logger.info(
                 f"[crazy-robotaxi] alignment diagnostics -> {presenter.output_dir}"
             )
+        application = CrazyRobotaxiApplication(
+            taxi_config,
+            keyboard,
+            config.bev,
+            live_edit=live_edit,
+            style_ability=style_ability,
+        )
         super().__init__(
             config=config,
             backend=backend,
@@ -244,9 +419,19 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             trace_sink=trace_sink,
             close_presenter_on_exit=close_presenter_on_exit,
             keyboard=keyboard,
-            application=CrazyRobotaxiApplication(taxi_config, keyboard, config.bev),
+            application=application,
         )
-        self._presenter = CausalFrameAlignmentPresenter(self._presenter)
+        inner_presenter = self._presenter
+        if live_edit.any_enabled:
+            from crazy_robotaxi.live_edit.presenter import LiveEditPresenter
+
+            # Inside the alignment wrapper so composites see the
+            # frame-synchronized rig_to_world matching the generated RGB.
+            inner_presenter = LiveEditPresenter(
+                inner_presenter, live_edit, style_ability=style_ability
+            )
+            application.attach_live_edit_presenter(inner_presenter)
+        self._presenter = CausalFrameAlignmentPresenter(inner_presenter)
 
 
 def taxi_config_from_args(args: argparse.Namespace) -> TaxiGameConfig:

@@ -26,6 +26,7 @@ from crazy_robotaxi.game import TaxiGameSnapshot
 from crazy_robotaxi.high_scores import (
     validate_player_name,
 )
+from crazy_robotaxi.live_edit.input_hooks import LiveEditRequests
 from flashdreams.serving.realtime.input import normalize_key
 
 
@@ -44,6 +45,9 @@ class CrazyRobotaxiKeyboardState(KeyboardState):
         self._name_submission: str | None = None
         self._keyboard_steer = 0.0
         self._last_command_s = time.monotonic()
+        # One-shot live-edit key requests (skin cycle / coins toggle) raised
+        # by the presenters and drained by ``CrazyRobotaxiRuntime`` per tick.
+        self.live_edit = LiveEditRequests()
 
     def submit_taxi_name(self, name: str) -> bool:
         """Validate and queue one high-score name submission."""

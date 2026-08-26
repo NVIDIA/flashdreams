@@ -229,6 +229,42 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--stream-token",
+        default=None,
+        metavar="TOKEN",
+        help=(
+            "Shared secret gating every MJPEG endpoint (/, /stream, /control,"
+            " ...). Clients must send it as a ``?token=`` query parameter or"
+            " an ``X-Stream-Token`` header; requests without a valid token"
+            " get 403. The served page picks the token up from its own URL,"
+            " so players just open http://HOST:PORT/?token=TOKEN. Omitted or"
+            " empty keeps the historical open (unauthenticated) behavior."
+        ),
+    )
+    parser.add_argument(
+        "--stream-jpeg-quality",
+        type=int,
+        default=85,
+        metavar="Q",
+        help=(
+            "JPEG quality for the MJPEG camera stream (1-100, default 85)."
+            " Lower values cut per-frame bytes roughly linearly; useful on"
+            " slow links (VPN / SSH tunnel) together with --stream-scale."
+        ),
+    )
+    parser.add_argument(
+        "--stream-scale",
+        type=float,
+        default=1.0,
+        metavar="S",
+        help=(
+            "Downscale factor for the MJPEG camera stream in (0.1, 1.0];"
+            " e.g. 0.5 sends 640x352 instead of 1280x704 (~4x fewer bytes)."
+            " Applied before JPEG encode, off the render thread. Only the"
+            " streamed pixels shrink; the model still renders full size."
+        ),
+    )
+    parser.add_argument(
         "--stop-after-chunks",
         type=int,
         default=None,
@@ -339,6 +375,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Captures the standalone game session."
         ),
     )
+    from crazy_robotaxi.live_edit.config import add_live_edit_args
+
+    add_live_edit_args(parser)
     parser.add_argument(
         "--oob-warn-proximity",
         type=float,
@@ -581,6 +620,7 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
             CrazyRobotaxiApp,
             taxi_config_from_args,
         )
+        from crazy_robotaxi.live_edit.config import live_edit_config_from_args
 
         app = CrazyRobotaxiApp(
             config=config,
@@ -588,6 +628,7 @@ def run(args: argparse.Namespace, trace_sink: TraceSink | None = None) -> None:
             backend=backend,
             alignment_diagnostics_root=args.taxi_alignment_diagnostics,
             trace_sink=trace_sink,
+            live_edit_config=live_edit_config_from_args(args),
         )
     else:
         app = InteractiveDriveApp(config=config, backend=backend, trace_sink=trace_sink)

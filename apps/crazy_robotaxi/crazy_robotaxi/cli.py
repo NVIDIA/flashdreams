@@ -12,7 +12,7 @@ import struct
 import threading
 import time
 import zipfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -691,6 +691,34 @@ def _maybe_autostage_scene(scene: Path, *, scene_dir: Path, allow_skip: bool) ->
     return staged_default
 
 
+def _live_edit_key_handlers(
+    requests_source: Callable[[], Any],
+) -> dict[str, Callable[[], None]]:
+    """Bind the live-edit ability keys to the runtime's request channels.
+
+    The presenters are constructed before the app that owns the long-lived
+    keyboard, so ``requests_source`` resolves the :class:`LiveEditRequests`
+    object at press time. It returning ``None`` (app not built yet, or a
+    plain ``KeyboardState`` without live-edit channels) makes the press a
+    no-op — matching the abilities being flag-gated anyway.
+    """
+
+    def bind(method: str) -> Callable[[], None]:
+        def handler() -> None:
+            requests = requests_source()
+            if requests is not None:
+                getattr(requests, method)()
+
+        return handler
+
+    return {
+        "k": bind("request_skin_cycle"),
+        "c": bind("request_coins_toggle"),
+        "v": bind("request_weather_cycle"),
+        "o": bind("request_obstacle_spawn"),
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Launch a standalone Crazy Robotaxi session."""
     configure_logging()
@@ -792,6 +820,7 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     # listening to the placeholder, so events are harmlessly dropped
     # during the initial wait.
     placeholder_keyboard = KeyboardState()
+    app: InteractiveDriveApp | None = None
     presenter = SlangPyHudPresenter(
         raster=RasterConfig(),
         keyboard=placeholder_keyboard,
@@ -799,6 +828,11 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
         scene_options=scene_options,
         control_assets=control_assets,
         wheel=None,
+        extra_key_handlers=_live_edit_key_handlers(
+            lambda: getattr(app.keyboard, "live_edit", None)
+            if app is not None
+            else None
+        ),
     )
 
     # Build the backend + engine ONCE, up front. Constructing the app
@@ -925,6 +959,21 @@ def _run_streaming(args: argparse.Namespace) -> None:
             parse_bind,
         )
 
+    stream_token = (getattr(args, "stream_token", None) or "").strip() or None
+    if stream_token is not None and not getattr(args, "taxi_game", False):
+        # The upstream engine presenter has no token gate; failing loudly
+        # beats silently serving an open stream the user believes is gated.
+        raise SystemExit(
+            "--stream-token requires the taxi-game streaming presenter; "
+            "the upstream engine presenter would serve an ungated stream."
+        )
+    stream_jpeg_quality = int(getattr(args, "stream_jpeg_quality", 85))
+    stream_scale = float(getattr(args, "stream_scale", 1.0))
+    if stream_scale != 1.0 and not getattr(args, "taxi_game", False):
+        # The upstream engine presenter has no scale knob; failing loudly
+        # beats silently streaming full-size frames the user asked to shrink.
+        raise SystemExit("--stream-scale requires the taxi-game streaming presenter.")
+
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
     _materialize_synthetic_scene_for_picker(args)
@@ -977,13 +1026,22 @@ def _run_streaming(args: argparse.Namespace) -> None:
 
     bind_host, bind_port = parse_bind(args.stream_mjpeg)
     placeholder_keyboard = KeyboardState()
+    app: InteractiveDriveApp | None = None
     presenter = MJPEGStreamingPresenter(
         raster=RasterConfig(),
         keyboard=placeholder_keyboard,
         bind_host=bind_host,
         bind_port=bind_port,
+        jpeg_quality=stream_jpeg_quality,
         scenes=scenes_payload,
         thumbnails=thumbnails,
+        extra_key_handlers=_live_edit_key_handlers(
+            lambda: getattr(app.keyboard, "live_edit", None)
+            if app is not None
+            else None
+        ),
+        **({"stream_scale": stream_scale} if stream_scale != 1.0 else {}),
+        **({"stream_token": stream_token} if stream_token is not None else {}),
     )
 
     # Build the backend + engine once so the model warms up (on the
@@ -1087,6 +1145,7 @@ def _build_application(
             CrazyRobotaxiApp,
             taxi_config_from_args,
         )
+        from crazy_robotaxi.live_edit.config import live_edit_config_from_args
 
         return CrazyRobotaxiApp(
             config=config,
@@ -1097,6 +1156,7 @@ def _build_application(
                 args, "taxi_alignment_diagnostics", None
             ),
             close_presenter_on_exit=close_presenter_on_exit,
+            live_edit_config=live_edit_config_from_args(args),
         )
     return InteractiveDriveApp(
         config=config,

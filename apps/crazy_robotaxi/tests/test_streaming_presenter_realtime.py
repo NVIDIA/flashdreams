@@ -14,13 +14,16 @@ from crazy_robotaxi.input import (
 from crazy_robotaxi.streaming_presenter import (
     _INDEX_HTML,
     MJPEGStreamingPresenter,
+    _StreamClientStats,
     _as_rgb_host_uint8,
+    _downscale_rgb,
     _publish_if_open,
+    _scaled_dims,
     _validate_extra_key_handlers,
     _wait_for_bus_frame,
 )
 from omnidreams_game_engine.camera import FThetaCameraModel
-from omnidreams_game_engine.config import BevConfig
+from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.input.keyboard import KeyboardState
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.streaming_presenter import (
@@ -198,6 +201,102 @@ def test_streaming_state_snapshot_keeps_upstream_shape_outside_taxi() -> None:
         "steer_rad": 0.25,
         "yaw_rad": 0.5,
     }
+
+
+def _bare_presenter(*, jpeg_quality: int = 85, scale: float = 1.0):
+    presenter = MJPEGStreamingPresenter.__new__(MJPEGStreamingPresenter)
+    presenter._jpeg_quality = jpeg_quality
+    presenter._stream_scale = scale
+    presenter._stop_event = threading.Event()
+    presenter._frame_bus = LatestFrameBus[bytes]()
+    return presenter
+
+
+def test_stream_stats_counts_skipped_bus_frames_as_drops() -> None:
+    stats = _StreamClientStats("/stream test", log_interval_s=1000.0)
+
+    stats.record(frame_count=1, last_seen_count=0, nbytes=100, now=0.0)
+    stats.record(frame_count=2, last_seen_count=1, nbytes=100, now=0.1)
+    # Slow client: five frames published while the write blocked.
+    stats.record(frame_count=7, last_seen_count=2, nbytes=100, now=0.5)
+
+    assert stats.sent_frames == 3
+    assert stats.dropped_frames == 4
+    assert stats.sent_bytes == 300
+
+
+def test_stream_stats_first_frame_never_counts_history_as_drops() -> None:
+    stats = _StreamClientStats("/stream test", log_interval_s=1000.0)
+
+    # A client connecting mid-session first sees a large frame_count.
+    stats.record(frame_count=5000, last_seen_count=0, nbytes=100, now=0.0)
+
+    assert stats.dropped_frames == 0
+
+
+def test_stream_stats_emits_periodic_log_lines_with_rates() -> None:
+    stats = _StreamClientStats("/stream 10.0.0.1", log_interval_s=5.0)
+
+    assert stats.record(frame_count=1, last_seen_count=0, nbytes=1024, now=0.0) is None
+    assert stats.record(frame_count=2, last_seen_count=1, nbytes=1024, now=1.0) is None
+    line = stats.record(frame_count=4, last_seen_count=2, nbytes=1024, now=6.0)
+
+    assert line is not None
+    assert "sent=3" in line
+    assert "dropped=1" in line
+    assert "/stream 10.0.0.1" in line
+    assert "KiB/s" in line
+    # Next interval starts fresh from the last log time.
+    assert stats.record(frame_count=5, last_seen_count=4, nbytes=1024, now=7.0) is None
+
+
+def test_scaled_dims_are_even_and_clamped() -> None:
+    assert _scaled_dims(1280, 704, 0.5) == (640, 352)
+    assert _scaled_dims(1280, 704, 1.0) == (1280, 704)
+    assert _scaled_dims(1280, 704, 0.33) == (422, 232)
+    assert _scaled_dims(4, 4, 0.1) == (2, 2)
+
+
+def test_downscale_rgb_halves_frame_and_is_identity_at_full_scale() -> None:
+    frame = np.random.default_rng(0).integers(
+        0, 255, size=(704, 1280, 3), dtype=np.uint8
+    )
+
+    assert _downscale_rgb(frame, 1.0) is frame
+    half = _downscale_rgb(frame, 0.5)
+    assert half.shape == (352, 640, 3)
+
+
+def test_publish_respects_stream_scale_and_quality() -> None:
+    import io
+
+    from PIL import Image
+
+    frame = np.random.default_rng(1).integers(
+        0, 255, size=(704, 1280, 3), dtype=np.uint8
+    )
+    scaled = _bare_presenter(jpeg_quality=60, scale=0.5)
+    full = _bare_presenter(jpeg_quality=85, scale=1.0)
+
+    scaled._publish(frame)
+    full._publish(frame)
+
+    scaled_jpeg = scaled._frame_bus.latest().payload
+    full_jpeg = full._frame_bus.latest().payload
+    assert Image.open(io.BytesIO(scaled_jpeg)).size == (640, 352)
+    assert Image.open(io.BytesIO(full_jpeg)).size == (1280, 704)
+    assert len(scaled_jpeg) < len(full_jpeg) / 3
+
+
+def test_presenter_rejects_out_of_range_stream_knobs() -> None:
+    import pytest
+
+    raster = RasterConfig()
+    keyboard = KeyboardState()
+    with pytest.raises(ValueError, match="scale"):
+        MJPEGStreamingPresenter(raster, keyboard, "127.0.0.1", 0, stream_scale=0.05)
+    with pytest.raises(ValueError, match="quality"):
+        MJPEGStreamingPresenter(raster, keyboard, "127.0.0.1", 0, jpeg_quality=0)
 
 
 def test_streaming_extra_key_handler_fires_on_keydown_case_insensitively() -> None:

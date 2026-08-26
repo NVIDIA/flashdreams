@@ -408,6 +408,35 @@ class CosmosDiTNetwork(nn.Module):
             )
         return CosmosDiTNetworkCache(block_caches=block_caches)
 
+    @torch.no_grad()
+    def replace_text_embeddings(
+        self,
+        cache: CosmosDiTNetworkCache,
+        text_embeddings: Tensor,
+    ) -> None:
+        """Replace the cached cross-attention text K/V for all blocks in place.
+
+        Mirrors the cross-attention half of :meth:`initialize_cache`, but
+        writes through ``copy_`` into the existing cache buffers so their
+        storage addresses survive — required under CUDA graphs, whose
+        captured kernels bake in the buffer pointers. Self-attention
+        history is untouched, so the rollout continues seamlessly under the
+        new prompt.
+
+        Args:
+            cache: Live per-rollout network cache.
+            text_embeddings: ``[B, V, L, D]`` replacement text embeddings;
+                ``L`` must match the original prompt's token length (the
+                text encoder pads to a fixed ``max_length``).
+        """
+        context = text_embeddings
+        if self.config.use_crossattn_projection:
+            context = self.crossattn_proj(context)
+        for block, block_cache in zip(self.blocks, cache.block_caches):
+            assert isinstance(block, Block)
+            fresh = block.cross_attn.compute_kv(context)
+            block_cache.cross_attn.overwrite_kv_(*fresh.clone_kv())
+
     def forward(
         self,
         x: Tensor,

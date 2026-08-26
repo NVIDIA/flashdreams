@@ -24,9 +24,11 @@ graphics GPU; prefer ``omnidreams.webrtc.server`` for a richer viewer.
 
 from __future__ import annotations
 
+import hmac
 import json
 import math as _math
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -70,6 +72,72 @@ from flashdreams.serving.realtime.media import (
 # doesn't matter as long as it never appears inside a JPEG payload (they
 # start with the JPEG SOI marker 0xFFD8 so ``--interactive_drive`` is always safe).
 _MULTIPART_BOUNDARY = "interactive_drive"
+
+# Per-connection kernel send-buffer cap for the MJPEG streams. The
+# LatestFrameBus already drops to the newest frame at the application
+# level, but with the default SO_SNDBUF (often several MB) a slow client
+# (VPN / SSH tunnel) buffers seconds of already-encoded frames inside the
+# kernel and watches stale pixels. Capping the buffer to roughly two
+# frames' worth makes ``wfile.write`` block as soon as the link is
+# saturated, so the next bus read skips straight to the newest frame.
+_STREAM_SNDBUF_BYTES = 128 * 1024
+
+# How often each /stream connection logs its sent/dropped/bandwidth line.
+_STREAM_STATS_INTERVAL_S = 10.0
+
+
+class _StreamClientStats:
+    """Per-connection sent/dropped/bytes accounting for an MJPEG stream.
+
+    Dropped frames are inferred from the bus's monotonically increasing
+    publication counts: consuming count ``c`` after last seeing ``last``
+    means ``c - last - 1`` intermediate frames were skipped (drop-to-latest
+    behavior under backpressure). Pure bookkeeping so it is unit-testable
+    without sockets.
+    """
+
+    def __init__(
+        self,
+        label: str,
+        *,
+        log_interval_s: float = _STREAM_STATS_INTERVAL_S,
+    ) -> None:
+        self._label = label
+        self._log_interval_s = float(log_interval_s)
+        self.sent_frames = 0
+        self.dropped_frames = 0
+        self.sent_bytes = 0
+        self._started_at: float | None = None
+        self._last_logged_at: float | None = None
+
+    def record(
+        self, *, frame_count: int, last_seen_count: int, nbytes: int, now: float
+    ) -> str | None:
+        """Account one delivered frame; return a log line when one is due."""
+        if self._started_at is None:
+            self._started_at = now
+            self._last_logged_at = now
+        if last_seen_count > 0:
+            self.dropped_frames += max(0, frame_count - last_seen_count - 1)
+        self.sent_frames += 1
+        self.sent_bytes += int(nbytes)
+        assert self._last_logged_at is not None
+        if now - self._last_logged_at < self._log_interval_s:
+            return None
+        self._last_logged_at = now
+        return self.summary(now=now)
+
+    def summary(self, *, now: float) -> str:
+        """One-line sent/dropped/bandwidth summary for this connection."""
+        elapsed = max(1e-6, now - (self._started_at if self._started_at else now))
+        fps = self.sent_frames / elapsed
+        kbps = self.sent_bytes / elapsed / 1024.0
+        return (
+            f"[presenter] {self._label}: sent={self.sent_frames} "
+            f"dropped={self.dropped_frames} "
+            f"({fps:.1f} fps, {kbps:.0f} KiB/s over {elapsed:.1f}s)"
+        )
+
 
 # Browser ``event.key`` values to the keysym strings that
 # :meth:`KeyboardDriveState.set_key` (in ``demo.py``) recognises. The
@@ -451,7 +519,7 @@ _INDEX_HTML = """<!doctype html>
 </style>
 </head>
 <body>
-<img id="stream" src="/stream">
+<img id="stream">
 <div class="taxi-hud hidden" id="taxi-hud">
   <div class="taxi-arrow" id="taxi-arrow" aria-hidden="true">
     <svg viewBox="0 0 64 72">
@@ -462,7 +530,7 @@ _INDEX_HTML = """<!doctype html>
   <div class="taxi-event" id="taxi-event"></div>
 </div>
 <div class="taxi-map hidden" id="taxi-map">
-  <img id="taxi-bev" src="/bev_stream">
+  <img id="taxi-bev">
   <svg class="taxi-boundaries" id="taxi-boundaries" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
   <div id="taxi-pins"></div>
 </div>
@@ -507,6 +575,17 @@ _INDEX_HTML = """<!doctype html>
   </div>
 </div>
 <script>
+// Shared stream token: the page embeds it from its own URL (?token=...)
+// and appends it to every request it makes (streams, fetches, thumbnails).
+// Empty when the server runs without --stream-token; withToken() is then
+// the identity function and the page behaves exactly as before.
+const STREAM_TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+function withToken(url) {
+  if (!STREAM_TOKEN) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(STREAM_TOKEN);
+}
+document.getElementById('stream').src = withToken('/stream');
+document.getElementById('taxi-bev').src = withToken('/bev_stream');
 const DOWN_KEYS = new Set();
 const INDICATOR_FOR_KEY = {
   "w":"w","W":"w","ArrowUp":"w",
@@ -533,7 +612,7 @@ function send(key, down) {
   // Update the local indicator UI immediately (no round-trip latency).
   const indicator = INDICATOR_FOR_KEY[key];
   if (indicator) bumpIndicator(indicator, down ? 1 : -1);
-  fetch('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0))
+  fetch(withToken('/control?key=' + encodeURIComponent(key) + '&down=' + (down ? 1 : 0)))
     .catch(() => {});                       // ignore network hiccups, next event will resync
 }
 // Skip key handling when focus is on a form input (e.g. a future
@@ -616,7 +695,7 @@ function paintGameOver(taxi) {
 }
 function paintTaxi(taxi) {
   driveHintEl.textContent = taxi
-    ? 'WASD / Arrows = Drive · Space = Handbrake · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout'
+    ? 'WASD / Arrows = Drive · Space = Handbrake · K = Skin · C = Coins · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout'
     : 'WASD / Arrows = Drive · 1 = World-Model RGB · 2 = HDMap · 3 = PhysX · R = Reset Rollout';
   if (!taxi) {
     taxiHudEl.classList.add('hidden');
@@ -670,7 +749,7 @@ nameEntryEl.addEventListener('submit', async event => {
   event.preventDefault();
   nameErrorEl.textContent = '';
   try {
-    const response = await fetch('/taxi/name', {
+    const response = await fetch(withToken('/taxi/name'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name: playerNameEl.value}),
@@ -684,12 +763,12 @@ nameEntryEl.addEventListener('submit', async event => {
   }
 });
 newGameEl.addEventListener('click', async () => {
-  await fetch('/control?key=r&down=1').catch(() => {});
-  await fetch('/control?key=r&down=0').catch(() => {});
+  await fetch(withToken('/control?key=r&down=1')).catch(() => {});
+  await fetch(withToken('/control?key=r&down=0')).catch(() => {});
 });
 async function pollState() {
   try {
-    const r = await fetch('/state', { cache: 'no-store' });
+    const r = await fetch(withToken('/state'), { cache: 'no-store' });
     if (!r.ok) throw new Error('http ' + r.status);
     const s = await r.json();
     if (typeof s.speed_mps === 'number') {
@@ -740,7 +819,7 @@ document.addEventListener('mousedown', e => {
 });
 async function fetchScenes() {
   try {
-    const r = await fetch('/scenes', { cache: 'no-store' });
+    const r = await fetch(withToken('/scenes'), { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
     SCENES = Array.isArray(data.scenes) ? data.scenes : [];
@@ -756,7 +835,7 @@ async function fetchScenes() {
       card.dataset.idx = String(i);
       if (s.has_thumbnail) {
         const img = document.createElement('img');
-        img.src = '/thumbnail?scene=' + encodeURIComponent(s.path);
+        img.src = withToken('/thumbnail?scene=' + encodeURIComponent(s.path));
         img.alt = '';
         img.onerror = () => { img.style.display = 'none'; };
         card.appendChild(img);
@@ -803,7 +882,7 @@ async function loadScene(idx, card, variant, pill) {
     let url = '/scene/select?scene=' + encodeURIComponent(scene.path);
     // No variant -> server uses the scene's default; a pill selects one.
     if (variant) url += '&variant=' + encodeURIComponent(variant);
-    await fetch(url, { method: 'GET', cache: 'no-store' });
+    await fetch(withToken(url), { method: 'GET', cache: 'no-store' });
   } catch {}
   // Tuck the panel away so the user gets the camera view back; the
   // scene transition itself is driven by the server-side loop. From
@@ -837,11 +916,17 @@ class MJPEGStreamingPresenter:
         bind_port: int,
         *,
         jpeg_quality: int = 85,
+        stream_scale: float = 1.0,
         scenes: tuple[dict[str, object], ...] = (),
         thumbnails: dict[str, bytes] | None = None,
+        stream_token: str | None = None,
         extra_key_handlers: dict[str, Callable[[], None]] | None = None,
     ) -> None:
         self._raster = raster
+        # Shared-secret gate for every HTTP endpoint. ``None`` / empty keeps
+        # the historical open behavior; a non-empty token means requests must
+        # carry it (``?token=`` or ``X-Stream-Token`` header) or get a 403.
+        self._stream_token = (stream_token or "").strip() or None
         self._keyboard = keyboard
         # Composition-root key extensions (e.g. live-edit abilities): browser
         # keysym (lowercase for letters) -> zero-arg callback, fired on
@@ -855,6 +940,13 @@ class MJPEGStreamingPresenter:
         self._taxi_camera_models: dict[tuple[int, int], FThetaCameraModel] = {}
         self._taxi_enclosure_segments_world = np.empty((0, 2, 3), dtype=np.float32)
         self._jpeg_quality = int(jpeg_quality)
+        if not 1 <= self._jpeg_quality <= 100:
+            raise ValueError(
+                f"stream JPEG quality must be in [1, 100], got {jpeg_quality}"
+            )
+        self._stream_scale = float(stream_scale)
+        if not 0.1 <= self._stream_scale <= 1.0:
+            raise ValueError(f"stream scale must be in [0.1, 1.0], got {stream_scale}")
         self._stop_event = threading.Event()
         self._frame_bus = LatestFrameBus[bytes]()
         # BEV minimap stream lives on its own JPEG buffer so connected
@@ -931,9 +1023,14 @@ class MJPEGStreamingPresenter:
         # unpacking so pyright is happy on both variants.
         actual_host = self._server.server_address[0]
         actual_port = self._server.server_address[1]
+        gate_note = (
+            " -- token gate ACTIVE, append ?token=... to the URL"
+            if self._stream_token is not None
+            else ""
+        )
         logger.info(
             f"[presenter] MJPEG stream listening on http://{actual_host}:{actual_port}/ "
-            f"(open that URL in a browser on the same network)",
+            f"(open that URL in a browser on the same network){gate_note}",
         )
 
     @property
@@ -1122,7 +1219,7 @@ class MJPEGStreamingPresenter:
 
     def _publish(self, rgb_host_uint8: object) -> None:
         jpeg = encode_rgb_frame_to_jpeg(
-            _as_rgb_host_uint8(rgb_host_uint8),
+            _downscale_rgb(_as_rgb_host_uint8(rgb_host_uint8), self._stream_scale),
             quality=self._jpeg_quality,
             value_range="uint8",
         )
@@ -1378,6 +1475,20 @@ class MJPEGStreamingPresenter:
             result["taxi"] = taxi_payload
         return result
 
+    def _is_request_authorized(
+        self, query: dict[str, list[str]], header_token: str | None
+    ) -> bool:
+        """Check the shared stream token; always True when no token is set.
+
+        Accepts the token either as a ``?token=`` query parameter (what the
+        served page appends to its own fetches) or as an ``X-Stream-Token``
+        header (curl-friendly, keeps the token out of proxy access logs).
+        """
+        if self._stream_token is None:
+            return True
+        candidate = query.get("token", [""])[0] or (header_token or "")
+        return hmac.compare_digest(candidate, self._stream_token)
+
     def _request_scene_change(self, scene_path_str: str, variant: str) -> bool:
         """Validate a ``/scene/select`` request against registered ``_scenes`` and stash it.
 
@@ -1425,8 +1536,19 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
         def log_message(self, format: str, *args: object) -> None:  # noqa: A003
             return
 
+        def _check_stream_token(self, parsed_query: str) -> bool:
+            """Reject the request with 403 unless the stream token matches."""
+            authorized = presenter._is_request_authorized(
+                parse_qs(parsed_query), self.headers.get("X-Stream-Token")
+            )
+            if not authorized:
+                self.send_error(HTTPStatus.FORBIDDEN, "Missing or invalid stream token")
+            return authorized
+
         def do_GET(self) -> None:  # noqa: N802 (http.server mandated name)
             parsed = urlparse(self.path)
+            if not self._check_stream_token(parsed.query):
+                return
             if parsed.path in ("/", "/index.html"):
                 self._serve_index()
             elif parsed.path == "/stream":
@@ -1448,6 +1570,8 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
 
         def do_POST(self) -> None:  # noqa: N802 (http.server mandated name)
             parsed = urlparse(self.path)
+            if not self._check_stream_token(parsed.query):
+                return
             if parsed.path == "/taxi/name":
                 self._serve_taxi_name()
             else:
@@ -1536,17 +1660,28 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
             self.wfile.write(data)
 
         def _serve_stream(self) -> None:
-            self._serve_mjpeg(presenter._wait_for_new_frame)
+            self._serve_mjpeg(presenter._wait_for_new_frame, endpoint="/stream")
 
         def _serve_bev_stream(self) -> None:
-            self._serve_mjpeg(presenter._wait_for_new_bev_frame)
+            self._serve_mjpeg(presenter._wait_for_new_bev_frame, endpoint="/bev_stream")
 
-        def _serve_mjpeg(self, wait_fn: _WaitForFrame) -> None:
+        def _serve_mjpeg(self, wait_fn: _WaitForFrame, *, endpoint: str) -> None:
             """Generic ``multipart/x-mixed-replace`` writer used by /stream and
             /bev_stream. ``wait_fn(last_seen)`` is the per-stream blocking
             getter that returns ``(jpeg, frame_count)`` or ``None`` on
             shutdown.
             """
+            # Cap the kernel send buffer so a slow client (VPN / tunnel)
+            # can't queue seconds of frames inside TCP: once the buffer is
+            # full ``wfile.write`` blocks, and the next ``wait_fn`` call
+            # jumps to the newest bus frame (dropping the stale ones).
+            try:
+                self.connection.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_SNDBUF, _STREAM_SNDBUF_BYTES
+                )
+            except OSError:
+                pass  # non-fatal: stream still works, just with more buffering
+            stats = _StreamClientStats(f"{endpoint} {self.client_address[0]}")
             self.send_response(HTTPStatus.OK)
             self.send_header(
                 "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"
@@ -1568,7 +1703,7 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                     result = wait_fn(last_seen)
                     if result is None:
                         break
-                    jpeg, last_seen = result
+                    jpeg, frame_count = result
                     part = (
                         (
                             f"--{_MULTIPART_BOUNDARY}\r\n"
@@ -1580,9 +1715,20 @@ def _make_handler(presenter: MJPEGStreamingPresenter) -> type[BaseHTTPRequestHan
                     )
                     self.wfile.write(part)
                     self.wfile.flush()
+                    line = stats.record(
+                        frame_count=frame_count,
+                        last_seen_count=last_seen,
+                        nbytes=len(part),
+                        now=time.monotonic(),
+                    )
+                    last_seen = frame_count
+                    if line is not None:
+                        logger.info(line)
             except (BrokenPipeError, ConnectionResetError):
                 # Client disconnected; that's normal, not an error.
-                return
+                pass
+            if stats.sent_frames:
+                logger.info(stats.summary(now=time.monotonic()) + " (disconnected)")
 
         def _serve_control(self, query: dict[str, list[str]]) -> None:
             key = query.get("key", [""])[0]
@@ -1649,6 +1795,29 @@ def _as_rgb_host_uint8(frame: object) -> np.ndarray:
     if array.ndim == 3 and array.shape[-1] > 3:
         array = array[..., :3]
     return rgb_frame_to_uint8(array, value_range="uint8")
+
+
+def _scaled_dims(width: int, height: int, scale: float) -> tuple[int, int]:
+    """Target (width, height) for a stream scale factor.
+
+    Rounded to even numbers so downstream video encoders (yuv420p) accept
+    captured frames without a resample; clamped to at least 2x2.
+    """
+    scaled_width = max(2, round(width * scale / 2.0) * 2)
+    scaled_height = max(2, round(height * scale / 2.0) * 2)
+    return scaled_width, scaled_height
+
+
+def _downscale_rgb(rgb_host_uint8: np.ndarray, scale: float) -> np.ndarray:
+    """Bilinear-downscale an ``(H, W, 3)`` uint8 frame; identity at scale 1.0."""
+    if scale >= 1.0:
+        return rgb_host_uint8
+    height, width = rgb_host_uint8.shape[:2]
+    target = _scaled_dims(width, height, scale)
+    if target == (width, height):
+        return rgb_host_uint8
+    image = Image.fromarray(rgb_host_uint8, mode="RGB")
+    return np.asarray(image.resize(target, Image.BILINEAR))
 
 
 def _publish_if_open(
