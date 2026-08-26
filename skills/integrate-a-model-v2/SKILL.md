@@ -53,7 +53,7 @@ dependencies. Do not preserve a V1 shim unless dual-stack support is explicitly 
 | --- | --- | --- |
 | Shared T2V adapter | A prompt produces video blocks and live controls are unnecessary | Configure/subclass `T2VApplication`; reuse `T2VSession` and `T2VModelLoop` |
 | Custom V2 application | The model consumes live controls, has unusual cache/finalize behavior, or needs custom UI composition | Implement `IApplication`, `ISession`, and `IModelLoop`; add `IUILoop` only when the default blitter is insufficient |
-| Framework extension first | The model needs audio, actions, depth, typed outputs, or an input event absent from the target API | Design and test a model-neutral V2 contract and sinks first; then integrate the model |
+| Framework extension first | The model needs a modality, typed output, or input event absent from the target API | Design and test a model-neutral V2 contract and sinks first; then integrate the model |
 
 Estimate the model port and the runtime extension separately. A novel backbone or new
 modality is not a small adapter even when its factory is short.
@@ -79,6 +79,13 @@ argument passes through a wrapper. Cover every active CFG/guidance branch and as
 model-defined ordering of committed history, current peer-modality state, and fresh state.
 Pin a narrow dependency range when the port relies on private upstream APIs, and record
 what must be retested before widening it.
+
+When replacing an upstream framework with a native port, keep that framework outside the
+production dependency closure and use a pinned revision only as a test oracle. Pin the
+model snapshot independently, and scan production imports and manifests for the forbidden
+dependency. For large multimodal models, load and release components sequentially where
+the architecture permits; record stage-level time and peak memory rather than only a
+process total.
 
 ## Phase 2: prove checkpoint loading
 
@@ -136,6 +143,12 @@ legacy runner, writer, server, and CLI surfaces without deleting still-used mode
 If an installed integration claims browser streaming works from its declared environment,
 its package must depend on `flashdreams[serving]`, not only `flashdreams`. Keep file-only
 integrations on the narrower dependency when possible.
+
+Before release, build wheels for core and every package in the integration dependency
+chain, including separate native-model and V2-adapter packages when present. Install the
+full declared dependency closure into a fresh environment, then verify installed
+entry-point discovery and application help for every slug. Editable imports are not
+packaging evidence.
 
 ### Standard text-to-video
 
@@ -212,10 +225,15 @@ They accept the target's declared `VideoTensorLayout` values but require one seq
 ordinary presentation. Do not perform MP4 conversion or CPU frame assembly in the model
 loop.
 
-On the PR #506 V2 contract, `StepResult` is video-only. A list of results represents video
-channels, not arbitrary modalities. Audio samples, action vectors, depth semantics, and
-other typed payloads require a model-neutral result/session/sink extension with CPU
-contract tests before the model port can claim end-to-end support.
+Inspect the target's modality contract. If typed audio is absent, land a model-neutral
+result/session/sink extension with CPU contract tests first. When it exists, set
+`SessionDesc.audio_sample_rate` and `audio_channels` together and attach validated
+`AudioOutput` through `StepResult.audio`. Its sample rate and channel count must match the
+session; samples are finite normalized channel-major PCM, and `sample_offset` is a
+non-negative absolute position on the session timeline. Permit at most one audio payload
+per synchronized result batch. Forward it once on the first presented frame, never again
+when presentation reuses that video frame. A sink without audio support must reject the
+session from `open()` before inference rather than discard audio.
 
 Choose presentation deliberately:
 
@@ -223,6 +241,27 @@ Choose presentation deliberately:
   `PresentationMode.ONLY_PRESENT_NEW`;
 - latency-sensitive interaction: consider `DROP_OLDEST` and
   `ONLY_PRESENT_NEWEST`, and test the expected dropping/reuse behavior.
+
+### Transactional synchronized file output
+
+Applications return media; the runtime owns public paths and encoding. For file sinks:
+
+- Stage video, audio, and mux output under private paths. Atomically replace the requested
+  target only after inference, application cleanup, encoders, and mux all succeed. Preserve
+  any pre-existing target on initialization, generation, encoding, mux, or cleanup failure.
+- Make `abort()` idempotent and retryable. If cleanup is interrupted, retain handles and
+  ownership rather than claiming success; the runtime may make one bounded retry after the
+  other sinks are serviced. Test recovered transient and persistent cleanup failures.
+- Reconcile the audio timeline to
+  `round(written_video_frames * sample_rate / fps)`: materialize forward gaps as silence,
+  trim excess tail audio, and reject overlaps. Decode and probe both final streams. Codec
+  framing may add tail samples, so bound A/V drift by one codec frame rather than requiring
+  identical container durations.
+- Resolve an external media executable to a canonical path before inference. Preflight the
+  exact rate, channels, codec, profile, and bitrate with a timeout; use that same path for
+  final mux, capture stderr, and terminate then wait for children on abort. Record FFmpeg
+  version, configuration, and license output for deployment review. Do not bundle FFmpeg
+  or substitute an undeclared Python wrapper.
 
 ### Interactive and WebRTC acceptance
 
@@ -259,7 +298,8 @@ Every pytest test gets exactly one repository marker: `ci_cpu`, `ci_gpu`, or `ma
 3. **CPU stand-in end-to-end:** run through `run_session`; for T2V use
    `flashdreams.t2v_v2.testing` and its fake pipeline. If `ffmpeg` is available, write an
    MP4 and assert the exact frame-count formula, including bootstrap/seed frames, plus
-   non-empty, changing imagery.
+   non-empty, changing imagery. For synchronized media, cover offsets, gaps, overlaps,
+   repeated-frame presentation, sink rejection, and transaction failure with stand-ins.
 4. **Checkpoint tests:** meta-tensor remap bijection and real-key spot checks; make large
    downloads opt-in.
 5. **GPU rollout ladder:** load the full checkpoint with strict missing/unexpected-key
@@ -282,13 +322,23 @@ Every pytest test gets exactly one repository marker: `ci_cpu`, `ci_gpu`, or `ma
    closest useful pre-decoder flow boundary available in both implementations across each
    active modality, guidance branch, scheduler transition, and cache commit. Instrument
    intermediate tensors to identify the first divergence before interpreting final error.
-   Report agreed metrics and tolerances. Visual review or finite final pixels alone are
-   not parity.
+   For a native multimodal port, prove the transformer and each active decoder independently
+   (for example, video and audio). Report agreed metrics and tolerances. Visual review or
+   finite final pixels alone are not parity.
 8. **Performance:** compare matched stacks, discard compile/autotune warmup, and separate
-   model, decode, transfer, presentation, and encode time.
+   model, decode, transfer, presentation, and encode time. Compute derived ratios and
+   differences per run before taking medians or percentiles; never subtract independently
+   aggregated medians.
 
 Keep a reproducible evidence note with immutable revisions, input hashes, hardware and
 software versions, exact commands, acceptance thresholds, outcomes, and claim limits.
+
+For real-weight multimodal evidence, include a warmup, repeated canonical runs, every
+supported workflow, a maximum-duration boundary, and a final-head smoke after later
+runtime/output fixes. Decode every stream end to end with external tools; record frame and
+sample counts, codecs/profiles, A/V drift, silence and non-finite checks, and SHA-256
+identities. Label reduced-resolution or reduced-step boundary runs accurately: they prove
+temporal and mux behavior, not canonical quality or performance.
 
 Exercise application help through the installed entry point. Outer runtime validation may
 run before delegated application parsing, so supply any required valid runtime arguments
@@ -340,6 +390,10 @@ changes in one commit. Never hand-edit `uv.lock`; regenerate it after manifests 
       tested with stand-ins on CPU.
 - [ ] Every returned channel satisfies `StepResult` shape, layout, range, frame-count, and
       metrics rules.
+- [ ] Typed outputs declare matching session metadata and reject unsupported sinks before
+      inference; synchronized audio is validated, forwarded once, and reconciled to video.
+- [ ] File publication is transactional; failure injection proves target preservation,
+      retryable abort, and bounded cleanup behavior.
 - [ ] Authoritative decoder mappings, with a real probe where needed, prove the declared
       dimensions and frame counts.
 - [ ] Deterministic/MP4 runs preserve every frame with safe presentation settings.
@@ -356,5 +410,10 @@ changes in one commit. Never hand-edit `uv.lock`; regenerate it after manifests 
 - [ ] Fresh-session rollouts demonstrate state isolation and exact output accounting;
       stateful or streaming apps also pass a practical long-horizon run with finite metrics,
       stable cache behavior, and bounded latency/memory drift.
+- [ ] Real-weight multimodal artifacts cover canonical and boundary workflows, decode every
+      stream externally, and record media properties, alignment, health checks, and hashes.
+- [ ] Core and every integration package build as wheels and install with their full
+      dependency closure in a fresh environment; every slug is discoverable and exposes
+      help from the installed entry point.
 - [ ] Reproduction evidence pins inputs, revisions, environment, commands, and claim scope.
 - [ ] CI-pinned lint, type checks, and correctly marked tests pass.
