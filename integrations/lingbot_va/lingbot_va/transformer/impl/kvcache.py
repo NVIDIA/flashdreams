@@ -16,8 +16,8 @@
 """VAKVCache — rolling-window KV cache for video-action transformers.
 
 Wraps a ``BlockKVCache`` with a compile-friendly read path: intermediate
-denoising steps read committed cache + concat fresh tokens (no writes),
-while the final step writes the full [video|action] chunk via BlockKVCache.update().
+denoising steps read committed cache tensors (no writes), while the final step
+writes the full [video|action] chunk via ``BlockKVCache.update()``.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class VAKVCache:
 
     Lifecycle per AR step:
         cache.before_update(chunk_idx)
-        ... intermediate denoising: read via committed_kv_plus_fresh (no cache mutation)
+        ... intermediate denoising: read via committed_kv (no cache mutation)
         ... final video step: write_video(k, v)
         ... final action step: write_action(k, v) → commits full chunk
         cache.after_update(chunk_idx)
@@ -84,8 +84,8 @@ class VAKVCache:
 
     @property
     def n_committed_tokens(self) -> int:
-        """Number of committed tokens from prior AR steps."""
-        return self.kv_cache._n_cached
+        """Number of valid prior-step tokens after opening the update window."""
+        return self.kv_cache.write_end - self.kv_cache.chunk_size
 
     def before_update(self, chunk_idx: int) -> None:
         """Open the update window for a new AR step."""
@@ -95,28 +95,16 @@ class VAKVCache:
         """Close the update window and commit."""
         self.kv_cache.after_update(chunk_idx)
 
-    def committed_kv_plus_fresh(
-        self, k_fresh: Tensor, v_fresh: Tensor
-    ) -> tuple[Tensor, Tensor]:
-        """Read-only: committed prior tokens + fresh current tokens.
+    def committed_kv(self) -> tuple[Tensor, Tensor]:
+        """Return the valid prior-step KV prefix after any window roll.
 
-        Used during intermediate denoising steps. Does NOT mutate the cache.
-        This path is compile-friendly (pure tensor ops, no side effects).
-
-        Args:
-            k_fresh: Shape ``[batch, L_fresh, heads, head_dim]``.
-            v_fresh: Same shape as ``k_fresh``.
-
-        Returns:
-            ``(full_k, full_v)`` for attention context.
+        ``BlockKVCache.before_update`` rolls a full cache before the current
+        chunk is written. Its trailing chunk-sized region is therefore stale
+        until ``write_video``/``write_action`` replace it and must not be
+        exposed as committed context.
         """
         n = self.n_committed_tokens
-        committed_k = self.kv_cache._k[:, :n]
-        committed_v = self.kv_cache._v[:, :n]
-        return (
-            torch.cat([committed_k, k_fresh], dim=1),
-            torch.cat([committed_v, v_fresh], dim=1),
-        )
+        return self.kv_cache.cached_k()[:, :n], self.kv_cache.cached_v()[:, :n]
 
     def write_video(self, k: Tensor, v: Tensor) -> None:
         """Write video KV to the current chunk (pads action with zeros).

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import gc
 import html
+import logging
 import re
 import time
 from collections.abc import Mapping
@@ -28,6 +29,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
+import ftfy
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -62,6 +64,8 @@ from lingbot_va.constants import (
 )
 from lingbot_va.pipeline import LingbotVAInferencePipelineConfig
 from lingbot_va.utils import resolve_prompt
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -186,12 +190,7 @@ def build_pipeline_config(
 
 def _prompt_clean(text: str) -> str:
     """Apply the upstream double HTML decode and whitespace cleanup."""
-    try:
-        import ftfy
-
-        text = ftfy.fix_text(text)
-    except ImportError:
-        pass
+    text = ftfy.fix_text(text)
     return re.sub(r"\s+", " ", html.unescape(html.unescape(text))).strip()
 
 
@@ -237,7 +236,7 @@ class LingbotVAEngine:
             try:
                 self.close()
             except Exception:
-                pass
+                logger.exception("LingBot-VA cleanup failed after inference failure")
             raise
         self._state = LingbotVAEngineState.FINISHED
         return output
@@ -501,20 +500,11 @@ class LingbotVAEngine:
 
     def _release_denoising_state(self) -> None:
         """Release cache, DiT, text, and streaming encoder state before decode."""
-        cache = self._pipeline_cache
-        if cache is not None:
-            transformer_cache = getattr(cache, "transformer_cache", None)
-            if transformer_cache is not None:
-                for network_cache in (
-                    getattr(transformer_cache, "network_cache", None),
-                    getattr(transformer_cache, "network_cache_uncond", None),
-                ):
-                    if network_cache is None:
-                        continue
-                    for block_cache in network_cache.block_caches:
-                        block_cache.self_attn.reset()
-                        block_cache.cross_attn.text.k = torch.empty(0)
-                        block_cache.cross_attn.text.v = torch.empty(0)
+        # Drop owning references before collecting and trimming CUDA's allocator.
+        # Moving components to CPU would create a needless host copy, while
+        # resetting BlockKVCache only resets bookkeeping and keeps its storage
+        # allocated.
+
         self._pipeline_cache = None
 
         for wrapper in (self._streaming_vae, self._streaming_vae_half):
@@ -523,15 +513,7 @@ class LingbotVAEngine:
         self._streaming_vae = None
         self._streaming_vae_half = None
 
-        if self._pipeline is not None:
-            transformer = self._pipeline.transformer
-            network = getattr(transformer, "_network", None)
-            if network is not None:
-                network.to("cpu")
-                object.__setattr__(transformer, "_network", None)
         self._pipeline = None
-        if self._text_encoder is not None:
-            self._text_encoder.to("cpu")
         self._text_encoder = None
         self._tokenizer = None
         gc.collect()
@@ -548,15 +530,12 @@ class LingbotVAEngine:
             device=device,
             dtype=self.config.dtype,
         ).view(1, vae.config.z_dim, 1, 1, 1)
-        latent_inverse_std = (
-            1.0
-            / torch.as_tensor(
-                vae.config.latents_std,
-                device=device,
-                dtype=self.config.dtype,
-            )
+        latent_std = torch.as_tensor(
+            vae.config.latents_std,
+            device=device,
+            dtype=self.config.dtype,
         ).view(1, vae.config.z_dim, 1, 1, 1)
-        latent = latent / latent_inverse_std + latent_mean
+        latent = latent * latent_std + latent_mean
 
         vae.clear_cache()
         decoded_input = vae.post_quant_conv(latent)

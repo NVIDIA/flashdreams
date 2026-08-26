@@ -20,12 +20,14 @@ from __future__ import annotations
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from lingbot_va.constants import (
     DEFAULT_CHECKPOINT_ROOT,
+    ROBOTWIN_ACTION_GUIDANCE_SCALE,
     ROBOTWIN_ACTION_INFERENCE_STEPS,
     ROBOTWIN_ACTION_PER_FRAME,
     ROBOTWIN_ACTION_SNR_SHIFT,
     ROBOTWIN_ACTION_TOKEN_PER_CHUNK,
     ROBOTWIN_ATTENTION_WINDOW,
     ROBOTWIN_FRAME_CHUNK_SIZE,
+    ROBOTWIN_GUIDANCE_SCALE,
     ROBOTWIN_HEIGHT,
     ROBOTWIN_LATENT_CHANNELS,
     ROBOTWIN_LATENT_HEIGHT,
@@ -60,8 +62,8 @@ PIPELINE_LINGBOT_VA_ROBOTWIN_I2AV = LingbotVAInferencePipelineConfig(
         seed=42,
         transformer=LingbotVATransformerConfig(
             checkpoint_root=DEFAULT_CHECKPOINT_ROOT,
-            guidance_scale=5.0,
-            action_guidance_scale=1.0,
+            guidance_scale=ROBOTWIN_GUIDANCE_SCALE,
+            action_guidance_scale=ROBOTWIN_ACTION_GUIDANCE_SCALE,
             latent_height=ROBOTWIN_LATENT_HEIGHT,
             latent_width=ROBOTWIN_LATENT_WIDTH,
             frame_chunk_size=ROBOTWIN_FRAME_CHUNK_SIZE,

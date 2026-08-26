@@ -101,7 +101,9 @@ def resolve_prompt(value: str | Path) -> str:
         lines = [
             line.strip() for line in value.read_text().splitlines() if line.strip()
         ]
-        assert lines, f"prompt file {value} has no non-empty lines"
+        if not lines:
+            raise ValueError(f"prompt file {value} has no non-empty lines")
         return lines[0]
-    assert value, "prompt must be a non-empty string or a path"
+    if not value:
+        raise ValueError("prompt must be a non-empty string or a path")
     return value

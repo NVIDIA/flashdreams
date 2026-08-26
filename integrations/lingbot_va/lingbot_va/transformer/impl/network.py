@@ -295,29 +295,14 @@ class WanVADiTNetwork(nn.Module):
             (committed_k_stack, committed_v_stack, cross_k_stack, cross_v_stack)
             All shapes: [num_layers, batch, seq_len, heads, head_dim]
         """
-        committed_k = torch.stack(
-            [
-                bc.self_attn.kv_cache._k[:, : bc.self_attn.n_committed_tokens]
-                for bc in cache.block_caches
-            ]
-        )
-        committed_v = torch.stack(
-            [
-                bc.self_attn.kv_cache._v[:, : bc.self_attn.n_committed_tokens]
-                for bc in cache.block_caches
-            ]
-        )
+        committed = [bc.self_attn.committed_kv() for bc in cache.block_caches]
+        committed_k = torch.stack([key for key, _ in committed])
+        committed_v = torch.stack([value for _, value in committed])
         cross_k = torch.stack(
-            [
-                bc.cross_attn.text._k[:, : bc.cross_attn.text._n_cached]
-                for bc in cache.block_caches
-            ]
+            [bc.cross_attn.text.cached_k() for bc in cache.block_caches]
         )
         cross_v = torch.stack(
-            [
-                bc.cross_attn.text._v[:, : bc.cross_attn.text._n_cached]
-                for bc in cache.block_caches
-            ]
+            [bc.cross_attn.text.cached_v() for bc in cache.block_caches]
         )
         return committed_k, committed_v, cross_k, cross_v
 

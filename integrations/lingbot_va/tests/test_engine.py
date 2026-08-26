@@ -15,6 +15,7 @@
 
 """CPU tests for LingBot engine configuration and one-run lifecycle."""
 
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -113,13 +114,74 @@ def test_engine_is_one_run_and_close_is_idempotent() -> None:
     assert engine.state is LingbotVAEngineState.CLOSED
 
 
-def test_engine_failure_closes_partial_state() -> None:
+def test_engine_failure_closes_partial_state(caplog: pytest.LogCaptureFixture) -> None:
     engine = _FailingEngine(_config())
 
     with pytest.raises(RuntimeError, match="inference failed"):
         engine.run()
 
     assert engine.state is LingbotVAEngineState.CLOSED
+    assert "cleanup failed after inference failure" in caplog.text
+
+
+def test_denoising_owners_are_released_before_cuda_allocator_trim() -> None:
+    class _Tracked:
+        _network: Any | None = None
+        transformer: Any | None = None
+
+        def to(self, *_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("teardown must not copy model components to CPU")
+
+    class _ObservingEngine(LingbotVAEngine):
+        def __init__(self) -> None:
+            super().__init__(_config())
+            self.released_refs: list[weakref.ReferenceType[Any]] = []
+            self.trimmed = False
+
+        def _empty_cuda_cache(self) -> None:
+            assert all(reference() is None for reference in self.released_refs)
+            self.trimmed = True
+
+    class _Wrapper:
+        def __init__(self) -> None:
+            self.cleared = False
+
+        def clear_cache(self) -> None:
+            self.cleared = True
+
+    engine = _ObservingEngine()
+    pipeline_cache = _Tracked()
+    network = _Tracked()
+    transformer = _Tracked()
+    transformer._network = network
+    pipeline = _Tracked()
+    pipeline.transformer = transformer
+    text_encoder = _Tracked()
+    tokenizer = _Tracked()
+    wrapper = _Wrapper()
+    wrapper_half = _Wrapper()
+
+    engine._pipeline_cache = pipeline_cache
+    engine._pipeline = pipeline
+    engine._text_encoder = text_encoder
+    engine._tokenizer = tokenizer
+    engine._streaming_vae = wrapper  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    engine._streaming_vae_half = wrapper_half  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    engine.released_refs = [
+        weakref.ref(pipeline_cache),
+        weakref.ref(network),
+        weakref.ref(transformer),
+        weakref.ref(pipeline),
+        weakref.ref(text_encoder),
+        weakref.ref(tokenizer),
+    ]
+    del pipeline_cache, network, transformer, pipeline, text_encoder, tokenizer
+
+    engine._release_denoising_state()
+
+    assert engine.trimmed
+    assert wrapper.cleared
+    assert wrapper_half.cleared
 
 
 def test_validate_input_images_names_all_missing_cameras(tmp_path: Path) -> None:

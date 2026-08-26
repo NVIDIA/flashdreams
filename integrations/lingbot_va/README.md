@@ -206,12 +206,13 @@ Set `LINGBOT_VA_CHECKPOINT_ROOT` to reuse a local snapshot.
 
 ### Final stacked-PR revalidation
 
-After the PR split, the same pinned checkpoint and input hashes were run through
-the final stacked code with two chunks, default CFG, offload, and no compilation:
+After the review fixes, the same pinned checkpoint and input hashes were run
+through the final stacked code with two chunks, default CFG, offload, and no
+compilation:
 
-- GPU test: 1 passed in 38.56 s;
+- GPU test: 1 passed in 34.02 s;
 - MP4: H.264, 320x256, 10 FPS, 13 frames, SHA-256
-  `d462cd1f0ef5afe01733afb9dd72aff1ac9365780dc078429223188c15ece4b6`;
+  `15bcdc4307e080218255e83946c2c2e5dbc30f3b7acd26c8925167017234e586`;
 - actions: float32 `[64, 16]`, finite, distinct chunks, SHA-256
   `463b307b667c1ca13a47bbbc5a17f68604621dfe3c3a10fc5860077216928d95`;
 - peak allocation: 39,804,415,488 bytes (37.07 GiB).

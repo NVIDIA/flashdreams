@@ -52,6 +52,8 @@ class _BranchRecordingNetwork(nn.Module):
         self._cond_cache = cond_cache
         self._uncond_cache = uncond_cache
         self.action_video_kv: dict[str, VideoKV | None] = {}
+        self.video_branches: list[str] = []
+        self.action_branches: list[str] = []
 
     def _branch(self, cache: WanVADiTNetworkCache) -> tuple[str, float]:
         if cache is self._cond_cache:
@@ -68,7 +70,8 @@ class _BranchRecordingNetwork(nn.Module):
         persist: bool = False,
     ) -> tuple[Tensor, VideoKV | None]:
         del timesteps, rope_freqs
-        _, value = self._branch(cache)
+        branch, value = self._branch(cache)
+        self.video_branches.append(branch)
         video_kv = ((torch.tensor([value]), torch.tensor([value * 10])),)
         return torch.full_like(x, value), video_kv if persist else None
 
@@ -83,6 +86,7 @@ class _BranchRecordingNetwork(nn.Module):
     ) -> Tensor:
         del timesteps, rope_freqs
         branch, value = self._branch(cache)
+        self.action_branches.append(branch)
         if persist:
             self.action_video_kv[branch] = video_kv
         return torch.full_like(x, value * 3)
@@ -133,6 +137,45 @@ def test_cfg_action_branches_consume_their_matching_video_kv() -> None:
     assert cache.video_kv_uncond is None
 
 
+def test_inactive_action_cfg_branch_only_runs_when_committing_cache() -> None:
+    cond_cache = WanVADiTNetworkCache(block_caches=[])
+    uncond_cache = WanVADiTNetworkCache(block_caches=[])
+    config = LingbotVATransformerConfig(
+        network=WanVADiTNetworkConfig(dim=12, num_heads=1, num_layers=1),
+        guidance_scale=5.0,
+        action_guidance_scale=1.0,
+        compile_network=False,
+    )
+    transformer = LingbotVATransformer(config)
+    network = _BranchRecordingNetwork(cond_cache, uncond_cache)
+    object.__setattr__(transformer, "_network", network)
+    cache = LingbotVATransformerCache(
+        network_cache=cond_cache,
+        network_cache_uncond=uncond_cache,
+    )
+    noisy = torch.zeros(1, 1, 1)
+    timestep = torch.zeros(1, 1)
+    model_input: dict[str, Any] = {"grid_id": torch.zeros(3, 1)}
+
+    transformer.predict_flow(noisy, timestep, cache, input=model_input)
+    transformer.predict_action_flow(noisy, timestep, cache, input=model_input)
+
+    assert network.video_branches == ["cond", "uncond"]
+    assert network.action_branches == ["cond"]
+
+    transformer.predict_flow(noisy, timestep, cache, input=model_input, persist=True)
+    transformer.predict_action_flow(
+        noisy,
+        timestep,
+        cache,
+        input=model_input,
+        persist=True,
+    )
+
+    assert network.video_branches == ["cond", "uncond", "cond", "uncond"]
+    assert network.action_branches == ["cond", "cond", "uncond"]
+
+
 def test_action_block_loop_attends_to_committed_then_current_video_kv() -> None:
     config = WanVADiTNetworkConfig(
         dim=12,
@@ -150,12 +193,22 @@ def test_action_block_loop_attends_to_committed_then_current_video_kv() -> None:
     current_video_v = torch.tensor([[[[4.0] * 12]]])
     text_k = torch.zeros(1, 1, 1, 12)
     text_v = torch.zeros_like(text_k)
+    self_attn = VAKVCache.create(
+        video_chunk=1,
+        action_chunk=0,
+        window_slots=2,
+        batch_size=1,
+        num_heads=1,
+        head_dim=12,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    self_attn.before_update(0)
+    self_attn.write_video(prior_k, prior_v)
+    self_attn.after_update(0)
+    self_attn.before_update(1)
     block_cache = VABlockCache(
-        self_attn=VAKVCache(
-            kv_cache=BlockKVCache.from_tensor(prior_k, prior_v, seq_dim=1),
-            video_chunk=1,
-            action_chunk=1,
-        ),
+        self_attn=self_attn,
         cross_attn=CrossAttnCache(
             text=BlockKVCache.from_tensor(text_k, text_v, seq_dim=1)
         ),
@@ -217,3 +270,42 @@ def test_action_block_loop_requires_current_video_kv() -> None:
             WanVADiTNetworkCache(block_caches=[]),
             torch.zeros(1, 1, 1, 12),
         )
+
+
+def test_rolling_window_excludes_stale_trailing_chunk() -> None:
+    cache = VAKVCache.create(
+        video_chunk=2,
+        action_chunk=1,
+        window_slots=3,
+        batch_size=1,
+        num_heads=1,
+        head_dim=1,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    for chunk_idx in range(3):
+        value = float(chunk_idx + 1)
+        video_k = torch.full((1, 2, 1, 1), value)
+        video_v = torch.full((1, 2, 1, 1), value + 10)
+        action_k = torch.full((1, 1, 1, 1), value)
+        action_v = torch.full((1, 1, 1, 1), value + 10)
+        cache.before_update(chunk_idx)
+        cache.write_video(video_k, video_v)
+        cache.write_action(
+            action_k,
+            action_v,
+            video_k,
+            video_v,
+        )
+        cache.after_update(chunk_idx)
+
+    cache.before_update(3)
+    committed_k, committed_v = cache.committed_kv()
+
+    expected_k = torch.tensor([2.0, 2.0, 2.0, 3.0, 3.0, 3.0]).view(1, 6, 1, 1)
+    expected_v = expected_k + 10
+    torch.testing.assert_close(committed_k, expected_k)
+    torch.testing.assert_close(committed_v, expected_v)
+    assert cache.n_committed_tokens == 6
+    assert committed_k.shape == (1, 6, 1, 1)

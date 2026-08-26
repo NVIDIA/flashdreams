@@ -106,7 +106,7 @@ class LingbotVATransformerConfig(TransformerConfig):
     latent_width: int = 0
     frame_chunk_size: int = 4
     action_per_frame: int = 16
-    attn_window: int = 64
+    attn_window: int = 72
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +252,9 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             assert video_kv_cond is not None
             cache.video_kv_cond = video_kv_cond
 
-        if cache.network_cache_uncond is not None:
+        if cache.network_cache_uncond is not None and (
+            persist or self.config.guidance_scale > 1.0
+        ):
             flow_uncond, video_kv_uncond = self.network.forward_video(
                 noisy_latent,
                 timestep,
@@ -297,7 +299,9 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
         if persist:
             cache.video_kv_cond = None
 
-        if cache.network_cache_uncond is not None:
+        if cache.network_cache_uncond is not None and (
+            persist or self.config.action_guidance_scale > 1.0
+        ):
             flow_uncond = self.network.forward_action(
                 noisy_action,
                 timestep,

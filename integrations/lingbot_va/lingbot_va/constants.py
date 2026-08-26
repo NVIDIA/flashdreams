@@ -39,7 +39,6 @@ ROBOTWIN_ACTION_INFERENCE_STEPS = 50
 ROBOTWIN_SNR_SHIFT = 5.0
 ROBOTWIN_ACTION_SNR_SHIFT = 1.0
 ROBOTWIN_PATCH_SIZE = (1, 2, 2)
-ROBOTWIN_ENV_TYPE = "robotwin_tshape"
 ROBOTWIN_OBS_CAM_KEYS = (
     "observation.images.cam_high",
     "observation.images.cam_left_wrist",
