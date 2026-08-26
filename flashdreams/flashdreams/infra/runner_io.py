@@ -30,11 +30,15 @@ import torch
 
 from flashdreams.core.io.media_input import (
     read_audio_f32 as read_audio_f32,
+)
+from flashdreams.core.io.media_input import (
     read_optional_audio_f32 as read_optional_audio_f32,
-    read_video_rgb_with_fps as read_video_rgb_with_fps,
 )
 from flashdreams.core.io.media_input import (
     read_video_fps as _read_host_video_fps,
+)
+from flashdreams.core.io.media_input import (
+    read_video_rgb_with_fps as read_video_rgb_with_fps,
 )
 
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".webp"})
