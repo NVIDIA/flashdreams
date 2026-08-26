@@ -1434,15 +1434,13 @@ class SlangPyHudPresenter:
                 if self._model_can_prewarm and not self._model_ready_probe():
                     placeholder = "Loading world model..."
                 elif self._scene_selection_locked():
-                    placeholder = "Preloading scenes..."
-                elif self._model_can_prewarm:
-                    placeholder = "Ready - pick a scene"
+                    placeholder = "Preloading maps..."
                 else:
-                    placeholder = "Load Scene"
+                    placeholder = "Preparing map..."
             elif not self._model_ready_probe():
                 placeholder = "Loading World Model"
             else:
-                placeholder = "Loading Scene..."
+                placeholder = "Loading Map..."
             self._draw_camera_placeholder(canvas, draw, camera_area, placeholder)
 
         # Poll the drive sink *every* tick (before the conditional panel draw):
@@ -1866,16 +1864,15 @@ class SlangPyHudPresenter:
             font=self._font_large,
         )
         if message in (
-            "Load Scene",
-            "Loading Scene...",
+            "Preparing map...",
+            "Loading Map...",
             "Loading world model...",
-            "Ready - pick a scene",
-            "Preloading scenes...",
+            "Preloading maps...",
         ):
             hint = (
-                "Preloading scenes, please wait..."
+                "Preloading maps, please wait..."
                 if self._scene_selection_locked()
-                else "Pick a scene from the panel on the right"
+                else "Use the map dropdown to switch maps"
             )
             hbox = _measure_text(self._font_small, hint)
             hw = hbox[2] - hbox[0]
@@ -3013,12 +3010,7 @@ class SlangPyHudPresenter:
     def set_model_status(
         self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
     ) -> None:
-        """Wire the camera-placeholder text to model-warmup progress.
-
-        ``can_prewarm`` True (default world-model path) shows "Loading world
-        model..." then "Ready - pick a scene"; False keeps "Load Scene".
-        ``ready_probe`` (polled each tick) flips to ready once warmup finishes.
-        """
+        """Wire map-loading placeholder text to model-warmup progress."""
         self._model_can_prewarm = bool(can_prewarm)
         self._model_ready_probe = ready_probe
 
@@ -3037,10 +3029,10 @@ class SlangPyHudPresenter:
         self._panel_chrome_cache = None
 
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
-        """Lock scene/variant selection while ``probe()`` returns True (--preload-scenes).
+        """Lock map/variant dropdowns while ``probe()`` is true.
 
-        Dropdowns ignore clicks until every scene is cached; the placeholder
-        shows a "Preloading scenes..." hint.
+        Dropdowns ignore clicks until every map is cached; the placeholder
+        shows a "Preloading maps..." hint.
         """
         self._scene_selection_locked_probe = probe
 
@@ -3048,10 +3040,10 @@ class SlangPyHudPresenter:
         return self._scene_selection_locked_probe()
 
     def set_engine_active(self, active: bool) -> None:
-        """Toggle the scene-running chrome / placeholder text.
+        """Toggle the map-running chrome / transition placeholder.
 
-        ``active=False`` is the selection wait and the gap between switches;
-        ``True`` is a scene running/loading. Called by the demo around each run.
+        ``active=False`` is the brief gap between map switches; ``True`` is a
+        map running/loading. Crazy Robotaxi loads its initial map immediately.
         """
         self._engine_active = bool(active)
         if not self._engine_active:
@@ -3063,37 +3055,14 @@ class SlangPyHudPresenter:
         self._panel_chrome_cache_key = None
         self._panel_chrome_cache = None
 
-    def wait_for_scene_selection(self) -> tuple[Any, str] | None:
-        """Run a chrome-only event loop until the user picks a scene.
-
-        Opens the HUD window with no engine and a "Load Scene" placeholder;
-        returns ``(scene_path, variant)`` on selection or ``None`` if the
-        window closes first. ~60 fps (5 ms sleep) of chrome render + present.
-        """
-        prior_engine_active = self._engine_active
-        self.set_engine_active(False)
-        try:
-            while not self.should_close:
-                self.process_events()
-                if self._pending_scene_change is not None:
-                    request = self._pending_scene_change
-                    return request
-                # Render chrome + "Load Scene" placeholder.
-                self._render_canvas(None)
-                self._present_canvas()
-                time.sleep(EVENT_POLL_INTERVAL_S)
-            return None
-        finally:
-            self.set_engine_active(prior_engine_active)
-
     def wait_while_preloading(self, in_progress: Callable[[], bool]) -> None:
-        """Pump the "Preloading scenes..." chrome until ``in_progress()`` clears.
+        """Pump the "Preloading maps..." chrome until ``in_progress()`` clears.
 
         Used by ``--preload-scenes`` so the selected map waits for the
         background preloader to finish instead of racing it with a second
         compile.
         Returns early if the window closes. Keeps the engine inactive so the
-        camera area shows the locked "Preloading scenes..." placeholder.
+        camera area shows the locked "Preloading maps..." placeholder.
         """
         prior_engine_active = self._engine_active
         self.set_engine_active(False)

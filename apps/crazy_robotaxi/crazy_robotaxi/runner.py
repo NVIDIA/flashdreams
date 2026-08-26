@@ -73,9 +73,6 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
     stream_mjpeg: str | None = None
     """Optional MJPEG bind address instead of a native window."""
 
-    auto_start: bool = False
-    """Start loading the selected scene immediately after launch."""
-
     synthetic_model: bool | None = None
     """Override synthetic model construction when set."""
 
@@ -119,8 +116,6 @@ class CrazyRobotaxiRunner(Runner):
             "--taxi-alignment-diagnostics",
             self.config.taxi_alignment_diagnostics,
         )
-        if self.config.auto_start:
-            argv.append("--auto-start")
         if self.config.synthetic_model is not None:
             argv.append(
                 "--synthetic-model"

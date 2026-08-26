@@ -531,29 +531,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=_BUNDLED_MAPS_DIR,
         metavar="DIRECTORY",
         help=(
-            "Directory of .robotaxi.yaml maps available for scene switching. "
+            "Directory of .robotaxi.yaml maps available in the map dropdown. "
             "Defaults to the maps bundled with Crazy Robotaxi."
         ),
-    )
-    parser.add_argument(
-        "--auto-start",
-        dest="auto_start",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "Start loading --map immediately instead of opening the HUD on"
-            " Load Scene. Distinct from --preload-scenes (which only warms the"
-            " parse cache in the background)."
-        ),
-    )
-    parser.add_argument(
-        # Deprecated alias for --auto-start; kept so existing scripts/docs
-        # don't break. The old name was easily confused with --preload-scenes.
-        "--autoload-scene",
-        dest="auto_start",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--preload-scenes",
@@ -938,15 +918,13 @@ def _run_streaming(args: argparse.Namespace) -> None:
         close_presenter_on_exit=False,
     )
     presenter = getattr(app, "presenter", presenter)
-    presenter.set_model_status(can_prewarm=app.can_prewarm, ready_probe=app.model_ready)
-
     if args.preload_scenes:
         app.preload_scenes(
             (opt.path, variant, args.prompt)
             for opt in scene_options
             for variant in (opt.variants or ("default",))
         )
-        # Lock scene selection until every scene is cached so the user only
+        # Lock map switching until every map is cached so the user only
         # ever hits the instant (cache-hit) switch path.
         presenter.set_scene_selection_locked(app.preload_in_progress)
 

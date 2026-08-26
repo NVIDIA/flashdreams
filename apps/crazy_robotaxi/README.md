@@ -9,6 +9,11 @@ Launch the native game:
 flashdreams-run crazy-robotaxi
 ```
 
+Crazy Robotaxi immediately loads the map selected by `--map` (or the packaged
+default map). There is no separate startup map-selection screen. The native and
+browser HUDs expose the maps discovered through `--map-dir` in a dropdown for
+switching maps while the application is running.
+
 Select the bundled performance manifest:
 
 ```bash

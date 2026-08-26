@@ -21,14 +21,15 @@ from omnidreams_game_engine.demo import build_parser as build_engine_demo_parser
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_auto_start_flag_and_deprecated_alias() -> None:
+@pytest.mark.parametrize(
+    "removed_flag",
+    ("--auto-start", "--no-auto-start", "--autoload-scene", "--no-autoload-scene"),
+)
+def test_removed_auto_start_flags_are_rejected(removed_flag: str) -> None:
     parser = build_parser()
 
-    assert parser.parse_args([]).auto_start is False
-    assert parser.parse_args(["--auto-start"]).auto_start is True
-    # --autoload-scene is kept as a backward-compatible alias for --auto-start.
-    assert parser.parse_args(["--autoload-scene"]).auto_start is True
-    assert parser.parse_args(["--no-autoload-scene"]).auto_start is False
+    with pytest.raises(SystemExit):
+        parser.parse_args([removed_flag])
 
 
 @pytest.mark.parametrize("parser_factory", [build_parser, build_engine_demo_parser])
@@ -103,7 +104,6 @@ class _FakePresenter:
     """Records the scene lifecycle calls ``_run_streaming`` makes."""
 
     def __init__(self, **_kwargs: object) -> None:
-        self.wait_for_scene_selection_calls = 0
         self.acknowledged: list[tuple[Path, str]] = []
         # Probe callables passed to wait_while_preloading, plus an ordered
         # call log so a test can assert the preload wait happens *before* the
@@ -112,17 +112,11 @@ class _FakePresenter:
         self.calls: list[str] = []
         self.closed = False
 
-    def set_model_status(self, **_kwargs: object) -> None: ...
-
     def set_scene_selection_locked(self, *_args: object) -> None: ...
 
     def wait_while_preloading(self, probe: object) -> None:
         self.wait_while_preloading_probes.append(probe)
         self.calls.append("wait_while_preloading")
-
-    def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        self.wait_for_scene_selection_calls += 1
-        return None
 
     def acknowledge_scene_change(self, scene_path: Path, variant: str) -> None:
         self.acknowledged.append((scene_path, variant))
@@ -166,12 +160,10 @@ class _FakeApp:
 
 
 @pytest.mark.parametrize("preloading", [False, True])
-@pytest.mark.parametrize("auto_start", [False, True])
 def test_run_streaming_starts_command_line_map(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     preloading: bool,
-    auto_start: bool,
 ) -> None:
     scene = tmp_path / "scene.robotaxi.yaml"
     scene.write_bytes(b"")
@@ -212,12 +204,10 @@ def test_run_streaming_starts_command_line_map(
         stream_mjpeg="8080",
         preload_scenes=False,
         prompt=None,
-        auto_start=auto_start,
     )
 
     demo_mod._run_streaming(args)
 
-    assert presenter.wait_for_scene_selection_calls == 0
     assert app.loaded == [(scene, "default")]
     assert app.ran == 1
     assert presenter.acknowledged[0] == (scene, "default")

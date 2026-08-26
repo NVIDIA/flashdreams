@@ -28,7 +28,7 @@ while true; do
         --stream-mjpeg "$HOST:$PORT" \
         --stream-token "$TOKEN" \
         --map "$W/apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml" \
-        --variant default --auto-start \
+        --variant default \
         --live-edit-corrector-mode fused \
         --live-edit-style \
         --live-edit-style-lora "$F/edit_sft/outputs/lora_style_v6_step1600.pt" \

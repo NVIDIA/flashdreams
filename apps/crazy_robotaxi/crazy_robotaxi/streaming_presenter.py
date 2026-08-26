@@ -731,22 +731,9 @@ class MJPEGStreamingPresenter:
         # wrapper then calls ``acknowledge_scene_change`` and re-enters
         # the long-lived engine with the new scene (model stays resident).
         self._pending_scene_change: tuple[Path, str] | None = None
-        # Pre-cached idle overlay frames keyed by message. Lazily filled on
-        # the first call to :meth:`_publish_idle_frame`. Cached so the
-        # heartbeat republish in ``wait_for_scene_selection`` doesn't redo
-        # the PIL text render every 2 s; keyed by message so the "Loading
-        # world model..." (warmup) and "Select a scene to begin driving"
-        # (ready) variants are each rendered at most once.
-        self._idle_frame_cache_by_message: dict[str, np.ndarray] = {}
-        # Model-warmup status, wired by the demo via :meth:`set_model_status`
-        # (mirrors the slangpy HUD). Defaults inert so the idle overlay
-        # reads "Select a scene to begin driving" if never wired.
-        self._model_can_prewarm = False
-        self._model_ready_probe: Callable[[], bool] = lambda: True
-        # Scene-selection lock (wired by the demo with --preload-scenes).
-        # While the probe returns True, /scene/select is rejected and the
-        # idle frame reads "Preloading scenes..." so the browser can't pick
-        # a scene until every scene is cached.
+        # Map-switching lock (wired by the demo with --preload-scenes).
+        # While the probe returns True, /scene/select is rejected so the
+        # browser cannot switch maps until every map is cached.
         self._scene_selection_locked_probe: Callable[[], bool] = lambda: False
         # Keyboard drive integrator. Late-imported because ``demo``
         # imports the streaming presenter via the CLI's presenter
@@ -808,64 +795,12 @@ class MJPEGStreamingPresenter:
         del scene_path, variant  # accepted for symmetry with the slangpy HUD API
         self._pending_scene_change = None
 
-    def set_model_status(
-        self, *, can_prewarm: bool, ready_probe: Callable[[], bool]
-    ) -> None:
-        """Wire the idle overlay text to model-warmup progress (mirrors the HUD).
-
-        While ``can_prewarm`` and not ``ready_probe()``, the idle frame reads
-        "Loading world model..." instead of the "select a scene" prompt.
-        """
-        self._model_can_prewarm = bool(can_prewarm)
-        self._model_ready_probe = ready_probe
-
     def set_scene_selection_locked(self, probe: Callable[[], bool]) -> None:
         """Reject ``/scene/select`` while ``probe()`` returns True (--preload-scenes).
 
-        Locks scene picking until every scene is cached; idle overlay then
-        reads "Preloading scenes...".
+        Locks map switching until every map is cached.
         """
         self._scene_selection_locked_probe = probe
-
-    def wait_for_scene_selection(self) -> tuple[Path, str] | None:
-        """Block until the browser POSTs a scene selection (or the presenter closes).
-
-        Publishes an idle overlay frame, re-published on a 2 s heartbeat so a
-        late-connecting browser still gets the placeholder promptly. Returns
-        ``(scene_path, variant)`` on selection, or ``None`` if closed first.
-        """
-        idle_heartbeat_s = 2.0
-        last_publish = 0.0
-        while True:
-            now = time.monotonic()
-            if now - last_publish >= idle_heartbeat_s:
-                self._publish_idle_frame()
-                last_publish = now
-            if self._stop_event.wait(timeout=0.1):
-                return None
-            if self._pending_scene_change is not None:
-                return self._pending_scene_change
-
-    def _publish_idle_frame(self) -> None:
-        """Stream the cached idle placeholder frame.
-
-        Overlay text follows warmup / lock state; each variant's PIL render is
-        memoised so the heartbeat doesn't re-pay the text-overlay cost.
-        """
-        if self._model_can_prewarm and not self._model_ready_probe():
-            message = "Loading world model..."
-        elif self._scene_selection_locked_probe():
-            message = "Preloading scenes..."
-        else:
-            message = "Select a scene to begin driving"
-        cached = self._idle_frame_cache_by_message.get(message)
-        if cached is None:
-            base = np.zeros(
-                (self._raster.height, self._raster.width, 3), dtype=np.uint8
-            )
-            cached = render_loading_overlay(base, message=message)
-            self._idle_frame_cache_by_message[message] = cached
-        self._publish(cached)
 
     def bind_keyboard(self, keyboard: KeyboardState) -> None:
         """Re-target the presenter (and rebuild the keyboard-drive integrator) at ``keyboard``."""

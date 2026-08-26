@@ -53,7 +53,6 @@ def test_runner_delegates_to_standalone_cli(
         game_config=Path("game.yaml"),
         backend="raster",
         stream_mjpeg="127.0.0.1:8080",
-        auto_start=True,
         synthetic_model=False,
         taxi_seed=7,
         taxi_highscores=Path("scores.csv"),
@@ -82,7 +81,6 @@ def test_runner_delegates_to_standalone_cli(
             "7",
             "--taxi-highscores",
             "scores.csv",
-            "--auto-start",
             "--no-synthetic-model",
         ]
     ]
