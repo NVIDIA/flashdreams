@@ -156,6 +156,23 @@ def test_taxi_brake_enters_reverse_while_base_brake_does_not() -> None:
     assert base_state.speed_mps == 0.0
 
 
+def test_taxi_full_lock_has_responsive_low_and_high_speed_turning() -> None:
+    vehicle = TaxiVehicleConfig()
+    command = DriverCommand(steer=1.0, steer_is_direct=True)
+
+    low_speed = VehicleState(0.0, 0.0, 0.0, 0.0, 4.0, 0.0)
+    low_speed = integrate_taxi_vehicle(low_speed, command, 0.1, vehicle)
+
+    high_speed = VehicleState(0.0, 0.0, 0.0, 0.0, 26.8224, 0.0)
+    high_speed = integrate_taxi_vehicle(high_speed, command, 0.1, vehicle)
+
+    assert low_speed.steer_rad == pytest.approx(0.69)
+    assert low_speed.yaw_rate_radps > 1.1
+    assert high_speed.yaw_rate_radps == pytest.approx(
+        vehicle.max_lateral_accel_mps2 / high_speed.speed_mps
+    )
+
+
 def test_space_remains_upstream_stop_until_taxi_controls_are_enabled() -> None:
     keyboard = KeyboardState()
     keyboard.set_drive_command(
