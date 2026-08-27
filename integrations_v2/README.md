@@ -201,10 +201,15 @@ declared artifact is optional, but a name may appear at most once across all
 channels returned by one model step; attach it to one channel only.
 
 Artifacts are model outputs, not video channels. A caller must request their
-persistence independently; on the command line,
-`--tensor-artifact-dir DIR` writes one NumPy file per emitted name. Test the
-declared schema, duplicate behavior, reset behavior, and the saved array's exact
-dtype, shape, and values.
+persistence independently. `--tensor-artifact-dir DIR` writes one NumPy file
+per emitted name plus **tensor_artifacts.json**. The manifest preserves every
+declared artifact's dimension names and concatenation axis and records its
+emitted path, dtype, and shape. Consume the arrays only when it says
+`complete: true`; a failed run discards buffered arrays and leaves an incomplete
+manifest, while a successful run removes stale files for optional artifacts it
+did not emit. Test the declared schema, duplicate behavior, reset and failure
+behavior, manifest metadata, and the saved array's exact dtype, shape, and
+values.
 
 ## Running it
 

@@ -150,6 +150,7 @@ class _ModelSink:
     def __init__(self, calls: list[str]) -> None:
         self._calls = calls
         self.batches: list[tuple[int, tuple[StepResult, ...]]] = []
+        self.commits: list[bool] = []
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc
@@ -159,7 +160,8 @@ class _ModelSink:
         self.batches.append((generation, tuple(results)))
         self._calls.append(f"model_output.write({generation})")
 
-    def close(self) -> None:
+    def close(self, *, commit: bool = True) -> None:
+        self.commits.append(commit)
         self._calls.append("model_output.close")
 
 
@@ -232,6 +234,7 @@ def test_application_runner_closes_both_when_the_run_never_starts() -> None:
         "model_output.close",
         "application.close",
     ]
+    assert model_output.commits == [False]
 
 
 def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
@@ -280,6 +283,7 @@ def test_application_runner_forwards_complete_model_batches() -> None:
     ] == [(0,), (1,)]
     assert calls.index("model_output.open") < calls.index("model_output.write(0)")
     assert calls.index("model_output.write(0)") < calls.index("model_output.close")
+    assert sink.commits == [True]
 
 
 def test_application_runner_reports_the_run_rather_than_the_close(

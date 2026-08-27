@@ -3,7 +3,9 @@
 
 """CPU tests for typed tensor artifacts and their NumPy output sink."""
 
+import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -29,6 +31,10 @@ _TRAJECTORY = TensorArtifactSchema(
     concatenate_axis=0,
 )
 """Generic sequence schema used to exercise tensor routing."""
+
+
+def _manifest(output_dir: Path) -> dict[str, Any]:
+    return json.loads((output_dir / "tensor_artifacts.json").read_text())
 
 
 def _session_desc(
@@ -76,6 +82,23 @@ def test_sink_concatenates_steps_and_close_is_idempotent(tmp_path: Path) -> None
     )
     assert (tmp_path / "trajectory.npy").read_bytes() == first_bytes
     assert not list(tmp_path.glob("*.tmp"))
+    assert _manifest(tmp_path) == {
+        "artifact_type": "flashdreams.runtime_v2.tensor_artifacts",
+        "artifacts": [
+            {
+                "concatenate_axis": 0,
+                "dimension_names": ["sample", "coordinate"],
+                "dtype": "float32",
+                "emitted": True,
+                "name": "trajectory",
+                "path": "trajectory.npy",
+                "shape": [3, 2],
+            }
+        ],
+        "complete": True,
+        "generation": 0,
+        "schema_version": 1,
+    }
 
 
 def test_each_declared_artifact_is_optional(tmp_path: Path) -> None:
@@ -86,7 +109,46 @@ def test_each_declared_artifact_is_optional(tmp_path: Path) -> None:
 
     sink.close()
 
-    assert not output_dir.exists()
+    assert not (output_dir / "trajectory.npy").exists()
+    manifest = _manifest(output_dir)
+    assert manifest["complete"] is True
+    assert manifest["artifacts"][0]["emitted"] is False
+    assert manifest["artifacts"][0]["dimension_names"] == ["sample", "coordinate"]
+
+
+def test_successful_run_removes_a_stale_optional_artifact(tmp_path: Path) -> None:
+    destination = tmp_path / "trajectory.npy"
+    destination.write_bytes(b"stale")
+    sink = TensorArtifactOutputSink(tmp_path)
+
+    sink.open(_session_desc())
+    assert destination.exists()
+    sink.close()
+
+    assert not destination.exists()
+    assert _manifest(tmp_path)["complete"] is True
+
+
+def test_failed_run_discards_buffered_artifacts(tmp_path: Path) -> None:
+    sink = TensorArtifactOutputSink(tmp_path)
+    sink.open(_session_desc())
+    sink.write(0, [_result(0, _artifact(torch.ones(1, 2)))])
+
+    sink.close(commit=False)
+
+    assert not (tmp_path / "trajectory.npy").exists()
+    manifest = _manifest(tmp_path)
+    assert manifest["complete"] is False
+    assert manifest["artifacts"][0]["emitted"] is False
+
+
+def test_open_rejects_an_invalid_output_path_before_writes(tmp_path: Path) -> None:
+    output_path = tmp_path / "not-a-directory"
+    output_path.write_text("occupied")
+    sink = TensorArtifactOutputSink(output_path)
+
+    with pytest.raises(FileExistsError):
+        sink.open(_session_desc())
 
 
 def test_sink_rejects_undeclared_outputs(tmp_path: Path) -> None:
@@ -121,8 +183,9 @@ def test_sink_rejects_duplicates_within_one_result(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="'trajectory'.*more than once"):
         sink.write(0, [_result(0, artifact, artifact)])
 
-    sink.close()
-    assert list(tmp_path.iterdir()) == []
+    sink.close(commit=False)
+    assert not (tmp_path / "trajectory.npy").exists()
+    assert _manifest(tmp_path)["complete"] is False
 
 
 def test_sink_rejects_duplicates_across_result_channels(tmp_path: Path) -> None:
@@ -138,8 +201,9 @@ def test_sink_rejects_duplicates_across_result_channels(tmp_path: Path) -> None:
             ],
         )
 
-    sink.close()
-    assert list(tmp_path.iterdir()) == []
+    sink.close(commit=False)
+    assert not (tmp_path / "trajectory.npy").exists()
+    assert _manifest(tmp_path)["complete"] is False
 
 
 def test_sink_rejects_dtype_changes(tmp_path: Path) -> None:
@@ -276,6 +340,47 @@ def test_replace_failure_removes_staged_files(
         sink.close()
 
     assert destination.read_bytes() == b"previous"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_manifest_replace_failure_restores_prior_artifact_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optional = TensorArtifactSchema(
+        name="optional",
+        dimension_names=("sample", "coordinate"),
+    )
+    trajectory_path = tmp_path / "trajectory.npy"
+    optional_path = tmp_path / "optional.npy"
+    np.save(trajectory_path, np.array([[1.0, 2.0]], dtype=np.float32))
+    np.save(optional_path, np.array([[3.0, 4.0]], dtype=np.float32))
+    prior_trajectory = trajectory_path.read_bytes()
+    prior_optional = optional_path.read_bytes()
+
+    sink = TensorArtifactOutputSink(tmp_path)
+    sink.open(_session_desc(_TRAJECTORY, optional))
+    sink.write(0, [_result(0, _artifact(torch.tensor([[9.0, 9.0]])))])
+
+    real_replace = artifact_sink_module.os.replace
+
+    def fail_final_manifest_replace(source: Any, destination: Any) -> None:
+        if Path(destination).name == "tensor_artifacts.json":
+            raise OSError("manifest replace failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(
+        artifact_sink_module.os,
+        "replace",
+        fail_final_manifest_replace,
+    )
+
+    with pytest.raises(OSError, match="manifest replace failed"):
+        sink.close()
+
+    assert trajectory_path.read_bytes() == prior_trajectory
+    assert optional_path.read_bytes() == prior_optional
+    assert _manifest(tmp_path)["complete"] is False
     assert not list(tmp_path.glob("*.tmp"))
 
 

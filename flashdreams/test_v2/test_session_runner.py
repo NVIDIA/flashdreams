@@ -3,6 +3,7 @@
 
 """CPU test for the v2 session loop, independent of any application."""
 
+import json
 import logging
 import threading
 from collections.abc import Sequence
@@ -165,6 +166,7 @@ class RecordingModelOutputSink:
     def __init__(self, log: CallLog) -> None:
         self._log = log
         self.batches: list[tuple[int, tuple[StepResult, ...]]] = []
+        self.commits: list[bool] = []
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc
@@ -174,7 +176,8 @@ class RecordingModelOutputSink:
         self._log.record(f"model_output.write({generation})")
         self.batches.append((generation, tuple(results)))
 
-    def close(self) -> None:
+    def close(self, *, commit: bool = True) -> None:
+        self.commits.append(commit)
         self._log.record("model_output.close")
 
 
@@ -653,10 +656,11 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     generation, batch = model_output.batches[0]
     assert generation == 0
     assert len(batch) == 1
-    assert batch[0].frame_count == 2
+    assert batch[0].frame_count == 12
     assert batch[0].metrics == {"total_ms": 1.5}
     assert log.threads_for("model_output.write(0)") == {_STEP_THREAD_NAME}
     assert log.threads_for("model_output.open") == {threading.current_thread().name}
+    assert model_output.commits == [True]
     assert log.threads_for("model_output.close") == {threading.current_thread().name}
 
 
@@ -679,6 +683,7 @@ def test_model_output_sink_failure_still_closes_everything() -> None:
         )
 
     assert "model_output.close" in log.calls
+    assert sink.commits == [False]
     assert log.calls[-2:] == ["model_output.close", "session.close"]
 
 
@@ -980,7 +985,7 @@ def test_tensor_artifacts_keep_only_the_generation_after_an_inflight_reset(
         ArtifactSession(desc, log),
         ResettingWindow(
             log,
-            [UserInputEvents([]), _lifecycle_event(ResetUserInputEventData())],
+            [UserInputEvents([]), _lifecycle_event(ResetUserInputEvent)],
         ),
         model_output_sinks=[sink],
         steps=2,
@@ -1125,6 +1130,41 @@ def test_run_session_closes_both_when_a_step_raises() -> None:
     # presented as a result.
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert [result.step_index for result in window.results] == [0]
+
+
+def test_failed_step_does_not_commit_partial_tensor_artifacts(tmp_path: Path) -> None:
+    log = CallLog()
+    trajectory = TensorArtifactSchema(
+        name="trajectory",
+        dimension_names=("sample", "coordinate"),
+    )
+
+    class ArtifactSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            return replace(
+                super().step(step_index, events),
+                tensor_artifacts=(
+                    TensorArtifactOutput(
+                        schema=trajectory,
+                        tensor=torch.full((1, 2), float(step_index)),
+                    ),
+                ),
+            )
+
+    desc = replace(_session_desc(), tensor_artifact_schemas=(trajectory,))
+    artifact_dir = tmp_path / "artifacts"
+
+    with pytest.raises(RuntimeError, match="step failed"):
+        run_session(
+            ArtifactSession(desc, log, fail_at=1),
+            RecordingClientWindow(log),
+            model_output_sinks=[TensorArtifactOutputSink(artifact_dir)],
+            steps=3,
+        )
+
+    assert not (artifact_dir / "trajectory.npy").exists()
+    manifest = json.loads((artifact_dir / "tensor_artifacts.json").read_text())
+    assert manifest["complete"] is False
 
 
 def test_run_session_reports_a_window_that_fails_to_close() -> None:

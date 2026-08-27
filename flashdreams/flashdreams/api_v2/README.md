@@ -125,6 +125,10 @@ Set it to `None` when the artifact may be emitted only once per session
 generation. Each output tensor must have the declared rank and reuse the exact
 declared schema.
 
+The standard `TensorArtifactOutputSink` saves tensor values in `.npy` files and
+preserves dimension names, concatenation axes, dtypes, and shapes in the
+directory's **tensor_artifacts.json** manifest.
+
 A model step is one complete list of result channels. An artifact name may occur
 at most once across that whole list, so attach it to exactly one channel. These
 outputs are not video channels, are not composited by the UI, and UI-loop

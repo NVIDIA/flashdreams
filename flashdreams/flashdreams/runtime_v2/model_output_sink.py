@@ -31,8 +31,14 @@ class ModelOutputSink(Protocol):
         ...
 
     @abstractmethod
-    def close(self) -> None:
-        """Finish pending writes and release resources."""
+    def close(self, *, commit: bool = True) -> None:
+        """Finish the run and release resources.
+
+        Args:
+            commit: Whether model generation completed without an execution
+                failure. Transactional sinks publish buffered outputs only
+                when this is true. Sinks that stream outputs may ignore it.
+        """
         ...
 
 

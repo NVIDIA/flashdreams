@@ -395,6 +395,10 @@ def test_a_run_can_write_declared_tensor_artifacts(
         np.load(artifact_dir / "trajectory.npy"),
         np.array([[1.0, 2.0]], dtype=np.float32),
     )
+    manifest = json.loads((artifact_dir / "tensor_artifacts.json").read_text())
+    assert manifest["complete"] is True
+    assert manifest["artifacts"][0]["dimension_names"] == ["sample", "coordinate"]
+    assert manifest["artifacts"][0]["path"] == "trajectory.npy"
 
 
 def test_tensor_artifact_output_requires_a_declared_schema_before_startup(

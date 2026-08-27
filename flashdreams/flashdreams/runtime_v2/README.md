@@ -100,17 +100,26 @@ must declare at least one tensor artifact in its natural session description;
 otherwise the command exits with a usage error before it initializes the
 application or creates a window.
 
-At close, the sink writes one `<artifact-name>.npy` file for each declared
-artifact that was emitted. It concatenates successive chunks on the schema's
+At `open`, the sink creates the directory and atomically installs a
+**tensor_artifacts.json** manifest with `complete: false`. Invalid or unwritable
+destinations therefore fail before model generation starts.
+
+A successful close writes one `<artifact-name>.npy` file for each emitted
+artifact. It concatenates successive chunks on the schema's
 `concatenate_axis`; `None` permits one chunk only. Chunks must have identical
 dtypes and identical non-concatenated dimensions, and their dtype must be
-representable by NumPy. Each file is staged in the target directory and
-installed with an atomic replace. If no artifact was emitted, the directory is
-not created.
+representable by NumPy. The completed manifest records every declared name,
+whether it was emitted, its dimension names and concatenation axis, and the
+saved file's dtype and shape. Consumers should accept the directory only when
+the manifest says `complete: true`. It is installed last, after atomic array
+replaces and removal of stale files for declared artifacts omitted by this run.
+If any publication step fails, the sink restores the prior declared artifact
+files before re-raising and leaves the manifest incomplete.
 
 Only the newest session generation is persisted. The first result from a newer
 generation clears buffered older results, and a late result from an older
-generation is ignored.
+generation is ignored. If model execution fails, buffered arrays are discarded
+and the incomplete manifest remains as the commit marker.
 
 ## Starting and stopping a run
 
@@ -190,6 +199,10 @@ number and the complete sequence of channels for every published model step, on
 the model thread. It is therefore independent of what the presentation queue
 keeps and what the UI composites. The metrics sink retains its original
 per-result interface through an adapter to this path.
+
+At shutdown, `close(commit=True)` means model execution completed; execution
+failures call `close(commit=False)` so transactional sinks can discard partial
+outputs. Streaming sinks may ignore the flag.
 
 The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into

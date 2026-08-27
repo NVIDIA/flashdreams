@@ -77,7 +77,7 @@ class ApplicationRunner:
                 if self._metrics_output_sink is not None:
                     _close_output_sink(self._metrics_output_sink)
                 for model_output_sink in self._model_output_sinks:
-                    _close_output_sink(model_output_sink)
+                    _close_model_output_sink(model_output_sink)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
@@ -97,13 +97,23 @@ def _close_client_window(client_window: IClientWindow) -> None:
         )
 
 
-def _close_output_sink(output_sink: OutputSink | ModelOutputSink) -> None:
+def _close_output_sink(output_sink: OutputSink) -> None:
     """Close an auxiliary sink after a run that never reached it."""
     try:
         output_sink.close()
     except Exception:
         _LOGGER.exception(
             "An auxiliary output sink failed to close after a run that never started."
+        )
+
+
+def _close_model_output_sink(output_sink: ModelOutputSink) -> None:
+    """Discard a model sink after a run that never reached it."""
+    try:
+        output_sink.close(commit=False)
+    except Exception:
+        _LOGGER.exception(
+            "A model output sink failed to close after a run that never started."
         )
 
 

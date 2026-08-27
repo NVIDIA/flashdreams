@@ -165,7 +165,8 @@ class _PerResultModelOutputSink:
         for result in results:
             self._output_sink.write(result)
 
-    def close(self) -> None:
+    def close(self, *, commit: bool = True) -> None:
+        del commit
         self._output_sink.close()
 
 
@@ -235,7 +236,9 @@ def run_session(
     model_loop: IModelLoop[object] | None = None
     high_level_failures: BaseException | None = None
     cleanup_failures: list[BaseException] = []
-    attempted_output_sinks: list[OutputSink | ModelOutputSink] = []
+    attempted_window = False
+    attempted_model_output_sinks: list[ModelOutputSink] = []
+    loop_failure: BaseException | None = None
     active_model_output_sinks = tuple(model_output_sinks)
     if metrics_output_sink is not None:
         active_model_output_sinks = (
@@ -303,10 +306,10 @@ def run_session(
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
-        attempted_output_sinks.append(window)
+        attempted_window = True
         window.open(session_desc)
         for model_output_sink in active_model_output_sinks:
-            attempted_output_sinks.append(model_output_sink)
+            attempted_model_output_sinks.append(model_output_sink)
             model_output_sink.open(session_desc)
         collect_input()
         tick_ui()
@@ -362,9 +365,17 @@ def run_session(
         event_buffer.unregister(_MODEL_READER_ID)
         event_buffer.clear()
 
-        for output_sink in attempted_output_sinks:
+        if not session._failure_queue.empty():
+            loop_failure = session._failure_queue.get()
+        if attempted_window:
             try:
-                output_sink.close()
+                window.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
+        commit_model_outputs = loop_failure is None and high_level_failures is None
+        for model_output_sink in attempted_model_output_sinks:
+            try:
+                model_output_sink.close(commit=commit_model_outputs)
             except BaseException as error:
                 cleanup_failures.append(error)
         try:
@@ -372,10 +383,7 @@ def run_session(
         except BaseException as error:
             cleanup_failures.append(error)
 
-    loop_failures = (
-        None if session._failure_queue.empty() else session._failure_queue.get()
-    )
-    primary_failure = loop_failures or high_level_failures
+    primary_failure = loop_failure or high_level_failures
     if primary_failure is None and cleanup_failures:
         primary_failure = cleanup_failures.pop(0)
     for error in cleanup_failures:
