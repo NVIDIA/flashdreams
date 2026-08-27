@@ -117,6 +117,7 @@ runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
 | [Self-Forcing](https://nvidia.github.io/flashdreams/main/models/self_forcing.html) | Streaming Wan2.1 T2V |
 | [OmniDreams](https://nvidia.github.io/flashdreams/main/models/omnidreams.html) | HDMap-conditioned driving world model |
 | [LingBot-World](https://nvidia.github.io/flashdreams/main/models/lingbot_world.html) | Camera-controllable I2V world model |
+| [Waypoint 1.5](https://nvidia.github.io/flashdreams/main/models/waypoint.html) | Interactive image-established keyboard/mouse-controlled world model |
 | [Wan2.1](https://nvidia.github.io/flashdreams/main/models/wan21.html) | Bidirectional T2V / I2V |
 | [Causal-Forcing](https://nvidia.github.io/flashdreams/main/models/causal_forcing.html) | Streaming Wan2.1 T2V / I2V |
 | [Causal Wan2.2](https://nvidia.github.io/flashdreams/main/models/causal_wan22.html) | FastVideo Causal Wan 2.2 14B MoE T2V |
