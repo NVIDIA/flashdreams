@@ -15,9 +15,9 @@ from torch import Tensor
 from flashdreams.runtime.keyboard import normalize_key
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -183,23 +183,22 @@ def _active_keys_text(state: Cam2VUIState) -> str:
 
 def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
     for event in events.get_events():
-        data = event.get_event_data()
-        if isinstance(data, FocusUserInputEventData) and not data.focused:
+        if isinstance(event, FocusUserInputEvent) and not event.focused:
             state.held_keys.clear()
             continue
-        if not isinstance(data, KeyboardUserInputEventData):
+        if not isinstance(event, KeyboardUserInputEvent):
             continue
-        key = normalize_key(data.key)
+        key = normalize_key(event.key)
         if key not in _CAMERA_KEYS:
             logger.info(
                 "Cam2V SlangPy UI loop ignored keyboard event "
                 "key={} state={} timestamp_us={} reason=unsupported",
-                data.key,
-                data.state.value,
+                event.key,
+                event.state.value,
                 int(event.get_timestamp()),
             )
             continue
-        if data.state is KeyboardInputState.PRESSED:
+        if event.state is KeyboardInputState.PRESSED:
             state.held_keys.add(key)
         else:
             state.held_keys.discard(key)
@@ -210,7 +209,7 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
             "Cam2V SlangPy UI loop processed keyboard event "
             "key={} state={} timestamp_us={} held_keys={}",
             key,
-            data.state.value,
+            event.state.value,
             int(event.get_timestamp()),
             held_keys or "none",
         )

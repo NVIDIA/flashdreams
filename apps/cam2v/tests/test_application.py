@@ -46,10 +46,9 @@ from flashdreams.runtime_v2.session_desc import (
 )
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    UserInputEvent,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -179,12 +178,10 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     )
     events = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key="w",
-                    state=KeyboardInputState.PRESSED,
-                ),
+                key="w",
+                state=KeyboardInputState.PRESSED,
             )
         ]
     )
@@ -245,19 +242,15 @@ def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:
     model_loop, state, pipeline = _input_test_model_loop()
     events = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(10_000_000),
-                event_data=KeyboardUserInputEventData(
-                    key="w",
-                    state=KeyboardInputState.PRESSED,
-                ),
+                key="w",
+                state=KeyboardInputState.PRESSED,
             ),
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(10_080_000),
-                event_data=KeyboardUserInputEventData(
-                    key="w",
-                    state=KeyboardInputState.RELEASED,
-                ),
+                key="w",
+                state=KeyboardInputState.RELEASED,
             ),
         ]
     )
@@ -274,16 +267,14 @@ def test_model_loop_releases_camera_controls_when_browser_loses_focus() -> None:
     model_loop, _, pipeline = _input_test_model_loop()
     events = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key="w",
-                    state=KeyboardInputState.PRESSED,
-                ),
+                key="w",
+                state=KeyboardInputState.PRESSED,
             ),
-            UserInputEvent(
+            FocusUserInputEvent(
                 timestamp=uint64(50_000),
-                event_data=FocusUserInputEventData(focused=False),
+                focused=False,
             ),
         ]
     )
@@ -301,12 +292,10 @@ def test_model_loop_normalizes_browser_arrow_keys() -> None:
     model_loop, _, pipeline = _input_test_model_loop()
     events = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key="ArrowUp",
-                    state=KeyboardInputState.PRESSED,
-                ),
+                key="ArrowUp",
+                state=KeyboardInputState.PRESSED,
             )
         ]
     )
@@ -353,12 +342,10 @@ def test_slangpy_overlay_tracks_controls_and_model_status(monkeypatch: Any) -> N
     )
     events = UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(
-                    key="ArrowUp",
-                    state=KeyboardInputState.PRESSED,
-                ),
+                key="ArrowUp",
+                state=KeyboardInputState.PRESSED,
             )
         ]
     )

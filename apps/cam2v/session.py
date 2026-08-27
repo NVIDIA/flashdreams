@@ -19,9 +19,9 @@ from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_te
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -318,19 +318,18 @@ def _buffer_keyboard_events(
     """Queue timestamped WebRTC keyboard and focus edges for resampling."""
     event_times: list[float] = []
     for event in events.get_events():
-        data = event.get_event_data()
         event_t = float(event.get_timestamp()) / 1_000_000.0
-        if isinstance(data, FocusUserInputEventData):
-            if not data.focused:
+        if isinstance(event, FocusUserInputEvent):
+            if not event.focused:
                 keyboard_resampler.release_all(arrival_t=event_t)
                 event_times.append(event_t)
             continue
-        if not isinstance(data, KeyboardUserInputEventData):
+        if not isinstance(event, KeyboardUserInputEvent):
             continue
         keyboard_resampler.on_edge(
             arrival_t=event_t,
-            event=("keydown" if data.state is KeyboardInputState.PRESSED else "keyup"),
-            key=data.key,
+            event=("keydown" if event.state is KeyboardInputState.PRESSED else "keyup"),
+            key=event.key,
         )
         event_times.append(event_t)
     return event_times
