@@ -5,34 +5,29 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import numpy as np
 
 from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, KeyboardState
+from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
+from flashdreams.runtime_v2.keyboard_input import (
+    KeyboardStateSegment,
+    KeyboardStateTrack,
+)
 
-PoseSegment = tuple[float, float, frozenset[str]]
+PoseSegment: TypeAlias = KeyboardStateSegment
 """One time interval and the camera-control keys held throughout it."""
 
 
-@dataclass(frozen=True, slots=True)
-class _KeyboardEdge:
-    """One timestamped keyboard state transition."""
-
-    arrival_t: float
-    """Seconds since the WebRTC session began."""
-
-    event: str
-    """KeyboardState transition or the internal ``release_all`` action."""
-
-    key: str | None = None
-    """Browser key identifier, or ``None`` for ``release_all``."""
-
-
 class KeyboardResampler:
-    """Resample sparse key-down/key-up edges into a camera-control timeline."""
+    """Preserve Cam2V's legacy combined keyboard-resampler API.
+
+    New model-loop code uses :attr:`input_timeline` and
+    :attr:`keyboard_track` separately. The combined surface remains for
+    existing Cam2V and Lingbot callers.
+    """
 
     def __init__(
         self,
@@ -41,95 +36,73 @@ class KeyboardResampler:
         start_v: float = 0.0,
         supported_keys: frozenset[str] = DEFAULT_SUPPORTED_KEYS,
     ) -> None:
-        if fps <= 0:
-            raise ValueError("fps must be > 0")
-        self._fps = float(fps)
-        self._dt = 1.0 / self._fps
-        self._supported_keys = supported_keys
-        self.next_chunk_start_v = start_v
-        self._event_log: deque[_KeyboardEdge] = deque()
-        self._carried_state = KeyboardState(supported_keys=supported_keys)
+        self._input_timeline = RealtimeInputTimeline(
+            samples_per_second=fps,
+            start_s=start_v,
+        )
+        self._keyboard_track = KeyboardStateTrack(
+            supported_keys=supported_keys,
+            state_projection=KeyboardState.resolved_effective_keys,
+        )
 
     @property
     def fps(self) -> float:
-        """Return the target camera sampling rate."""
-        return self._fps
+        """Return the target keyboard sampling rate."""
+        return self._input_timeline.samples_per_second
 
     @property
     def dt(self) -> float:
-        """Return the interval between adjacent camera samples."""
-        return self._dt
+        """Return the interval between adjacent keyboard samples."""
+        return self._input_timeline.sample_interval_s
+
+    @property
+    def input_timeline(self) -> RealtimeInputTimeline:
+        """Return the modality-neutral clock backing this compatibility view."""
+        return self._input_timeline
+
+    @property
+    def keyboard_track(self) -> KeyboardStateTrack:
+        """Return the keyboard state track backing this compatibility view."""
+        return self._keyboard_track
+
+    @property
+    def next_chunk_start_v(self) -> float:
+        """Return the start of the next legacy sampling chunk."""
+        return self._input_timeline.next_window_start_s
+
+    @next_chunk_start_v.setter
+    def next_chunk_start_v(self, value: float) -> None:
+        """Move the legacy sampling cursor without clearing keyboard state."""
+        self._input_timeline.reset(start_s=value)
 
     def on_edge(self, *, arrival_t: float, event: str, key: str) -> None:
         """Record one keyboard edge in timestamp order."""
-        self._record_edge(_KeyboardEdge(arrival_t, event, key))
+        self._keyboard_track.on_edge(
+            timestamp_s=arrival_t,
+            action=event,
+            key=key,
+        )
 
     def release_all(self, *, arrival_t: float) -> None:
-        """Release every held key at ``arrival_t``, such as on focus loss."""
-        self._record_edge(_KeyboardEdge(arrival_t, "release_all"))
+        """Release every held key at ``arrival_t``."""
+        self._keyboard_track.release_all(timestamp_s=arrival_t)
 
-    def _record_edge(self, edge: _KeyboardEdge) -> None:
-        """Insert ``edge`` while preserving timestamp order."""
-        if not self._event_log or edge.arrival_t >= self._event_log[-1].arrival_t:
-            self._event_log.append(edge)
-            return
-        for index, queued_edge in enumerate(self._event_log):
-            if edge.arrival_t < queued_edge.arrival_t:
-                self._event_log.insert(index, edge)
-                return
-        self._event_log.append(edge)
-
-    def _apply_edge(self, edge: _KeyboardEdge) -> None:
-        """Apply one queued edge to the carried keyboard state."""
-        if edge.event == "release_all":
-            self._carried_state = KeyboardState(
-                supported_keys=self._supported_keys,
-            )
-            return
-        assert edge.key is not None
-        self._carried_state.apply_event(event=edge.event, key=edge.key)
-
-    def sample_chunk(self, num_frames: int) -> tuple[list[PoseSegment], list[float]]:
-        """Return key-state segments and sample times for one model chunk."""
-        if num_frames < 1:
-            raise ValueError("num_frames must be >= 1")
-
-        chunk_start_v = self.next_chunk_start_v
-        chunk_end_v = chunk_start_v + num_frames * self._dt
-        while self._event_log and self._event_log[0].arrival_t < chunk_start_v:
-            self._apply_edge(self._event_log.popleft())
-
-        segments: list[PoseSegment] = []
-        previous_t = chunk_start_v
-        previous_state = self._carried_state.resolved_effective_keys()
-        while self._event_log and self._event_log[0].arrival_t <= chunk_end_v:
-            edge = self._event_log.popleft()
-            event_t = edge.arrival_t
-            if event_t > previous_t:
-                segments.append((previous_t, event_t, previous_state))
-            self._apply_edge(edge)
-            previous_state = self._carried_state.resolved_effective_keys()
-            previous_t = event_t
-        if previous_t < chunk_end_v:
-            segments.append((previous_t, chunk_end_v, previous_state))
-        elif not segments:
-            segments.append((chunk_start_v, chunk_end_v, previous_state))
-
-        frame_times = [
-            chunk_start_v + (index + 1) * self._dt for index in range(num_frames)
-        ]
-        self.next_chunk_start_v = chunk_end_v
-        return segments, frame_times
+    def sample_chunk(
+        self,
+        num_frames: int,
+    ) -> tuple[list[KeyboardStateSegment], list[float]]:
+        """Return key-state segments and sample times for one legacy chunk."""
+        window = self._input_timeline.next_window(num_frames)
+        return self._keyboard_track.segments(window), list(window.sample_times_s)
 
     def reset(self, *, start_v: float) -> None:
-        """Discard queued edges and restart the virtual camera clock."""
-        self._event_log.clear()
-        self._carried_state = KeyboardState(supported_keys=self._supported_keys)
-        self.next_chunk_start_v = start_v
+        """Discard queued edges and restart the legacy sampling clock."""
+        self._keyboard_track.reset()
+        self._input_timeline.reset(start_s=start_v)
 
     def event_log_size(self) -> int:
         """Return the number of keyboard edges awaiting consumption."""
-        return len(self._event_log)
+        return self._keyboard_track.pending_event_count
 
 
 def _rotation_matrix(axis: str, angle_rad: float) -> np.ndarray:

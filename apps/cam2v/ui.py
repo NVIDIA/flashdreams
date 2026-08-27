@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
-from flashdreams.runtime.keyboard import normalize_key
+from flashdreams.runtime.keyboard import KeyboardState, normalize_key
 from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
@@ -132,8 +132,10 @@ class Cam2VUIState:
     held_keys: set[str] = field(default_factory=set)
     """Camera-control keys currently held by the client."""
 
-    _held_key_sources: dict[str, set[str]] = field(default_factory=dict)
-    """Physical/browser key identities active for each normalized control."""
+    _keyboard_state: KeyboardState = field(
+        default_factory=lambda: KeyboardState(supported_keys=_CAMERA_KEYS),
+    )
+    """UI-thread-owned source-aware keyboard state."""
 
     status: Cam2VUIStatus | None = None
     """Latest model status received from the model-generation loop."""
@@ -145,7 +147,7 @@ class Cam2VUIState:
     def reset(self) -> None:
         """Clear transient controls and model status for a new generation."""
         self.held_keys.clear()
-        self._held_key_sources.clear()
+        self._keyboard_state = KeyboardState(supported_keys=_CAMERA_KEYS)
         self.status = None
 
 
@@ -1002,25 +1004,17 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
     for event in events.get_events():
         if isinstance(event, FocusUserInputEvent) and not event.focused:
             state.held_keys.clear()
-            state._held_key_sources.clear()
+            state._keyboard_state = KeyboardState(supported_keys=_CAMERA_KEYS)
             continue
         if not isinstance(event, KeyboardUserInputEvent):
             continue
-        key = normalize_key(event.key)
-        if key not in _CAMERA_KEYS:
+        if not state._keyboard_state.apply_event(
+            event=("keydown" if event.state is KeyboardInputState.PRESSED else "keyup"),
+            key=event.key,
+        ):
             continue
-        source_key = event.key.strip().lower()
-        if event.state is KeyboardInputState.PRESSED:
-            state._held_key_sources.setdefault(key, set()).add(source_key)
-            state.held_keys.add(key)
-        else:
-            sources = state._held_key_sources.get(key)
-            if sources is not None:
-                sources.discard(source_key)
-                if not sources:
-                    state._held_key_sources.pop(key, None)
-            if key not in state._held_key_sources:
-                state.held_keys.discard(key)
+        state.held_keys.clear()
+        state.held_keys.update(state._keyboard_state.snapshot())
 
 
 def _ui_input_event_traces(

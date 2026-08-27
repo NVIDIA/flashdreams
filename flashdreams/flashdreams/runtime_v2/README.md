@@ -52,6 +52,12 @@ Input:
 
 - `user_input_event.py` defines the concrete event types, `user_input_events.py` the
   batch of them a source hands over.
+- `input_timeline.py` advances modality-neutral, fixed-rate input windows and
+  catches a stale model clock up to newly accepted input.
+- `keyboard_input.py` buffers keyboard edges independently of that clock and
+  projects held state over each selected window. Other modalities should reuse
+  the window clock with their own semantics: held state for mouse buttons,
+  coalesced position for pointer motion, and accumulated impulses for wheels.
 
 ## The command line
 

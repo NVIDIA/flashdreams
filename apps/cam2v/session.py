@@ -19,12 +19,15 @@ from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
-from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, normalize_key
+from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
+from flashdreams.runtime_v2.keyboard_input import (
+    KeyboardEventDisposition,
+    KeyboardStateTrack,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
-    KeyboardInputState,
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -164,8 +167,14 @@ class Cam2VModelState:
     config: Cam2VSessionConfig
     """Resolved inputs and rollout controls."""
 
-    keyboard_resampler: KeyboardResampler
-    """Timestamped camera-control state sampled on the model frame clock."""
+    keyboard_resampler: KeyboardResampler | None = None
+    """Legacy combined input view retained for construction compatibility."""
+
+    input_timeline: RealtimeInputTimeline = field(init=False)
+    """Session-relative sampling windows owned by the model thread."""
+
+    keyboard_track: KeyboardStateTrack = field(init=False)
+    """Timestamped held-key state projected into camera-control segments."""
 
     _pending_input_event_traces: deque[_PendingInputEventTrace] = field(
         default_factory=deque
@@ -197,6 +206,17 @@ class Cam2VModelState:
 
     ui_loop: Cam2VHUDLoop | None = None
     """Registered UI-loop handle used only through ``invoke_async``."""
+
+    def __post_init__(self) -> None:
+        """Expose decomposed input state behind the legacy constructor field."""
+        keyboard_resampler = self.keyboard_resampler
+        if keyboard_resampler is None:
+            keyboard_resampler = KeyboardResampler(
+                fps=self.session_desc.frames_per_second_for_step,
+            )
+            self.keyboard_resampler = keyboard_resampler
+        self.input_timeline = keyboard_resampler.input_timeline
+        self.keyboard_track = keyboard_resampler.keyboard_track
 
 
 class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
@@ -231,18 +251,20 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             raise ValueError(
                 "Cam2V pipelines must generate at least one frame per step."
             )
-        event_times = _buffer_keyboard_events(
-            state.keyboard_resampler,
-            events,
-            pending_input_event_traces=state._pending_input_event_traces,
-            trace_supported_keys=state.ui_loop is None,
+        keyboard_events = state.keyboard_track.ingest(events)
+        _queue_model_input_event_traces(
+            state._pending_input_event_traces,
+            keyboard_events=keyboard_events,
+            trace_tracked_keys=state.ui_loop is None,
         )
-        _catch_up_keyboard_timeline(
-            state.keyboard_resampler,
-            frame_count=frame_count,
-            event_times=event_times,
+        input_window = state.input_timeline.next_window(
+            frame_count,
+            input_times_s=(
+                result.timestamp_s for result in keyboard_events if result.tracked
+            ),
         )
-        segments, frame_times = state.keyboard_resampler.sample_chunk(frame_count)
+        segments = state.keyboard_track.segments(input_window)
+        frame_times = list(input_window.sample_times_s)
         poses = state.pose_integrator.integrate_chunk(
             segments=segments,
             frame_times=frame_times,
@@ -329,7 +351,8 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.cache = None
         state.blocks_generated = 0
         state.frames_generated = 0
-        state.keyboard_resampler.reset(start_v=0.0)
+        state.input_timeline.reset(start_s=0.0)
+        state.keyboard_track.reset()
         state._pending_input_event_traces.clear()
         state.pose_integrator.reset()
         state.steady_started_at = None
@@ -401,45 +424,27 @@ class Cam2VSession(ISession):
         )
 
 
-def _buffer_keyboard_events(
-    keyboard_resampler: KeyboardResampler,
-    events: UserInputEvents,
+def _queue_model_input_event_traces(
+    pending: deque[_PendingInputEventTrace],
     *,
-    pending_input_event_traces: deque[_PendingInputEventTrace],
-    trace_supported_keys: bool,
-) -> list[float]:
-    """Queue timestamped WebRTC keyboard and focus edges for resampling."""
-    event_times: list[float] = []
-    for event in events.get_events():
-        event_t = float(event.get_timestamp()) / 1_000_000.0
-        if isinstance(event, FocusUserInputEvent):
-            if not event.focused:
-                keyboard_resampler.release_all(arrival_t=event_t)
-                event_times.append(event_t)
-                _queue_input_event_trace(
-                    pending_input_event_traces,
-                    event=event,
-                    event_timestamp_s=event_t,
-                )
-            continue
-        if not isinstance(event, KeyboardUserInputEvent):
-            continue
-        supported = normalize_key(event.key) in DEFAULT_SUPPORTED_KEYS
-        if trace_supported_keys or not supported:
-            _queue_input_event_trace(
-                pending_input_event_traces,
-                event=event,
-                event_timestamp_s=event_t if supported else None,
-            )
-        if not supported:
-            continue
-        keyboard_resampler.on_edge(
-            arrival_t=event_t,
-            event=("keydown" if event.state is KeyboardInputState.PRESSED else "keyup"),
-            key=event.key,
+    keyboard_events: tuple[KeyboardEventDisposition, ...],
+    trace_tracked_keys: bool,
+) -> None:
+    """Route keyboard acknowledgements not owned by the immediate UI step."""
+    for result in keyboard_events:
+        event = result.event
+        if isinstance(event, KeyboardUserInputEvent):
+            if result.tracked and not trace_tracked_keys:
+                continue
+            event_timestamp_s = result.timestamp_s if result.tracked else None
+        else:
+            assert isinstance(event, FocusUserInputEvent)
+            event_timestamp_s = result.timestamp_s
+        _queue_input_event_trace(
+            pending,
+            event=event,
+            event_timestamp_s=event_timestamp_s,
         )
-        event_times.append(event_t)
-    return event_times
 
 
 def _queue_input_event_trace(
@@ -486,34 +491,6 @@ def _resolve_input_event_traces(
         )
     pending.extend(carried)
     return tuple(resolved)
-
-
-def _catch_up_keyboard_timeline(
-    keyboard_resampler: KeyboardResampler,
-    *,
-    frame_count: int,
-    event_times: list[float],
-) -> None:
-    """Keep stale wall-clock input from waiting behind the model clock.
-
-    Model warm-up and slow generation can leave the virtual camera timeline
-    behind WebRTC's session clock. If the newest unread edge lies beyond the
-    next chunk, skip only stale virtual time and retain up to one chunk of the
-    batch's original edge timing.
-    """
-    if not event_times:
-        return
-    chunk_duration = frame_count * keyboard_resampler.dt
-    chunk_end = keyboard_resampler.next_chunk_start_v + chunk_duration
-    latest_event_t = max(event_times)
-    if latest_event_t <= chunk_end:
-        return
-    earliest_event_t = min(event_times)
-    keyboard_resampler.next_chunk_start_v = max(
-        keyboard_resampler.next_chunk_start_v,
-        earliest_event_t,
-        latest_event_t - chunk_duration,
-    )
 
 
 def _publish_ui_status(

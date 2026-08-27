@@ -412,7 +412,7 @@ def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:
 
     assert pipeline.camera_input is not None
     assert pipeline.camera_input.poses[-1, 2, 3].item() == pytest.approx(0.064)
-    assert state.keyboard_resampler.next_chunk_start_v == pytest.approx(10.125)
+    assert state.input_timeline.next_window_start_s == pytest.approx(10.125)
 
 
 def test_model_loop_traces_each_event_to_its_first_affected_frame() -> None:
@@ -478,7 +478,7 @@ def test_model_loop_acknowledges_ignored_keys_without_tracing_pointer_input() ->
 
 def test_unsupported_key_does_not_advance_the_camera_timeline() -> None:
     model_loop, state, _ = _input_test_model_loop()
-    start = state.keyboard_resampler.next_chunk_start_v
+    start = state.input_timeline.next_window_start_s
 
     model_loop.step(
         0,
@@ -494,7 +494,7 @@ def test_unsupported_key_does_not_advance_the_camera_timeline() -> None:
         ),
     )
 
-    assert state.keyboard_resampler.next_chunk_start_v == pytest.approx(start + 0.125)
+    assert state.input_timeline.next_window_start_s == pytest.approx(start + 0.125)
 
 
 def test_model_loop_releases_camera_controls_when_browser_loses_focus() -> None:
@@ -880,6 +880,8 @@ def test_cam2v_session_registers_the_shared_server_hud_loop() -> None:
 
     assert isinstance(session.ui_loop, Cam2VHUDLoop)
     assert session.ui_loop.state.total_blocks == 2
+    assert session.model_loop.state.input_timeline.samples_per_second == 16
+    assert session.model_loop.state.keyboard_resampler is not None
     assert session.model_loop.state.keyboard_resampler.fps == 16
     assert session.session_desc.backpressure_mode is BackpressureMode.BLOCK
     assert session.session_desc.presentation_mode is PresentationMode.ON_DEMAND
