@@ -212,7 +212,7 @@ sequenceDiagram
     participant Runtime as V2 runtime
     participant App as WaypointApplication
     participant Session as WaypointSession
-    participant Loop as WaypointModelLoop
+    participant ModelLoop as WaypointModelLoop
     participant Pipeline as WaypointInferencePipeline
     participant DiT as WaypointTransformer / DiT
     participant Cache as K/V + TAEHV caches
@@ -230,27 +230,27 @@ sequenceDiagram
     DiT->>Cache: commit action 0 K/V
 
     alt step 0
-        Runtime->>Loop: step(0, events)
-        Loop-->>Runtime: detached seed StepResult (4 frames)
+        Runtime->>ModelLoop: step(0, events)
+        ModelLoop-->>Runtime: detached seed StepResult (4 frames)
     else generated action N
-        Runtime->>Loop: step(N, ordered input events)
-        Loop->>Pipeline: generate(N, cache, control)
+        Runtime->>ModelLoop: step(N, ordered input events)
+        ModelLoop->>Pipeline: generate(N, cache, control)
         loop sigmas 1.0 to 0.3
             Pipeline->>DiT: predict provisional flow
             DiT->>Cache: replace provisional action-N K/V
         end
         Pipeline->>Cache: decode clean latent to 4 RGB frames
-        Loop->>Pipeline: finalize(N, cache)
+        ModelLoop->>Pipeline: finalize(N, cache)
         Pipeline->>DiT: sigma-zero clean-state evaluation
         DiT->>Cache: commit action-N K/V
-        Loop-->>Runtime: detached TCHW StepResult
+        ModelLoop-->>Runtime: detached TCHW StepResult
     end
 
     Runtime->>Sink: present or encode four frames
     opt browser reset
         Client->>Runtime: reset event
-        Runtime->>Loop: reset()
-        Loop->>Pipeline: rebuild cache from retained seed
+        Runtime->>ModelLoop: reset()
+        ModelLoop->>Pipeline: rebuild cache from retained seed
     end
 ```
 
