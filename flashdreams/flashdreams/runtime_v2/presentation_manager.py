@@ -12,15 +12,15 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import BackpressureMode
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class PresentationManager:
-    """Buffer model output for a session's io-thread.
+    """Buffer model output for a session's UI thread.
 
-    The model-generation-thread publishes a chunk of channels per step into a
-    bounded queue; the io-thread calls :meth:`advance` once per tick to move to
+    The model thread publishes a chunk of channels per step into a bounded
+    queue; the UI thread calls :meth:`advance` once per tick to move to
     the next frame. A chunk holding several frames is walked frame by frame
     before another is taken, so a step that generated twelve frames is
     presented over twelve ticks rather than eleven being skipped.
@@ -36,15 +36,16 @@ class PresentationManager:
         self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
         self._put_timeout = 1.0 / 30.0
+        self._discarded_input_event_ids: queue.SimpleQueue[tuple[str, ...]] = (
+            queue.SimpleQueue()
+        )
+        self._counter_lock = threading.Lock()
         self._generation = 0
         self._presented_chunk: list[StepResult] | None = None
         self._frame_index = -1
         self._presented_frame_count = 0
-        self.dropped_for_space = 0
-        """Chunks dropped because the UI could not keep up with the model."""
-
-        self.discarded_at_reset = 0
-        """Chunks discarded for having been generated before a reset."""
+        self._dropped_for_space = 0
+        self._discarded_at_reset = 0
 
     def configure(
         self,
@@ -83,7 +84,7 @@ class PresentationManager:
     ) -> None:
         """Add one completed model step to the presentation queue.
 
-        Called on the model-generation-thread. ``BLOCK`` waits here when the
+        Called on the model thread. ``BLOCK`` waits here when the
         queue is full, until there is room or the session stops;
         ``DROP_OLDEST`` evicts instead and returns.
 
@@ -93,9 +94,11 @@ class PresentationManager:
             chunk: One :class:`StepResult` per model channel.
 
         Raises:
-            ValueError: ``chunk`` is empty, or its channels disagree about
-                ``frame_count``.
-            TypeError: ``chunk`` holds something other than results.
+            ValueError: ``chunk`` is empty, its channels disagree about
+                ``frame_count`` or input traces, or a trace names a frame
+                outside the chunk.
+            TypeError: ``chunk`` holds something other than results, or a
+                result holds something other than input-event traces.
         """
         if not chunk:
             raise ValueError("A presented chunk must contain at least one channel.")
@@ -104,6 +107,11 @@ class PresentationManager:
         frame_count = chunk[0].frame_count
         if frame_count <= 0 or any(item.frame_count != frame_count for item in chunk):
             raise ValueError("Every channel in a chunk must have the same frame_count.")
+        input_event_traces = chunk[0].input_event_traces
+        if any(item.input_event_traces != input_event_traces for item in chunk[1:]):
+            raise ValueError(
+                "Every channel in a chunk must have the same input_event_traces."
+            )
         chunk = [_with_output_ready_event(result) for result in chunk]
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
@@ -119,7 +127,7 @@ class PresentationManager:
     def advance(self, generation: int) -> tuple[bool, list[StepResult] | None]:
         """Move to the next model frame, if one is available.
 
-        Called on the io-thread, once per tick. A ``generation`` other than the
+        Called on the UI thread, once per tick. A ``generation`` other than the
         last one seen drops what is being presented, so nothing generated before
         a reset survives it.
 
@@ -132,6 +140,11 @@ class PresentationManager:
             already being presented.
         """
         if generation != self._generation:
+            if self._presented_chunk is not None:
+                self._report_discarded_traces(
+                    self._presented_chunk,
+                    first_frame_index=self._frame_index + 1,
+                )
             self._generation = generation
             self._presented_chunk = None
             self._frame_index = -1
@@ -160,6 +173,34 @@ class PresentationManager:
     def presented_frame_count(self) -> int:
         """Return frames selected one-by-one in the current generation."""
         return self._presented_frame_count
+
+    @property
+    def dropped_for_space(self) -> int:
+        """Return chunks dropped because presentation could not keep up."""
+        with self._counter_lock:
+            return self._dropped_for_space
+
+    @property
+    def discarded_at_reset(self) -> int:
+        """Return chunks discarded because they predate a reset."""
+        with self._counter_lock:
+            return self._discarded_at_reset
+
+    @property
+    def buffered_chunk_count(self) -> int:
+        """Return model chunks waiting in the bounded publish queue.
+
+        The chunk currently being presented is intentionally excluded: only
+        this queue depth controls whether :meth:`publish` blocks. As with
+        :meth:`queue.Queue.qsize`, the value is a thread-safe point-in-time
+        snapshot and may change immediately after it is returned.
+        """
+        return self._buffer.qsize()
+
+    @property
+    def buffer_capacity(self) -> int:
+        """Return the maximum number of chunks that may wait to be presented."""
+        return self._buffer.maxsize
 
     def presented_frame(
         self,
@@ -208,6 +249,29 @@ class PresentationManager:
             _frame_at(result, self._frame_index) for result in self._presented_chunk
         )
 
+    def presented_input_event_traces(self) -> tuple[InputEventTrace, ...]:
+        """Return input traces for the current frame, rebased to frame zero."""
+        if self._presented_chunk is None:
+            return ()
+        return tuple(
+            replace(trace, frame_index=0)
+            for trace in self._presented_chunk[0].input_event_traces
+            if trace.frame_index == self._frame_index
+        )
+
+    def take_discarded_input_event_ids(self) -> tuple[str, ...]:
+        """Return and clear trace IDs for frames dropped before presentation.
+
+        Dropped IDs may be produced by the model thread while publishing. The
+        UI thread drains them so client-window methods remain single-threaded.
+        """
+        discarded: list[str] = []
+        while True:
+            try:
+                discarded.extend(self._discarded_input_event_ids.get_nowait())
+            except queue.Empty:
+                return tuple(dict.fromkeys(discarded))
+
     def composite(self, bottom: Tensor | None, top: Tensor) -> Tensor:
         """Draw ``top`` over ``bottom``.
 
@@ -237,12 +301,18 @@ class PresentationManager:
 
     def clear(self) -> None:
         """Discard buffered and currently presented model results."""
+        if self._presented_chunk is not None:
+            self._report_discarded_traces(
+                self._presented_chunk,
+                first_frame_index=self._frame_index + 1,
+            )
         self._presented_chunk = None
         self._frame_index = -1
         self._presented_frame_count = 0
         while True:
             try:
-                self._buffer.get_nowait()
+                _, chunk = self._buffer.get_nowait()
+                self._report_discarded_traces(chunk)
             except queue.Empty:
                 return
 
@@ -253,8 +323,10 @@ class PresentationManager:
                 return
             except queue.Full:
                 try:
-                    self._buffer.get_nowait()
-                    self.dropped_for_space += 1
+                    _, discarded = self._buffer.get_nowait()
+                    self._report_discarded_traces(discarded)
+                    with self._counter_lock:
+                        self._dropped_for_space += 1
                 except queue.Empty:
                     continue
 
@@ -268,13 +340,33 @@ class PresentationManager:
             except queue.Empty:
                 return selected
             if chunk_generation != generation:
-                self.discarded_at_reset += 1
+                self._report_discarded_traces(chunk)
+                with self._counter_lock:
+                    self._discarded_at_reset += 1
                 continue
             if selected is not None:
-                self.dropped_for_space += 1
+                self._report_discarded_traces(selected)
+                with self._counter_lock:
+                    self._dropped_for_space += 1
             selected = chunk
             if not latest:
                 return selected
+
+    def _report_discarded_traces(
+        self,
+        chunk: list[StepResult],
+        *,
+        first_frame_index: int = 0,
+    ) -> None:
+        if not chunk:
+            return
+        event_ids = tuple(
+            trace.event_id
+            for trace in chunk[0].input_event_traces
+            if trace.frame_index >= first_frame_index
+        )
+        if event_ids:
+            self._discarded_input_event_ids.put(event_ids)
 
 
 def _frame_at(result: StepResult, frame_index: int) -> Tensor:

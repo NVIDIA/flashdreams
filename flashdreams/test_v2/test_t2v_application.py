@@ -149,7 +149,7 @@ def _session_desc(
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
-        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+        presentation_mode=PresentationMode.ON_DEMAND,
         frames_per_second_for_ui=60,
         frames_per_second_for_step=_FPS,
         video_width=width,

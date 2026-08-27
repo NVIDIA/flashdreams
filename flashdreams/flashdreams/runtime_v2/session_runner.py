@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -15,7 +16,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -26,10 +27,10 @@ _MODEL_READER_ID = 1
 _MODEL_FPS_WINDOW_SECONDS = 2.0
 """Wall-time window used to estimate generated-frame throughput."""
 
+_RUNTIME_METRIC_PREFIX = "runtime_"
+"""Metric namespace reserved for measurements added by this runtime."""
 
-# TODO: Move this to a util file, and simplify the time to advance() logic
-# This is needed because we need to know the real model throughput so that we can
-# pace the model frame presentation to make the playback smooth.
+
 class _PresentationClock:
     """Schedule model-frame advances at recent model throughput."""
 
@@ -118,8 +119,6 @@ class _PresentationClock:
         self._observations.clear()
 
     def _update_frame_interval(self, now: float) -> None:
-        # This function observes the model's FPS over the most recent 2 seconds
-        # and update the _frame_interval accordingly.
         cutoff = now - _MODEL_FPS_WINDOW_SECONDS
         while len(self._observations) >= 3 and self._observations[1][0] <= cutoff:
             self._observations.popleft()
@@ -164,8 +163,8 @@ def run_session(
 ) -> None:
     """Run a session's UI and model loops.
 
-    The calling io-thread handles the window and UI. A model-generation-thread
-    runs the model loop. Returns when the client closes the window, when the
+    The calling UI thread handles the window and UI. A model thread runs the
+    model loop. Returns when the client closes the window, when the
     model loop has finished and no generated frames are still waiting, or when
     either loop fails.
 
@@ -176,7 +175,8 @@ def run_session(
         session: Session to run.
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
-            the model loop's results rather than the UI loop's.
+            copies of the model loop's results augmented with
+            presentation-queue diagnostics; it never receives UI-loop results.
         steps: Maximum model steps; ``None`` runs until stopped.
         max_pending: Maximum model steps waiting to be shown.
 
@@ -220,16 +220,32 @@ def run_session(
             stop.set()
         return events
 
-    def run_ui_once() -> StepResult | None:
+    def process_ui_events(
+        *,
+        redraw: bool,
+        presented_model_traces: tuple[InputEventTrace, ...] = (),
+    ) -> StepResult | None:
+        """Advance the UI reader and optionally execute one UI step."""
         if ui_loop is None:
             return None
         events, generation = event_buffer.read(_UI_READER_ID)
         step_index = ui_loop._begin_run(events, generation)
-        if step_index is None or stop.is_set():
+        if step_index is None or stop.is_set() or not redraw:
             return None
         result = ui_loop.step(step_index, events)
         if result is not None and not isinstance(result, StepResult):
             raise TypeError("A UI loop must return StepResult or None.")
+        if result is not None and presented_model_traces:
+            seen_event_ids = {trace.event_id for trace in result.input_event_traces}
+            result = replace(
+                result,
+                input_event_traces=result.input_event_traces
+                + tuple(
+                    trace
+                    for trace in presented_model_traces
+                    if trace.event_id not in seen_event_ids
+                ),
+            )
         ui_loop._finish_run(result)
         return result
 
@@ -237,34 +253,85 @@ def run_session(
         generation: int,
         results: list[StepResult],
     ) -> None:
+        if metrics_output_sink is not None:
+            for result in results:
+                reserved_names = sorted(
+                    name
+                    for name in result.metrics
+                    if name.startswith(_RUNTIME_METRIC_PREFIX)
+                )
+                if reserved_names:
+                    names = ", ".join(reserved_names)
+                    raise ValueError(
+                        f"Model metrics use reserved runtime metric names: {names}."
+                    )
         if results:
             presentation_clock.observe_model_output(
                 now=time.monotonic(),
                 generation=generation,
                 frame_count=results[0].frame_count,
             )
-        presentation_manager.publish(generation, results)
-        if metrics_output_sink is not None:
-            for result in results:
-                metrics_output_sink.write(result)
+        if metrics_output_sink is None:
+            presentation_manager.publish(generation, results)
+            return
 
-    def tick_ui() -> None:
+        queue_depth_before = presentation_manager.buffered_chunk_count
+        publish_started_at = time.perf_counter()
+        presentation_manager.publish(generation, results)
+        publish_wait_s = time.perf_counter() - publish_started_at
+        queue_depth_after = presentation_manager.buffered_chunk_count
+        runtime_metrics: dict[str, float | int] = {
+            "runtime_presentation_publish_wait_s": publish_wait_s,
+            "runtime_presentation_queue_depth_before_count": queue_depth_before,
+            "runtime_presentation_queue_depth_after_count": queue_depth_after,
+            "runtime_presentation_queue_capacity_count": presentation_manager.buffer_capacity,
+        }
+        for result in results:
+            metrics_output_sink.write(
+                replace(
+                    result,
+                    metrics={**result.metrics, **runtime_metrics},
+                )
+            )
+
+    def run_and_write_ui_once(
+        presented_model_traces: tuple[InputEventTrace, ...] = (),
+    ) -> None:
+        """Run one UI step and write its result, if any."""
+        result = process_ui_events(
+            redraw=True,
+            presented_model_traces=presented_model_traces,
+        )
+        if result is None:
+            if presented_model_traces:
+                window.discard_input_event_ids(
+                    tuple(trace.event_id for trace in presented_model_traces)
+                )
+            return
+        window.write(result)
+
+    def tick_ui(*, input_events: UserInputEvents | None = None) -> None:
         assert ui_loop is not None
         generation = event_buffer.generation
-        now = time.monotonic()
         model_advanced = False
+        now = time.monotonic()
         if presentation_clock.is_due(now, generation):
             model_advanced, _ = presentation_manager.advance(generation)
-            if model_advanced:
-                presentation_clock.mark_advanced(now)
-        if (
-            session_desc.presentation_mode is PresentationMode.ONLY_PRESENT_NEW
-            and not model_advanced
-        ):
+        discarded_event_ids = presentation_manager.take_discarded_input_event_ids()
+        if discarded_event_ids:
+            window.discard_input_event_ids(discarded_event_ids)
+        if model_advanced:
+            presentation_clock.mark_advanced(now)
+            run_and_write_ui_once(presentation_manager.presented_input_event_traces())
             return
-        result = run_ui_once()
-        if result is not None:
-            window.write(result)
+        if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
+            redraw_for_input = input_events is not None and (
+                ui_loop.should_redraw_for_input(input_events)
+            )
+            if not redraw_for_input and not ui_loop.should_redraw_on_idle():
+                process_ui_events(redraw=False)
+                return
+        run_and_write_ui_once()
 
     try:
         session.init()
@@ -279,8 +346,8 @@ def run_session(
         if metrics_output_sink is not None:
             attempted_output_sinks.append(metrics_output_sink)
             metrics_output_sink.open(session_desc)
-        collect_input()
-        tick_ui()
+        initial_input = collect_input()
+        tick_ui(input_events=initial_input)
 
         if not stop.is_set():
             model_thread_handle = threading.Thread(
@@ -308,10 +375,10 @@ def run_session(
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
                 if stop.wait(wait_seconds):
                     break
-                collect_input()
+                current_input = collect_input()
                 if stop.is_set():
                     break
-                tick_ui()
+                tick_ui(input_events=current_input)
                 event_buffer.collect_garbage()
                 next_tick_at += tick_seconds
                 completed_at = time.monotonic()
@@ -328,10 +395,19 @@ def run_session(
                 cleanup_failures.append(error)
 
         cleanup_failures.extend(session._shutdown_registered_loops())
-        presentation_manager.clear()
-        event_buffer.unregister(_UI_READER_ID)
-        event_buffer.unregister(_MODEL_READER_ID)
-        event_buffer.clear()
+        try:
+            presentation_manager.clear()
+            discarded_event_ids = presentation_manager.take_discarded_input_event_ids()
+            if discarded_event_ids:
+                window.discard_input_event_ids(discarded_event_ids)
+        except BaseException as error:
+            cleanup_failures.append(error)
+        try:
+            event_buffer.unregister(_UI_READER_ID)
+            event_buffer.unregister(_MODEL_READER_ID)
+            event_buffer.clear()
+        except BaseException as error:
+            cleanup_failures.append(error)
 
         for output_sink in attempted_output_sinks:
             try:

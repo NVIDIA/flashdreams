@@ -141,7 +141,7 @@ def check_t2v_model_impl(
         session_desc = replace(
             session_desc,
             backpressure_mode=BackpressureMode.BLOCK,
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
         )
         run_session(
             application.create_session(session_desc),

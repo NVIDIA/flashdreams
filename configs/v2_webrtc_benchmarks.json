@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "description": "Manual process-isolated WebRTC presentation benchmarks for v2 applications. Each scenario uses a loopback aiortc receiver and writes raw per-run records plus an A/B summary. Worker isolation does not clear persistent compiler caches.",
+  "scenarios": [
+    {
+      "id": "cam2v-lingbot-hud-ab",
+      "name": "Cam2V Lingbot server-rendered HUD WebRTC A/B",
+      "description": "Runs no-HUD and HUD variants in ABBA order with receiver readiness gated before generation. Five model blocks are warmup and twenty are measured. Every run must complete all model steps, drain the receiver, preserve increasing PTS, and report no sender drops or receiver count mismatch.",
+      "tags": [
+        "manual",
+        "gpu",
+        "real-model",
+        "api-v2",
+        "webrtc",
+        "lingbot",
+        "presentation",
+        "ab"
+      ],
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/cam2v_lingbot",
+        "python",
+        "-m",
+        "tools.benchmarks.v2_webrtc_ab",
+        "--config",
+        "{repo_root}/configs/v2_webrtc_benchmarks.json",
+        "--benchmark",
+        "cam2v-lingbot-hud-ab",
+        "--repo-root",
+        "{repo_root}",
+        "--output-dir",
+        "{output_dir}"
+      ],
+      "output_dir_arg": null,
+      "artifact_globs": [
+        "*.json",
+        "*.md",
+        "runs/**/*.json",
+        "runs/**/*.log"
+      ],
+      "video_globs": [],
+      "stats_globs": [],
+      "timeout_s": 14400
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "cam2v-lingbot-hud-ab",
+      "application": "cam2v-lingbot",
+      "common_application_args": [
+        "--example-data",
+        "--total-blocks",
+        "25",
+        "--warmup-blocks",
+        "5",
+        "--seed",
+        "42"
+      ],
+      "variants": {
+        "no_hud": {
+          "application_args": [
+            "--no-ui"
+          ]
+        },
+        "hud": {
+          "application_args": [
+            "--ui"
+          ]
+        }
+      },
+      "run_order": [
+        "no_hud",
+        "hud",
+        "hud",
+        "no_hud"
+      ],
+      "baseline": "no_hud",
+      "candidate": "hud",
+      "warmup_steps": 5,
+      "measured_steps": 20,
+      "receiver_ready_timeout_s": 30.0,
+      "receiver_drain_timeout_s": 45.0,
+      "worker_timeout_s": 3300.0,
+      "metadata": {
+        "model": "LingBot-World Fast TAEHV window15 sink3",
+        "checkpoint": "https://huggingface.co/robbyant/lingbot-world-fast/blob/main/diffusion_pytorch_model.safetensors.index.json",
+        "precision": "bfloat16 model input with configured integration precision",
+        "input": "canonical Lingbot example-data index 0",
+        "seed": 42,
+        "resolution": [
+          832,
+          464
+        ],
+        "compile_cache_state": "fresh worker process with five in-run warmup blocks; the harness neither clears nor isolates persistent TorchInductor, Triton, or CUDA caches",
+        "receiver_scope": "loopback server-to-aiortc rgb24 decode; excludes browser DOM and physical display"
+      },
+      "acceptance": {
+        "decoded_fps_ratio_min": 0.95,
+        "model_fps_ratio_min": 0.95,
+        "model_step_wall_median_ratio_max": 1.05,
+        "model_step_wall_p90_ratio_max": 1.05,
+        "publish_wait_p90_s_max": 0.001,
+        "decoded_interarrival_p90_s_max": 0.15,
+        "decoded_interarrival_max_s_max": 0.25
+      }
+    }
+  ]
+}

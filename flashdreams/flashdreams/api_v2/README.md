@@ -52,8 +52,8 @@ Each loop is registered with the state it owns, and the call returns the loop:
 
 | Runs on | Calls | Owns | Frame rate |
 | --- | --- | --- | --- |
-| The io-thread | `IUILoop.step` | UI-loop state, `run_session` state | `frames_per_second_for_ui` |
-| The model-generation-thread | `IModelLoop.step` | Model-loop state and model logic | `frames_per_second_for_step` |
+| The UI thread | `IUILoop.step` | UI-loop state, `run_session` state | `frames_per_second_for_ui` |
+| The model thread | `IModelLoop.step` | Model-loop state and model logic | `frames_per_second_for_step` |
 
 ```python
 self.register_model_loop(ModelLoop, state=ModelState(self._desc))
@@ -63,13 +63,16 @@ self.register_model_loop(ModelLoop, state=ModelState(self._desc))
 comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
-The io-thread initially selects frames from model chunks at
-`frames_per_second_for_step`, then uses the model-generation-thread's rolling
-two-second output rate. This paces chunked output evenly without tying input
-and UI redraws to model throughput.
-`PresentationMode.ONLY_PRESENT_NEWEST` lets an `IUILoop` redraw continuously;
-`PresentationMode.ONLY_PRESENT_NEW` runs it only when the selected model frame
-changes.
+The UI thread initially selects frames from model chunks at
+`frames_per_second_for_step`, then uses the model thread's rolling two-second
+output rate. This paces chunked output evenly without tying input and UI redraws
+to model throughput.
+`PresentationMode.CONTINUOUS` lets an `IUILoop` redraw every UI tick;
+`PresentationMode.ON_DEMAND` runs it when the selected model frame changes or
+when input arrives. The default `IUILoop.should_redraw_for_input()` requests a
+refresh for every non-empty event batch; UI loops may override it to ignore
+events that cannot change their output. A clock-driven on-demand UI may also
+override `should_redraw_on_idle()` without switching to continuous output.
 
 ## Loops
 
@@ -115,6 +118,13 @@ runtime presents them one per UI tick rather than dropping all but the last.
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.
+
+An input source may assign a non-empty `UserInputEvent.event_id` for browser
+correlation. A model or UI result acknowledges that ID with
+`InputEventTrace(event_id, frame_index)`. A model trace indexes its generated
+chunk; when that frame is selected, the runtime rebases it to frame zero on the
+one-frame UI result and merges it with acknowledgements returned by the UI
+loop. If both acknowledge the same ID, the UI acknowledgement is retained.
 
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
@@ -173,24 +183,26 @@ This loop runs forever. Override `is_finished` to make it stop.
 ## Writing a UI loop
 
 `SessionDesc.backpressure_mode` handles the model-generation-loop producing
-frames faster than the io-thread can consume them:
+frames faster than the UI thread can consume them:
 
 - `BackpressureMode.BLOCK` waits when the presentation queue is full. This keeps
-  every generated frame and can slow the model-generation-thread to the
-  io-thread's pace.
+  every generated frame and can slow the model thread to the UI thread's pace.
 - `BackpressureMode.DROP_OLDEST` discards old buffered work so the UI can catch
   up to newer output. This favors low latency over preserving every frame.
 
 `SessionDesc.presentation_mode` handles the UI loop ticking faster than the
 model-generation-loop produces frames:
 
-- `PresentationMode.ONLY_PRESENT_NEWEST` runs the UI every tick and may reuse
+- `PresentationMode.CONTINUOUS` runs the UI every tick and may reuse
   the newest generated model frame.
-- `PresentationMode.ONLY_PRESENT_NEW` runs the UI only after the presentation
-  manager advances to a new model frame.
+- `PresentationMode.ON_DEMAND` runs the UI after the presentation manager
+  advances to a new model frame, or when `IUILoop.should_redraw_for_input()` asks
+  for an input-driven refresh. The default hook returns `True` for every
+  non-empty input batch; subclasses may filter events if needed.
 
-Use `PresentationMode.ONLY_PRESENT_NEW` with `BackpressureMode.BLOCK` when every
-generated frame must be presented exactly once and in order.
+Use `PresentationMode.ON_DEMAND` with `BackpressureMode.BLOCK` when every
+generated model frame must be selected in order. An input-driven refresh may
+add a write that reuses the currently selected model frame.
 
 For widgets drawn over the model output, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop` and implement

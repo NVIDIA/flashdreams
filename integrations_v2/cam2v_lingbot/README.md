@@ -23,20 +23,67 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 ```
 
 The command prints the browser URL. Use `W`/`S` to move, `A`/`D` to yaw,
-`Q`/`E` to strafe, and `I`/`K` to pitch the generated camera.
+`Q`/`E` to strafe, `I`/`K` to pitch, and `J`/`L` to look. Held controls glow
+green in the Lingbot-inspired HUD composited into the server-rendered video;
+the arrow keys mirror `W`/`A`/`S`/`D`.
 
-The application logs warmup-excluded `steady_state_fps` and a per-block timing
-breakdown. `model_step_wall_s` includes input preparation, generation,
-finalization, and CUDA completion. The pipeline profiling log provides its GPU
-stage breakdown.
+The UI/write path owns presentation pacing, and WebRTC sends each available
+frame as soon as aiortc requests it rather than applying another pacer.
+`window.write` synchronously converts the UI result and materializes owned
+`VideoFrame` objects. The HUD and WebRTC sink own separate high-priority CUDA
+streams joined by a readiness event, and the sink reuses one pinned host frame.
+The sender retains two
+queued, unsent frames in FIFO order and evicts the oldest queued frame on
+overflow. A frame already dequeued for the sender or encoder is committed and
+does not count against that capacity. Write MP4 when the output must be
+frame-exact.
+
+Model metrics retain warmup-excluded `steady_state_fps` and step wall time.
+`model_step_wall_s` includes input preparation, generation, finalization, and
+CUDA completion. One concise console line reports that synchronized wall time
+and chunk FPS for every warmup and steady AR step. The interactive specialization disables the
+pipeline's device-wide synchronous stage profiler so model and presentation
+streams can overlap; use an explicit profiling run when a GPU-stage breakdown
+is needed. The MODEL GENERATION panel's `AR ... FPS` value is the
+wall-time-weighted throughput of AR steps whose completions fall in the
+trailing two seconds. It excludes between-step pacing and presentation, avoids
+the chunk-arrival sawtooth, and reports no recent output after two seconds
+without a completion.
+The browser INPUT → PRESENTED FRAME panel timestamps each control edge and
+reports latency to the first browser-composited frame acknowledging it.
+Supported camera keys are acknowledged by the immediate HUD highlight. The
+end-to-end value uses only the browser's monotonic clock.
 
 For custom inputs, pass `--image-path` and `--intrinsic-path`. Also pass either
 `--world-scale` directly or `--pose-path` so the application can infer the
 translation normalizer. Input resolution and example-data downloads are owned
 by this package and do not use the legacy Lingbot runtime/schema path.
 
-Use `--log-every-blocks N` to reduce log frequency and `--warmup-blocks N` to
-change the five-block default warmup exclusion.
+Use `--warmup-blocks N` to change the five-block default warmup exclusion.
+
+## WebRTC HUD regression benchmark
+
+The manual ABBA scenario runs no-HUD/HUD/HUD/no-HUD in fresh processes, waits
+for a loopback aiortc receiver before generation, excludes five warmup blocks,
+and measures twenty blocks per run:
+
+```bash
+uv run --project integrations_v2/cam2v_lingbot --no-sync \
+  python -m tools.benchmarks.v2_webrtc_ab \
+    --config configs/v2_webrtc_benchmarks.json \
+    --benchmark cam2v-lingbot-hud-ab \
+    --repo-root . \
+    --output-dir artifacts/benchmarks/cam2v-lingbot-hud-ab
+```
+
+The output contains raw records for every run plus webrtc_ab.json and
+webrtc_ab.md. Acceptance checks decoded and model FPS ratios, model-step
+timing, presentation publish waits, decode cadence, ordered RTP timestamps, and
+receiver drain. Raw and summarized artifacts also retain sender queue/drop and
+frame-conservation counts; per-frame `window_write_s` captures synchronous
+materialization cost without substituting the synthetic flush frame.
+This is a server-to-aiortc-decoder benchmark; it does not measure browser DOM,
+display-compositor, or network performance.
 
 ## Tests
 

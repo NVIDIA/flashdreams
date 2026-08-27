@@ -166,7 +166,7 @@ class _MetricsSink:
 def _session_desc() -> SessionDesc:
     return SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
-        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+        presentation_mode=PresentationMode.ON_DEMAND,
         frames_per_second_for_ui=100,
         frames_per_second_for_step=30,
         video_width=2,

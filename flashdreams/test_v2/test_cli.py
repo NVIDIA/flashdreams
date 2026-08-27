@@ -428,14 +428,14 @@ def test_an_application_with_no_session_of_its_own_is_described_by_the_arguments
             "--backpressure-mode",
             "block",
             "--presentation-mode",
-            "only_present_new",
+            "on_demand",
         ]
     )
 
     assert application.asked_for == SessionDesc(
         output_layout=VideoTensorLayout.bcthw,
         backpressure_mode=BackpressureMode.BLOCK,
-        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+        presentation_mode=PresentationMode.ON_DEMAND,
         frames_per_second_for_step=12,
         video_width=64,
         video_height=32,

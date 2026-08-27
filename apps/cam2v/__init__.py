@@ -17,7 +17,13 @@ from .session import (
     Cam2VSessionConfig,
     CameraControlInput,
 )
-from .ui import Cam2VSlangPyUILoop, Cam2VUIState, Cam2VUIStatus
+from .ui import (
+    Cam2VHUDLoop,
+    Cam2VHUDRenderer,
+    Cam2VModelStepTiming,
+    Cam2VUIState,
+    Cam2VUIStatus,
+)
 
 __all__ = [
     "Cam2VApplication",
@@ -28,7 +34,9 @@ __all__ = [
     "Cam2VModelState",
     "Cam2VSession",
     "Cam2VSessionConfig",
-    "Cam2VSlangPyUILoop",
+    "Cam2VHUDLoop",
+    "Cam2VHUDRenderer",
+    "Cam2VModelStepTiming",
     "Cam2VUIState",
     "Cam2VUIStatus",
     "CameraControlInput",

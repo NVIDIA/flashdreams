@@ -17,7 +17,7 @@ class Mp4ClientWindow(IClientWindow):
 
     The session must finish on its own because this window never sends a close
     event. Use ``BackpressureMode.BLOCK`` with
-    ``PresentationMode.ONLY_PRESENT_NEW`` to write every frame once.
+    ``PresentationMode.ON_DEMAND`` to write every frame once.
     """
 
     def __init__(self, path: str | Path) -> None:

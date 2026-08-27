@@ -82,7 +82,7 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
         SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
             frames_per_second_for_step=RUNNER_WAN21_T2V_1PT3B.fps,
             video_width=pipeline.width,
             video_height=pipeline.height,

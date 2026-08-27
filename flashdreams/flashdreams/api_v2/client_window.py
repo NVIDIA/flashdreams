@@ -24,3 +24,16 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     Created by the runtime, never by an application.
     """
+
+    def discard_input_event_ids(self, event_ids: tuple[str, ...]) -> None:
+        """Report traced input that cannot reach this window.
+
+        Non-interactive windows may ignore this notification. Interactive
+        windows use it to terminate client-side latency samples when
+        presentation drops a model frame before :meth:`OutputSink.write`.
+
+        Args:
+            event_ids: Browser correlation IDs whose acknowledgement frames
+                were discarded.
+        """
+        del event_ids

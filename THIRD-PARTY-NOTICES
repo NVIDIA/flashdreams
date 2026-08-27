@@ -33,6 +33,7 @@ huggingface-hub        Apache-2.0   https://github.com/huggingface/huggingface_h
 loguru                 MIT          https://github.com/Delgan/loguru
 numpy                  BSD-3-Clause https://github.com/numpy/numpy
 nvidia-ml-py           BSD-3-Clause https://pypi.org/project/nvidia-ml-py/
+Pillow                 MIT-CMU      https://github.com/python-pillow/Pillow
 psutil                 BSD-3-Clause https://github.com/giampaolo/psutil
 safetensors            Apache-2.0   https://github.com/huggingface/safetensors
 torch                  BSD-3-Clause https://pytorch.org

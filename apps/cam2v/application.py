@@ -36,7 +36,6 @@ class Cam2VApplication(IApplication):
         self._pipeline_config = defaults.pipeline_config
         self._device = defaults.device
         self._total_blocks = defaults.total_blocks
-        self._log_every_blocks = defaults.log_every_blocks
         self._warmup_blocks = defaults.warmup_blocks
         self._use_ui = True
         self._input_values: dict[str, Any] | None = None
@@ -102,12 +101,6 @@ class Cam2VApplication(IApplication):
             help="Autoregressive chunks generated per rollout. Default: %(default)s.",
         )
         parser.add_argument(
-            "--log-every-blocks",
-            type=int,
-            default=self.defaults.log_every_blocks,
-            help="Emit live timing every N steady-state chunks.",
-        )
-        parser.add_argument(
             "--warmup-blocks",
             type=int,
             default=self.defaults.warmup_blocks,
@@ -143,7 +136,6 @@ class Cam2VApplication(IApplication):
             )
         self._device = args.device
         self._total_blocks = args.total_blocks
-        self._log_every_blocks = args.log_every_blocks
         self._warmup_blocks = args.warmup_blocks
         self._use_ui = args.ui
         self._input_values = {
@@ -204,8 +196,8 @@ class Cam2VApplication(IApplication):
                 device=torch.device(self._device),
                 first_frame_dtype=self.defaults.first_frame_dtype,
                 first_frame_interpolation=self.defaults.first_frame_interpolation,
-                log_every_blocks=self._log_every_blocks,
                 warmup_blocks=self._warmup_blocks,
+                log_model_timing=self.defaults.log_model_timing,
                 install_hint=self.defaults.install_hint,
             ),
             use_ui=self._use_ui,
@@ -230,8 +222,6 @@ class Cam2VApplication(IApplication):
         """Reject invalid rollout and timing settings."""
         if args.total_blocks <= 0:
             raise ValueError("--total-blocks must be > 0.")
-        if args.log_every_blocks <= 0:
-            raise ValueError("--log-every-blocks must be > 0.")
         if args.warmup_blocks < 0:
             raise ValueError("--warmup-blocks must be >= 0.")
         if args.world_scale is not None and args.world_scale < 0:
@@ -246,7 +236,7 @@ class Cam2VApplication(IApplication):
                 f"{session_desc.output_layout.value}."
             )
         if self._use_ui and session_desc.output_layout is not VideoTensorLayout.tchw:
-            raise ValueError("The Cam2V SlangPy UI overlay requires tchw output.")
+            raise ValueError("The Cam2V server-rendered HUD requires tchw output.")
 
     def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
         """Reject frame dimensions that cannot map to integral latents."""

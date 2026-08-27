@@ -85,6 +85,7 @@ class TestWebRTC:
         window = mode.create(_parsed(["--mode", "webrtc"]))
         try:
             assert isinstance(window, WebRTCClientWindow)
+            assert window.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
             assert mode.starting(window) == f"Open {window.server.url} in a browser."
         finally:
             window.close()

@@ -144,7 +144,7 @@ class T2VApplication(IApplication):
         """
         return SessionDesc(
             output_layout=self.defaults.output_layout,
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
             frames_per_second_for_ui=_FRAMES_PER_SECOND_FOR_UI,
             frames_per_second_for_step=self.defaults.fps,
             video_width=self.defaults.pixel_width,

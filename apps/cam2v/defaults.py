@@ -88,17 +88,17 @@ class Cam2VApplicationDefaults:
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
     """Preserve every generated model frame in presentation order."""
 
-    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEW
-    """Render and transmit the overlay once for each selected model frame."""
+    presentation_mode: PresentationMode = PresentationMode.ON_DEMAND
+    """Render selected model frames and UI-relevant browser input changes."""
 
     ui_fps: int = 60
     """Rate at which the io-thread reads inputs and runs the UI loop."""
 
-    log_every_blocks: int = 1
-    """Default interval between steady-state timing log records."""
-
     warmup_blocks: int = 5
     """Leading blocks excluded from steady-state FPS."""
+
+    log_model_timing: bool = False
+    """Write one synchronized wall-time record for each AR model step."""
 
     install_hint: str = ""
     """Optional dependency hint included in first-frame loading failures."""
@@ -113,10 +113,10 @@ class Cam2VApplicationDefaults:
             raise ValueError("Cam2VApplicationDefaults dimensions must be > 0.")
         if self.fps <= 0 or self.ui_fps <= 0:
             raise ValueError("Cam2VApplicationDefaults frame rates must be > 0.")
-        if self.log_every_blocks <= 0:
-            raise ValueError("Cam2VApplicationDefaults.log_every_blocks must be > 0.")
         if self.warmup_blocks < 0:
             raise ValueError("Cam2VApplicationDefaults.warmup_blocks must be >= 0.")
+        if not isinstance(self.log_model_timing, bool):
+            raise TypeError("Cam2VApplicationDefaults.log_model_timing must be bool.")
         object.__setattr__(
             self,
             "input_defaults",

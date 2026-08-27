@@ -30,6 +30,12 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
     """Draw every model channel into one UI frame."""
 
     @final
+    def should_redraw_for_input(self, events: UserInputEvents) -> bool:
+        """Ignore input because the default blitter has no interactive state."""
+        del events
+        return False
+
+    @final
     def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
         """Draw the model channels in list order."""
         del events
