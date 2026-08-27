@@ -304,7 +304,7 @@ sequenceDiagram
   A-->>R: session preserving runtime backpressure/presentation
   R->>S: init() and step(0)
   S->>E: lazily construct engine and run()
-  E->>V: load tokenizer, UMT5, and Wan VAE; encode prompt/cameras
+  E->>V: load tokenizer, UMT5, and Wan VAE, then encode prompt and cameras
   E->>P: initialize conditional and optional unconditional caches
 
   loop chunk 0 through N-1
@@ -329,7 +329,7 @@ sequenceDiagram
     E->>E: move completed chunk outputs to CPU
   end
 
-  E->>E: drop caches, DiT, text owners; collect; empty CUDA cache
+  E->>E: drop caches, DiT, and text owners, collect garbage, empty CUDA cache
   E->>V: decode all latent frames, crop high camera, release VAE
   E-->>S: video, denormalized actions, metrics
   S-->>R: one validated StepResult
