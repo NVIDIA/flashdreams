@@ -6,8 +6,6 @@
 import logging
 import threading
 import time
-from dataclasses import replace
-from typing import Any
 
 import pytest
 import torch
@@ -391,22 +389,6 @@ class RecordingClientWindow(IClientWindow):
             raise RuntimeError("close failed")
 
 
-class RecordingMetricsSink:
-    """Retain model records passed to the optional metrics output."""
-
-    def __init__(self) -> None:
-        self.results: list[StepResult] = []
-
-    def open(self, session_desc: SessionDesc) -> None:
-        del session_desc
-
-    def write(self, result: StepResult) -> None:
-        self.results.append(result)
-
-    def close(self) -> None:
-        return
-
-
 def _session_desc(
     *,
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK,
@@ -611,6 +593,19 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
                 metrics={"total_ms": 1.5},
             )
 
+    class RecordingMetricsSink:
+        def __init__(self) -> None:
+            self.results: list[StepResult] = []
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+
+        def write(self, result: StepResult) -> None:
+            self.results.append(result)
+
+        def close(self) -> None:
+            return
+
     window = RecordingClientWindow(log)
     metrics = RecordingMetricsSink()
     run_session(
@@ -626,63 +621,7 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     )
     assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
     assert len(metrics.results) == 1
-    recorded_metrics = metrics.results[0].metrics
-    assert recorded_metrics["total_ms"] == 1.5
-    assert recorded_metrics["runtime_presentation_publish_wait_s"] >= 0.0
-    assert recorded_metrics["runtime_presentation_queue_depth_before_count"] == 0
-    assert recorded_metrics["runtime_presentation_queue_capacity_count"] == 2
-
-
-def test_metrics_capture_presentation_backpressure() -> None:
-    log = CallLog()
-    session = FakeSession(_session_desc(ui_fps=30, model_fps=10_000), log)
-    metrics = RecordingMetricsSink()
-    run_session(
-        session,
-        RecordingClientWindow(log),
-        metrics_output_sink=metrics,
-        steps=4,
-        max_pending=1,
-    )
-
-    assert len(metrics.results) == 4
-    captured = [result.metrics for result in metrics.results]
-    assert any(
-        item["runtime_presentation_queue_depth_before_count"] == 1 for item in captured
-    )
-    assert any(item["runtime_presentation_publish_wait_s"] >= 0.01 for item in captured)
-    assert all(
-        item["runtime_presentation_queue_capacity_count"] == 1 for item in captured
-    )
-
-    latest_model_results = session.model_loop.latest_result
-    assert isinstance(latest_model_results, list)
-    assert latest_model_results[0].metrics == {}
-
-
-def test_runtime_metric_name_collision_fails_before_publish() -> None:
-    class ReservedMetricSession(FakeSession):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            result = super().step(step_index, events)
-            return replace(
-                result,
-                metrics={"runtime_future_measurement": 1.0},
-            )
-
-    log = CallLog()
-    window = RecordingClientWindow(log)
-    metrics = RecordingMetricsSink()
-
-    with pytest.raises(ValueError, match="reserved runtime metric names"):
-        run_session(
-            ReservedMetricSession(_session_desc(), log),
-            window,
-            metrics_output_sink=metrics,
-            steps=1,
-        )
-
-    assert window.results == []
-    assert metrics.results == []
+    assert metrics.results[0].metrics == {"total_ms": 1.5}
 
 
 def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:

@@ -7,7 +7,6 @@ import logging
 import threading
 import time
 from collections import deque
-from dataclasses import replace
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -26,9 +25,6 @@ _UI_READER_ID = 0
 _MODEL_READER_ID = 1
 _MODEL_FPS_WINDOW_SECONDS = 2.0
 """Wall-time window used to estimate generated-frame throughput."""
-
-_RUNTIME_METRIC_PREFIX = "runtime_"
-"""Metric namespace reserved for measurements added by this runtime."""
 
 
 class _PresentationClock:
@@ -175,8 +171,7 @@ def run_session(
         session: Session to run.
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
-            copies of the model loop's results augmented with
-            presentation-queue diagnostics; it never receives UI-loop results.
+            the model loop's results rather than the UI loop's.
         steps: Maximum model steps; ``None`` runs until stopped.
         max_pending: Maximum model steps waiting to be shown.
 
@@ -237,46 +232,16 @@ def run_session(
         generation: int,
         results: list[StepResult],
     ) -> None:
-        if metrics_output_sink is not None:
-            for result in results:
-                reserved_names = sorted(
-                    name
-                    for name in result.metrics
-                    if name.startswith(_RUNTIME_METRIC_PREFIX)
-                )
-                if reserved_names:
-                    names = ", ".join(reserved_names)
-                    raise ValueError(
-                        f"Model metrics use reserved runtime metric names: {names}."
-                    )
         if results:
             presentation_clock.observe_model_output(
                 now=time.monotonic(),
                 generation=generation,
                 frame_count=results[0].frame_count,
             )
-        if metrics_output_sink is None:
-            presentation_manager.publish(generation, results)
-            return
-
-        queue_depth_before = presentation_manager.buffered_chunk_count
-        publish_started_at = time.perf_counter()
         presentation_manager.publish(generation, results)
-        publish_wait_s = time.perf_counter() - publish_started_at
-        queue_depth_after = presentation_manager.buffered_chunk_count
-        runtime_metrics: dict[str, float | int] = {
-            "runtime_presentation_publish_wait_s": publish_wait_s,
-            "runtime_presentation_queue_depth_before_count": queue_depth_before,
-            "runtime_presentation_queue_depth_after_count": queue_depth_after,
-            "runtime_presentation_queue_capacity_count": presentation_manager.buffer_capacity,
-        }
-        for result in results:
-            metrics_output_sink.write(
-                replace(
-                    result,
-                    metrics={**result.metrics, **runtime_metrics},
-                )
-            )
+        if metrics_output_sink is not None:
+            for result in results:
+                metrics_output_sink.write(result)
 
     def run_and_write_ui_once() -> None:
         """Run one UI step and write its result, if any."""
