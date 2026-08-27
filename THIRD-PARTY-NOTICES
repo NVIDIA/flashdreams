@@ -119,6 +119,17 @@ aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 
 ================================================================================
+Optional integration: integrations_v2/t2av_ltx25
+================================================================================
+
+accelerate             Apache-2.0   https://github.com/huggingface/accelerate
+diffusers              Apache-2.0   https://github.com/huggingface/diffusers
+
+The integration downloads LTX 2.5 model weights from Lightricks at runtime only
+after the user accepts the upstream repository gate and license. Neither model
+weights nor Lightricks source are redistributed in this repository.
+
+================================================================================
 Source-level redistributions
 ================================================================================
 

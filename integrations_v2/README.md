@@ -23,6 +23,8 @@ follows is already done for you.
 - `t2v_self_forcing`, `t2v_causal_forcing`, `t2v_fastvideo_causal_wan22`,
   `t2v_wan21`, `t2v_cosmos_predict2` — real models, each a thin wrapper over
   `flashdreams.t2v_v2`.
+- `t2av_ltx25` — one-shot LTX 2.5 synchronized stereo audio and video through
+  the general V2 interfaces.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
 
