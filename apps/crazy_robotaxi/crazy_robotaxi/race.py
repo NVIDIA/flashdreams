@@ -214,7 +214,7 @@ class RaceController:
             )
             for element_id in element_ids
         }
-        self._gates = self._build_gates()
+        self._gates, self._gate_directions = self._build_gates()
         self._session_state: RaceSessionState = "awaiting_start"
         self._target_kind: RaceTargetKind = "start"
         self._checkpoint_index = 0
@@ -337,6 +337,7 @@ class RaceController:
             hit_distance = _first_gate_hit_distance(
                 movement,
                 self._gates[self._target_element_id],
+                self._gate_directions[self._target_element_id],
                 minimum_hit_distance,
             )
             if hit_distance is None:
@@ -372,23 +373,29 @@ class RaceController:
             self._target_kind = "start"
             self._event = "checkpoint"
 
-    def _build_gates(self) -> dict[str, LineString]:
-        gates = {
-            self._course.start_element_id: _cross_course_gate(
-                self._surfaces[self._course.start_element_id],
-                self._surfaces[self._course.checkpoint_element_ids[0]],
-                self._centerlines[self._course.start_element_id],
-            )
-        }
+    def _build_gates(
+        self,
+    ) -> tuple[dict[str, LineString], dict[str, npt.NDArray[np.float64]]]:
+        """Build fixed gate lines and their legal crossing directions."""
+        start_id = self._course.start_element_id
+        start_gate, start_inward = _cross_course_gate(
+            self._surfaces[start_id],
+            self._surfaces[self._course.checkpoint_element_ids[0]],
+            self._centerlines[start_id],
+        )
+        gates = {start_id: start_gate}
+        directions = {start_id: -start_inward}
         previous_id = self._course.start_element_id
         for checkpoint_id in self._course.checkpoint_element_ids:
-            gates[checkpoint_id] = _cross_course_gate(
+            gate, direction = _cross_course_gate(
                 self._surfaces[checkpoint_id],
                 self._surfaces[previous_id],
                 self._centerlines[checkpoint_id],
             )
+            gates[checkpoint_id] = gate
+            directions[checkpoint_id] = direction
             previous_id = checkpoint_id
-        return gates
+        return gates, directions
 
     def _finish(self, timestamp_us: int) -> None:
         assert self._start_timestamp_us is not None
@@ -408,7 +415,7 @@ def _cross_course_gate(
     surface: Polygon,
     adjacent_surface: Polygon,
     centerlines: tuple[npt.NDArray[np.float64], ...],
-) -> LineString:
+) -> tuple[LineString, npt.NDArray[np.float64]]:
     """Build a fixed line across the side facing an adjacent course element.
 
     Args:
@@ -418,7 +425,8 @@ def _cross_course_gate(
         centerlines: Directed lane centerlines owned by the target element.
 
     Returns:
-        A line spanning the target surface perpendicular to travel.
+        Line spanning the target surface and the inward travel direction from
+        the adjacent element.
     """
     target = surface.representative_point()
     approach = adjacent_surface.representative_point()
@@ -446,10 +454,11 @@ def _cross_course_gate(
     )
     cross_parts = _line_parts(cross_line.intersection(surface))
     if not cross_parts:
-        return LineString(
-            (tuple(anchor - perpendicular), tuple(anchor + perpendicular))
+        return (
+            LineString((tuple(anchor - perpendicular), tuple(anchor + perpendicular))),
+            direction,
         )
-    return max(cross_parts, key=lambda part: part.length)
+    return max(cross_parts, key=lambda part: part.length), direction
 
 
 def _nearest_centerline_entry(
@@ -504,6 +513,7 @@ def _line_parts(geometry: object) -> tuple[LineString, ...]:
 def _first_gate_hit_distance(
     movement: LineString,
     gate: LineString,
+    forward_direction: npt.NDArray[np.float64],
     minimum_distance: float,
 ) -> float | None:
     """Return the first gate crossing at or after a swept-path distance.
@@ -511,12 +521,17 @@ def _first_gate_hit_distance(
     Args:
         movement: Ego-center path for one simulation step.
         gate: Active race gate.
+        forward_direction: Unit vector defining legal forward travel.
         minimum_distance: Earliest eligible distance along ``movement``.
 
     Returns:
         Distance to the first eligible crossing, or ``None`` when the remaining
-        movement does not hit the gate.
+        movement does not cross the gate in the forward direction.
     """
+    start = np.asarray(movement.coords[0], dtype=np.float64)
+    end = np.asarray(movement.coords[-1], dtype=np.float64)
+    if float(np.dot(end - start, forward_direction)) <= 1.0e-9:
+        return None
     distances = list(_intersection_distances(movement, movement.intersection(gate)))
     endpoint = Point(movement.coords[-1])
     if gate.distance(endpoint) <= 1.0e-6:
