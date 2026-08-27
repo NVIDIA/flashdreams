@@ -343,6 +343,11 @@ def sample_chunk_trajectory(
     solver_ms = 0.0
     readback_ms = 0.0
     bridge_ms = 0.0
+    traffic_prepare_ms = 0.0
+    barrier_rebound_ms = 0.0
+    traffic_update_ms = 0.0
+    state_materialize_ms = 0.0
+    bridge_other_ms = 0.0
     max_visible_actors = 0
     max_detached_actors = 0
     actor_collision_detected = False
@@ -412,6 +417,13 @@ def sample_chunk_trajectory(
                 max_detached_actors = max(
                     max_detached_actors, step_timings.detached_actor_count
                 )
+            bridge_timings = getattr(physics_world, "last_step_bridge_timings", None)
+            if bridge_timings is not None:
+                traffic_prepare_ms += bridge_timings.traffic_prepare_ms
+                barrier_rebound_ms += bridge_timings.barrier_rebound_ms
+                traffic_update_ms += bridge_timings.traffic_update_ms
+                state_materialize_ms += bridge_timings.state_materialize_ms
+                bridge_other_ms += bridge_timings.other_ms
             actor_samples.append(frame_actor_samples)
             if capture_physics_debug:
                 physics_debug_frames.append(physics_world.debug_frame(state))
@@ -446,6 +458,11 @@ def sample_chunk_trajectory(
                 solver_ms=solver_ms,
                 readback_ms=readback_ms,
                 bridge_ms=bridge_ms,
+                traffic_prepare_ms=traffic_prepare_ms,
+                barrier_rebound_ms=barrier_rebound_ms,
+                traffic_update_ms=traffic_update_ms,
+                state_materialize_ms=state_materialize_ms,
+                bridge_other_ms=bridge_other_ms,
                 step_count=chunk_size,
                 max_visible_actors=max_visible_actors,
                 max_detached_actors=max_detached_actors,

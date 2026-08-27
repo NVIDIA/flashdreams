@@ -176,6 +176,21 @@ class PhysXChunkTimings:
     solver_ms: float = 0.0
     readback_ms: float = 0.0
     bridge_ms: float = 0.0
+    traffic_prepare_ms: float = 0.0
+    """Time spent preparing tracked traffic before native simulation."""
+
+    barrier_rebound_ms: float = 0.0
+    """Time spent detecting and reinforcing static-barrier contacts."""
+
+    traffic_update_ms: float = 0.0
+    """Time spent consuming native actor states and updating traffic controls."""
+
+    state_materialize_ms: float = 0.0
+    """Time spent publishing simulated ego and actor state to engine objects."""
+
+    bridge_other_ms: float = 0.0
+    """Remaining adapter time outside the named bridge stages."""
+
     step_count: int = 0
     max_visible_actors: int = 0
     max_detached_actors: int = 0

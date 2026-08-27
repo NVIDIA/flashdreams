@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 from loguru import logger
@@ -180,60 +180,140 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
     return tuple(simplified)
 
 
+@dataclass(frozen=True, slots=True)
+class _BarrierReboundIndex:
+    """Precomputed active-barrier geometry for vectorized contact detection."""
+
+    starts_xy_m: np.ndarray
+    """Start point for each active barrier segment."""
+
+    vectors_xy_m: np.ndarray
+    """End-minus-start vector for each active barrier segment."""
+
+    length_squared_m2: np.ndarray
+    """Squared segment lengths aligned with ``starts_xy_m``."""
+
+    half_thickness_m: np.ndarray
+    """Half collision thickness for each active barrier segment."""
+
+    @classmethod
+    def from_arrays(
+        cls,
+        segments_xy_m: np.ndarray,
+        thicknesses_m: np.ndarray,
+    ) -> _BarrierReboundIndex:
+        """Build an index from active barrier arrays.
+
+        Args:
+            segments_xy_m: Barrier endpoints with shape ``[N, 2, 2]``.
+            thicknesses_m: Barrier thicknesses with shape ``[N]``.
+
+        Returns:
+            Contiguous arrays reused for every frame until the physics window
+            changes.
+        """
+        segments = np.ascontiguousarray(segments_xy_m, dtype=np.float32)
+        thicknesses = np.ascontiguousarray(thicknesses_m, dtype=np.float32)
+        if segments.ndim != 3 or segments.shape[1:] != (2, 2):
+            raise ValueError("segments_xy_m must have shape [N, 2, 2]")
+        if thicknesses.shape != (len(segments),):
+            raise ValueError("thicknesses_m must have shape [N]")
+        starts = np.ascontiguousarray(segments[:, 0])
+        vectors = np.ascontiguousarray(segments[:, 1] - starts)
+        length_squared = np.einsum("ni,ni->n", vectors, vectors)
+        return cls(
+            starts_xy_m=starts,
+            vectors_xy_m=vectors,
+            length_squared_m2=np.ascontiguousarray(length_squared),
+            half_thickness_m=np.ascontiguousarray(thicknesses * 0.5),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PhysicsBridgeTimings:
+    """Measured Python adapter components surrounding one native PhysX step."""
+
+    traffic_prepare_ms: float = 0.0
+    """Tracked-traffic preparation before native simulation."""
+
+    barrier_rebound_ms: float = 0.0
+    """Static-barrier contact detection and velocity reinforcement."""
+
+    traffic_update_ms: float = 0.0
+    """Tracked-traffic observation and control publication."""
+
+    state_materialize_ms: float = 0.0
+    """Ego and actor state publication into engine-owned objects."""
+
+    other_ms: float = 0.0
+    """Remaining adapter work outside the named components."""
+
+
 def _reinforce_static_barrier_rebound(
-    barriers: tuple[InvisibleBarrier, ...],
+    barriers: _BarrierReboundIndex,
     requested_ego: BodyState,
     resolved_velocity_mps: np.ndarray,
     ego_model: RigidBodyModel,
     restitution: float,
 ) -> tuple[np.ndarray, bool]:
-    """Raise outward barrier velocity and report inward barrier contact."""
+    """Raise outward barrier velocity after vectorized contact detection."""
     position = np.asarray(requested_ego.position_m[:2], dtype=np.float32)
     incoming_velocity = np.asarray(requested_ego.linear_velocity_mps, dtype=np.float32)
     reinforced = np.asarray(resolved_velocity_mps, dtype=np.float32).copy()
+    if len(barriers.starts_xy_m) == 0:
+        return reinforced, False
+
     yaw = _yaw_from_quaternion_xyzw(requested_ego.orientation_xyzw)
     forward = np.asarray([math.cos(yaw), math.sin(yaw)], dtype=np.float32)
     left = np.asarray([-forward[1], forward[0]], dtype=np.float32)
     half_extents = ego_model.half_extents_m
-    contact_detected = False
 
-    for barrier in barriers:
-        start = np.asarray(barrier.start_xy_m, dtype=np.float32)
-        end = np.asarray(barrier.end_xy_m, dtype=np.float32)
-        segment = end - start
-        length_squared = float(np.dot(segment, segment))
-        if length_squared <= 1.0e-8:
-            continue
-        alpha = float(
-            np.clip(np.dot(position - start, segment) / length_squared, 0.0, 1.0)
+    valid_segments = barriers.length_squared_m2 > 1.0e-8
+    safe_length_squared = np.where(valid_segments, barriers.length_squared_m2, 1.0)
+    relative_position = position[None, :] - barriers.starts_xy_m
+    alpha = np.clip(
+        np.einsum("ni,ni->n", relative_position, barriers.vectors_xy_m)
+        / safe_length_squared,
+        0.0,
+        1.0,
+    )
+    offsets = position[None, :] - (
+        barriers.starts_xy_m + barriers.vectors_xy_m * alpha[:, None]
+    )
+    distances = np.linalg.norm(offsets, axis=1)
+    normals = np.empty_like(offsets)
+    separated = distances > 1.0e-6
+    normals[separated] = offsets[separated] / distances[separated, None]
+    if bool(np.any(~separated)):
+        speed = float(np.linalg.norm(incoming_velocity[:2]))
+        fallback_normal = (
+            -incoming_velocity[:2] / speed
+            if speed > 1.0e-6
+            else np.asarray([1.0, 0.0], dtype=np.float32)
         )
-        offset = position - (start + segment * alpha)
-        distance = float(np.linalg.norm(offset))
-        if distance > 1.0e-6:
-            normal = offset / distance
-        else:
-            speed = float(np.linalg.norm(incoming_velocity[:2]))
-            normal = (
-                -incoming_velocity[:2] / speed
-                if speed > 1.0e-6
-                else np.asarray([1.0, 0.0], dtype=np.float32)
-            )
-        support = (
-            abs(float(np.dot(normal, forward))) * half_extents[0]
-            + abs(float(np.dot(normal, left))) * half_extents[1]
-        )
-        contact_distance = support + barrier.thickness_m * 0.5
-        if distance > contact_distance + _BARRIER_CONTACT_SLOP_M:
-            continue
-        incoming_normal_speed = float(np.dot(incoming_velocity[:2], normal))
-        if incoming_normal_speed >= 0.0:
-            continue
-        contact_detected = True
+        normals[~separated] = fallback_normal
+
+    supports = (
+        np.abs(normals @ forward) * half_extents[0]
+        + np.abs(normals @ left) * half_extents[1]
+    )
+    incoming_normal_speeds = normals @ incoming_velocity[:2]
+    contact_indices = np.flatnonzero(
+        valid_segments
+        & (distances <= supports + barriers.half_thickness_m + _BARRIER_CONTACT_SLOP_M)
+        & (incoming_normal_speeds < 0.0)
+    )
+
+    # Apply the small candidate set in authored order so corner contacts retain
+    # the scalar path's response semantics.
+    for index in contact_indices:
+        normal = normals[index]
+        incoming_normal_speed = float(incoming_normal_speeds[index])
         target_outward_speed = -restitution * incoming_normal_speed
         resolved_normal_speed = float(np.dot(reinforced[:2], normal))
         if resolved_normal_speed < target_outward_speed:
             reinforced[:2] += normal * (target_outward_speed - resolved_normal_speed)
-    return reinforced, contact_detected
+    return reinforced, len(contact_indices) > 0
 
 
 class GamePhysicsWorld:
@@ -309,6 +389,10 @@ class GamePhysicsWorld:
             timestamp_us=initial_timestamp_us,
         )
         self._physics_graph = self._with_active_map_traffic(base_physics_graph)
+        self._active_objects_by_id = {
+            scene_object.object_id: scene_object
+            for scene_object in self._physics_graph.objects
+        }
         self._physics_center_xy = initial_xy.copy()
         self._physics_timestamp_us = initial_timestamp_us
         self._entities = [
@@ -317,6 +401,7 @@ class GamePhysicsWorld:
         self._entities_by_id = {entity.entity_id: entity for entity in self._entities}
         self._detached_entity_ids: set[str] = set()
         self.last_step_timings = None
+        self.last_step_bridge_timings = None
         self.last_step_actor_collision = False
         self.last_step_static_barrier_collision = False
         self.last_step_static_barrier_impact = False
@@ -506,6 +591,10 @@ class GamePhysicsWorld:
         self._entities_by_id = {entity.entity_id: entity for entity in self._entities}
         self._detached_entity_ids.intersection_update(self._entities_by_id)
         self._physics_graph = physics_graph
+        self._active_objects_by_id = {
+            scene_object.object_id: scene_object
+            for scene_object in self._physics_graph.objects
+        }
         self._physics_center_xy = center.copy()
         if timestamp_us is not None:
             self._physics_timestamp_us = timestamp_us
@@ -538,6 +627,10 @@ class GamePhysicsWorld:
             self._debug_barrier_segments = np.empty((0, 2, 2), dtype=np.float32)
             self._debug_barrier_thicknesses = np.empty((0,), dtype=np.float32)
             self._debug_barrier_heights = np.empty((0,), dtype=np.float32)
+        self._barrier_rebound_index = _BarrierReboundIndex.from_arrays(
+            self._debug_barrier_segments,
+            self._debug_barrier_thicknesses,
+        )
 
     def debug_frame(self, state: VehicleState) -> PhysicsDebugFrame:
         """Capture the active collider topology without rendering it."""
@@ -684,19 +777,22 @@ class GamePhysicsWorld:
         ego_before_step = _body_state_from_vehicle(
             state, self._ego_model.half_extents_m[2]
         )
+        traffic_prepare_started_at = time.perf_counter()
         self._map_traffic.prepare_step(self._world, ego_before_step, dt_s)
+        traffic_prepare_ms = (time.perf_counter() - traffic_prepare_started_at) * 1000.0
         physics_step = self._world.step_compact(
             ego_before_step,
             timestamp_us,
             dt_s,
         )
+        barrier_rebound_started_at = time.perf_counter()
         self.last_step_static_barrier_collision = False
         if self._static_barrier_restitution is not None:
             (
                 reinforced_velocity,
                 self.last_step_static_barrier_collision,
             ) = _reinforce_static_barrier_rebound(
-                self._physics_graph.barriers,
+                self._barrier_rebound_index,
                 ego_before_step,
                 physics_step.ego.linear_velocity_mps,
                 self._ego_model,
@@ -709,15 +805,13 @@ class GamePhysicsWorld:
                     linear_velocity_mps=reinforced_velocity,
                 ),
             )
+        barrier_rebound_ms = (time.perf_counter() - barrier_rebound_started_at) * 1000.0
+        traffic_update_started_at = time.perf_counter()
         self.last_step_static_barrier_impact = (
             self.last_step_static_barrier_collision
             and not self._static_barrier_contact_active
         )
         self._static_barrier_contact_active = self.last_step_static_barrier_collision
-        active_objects = {
-            scene_object.object_id: scene_object
-            for scene_object in self._physics_graph.objects
-        }
         if physics_step.struck_object_ids:
             self._pending_struck_vehicle_ids.update(physics_step.struck_object_ids)
             self._visual_flare_collision_velocity_mps = (
@@ -733,7 +827,7 @@ class GamePhysicsWorld:
             }
             for object_id in physics_step.struck_object_ids:
                 body = actor_bodies.get(object_id)
-                scene_object = active_objects.get(object_id)
+                scene_object = self._active_objects_by_id.get(object_id)
                 if body is None or scene_object is None:
                     continue
                 separation_xy = body.position_m[:2] - ego_before_step.position_m[:2]
@@ -805,7 +899,9 @@ class GamePhysicsWorld:
                 (object_id, body.position_m, body.orientation_xyzw, detached)
             )
         self._world.apply_track_controls(tuple(pending_controls))
+        traffic_update_ms = (time.perf_counter() - traffic_update_started_at) * 1000.0
 
+        state_materialize_started_at = time.perf_counter()
         detached_ids = {sample[0] for sample in actor_samples if sample[3]}
         for object_id in self._detached_entity_ids - detached_ids:
             self._entities_by_id[object_id].detached_from_track = False
@@ -871,16 +967,34 @@ class GamePhysicsWorld:
             )
             for object_id, position, orientation, detached in actor_samples
         )
+        state_materialize_ms = (
+            time.perf_counter() - state_materialize_started_at
+        ) * 1000.0
         step_total_ms = (time.perf_counter() - step_started_at) * 1000.0
         native_ms = (
             physics_step.timings.actor_update_ms
             + physics_step.timings.solver_ms
             + physics_step.timings.readback_ms
         )
+        bridge_ms = max(0.0, step_total_ms - native_ms)
         self.last_step_timings = replace(
             physics_step.timings,
             total_ms=step_total_ms,
-            bridge_ms=max(0.0, step_total_ms - native_ms),
+            bridge_ms=bridge_ms,
+        )
+        self.last_step_bridge_timings = PhysicsBridgeTimings(
+            traffic_prepare_ms=traffic_prepare_ms,
+            barrier_rebound_ms=barrier_rebound_ms,
+            traffic_update_ms=traffic_update_ms,
+            state_materialize_ms=state_materialize_ms,
+            other_ms=max(
+                0.0,
+                bridge_ms
+                - traffic_prepare_ms
+                - barrier_rebound_ms
+                - traffic_update_ms
+                - state_materialize_ms,
+            ),
         )
         return result_state, samples
 

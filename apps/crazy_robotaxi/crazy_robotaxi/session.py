@@ -279,6 +279,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         "physx_solver_ms": physx.solver_ms,
                         "physx_readback_ms": physx.readback_ms,
                         "physx_bridge_ms": physx.bridge_ms,
+                        "physx_traffic_prepare_ms": physx.traffic_prepare_ms,
+                        "physx_barrier_rebound_ms": physx.barrier_rebound_ms,
+                        "physx_traffic_update_ms": physx.traffic_update_ms,
+                        "physx_state_materialize_ms": (physx.state_materialize_ms),
+                        "physx_bridge_other_ms": physx.bridge_other_ms,
                     }
                 )
             if state.config.pipeline_profiling and realtime_margin_ms < 0.0:

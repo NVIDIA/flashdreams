@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 import pytest
@@ -15,6 +17,10 @@ from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.engine import GameEngine
 from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     sample_chunk_trajectory,
+)
+from omnidreams_game_engine.simulation.game_physics import (
+    GamePhysicsWorld,
+    PhysicsBridgeTimings,
 )
 from omnidreams_game_engine.types import (
     ConditionBatch,
@@ -161,3 +167,59 @@ def test_trajectory_sampling_copies_slotted_start_state() -> None:
     assert trajectory.vehicle_states[0] == start_state
     assert trajectory.vehicle_states[0] is not start_state
     assert trajectory.boundary_state_after_chunk is trajectory.vehicle_states[0]
+
+
+def test_trajectory_sampling_aggregates_physics_bridge_timings() -> None:
+    class PhysicsWorld:
+        last_step_actor_collision = False
+        last_step_static_barrier_impact = False
+        last_step_timings = SimpleNamespace(
+            actor_update_ms=1.0,
+            solver_ms=2.0,
+            readback_ms=3.0,
+            bridge_ms=4.0,
+            visible_actor_count=5,
+            detached_actor_count=1,
+        )
+        last_step_bridge_timings = PhysicsBridgeTimings(
+            traffic_prepare_ms=0.1,
+            barrier_rebound_ms=0.2,
+            traffic_update_ms=0.3,
+            state_materialize_ms=0.4,
+            other_ms=3.0,
+        )
+
+        def synchronize_window(self, center_xy_m, timestamp_us):
+            del center_xy_m, timestamp_us
+
+        def build_trajectories(self, timestamps, actor_samples):
+            del timestamps, actor_samples
+            return ()
+
+    def step_physics(physics_world, state, command, timestamp_us, dt_s):
+        del physics_world, command, timestamp_us, dt_s
+        return state, ()
+
+    trajectory = sample_chunk_trajectory(
+        start_state=_state(),
+        start_timestamp_us=100,
+        commands=(DriverCommand(), DriverCommand()),
+        chunk_size=2,
+        chunk_config=ChunkConfig(initial_chunk_frames=2, chunk_frames=2),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=None,
+        physics_world=cast(GamePhysicsWorld, PhysicsWorld()),
+        physics_step_fn=step_physics,
+    )
+
+    timings = trajectory.physx_timings
+    assert timings is not None
+    assert timings.actor_update_ms == pytest.approx(2.0)
+    assert timings.solver_ms == pytest.approx(4.0)
+    assert timings.readback_ms == pytest.approx(6.0)
+    assert timings.bridge_ms == pytest.approx(8.0)
+    assert timings.traffic_prepare_ms == pytest.approx(0.2)
+    assert timings.barrier_rebound_ms == pytest.approx(0.4)
+    assert timings.traffic_update_ms == pytest.approx(0.6)
+    assert timings.state_materialize_ms == pytest.approx(0.8)
+    assert timings.bridge_other_ms == pytest.approx(6.0)

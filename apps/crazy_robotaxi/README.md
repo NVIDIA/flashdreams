@@ -105,6 +105,12 @@ UI-thread work and are not included in model-step metrics. The JSON sink
 normalizes `_ms` metric names to `_s`. Exclude the first chunks when judging
 steady state because compilation and graph capture are startup costs.
 
+The PhysX split includes `physx_traffic_prepare_ms`,
+`physx_barrier_rebound_ms`, `physx_traffic_update_ms`,
+`physx_state_materialize_ms`, and `physx_bridge_other_ms`. Together they locate
+adapter work within `physx_bridge_ms` without enabling synchronized GPU-stage
+profiling.
+
 The BEV is HUD-only data, so Crazy Robotaxi caps its raster resolution to the
 actual ImGui map-image extent while preserving the authored aspect ratio. At
 the default 1280x704 output this changes the default square BEV from 1024x1024

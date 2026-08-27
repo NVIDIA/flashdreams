@@ -89,6 +89,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     )
 
     session = app.create_session(desc)
+    assert isinstance(session, CrazyRobotaxiSession)
     session.init()
     ui_loop, model_loop = session._take_loops()
 
