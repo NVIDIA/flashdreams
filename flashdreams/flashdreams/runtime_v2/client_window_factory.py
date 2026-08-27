@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.webm_client_window import WebmClientWindow
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -65,11 +66,6 @@ class _Mp4Mode(ClientWindowMode):
 
     name = "mp4"
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "--output-path", type=Path, help="MP4 file to write. Required for mp4."
-        )
-
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
         if parsed_args.output_path is None:
             raise ValueError("--output-path is required when writing an MP4.")
@@ -81,6 +77,24 @@ class _Mp4Mode(ClientWindowMode):
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
         return str(cast(Mp4ClientWindow, client_window).path)
+
+
+class _WebmMode(ClientWindowMode):
+    """Write the run through the optional native WebM companion."""
+
+    name = "webm"
+
+    def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        if parsed_args.output_path is None:
+            raise ValueError("--output-path is required when writing WebM.")
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        self.check_arguments(parsed_args)
+        return WebmClientWindow(parsed_args.output_path)
+
+    def finished(self, client_window: IClientWindow) -> str | None:
+        """Return the file, now that native finalization has committed it."""
+        return str(cast(WebmClientWindow, client_window).path)
 
 
 class _WebRTCMode(ClientWindowMode):
@@ -106,7 +120,7 @@ class _WebRTCMode(ClientWindowMode):
         return f"Open {server.url} in a browser."
 
 
-_MODES: tuple[ClientWindowMode, ...] = (_Mp4Mode(), _WebRTCMode())
+_MODES: tuple[ClientWindowMode, ...] = (_Mp4Mode(), _WebmMode(), _WebRTCMode())
 """Modes a run can be presented through, the first being the default."""
 
 
@@ -121,6 +135,11 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
         choices=tuple(mode.name for mode in _MODES),
         default=_MODES[0].name,
         help="Where the run goes. Default: %(default)s.",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        help="Media file to write. Required for mp4 and webm.",
     )
     parser.add_argument(
         "--stats-path",

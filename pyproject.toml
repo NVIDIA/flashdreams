@@ -9,6 +9,7 @@ members = [
     # extractions and don't ship a ``pyproject.toml`` yet.
     "integrations/*",
     "integrations_v2/*",
+    "extensions/*",
     "apps/*",
     # Nested sub-packages that the ``integrations/*`` glob does not reach.
     "integrations/omnidreams/ludus-renderer",
@@ -69,6 +70,7 @@ extraPaths = [
     "integrations_v2/t2v_self_forcing",
     "integrations_v2/t2v_wan21",
     "integrations_v2/slangpy_ui_demo",
+    "extensions/flashdreams-webm/src",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -104,6 +106,7 @@ extra-paths = [
     "integrations_v2/t2v_self_forcing",
     "integrations_v2/t2v_wan21",
     "integrations_v2/slangpy_ui_demo",
+    "extensions/flashdreams-webm/src",
 ]
 
 [tool.ty.src]

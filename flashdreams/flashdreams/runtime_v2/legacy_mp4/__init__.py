@@ -13,16 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Compatibility imports for PCM staging and legacy FFmpeg audio muxing."""
-
-from flashdreams.runtime_v2.audio_stager import F32leAudioStager
-from flashdreams.runtime_v2.legacy_mp4.ffmpeg_audio import (
-    Mp4AudioMuxer,
-    preflight_audio_codec,
-)
-
-__all__ = [
-    "F32leAudioStager",
-    "Mp4AudioMuxer",
-    "preflight_audio_codec",
-]
+"""External FFmpeg implementation package for legacy MP4 output."""

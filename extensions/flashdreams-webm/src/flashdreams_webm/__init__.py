@@ -13,16 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Compatibility imports for PCM staging and legacy FFmpeg audio muxing."""
+"""Native WebM writing and machine-local video-codec selection."""
 
-from flashdreams.runtime_v2.audio_stager import F32leAudioStager
-from flashdreams.runtime_v2.legacy_mp4.ffmpeg_audio import (
-    Mp4AudioMuxer,
-    preflight_audio_codec,
+from flashdreams_webm._native import WebmWriter, versions
+from flashdreams_webm.policy import (
+    benchmark_video_codec,
+    codec_selection,
+    select_video_codec,
 )
 
+__version__ = "0.1.0"
+
 __all__ = [
-    "F32leAudioStager",
-    "Mp4AudioMuxer",
-    "preflight_audio_codec",
+    "WebmWriter",
+    "benchmark_video_codec",
+    "codec_selection",
+    "select_video_codec",
+    "versions",
 ]

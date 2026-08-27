@@ -10,8 +10,8 @@ so what is covered here is each mode answering for itself.
 import argparse
 from pathlib import Path
 
+import flashdreams.runtime_v2.client_window_factory as factory_module
 import pytest
-
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
@@ -50,6 +50,35 @@ def test_the_file_is_named_once_there_is_something_in_it(tmp_path: Path) -> None
 
     assert mode.starting(window) is None
     assert mode.finished(window) == str(tmp_path / "clip.mp4")
+
+
+def test_native_webm_mode_uses_the_shared_output_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeWebmClientWindow:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+    monkeypatch.setattr(
+        factory_module,
+        "WebmClientWindow",
+        FakeWebmClientWindow,
+    )
+    path = tmp_path / "clip.webm"
+    parsed = _parsed(["--mode", "webm", "--output-path", str(path)])
+    mode = client_window_mode("webm")
+
+    window = mode.create(parsed)
+
+    assert isinstance(window, FakeWebmClientWindow)
+    assert window.path == path
+    assert mode.starting(window) is None
+    assert mode.finished(window) == str(path)
+
+
+def test_native_webm_mode_requires_an_output_path() -> None:
+    with pytest.raises(ValueError, match="--output-path is required"):
+        create_client_window(_parsed(["--mode", "webm"]))
 
 
 def test_an_unsupported_mode_is_refused() -> None:

@@ -43,9 +43,11 @@ Presenting it:
   registers none of its own.
 - `slangpy_ui_loop.py` and `_slangpy_ui_renderer.py` are the UI loop for
   applications that draw widgets over the model output.
-- `mp4_client_window.py` and `webrtc_client_window.py` are the two windows.
-- `mp4_output_sink.py`, `mp4_audio.py`, `metrics_output_sink.py`,
-  `video_encoder.py` and `video_tensor.py` are what output is written through.
+- `mp4_client_window.py`, `webm_client_window.py`, and
+  `webrtc_client_window.py` are the three windows.
+- `mp4_output_sink.py`, `webm_output_sink.py`, `mp4_audio.py`,
+  `metrics_output_sink.py`, `video_encoder.py`, and `video_tensor.py` are
+  what output is written through.
 - `serving/` is the HTTP and WebRTC server behind the browser window.
 
 Input:
@@ -68,6 +70,7 @@ declare arguments this command also has.
 | Mode | Takes | Input | Ends when |
 | --- | --- | --- | --- |
 | `mp4` (default) | `--output-path` | none | the session reports itself finished |
+| `webm` | `--output-path` | none | the session reports itself finished |
 | `webrtc` | `--host`, `--port` | keyboard, mouse, focus, reset, close | the browser disconnects, or the session finishes |
 
 These override whatever session the application asked for:
@@ -75,7 +78,7 @@ These override whatever session the application asked for:
 | Argument | Sets |
 | --- | --- |
 | `--pixel-width`, `--pixel-height` | Frame size to generate. |
-| `--fps` | `frames_per_second_for_step`, which is also the rate an MP4 plays back at. |
+| `--fps` | `frames_per_second_for_step`, which is also the rate a media file plays back at. |
 | `--layout` | Tensor layout to generate results in. |
 | `--backpressure-mode` | What the model thread does when the presentation queue is full. |
 | `--presentation-mode` | Whether the UI presents eagerly or only for new model frames. |
@@ -174,26 +177,27 @@ calling `presented_model_audio()`.
 
 `IClientWindow` is both an `InputSource` and an `OutputSink`, so a window is
 written to with the same three calls as any sink: `open` with the session
-description, `write` per result, `close` at the end. Both windows are thin
+description, `write` per result, `close` at the end. The windows are thin
 delegates over the thing that does the work — `Mp4ClientWindow` over
-`Mp4OutputSink`, `WebRTCClientWindow` over `WebRTCServer` — and neither describes
-the output shape, because the session already did.
+`Mp4OutputSink`, `WebmClientWindow` over `WebmOutputSink`, and
+`WebRTCClientWindow` over `WebRTCServer` — and none describes the output
+shape, because the session already did.
 
-They differ in what they can do rather than in how they are driven. The MP4
-window reports no input and never sends a close, so a session written to a file
-has to finish on its own. The WebRTC window turns browser keyboard, mouse and
-focus events into input and a disconnecting browser into a close; because those
-arrive on the server's own thread, it queues them and hands them over in batches
-when the session asks.
+They differ in what they can do rather than in how they are driven. MP4 and
+WebM windows report no input and never send a close, so a session written to a
+file has to finish on its own. The WebRTC window turns browser keyboard, mouse
+and focus events into input and a disconnecting browser into a close; because
+those arrive on the server's own thread, it queues them and hands them over in
+batches when the session asks.
 
-MP4 publication is transactional. Video, normalized PCM, and any synchronized
-mux are written below a unique private sibling directory. The final file
-replaces the requested target atomically only after the application has closed
-successfully and every encoder has exited successfully. Exceptional exits abort
-active child processes and preserve an existing target. If an abort is
-interrupted, the runtime makes one bounded final retry. A recovered transient
-failure removes staging; a persistent failure is reported while the sink
-retains ownership for an explicit later retry.
+MP4 and WebM publication are transactional. Video, normalized PCM, and any
+synchronized mux are written below a unique private sibling directory. The
+final file replaces the requested target atomically only after the application
+has closed successfully and every encoder has finalized successfully.
+Exceptional exits preserve an existing target. If an abort is interrupted, the
+runtime makes one bounded final retry. A recovered transient failure removes
+staging; a persistent failure is reported while the sink retains ownership for
+an explicit later retry.
 
 Audio is staged as interleaved `f32le`. Forward offsets become silence, and the
 complete stream is padded or truncated to
@@ -208,6 +212,17 @@ timeout, terminate and kill waits are separately bounded; a child that still
 cannot be reaped remains owned by the sink for a later abort retry rather than
 having its staging removed underneath it. WebRTC output currently rejects
 audio.
+
+Native WebM is an optional companion installed with
+`pip install 'flashdreams[webm]'` and selected with `--mode webm`. Its single
+extension statically links libvpx, libopus, and libwebm; it does not change the
+V2 session or `AudioOutput` contracts. It prefers VP9+Opus. On first use, a
+machine-local 768×768/24-fps benchmark selects VP8 only when VP9's p90 native
+encode latency exceeds the 41.667 ms frame interval, then caches the decision
+against the CPU and native-library versions. Run
+`flashdreams-webm-benchmark --refresh` to reproduce the decision. The default
+external-FFmpeg H.264/AAC MP4 path remains available as the initial legacy and
+native-viewer fallback.
 
 What a sink expects of the pixel values it is handed is part of the result
 contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).

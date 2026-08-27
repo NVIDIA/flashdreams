@@ -13,13 +13,13 @@ import pytest
 import torch
 from torch import Tensor
 
+import flashdreams.runtime_v2.legacy_mp4.ffmpeg_video as ffmpeg_video_module
 import flashdreams.runtime_v2.mp4_output_sink as mp4_sink_module
-import flashdreams.runtime_v2.video_encoder as video_encoder_module
 from flashdreams.runtime_v2.audio_output import AudioOutput
+from flashdreams.runtime_v2.legacy_mp4.ffmpeg_video import Mp4Encoder
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.video_encoder import Mp4Encoder
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -505,9 +505,9 @@ def test_encoder_reader_start_failure_terminates_spawned_ffmpeg(
             raise RuntimeError("reader start failed")
 
     monkeypatch.setattr(
-        video_encoder_module.subprocess, "Popen", lambda *args, **kwargs: Process()
+        ffmpeg_video_module.subprocess, "Popen", lambda *args, **kwargs: Process()
     )
-    monkeypatch.setattr(video_encoder_module.threading, "Thread", Reader)
+    monkeypatch.setattr(ffmpeg_video_module.threading, "Thread", Reader)
     encoder = Mp4Encoder(
         tmp_path / "staged.mp4",
         width=_WIDTH,

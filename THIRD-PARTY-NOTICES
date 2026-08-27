@@ -119,6 +119,29 @@ aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 
 ================================================================================
+Optional native output companion: extensions/flashdreams-webm
+================================================================================
+
+libvpx 1.17.0         BSD-3-Clause https://github.com/webmproject/libvpx
+    Source archive SHA-256:
+    1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a
+
+libopus 1.6.1         BSD-3-Clause https://opus-codec.org/
+    Source archive SHA-256:
+    6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
+libwebm 1.0.0.32      BSD-3-Clause https://github.com/webmproject/libwebm
+    Source archive SHA-256:
+    7fd5e085bda9f8031cf2ad2a1e52d9b7b29cba9c0b96ad2ce794ce89e4249eb8
+
+The optional Linux wheel downloads these checksum-pinned source archives at
+build time and statically links their encoder and muxer libraries into one
+native Python extension. It redistributes no FFmpeg library. Exact upstream
+copyright licenses and the WebM additional IP rights grants are installed
+under `flashdreams_webm-*.dist-info/licenses/` in the wheel and retained in
+`extensions/flashdreams-webm/licenses/` in this repository.
+
+================================================================================
 Source-level redistributions
 ================================================================================
 
