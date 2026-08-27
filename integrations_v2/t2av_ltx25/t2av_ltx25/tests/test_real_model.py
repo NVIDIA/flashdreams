@@ -31,7 +31,7 @@ pytestmark = pytest.mark.ci_gpu
 
 def test_pinned_checkpoint_writes_joint_audio_video(tmp_path: Path) -> None:
     if os.environ.get("T2AV_LTX25_REAL_MODEL_RUN") != "1":
-        pytest.skip("set T2AV_LTX25_REAL_MODEL_RUN=1 for the 70 GB checkpoint smoke")
+        pytest.skip("set T2AV_LTX25_REAL_MODEL_RUN=1 for the large checkpoint smoke")
 
     app = LTX25Application()
     desc = replace(app.session_desc(), video_width=384, video_height=256)

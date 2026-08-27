@@ -18,14 +18,17 @@ results are in [INTEGRATION.md](INTEGRATION.md).
 
 - An NVIDIA GPU with enough memory for the 22B transformer. Model-level CPU offload is
   the default; this host's validation target is a 96 GB RTX PRO 6000 Blackwell.
-- Enough host RAM and disk for roughly 70 GB of selected checkpoint components.
+- Enough host RAM and disk for roughly 154 GB of reconstructed checkpoint components
+  (about 134 GB transferred on this validation host).
 - A Hugging Face account that has requested and received access through the LTX 2.5
   Diffusers repository gate.
 - A host-provided `ffmpeg` executable on `PATH` for MP4 output.
 
 No Lightricks source or weights are redistributed. The adapter pins
 `Lightricks/LTX-2.5-Diffusers` to revision
-`426936f8b22dc28e4def61e515478b0b7e4a53cc`.
+`426936f8b22dc28e4def61e515478b0b7e4a53cc`. LTX 2.5 support is not yet in a
+Diffusers release, so the package also pins the upstream Diffusers `main` source to
+commit `119c339551f68ea523b9f204120b929e56342421` rather than following a moving branch.
 
 ## Install and run
 

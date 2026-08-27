@@ -39,13 +39,15 @@ Gemma checkpoint and is outside the concise baseline.
 | Post-merge V2 target | `a947768b8a3521feb974286a88af07e24c13850f` |
 | Named V2 integration procedure | `integrate-a-model-v2-skill-pr/skills/integrate-a-model-v2/SKILL.md` |
 | Lightricks reference source | `a95ab856bf29407b6b066ede0abe1846050db56c` |
-| Diffusers v0.40.0 source | `d035dcd7cc7c88e0a154609b62887d50bba9fdc2` |
+| Diffusers `main` with unreleased LTX 2.5 support | `119c339551f68ea523b9f204120b929e56342421` |
 | `Lightricks/LTX-2.5` model repository | `6c7e5e573ac1667efc83407806fe9b0b93730e60` |
 | `Lightricks/LTX-2.5-Diffusers` checkpoint | `426936f8b22dc28e4def61e515478b0b7e4a53cc` |
 
 The checkpoint is gated by the LTX 2 Community License. No Lightricks source or model
 weights are redistributed by FlashDreams. At plan time, the host's Hugging Face account
 was authenticated but had not accepted access to the Diffusers checkpoint (HTTP 403).
+Access was accepted before GPU validation. The first real load reconstructed 154 GB of
+the pinned snapshot from about 134 GB transferred and then reused the local cache.
 
 ## Architecture boundary
 
@@ -120,6 +122,7 @@ peak CUDA memory, output path, media properties, and hashes.
 | Lint/type checks | Passed | pre-commit Ruff format/import checks and workspace `ty` |
 | Wheel/install/entry point | Passed | sdist/wheel built; `t2av-ltx25` discovered; delegated help passed |
 | Matrix/gallery harness | Passed | Two distinct stand-in cases, one backend load, inspected MP4s, JSON and HTML |
-| Checkpoint access/load | Blocked | HF mirror returns 403; account must request access |
+| Checkpoint access/load | Passed | Gate accepted; pinned snapshot downloaded and loaded from the official mirror |
+| Minimal real-model A/V smoke | Passed | 9 frames at 384x256; stereo 48 kHz audio; 4.8 s denoising, 42.41 s cached end to end |
 | GPU matrix | Pending | |
 | Gallery and selected MP4s | Pending | |
