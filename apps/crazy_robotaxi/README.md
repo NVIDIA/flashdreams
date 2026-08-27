@@ -45,6 +45,41 @@ and the autoregressive cache together while retaining the loaded model.
 Leaderboard name entry is owned by the SlangPy UI and submitted to the model
 loop through V2's asynchronous loop-message contract.
 
+## Original demo performance preset
+
+The opt-in `original-perf` preset reproduces the performance knobs from the
+current `example_world_model_perf.yaml` without importing or depending on the
+`interactive_drive` application. It uses the compiled LightVAE/LightTAE path,
+the required native FP8 DiT with cuDNN attention, skips the KV-cache finalize
+pass, and uses denoising timesteps `[1000, 100]`. For direct comparison with
+that manifest, select its 1168x640 resolution as shown below.
+
+Prepare the native DiT sources once from the repository root:
+
+```bash
+uv run --package flashdreams-omnidreams omnidreams-prepare --perf
+```
+
+Then run Crazy Robotaxi with the runtime resolution arguments before the
+application-argument separator:
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi \
+  --mode native-window \
+  --pixel-width 1168 \
+  --pixel-height 640 \
+  -- \
+  --model-preset original-perf
+```
+
+The resolution flags are optional: without them, the preset uses the V2
+session's default resolution and adapts the game renderer to match. The preset
+still fails if the required native DiT cannot be built or loaded. It keeps the
+PyTorch LightVAE encoder, so it does not require a `lightvae-fp8-state.pt`
+file. Use the existing `perf` and `native-perf` presets for their previous
+behavior. GPU throughput and quality still need to be validated on the target
+machine before treating this preset as a regression baseline.
+
 ## Performance diagnostics
 
 Crazy Robotaxi emits lightweight model-thread, engine, overlay, and PhysX

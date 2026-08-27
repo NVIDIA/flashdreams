@@ -13,8 +13,14 @@ import pytest
 import torch
 from crazy_robotaxi.application import _MODEL_PRESETS, CrazyRobotaxiApplication
 from crazy_robotaxi.physics import TaxiPhysicsWorld
-from crazy_robotaxi.session import CrazyRobotaxiModelLoop
+from crazy_robotaxi.session import CrazyRobotaxiModelLoop, CrazyRobotaxiSession
 from crazy_robotaxi.ui import CrazyRobotaxiSlangPyUILoop
+from omnidreams.config import (
+    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
+    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
+    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+)
+from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -31,14 +37,14 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 pytestmark = pytest.mark.ci_cpu
 
 
-def _scene() -> SceneDefinition:
+def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
     calibration = CameraCalibration(
         clipgt_name="front",
         logical_name="camera_front_wide_120fov",
-        width=1280,
-        height=704,
-        cx=640.0,
-        cy=352.0,
+        width=width,
+        height=height,
+        cx=width / 2.0,
+        cy=height / 2.0,
         polynomial=np.zeros(6, dtype=np.float32),
         is_backward_polynomial=False,
         linear_cde=np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
@@ -53,7 +59,7 @@ def _scene() -> SceneDefinition:
         initial_timestamp_us=0,
         initial_yaw_rad=0.0,
         initial_speed_mps=0.0,
-        initial_rgb=np.zeros((704, 1280, 3), dtype=np.uint8),
+        initial_rgb=np.zeros((height, width, 3), dtype=np.uint8),
         prompt="taxi",
         line_layers=(),
         triangle_layers=(),
@@ -181,7 +187,113 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
     assert configured[0].enable_sync_and_profile is expected
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
-    assert _MODEL_PRESETS["standard"].enable_sync_and_profile
+    assert _MODEL_PRESETS["standard"].pipeline.enable_sync_and_profile
+
+
+def test_existing_model_presets_keep_their_packaged_pipeline_configs() -> None:
+    assert (
+        _MODEL_PRESETS["standard"].pipeline
+        is RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline
+    )
+    assert (
+        _MODEL_PRESETS["perf"].pipeline
+        is RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline
+    )
+    assert (
+        _MODEL_PRESETS["native-perf"].pipeline
+        is RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline
+    )
+    assert all(
+        not _MODEL_PRESETS[name].renderer_follows_session
+        for name in ("standard", "perf", "native-perf")
+    )
+
+
+def test_original_perf_matches_the_original_demo_manifest() -> None:
+    preset = _MODEL_PRESETS["original-perf"]
+    pipeline = preset.pipeline
+    transformer = pipeline.diffusion_model.transformer
+    scheduler = pipeline.diffusion_model.scheduler
+
+    assert preset.renderer_follows_session
+    assert pipeline.name == "crazy-robotaxi-original-perf"
+    assert pipeline.diffusion_model.seed is None
+    assert transformer.compile_network is True
+    assert transformer.use_cuda_graph is True
+    assert transformer.window_size_t == 6
+    assert transformer.sink_size_t == 0
+    assert transformer.skip_finalize_kv_cache is True
+    assert transformer.native_dit_acceleration == "required"
+    assert transformer.native_dit_backend == "fp8_kvcache_cudnn"
+    assert transformer.native_dit_attention_backend == "cudnn"
+    assert scheduler.num_inference_steps == 2
+    assert scheduler.denoising_timesteps == [1000, 100]
+    assert pipeline.image_encoder.use_compile is True
+    assert pipeline.encoder.use_compile is True
+    assert pipeline.decoder.use_compile is True
+    assert pipeline.image_encoder.native_vae_acceleration == "disabled"
+    assert pipeline.encoder.native_vae_acceleration == "disabled"
+
+
+@pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
+def test_original_perf_adapts_renderer_to_session_geometry(
+    resolution_wh: tuple[int, int],
+) -> None:
+    configured: list[object] = []
+    raster_sizes: list[tuple[int, int]] = []
+
+    def load_test_scene(request: object, raster: RasterConfig) -> SceneDefinition:
+        del request
+        size = raster.resolution_wh
+        raster_sizes.append(size)
+        return _scene(width=size[0], height=size[1])
+
+    app = CrazyRobotaxiApplication(
+        pipeline_factory=lambda config, device: configured.append(config) or object(),
+        scene_factory=load_test_scene,
+    )
+    app.init(["--model-preset", "original-perf"])
+    desc = replace(
+        app.session_desc(),
+        video_width=resolution_wh[0],
+        video_height=resolution_wh[1],
+    )
+
+    session = app.create_session(desc)
+
+    assert isinstance(session, CrazyRobotaxiSession)
+    assert configured == [app._pipeline_config]
+    assert raster_sizes == [resolution_wh]
+    assert session._config.renderer.raster.resolution_wh == resolution_wh
+    assert session._scene.initial_rgb.shape == (
+        resolution_wh[1],
+        resolution_wh[0],
+        3,
+    )
+
+
+def test_original_perf_honors_explicit_pipeline_overrides() -> None:
+    app = CrazyRobotaxiApplication()
+
+    app.init(
+        [
+            "--model-preset",
+            "original-perf",
+            "--seed",
+            "7",
+            "--no-compile",
+            "--profile-pipeline",
+        ]
+    )
+
+    pipeline = app._pipeline_config
+    transformer = pipeline.diffusion_model.transformer
+    assert pipeline.diffusion_model.seed == 7
+    assert transformer.compile_network is False
+    assert transformer.native_dit_acceleration == "required"
+    assert transformer.skip_finalize_kv_cache is True
+    assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
+    assert pipeline.enable_sync_and_profile is True
 
 
 @pytest.mark.parametrize(

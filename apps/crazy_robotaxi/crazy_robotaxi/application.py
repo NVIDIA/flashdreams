@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -41,13 +42,49 @@ _DEFAULT_RENDERER = _ROOT / "configs" / "default_renderer.yaml"
 _VIDEO_FPS = 30
 """Generation and UI cadence; each UI tick advances one generated frame."""
 
+_LOGGER = logging.getLogger(__name__)
+
 _DEFAULT_PREWARM_BLOCKS = 4
 """Blocks covering chunk2 cache filling and the first steady-state AR shape."""
 
+_ORIGINAL_PERF_PIPELINE = derive_config(
+    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline,
+    name="crazy-robotaxi-original-perf",
+    diffusion_model={
+        "seed": None,
+        "transformer": {
+            "compile_network": True,
+            "skip_finalize_kv_cache": True,
+            "native_dit_acceleration": "required",
+            "native_dit_backend": "fp8_kvcache_cudnn",
+            "native_dit_attention_backend": "cudnn",
+        },
+        "scheduler": {
+            "denoising_timesteps": [1000, 100],
+            "num_inference_steps": 2,
+        },
+    },
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelPreset:
+    """App-owned pipeline selection and renderer geometry policy."""
+
+    pipeline: Any
+    renderer_follows_session: bool = False
+
+
 _MODEL_PRESETS = {
-    "standard": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline,
-    "perf": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline,
-    "native-perf": RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline,
+    "standard": _ModelPreset(RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline),
+    "perf": _ModelPreset(RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline),
+    "native-perf": _ModelPreset(
+        RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline
+    ),
+    "original-perf": _ModelPreset(
+        _ORIGINAL_PERF_PIPELINE,
+        renderer_follows_session=True,
+    ),
 }
 
 
@@ -61,6 +98,8 @@ class ApplicationConfig:
     driver_input: DriverInputConfig
     device: str
     total_blocks: int | None
+    model_preset_name: str
+    renderer_follows_session: bool
     pipeline_profiling: bool
     prewarm_blocks: int
     """Hidden neutral blocks generated before the first presented game frame."""
@@ -85,7 +124,7 @@ class CrazyRobotaxiApplication(IApplication):
         self._defaults = load_renderer_settings(_DEFAULT_RENDERER)
         self._pipeline_factory = pipeline_factory or _build_pipeline
         self._scene_factory = scene_factory or load_scene
-        self._pipeline_config: Any = _MODEL_PRESETS["standard"]
+        self._pipeline_config: Any = _MODEL_PRESETS["standard"].pipeline
         self._pipeline: Any | None = None
         self._config: ApplicationConfig | None = None
 
@@ -124,7 +163,8 @@ class CrazyRobotaxiApplication(IApplication):
                 else args.high_scores.expanduser()
             ),
         )
-        pipeline_config = _MODEL_PRESETS[args.model_preset]
+        model_preset = _MODEL_PRESETS[args.model_preset]
+        pipeline_config = model_preset.pipeline
         if args.compile is not None:
             pipeline_config = derive_config(
                 pipeline_config,
@@ -155,6 +195,8 @@ class CrazyRobotaxiApplication(IApplication):
             driver_input=settings.driver_input,
             device=args.device,
             total_blocks=args.total_blocks,
+            model_preset_name=args.model_preset,
+            renderer_follows_session=model_preset.renderer_follows_session,
             pipeline_profiling=bool(args.profile_pipeline),
             prewarm_blocks=args.prewarm_blocks,
             profile_input_latency=bool(args.profile_input_latency),
@@ -174,12 +216,39 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError(
                 "Crazy Robotaxi generates and presents video at 30 frames per second"
             )
-        expected = config.renderer.raster.resolution_wh
         actual = session_desc.video_width, session_desc.video_height
+        if config.renderer_follows_session:
+            config = replace(
+                config,
+                renderer=replace(
+                    config.renderer,
+                    raster=replace(
+                        config.renderer.raster,
+                        width=actual[0],
+                        height=actual[1],
+                    ),
+                ),
+            )
+        expected = config.renderer.raster.resolution_wh
         if actual != expected:
             raise ValueError(
                 f"Session dimensions {actual} do not match renderer {expected}"
             )
+        transformer = self._pipeline_config.diffusion_model.transformer
+        scheduler = self._pipeline_config.diffusion_model.scheduler
+        _LOGGER.info(
+            "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
+            "native_backend=%s attention_backend=%s skip_finalize=%s "
+            "denoising_timesteps=%s",
+            config.model_preset_name,
+            actual[0],
+            actual[1],
+            transformer.native_dit_acceleration,
+            transformer.native_dit_backend,
+            transformer.native_dit_attention_backend,
+            transformer.skip_finalize_kv_cache,
+            list(scheduler.denoising_timesteps),
+        )
         if self._pipeline is None:
             self._pipeline = self._pipeline_factory(
                 self._pipeline_config,
