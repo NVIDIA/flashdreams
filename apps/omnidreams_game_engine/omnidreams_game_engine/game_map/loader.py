@@ -47,6 +47,7 @@ from omnidreams_game_engine.game_map.types import (
     GameMapLinearAttributes,
     GameMapNode,
     GameMapParkingAccess,
+    GameMapRaceCourse,
     GameMapRoad,
     GameMapRoadBoundary,
     GameMapSpawn,
@@ -996,6 +997,88 @@ def _validate_topology(topology: GameMapTopology) -> None:
                 raise GameMapError(
                     f"Driveway {node.node_id!r} must have exactly one parking access"
                 )
+
+
+def _parse_race_courses(
+    doc: dict[str, Any], topology: GameMapTopology
+) -> tuple[GameMapRaceCourse, ...]:
+    """Validate ordered race courses against authored nodes and roads."""
+    if "race_courses" not in doc:
+        return ()
+    values = _sequence(doc["race_courses"], "race_courses")
+    if not values:
+        raise GameMapError("race_courses must contain at least one course")
+    valid_elements = {
+        *(node.node_id for node in topology.nodes),
+        *(road.road_id for road in topology.roads),
+    }
+    courses: list[GameMapRaceCourse] = []
+    course_ids: set[str] = set()
+    for index, value in enumerate(values):
+        raw = _mapping(value, f"race_courses[{index}]")
+        required = {"id", "start", "checkpoints", "lap_count"}
+        allowed = required | {"checkpoint_markers"}
+        if not required <= set(raw) or not set(raw) <= allowed:
+            raise GameMapError(
+                f"race_courses[{index}] requires {sorted(required)} and optionally "
+                "'checkpoint_markers'"
+            )
+        course_id = str(raw["id"]).strip()
+        if not course_id or course_id in course_ids:
+            raise GameMapError(f"Race course id {course_id!r} is empty or duplicated")
+        course_ids.add(course_id)
+        start = str(raw["start"]).strip()
+        if start not in valid_elements:
+            raise GameMapError(
+                f"Race course {course_id!r} start references unknown node or road "
+                f"{start!r}"
+            )
+        checkpoints = tuple(
+            str(item).strip()
+            for item in _sequence(
+                raw["checkpoints"], f"race course {course_id!r}.checkpoints"
+            )
+        )
+        if not checkpoints:
+            raise GameMapError(
+                f"Race course {course_id!r} requires at least one checkpoint"
+            )
+        if any(not checkpoint for checkpoint in checkpoints):
+            raise GameMapError(
+                f"Race course {course_id!r} checkpoints must not be empty"
+            )
+        if len(set(checkpoints)) != len(checkpoints):
+            raise GameMapError(f"Race course {course_id!r} checkpoints must be unique")
+        if start in checkpoints:
+            raise GameMapError(
+                f"Race course {course_id!r} may not reuse start as a checkpoint"
+            )
+        unknown = [item for item in checkpoints if item not in valid_elements]
+        if unknown:
+            raise GameMapError(
+                f"Race course {course_id!r} checkpoints reference unknown nodes or "
+                f"roads {unknown}"
+            )
+        lap_count = raw["lap_count"]
+        if type(lap_count) is not int or lap_count < 0:
+            raise GameMapError(
+                f"Race course {course_id!r}.lap_count must be a nonnegative integer"
+            )
+        checkpoint_markers = raw.get("checkpoint_markers", True)
+        if type(checkpoint_markers) is not bool:
+            raise GameMapError(
+                f"Race course {course_id!r}.checkpoint_markers must be a boolean"
+            )
+        courses.append(
+            GameMapRaceCourse(
+                course_id=course_id,
+                start_element_id=start,
+                checkpoint_element_ids=checkpoints,
+                lap_count=lap_count,
+                checkpoint_markers=checkpoint_markers,
+            )
+        )
+    return tuple(courses)
 
 
 def _sample_road(spec: _RoadSpec, spacing_m: float) -> np.ndarray:
@@ -2684,6 +2767,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         ),
     )
     _validate_topology(topology)
+    race_courses = _parse_race_courses(doc, topology)
 
     raw_roads: dict[str, np.ndarray] = {}
     for spec in road_specs:
@@ -3025,5 +3109,6 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         ground_vertices=ground_vertices,
         ground_faces=np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32),
         spawns=spawns,
+        race_courses=race_courses,
         traffic=traffic,
     )

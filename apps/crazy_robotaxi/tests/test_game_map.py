@@ -41,6 +41,7 @@ from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import VehicleState
 from PIL import Image
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -48,14 +49,23 @@ _MAPS = Path(__file__).parents[1] / "crazy_robotaxi" / "maps"
 _TEST_MAPS = Path(__file__).parent / "maps"
 _STARTER_MAP = _MAPS / "minimal_loop.robotaxi.yaml"
 _BOULEVARD_MAP = _MAPS / "boulevard_district.robotaxi.yaml"
-_BUNDLED_MAPS = (_STARTER_MAP, _BOULEVARD_MAP)
+_MINIMAL_RACE_TRACK_MAP = _MAPS / "race_track_minimal.robotaxi.yaml"
+_RACE_TRACK_MAP = _MAPS / "demo_race_track.robotaxi.yaml"
+_BUNDLED_MAPS = (
+    _STARTER_MAP,
+    _BOULEVARD_MAP,
+    _MINIMAL_RACE_TRACK_MAP,
+    _RACE_TRACK_MAP,
+)
 _INTERSECTION_GEOMETRY_MAP = _TEST_MAPS / "intersection_geometry.robotaxi.yaml"
 _PARKING_DRIVEWAY_MAP = _TEST_MAPS / "parking_driveway.robotaxi.yaml"
+_RACE_COURSE_MAP = _TEST_MAPS / "race_course.robotaxi.yaml"
 _TRAFFIC_INTERSECTION_MAP = _TEST_MAPS / "traffic_intersection.robotaxi.yaml"
 _TRAFFIC_LOOP_MAP = _TEST_MAPS / "traffic_loop.robotaxi.yaml"
 _COMPILER_TEST_MAPS = (
     _INTERSECTION_GEOMETRY_MAP,
     _PARKING_DRIVEWAY_MAP,
+    _RACE_COURSE_MAP,
     _TRAFFIC_INTERSECTION_MAP,
     _TRAFFIC_LOOP_MAP,
 )
@@ -156,6 +166,7 @@ def _intersection_transition_map(
 def _self_loop_map() -> dict[str, object]:
     """Restore a compact self-loop fixture independent of the bundled demo."""
     source = yaml.safe_load(_STARTER_MAP.read_text(encoding="utf-8"))
+    source.pop("race_courses", None)
     source["nodes"] = [node for node in source["nodes"] if node["type"] != "road_joint"]
     source["roads"] = [
         road for road in source["roads"] if road["id"] == "dead_end_road"
@@ -224,6 +235,9 @@ def test_bundled_map_compiles(source_path: Path, tmp_path: Path) -> None:
     assert game_map.schema_version == source["schema_version"] == 1
     assert game_map.map_id == source["id"]
     assert game_map.spawns
+    assert [course.course_id for course in game_map.race_courses] == [
+        course["id"] for course in source.get("race_courses", ())
+    ]
     assert compiled.archive_path.is_file()
     if "traffic_count" in source:
         assert len(game_map.traffic) == source["traffic_count"]
@@ -470,9 +484,7 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
     )
     assert any(element.road_boundaries for element in game_map.elements)
     rows = game_map_compiler._boundary_rows(game_map)
-    assert len(rows) == sum(
-        len(element.road_boundaries) for element in game_map.elements
-    )
+    assert rows
     assert all(row["road_boundary"]["category"] == "road_boundary" for row in rows)
     compiled = compile_game_map(source_path, cache_root=tmp_path / "cache")
     with zipfile.ZipFile(compiled.archive_path) as archive:
@@ -483,6 +495,39 @@ def test_profiles_without_curbs_do_not_emit_collision_segments(tmp_path: Path) -
     assert all(
         row["road_boundary"]["category"] == "road_boundary" for row in archived_rows
     )
+
+
+@pytest.mark.parametrize(
+    "source_path",
+    (_RACE_COURSE_MAP, _TRAFFIC_INTERSECTION_MAP, _PARKING_DRIVEWAY_MAP),
+)
+def test_maps_export_overlapping_local_bev_boundaries(source_path: Path) -> None:
+    game_map = load_game_map(source_path)
+    rows = game_map_compiler._boundary_rows(game_map)
+    perimeter = unary_union(
+        [Polygon(element.surface_world[:, :2]) for element in game_map.elements]
+    ).boundary
+    lines = [
+        LineString(
+            [(point["x"], point["y"]) for point in row["road_boundary"]["location"]]
+        )
+        for row in rows
+    ]
+
+    assert lines
+    maximum_length = (
+        game_map_compiler._BOUNDARY_CHUNK_CORE_LENGTH_M
+        + 2.0 * game_map_compiler._BOUNDARY_CHUNK_OVERLAP_M
+    )
+    for index, line in enumerate(lines):
+        assert line.length <= maximum_length + 1.0e-3
+        assert line.difference(perimeter.buffer(1.0e-4)).length <= 1.0e-4
+        if line.is_ring:
+            continue
+        other_lines = unary_union(lines[:index] + lines[index + 1 :])
+        assert Point(line.coords[0]).distance(other_lines) <= 1.0e-4
+        assert Point(line.coords[-1]).distance(other_lines) <= 1.0e-4
+    assert perimeter.difference(unary_union(lines).buffer(1.0e-4)).length <= 1.0e-4
 
 
 def test_profile_is_optional_when_attributes_are_direct(tmp_path: Path) -> None:
@@ -586,6 +631,7 @@ def test_topology_round_trip_is_lossless() -> None:
     restored = game_map_from_dict(game_map_to_dict(original))
 
     assert restored.topology == original.topology
+    assert restored.race_courses == original.race_courses
     assert restored.topology.adjacency == original.topology.adjacency
     assert len(restored.lane_dividers) == len(original.lane_dividers)
     for restored_divider, original_divider in zip(
@@ -1773,8 +1819,8 @@ def test_final_clipgt_archive_contains_all_authored_map_geometry(
             label.startswith(f"lane_line:{road['id']}:lane:") for label in labels
         )
         assert actual == expected, road["id"]
-    assert boundaries.num_rows == sum(
-        len(element.road_boundaries) for element in compiled.game_map.elements
+    assert boundaries.num_rows == len(
+        game_map_compiler._boundary_rows(compiled.game_map)
     )
     if intersections is None:
         assert "clipgt/intersection_area.parquet" not in archive_names

@@ -27,6 +27,7 @@ from crazy_robotaxi.high_scores import (
     validate_player_name,
 )
 from crazy_robotaxi.live_edit.input_hooks import LiveEditRequests
+from crazy_robotaxi.race import RaceGameSnapshot
 from flashdreams.serving.realtime.input import normalize_key
 
 
@@ -41,7 +42,7 @@ class CrazyRobotaxiKeyboardState(KeyboardState):
 
     def __init__(self) -> None:
         super().__init__()
-        self._game_state: TaxiGameSnapshot | None = None
+        self._game_state: TaxiGameSnapshot | RaceGameSnapshot | None = None
         self._name_submission: str | None = None
         self._keyboard_steer = 0.0
         self._last_command_s = time.monotonic()
@@ -51,6 +52,10 @@ class CrazyRobotaxiKeyboardState(KeyboardState):
 
     def submit_taxi_name(self, name: str) -> bool:
         """Validate and queue one high-score name submission."""
+        return self.submit_player_name(name)
+
+    def submit_player_name(self, name: str) -> bool:
+        """Validate and queue one taxi-score or race-time name."""
         try:
             normalized = validate_player_name(name)
         except ValueError:
@@ -61,13 +66,19 @@ class CrazyRobotaxiKeyboardState(KeyboardState):
 
     def consume_taxi_name_submission(self) -> str | None:
         """Return and clear the pending high-score name submission."""
+        return self.consume_player_name_submission()
+
+    def consume_player_name_submission(self) -> str | None:
+        """Return and clear the pending leaderboard name submission."""
         with self._lock:
             name = self._name_submission
             self._name_submission = None
             return name
 
     def update_runtime_state(
-        self, state: VehicleState, game_state: TaxiGameSnapshot
+        self,
+        state: VehicleState,
+        game_state: TaxiGameSnapshot | RaceGameSnapshot,
     ) -> None:
         """Publish vehicle and game state as one coherent snapshot."""
         with self._lock:
@@ -82,15 +93,21 @@ class CrazyRobotaxiKeyboardState(KeyboardState):
             self._name_submission = None
 
     @property
-    def taxi_game_state(self) -> TaxiGameSnapshot | None:
-        """Return the latest game snapshot."""
+    def taxi_game_state(self) -> TaxiGameSnapshot | RaceGameSnapshot | None:
+        """Return the latest game snapshot (legacy property name)."""
+        with self._lock:
+            return self._game_state
+
+    @property
+    def game_state(self) -> TaxiGameSnapshot | RaceGameSnapshot | None:
+        """Return the latest taxi or race snapshot."""
         with self._lock:
             return self._game_state
 
     @property
     def runtime_state(
         self,
-    ) -> tuple[VehicleState | None, TaxiGameSnapshot | None]:
+    ) -> tuple[VehicleState | None, TaxiGameSnapshot | RaceGameSnapshot | None]:
         """Return vehicle and game state from one publication lock."""
         with self._lock:
             return self._vehicle_state, self._game_state
@@ -111,7 +128,11 @@ class CrazyRobotaxiKeyboardState(KeyboardState):
             )
             pressed = {normalize_key(key) for key in self._keyboard.snapshot()}
             game_state = self._game_state
-        if game_state is not None and game_state.session_state != "playing":
+        if game_state is not None and game_state.session_state not in {
+            "playing",
+            "awaiting_start",
+            "racing",
+        }:
             return DriverCommand()
         if drive_command is not None:
             if "space" not in pressed:

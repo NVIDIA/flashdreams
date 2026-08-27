@@ -72,9 +72,11 @@ def test_offload_text_encoder_flag_enables() -> None:
     assert args.offload_text_encoder is True
 
 
-def test_game_mode_defaults_disabled_and_can_be_enabled() -> None:
-    assert build_parser().parse_args([]).game_mode is False
-    assert build_parser().parse_args(["--game-mode"]).game_mode is True
+def test_game_mode_defaults_to_taxi_and_accepts_named_modes() -> None:
+    assert build_parser().parse_args([]).game_mode == "taxi"
+    assert build_parser().parse_args(["--game-mode", "race"]).game_mode == "race"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--game-mode"])
 
 
 def test_visual_flare_override_defaults_disabled() -> None:
@@ -86,17 +88,16 @@ def test_visual_flare_override_defaults_disabled() -> None:
 
 
 @pytest.mark.parametrize(
-    ("argv", "game_mode_enabled", "visual_flare_enabled"),
+    ("argv", "visual_flare_enabled"),
     [
-        ([], False, False),
-        (["--game-mode"], True, False),
-        (["--game-mode", "--disable-visual-flare"], True, False),
+        ([], False),
+        (["--game-mode", "race"], False),
+        (["--game-mode", "race", "--disable-visual-flare"], False),
     ],
 )
-def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
+def test_named_game_modes_keep_base_game_physics_disabled(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
-    game_mode_enabled: bool,
     visual_flare_enabled: bool,
 ) -> None:
     monkeypatch.setattr(cli, "RasterRenderBackend", lambda **_k: object())
@@ -105,15 +106,16 @@ def test_game_mode_controls_speed_limit_collisions_and_visual_flare(
         build_parser().parse_args([*_MAP_ARGS, *argv])
     )
 
-    assert config.vehicle.speed_limit_enabled is game_mode_enabled
-    assert config.vehicle.actor_collision_enabled is game_mode_enabled
-    assert config.vehicle.static_collision_enabled is game_mode_enabled
+    assert config.game_mode is False
+    assert config.vehicle.speed_limit_enabled is False
+    assert config.vehicle.actor_collision_enabled is False
+    assert config.vehicle.static_collision_enabled is False
     assert config.visual_flare_enabled is visual_flare_enabled
 
 
 @pytest.mark.parametrize(
     ("argv", "expected_synchronization"),
-    [([], True), (["--taxi-game"], True)],
+    [([], True), (["--game-mode", "race"], True)],
 )
 def test_taxi_game_selects_frame_synchronous_bev(
     monkeypatch: pytest.MonkeyPatch,
@@ -134,9 +136,7 @@ def test_taxi_game_selects_frame_synchronous_bev(
 
 
 def test_taxi_alignment_diagnostics_accepts_output_directory() -> None:
-    args = build_parser().parse_args(
-        ["--taxi-game", "--taxi-alignment-diagnostics", "diagnostics"]
-    )
+    args = build_parser().parse_args(["--taxi-alignment-diagnostics", "diagnostics"])
 
     assert args.taxi_alignment_diagnostics == Path("diagnostics")
 

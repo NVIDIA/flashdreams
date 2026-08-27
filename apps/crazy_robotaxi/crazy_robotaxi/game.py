@@ -277,6 +277,26 @@ def project_target_to_bev(
     return project_target_pose_to_bev(target_xyz_m, rig_to_world, bev)
 
 
+def project_target_to_bev_edge(
+    target_xyz_m: tuple[float, float, float],
+    vehicle_state: VehicleState,
+    bev: BevConfig,
+) -> tuple[float, float] | None:
+    """Project the target direction to the edge of the ego-centered BEV.
+
+    Args:
+        target_xyz_m: Target position in world coordinates.
+        vehicle_state: Ego pose used by the BEV camera.
+        bev: BEV camera configuration.
+
+    Returns:
+        Normalized boundary intersection of the ego-to-target ray, or ``None``
+        when the direction cannot be projected.
+    """
+    rig_to_world = level_rig_pose_from_vehicle_state(vehicle_state)
+    return project_target_pose_to_bev_edge(target_xyz_m, rig_to_world, bev)
+
+
 def project_target_pose_to_bev(
     target_xyz_m: tuple[float, float, float],
     rig_to_world: npt.NDArray[np.float32],
@@ -291,6 +311,34 @@ def project_target_pose_to_bev(
         return 0.5, 0.5, False
     u, v = projected
     return u, v, 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
+
+
+def project_target_pose_to_bev_edge(
+    target_xyz_m: tuple[float, float, float],
+    rig_to_world: npt.NDArray[np.float32],
+    bev: BevConfig,
+) -> tuple[float, float] | None:
+    """Project the target direction to the edge of a pose-aligned BEV.
+
+    Args:
+        target_xyz_m: Target position in world coordinates.
+        rig_to_world: Exact rig pose used to produce the BEV image.
+        bev: BEV camera configuration.
+
+    Returns:
+        Normalized boundary intersection of the ego-to-target ray, or ``None``
+        when the direction cannot be projected.
+    """
+    target_u, target_v, _visible = project_target_pose_to_bev(
+        target_xyz_m, rig_to_world, bev
+    )
+    delta_u = target_u - 0.5
+    delta_v = target_v - 0.5
+    extent = max(abs(delta_u), abs(delta_v))
+    if not math.isfinite(extent) or extent <= 1.0e-9:
+        return None
+    scale = 0.5 / extent
+    return 0.5 + delta_u * scale, 0.5 + delta_v * scale
 
 
 def project_segment_pose_to_bev(

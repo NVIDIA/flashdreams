@@ -349,6 +349,21 @@ roads:
   - {id: far_east_loop_west, from: far_east_bend_northwest, to: far_east_bend_southwest, profile: local}
   - {id: far_east_loop_exit, from: far_east_bend_southwest, to: far_east_north_crossing, profile: local}
 
+race_courses:
+  - id: eastbound-boulevard-sprint
+    start: spawn_arterial
+    checkpoints:
+      - central_arterial_crossing
+      - diagonal_arterial_crossing
+      - arterial_merge_crossing
+      - arterial_crossing_550
+      - arterial_crossing_710
+      - arterial_crossing_895
+      - arterial_crossing_1082
+      - east_arterial_end
+    lap_count: 0
+    checkpoint_markers: true
+
 traffic_count: 100
 
 traffic:

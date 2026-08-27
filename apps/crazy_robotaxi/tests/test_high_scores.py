@@ -8,10 +8,27 @@ from pathlib import Path
 import pytest
 from crazy_robotaxi.high_scores import (
     HighScoreStore,
+    format_race_time_us,
     validate_player_name,
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.mark.parametrize(
+    ("elapsed_time_us", "formatted"),
+    [
+        (0, "0:00.000"),
+        (1_234_000, "0:01.234"),
+        (61_234_000, "1:01.234"),
+        (3_599_999_600, "60:00.000"),
+    ],
+)
+def test_race_time_format_uses_minutes_seconds_and_milliseconds(
+    elapsed_time_us: int,
+    formatted: str,
+) -> None:
+    assert format_race_time_us(elapsed_time_us) == formatted
 
 
 @pytest.mark.parametrize("name", ["Ada", "PLAYER 1", "A-B_C"])

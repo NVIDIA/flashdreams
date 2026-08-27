@@ -70,6 +70,15 @@ class CrazyRobotaxiRunnerConfig(RunnerConfig):
     backend: Literal["raster", "omnidreams"] | None = None
     """Render backend override; ``None`` selects the production world model."""
 
+    game_mode: Literal["taxi", "race"] = "taxi"
+    """Gameplay mode selected for the session."""
+
+    race_course: str | None = None
+    """Race course ID; ``None`` selects the map's first course."""
+
+    race_times: Path | None = None
+    """Map- and course-scoped race leaderboard CSV override."""
+
     stream_mjpeg: str | None = None
     """Optional MJPEG bind address instead of a native window."""
 
@@ -108,6 +117,9 @@ class CrazyRobotaxiRunner(Runner):
         _append_value(argv, "--variant", self.config.variant)
         _append_value(argv, "--prompt", self.config.prompt)
         _append_value(argv, "--backend", self.config.backend)
+        _append_value(argv, "--game-mode", self.config.game_mode)
+        _append_value(argv, "--race-course", self.config.race_course)
+        _append_value(argv, "--race-times", self.config.race_times)
         _append_value(argv, "--stream-mjpeg", self.config.stream_mjpeg)
         _append_value(argv, "--taxi-seed", self.config.taxi_seed)
         _append_value(argv, "--taxi-highscores", self.config.taxi_highscores)

@@ -21,7 +21,7 @@ import argparse
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from loguru import logger
@@ -52,7 +52,9 @@ from crazy_robotaxi.game import (
 )
 from crazy_robotaxi.game_settings import load_game_settings
 from crazy_robotaxi.high_scores import (
+    RaceTimeStore,
     default_high_scores_path,
+    default_race_times_path,
 )
 from crazy_robotaxi.input import (
     CrazyRobotaxiKeyboardState,
@@ -67,6 +69,7 @@ from crazy_robotaxi.physics import (
     TaxiPhysicsWorld,
     step_taxi_physics_world,
 )
+from crazy_robotaxi.race import RaceController
 from crazy_robotaxi.scene import (
     load_scene_data,
 )
@@ -78,9 +81,10 @@ class CrazyRobotaxiRuntime:
 
     def __init__(
         self,
-        controller: TaxiGameController,
+        controller: TaxiGameController | RaceController,
         keyboard: CrazyRobotaxiKeyboardState,
         *,
+        game_mode: Literal["taxi", "race"] = "taxi",
         style_ability: Any | None = None,
         coin_ability: CoinAbility | None = None,
         obstacle_ability: Any | None = None,
@@ -89,6 +93,7 @@ class CrazyRobotaxiRuntime:
     ) -> None:
         self._controller = controller
         self._keyboard = keyboard
+        self._game_mode = game_mode
         self._style_ability = style_ability
         self._coin_ability = coin_ability
         self._obstacle_ability = obstacle_ability
@@ -103,7 +108,7 @@ class CrazyRobotaxiRuntime:
     def process_events(self, state: VehicleState) -> None:
         """Drain live-edit key requests and a pending high-score name."""
         self._process_live_edit_requests()
-        submitted_name = self._keyboard.consume_taxi_name_submission()
+        submitted_name = self._keyboard.consume_player_name_submission()
         if submitted_name is None:
             return
         try:
@@ -153,8 +158,10 @@ class CrazyRobotaxiRuntime:
                 )
                 self._item_ability.flash(label)
                 logger.info(f"[live-edit] item pickup {item_type} -> {label}")
-        passengers = build_pickup_passenger_trajectories(
-            snapshots, trajectory.timestamps_us
+        passengers = (
+            build_pickup_passenger_trajectories(snapshots, trajectory.timestamps_us)
+            if self._game_mode == "taxi"
+            else ()
         )
         obstacles: tuple[Any, ...] = ()
         if self._obstacle_ability is not None:
@@ -183,10 +190,16 @@ class CrazyRobotaxiApplication:
         *,
         live_edit: LiveEditConfig | None = None,
         style_ability: Any | None = None,
+        game_mode: Literal["taxi", "race"] = "taxi",
+        race_course_id: str | None = None,
+        race_times_path: Path | None = None,
     ) -> None:
         self._config = config
         self._keyboard = keyboard
         self._presenter_config = presenter_config
+        self._game_mode = game_mode
+        self._race_course_id = race_course_id
+        self._race_times_path = race_times_path or default_race_times_path()
         self._reference_route_world: Any | None = None
         self._navigation_lanes: tuple[Any, ...] = ()
         self._fare_regions: tuple[Any, ...] = ()
@@ -303,16 +316,41 @@ class CrazyRobotaxiApplication:
         """Create game state for a new rollout."""
         if self._reference_route_world is None:
             raise RuntimeError("Crazy Robotaxi scene data was not loaded")
-        controller = TaxiGameController(
-            scene_id=scene.scene_id,
-            reference_route_world=self._reference_route_world,
-            navigation_lanes=self._navigation_lanes,
-            fare_regions=self._fare_regions,
-            initial_state=simulation.current_state,
-            config=self._config,
-            initial_camera=scene.selected_camera,
-            vicinity_resolver=self._vicinity_resolver,
-        )
+        if self._game_mode == "race":
+            if scene.game_map is None or not scene.game_map.race_courses:
+                raise ValueError(
+                    f"Map {scene.scene_id!r} does not define any race_courses."
+                )
+            courses = {
+                course.course_id: course for course in scene.game_map.race_courses
+            }
+            selected_id = (
+                self._race_course_id or scene.game_map.race_courses[0].course_id
+            )
+            try:
+                course = courses[selected_id]
+            except KeyError as exc:
+                available = ", ".join(courses)
+                raise ValueError(
+                    f"Unknown race course {selected_id!r}; available: {available}"
+                ) from exc
+            controller: TaxiGameController | RaceController = RaceController(
+                scene.game_map,
+                course,
+                simulation.current_state,
+                RaceTimeStore(self._race_times_path),
+            )
+        else:
+            controller = TaxiGameController(
+                scene_id=scene.scene_id,
+                reference_route_world=self._reference_route_world,
+                navigation_lanes=self._navigation_lanes,
+                fare_regions=self._fare_regions,
+                initial_state=simulation.current_state,
+                config=self._config,
+                initial_camera=scene.selected_camera,
+                vicinity_resolver=self._vicinity_resolver,
+            )
         coin_ability: CoinAbility | None = None
         if self._live_edit.coins.enabled and self._coin_lanes:
             # Rebuilt per rollout so a reset restores the full course.
@@ -356,6 +394,7 @@ class CrazyRobotaxiApplication:
         return CrazyRobotaxiRuntime(
             controller,
             self._keyboard,
+            game_mode=self._game_mode,
             style_ability=self._style_ability,
             coin_ability=coin_ability,
             obstacle_ability=obstacle_ability,
@@ -374,6 +413,9 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
         backend: RenderBackend,
         presenter: Any | None = None,
         *,
+        game_mode: Literal["taxi", "race"] = "taxi",
+        race_course_id: str | None = None,
+        race_times_path: Path | None = None,
         alignment_diagnostics_root: Path | None = None,
         trace_sink: TraceSink | None = None,
         close_presenter_on_exit: bool = True,
@@ -423,6 +465,9 @@ class CrazyRobotaxiApp(InteractiveDriveApp):
             config.bev,
             live_edit=live_edit,
             style_ability=style_ability,
+            game_mode=game_mode,
+            race_course_id=race_course_id,
+            race_times_path=race_times_path,
         )
         super().__init__(
             config=config,

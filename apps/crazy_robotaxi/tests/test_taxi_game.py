@@ -14,6 +14,7 @@ from crazy_robotaxi.game import (
     TaxiGameSnapshot,
     project_segment_pose_to_bev,
     project_target_to_bev,
+    project_target_to_bev_edge,
     project_taxi_marker_to_camera,
     project_taxi_markers_to_camera,
     relative_target_bearing_rad,
@@ -783,6 +784,27 @@ def test_bev_projection_places_forward_and_left_targets() -> None:
     assert forward_v < 0.5
     assert left_visible is True
     assert left_u < 0.5
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ((10.0, 0.0, 0.0), (0.5, 0.0)),
+        ((0.0, 10.0, 0.0), (0.0, 0.5)),
+        ((0.0, -10.0, 0.0), (1.0, 0.5)),
+        ((-10.0, 0.0, 0.0), (0.5, 1.0)),
+        ((10.0, 10.0, 0.0), (0.0, 0.0)),
+    ],
+)
+def test_bev_edge_projection_intersects_player_to_target_ray(
+    target: tuple[float, float, float],
+    expected: tuple[float, float],
+) -> None:
+    bev = BevConfig(width=100, height=100, height_m=75.0, fov_deg=60.0, tilt_deg=0.0)
+
+    projected = project_target_to_bev_edge(target, _state(), bev)
+
+    assert projected == pytest.approx(expected)
 
 
 def test_bev_segment_projection_clips_crossing_line_to_viewport() -> None:

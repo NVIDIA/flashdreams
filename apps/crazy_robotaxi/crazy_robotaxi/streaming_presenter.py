@@ -59,9 +59,12 @@ from PIL import Image, ImageDraw
 
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
+    project_segment_pose_to_bev,
     project_target_to_bev,
+    project_target_to_bev_edge,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from flashdreams.serving.realtime.frame_bus import LatestFrameBus
 from flashdreams.serving.realtime.media import (
     encode_rgb_frame_to_jpeg,
@@ -336,6 +339,7 @@ _INDEX_HTML = """<!doctype html>
     fill: currentColor; stroke: black; stroke-width: 3px;
     stroke-linejoin: round; paint-order: stroke fill;
   }
+  .taxi-arrow.hidden { display: none; }
   .taxi-status { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .taxi-event { min-height: 18px; color: white; font-weight: 700; margin-top: 3px; }
   .taxi-hud.dropoff { color: #c89632; border-color: #c89632; }
@@ -352,6 +356,20 @@ _INDEX_HTML = """<!doctype html>
     transform: translate(-50%, -50%); box-shadow: 0 2px 6px black;
   }
   .taxi-pin.dropoff { background: #c89632; }
+  .race-gate {
+    position: absolute; height: 9px; border: 2px solid white;
+    border-radius: 6px; background: #e62d2d; box-sizing: border-box;
+    transform-origin: left center; box-shadow: 0 2px 6px black;
+  }
+  .bev-edge-arrow {
+    position: absolute; width: 26px; height: 26px;
+    transform-origin: center; filter: drop-shadow(0 2px 3px black);
+  }
+  .bev-edge-arrow svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .bev-edge-arrow path {
+    fill: #c89632; stroke: white; stroke-width: 2.5px; stroke-linejoin: round;
+  }
+  .bev-edge-arrow.race path { fill: #e62d2d; }
   .game-over {
     position: fixed; inset: 0; display: flex; align-items: center;
     justify-content: center; background: rgba(0, 0, 0, 0.72);
@@ -423,7 +441,7 @@ _INDEX_HTML = """<!doctype html>
       <div id="high-score-rank"></div>
       <input id="player-name" maxlength="12" autocomplete="nickname"
              pattern="[A-Za-z0-9 _-]{1,12}" placeholder="Your name" required>
-      <button class="game-button" type="submit">Save score</button>
+      <button class="game-button" id="save-result" type="submit">Save score</button>
       <div class="name-error" id="name-error"></div>
     </form>
     <div class="leaderboard hidden" id="leaderboard">
@@ -522,6 +540,7 @@ const finalScoreEl = document.getElementById('final-score');
 const nameEntryEl = document.getElementById('name-entry');
 const highScoreRankEl = document.getElementById('high-score-rank');
 const playerNameEl = document.getElementById('player-name');
+const saveResultEl = document.getElementById('save-result');
 const nameErrorEl = document.getElementById('name-error');
 const leaderboardEl = document.getElementById('leaderboard');
 const scoreRowsEl = document.getElementById('score-rows');
@@ -536,10 +555,17 @@ function paintGameOver(taxi) {
     previousTaxiSession = state || null;
     return;
   }
-  finalScoreEl.textContent = `FINAL SCORE  ${taxi.score}`;
+  const race = taxi.game_mode === 'race';
+  finalScoreEl.textContent = race
+    ? `FINAL TIME  ${taxi.final_time || '0:00.000'}`
+    : `FINAL SCORE  ${taxi.score}`;
   if (previousTaxiSession !== state) releaseAllKeys();
   const enteringName = state === 'awaiting_name';
-  gameOverTitleEl.textContent = enteringName ? 'NEW HIGH SCORE!' : 'HIGH SCORES';
+  gameOverTitleEl.textContent = race
+    ? (enteringName ? 'NEW TOP TIME!' : 'TOP TIMES')
+    : (enteringName ? 'NEW HIGH SCORE!' : 'HIGH SCORES');
+  saveResultEl.textContent = race ? 'Save time' : 'Save score';
+  newGameEl.textContent = race ? 'Race Again' : 'New Game';
   nameEntryEl.classList.toggle('hidden', !enteringName);
   leaderboardEl.classList.toggle('hidden', enteringName);
   if (enteringName) {
@@ -554,7 +580,10 @@ function paintGameOver(taxi) {
     (taxi.leaderboard || []).forEach((entry, index) => {
       const row = document.createElement('tr');
       if (index + 1 === taxi.high_score_rank) row.classList.add('current');
-      [String(index + 1), entry.name, String(entry.score)].forEach(value => {
+      const result = race
+        ? entry.elapsed_time
+        : String(entry.score);
+      [String(index + 1), entry.name, result].forEach(value => {
         const cell = document.createElement('td');
         cell.textContent = value;
         row.appendChild(cell);
@@ -563,6 +592,26 @@ function paintGameOver(taxi) {
     });
   }
   previousTaxiSession = state;
+}
+function appendBevEdgeArrow(spec, race) {
+  if (!spec) return;
+  const width = taxiMapEl.clientWidth;
+  const height = taxiMapEl.clientHeight;
+  if (width <= 0 || height <= 0) return;
+  const edgeX = spec.u * width;
+  const edgeY = spec.v * height;
+  const dx = edgeX - width / 2;
+  const dy = edgeY - height / 2;
+  const length = Math.hypot(dx, dy);
+  if (length <= 0.001) return;
+  const inset = 16;
+  const arrow = document.createElement('div');
+  arrow.className = `bev-edge-arrow${race ? ' race' : ''}`;
+  arrow.style.left = `${edgeX - dx / length * inset}px`;
+  arrow.style.top = `${edgeY - dy / length * inset}px`;
+  arrow.style.transform = `translate(-50%, -50%) rotate(${Math.atan2(dy, dx)}rad)`;
+  arrow.innerHTML = '<svg viewBox="0 0 26 26"><path d="M24 13 L3 2 L3 24 Z"></path></svg>';
+  taxiPinsEl.appendChild(arrow);
 }
 function paintTaxi(taxi) {
   driveHintEl.textContent = taxi
@@ -575,30 +624,66 @@ function paintTaxi(taxi) {
     return;
   }
   paintGameOver(taxi);
-  if (taxi.session_state !== 'playing') {
+  const race = taxi.game_mode === 'race';
+  const active = race
+    ? taxi.session_state === 'awaiting_start' || taxi.session_state === 'racing'
+    : taxi.session_state === 'playing';
+  if (!active) {
     taxiHudEl.classList.add('hidden');
     taxiMapEl.classList.add('hidden');
     return;
   }
-  const dropoff = taxi.phase === 'to_dropoff';
+  const dropoff = race || taxi.phase === 'to_dropoff';
   taxiHudEl.classList.remove('hidden');
   taxiHudEl.classList.toggle('dropoff', dropoff);
   taxiArrowEl.style.transform = `rotate(${-taxi.relative_bearing_rad * 180 / Math.PI}deg)`;
+  taxiArrowEl.classList.toggle('hidden', race && !taxi.checkpoint_markers);
   const phase = dropoff ? 'DROPOFF' : 'PICKUP';
   const timer = typeof taxi.remaining_time_s === 'number'
     ? `  ${taxi.remaining_time_s.toFixed(1)}s` : '';
   const highScore = typeof taxi.high_score === 'number'
     ? `  HIGH ${taxi.high_score}` : '';
-  taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
-  taxiEventEl.textContent = taxi.event === 'pickup_complete'
+  if (race) {
+    let progress = 'CROSS START LINE TO BEGIN';
+    if (taxi.session_state === 'racing' && taxi.lap_count === 0) {
+      progress = `CHECKPOINT ${taxi.checkpoint_index + 1}/${taxi.checkpoint_count}`;
+    } else if (taxi.session_state === 'racing' && taxi.target_kind === 'start') {
+      progress = `RETURN TO START  LAP ${taxi.completed_laps + 1}/${taxi.lap_count}`;
+    } else if (taxi.session_state === 'racing') {
+      progress = `LAP ${taxi.completed_laps + 1}/${taxi.lap_count}  CHECKPOINT ${taxi.checkpoint_index + 1}/${taxi.checkpoint_count}`;
+    }
+    const best = taxi.best_time ? `  BEST ${taxi.best_time}` : '';
+    taxiStatusEl.textContent = `RACE ${taxi.elapsed_time}  ${progress}  ${Math.round(taxi.distance_m)}m${best}`;
+    taxiEventEl.textContent = taxi.event === 'lap_complete' ? 'LAP COMPLETE' : '';
+  } else {
+    taxiStatusEl.textContent = `GAME ${taxi.global_remaining_time_s.toFixed(1)}s  ${phase}  ${Math.round(taxi.distance_m)}m${timer}  SCORE ${taxi.score}${highScore}`;
+    taxiEventEl.textContent = taxi.event === 'pickup_complete'
     ? 'PASSENGER PICKED UP'
     : (taxi.event === 'fare_complete'
       ? `FARE COMPLETE  +${taxi.awarded_points}  +${taxi.awarded_global_time_s}s`
       : (taxi.event === 'time_expired' ? 'TIME EXPIRED' : ''));
+  }
   const markers = taxi.bev_targets || [];
   const showMap = taxi.bev_enabled;
   taxiMapEl.classList.toggle('hidden', !showMap);
   taxiPinsEl.replaceChildren();
+  if (race && taxi.bev_gate) {
+    const start = taxi.bev_gate.start;
+    const end = taxi.bev_gate.end;
+    if (start.visible || end.visible) {
+      const dx = (end.u - start.u) * taxiMapEl.clientWidth;
+      const dy = (end.v - start.v) * taxiMapEl.clientHeight;
+      const gate = document.createElement('div');
+      gate.className = 'race-gate';
+      gate.style.left = `${start.u * 100}%`;
+      gate.style.top = `${start.v * 100}%`;
+      gate.style.width = `${Math.hypot(dx, dy)}px`;
+      gate.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+      taxiPinsEl.appendChild(gate);
+    }
+    appendBevEdgeArrow(taxi.bev_arrow, true);
+    return;
+  }
   markers.filter(marker => marker.visible).forEach(marker => {
     const pin = document.createElement('div');
     pin.className = `taxi-pin${dropoff ? ' dropoff' : ''}`;
@@ -606,6 +691,7 @@ function paintTaxi(taxi) {
     pin.style.top = `${marker.v * 100}%`;
     taxiPinsEl.appendChild(pin);
   });
+  appendBevEdgeArrow(taxi.bev_arrow, false);
 }
 nameEntryEl.addEventListener('submit', async event => {
   event.preventDefault();
@@ -932,7 +1018,7 @@ class MJPEGStreamingPresenter:
         snapshot = frame.application_state
         if (
             snapshot is None
-            or snapshot.session_state != "playing"
+            or snapshot.session_state not in {"playing", "awaiting_start", "racing"}
             or frame.rig_to_world is None
             or self._taxi_camera_calibration is None
         ):
@@ -947,6 +1033,36 @@ class MJPEGStreamingPresenter:
                 output_height=image_height,
             )
             self._taxi_camera_models[model_key] = camera_model
+        if isinstance(snapshot, RaceGameSnapshot):
+            gate = project_race_gate_to_camera(
+                snapshot,
+                frame.rig_to_world,
+                camera_model,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            if gate is None:
+                return rgb_host_uint8
+            image = Image.fromarray(rgb_host_uint8, mode="RGB")
+            draw = ImageDraw.Draw(image)
+            draw.line(gate, fill=(0, 0, 0), width=13)
+            draw.line(gate, fill=(230, 55, 55), width=9)
+            center = (
+                (gate[0][0] + gate[1][0]) / 2.0,
+                (gate[0][1] + gate[1][1]) / 2.0,
+            )
+            label_box = draw.textbbox((0, 0), snapshot.target_label, stroke_width=2)
+            draw.text(
+                (
+                    center[0] - (label_box[2] - label_box[0]) / 2.0,
+                    center[1] - 22,
+                ),
+                snapshot.target_label,
+                fill=(255, 255, 255),
+                stroke_width=2,
+                stroke_fill=(0, 0, 0),
+            )
+            return np.asarray(image)
         markers = project_taxi_markers_to_camera(
             snapshot,
             frame.rig_to_world,
@@ -1111,7 +1227,10 @@ class MJPEGStreamingPresenter:
         vehicle_state = None if frame is None else frame.vehicle_state
         taxi_state = None if frame is None else frame.application_state
         live_taxi_state = self._keyboard.taxi_game_state
-        if live_taxi_state is not None and live_taxi_state.session_state != "playing":
+        if live_taxi_state is not None and live_taxi_state.session_state in {
+            "awaiting_name",
+            "leaderboard",
+        }:
             taxi_state = live_taxi_state
         result: dict[str, object] = {
             "speed_mps": None,
@@ -1131,6 +1250,58 @@ class MJPEGStreamingPresenter:
                 self._bev_config is not None and self._bev_config.enabled
             )
             if vehicle_state is not None and self._bev_config is not None:
+                if isinstance(taxi_state, RaceGameSnapshot):
+                    visible_gate = (
+                        project_segment_pose_to_bev(
+                            np.asarray(
+                                [
+                                    taxi_state.gate_start_xyz_m,
+                                    taxi_state.gate_end_xyz_m,
+                                ],
+                                dtype=np.float32,
+                            ),
+                            frame.bev_rig_to_world,
+                            self._bev_config,
+                        )
+                        if frame is not None and frame.bev_rig_to_world is not None
+                        else None
+                    )
+                    if visible_gate is None:
+                        start_u, start_v, _ = project_target_to_bev(
+                            taxi_state.gate_start_xyz_m,
+                            vehicle_state,
+                            self._bev_config,
+                        )
+                        end_u, end_v, _ = project_target_to_bev(
+                            taxi_state.gate_end_xyz_m,
+                            vehicle_state,
+                            self._bev_config,
+                        )
+                    else:
+                        (start_u, start_v), (end_u, end_v) = visible_gate
+                    taxi_payload["bev_gate"] = {
+                        "start": {
+                            "u": start_u,
+                            "v": start_v,
+                            "visible": visible_gate is not None,
+                        },
+                        "end": {
+                            "u": end_u,
+                            "v": end_v,
+                            "visible": visible_gate is not None,
+                        },
+                    }
+                    if visible_gate is None:
+                        edge = project_target_to_bev_edge(
+                            taxi_state.target_xyz_m,
+                            vehicle_state,
+                            self._bev_config,
+                        )
+                        if edge is not None:
+                            taxi_payload["bev_arrow"] = {"u": edge[0], "v": edge[1]}
+                    taxi_payload["bev_targets"] = []
+                    result["taxi"] = taxi_payload
+                    return result
                 targets = (
                     taxi_state.pickup_targets_xyz_m
                     if taxi_state.phase == "seeking_pickup"
@@ -1144,6 +1315,16 @@ class MJPEGStreamingPresenter:
                     )
                     bev_targets.append({"u": u, "v": v, "visible": visible})
                 taxi_payload["bev_targets"] = bev_targets
+                if taxi_state.phase == "to_dropoff" and not any(
+                    target["visible"] for target in bev_targets
+                ):
+                    edge = project_target_to_bev_edge(
+                        taxi_state.target_xyz_m,
+                        vehicle_state,
+                        self._bev_config,
+                    )
+                    if edge is not None:
+                        taxi_payload["bev_arrow"] = {"u": edge[0], "v": edge[1]}
             else:
                 taxi_payload["bev_targets"] = []
             result["taxi"] = taxi_payload

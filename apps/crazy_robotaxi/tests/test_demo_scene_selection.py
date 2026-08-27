@@ -44,7 +44,7 @@ def test_map_directory_flag_replaces_scene_directory(
 
 
 def test_bare_native_taxi_mode_is_rejected() -> None:
-    args = build_parser().parse_args(["--taxi-game", "--no-hud"])
+    args = build_parser().parse_args(["--game-mode", "taxi", "--no-hud"])
 
     with pytest.raises(SystemExit, match="has no game or BEV overlays"):
         _validate_presenter_mode(args)
@@ -52,7 +52,7 @@ def test_bare_native_taxi_mode_is_rejected() -> None:
 
 def test_browser_taxi_mode_may_imply_no_hud() -> None:
     args = build_parser().parse_args(
-        ["--taxi-game", "--no-hud", "--stream-mjpeg", "8080"]
+        ["--game-mode", "taxi", "--no-hud", "--stream-mjpeg", "8080"]
     )
 
     _validate_presenter_mode(args)
@@ -186,10 +186,10 @@ def test_run_streaming_starts_command_line_map(
             object(),
         ),
     )
-    monkeypatch.setattr(demo_mod, "InteractiveDriveApp", lambda **_k: app)
+    monkeypatch.setattr(demo_mod, "_build_application", lambda *_a, **_k: app)
     # The streaming presenter is imported lazily inside _run_streaming
+    import crazy_robotaxi.streaming_presenter as sp_mod
     import omnidreams_game_engine.input.keyboard as kbd_mod
-    import omnidreams_game_engine.streaming_presenter as sp_mod
 
     monkeypatch.setattr(sp_mod, "MJPEGStreamingPresenter", lambda **_k: presenter)
     monkeypatch.setattr(sp_mod, "parse_bind", lambda _v: ("127.0.0.1", 8080))

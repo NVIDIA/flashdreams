@@ -34,6 +34,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.config import (
@@ -62,9 +63,13 @@ from PIL import Image, ImageDraw, ImageFont
 from crazy_robotaxi.game import (
     TaxiCameraMarkerProjection,
     TaxiGameSnapshot,
+    project_segment_pose_to_bev,
     project_target_pose_to_bev,
+    project_target_pose_to_bev_edge,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.high_scores import format_race_time_us
+from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from flashdreams.infra.acceleration.frame_prefetch import prefetch_to_numpy
 
 # Colour palette mirrors :mod:`omnidreams_game_engine.demo` for a
@@ -78,6 +83,7 @@ HEADER_BG: tuple[int, int, int] = (35, 35, 50)
 HOVER_BG: tuple[int, int, int] = (50, 60, 80)
 ACTIVE_BG: tuple[int, int, int] = (30, 80, 30)
 ACCENT_AMBER: tuple[int, int, int] = (200, 150, 50)
+RACE_RED: tuple[int, int, int] = (230, 45, 45)
 GMAPS_LAND_RGB: tuple[int, int, int] = (234, 226, 209)
 
 # Initial windowed dimensions and minimum size.
@@ -1474,9 +1480,15 @@ class SlangPyHudPresenter:
         frame = getattr(self, "_latest_presented_frame", None)
         snapshot = None if frame is None else frame.application_state
         live_snapshot = self._keyboard.taxi_game_state
-        if live_snapshot is not None and live_snapshot.session_state != "playing":
+        if live_snapshot is not None and live_snapshot.session_state in {
+            "awaiting_name",
+            "leaderboard",
+        }:
             snapshot = live_snapshot
         if snapshot is None:
+            return
+        if isinstance(snapshot, RaceGameSnapshot):
+            self._draw_race_hud(draw, camera_area, snapshot)
             return
         if snapshot.session_state != self._last_taxi_session_state:
             if snapshot.session_state == "awaiting_name":
@@ -1575,6 +1587,152 @@ class SlangPyHudPresenter:
                 stroke_width=3,
                 stroke_fill=(0, 0, 0),
             )
+
+    def _draw_race_hud(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        snapshot: RaceGameSnapshot,
+    ) -> None:
+        """Draw live race timing or the final top-times modal."""
+        if snapshot.session_state != self._last_taxi_session_state:
+            if snapshot.session_state == "awaiting_name":
+                self._taxi_name_buffer = ""
+            if snapshot.session_state in {"awaiting_name", "leaderboard"}:
+                self._release_taxi_drive_keys()
+            self._last_taxi_session_state = snapshot.session_state
+        if snapshot.session_state in {"awaiting_name", "leaderboard"}:
+            self._draw_race_game_over(draw, camera_area, snapshot)
+            return
+        ax, ay, ar, _ = camera_area
+        cx = (ax + ar) // 2
+        if snapshot.session_state == "awaiting_start":
+            progress = "CROSS START LINE TO BEGIN"
+        elif snapshot.lap_count == 0:
+            progress = (
+                f"CHECKPOINT {snapshot.checkpoint_index + 1}/"
+                f"{snapshot.checkpoint_count}"
+            )
+        elif snapshot.target_kind == "start":
+            progress = f"RETURN TO START  LAP {snapshot.completed_laps + 1}/{snapshot.lap_count}"
+        else:
+            progress = (
+                f"LAP {snapshot.completed_laps + 1}/{snapshot.lap_count}  "
+                f"CHECKPOINT {snapshot.checkpoint_index + 1}/{snapshot.checkpoint_count}"
+            )
+        best = (
+            ""
+            if snapshot.best_time_us is None
+            else f"  BEST {format_race_time_us(snapshot.best_time_us)}"
+        )
+        label = (
+            f"RACE {format_race_time_us(snapshot.elapsed_time_us)}  {progress}  "
+            f"{snapshot.distance_m:.0f}m{best}"
+        )
+        bbox = _measure_text(self._font_medium, label)
+        width = bbox[2] - bbox[0]
+        draw.rounded_rectangle(
+            (cx - width // 2 - 14, ay + 35, cx + width // 2 + 14, ay + 72),
+            radius=9,
+            fill=(12, 12, 18, 220),
+            outline=ACCENT_AMBER + (255,),
+            width=2,
+        )
+        draw.text(
+            (cx - width // 2 - bbox[0], ay + 42 - bbox[1]),
+            label,
+            fill=ACCENT_AMBER,
+            font=self._font_medium,
+        )
+
+    def _draw_race_game_over(
+        self,
+        draw: ImageDraw.ImageDraw,
+        camera_area: tuple[int, int, int, int],
+        snapshot: RaceGameSnapshot,
+    ) -> None:
+        """Draw race name entry and the course-specific top-times table."""
+        ax, ay, ar, ab = camera_area
+        cx, cy = (ax + ar) // 2, (ay + ab) // 2
+        panel_width = min(680, max(420, ar - ax - 80))
+        panel_height = min(720, max(430, ab - ay - 80))
+        rect = (
+            cx - panel_width // 2,
+            cy - panel_height // 2,
+            cx + panel_width // 2,
+            cy + panel_height // 2,
+        )
+        draw.rounded_rectangle(
+            rect,
+            radius=20,
+            fill=(10, 10, 16, 240),
+            outline=ACCENT_AMBER + (255,),
+            width=4,
+        )
+        entering_name = snapshot.session_state == "awaiting_name"
+        title = "NEW TOP TIME!" if entering_name else "TOP TIMES"
+        title_box = _measure_text(self._font_large, title)
+        draw.text(
+            (cx - (title_box[2] - title_box[0]) // 2, rect[1] + 28),
+            title,
+            fill=ACCENT_AMBER,
+            font=self._font_large,
+        )
+        result = f"FINAL TIME  {format_race_time_us(snapshot.final_time_us or 0)}"
+        result_box = _measure_text(self._font_medium, result)
+        draw.text(
+            (cx - (result_box[2] - result_box[0]) // 2, rect[1] + 92),
+            result,
+            fill=TEXT_COLOR,
+            font=self._font_medium,
+        )
+        if entering_name:
+            rank_text = f"You reached #{snapshot.high_score_rank}"
+            rank_box = _measure_text(self._font_medium, rank_text)
+            draw.text(
+                (cx - (rank_box[2] - rank_box[0]) // 2, rect[1] + 135),
+                rank_text,
+                fill=ACCENT_AMBER,
+                font=self._font_medium,
+            )
+            input_rect = (cx - 230, rect[1] + 195, cx + 230, rect[1] + 250)
+            draw.rounded_rectangle(
+                input_rect,
+                radius=8,
+                fill=(28, 28, 40, 255),
+                outline=(255, 255, 255, 255),
+                width=2,
+            )
+            entered = self._taxi_name_buffer or "TYPE YOUR NAME"
+            entered_box = _measure_text(self._font_medium, entered)
+            draw.text(
+                (cx - (entered_box[2] - entered_box[0]) // 2, input_rect[1] + 13),
+                entered,
+                fill=TEXT_COLOR if self._taxi_name_buffer else LABEL_COLOR,
+                font=self._font_medium,
+            )
+            return
+        row_y = rect[1] + 145
+        for rank, entry in enumerate(snapshot.leaderboard, start=1):
+            row = (
+                f"{rank:>2}.  {entry.name:<12}  "
+                f"{format_race_time_us(entry.elapsed_time_us):>9}"
+            )
+            draw.text(
+                (cx - 230, row_y),
+                row,
+                fill=ACCENT_AMBER if rank == snapshot.high_score_rank else TEXT_COLOR,
+                font=self._font_medium,
+            )
+            row_y += 38
+        hint = "Press R to race again"
+        hint_box = _measure_text(self._font_small, hint)
+        draw.text(
+            (cx - (hint_box[2] - hint_box[0]) // 2, rect[3] - 46),
+            hint,
+            fill=NVIDIA_GREEN,
+            font=self._font_small,
+        )
 
     def _draw_taxi_game_over(
         self,
@@ -1690,7 +1848,8 @@ class SlangPyHudPresenter:
         if (
             frame is None
             or frame.application_state is None
-            or frame.application_state.session_state != "playing"
+            or frame.application_state.session_state
+            not in {"playing", "awaiting_start", "racing"}
             or frame.rig_to_world is None
             or self._taxi_camera_calibration is None
             or self._latest_camera_src_size is None
@@ -1706,15 +1865,8 @@ class SlangPyHudPresenter:
                 output_height=source_height,
             )
             self._taxi_camera_models[model_key] = camera_model
-        markers = project_taxi_markers_to_camera(
-            frame.application_state,
-            frame.rig_to_world,
-            camera_model,
-            image_width=source_width,
-            image_height=source_height,
-        )
         fit = self._compute_camera_fit()
-        if not markers or fit is None:
+        if fit is None:
             return
         fit_width, fit_height, offset_x, offset_y = fit
         area_x, area_y, _area_right, _area_bottom = camera_area
@@ -1725,6 +1877,43 @@ class SlangPyHudPresenter:
                 area_y + offset_y + int(point[1] * fit_height / source_height),
             )
 
+        if isinstance(frame.application_state, RaceGameSnapshot):
+            gate = project_race_gate_to_camera(
+                frame.application_state,
+                frame.rig_to_world,
+                camera_model,
+                image_width=source_width,
+                image_height=source_height,
+            )
+            if gate is None:
+                return
+            line = (display_point(gate[0]), display_point(gate[1]))
+            draw.line(line, fill=(0, 0, 0, 235), width=13)
+            draw.line(line, fill=(230, 55, 55, 255), width=9)
+            label = frame.application_state.target_label
+            center = (
+                (line[0][0] + line[1][0]) // 2,
+                (line[0][1] + line[1][1]) // 2,
+            )
+            label_box = _measure_text(self._font_small, label)
+            draw.text(
+                (center[0] - (label_box[2] - label_box[0]) // 2, center[1] - 26),
+                label,
+                fill=(255, 255, 255),
+                font=self._font_small,
+                stroke_width=3,
+                stroke_fill=(0, 0, 0),
+            )
+            return
+        markers = project_taxi_markers_to_camera(
+            frame.application_state,
+            frame.rig_to_world,
+            camera_model,
+            image_width=source_width,
+            image_height=source_height,
+        )
+        if not markers:
+            return
         color = (
             NVIDIA_GREEN
             if frame.application_state.phase == "seeking_pickup"
@@ -2482,6 +2671,37 @@ class SlangPyHudPresenter:
         content_h = bottom - top
         if content_w <= 0 or content_h <= 0:
             return
+        if isinstance(snapshot, RaceGameSnapshot):
+            visible_gate = project_segment_pose_to_bev(
+                np.asarray(
+                    [snapshot.gate_start_xyz_m, snapshot.gate_end_xyz_m],
+                    dtype=np.float32,
+                ),
+                bev_pose,
+                bev,
+            )
+            if visible_gate is not None:
+                (start_u, start_v), (end_u, end_v) = visible_gate
+                line = (
+                    (
+                        round(left + start_u * content_w),
+                        round(top + start_v * content_h),
+                    ),
+                    (round(left + end_u * content_w), round(top + end_v * content_h)),
+                )
+                draw.line(line, fill=(255, 255, 255, 255), width=13)
+                draw.line(line, fill=RACE_RED + (255,), width=9)
+            else:
+                self._draw_bev_edge_arrow(
+                    draw,
+                    content_rect,
+                    marker_size,
+                    snapshot.target_xyz_m,
+                    bev_pose,
+                    bev,
+                    RACE_RED,
+                )
+            return
         color = NVIDIA_GREEN if snapshot.phase == "seeking_pickup" else ACCENT_AMBER
         radius = max(8, marker_size - 2)
         targets = (
@@ -2489,10 +2709,12 @@ class SlangPyHudPresenter:
             if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
             else (snapshot.target_xyz_m,)
         )
+        target_visible = False
         for target in targets:
             u, v, visible = project_target_pose_to_bev(target, bev_pose, bev)
             if not visible:
                 continue
+            target_visible = True
             cx = round(left + u * content_w)
             cy = round(top + v * content_h)
             draw.ellipse(
@@ -2510,6 +2732,65 @@ class SlangPyHudPresenter:
                 outline=(20, 20, 30, 255),
                 width=2,
             )
+        if snapshot.phase == "to_dropoff" and not target_visible:
+            self._draw_bev_edge_arrow(
+                draw,
+                content_rect,
+                marker_size,
+                snapshot.target_xyz_m,
+                bev_pose,
+                bev,
+                ACCENT_AMBER,
+            )
+
+    @staticmethod
+    def _draw_bev_edge_arrow(
+        draw: ImageDraw.ImageDraw,
+        content_rect: tuple[int, int, int, int],
+        marker_size: int,
+        target_xyz_m: tuple[float, float, float],
+        bev_pose: npt.NDArray[np.float32],
+        bev: BevConfig,
+        color: tuple[int, int, int],
+    ) -> None:
+        """Draw an inward-offset arrow where the target ray meets the BEV edge."""
+        projected = project_target_pose_to_bev_edge(target_xyz_m, bev_pose, bev)
+        if projected is None:
+            return
+        left, top, right, bottom = content_rect
+        edge_x = left + projected[0] * (right - left)
+        edge_y = top + projected[1] * (bottom - top)
+        delta_x = edge_x - (left + right) * 0.5
+        delta_y = edge_y - (top + bottom) * 0.5
+        length = _math.hypot(delta_x, delta_y)
+        if length <= 1.0e-6:
+            return
+        direction_x, direction_y = delta_x / length, delta_y / length
+        perpendicular_x, perpendicular_y = -direction_y, direction_x
+        size = float(max(9, marker_size))
+        center_x = edge_x - direction_x * (size + 3.0)
+        center_y = edge_y - direction_y * (size + 3.0)
+
+        def arrow(scale: float) -> list[tuple[float, float]]:
+            tip_x = center_x + direction_x * size * scale
+            tip_y = center_y + direction_y * size * scale
+            base_x = center_x - direction_x * size * scale * 0.72
+            base_y = center_y - direction_y * size * scale * 0.72
+            half_width = size * scale * 0.68
+            return [
+                (tip_x, tip_y),
+                (
+                    base_x + perpendicular_x * half_width,
+                    base_y + perpendicular_y * half_width,
+                ),
+                (
+                    base_x - perpendicular_x * half_width,
+                    base_y - perpendicular_y * half_width,
+                ),
+            ]
+
+        draw.polygon(arrow(1.0), fill=(255, 255, 255, 255))
+        draw.polygon(arrow(0.68), fill=color + (255,))
 
     def _get_bev_panel_image(self, target_size: tuple[int, int]) -> Image.Image | None:
         if self._latest_bev_source is None:

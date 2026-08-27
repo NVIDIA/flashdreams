@@ -128,6 +128,31 @@ reach the native fp8 weight snapshot — so running them requires
 obstacle without guidance) do not touch the model and run at full speed
 under native DIT.
 
+## Race mode
+
+Taxi mode is the default. Launch a bundled map's first race course with:
+
+```bash
+crazy-robotaxi --game-mode race
+```
+
+Launch the bundled one-lap demo track from the repository root with:
+
+```bash
+uv run flashdreams-run crazy-robotaxi \
+  --world-model-manifest example_world_model_perf.yaml \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/demo_race_track.robotaxi.yaml \
+  --game-mode race
+```
+
+For a simpler stadium oval, substitute
+`race_track_minimal.robotaxi.yaml` for the demo map path.
+
+Use `--race-course ID` when a map defines multiple courses. The
+`--race-times PATH` option overrides the shared race-time CSV. Race
+leaderboards rank total race time independently for every map and course;
+lower times are better.
+
 ## Configuration files
 
 The standalone game keeps its portable configuration in three independent,
@@ -165,11 +190,16 @@ the roads connected to them.
 
 The complete, authoritative format is documented in
 [`../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md`](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md).
-The bundled `minimal_loop.robotaxi.yaml` is a compact working example, while
+The bundled `minimal_loop.robotaxi.yaml` is a compact working example,
+`race_track_minimal.robotaxi.yaml` is a wide stadium oval,
+`demo_race_track.robotaxi.yaml` is a technical one-lap Grand Prix circuit with
+varied-radius Bézier corners, two hairpins, descending esses, and a broad final
+sweeper, and
 `boulevard_district.robotaxi.yaml` recreates the original scene's surface-street
 layout at its source scale, including the curved arterial split, neighborhood
-grid, eastern commercial loops, cul-de-sacs, and parking lots. The elevated
-highway and its on-ramps in the northwest are intentionally omitted.
+grid, eastern commercial loops, cul-de-sacs, and parking lots.
+The elevated highway and its on-ramps in the northwest are intentionally
+omitted.
 
 Select a map with either entry point:
 

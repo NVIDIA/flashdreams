@@ -1,0 +1,180 @@
+schema_version: 1
+id: crazy-robotaxi-grand-prix-demo
+name: Demo Grand Prix
+
+compiler:
+  sample_spacing_m: 1.5
+  ground_margin_m: 30.0
+  intersection_connector_samples: 8
+
+profiles:
+  raceway:
+    lane_width_m: 5.5
+    curb_offset_m: 1.5
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 24.0
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+
+nodes:
+  - {id: start_finish, type: road_joint, pose: {x_m: 0, y_m: -160}}
+  - {id: turn_one_entry, type: road_joint, pose: {x_m: 210, y_m: -160}}
+  - {id: east_short_entry, type: road_joint, pose: {x_m: 290, y_m: -90}}
+  - {id: infield_turn_entry, type: road_joint, pose: {x_m: 290, y_m: -50}}
+  - {id: infield_straight_entry, type: road_joint, pose: {x_m: 230, y_m: 20}}
+  - {id: hairpin_entry, type: road_joint, pose: {x_m: 90, y_m: 20}}
+  - {id: hairpin_exit, type: road_joint, pose: {x_m: 100, y_m: 140}}
+  - {id: north_sweeper_entry, type: road_joint, pose: {x_m: 220, y_m: 140}}
+  - {id: top_straight_entry, type: road_joint, pose: {x_m: 150, y_m: 250}}
+  - {id: esses_entry, type: road_joint, pose: {x_m: -60, y_m: 250}}
+  - {id: esses_exit, type: road_joint, pose: {x_m: -160, y_m: 50}}
+  - {id: west_hairpin_entry, type: road_joint, pose: {x_m: -270, y_m: 50}}
+  - {id: west_hairpin_exit, type: road_joint, pose: {x_m: -270, y_m: -160}}
+
+roads:
+  - id: start_finish_straight
+    from: west_hairpin_exit
+    to: start_finish
+    profile: raceway
+
+  - id: main_straight
+    from: start_finish
+    to: turn_one_entry
+    profile: raceway
+
+  - id: turn_one
+    from: turn_one_entry
+    to: east_short_entry
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: 255, y_m: -160}
+          - {x_m: 290, y_m: -125}
+        end: {x_m: 290, y_m: -90}
+
+  - id: east_short
+    from: east_short_entry
+    to: infield_turn_entry
+    profile: raceway
+
+  - id: infield_turn
+    from: infield_turn_entry
+    to: infield_straight_entry
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: 290, y_m: -15}
+          - {x_m: 265, y_m: 20}
+        end: {x_m: 230, y_m: 20}
+
+  - id: infield_straight
+    from: infield_straight_entry
+    to: hairpin_entry
+    profile: raceway
+
+  - id: infield_hairpin
+    from: hairpin_entry
+    to: hairpin_exit
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: 40, y_m: 20}
+          - {x_m: 20, y_m: 45}
+        end: {x_m: 20, y_m: 75}
+      - control_points:
+          - {x_m: 20, y_m: 110}
+          - {x_m: 55, y_m: 140}
+        end: {x_m: 100, y_m: 140}
+
+  - id: back_straight
+    from: hairpin_exit
+    to: north_sweeper_entry
+    profile: raceway
+
+  - id: north_sweeper
+    from: north_sweeper_entry
+    to: top_straight_entry
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: 290, y_m: 140}
+          - {x_m: 300, y_m: 250}
+        end: {x_m: 150, y_m: 250}
+
+  - id: top_straight
+    from: top_straight_entry
+    to: esses_entry
+    profile: raceway
+
+  - id: technical_esses
+    from: esses_entry
+    to: esses_exit
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: -105, y_m: 250}
+          - {x_m: -155, y_m: 225}
+        end: {x_m: -155, y_m: 185}
+      - control_points:
+          - {x_m: -155, y_m: 145}
+          - {x_m: -90, y_m: 145}
+        end: {x_m: -80, y_m: 110}
+      - control_points:
+          - {x_m: -70, y_m: 75}
+          - {x_m: -120, y_m: 50}
+        end: {x_m: -160, y_m: 50}
+
+  - id: west_straight
+    from: esses_exit
+    to: west_hairpin_entry
+    profile: raceway
+
+  - id: west_hairpin
+    from: west_hairpin_entry
+    to: west_hairpin_exit
+    profile: raceway
+    bezier:
+      - control_points:
+          - {x_m: -330, y_m: 50}
+          - {x_m: -365, y_m: 5}
+        end: {x_m: -365, y_m: -55}
+      - control_points:
+          - {x_m: -365, y_m: -115}
+          - {x_m: -330, y_m: -160}
+        end: {x_m: -270, y_m: -160}
+
+race_courses:
+  - id: grand-prix
+    start: start_finish
+    checkpoints:
+      - turn_one
+      - east_short
+      - infield_turn
+      - infield_straight
+      - infield_hairpin
+      - back_straight
+      - north_sweeper
+      - top_straight
+      - technical_esses
+      - west_straight
+      - west_hairpin
+      - start_finish_straight
+    lap_count: 1
+    checkpoint_markers: true
+
+spawns:
+  - id: race_start
+    road: start_finish_straight
+    lane: 2
+    distance_m: 220
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: >-
+          A forward-facing view from a taxi on a wide closed Formula-style
+          road circuit in daylight, with varied-radius corners, technical
+          esses, hairpins, safety barriers, grandstands, sponsor banners,
+          and a clear start-finish straight.

@@ -521,7 +521,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Run the bare diagnostic renderer. This cannot be combined with"
-            " standalone taxi gameplay unless --stream-mjpeg is also selected."
+            " standalone gameplay unless --stream-mjpeg is also selected."
         ),
     )
     parser.add_argument(
@@ -633,10 +633,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     args.renderer_config = _cli.resolve_app_config_path(args.renderer_config)
     args.game_config = _cli.resolve_app_config_path(args.game_config)
-    if args.taxi_game:
-        from crazy_robotaxi.game_settings import load_game_settings
+    from crazy_robotaxi.game_settings import load_game_settings
 
-        args._game_settings = load_game_settings(args.game_config)
+    args._game_settings = load_game_settings(args.game_config)
+    if args.game_mode == "taxi" and (
+        args.race_course is not None or args.race_times is not None
+    ):
+        raise SystemExit("--race-course and --race-times require --game-mode race")
     _validate_presenter_mode(args)
     # ``--stream-mjpeg`` runs through ``_run_streaming`` so the long-lived
     # MJPEG presenter survives scene changes. ``--no-hud`` without MJPEG
@@ -652,8 +655,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def _validate_presenter_mode(args: argparse.Namespace) -> None:
-    """Reject Taxi mode when no overlay-capable presenter was selected."""
-    if args.taxi_game and args.no_hud and args.stream_mjpeg is None:
+    """Reject gameplay when no overlay-capable presenter was selected."""
+    if args.no_hud and args.stream_mjpeg is None:
         raise SystemExit(
             "Crazy Robotaxi cannot use bare --no-hud mode because that window "
             "has no game or BEV overlays. Omit --no-hud for the native HUD, or "
@@ -673,16 +676,10 @@ def _run_slangpy_hud(args: argparse.Namespace) -> None:
     """
     from omnidreams_game_engine.input.keyboard import KeyboardState
 
-    if getattr(args, "taxi_game", False):
-        from crazy_robotaxi.hud_presenter import (
-            KeyboardStateDriveSink,
-            SlangPyHudPresenter,
-        )
-    else:
-        from omnidreams_game_engine.slangpy_hud_presenter import (
-            KeyboardStateDriveSink,
-            SlangPyHudPresenter,
-        )
+    from crazy_robotaxi.hud_presenter import (
+        KeyboardStateDriveSink,
+        SlangPyHudPresenter,
+    )
 
     _apply_cuda_visible_devices_inplace(args.cuda_visible_devices)
     _resolve_demo_paths(args)
@@ -812,16 +809,10 @@ def _run_streaming(args: argparse.Namespace) -> None:
     """
     from omnidreams_game_engine.input.keyboard import KeyboardState
 
-    if getattr(args, "taxi_game", False):
-        from crazy_robotaxi.streaming_presenter import (
-            MJPEGStreamingPresenter,
-            parse_bind,
-        )
-    else:
-        from omnidreams_game_engine.streaming_presenter import (
-            MJPEGStreamingPresenter,
-            parse_bind,
-        )
+    from crazy_robotaxi.streaming_presenter import (
+        MJPEGStreamingPresenter,
+        parse_bind,
+    )
 
     stream_token = (getattr(args, "stream_token", None) or "").strip() or None
     if stream_token is not None and not getattr(args, "taxi_game", False):
@@ -973,29 +964,22 @@ def _build_application(
     close_presenter_on_exit: bool,
 ) -> InteractiveDriveApp:
     """Construct the selected app without leaking its policy into the engine."""
-    if getattr(args, "taxi_game", False):
-        from crazy_robotaxi.app import (
-            CrazyRobotaxiApp,
-            taxi_config_from_args,
-        )
-        from crazy_robotaxi.live_edit.config import live_edit_config_from_args
+    from crazy_robotaxi.app import CrazyRobotaxiApp, taxi_config_from_args
+    from crazy_robotaxi.live_edit.config import live_edit_config_from_args
 
-        return CrazyRobotaxiApp(
-            config=config,
-            taxi_config=taxi_config_from_args(args),
-            backend=backend,
-            presenter=presenter,
-            alignment_diagnostics_root=getattr(
-                args, "taxi_alignment_diagnostics", None
-            ),
-            close_presenter_on_exit=close_presenter_on_exit,
-            live_edit_config=live_edit_config_from_args(args),
-        )
-    return InteractiveDriveApp(
+    return CrazyRobotaxiApp(
         config=config,
+        taxi_config=taxi_config_from_args(args),
         backend=backend,
         presenter=presenter,
+        game_mode=args.game_mode,
+        race_course_id=args.race_course,
+        race_times_path=(
+            None if args.race_times is None else args.race_times.expanduser()
+        ),
+        alignment_diagnostics_root=getattr(args, "taxi_alignment_diagnostics", None),
         close_presenter_on_exit=close_presenter_on_exit,
+        live_edit_config=live_edit_config_from_args(args),
     )
 
 
