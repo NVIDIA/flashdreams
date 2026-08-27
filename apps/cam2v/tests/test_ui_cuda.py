@@ -107,20 +107,26 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
     try:
         result = loop.step(0, UserInputEvents([]))
 
-        assert result.output_ready_event is not None
+        output_ready_event = result._output_ready_event
+        assert output_ready_event is not None
         assert renderer.render_stream is not None
         assert (
             renderer.render_stream.priority < torch.cuda.default_stream(device).priority
         )
+        consumer_stream = torch.cuda.Stream(device=device)
+        with torch.cuda.stream(consumer_stream):
+            result.wait_for_output(consumer_stream)
+            observed = result.output.clone()
+        consumer_stream.synchronize()
+        assert output_ready_event.query()
+        torch.testing.assert_close(
+            observed.cpu(),
+            torch.full((1, 3, 64, 96), 0.25, dtype=torch.bfloat16),
+        )
         loop.close()
         closed = True
-        assert result.output_ready_event.query()
         assert result.output.shape == (1, 3, 64, 96)
         assert result.output.dtype is torch.bfloat16
-        torch.testing.assert_close(
-            result.output[0].cpu(),
-            torch.full((3, 64, 96), 0.25, dtype=torch.bfloat16),
-        )
     finally:
         if not closed:
             loop.close()

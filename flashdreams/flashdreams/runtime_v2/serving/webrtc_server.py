@@ -484,22 +484,16 @@ class WebRTCServer:
         frame: torch.Tensor,
     ) -> VideoFrame:
         """Return one owned video frame before admitting it to WebRTC."""
-        output_ready_event = result.output_ready_event
         if not frame.is_cuda:
-            if output_ready_event is not None:
-                raise ValueError("CPU WebRTC output cannot carry CUDA readiness data.")
             materialized = _prepare_cpu_video_frame(frame)
             self._materialization_count += 1
             return materialized
         device = resolve_cuda_device(frame.device)
-        if output_ready_event is None:
-            with torch.cuda.device(device):
-                output_ready_event = torch.cuda.Event()
-                output_ready_event.record(torch.cuda.current_stream(device))
+        transfer_stream = self._transfer_stream(device)
+        result.wait_for_output(transfer_stream)
         materialized = _materialize_cuda_video_frame(
             frame,
-            transfer_stream=self._transfer_stream(device),
-            source_ready_event=output_ready_event,
+            transfer_stream=transfer_stream,
             buffer=self._materialization_buffer,
         )
         self._materialization_count += 1
@@ -884,7 +878,6 @@ def _materialize_cuda_video_frame(
     source: torch.Tensor,
     *,
     transfer_stream: torch.cuda.Stream,
-    source_ready_event: torch.cuda.Event,
     buffer: _PinnedRGBFrameBuffer,
 ) -> VideoFrame:
     """Synchronously convert and copy one CUDA frame into an owned AV frame."""
@@ -893,17 +886,11 @@ def _materialize_cuda_video_frame(
     device = resolve_cuda_device(source.device)
     if resolve_cuda_device(transfer_stream.device) != device:
         raise ValueError("CUDA RGB source and transfer stream must match.")
-    event_device = source_ready_event.device
-    if event_device is None:
-        raise ValueError("CUDA source-ready event must already be recorded.")
-    if resolve_cuda_device(event_device) != device:
-        raise ValueError("CUDA RGB source and readiness event must match.")
     _, height, width = source.shape
     host_frame = buffer.get((height, width, 3))
     copy_enqueued = False
     try:
         with torch.cuda.device(device), torch.cuda.stream(transfer_stream):
-            transfer_stream.wait_event(source_ready_event)
             rgb = _rgb_uint8_thwc(source.unsqueeze(0))
             host_frame.copy_(rgb[0], non_blocking=True)
             copy_enqueued = True

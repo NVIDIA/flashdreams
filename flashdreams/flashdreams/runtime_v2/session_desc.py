@@ -25,7 +25,7 @@ class PresentationMode(Enum):
     """What the UI loop does when no new model frame is ready."""
 
     ON_DEMAND = "on_demand"
-    """Present only when a new model frame is selected."""
+    """Present only when there is a new model frame and it is selected."""
 
     CONTINUOUS = "continuous"
     """Present every UI tick, reusing the newest model frame when necessary."""

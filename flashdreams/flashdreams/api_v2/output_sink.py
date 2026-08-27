@@ -34,8 +34,9 @@ class OutputSink(Protocol):
         """Consume one result.
 
         Called after :meth:`open` and before :meth:`close`.
-        If a CUDA result carries ``output_ready_event``, a sink reading the
-        output on another CUDA stream must wait for the event first.
+        A sink reading CUDA output on its own stream must call
+        :meth:`~flashdreams.runtime_v2.step_result.StepResult.wait_for_output`
+        on that stream first.
 
         Args:
             result: Generated output for the completed step.

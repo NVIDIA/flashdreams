@@ -119,31 +119,30 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
                 overlay = overlay.to(dtype=back_buffer.dtype)
             return self._presentation_manager.composite(back_buffer, overlay)
 
-        output_ready_event = None
         presentation_stream = self._get_presentation_stream()
         if presentation_stream is None:
             frame = render_frame()
-            if frame.is_cuda:
-                output_ready_event = torch.cuda.Event()
-                output_ready_event.record(torch.cuda.current_stream(frame.device))
-        else:
-            device = resolve_cuda_device(presentation_stream.device)
-            with torch.cuda.device(device), torch.cuda.stream(presentation_stream):
-                frame = render_frame()
-                if not frame.is_cuda or resolve_cuda_device(frame.device) != device:
-                    raise ValueError(
-                        "The SlangPy UI output and presentation stream must share "
-                        "a CUDA device."
-                    )
-                output_ready_event = torch.cuda.Event()
-                output_ready_event.record(presentation_stream)
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0),
-            frame_count=1,
-            output_layout=self.output_layout,
-            output_ready_event=output_ready_event,
-        )
+            return StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
+
+        device = resolve_cuda_device(presentation_stream.device)
+        with torch.cuda.device(device), torch.cuda.stream(presentation_stream):
+            frame = render_frame()
+            if not frame.is_cuda or resolve_cuda_device(frame.device) != device:
+                raise ValueError(
+                    "The SlangPy UI output and presentation stream must share "
+                    "a CUDA device."
+                )
+            return StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
 
     def reset(self) -> None:
         """Reset renderer state after a session reset event."""

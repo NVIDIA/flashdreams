@@ -228,12 +228,7 @@ def result_to_rgb24_tensor(result: StepResult, session_desc: SessionDesc) -> Ten
             f"arrived as {result.output_layout.value}."
         )
     output = result.output.detach()
-    if result.output_ready_event is not None:
-        if not output.is_cuda:
-            raise ValueError("A CPU result cannot carry a CUDA output-ready event.")
-        consumer_stream = torch.cuda.current_stream(output.device)
-        consumer_stream.wait_event(result.output_ready_event)
-        output.record_stream(consumer_stream)
+    result.wait_for_output()
     frames = _to_tchw(output, result.output_layout)
     if frames.shape[0] != result.frame_count:
         raise ValueError(

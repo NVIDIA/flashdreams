@@ -121,12 +121,13 @@ Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 other range converts before returning.
 
 CUDA results may cross from a producer stream to a dedicated presentation or
-transfer stream. `PresentationManager` records readiness on the current stream
-when a model result does not already carry it. A producer that returns output
-from another stream must record that dependency in
-`StepResult.output_ready_event`. UI loops pass their consumer stream to
-`presented_model_frame` or `presented_model_frames`; sinks wait for a UI
-result's event before reading it.
+transfer stream. Constructing a `StepResult` for CUDA output automatically
+records readiness on the current stream. Construct the result while the actual
+producer stream is current, or pass a recorded `output_ready_event` when the
+output came from another stream. Omitting the event or passing `None` selects
+automatic recording. UI loops pass their consumer stream to
+`presented_model_frame` or `presented_model_frames`; runtime sinks call
+`StepResult.wait_for_output` on their consumer stream before reading it.
 
 ## A minimal application
 

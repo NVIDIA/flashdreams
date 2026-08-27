@@ -5,12 +5,10 @@
 
 import queue
 import threading
-from dataclasses import replace
 
 import torch
 from torch import Tensor
 
-from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -102,7 +100,6 @@ class PresentationManager:
         frame_count = chunk[0].frame_count
         if frame_count <= 0 or any(item.frame_count != frame_count for item in chunk):
             raise ValueError("Every channel in a chunk must have the same frame_count.")
-        chunk = [_with_output_ready_event(result) for result in chunk]
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             self._publish_latest(pending)
@@ -217,7 +214,7 @@ class PresentationManager:
                 f"Presented chunk has {len(self._presented_chunk)} channels; "
                 f"channel {channel_index} does not exist."
             ) from error
-        _order_output_before_stream(result, stream)
+        result.wait_for_output(stream)
         return _frame_at(result, self._frame_index)
 
     def presented_frames(
@@ -229,7 +226,7 @@ class PresentationManager:
         if self._presented_chunk is None:
             return ()
         for result in self._presented_chunk:
-            _order_output_before_stream(result, stream)
+            result.wait_for_output(stream)
         return tuple(
             _frame_at(result, self._frame_index) for result in self._presented_chunk
         )
@@ -332,39 +329,6 @@ def _frame_at(result: StepResult, frame_index: int) -> Tensor:
 def _validate_frame(frame: Tensor) -> None:
     if frame.ndim != 3 or frame.shape[0] not in (1, 3, 4):
         raise ValueError("A presented frame must have one, three, or four channels.")
-
-
-def _with_output_ready_event(result: StepResult) -> StepResult:
-    """Record current-stream readiness before a CUDA result crosses threads."""
-    if not result.output.is_cuda or result.output_ready_event is not None:
-        return result
-    device = resolve_cuda_device(result.output.device)
-    with torch.cuda.device(device):
-        ready = torch.cuda.Event()
-        ready.record(torch.cuda.current_stream(device))
-    return replace(result, output_ready_event=ready)
-
-
-def _order_output_before_stream(
-    result: StepResult,
-    stream: torch.cuda.Stream | None,
-) -> None:
-    """Insert CUDA stream ordering and retain output for its consumer."""
-    if not result.output.is_cuda:
-        return
-    consumer = stream
-    if consumer is None:
-        consumer = torch.cuda.current_stream(result.output.device)
-    if resolve_cuda_device(consumer.device) != resolve_cuda_device(
-        result.output.device
-    ):
-        raise ValueError(
-            "Presented output and consumer stream must use the same device."
-        )
-    ready = result.output_ready_event
-    if ready is not None:
-        consumer.wait_event(ready)
-    result.output.record_stream(consumer)
 
 
 def _composite_frame(bottom: Tensor | None, top: Tensor) -> Tensor:
