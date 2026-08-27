@@ -34,9 +34,6 @@ class UserInputEvent(ABC):
     timestamp: uint64
     """Timestamp in microseconds since the start of the session."""
 
-    event_id: str | None = None
-    """Browser-generated correlation ID; ``None`` for untraced input."""
-
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Register and validate the concrete event type name.
 

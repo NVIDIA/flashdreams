@@ -33,7 +33,7 @@ from av import VideoFrame
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
-from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     FocusUserInputEvent,
@@ -67,19 +67,6 @@ def _video_frame(value: int = 0) -> VideoFrame:
 def _frame_mean(frame: VideoFrame) -> float:
     """Return the mean RGB value of one video frame."""
     return float(frame.to_ndarray(format="rgb24").mean())
-
-
-class _BufferedControlChannel:
-    """Small data-channel stand-in for sender-backlog tests."""
-
-    readyState = "open"
-
-    def __init__(self, buffered_amount: int) -> None:
-        self.bufferedAmount = buffered_amount
-        self.sent: list[str] = []
-
-    def send(self, message: str) -> None:
-        self.sent.append(message)
 
 
 async def _connect_browser(
@@ -137,25 +124,6 @@ def test_window_coalesces_consecutive_pointer_moves_before_polling() -> None:
         window.close()
 
 
-def test_window_preserves_traced_pointer_moves_before_polling() -> None:
-    window = WebRTCClientWindow()
-    callback = window.server._input_callback
-    assert callback is not None
-    try:
-        callback(
-            MouseUserInputEvent(timestamp=uint64(1), x=0.1, y=0.2, event_id="page:1")
-        )
-        callback(
-            MouseUserInputEvent(timestamp=uint64(2), x=0.7, y=0.8, event_id="page:2")
-        )
-
-        events = window.get_user_input_events().get_events()
-
-        assert [event.event_id for event in events] == ["page:1", "page:2"]
-    finally:
-        window.close()
-
-
 @pytest.mark.asyncio
 async def test_window_buffers_browser_events_until_drained() -> None:
     window = WebRTCClientWindow()
@@ -185,7 +153,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'id="reset"' not in browser_page
                 assert '<video id="video" autoplay muted playsinline>' in browser_page
                 assert 'id="status"' in browser_page
-                assert 'id="input-latency"' not in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
@@ -198,23 +165,12 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "renderedVideoBounds" in browser_script
                 assert "pressedKeys" in browser_script
                 assert "pointercancel" in browser_script
-                assert "event_id" in browser_script
-                assert "browser_event_at_ms" not in browser_script
-                assert "requestVideoFrameCallback" in browser_script
-                assert "expectedDisplayTime" in browser_script
-                assert "input_frame" in browser_script
-                assert "input_frame_dropped" in browser_script
-                assert "input_trace_reset" in browser_script
-                assert "failPendingInputs" in browser_script
                 assert "pressedKeys.has(keyId)" in browser_script
                 assert "pressedKeys.set(keyId, event.key)" in browser_script
                 assert "MAX_NONCRITICAL_BUFFER_BYTES" in browser_script
                 assert 'createDataChannel("pointer-controls")' in browser_script
                 assert "channel: pointerControls" in browser_script
                 assert "requestAnimationFrame" in browser_script
-                assert "latency_report" not in browser_script
-                assert "latencyPanel" not in browser_script
-                assert "renderLatencyPanel" not in browser_script
                 connection_handler = browser_script.split(
                     'peer.addEventListener("connectionstatechange"',
                     maxsplit=1,
@@ -332,158 +288,6 @@ async def test_peer_state_distinguishes_recovery_from_terminal_close(
 
 
 @pytest.mark.asyncio
-async def test_browser_keyboard_trace_id_survives_the_data_channel() -> None:
-    window = WebRTCClientWindow()
-    peer: RTCPeerConnection | None = None
-    try:
-        window.open(_session_desc())
-        peer, channel, _ = await _connect_browser(window)
-        channel.send(
-            json.dumps(
-                {
-                    "type": "keyboard",
-                    "key": "w",
-                    "pressed": True,
-                    "event_id": "keyboard-w-1",
-                }
-            )
-        )
-
-        events = []
-        for _ in range(100):
-            events.extend(window.get_user_input_events().get_events())
-            if events:
-                break
-            await asyncio.sleep(0.01)
-        assert len(events) == 1
-        event = events[0]
-        assert event.event_id == "keyboard-w-1"
-        assert isinstance(event, KeyboardUserInputEvent)
-        assert (event.key, event.state) == (
-            "w",
-            KeyboardInputState.PRESSED,
-        )
-    finally:
-        if peer is not None:
-            await peer.close()
-        window.close()
-
-
-@pytest.mark.asyncio
-async def test_video_track_emits_markers_only_for_traced_frames() -> None:
-    markers: list[dict[str, object]] = []
-    track = _VideoTrack(frames_per_second=30, on_frame_marker=markers.append)
-    traces = (
-        InputEventTrace(
-            event_id="keyboard-w-1",
-            frame_index=0,
-        ),
-        InputEventTrace(
-            event_id="keyboard-d-2",
-            frame_index=0,
-        ),
-    )
-    try:
-        track.enqueue(_video_frame())
-        first = await track.recv()
-        track.enqueue(_video_frame(), traces)
-        second = await track.recv()
-        track.enqueue(_video_frame())
-        third = await track.recv()
-        presented = [first, second, third]
-
-        assert [item.pts for item in presented] == [0, 1, 2]
-        assert len(markers) == 1
-        assert markers[0]["type"] == "input_frame"
-        assert markers[0]["frame_id"] == 1
-        assert markers[0]["frame_pts"] == 1
-        assert markers[0]["source_rtp_timestamp"] == 3000
-
-        traced = cast(list[dict[str, object]], markers[0]["traces"])
-        assert [trace["event_id"] for trace in traced] == [
-            "keyboard-w-1",
-            "keyboard-d-2",
-        ]
-        assert traced == [
-            {"event_id": "keyboard-w-1"},
-            {"event_id": "keyboard-d-2"},
-        ]
-    finally:
-        await track.close()
-
-
-@pytest.mark.asyncio
-async def test_traced_window_write_sends_an_input_frame_marker() -> None:
-    window = WebRTCClientWindow()
-    peer: RTCPeerConnection | None = None
-    marker_messages: asyncio.Queue[dict[str, object]] = asyncio.Queue()
-    try:
-        window.open(_session_desc())
-        peer, channel, _ = await _connect_browser(window)
-
-        @channel.on("message")
-        def on_message(message: object) -> None:
-            if not isinstance(message, str):
-                return
-            payload = json.loads(message)
-            if payload.get("type") == "input_frame":
-                marker_messages.put_nowait(payload)
-
-        trace = InputEventTrace(
-            event_id="keyboard-w-1",
-            frame_index=0,
-        )
-        window.write(
-            StepResult(
-                step_index=0,
-                output=torch.full((1, 3, 16, 16), 17, dtype=torch.uint8),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-                input_event_traces=(trace,),
-            )
-        )
-
-        marker = await asyncio.wait_for(marker_messages.get(), timeout=5)
-        assert marker["frame_id"] == 0
-        assert marker["frame_pts"] == 0
-        assert marker["source_rtp_timestamp"] == 0
-        traces = cast(list[dict[str, object]], marker["traces"])
-        assert traces == [{"event_id": "keyboard-w-1"}]
-    finally:
-        if peer is not None:
-            await peer.close()
-        window.close()
-
-
-def test_browser_event_ids_must_be_nonempty_and_unique() -> None:
-    window = WebRTCClientWindow()
-    try:
-        window.open(_session_desc())
-        with pytest.raises(ValueError, match="event_id"):
-            window.server._buffer_browser_message(
-                json.dumps(
-                    {
-                        "type": "keyboard",
-                        "key": "w",
-                        "pressed": True,
-                        "event_id": "",
-                    }
-                )
-            )
-        tagged = {
-            "type": "keyboard",
-            "key": "w",
-            "pressed": True,
-            "event_id": "keyboard-w-1",
-        }
-        window.server._buffer_browser_message(json.dumps(tagged))
-        with pytest.raises(ValueError, match="unique"):
-            window.server._buffer_browser_message(json.dumps(tagged))
-    finally:
-        window.close()
-
-
-@pytest.mark.asyncio
 async def test_write_delivers_a_video_frame_to_the_browser() -> None:
     window = WebRTCClientWindow()
     peer: RTCPeerConnection | None = None
@@ -571,7 +375,7 @@ def test_window_write_materializes_before_synchronous_sender_admission(
     window = WebRTCClientWindow()
     captured: list[VideoFrame] = []
     track = Mock()
-    track.enqueue.side_effect = lambda frame, _traces=(): captured.append(frame) or True
+    track.enqueue.side_effect = lambda frame: captured.append(frame) or True
     source = torch.full((1, 3, 16, 16), 31, dtype=torch.uint8)
     try:
         window.open(_session_desc())
@@ -606,7 +410,7 @@ def test_window_write_queues_during_media_negotiation() -> None:
     window = WebRTCClientWindow()
     captured: list[VideoFrame] = []
     track = Mock()
-    track.enqueue.side_effect = lambda frame, _traces=(): captured.append(frame) or True
+    track.enqueue.side_effect = lambda frame: captured.append(frame) or True
     try:
         window.open(_session_desc())
         window.server._video_track = cast(Any, track)
@@ -622,38 +426,6 @@ def test_window_write_queues_during_media_negotiation() -> None:
 
         track.enqueue.assert_called_once()
         assert [_frame_mean(frame) for frame in captured] == [0.0]
-    finally:
-        window.server._video_track = None
-        window.close()
-
-
-def test_window_write_reports_a_trace_rejected_during_track_close(
-    monkeypatch: Any,
-) -> None:
-    window = WebRTCClientWindow()
-    track = Mock()
-    track.enqueue.return_value = False
-    report_discarded = Mock()
-    try:
-        window.open(_session_desc())
-        window.server._video_track = cast(Any, track)
-        monkeypatch.setattr(
-            window.server,
-            "report_discarded_input_events",
-            report_discarded,
-        )
-
-        window.write(
-            StepResult(
-                step_index=0,
-                output=torch.zeros((1, 3, 16, 16), dtype=torch.uint8),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-                input_event_traces=(InputEventTrace(event_id="page:1", frame_index=0),),
-            )
-        )
-
-        report_discarded.assert_called_once_with(("page:1",))
     finally:
         window.server._video_track = None
         window.close()
@@ -831,64 +603,13 @@ async def test_video_track_pts_follow_source_time_and_remain_monotonic(
 
 
 @pytest.mark.asyncio
-async def test_video_track_overflow_emits_markers_and_drop_metrics() -> None:
-    markers: list[dict[str, object]] = []
-    track = _VideoTrack(frames_per_second=60, on_frame_marker=markers.append)
-
-    def trace(event_id: str) -> InputEventTrace:
-        return InputEventTrace(
-            event_id=event_id,
-            frame_index=0,
-        )
-
-    try:
-        track.enqueue(_video_frame(10), (trace("keyboard-a-1"),))
-        track.enqueue(_video_frame(20), (trace("keyboard-b-2"),))
-        track.enqueue(_video_frame(30), (trace("keyboard-c-3"),))
-        await asyncio.sleep(0)
-
-        assert markers == [
-            {
-                "type": "input_frame_dropped",
-                "event_ids": ["keyboard-a-1"],
-            }
-        ]
-        await track.recv()
-        await track.recv()
-
-        assert [marker["type"] for marker in markers] == [
-            "input_frame_dropped",
-            "input_frame",
-            "input_frame",
-        ]
-        assert [
-            cast(list[dict[str, object]], marker["traces"])[0]["event_id"]
-            for marker in markers[1:]
-        ] == ["keyboard-b-2", "keyboard-c-3"]
-        metrics = track.metrics_snapshot()
-        assert metrics["webrtc_sender_queue_depth_count"] == 0
-        assert metrics["webrtc_sender_queue_capacity_count"] == 2
-        assert metrics["webrtc_sender_enqueued_count"] == 3
-        assert metrics["webrtc_sender_handed_off_count"] == 2
-        assert metrics["webrtc_sender_dropped_for_lag_count"] == 1
-        assert metrics["webrtc_sender_discarded_on_close_count"] == 0
-    finally:
-        await track.close()
-
-
-@pytest.mark.asyncio
-async def test_video_track_coalesces_wakeups_and_bounds_drop_markers() -> None:
-    markers: list[dict[str, object]] = []
+async def test_video_track_coalesces_cross_thread_wakeups() -> None:
     sender_loop = Mock()
-    track = _VideoTrack(frames_per_second=60, on_frame_marker=markers.append)
+    track = _VideoTrack(frames_per_second=60)
     track._sender_loop = cast(Any, sender_loop)
 
     for frame_index in range(300):
-        trace = InputEventTrace(
-            event_id=f"keyboard-{frame_index}",
-            frame_index=0,
-        )
-        track.enqueue(_video_frame(frame_index % 256), (trace,))
+        track.enqueue(_video_frame(frame_index % 256))
 
     sender_loop.call_soon_threadsafe.assert_called_once()
     pending = track.metrics_snapshot()
@@ -898,17 +619,10 @@ async def test_video_track_coalesces_wakeups_and_bounds_drop_markers() -> None:
 
     await track.close()
 
-    # Overflow expires all older browser trace state explicitly, then close
-    # reports the two still-queued frames individually.
-    assert markers == [
-        {"type": "input_trace_reset"},
-        {"type": "input_frame_dropped", "event_ids": ["keyboard-298"]},
-        {"type": "input_frame_dropped", "event_ids": ["keyboard-299"]},
-    ]
     assert track.metrics_snapshot()["webrtc_sender_discarded_on_close_count"] == 2
 
     deferred_wake()
-    assert len(markers) == 3
+    sender_loop.call_soon_threadsafe.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -944,51 +658,6 @@ async def test_video_track_close_wakes_a_waiting_receiver() -> None:
 
     with pytest.raises(MediaStreamError):
         await receiver
-
-
-def test_frame_markers_wait_for_control_channel_backlog_to_clear() -> None:
-    window = WebRTCClientWindow()
-    channel = _BufferedControlChannel(
-        webrtc_server._MAX_CONTROL_CHANNEL_BUFFER_BYTES + 1
-    )
-    window.server._control_channel = channel
-    try:
-        markers: list[dict[str, object]] = [
-            {"type": "input_frame_dropped", "event_ids": ["page:1"]},
-            {"type": "input_frame_dropped", "event_ids": ["page:2"]},
-        ]
-        for marker in markers:
-            window.server._send_frame_marker(marker)
-
-        assert channel.sent == []
-        assert list(window.server._pending_frame_markers) == markers
-
-        channel.bufferedAmount = 0
-        window.server._flush_frame_markers()
-
-        assert [json.loads(message) for message in channel.sent] == markers
-        assert not window.server._pending_frame_markers
-    finally:
-        window.close()
-
-
-def test_window_reports_frames_discarded_before_webrtc_admission() -> None:
-    window = WebRTCClientWindow()
-    channel = _BufferedControlChannel(0)
-    window.server._control_channel = channel
-    try:
-        window.discard_input_event_ids(("page:1", "page:1", "page:2"))
-        deadline = time.monotonic() + 1.0
-        while not channel.sent:
-            assert time.monotonic() < deadline
-            time.sleep(0.01)
-
-        assert json.loads(channel.sent[0]) == {
-            "type": "input_frame_dropped",
-            "event_ids": ["page:1", "page:2"],
-        }
-    finally:
-        window.close()
 
 
 def test_server_stops_after_an_async_cleanup_failure() -> None:
@@ -1065,19 +734,11 @@ def test_server_close_quarantines_storage_after_a_failed_cuda_drain() -> None:
 
 
 @pytest.mark.asyncio
-async def test_video_track_close_reports_both_discarded_queued_frames() -> None:
-    markers: list[dict[str, object]] = []
-    track = _VideoTrack(frames_per_second=60, on_frame_marker=markers.append)
-    traces = tuple(
-        InputEventTrace(
-            event_id=event_id,
-            frame_index=0,
-        )
-        for event_id in ("keyboard-a-1", "keyboard-b-2")
-    )
+async def test_video_track_close_discards_both_queued_frames() -> None:
+    track = _VideoTrack(frames_per_second=60)
 
-    track.enqueue(_video_frame(10), (traces[0],))
-    track.enqueue(_video_frame(20), (traces[1],))
+    track.enqueue(_video_frame(10))
+    track.enqueue(_video_frame(20))
     assert track.metrics_snapshot()["webrtc_sender_queue_depth_count"] == 2
 
     await track.close()
@@ -1086,15 +747,5 @@ async def test_video_track_close_reports_both_discarded_queued_frames() -> None:
     metrics = track.metrics_snapshot()
     assert metrics["webrtc_sender_discarded_on_close_count"] == 2
     assert metrics["webrtc_sender_dropped_for_lag_count"] == 0
-    assert markers == [
-        {
-            "type": "input_frame_dropped",
-            "event_ids": ["keyboard-a-1"],
-        },
-        {
-            "type": "input_frame_dropped",
-            "event_ids": ["keyboard-b-2"],
-        },
-    ]
     with pytest.raises(MediaStreamError):
         await track.recv()

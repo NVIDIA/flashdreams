@@ -28,7 +28,7 @@ from loguru import logger
 
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     FocusUserInputEvent,
@@ -49,21 +49,6 @@ _INTERACTIVE_FRAME_QUEUE_SIZE = 2
 
 _TRANSFER_STREAM_PRIORITY = -1
 """Portable high-priority CUDA stream request for interactive output copies."""
-
-_VIDEO_RTP_CLOCK_RATE = 90_000
-"""Clock rate aiortc's video encoders use for RTP timestamps."""
-
-_MAX_PENDING_FRAME_MARKERS = 240
-"""Bound sideband metadata retained while the data channel is opening."""
-
-_MAX_BROWSER_EVENT_IDS = 4_096
-"""Bound browser-event IDs retained for trace validation and deduplication."""
-
-_MAX_CONTROL_CHANNEL_BUFFER_BYTES = 64 * 1024
-"""Pause frame-marker writes before SCTP queues unbounded telemetry."""
-
-_CONTROL_CHANNEL_LOW_WATER_BYTES = 16 * 1024
-"""Resume retained frame-marker writes below this buffered amount."""
 
 _SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 2.0
 """Bound shutdown time spent waiting for aiortc's next sender request."""
@@ -124,35 +109,23 @@ class _QueuedRGBFrame:
     enqueued_at: float
     """Monotonic timestamp at which ``write`` admitted this frame."""
 
-    input_event_traces: tuple[InputEventTrace, ...] = ()
-    """Browser events acknowledged by this exact presented frame."""
-
 
 class _VideoTrack(MediaStreamTrack):
     """Video track whose frames are supplied by the server."""
 
     kind = "video"
 
-    def __init__(
-        self,
-        frames_per_second: int,
-        *,
-        on_frame_marker: Callable[[dict[str, object]], None] | None = None,
-    ) -> None:
+    def __init__(self, frames_per_second: int) -> None:
         """Configure immediate delivery with a bounded unsent-frame mailbox.
 
         Args:
             frames_per_second: RTP timestamp resolution.
-            on_frame_marker: Callback for frame/event sideband metadata.
         """
         super().__init__()
         self._frames_per_second = frames_per_second
         self._time_base = Fraction(1, frames_per_second)
-        self._on_frame_marker = on_frame_marker
         self._sender_loop = asyncio.get_running_loop()
         self._frames: deque[_QueuedRGBFrame] = deque()
-        self._pending_dropped_event_ids: deque[tuple[str, ...]] = deque()
-        self._trace_reset_pending = False
         self._frame_available = asyncio.Event()
         self._sender_drained = threading.Event()
         self._sender_drained.set()
@@ -165,7 +138,6 @@ class _VideoTrack(MediaStreamTrack):
         self._discarded_on_close_count = 0
         self._first_enqueued_at: float | None = None
         self._next_pts = 0
-        self._next_frame_id = 0
         self._frame_in_flight = False
         self._closed = False
 
@@ -190,11 +162,7 @@ class _VideoTrack(MediaStreamTrack):
             }
         return sender_metrics
 
-    def enqueue(
-        self,
-        frame: VideoFrame,
-        input_event_traces: tuple[InputEventTrace, ...] = (),
-    ) -> bool:
+    def enqueue(self, frame: VideoFrame) -> bool:
         """Synchronously admit one real frame and wake the sender.
 
         Returns:
@@ -207,14 +175,9 @@ class _VideoTrack(MediaStreamTrack):
             queued_frame = _QueuedRGBFrame(
                 frame=frame,
                 enqueued_at=enqueued_at,
-                input_event_traces=input_event_traces,
             )
             if len(self._frames) >= _INTERACTIVE_FRAME_QUEUE_SIZE:
-                stale = self._frames.popleft()
-                if stale.input_event_traces:
-                    self._remember_dropped_event_ids(
-                        tuple(trace.event_id for trace in stale.input_event_traces),
-                    )
+                self._frames.popleft()
                 self._dropped_for_lag += 1
             self._frames.append(queued_frame)
             self._sender_drained.clear()
@@ -253,13 +216,6 @@ class _VideoTrack(MediaStreamTrack):
         video_frame.pts = pts
         video_frame.time_base = self._time_base
         self._next_pts = pts + 1
-        frame_id = self._next_frame_id
-        self._next_frame_id += 1
-        self._emit_frame_marker(
-            frame_id=frame_id,
-            pts=pts,
-            input_event_traces=queued_frame.input_event_traces,
-        )
         with self._state_lock:
             self._frame_in_flight = True
             self._handed_off_count += 1
@@ -271,57 +227,20 @@ class _VideoTrack(MediaStreamTrack):
             if self._closed:
                 return
             self._closed = True
-            dropped_event_ids = tuple(self._pending_dropped_event_ids)
-            self._pending_dropped_event_ids.clear()
-            trace_reset_pending = self._trace_reset_pending
-            self._trace_reset_pending = False
             self._wake_scheduled = False
-            discarded = tuple(self._frames)
+            discarded_count = len(self._frames)
             self._frames.clear()
             self._frame_in_flight = False
             self._sender_drained.set()
-            self._discarded_on_close_count += len(discarded)
-        if trace_reset_pending:
-            self._emit_trace_reset()
-        else:
-            for event_ids in dropped_event_ids:
-                self._emit_dropped_event_ids(event_ids)
-        for queued in discarded:
-            self._emit_dropped_frame_marker(queued)
+            self._discarded_on_close_count += discarded_count
         self._frame_available.set()
         self.stop()
 
     def _finish_enqueue(self) -> None:
-        """Wake a waiting receiver, then publish one coalesced drop marker."""
+        """Wake a waiting receiver after a cross-thread enqueue."""
         with self._state_lock:
-            dropped_event_ids = tuple(self._pending_dropped_event_ids)
-            self._pending_dropped_event_ids.clear()
-            trace_reset_pending = self._trace_reset_pending
-            self._trace_reset_pending = False
             self._wake_scheduled = False
         self._frame_available.set()
-        if trace_reset_pending:
-            self._emit_trace_reset()
-        elif dropped_event_ids:
-            self._emit_dropped_event_ids(
-                tuple(
-                    dict.fromkeys(
-                        event_id
-                        for event_ids in dropped_event_ids
-                        for event_id in event_ids
-                    )
-                )
-            )
-
-    def _remember_dropped_event_ids(self, event_ids: tuple[str, ...]) -> None:
-        """Retain a bounded terminal update while holding ``_state_lock``."""
-        if self._trace_reset_pending:
-            return
-        if len(self._pending_dropped_event_ids) >= _MAX_PENDING_FRAME_MARKERS:
-            self._pending_dropped_event_ids.clear()
-            self._trace_reset_pending = True
-            return
-        self._pending_dropped_event_ids.append(event_ids)
 
     async def _next_queued_frame(self) -> _QueuedRGBFrame:
         while True:
@@ -335,61 +254,6 @@ class _VideoTrack(MediaStreamTrack):
                     raise MediaStreamError
                 self._frame_available.clear()
             await self._frame_available.wait()
-
-    def _emit_dropped_frame_marker(self, frame: _QueuedRGBFrame) -> None:
-        self._emit_dropped_event_ids(
-            tuple(trace.event_id for trace in frame.input_event_traces)
-        )
-
-    def _emit_dropped_event_ids(self, event_ids: tuple[str, ...]) -> None:
-        """Publish bounded sideband state without retaining dropped pixels."""
-        callback = self._on_frame_marker
-        if not event_ids or callback is None:
-            return
-        callback(
-            {
-                "type": "input_frame_dropped",
-                "event_ids": list(event_ids),
-            }
-        )
-
-    def _emit_trace_reset(self) -> None:
-        """Expire browser trace state when individual drop updates overflow."""
-        callback = self._on_frame_marker
-        if callback is not None:
-            callback({"type": "input_trace_reset"})
-
-    def _emit_frame_marker(
-        self,
-        *,
-        frame_id: int,
-        pts: int,
-        input_event_traces: tuple[InputEventTrace, ...],
-    ) -> None:
-        """Publish the source timestamp and input acknowledgements for one frame."""
-        callback = self._on_frame_marker
-        if callback is None or not input_event_traces:
-            return
-        source_rtp_timestamp = (
-            pts
-            * self._time_base.numerator
-            * _VIDEO_RTP_CLOCK_RATE
-            // self._time_base.denominator
-        ) & 0xFFFFFFFF
-        trace_payloads: list[dict[str, object]] = []
-        for trace in input_event_traces:
-            trace_payloads.append({"event_id": trace.event_id})
-        callback(
-            {
-                "type": "input_frame",
-                "frame_id": frame_id,
-                "frame_pts": pts,
-                "time_base_num": self._time_base.numerator,
-                "time_base_den": self._time_base.denominator,
-                "source_rtp_timestamp": source_rtp_timestamp,
-                "traces": trace_payloads,
-            }
-        )
 
 
 class WebRTCServer:
@@ -431,13 +295,8 @@ class WebRTCServer:
         self._video_track: _VideoTrack | None = None
         self._final_video_track_metrics: dict[str, float | int] | None = None
         self._media_connected = threading.Event()
-        self._control_channel: Any | None = None
-        self._pending_frame_markers: deque[dict[str, object]] = deque()
-        self._frame_marker_flush_scheduled = False
         self._session_desc: SessionDesc | None = None
         self._session_start_ns: int | None = None
-        self._browser_event_ids: deque[str] = deque()
-        self._browser_event_id_set: set[str] = set()
         self._transfer_streams: dict[int, torch.cuda.Stream] = {}
         self._materialization_buffer = _PinnedRGBFrameBuffer()
         self._materialization_count = 0
@@ -526,18 +385,6 @@ class WebRTCServer:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
 
-    def report_discarded_input_events(self, event_ids: tuple[str, ...]) -> None:
-        """Schedule a browser terminal marker for pre-WebRTC frame drops."""
-        if not event_ids or self._closed:
-            return
-        marker: dict[str, object] = {
-            "type": "input_frame_dropped",
-            "event_ids": list(dict.fromkeys(event_ids)),
-        }
-        loop = self._loop
-        if loop is not None:
-            loop.call_soon_threadsafe(self._send_frame_marker, marker)
-
     def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.
 
@@ -561,15 +408,9 @@ class WebRTCServer:
             )
         track = self._video_track
         if track is None:
-            self.report_discarded_input_events(
-                tuple(trace.event_id for trace in result.input_event_traces)
-            )
             return
         queued_frame = self._materialize_video_frame(result, frames[0])
-        if not track.enqueue(queued_frame, result.input_event_traces):
-            self.report_discarded_input_events(
-                tuple(trace.event_id for trace in result.input_event_traces)
-            )
+        track.enqueue(queued_frame)
 
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""
@@ -766,10 +607,7 @@ class WebRTCServer:
 
         peer_connection = RTCPeerConnection()
         self._media_connected.clear()
-        video_track = _VideoTrack(
-            session_desc.frames_per_second_for_ui,
-            on_frame_marker=self._send_frame_marker,
-        )
+        video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
         self._final_video_track_metrics = None
         peer_connection.addTrack(video_track)
         self._peer_connection = peer_connection
@@ -780,13 +618,6 @@ class WebRTCServer:
             is_reliable_control = channel.label == "controls"
             if is_reliable_control:
                 self._client_connected = True
-                self._control_channel = channel
-                channel.bufferedAmountLowThreshold = _CONTROL_CHANNEL_LOW_WATER_BYTES
-
-            @channel.on("open")
-            def on_open() -> None:
-                if is_reliable_control:
-                    self._flush_frame_markers()
 
             @channel.on("message")
             def on_message(message: Any) -> None:
@@ -797,17 +628,9 @@ class WebRTCServer:
                 except ValueError as error:
                     channel.send(json.dumps({"type": "error", "message": str(error)}))
 
-            if is_reliable_control:
-
-                @channel.on("bufferedamountlow")
-                def on_buffered_amount_low() -> None:
-                    self._flush_frame_markers()
-
             @channel.on("close")
             def on_close() -> None:
                 if is_reliable_control:
-                    if self._control_channel is channel:
-                        self._control_channel = None
                     self._record_client_disconnect()
 
         @peer_connection.on("connectionstatechange")
@@ -859,11 +682,9 @@ class WebRTCServer:
             raise ValueError("Browser event must be a JSON object.")
 
         event_type = payload.get("type")
-        session_start_ns = self._session_start_ns
-        if session_start_ns is None:
+        timestamp_us = self._timestamp_us()
+        if timestamp_us is None:
             return
-        server_received_at_ns = time.monotonic_ns()
-        timestamp_us = np.uint64((server_received_at_ns - session_start_ns) // 1_000)
 
         if event_type == "keyboard":
             key = payload.get("key")
@@ -872,10 +693,8 @@ class WebRTCServer:
                 raise ValueError("Keyboard event requires a non-empty key.")
             if not isinstance(pressed, bool):
                 raise ValueError("Keyboard event requires a boolean pressed value.")
-            event_id = self._register_browser_event(payload)
             event = KeyboardUserInputEvent(
                 timestamp=timestamp_us,
-                event_id=event_id,
                 key=key,
                 state=(
                     KeyboardInputState.PRESSED
@@ -899,10 +718,8 @@ class WebRTCServer:
                 raise ValueError("Mouse button must be a non-negative integer.")
             if not isinstance(pressed, bool):
                 raise ValueError("Mouse pressed must be a boolean.")
-            event_id = self._register_browser_event(payload)
             event = MouseUserInputEvent(
                 timestamp=timestamp_us,
-                event_id=event_id,
                 action=action,
                 x=x,
                 y=y,
@@ -915,45 +732,17 @@ class WebRTCServer:
             focused = payload.get("focused")
             if not isinstance(focused, bool):
                 raise ValueError("Focus event requires a boolean focused value.")
-            event_id = self._register_browser_event(payload)
             event = FocusUserInputEvent(
                 timestamp=timestamp_us,
-                event_id=event_id,
                 focused=focused,
             )
         elif event_type == "reset":
-            event_id = self._register_browser_event(payload)
-            event = ResetUserInputEvent(
-                timestamp=timestamp_us,
-                event_id=event_id,
-            )
+            event = ResetUserInputEvent(timestamp=timestamp_us)
         elif event_type == "close":
-            event_id = self._register_browser_event(payload)
-            event = CloseUserInputEvent(
-                timestamp=timestamp_us,
-                event_id=event_id,
-            )
+            event = CloseUserInputEvent(timestamp=timestamp_us)
         else:
             raise ValueError("Unsupported browser event type.")
         self._append_event(event)
-
-    def _register_browser_event(self, payload: dict[str, object]) -> str | None:
-        """Validate and retain an optional browser correlation ID."""
-        event_id = payload.get("event_id")
-        if event_id is None:
-            return None
-        if not isinstance(event_id, str) or not event_id or len(event_id) > 128:
-            raise ValueError(
-                "Browser event_id must be a non-empty string of at most 128 characters."
-            )
-        if event_id in self._browser_event_id_set:
-            raise ValueError("Browser event_id must be unique within a session.")
-        if len(self._browser_event_ids) >= _MAX_BROWSER_EVENT_IDS:
-            expired = self._browser_event_ids.popleft()
-            self._browser_event_id_set.discard(expired)
-        self._browser_event_ids.append(event_id)
-        self._browser_event_id_set.add(event_id)
-        return event_id
 
     def _append_event(self, event: UserInputEvent) -> None:
         """Buffer one validated browser event."""
@@ -961,43 +750,6 @@ class WebRTCServer:
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")
         callback(event)
-
-    def _send_frame_marker(self, marker: dict[str, object]) -> None:
-        """Retain one marker and defer data-channel work off the media path."""
-        if len(self._pending_frame_markers) >= _MAX_PENDING_FRAME_MARKERS:
-            self._pending_frame_markers.clear()
-            self._pending_frame_markers.append({"type": "input_trace_reset"})
-        self._pending_frame_markers.append(marker)
-        channel = self._control_channel
-        loop = self._loop
-        if (
-            channel is not None
-            and channel.readyState == "open"
-            and loop is not None
-            and not self._frame_marker_flush_scheduled
-        ):
-            self._frame_marker_flush_scheduled = True
-            loop.call_soon_threadsafe(self._flush_frame_markers)
-
-    def _flush_frame_markers(self) -> None:
-        """Send retained markers once the data channel is open."""
-        self._frame_marker_flush_scheduled = False
-        channel = self._control_channel
-        if channel is None or channel.readyState != "open":
-            return
-        while self._pending_frame_markers:
-            if channel.bufferedAmount > _MAX_CONTROL_CHANNEL_BUFFER_BYTES:
-                return
-            marker = self._pending_frame_markers[0]
-            try:
-                channel.send(json.dumps(marker, separators=(",", ":")))
-            except Exception as error:
-                logger.warning(
-                    "Could not send WebRTC frame marker; retaining it for retry: {}",
-                    error,
-                )
-                return
-            self._pending_frame_markers.popleft()
 
     def _record_client_disconnect(self) -> None:
         """Buffer one close event when the active browser disconnects."""
@@ -1034,13 +786,6 @@ class WebRTCServer:
                 self._final_video_track_metrics = track.metrics_snapshot()
             except BaseException as error:
                 failures.append(error)
-        try:
-            self._flush_frame_markers()
-        except BaseException as error:
-            failures.append(error)
-        self._control_channel = None
-        self._pending_frame_markers.clear()
-        self._frame_marker_flush_scheduled = False
         if peer_connection is not None:
             try:
                 await peer_connection.close()

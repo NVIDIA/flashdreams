@@ -15,7 +15,7 @@ from flashdreams.runtime_v2.slangpy_ui_renderer import (
     _SlangPyUIRenderer,
     _UIRenderer,
 )
-from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _StateT = TypeVar("_StateT")
@@ -94,22 +94,6 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         """
         ...
 
-    def input_event_traces(
-        self,
-        events: UserInputEvents,
-    ) -> tuple[InputEventTrace, ...]:
-        """Return browser events visibly handled by the current UI frame.
-
-        Subclasses can acknowledge correlated inputs by returning traces for
-        the frame rendered by :meth:`step`. The default does not claim that an
-        input changed the visual output.
-
-        Args:
-            events: Input events passed to the current UI step.
-        """
-        del events
-        return ()
-
     @final
     def step(self, step_index: int, events: UserInputEvents) -> StepResult:
         """Render the UI over the optional back-buffer returned by :meth:`step_ui`.
@@ -158,7 +142,6 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
             output=frame.unsqueeze(0),
             frame_count=1,
             output_layout=self.output_layout,
-            input_event_traces=self.input_event_traces(events),
             output_ready_event=output_ready_event,
         )
 

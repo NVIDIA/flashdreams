@@ -16,19 +16,11 @@ from loguru import logger
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
-from flashdreams.runtime_v2.input_event_trace import InputEventTraceTracker
 from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
-from flashdreams.runtime_v2.keyboard_input import (
-    KeyboardEventDisposition,
-    KeyboardStateTrack,
-)
+from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEvent,
-    KeyboardUserInputEvent,
-)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 from .controls import CameraPoseIntegrator, KeyboardResampler
@@ -114,11 +106,6 @@ class Cam2VModelState:
     keyboard_track: KeyboardStateTrack = field(init=False)
     """Timestamped held-key state projected into camera-control segments."""
 
-    input_event_trace_tracker: InputEventTraceTracker = field(
-        default_factory=InputEventTraceTracker
-    )
-    """Browser-tagged control edges awaiting their first affected frame."""
-
     cache: Any | None = None
     """Session-local autoregressive model cache."""
 
@@ -192,11 +179,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 "Cam2V pipelines must generate at least one frame per step."
             )
         keyboard_events = state.keyboard_track.ingest(events)
-        _queue_model_input_event_traces(
-            state.input_event_trace_tracker,
-            keyboard_events=keyboard_events,
-            trace_tracked_keys=state.ui_loop is None,
-        )
         input_window = state.input_timeline.next_window(
             frame_count,
             input_times_s=(
@@ -268,7 +250,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 metrics["chunk_fps"],
             )
         _publish_ui_status(state, metrics)
-        input_event_traces = state.input_event_trace_tracker.resolve(frame_times)
         return [
             StepResult(
                 step_index=step_index,
@@ -276,7 +257,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 frame_count=frame_count,
                 output_layout=state.session_desc.output_layout,
                 metrics=metrics,
-                input_event_traces=input_event_traces,
             )
         ]
 
@@ -292,7 +272,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.frames_generated = 0
         state.input_timeline.reset(start_s=0.0)
         state.keyboard_track.reset()
-        state.input_event_trace_tracker.clear()
         state.pose_integrator.reset()
         state.steady_started_at = None
         state.steady_frames_generated = 0
@@ -360,28 +339,6 @@ class Cam2VSession(ISession):
                 ),
                 ui_loop=ui_loop,
             ),
-        )
-
-
-def _queue_model_input_event_traces(
-    tracker: InputEventTraceTracker,
-    *,
-    keyboard_events: tuple[KeyboardEventDisposition, ...],
-    trace_tracked_keys: bool,
-) -> None:
-    """Route keyboard acknowledgements not owned by the immediate UI step."""
-    for result in keyboard_events:
-        event = result.event
-        if isinstance(event, KeyboardUserInputEvent):
-            if result.tracked and not trace_tracked_keys:
-                continue
-            event_timestamp_s = result.timestamp_s if result.tracked else None
-        else:
-            assert isinstance(event, FocusUserInputEvent)
-            event_timestamp_s = result.timestamp_s
-        tracker.track(
-            event,
-            effective_at_s=event_timestamp_s,
         )
 
 

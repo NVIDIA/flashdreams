@@ -50,12 +50,11 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
-    MouseUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -200,7 +199,6 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
                 timestamp=uint64(0),
                 key="w",
                 state=KeyboardInputState.PRESSED,
-                event_id="page:w",
             )
         ]
     )
@@ -214,7 +212,6 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
         result.metrics["chunk_fps"]
     )
     assert result.metrics["model_step_wall_s"] > 0
-    assert result.input_event_traces == ()
     ui_loop._run_message_batch()
     assert ui_state.status is not None
     assert ui_state.status.completed_blocks == 1
@@ -393,67 +390,6 @@ def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:
     assert state.input_timeline.next_window_start_s == pytest.approx(10.125)
 
 
-def test_model_loop_traces_each_event_to_its_first_affected_frame() -> None:
-    """Carry a boundary edge until a camera sample strictly follows it."""
-    model_loop, state, _ = _input_test_model_loop()
-    first = KeyboardUserInputEvent(
-        timestamp=uint64(62_500),
-        key="w",
-        state=KeyboardInputState.PRESSED,
-        event_id="page:1",
-    )
-    chunk_boundary = KeyboardUserInputEvent(
-        timestamp=uint64(125_000),
-        key="w",
-        state=KeyboardInputState.RELEASED,
-        event_id="page:2",
-    )
-
-    first_result = model_loop.step(0, UserInputEvents([first, chunk_boundary]))[0]
-    second_result = model_loop.step(1, UserInputEvents([]))[0]
-
-    assert [
-        (trace.event_id, trace.frame_index) for trace in first_result.input_event_traces
-    ] == [("page:1", 1)]
-    assert [
-        (trace.event_id, trace.frame_index)
-        for trace in second_result.input_event_traces
-    ] == [("page:2", 0)]
-    assert state.input_event_trace_tracker.pending_count == 0
-
-
-def test_model_loop_acknowledges_ignored_keys_without_tracing_pointer_input() -> None:
-    """Resolve tracked keys while leaving untracked pointer and focus input alone."""
-    model_loop, _, _ = _input_test_model_loop()
-    events = UserInputEvents(
-        [
-            KeyboardUserInputEvent(
-                timestamp=uint64(0),
-                key="Escape",
-                state=KeyboardInputState.PRESSED,
-                event_id="page:unsupported",
-            ),
-            MouseUserInputEvent(
-                timestamp=uint64(1),
-                x=0.5,
-                y=0.5,
-                event_id="page:pointer",
-            ),
-            FocusUserInputEvent(
-                timestamp=uint64(2),
-                focused=True,
-                event_id="page:focus",
-            ),
-        ]
-    )
-
-    result = model_loop.step(0, events)[0]
-
-    assert [trace.event_id for trace in result.input_event_traces] == [
-        "page:unsupported"
-    ]
-
-
 def test_unsupported_key_does_not_advance_the_camera_timeline() -> None:
     model_loop, state, _ = _input_test_model_loop()
     start = state.input_timeline.next_window_start_s
@@ -466,7 +402,6 @@ def test_unsupported_key_does_not_advance_the_camera_timeline() -> None:
                     timestamp=uint64(10_000_000),
                     key="Escape",
                     state=KeyboardInputState.PRESSED,
-                    event_id="page:escape",
                 )
             ]
         ),
@@ -509,7 +444,6 @@ def test_model_loop_normalizes_browser_arrow_keys() -> None:
                 timestamp=uint64(0),
                 key="ArrowUp",
                 state=KeyboardInputState.PRESSED,
-                event_id="page:arrow-up",
             )
         ]
     )
@@ -569,7 +503,6 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
                 timestamp=uint64(0),
                 key="ArrowUp",
                 state=KeyboardInputState.PRESSED,
-                event_id="page:arrow-up",
             )
         ]
     )
@@ -587,9 +520,6 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
 
     assert result.output.shape == (1, 3, 2, 2)
     assert result.output.dtype is torch.bfloat16
-    assert result.input_event_traces == (
-        InputEventTrace(event_id="page:arrow-up", frame_index=0),
-    )
     assert state.held_keys == {"w"}
     displayed = [widget.text for widget in state.status_widgets]
     assert "Rollout: 2/4 blocks" in displayed
@@ -599,7 +529,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     assert state.active_keys_widget is not None
     assert state.active_keys_widget.text == "Active keys: W"
 
-    quick_tap = ui_loop.step(
+    ui_loop.step(
         1,
         UserInputEvents(
             [
@@ -607,20 +537,14 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
                     timestamp=uint64(1),
                     key="e",
                     state=KeyboardInputState.PRESSED,
-                    event_id="page:e-down",
                 ),
                 KeyboardUserInputEvent(
                     timestamp=uint64(2),
                     key="e",
                     state=KeyboardInputState.RELEASED,
-                    event_id="page:e-up",
                 ),
             ]
         ),
-    )
-    assert quick_tap.input_event_traces == (
-        InputEventTrace(event_id="page:e-down", frame_index=0),
-        InputEventTrace(event_id="page:e-up", frame_index=0),
     )
     assert state.held_keys == {"w"}
 

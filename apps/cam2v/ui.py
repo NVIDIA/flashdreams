@@ -12,10 +12,9 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from flashdreams.runtime.keyboard import KeyboardState, normalize_key
+from flashdreams.runtime.keyboard import KeyboardState
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateSnapshot
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
-from flashdreams.runtime_v2.step_result import InputEventTrace
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     KeyboardInputState,
@@ -132,13 +131,6 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
             return frame
         return frame.to(torch.float32).mul_(2.0 / 255.0).sub_(1.0)
 
-    def input_event_traces(
-        self,
-        events: UserInputEvents,
-    ) -> tuple[InputEventTrace, ...]:
-        """Acknowledge correlated camera controls drawn by this UI step."""
-        return _ui_input_event_traces(events)
-
     def reset(self) -> None:
         """Clear UI-loop state for a new generation."""
         self.state.reset()
@@ -239,19 +231,6 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
             continue
         state.held_keys.clear()
         state.held_keys.update(state._keyboard_state.snapshot())
-
-
-def _ui_input_event_traces(
-    events: UserInputEvents,
-) -> tuple[InputEventTrace, ...]:
-    """Acknowledge every correlated camera control processed by this UI step."""
-    return tuple(
-        InputEventTrace(event_id=event.event_id, frame_index=0)
-        for event in events.get_events()
-        if isinstance(event, KeyboardUserInputEvent)
-        and event.event_id is not None
-        and normalize_key(event.key) in _CAMERA_KEYS
-    )
 
 
 __all__ = [

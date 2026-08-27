@@ -116,13 +116,6 @@ A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.
 
-An input source may assign a non-empty `UserInputEvent.event_id` for browser
-correlation. A model or UI result acknowledges that ID with
-`InputEventTrace(event_id, frame_index)`. A model trace indexes its generated
-chunk; when that frame is selected, the runtime rebases it to frame zero on the
-one-frame UI result and merges it with acknowledgements returned by the UI
-loop. If both acknowledge the same ID, the UI acknowledgement is retained.
-
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
 other range converts before returning.

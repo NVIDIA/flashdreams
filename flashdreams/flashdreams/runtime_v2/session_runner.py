@@ -16,7 +16,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode
-from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -219,10 +219,7 @@ def run_session(
         if _contains(events, CloseUserInputEvent):
             stop.set()
 
-    def run_ui_once(
-        *,
-        presented_model_traces: tuple[InputEventTrace, ...] = (),
-    ) -> StepResult | None:
+    def run_ui_once() -> StepResult | None:
         """Run one UI step with events not yet seen by that loop."""
         if ui_loop is None:
             return None
@@ -233,17 +230,6 @@ def run_session(
         result = ui_loop.step(step_index, events)
         if result is not None and not isinstance(result, StepResult):
             raise TypeError("A UI loop must return StepResult or None.")
-        if result is not None and presented_model_traces:
-            seen_event_ids = {trace.event_id for trace in result.input_event_traces}
-            result = replace(
-                result,
-                input_event_traces=result.input_event_traces
-                + tuple(
-                    trace
-                    for trace in presented_model_traces
-                    if trace.event_id not in seen_event_ids
-                ),
-            )
         ui_loop._finish_run(result)
         return result
 
@@ -292,16 +278,10 @@ def run_session(
                 )
             )
 
-    def run_and_write_ui_once(
-        presented_model_traces: tuple[InputEventTrace, ...] = (),
-    ) -> None:
+    def run_and_write_ui_once() -> None:
         """Run one UI step and write its result, if any."""
-        result = run_ui_once(presented_model_traces=presented_model_traces)
+        result = run_ui_once()
         if result is None:
-            if presented_model_traces:
-                window.discard_input_event_ids(
-                    tuple(trace.event_id for trace in presented_model_traces)
-                )
             return
         window.write(result)
 
@@ -312,12 +292,9 @@ def run_session(
         now = time.monotonic()
         if presentation_clock.is_due(now, generation):
             model_advanced, _ = presentation_manager.advance(generation)
-        discarded_event_ids = presentation_manager.take_discarded_input_event_ids()
-        if discarded_event_ids:
-            window.discard_input_event_ids(discarded_event_ids)
         if model_advanced:
             presentation_clock.mark_advanced(now)
-            run_and_write_ui_once(presentation_manager.presented_input_event_traces())
+            run_and_write_ui_once()
             return
         if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
             return
@@ -387,9 +364,6 @@ def run_session(
         cleanup_failures.extend(session._shutdown_registered_loops())
         try:
             presentation_manager.clear()
-            discarded_event_ids = presentation_manager.take_discarded_input_event_ids()
-            if discarded_event_ids:
-                window.discard_input_event_ids(discarded_event_ids)
         except BaseException as error:
             cleanup_failures.append(error)
         try:

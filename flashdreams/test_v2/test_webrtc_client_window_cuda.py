@@ -30,12 +30,7 @@ class _CapturingTrack:
     def __init__(self) -> None:
         self.frames: list[VideoFrame] = []
 
-    def enqueue(
-        self,
-        frame: VideoFrame,
-        input_event_traces: tuple[object, ...] = (),
-    ) -> bool:
-        assert not input_event_traces
+    def enqueue(self, frame: VideoFrame) -> bool:
         assert isinstance(frame, VideoFrame)
         self.frames.append(frame)
         return True

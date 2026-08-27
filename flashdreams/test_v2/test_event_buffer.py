@@ -61,23 +61,3 @@ def test_consecutive_pointer_moves_are_retained_for_fast_and_slow_readers() -> N
         for event in slow_events.get_events()
         if isinstance(event, MouseUserInputEvent)
     ] == [0.1, 0.2, 0.3, 0.5, 0.6]
-
-
-def test_traced_pointer_moves_retain_their_correlation_ids() -> None:
-    buffer = EventBuffer()
-    buffer.register(0)
-    buffer.append(
-        UserInputEvents(
-            [
-                MouseUserInputEvent(
-                    timestamp=uint64(1), x=0.1, y=0.5, event_id="page:1"
-                ),
-                MouseUserInputEvent(
-                    timestamp=uint64(2), x=0.2, y=0.5, event_id="page:2"
-                ),
-            ]
-        )
-    )
-
-    events, _ = buffer.read(0)
-    assert [event.event_id for event in events.get_events()] == ["page:1", "page:2"]

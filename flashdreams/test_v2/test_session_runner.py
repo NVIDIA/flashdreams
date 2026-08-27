@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import torch
@@ -27,7 +27,7 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
-from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
@@ -75,49 +75,6 @@ def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
     assert not clock.is_due(now=2.24, generation=0)
     assert clock.is_due(now=2.25, generation=0)
     assert clock.is_due(now=2.0, generation=1)
-
-
-@pytest.mark.parametrize("event_id", ["", 7, None])
-def test_input_event_trace_rejects_invalid_event_ids(event_id: object) -> None:
-    with pytest.raises(ValueError, match="non-empty string"):
-        InputEventTrace(event_id=cast(Any, event_id), frame_index=0)
-
-
-@pytest.mark.parametrize("frame_index", [-1, True, 1.5])
-def test_input_event_trace_rejects_invalid_frame_indices(frame_index: object) -> None:
-    error = TypeError if isinstance(frame_index, bool | float) else ValueError
-    with pytest.raises(error):
-        InputEventTrace(event_id="page:1", frame_index=cast(Any, frame_index))
-
-
-def test_step_result_rejects_invalid_or_duplicate_input_acknowledgements() -> None:
-    with pytest.raises(TypeError, match="must contain InputEventTrace"):
-        StepResult(
-            step_index=0,
-            output=torch.zeros((1, 3, 1, 1)),
-            frame_count=1,
-            output_layout=VideoTensorLayout.tchw,
-            input_event_traces=cast(Any, (object(),)),
-        )
-    with pytest.raises(ValueError, match="less than frame_count"):
-        StepResult(
-            step_index=0,
-            output=torch.zeros((1, 3, 1, 1)),
-            frame_count=1,
-            output_layout=VideoTensorLayout.tchw,
-            input_event_traces=(InputEventTrace(event_id="page:1", frame_index=1),),
-        )
-    with pytest.raises(ValueError, match="one event ID twice"):
-        StepResult(
-            step_index=0,
-            output=torch.zeros((1, 3, 1, 1)),
-            frame_count=1,
-            output_layout=VideoTensorLayout.tchw,
-            input_event_traces=(
-                InputEventTrace(event_id="page:1", frame_index=0),
-                InputEventTrace(event_id="page:1", frame_index=0),
-            ),
-        )
 
 
 def test_presentation_clock_uses_recent_model_fps() -> None:
@@ -408,7 +365,6 @@ class RecordingClientWindow(IClientWindow):
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
-        self.discarded_input_event_ids: list[str] = []
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -428,9 +384,6 @@ class RecordingClientWindow(IClientWindow):
             self._hold_writes.wait()
         self._log.record(f"window.write({result.step_index})")
         self.results.append(result)
-
-    def discard_input_event_ids(self, event_ids: tuple[str, ...]) -> None:
-        self.discarded_input_event_ids.extend(event_ids)
 
     def close(self) -> None:
         self._log.record("window.close")
@@ -643,66 +596,6 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert ui.step(2, UserInputEvents([])) is None
 
 
-def test_presentation_manager_rebases_only_the_current_frame_traces() -> None:
-    manager = PresentationManager()
-    traces = tuple(
-        InputEventTrace(
-            event_id=f"page:{frame_index}",
-            frame_index=frame_index,
-        )
-        for frame_index in range(2)
-    )
-    manager.publish(
-        0,
-        [
-            StepResult(
-                step_index=0,
-                output=torch.zeros((2, 3, 1, 1)),
-                frame_count=2,
-                output_layout=VideoTensorLayout.tchw,
-                input_event_traces=traces,
-            )
-        ],
-    )
-
-    assert manager.advance(0)[0]
-    assert [trace.event_id for trace in manager.presented_input_event_traces()] == [
-        "page:0"
-    ]
-    assert manager.presented_input_event_traces()[0].frame_index == 0
-    assert manager.advance(0)[0]
-    assert [trace.event_id for trace in manager.presented_input_event_traces()] == [
-        "page:1"
-    ]
-    assert manager.presented_input_event_traces()[0].frame_index == 0
-
-    assert not manager.advance(1)[0]
-    assert manager.presented_input_event_traces() == ()
-
-
-def test_presentation_manager_rejects_disagreeing_channel_traces() -> None:
-    manager = PresentationManager()
-    trace = InputEventTrace(
-        event_id="page:1",
-        frame_index=1,
-    )
-    valid = StepResult(
-        step_index=0,
-        output=torch.zeros((2, 3, 1, 1)),
-        frame_count=2,
-        output_layout=VideoTensorLayout.tchw,
-        input_event_traces=(trace,),
-    )
-    without_trace = StepResult(
-        step_index=0,
-        output=torch.zeros((2, 3, 1, 1)),
-        frame_count=2,
-        output_layout=VideoTensorLayout.tchw,
-    )
-    with pytest.raises(ValueError, match="same input_event_traces"):
-        manager.publish(0, [valid, without_trace])
-
-
 def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     log = CallLog()
 
@@ -738,96 +631,6 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     assert recorded_metrics["runtime_presentation_publish_wait_s"] >= 0.0
     assert recorded_metrics["runtime_presentation_queue_depth_before_count"] == 0
     assert recorded_metrics["runtime_presentation_queue_capacity_count"] == 2
-
-
-def test_run_session_preserves_exact_model_frame_input_traces() -> None:
-    """Attach an acknowledgement only when its selected model frame is written."""
-    log = CallLog()
-    trace = InputEventTrace(
-        event_id="page:7",
-        frame_index=1,
-    )
-
-    class TracedMultiFrameSession(FakeSession):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            del events
-            self._log.record(f"session.step({step_index})")
-            return StepResult(
-                step_index=step_index,
-                output=torch.arange(6, dtype=torch.float32).reshape(1, 3, 2, 1, 1),
-                frame_count=2,
-                output_layout=self.session_desc.output_layout,
-                input_event_traces=(trace,),
-            )
-
-    window = RecordingClientWindow(log)
-    run_session(TracedMultiFrameSession(_session_desc(), log), window, steps=1)
-
-    assert len(window.results) == 2
-    assert window.results[0].input_event_traces == ()
-    assert window.results[1].input_event_traces == (
-        InputEventTrace(
-            event_id="page:7",
-            frame_index=0,
-        ),
-    )
-
-
-def test_run_session_merges_ui_and_model_input_acknowledgements() -> None:
-    model_trace = InputEventTrace(event_id="page:model", frame_index=0)
-
-    class TraceUILoop(FakeUILoop):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-            result = super().step(step_index, events)
-            if result is None:
-                return None
-            return replace(
-                result,
-                input_event_traces=(
-                    InputEventTrace(event_id="page:ui", frame_index=0),
-                    InputEventTrace(event_id="page:model", frame_index=0),
-                ),
-            )
-
-    class MergedTraceSession(FakeSession):
-        def init(self) -> None:
-            self.register_ui_loop(TraceUILoop, state=self)
-            self.register_model_loop(FakeModelLoop, state=self)
-
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            return replace(
-                super().step(step_index, events),
-                input_event_traces=(model_trace,),
-            )
-
-    window = RecordingClientWindow(CallLog())
-    run_session(MergedTraceSession(_session_desc(), CallLog()), window, steps=1)
-
-    assert window.results[0].input_event_traces == (
-        InputEventTrace(event_id="page:ui", frame_index=0),
-        InputEventTrace(event_id="page:model", frame_index=0),
-    )
-
-
-def test_run_session_discards_model_traces_when_ui_emits_no_frame() -> None:
-    trace = InputEventTrace(event_id="page:model", frame_index=0)
-
-    class NoFrameSession(FakeSession):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            return replace(
-                super().step(step_index, events),
-                input_event_traces=(trace,),
-            )
-
-        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-            del step_index, events
-            return None
-
-    window = RecordingClientWindow(CallLog())
-    run_session(NoFrameSession(_session_desc(), CallLog()), window, steps=1)
-
-    assert window.results == []
-    assert window.discarded_input_event_ids == ["page:model"]
 
 
 def test_metrics_capture_presentation_backpressure() -> None:
@@ -948,55 +751,6 @@ def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None
     assert newest is not None
     assert newest[0, 0, 0] == 20
     assert manager.presented_frame_count == 4
-
-
-def test_presentation_manager_reports_traces_discarded_for_space_and_reset() -> None:
-    manager = PresentationManager()
-    manager.configure(
-        max_pending=1,
-        backpressure_mode=BackpressureMode.DROP_OLDEST,
-        stop=threading.Event(),
-        put_timeout=0.01,
-    )
-
-    def traced_result(
-        step_index: int,
-        event_id: str,
-        *,
-        frame_count: int = 1,
-        frame_index: int = 0,
-    ) -> StepResult:
-        return StepResult(
-            step_index=step_index,
-            output=torch.zeros((frame_count, 3, 1, 1)),
-            frame_count=frame_count,
-            output_layout=VideoTensorLayout.tchw,
-            input_event_traces=(
-                InputEventTrace(event_id=event_id, frame_index=frame_index),
-            ),
-        )
-
-    manager.publish(0, [traced_result(0, "page:dropped")])
-    manager.publish(0, [traced_result(1, "page:presented")])
-    assert manager.take_discarded_input_event_ids() == ("page:dropped",)
-    assert manager.take_discarded_input_event_ids() == ()
-
-    assert manager.advance(0)[0]
-    manager.publish(
-        0,
-        [
-            traced_result(
-                2,
-                "page:reset",
-                frame_count=2,
-                frame_index=1,
-            )
-        ],
-    )
-    assert manager.advance(0)[0]
-    assert manager.advance(1)[0] is False
-
-    assert manager.take_discarded_input_event_ids() == ("page:reset",)
     assert manager.dropped_for_space == 1
 
 

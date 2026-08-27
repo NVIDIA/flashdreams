@@ -57,11 +57,9 @@ class WebRTCClientWindow(IClientWindow):
                 if (
                     isinstance(event, MouseUserInputEvent)
                     and event.action == "move"
-                    and event.event_id is None
                     and self._input_events
                     and isinstance(self._input_events[-1], MouseUserInputEvent)
                     and self._input_events[-1].action == "move"
-                    and self._input_events[-1].event_id is None
                 ):
                     self._input_events[-1] = event
                 else:
@@ -99,10 +97,6 @@ class WebRTCClientWindow(IClientWindow):
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return sender-queue diagnostics."""
         return self.server.metrics_snapshot()
-
-    def discard_input_event_ids(self, event_ids: tuple[str, ...]) -> None:
-        """Terminate browser traces whose model frames were not presented."""
-        self.server.report_discarded_input_events(event_ids)
 
     def close(self) -> None:
         """Implement ``OutputSink.close`` by releasing WebRTC resources."""
