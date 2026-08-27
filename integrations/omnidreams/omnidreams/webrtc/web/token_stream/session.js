@@ -15,6 +15,7 @@ import { getDecoder } from "./codec/registry.js"
 import { TokenStreamSocket } from "./network/token_socket.js"
 import { RenderLoop } from "./render/render_loop.js"
 import { VaeDecoder } from "./gpu/vae_decoder.js"
+import { CaptionEngine } from "./caption/caption_engine.js"
 
 const noop = () => {}
 
@@ -28,16 +29,25 @@ export class TokenStreamSession {
    *   capability signaling (reserved for negotiation; not required here)
    * @param {(message: string, meta?: object) => void} [options.log] logger
    */
-  constructor({ url, device = null, canvas = null, controlChannel = null, log = noop }) {
+  constructor({
+    url,
+    device = null,
+    canvas = null,
+    controlChannel = null,
+    log = noop,
+    onCaption = noop,
+  }) {
     this._url = url
     this._device = device
     this._canvas = canvas
     this._controlChannel = controlChannel
     this._log = log
+    this._onCaption = onCaption
 
     this._socket = null
     this._decoder = null
     this._vaeDecoder = null
+    this._captionEngine = null
     this._renderLoop = null
     this._sessionHeader = null
     this._vaeReady = false
@@ -79,6 +89,10 @@ export class TokenStreamSession {
       this._socket.close()
       this._socket = null
     }
+    if (this._captionEngine) {
+      this._captionEngine.stop()
+      this._captionEngine = null
+    }
     this._pendingChunks.clear()
     this._vaeReady = false
   }
@@ -112,6 +126,15 @@ export class TokenStreamSession {
     // scaffold, so failure is logged and the session continues assembling and
     // acking chunks without a GPU present step.
     void this._initVaeDecoder(header)
+
+    // Parallel, decode-free AI-consumer path: the caption engine consumes the
+    // same assembled latents (never pixels) and emits short scene captions.
+    this._captionEngine = new CaptionEngine({
+      onCaption: this._onCaption,
+      log: this._log,
+      descriptor: header?.caption_model ?? null,
+      device: this._device,
+    })
   }
 
   async _initVaeDecoder(header) {
@@ -180,6 +203,9 @@ export class TokenStreamSession {
       `token chunk ${chunkId}: ${latentFrames.length} frames, ${codecId} decoded floats=${decodedFloats} (VAE decode pending)`,
       { source: "client" }
     )
+
+    // Feed the raw latents to the caption engine (parallel, no pixel decode).
+    this._captionEngine?.pushChunk(latentFrames)
 
     if (!this._vaeReady || !this._vaeDecoder || !this._renderLoop) {
       // Decoder seam not implemented yet: ack directly so flow control keeps

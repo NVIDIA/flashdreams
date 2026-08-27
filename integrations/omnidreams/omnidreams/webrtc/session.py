@@ -44,7 +44,7 @@ from omnidreams.scenes import (
     scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
-from omnidreams.webrtc import vae_artifacts
+from omnidreams.webrtc import caption_artifacts, vae_artifacts
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -1137,6 +1137,7 @@ class OmnidreamsWebRTCSessionManager(
         return self.runtime_config.pipeline_config_name
 
     def _token_stream_extra_header(self) -> dict[str, Any]:
+        header: dict[str, Any] = {}
         descriptor = vae_artifacts.build_descriptor()
         if descriptor is None:
             logger.warning(
@@ -1145,8 +1146,14 @@ class OmnidreamsWebRTCSessionManager(
                 "client can decode latents.",
                 vae_artifacts.cache_dir(),
             )
-            return {}
-        return {"vae_model": descriptor}
+        else:
+            header["vae_model"] = descriptor
+        # Optional live-captioning model (parallel, decode-free). Absent until a
+        # caption model is exported; the client then falls back to its stub.
+        caption = caption_artifacts.build_descriptor()
+        if caption is not None:
+            header["caption_model"] = caption
+        return header
 
     def _chunk_done_extra(self) -> dict[str, Any]:
         return {

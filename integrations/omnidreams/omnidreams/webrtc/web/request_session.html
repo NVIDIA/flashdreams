@@ -19,6 +19,10 @@ SPDX-License-Identifier: Apache-2.0
       <canvas id="idleCanvas" class="idleCanvas" aria-hidden="true"></canvas>
       <video id="remoteVideo" class="stageVideo" autoplay playsinline muted></video>
       <div class="stageVignette" aria-hidden="true"></div>
+      <div id="captionOverlay" class="captionOverlay" role="status" aria-live="polite" hidden>
+        <h2><span aria-hidden="true"></span>Live Caption</h2>
+        <p id="captionText" class="captionText"></p>
+      </div>
 
       <header class="brandOverlay" aria-label="FlashDreams World Model">
         <img class="brandLogo" src="/static/assets/horizontal-dark.svg" alt="FlashDreams">

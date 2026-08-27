@@ -54,6 +54,45 @@ select {
   isolation: isolate;
 }
 
+/* Live-caption box for the token path (fed by the CaptionEngine, which consumes
+   latents directly — no pixel decode). Fixed-size panel on the right edge, in
+   the gap between the Status (top) and Client Logs (bottom) cards; text wraps. */
+.captionOverlay {
+  position: absolute;
+  right: clamp(18px, 3vw, 42px);
+  top: clamp(230px, 38vh, 410px);
+  width: 200px;
+  height: 122px;
+  z-index: 4;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(18px) saturate(1.15);
+  color: #f4f7ef;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* Tighter than the larger panels' 18px, to fit the fixed caption box. */
+#captionOverlay h2 {
+  margin: 0 0 10px;
+}
+.captionText {
+  margin: 0;
+  text-align: left;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+.captionOverlay[hidden] {
+  display: none;
+}
+
 .stageBackdrop,
 .idleCanvas,
 .stageVideo,
@@ -283,7 +322,8 @@ body[data-status="generating"] .connectButton {
 }
 
 .controlCard h2,
-.logCard h2 {
+.logCard h2,
+.captionOverlay h2 {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -294,7 +334,8 @@ body[data-status="generating"] .connectButton {
 }
 
 .controlCard h2 span,
-.logCard h2 span {
+.logCard h2 span,
+.captionOverlay h2 span {
   width: 3px;
   height: 22px;
   border-radius: 999px;

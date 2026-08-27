@@ -19,6 +19,8 @@ const modelValue = document.getElementById("modelValue")
 const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const streamModeSelect = document.getElementById("streamModeSelect")
+const captionOverlay = document.getElementById("captionOverlay")
+const captionText = document.getElementById("captionText")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -700,10 +702,26 @@ function stopHeartbeat() {
   }
 }
 
+// Update the live-caption overlay (fed by the token path's CaptionEngine, which
+// consumes latents directly — no pixel decode).
+function setCaption(text) {
+  if (!captionOverlay || !captionText) {
+    return
+  }
+  captionText.textContent = text
+  captionOverlay.hidden = false
+}
+
 function stopTokenStream() {
   if (tokenStreamSession) {
     tokenStreamSession.stop()
     tokenStreamSession = null
+  }
+  if (captionOverlay) {
+    captionOverlay.hidden = true
+  }
+  if (captionText) {
+    captionText.textContent = ""
   }
   if (tokenRenderActive) {
     tokenRenderActive = false
@@ -738,6 +756,7 @@ async function maybeStartTokenStream(webgpu) {
     canvas: idleCanvas,
     controlChannel,
     log: logEvent,
+    onCaption: setCaption,
   })
   tokenStreamSession.start()
   tokenRenderActive = true
