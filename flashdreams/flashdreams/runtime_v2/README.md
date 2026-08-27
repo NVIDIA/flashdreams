@@ -44,8 +44,8 @@ Presenting it:
 - `slangpy_ui_loop.py` and `slangpy_ui_renderer.py` are the UI loop for
   applications that draw widgets over the model output.
 - `mp4_client_window.py` and `webrtc_client_window.py` are the two windows.
-- `mp4_output_sink.py`, `metrics_output_sink.py`, `video_encoder.py` and
-  `video_tensor.py` are what output is written through.
+- `mp4_output_sink.py`, `mp4_audio.py`, `metrics_output_sink.py`,
+  `video_encoder.py` and `video_tensor.py` are what output is written through.
 - `serving/` is the HTTP and WebRTC server behind the browser window.
 
 Input:
@@ -166,9 +166,11 @@ A UI loop reads model frames through `presented_model_frame` and
 
 The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into
-the session's layout. `SlangPyUILoop` is the alternative, for widgets drawn over
-the model output; it returns a `[1, C, H, W]` frame, so a session using it
-declares a `tchw` layout.
+the session's layout. It also forwards a model chunk's audio payload once, on
+the first presented frame. `SlangPyUILoop` is the alternative, for widgets
+drawn over model output; it returns a `[1, C, H, W]` frame, so a session using
+it declares a `tchw` layout. A custom UI loop must explicitly forward audio by
+calling `presented_model_audio()`.
 
 `IClientWindow` is both an `InputSource` and an `OutputSink`, so a window is
 written to with the same three calls as any sink: `open` with the session
@@ -183,6 +185,29 @@ has to finish on its own. The WebRTC window turns browser keyboard, mouse and
 focus events into input and a disconnecting browser into a close; because those
 arrive on the server's own thread, it queues them and hands them over in batches
 when the session asks.
+
+MP4 publication is transactional. Video, normalized PCM, and any synchronized
+mux are written below a unique private sibling directory. The final file
+replaces the requested target atomically only after the application has closed
+successfully and every encoder has exited successfully. Exceptional exits abort
+active child processes and preserve an existing target. If an abort is
+interrupted, the runtime makes one bounded final retry. A recovered transient
+failure removes staging; a persistent failure is reported while the sink
+retains ownership for an explicit later retry.
+
+Audio is staged as interleaved `f32le`. Forward offsets become silence, and the
+complete stream is padded or truncated to
+`round(written_frames * sample_rate / fps)` before muxing. Both video encoding
+and audio muxing invoke an administrator- or user-provided `ffmpeg` executable
+on `PATH`; the runtime does not use an in-process or Python-bundled FFmpeg. An
+audio session is published as AAC-LC at 192 kbit/s. Before creating staging or
+starting inference, the MP4 sink runs a bounded one-frame encode through that
+same resolved host executable using the declared sample rate and channel
+count. The final mux deadline scales with the written media duration. On a
+timeout, terminate and kill waits are separately bounded; a child that still
+cannot be reaped remains owned by the sink for a later abort retry rather than
+having its staging removed underneath it. WebRTC output currently rejects
+audio.
 
 What a sink expects of the pixel values it is handed is part of the result
 contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).

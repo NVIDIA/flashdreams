@@ -5,6 +5,7 @@
 
 import logging
 import threading
+from pathlib import Path
 
 import pytest
 import torch
@@ -14,6 +15,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.audio_output import AudioOutput
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -54,6 +56,19 @@ def test_session_modes_are_independent() -> None:
     ]
     assert SessionDesc().backpressure_mode is BackpressureMode.BLOCK
     assert SessionDesc().presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["frames_per_second_for_ui", "frames_per_second_for_step"],
+)
+@pytest.mark.parametrize("value", [True, 24.0, 0, -1])
+def test_session_frame_rates_are_strict_positive_integers(
+    field: str, value: object
+) -> None:
+    """Reject values that fail later loop timing and encoder contracts."""
+    with pytest.raises(ValueError, match="positive integer"):
+        SessionDesc(**{field: value})  # ty: ignore[invalid-argument-type]
 
 
 def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
@@ -384,6 +399,39 @@ class RecordingClientWindow(IClientWindow):
             raise RuntimeError("close failed")
 
 
+class TransactionalRecordingClientWindow(RecordingClientWindow):
+    """Record an output transaction that can be committed or aborted."""
+
+    def __init__(
+        self,
+        log: CallLog,
+        scripted_events: list[UserInputEvents] | None = None,
+        *,
+        fail_to_open: bool = False,
+        fail_to_write: bool = False,
+        fail_to_close: bool = False,
+        fail_to_abort: bool = False,
+    ) -> None:
+        super().__init__(
+            log,
+            scripted_events,
+            fail_to_open=fail_to_open,
+            fail_to_close=fail_to_close,
+        )
+        self._fail_to_write = fail_to_write
+        self._fail_to_abort = fail_to_abort
+
+    def write(self, result: StepResult) -> None:
+        super().write(result)
+        if self._fail_to_write:
+            raise RuntimeError("write failed")
+
+    def abort(self) -> None:
+        self._log.record("window.abort")
+        if self._fail_to_abort:
+            raise RuntimeError("abort failed")
+
+
 def _session_desc(
     *,
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK,
@@ -571,6 +619,69 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert not manager.advance(1)[0]
     assert manager.presented_frame_count == 0
     assert ui.step(2, UserInputEvents([])) is None
+
+
+def test_default_ui_forwards_one_audio_payload_once_across_channels() -> None:
+    manager = PresentationManager()
+    audio = AudioOutput(
+        samples=torch.zeros(2, 16),
+        sample_rate=8_000,
+        sample_offset=32,
+    )
+
+    def result(*, audio_output: AudioOutput | None = None) -> StepResult:
+        return StepResult(
+            step_index=0,
+            output=torch.zeros(2, 3, 1, 1),
+            frame_count=2,
+            output_layout=VideoTensorLayout.tchw,
+            audio=audio_output,
+        )
+
+    manager.publish(0, [result(), result(audio_output=audio)])
+    ui = BlitModelOutputToScreenLoop()
+    ui.register_session_ui_loop_objects(
+        output_layout=VideoTensorLayout.tchw,
+        presentation_manager=manager,
+    )
+
+    assert manager.advance(0)[0]
+    first = ui.step(0, UserInputEvents([]))
+    assert first is not None and first.audio is audio
+    held = ui.step(1, UserInputEvents([]))
+    assert held is not None and held.audio is None
+    assert manager.advance(0)[0]
+    second = ui.step(2, UserInputEvents([]))
+    assert second is not None and second.audio is None
+
+
+def test_presentation_rejects_multiple_audio_payloads() -> None:
+    manager = PresentationManager()
+    audio = AudioOutput(samples=torch.zeros(1, 1), sample_rate=8_000)
+    result = StepResult(
+        step_index=0,
+        output=torch.zeros(1, 3, 1, 1),
+        frame_count=1,
+        output_layout=VideoTensorLayout.tchw,
+        audio=audio,
+    )
+
+    with pytest.raises(ValueError, match="only one audio"):
+        manager.publish(0, [result, result])
+
+
+def test_presentation_rejects_an_untyped_audio_payload() -> None:
+    manager = PresentationManager()
+    result = StepResult(
+        step_index=0,
+        output=torch.zeros(1, 3, 1, 1),
+        frame_count=1,
+        output_layout=VideoTensorLayout.tchw,
+        audio=object(),  # ty: ignore[invalid-argument-type]
+    )
+
+    with pytest.raises(TypeError, match="AudioOutput"):
+        manager.publish(0, [result])
 
 
 def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
@@ -976,6 +1087,226 @@ def test_run_session_rejects_a_pending_bound_of_zero() -> None:
         run_session(session, window, steps=1, max_pending=0)
 
     assert log.calls == []
+
+
+def test_success_closes_an_output_transaction_after_the_session() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.close"]
+    assert "window.abort" not in log.calls
+
+
+def test_client_cancellation_aborts_the_output_transaction() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(
+        log,
+        [_lifecycle_event(CloseUserInputEvent)],
+    )
+
+    run_session(FakeSession(_session_desc(), log), window, steps=None)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_model_thread_start_failure_aborts_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    def fail_to_start(thread: threading.Thread) -> None:
+        del thread
+        raise RuntimeError("model start failed")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_to_start)
+
+    with pytest.raises(RuntimeError, match="model start failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_model_step_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    with pytest.raises(RuntimeError, match="step failed"):
+        run_session(FakeSession(_session_desc(), log, fail_at=0), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_presentation_failure_aborts_output() -> None:
+    log = CallLog()
+
+    class InvalidPresentationSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(FakeModelLoop, state=self)
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            self._log.record(f"session.step({step_index})")
+            return StepResult(
+                step_index=step_index,
+                output=torch.zeros(1, 2, 1, 1, 1),
+                frame_count=1,
+                output_layout=self.session_desc.output_layout,
+            )
+
+    window = TransactionalRecordingClientWindow(log)
+    with pytest.raises(ValueError, match="one, three, or four"):
+        run_session(InvalidPresentationSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_sink_open_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log, fail_to_open=True)
+
+    with pytest.raises(RuntimeError, match="open failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_sink_write_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log, fail_to_write=True)
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_sink_close_failure_falls_back_to_abort() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log, fail_to_close=True)
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert log.calls[-3:] == ["session.close", "window.close", "window.abort"]
+
+
+def test_session_close_failure_aborts_output() -> None:
+    log = CallLog()
+    window = TransactionalRecordingClientWindow(log)
+
+    with pytest.raises(RuntimeError, match="session close failed"):
+        run_session(
+            FakeSession(_session_desc(), log, fail_to_close=True),
+            window,
+            steps=1,
+        )
+
+    assert log.calls[-2:] == ["session.close", "window.abort"]
+    assert "window.close" not in log.calls
+
+
+def test_first_model_failure_survives_all_cleanup_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+
+    class FailingModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del step_index, events
+            raise RuntimeError("model step failed first")
+
+        def close(self) -> None:
+            raise RuntimeError("model close failed second")
+
+    class FailingCleanupSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(FailingModelLoop, state=self)
+
+    session = FailingCleanupSession(
+        _session_desc(),
+        log,
+        fail_to_close=True,
+    )
+    window = TransactionalRecordingClientWindow(log, fail_to_abort=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="model step failed first"):
+            run_session(session, window, steps=1)
+
+    assert "model close failed second" in caplog.text
+    assert "session close failed" in caplog.text
+    assert "abort failed" in caplog.text
+    assert log.calls[-3:] == ["session.close", "window.abort", "window.abort"]
+    assert log.calls.count("window.abort") == 2
+
+
+def test_failed_abort_gets_one_final_retry(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Retry retained transaction ownership and preserve the public target."""
+    log = CallLog()
+    target = tmp_path / "output.mp4"
+    target.write_bytes(b"existing")
+    staging = tmp_path / ".output.mp4.staging"
+    staging.mkdir()
+    partial = staging / "partial.mp4"
+    partial.write_bytes(b"incomplete")
+
+    class FailOnceCleanupWindow(TransactionalRecordingClientWindow):
+        abort_attempts = 0
+
+        def abort(self) -> None:
+            self._log.record("window.abort")
+            self.abort_attempts += 1
+            if self.abort_attempts == 1:
+                raise RuntimeError("abort interrupted once")
+            partial.unlink()
+            staging.rmdir()
+
+    window = FailOnceCleanupWindow(log, fail_to_write=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="write failed"):
+            run_session(FakeSession(_session_desc(), log), window, steps=1)
+
+    assert "abort interrupted once" in caplog.text
+    assert log.calls[-3:] == ["session.close", "window.abort", "window.abort"]
+    assert window.abort_attempts == 2
+    assert not staging.exists()
+    assert target.read_bytes() == b"existing"
+
+
+def test_queued_loop_failure_outranks_a_main_thread_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Preserve the failure priority defined by the V2 API contract."""
+    log = CallLog()
+
+    class QueuedFailureSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self._failure_queue.put(RuntimeError("loop failed first"))
+
+    session = QueuedFailureSession(_session_desc(), log)
+    window = RecordingClientWindow(log, fail_to_open=True)
+
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match="loop failed first"):
+            run_session(session, window, steps=1)
+
+    assert "open failed" in caplog.text
 
 
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:
