@@ -105,6 +105,8 @@ class _FakeImGui:
         no_resize=2,
         no_collapse=4,
         no_saved_settings=8,
+        no_title_bar=16,
+        no_background=32,
     )
     InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
 
@@ -117,6 +119,7 @@ class _FakeImGui:
         self.submit_input = False
         self.click_submit = False
         self.background_draw_list = _FakeDrawList()
+        self.window_flags: dict[str, int] = {}
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
@@ -148,9 +151,9 @@ class _FakeImGui:
         del alpha
 
     def begin(self, title: str, *, flags: int) -> bool:
-        del flags
         self.current_window = title
         self.windows.setdefault(title, [])
+        self.window_flags[title] = flags
         return True
 
     def end(self) -> None:
@@ -161,9 +164,11 @@ class _FakeImGui:
         self.windows[self.current_window].append(value)
 
     def get_cursor_screen_pos(self) -> tuple[float, float]:
+        flags = self.window_flags.get(self.current_window or "", 0)
+        top_padding = 8.0 if flags & self.WindowFlags_.no_title_bar else 26.0
         return (
             float(self.next_window_position[0]) + 8.0,
-            float(self.next_window_position[1]) + 26.0,
+            float(self.next_window_position[1]) + top_padding,
         )
 
     def dummy(self, size: tuple[float, float]) -> None:
@@ -457,6 +462,9 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert "SCORE  001200    HIGH  009000" in renderer.ui.windows["Crazy Robotaxi"]
     assert "Navigation" not in renderer.ui.windows
     assert renderer.ui.dummies == [(32.0, 32.0)]
+    map_flags = renderer.ui.window_flags["Map"]
+    assert map_flags & renderer.ui.WindowFlags_.no_title_bar
+    assert map_flags & renderer.ui.WindowFlags_.no_background
     command_names = [name for name, _ in renderer.ui.background_draw_list.commands]
     assert "triangle_filled" in command_names
     assert "circle_filled" in command_names

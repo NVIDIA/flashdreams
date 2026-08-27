@@ -503,10 +503,9 @@ class TaxiHudState:
         if image_width <= 4 or image_height <= 4:
             return
         padding = 16
-        title_height = 34
         window_size = (
             float(image_width + padding),
-            float(image_height + title_height),
+            float(image_height + padding),
         )
         margin = float(max(8, min(self.width, self.height) // 80))
         position = (
@@ -514,9 +513,13 @@ class TaxiHudState:
             float(self.height) - window_size[1] - margin,
         )
         # The app composites the CUDA BEV beneath this transparent content area.
-        # ImGui still owns the map window's title, border, clipping and layout.
+        # ImGui owns layout and clipping without drawing window chrome.
         _prepare_window(imgui, position=position, size=window_size, alpha=0.0)
-        visible = _begin_window(imgui, "Map")
+        visible = _begin_window(
+            imgui,
+            "Map",
+            extra_flags=("no_title_bar", "no_background"),
+        )
         try:
             if visible:
                 cursor = imgui.get_cursor_screen_pos()
@@ -1019,11 +1022,22 @@ def _prepare_window(
     imgui.set_next_window_bg_alpha(alpha)
 
 
-def _begin_window(imgui: Any, title: str) -> bool:
+def _begin_window(
+    imgui: Any,
+    title: str,
+    *,
+    extra_flags: Sequence[str] = (),
+) -> bool:
     """Begin a fixed HUD window and normalize ImGui's binding return form."""
     flags = 0
     window_flags = imgui.WindowFlags_
-    for name in ("no_move", "no_resize", "no_collapse", "no_saved_settings"):
+    for name in (
+        "no_move",
+        "no_resize",
+        "no_collapse",
+        "no_saved_settings",
+        *extra_flags,
+    ):
         flags |= int(getattr(window_flags, name))
     result = imgui.begin(title, flags=flags)
     if isinstance(result, tuple):
