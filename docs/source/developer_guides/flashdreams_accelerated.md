@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# `flashdreams.accelerated`
+# flashdreams.accelerated
 
 `flashdreams.accelerated` is a low-level acceleration library used by
 FlashDreams to build high-performance modules for streaming video models. It
@@ -80,7 +80,7 @@ $$
 Every element is divided by $s_{\text{tensor}}$ before it is clipped to
 $[-M_t, M_t]$ and converted to $t$.
 
-```{figure} /_static/diagrams/accelerated/tensor-wise-quantization.png
+```{figure} /_static/diagrams/accelerated/tensor-wise-quantization.svg
 :alt: Tensor-wise quantization applies one shared scale to the complete tensor.
 :align: center
 :width: 100%
@@ -102,7 +102,7 @@ $$
 Thus, `axis=0` divides each $X_{ij}$ by its column scale $s_j$, and `axis=1`
 divides it by its row scale $s_i$.
 
-```{figure} /_static/diagrams/accelerated/slice-wise-quantization-axis0.png
+```{figure} /_static/diagrams/accelerated/slice-wise-quantization-axis0.svg
 :alt: Slice-wise quantization along axis zero applies one scale to each column.
 :align: center
 :width: 100%
@@ -110,7 +110,7 @@ divides it by its row scale $s_i$.
 Slice-wise quantization with `axis=0` applies one scale to each column.
 ```
 
-```{figure} /_static/diagrams/accelerated/slice-wise-quantization-axis1.png
+```{figure} /_static/diagrams/accelerated/slice-wise-quantization-axis1.svg
 :alt: Slice-wise quantization along axis one applies one scale to each row.
 :align: center
 :width: 100%
@@ -198,7 +198,7 @@ $$
 > it is one of its most important missing features and should be planned for a
 > future version.
 
-```{figure} /_static/diagrams/accelerated/tile-wise-quantization.png
+```{figure} /_static/diagrams/accelerated/tile-wise-quantization.svg
 :alt: Tile-wise quantization applies a separate scale to each tensor tile.
 :align: center
 :width: 100%
@@ -255,7 +255,7 @@ $$
 QK^\mathsf{T} \approx (s_Qs_K)\,(\bar Q\bar K^\mathsf{T}).
 $$
 
-```{figure} /_static/diagrams/accelerated/tensor-tensor-quantized-gemm.png
+```{figure} /_static/diagrams/accelerated/tensor-tensor-quantized-gemm.svg
 :alt: Tensor-tensor quantized GEMM applies the two tensor scales to the quantized matrix product.
 :align: center
 :width: 100%
@@ -278,7 +278,7 @@ of the query and key token scales and $\odot$ is elementwise multiplication.
 These equations describe composing the tensor quantizer with a GEMM; the
 quantizer itself does not perform attention or provide a fused QK kernel.
 
-```{figure} /_static/diagrams/accelerated/slice-slice-quantized-gemm-outer.png
+```{figure} /_static/diagrams/accelerated/slice-slice-quantized-gemm.svg
 :alt: Slice-slice quantized GEMM applies an outer product of row and column scales.
 :align: center
 :width: 100%
@@ -286,7 +286,7 @@ quantizer itself does not perform attention or provide a fused QK kernel.
 Slice–slice quantized GEMM applies the outer product of the slice scales.
 ```
 
-```{figure} /_static/diagrams/accelerated/slice-tensor-quantized-gemm.png
+```{figure} /_static/diagrams/accelerated/slice-tensor-quantized-gemm.svg
 :alt: Slice-tensor quantized GEMM combines per-slice scales with one tensor scale.
 :align: center
 :width: 100%
@@ -294,7 +294,7 @@ Slice–slice quantized GEMM applies the outer product of the slice scales.
 Slice–tensor quantized GEMM combines per-slice scales with one scalar scale.
 ```
 
-```{figure} /_static/diagrams/accelerated/tile-tile-quantized-gemm.png
+```{figure} /_static/diagrams/accelerated/tile-tile-quantized-gemm.svg
 :alt: Tile-tile quantized GEMM scales and accumulates the products of quantized tiles.
 :align: center
 :width: 100%
@@ -321,7 +321,7 @@ granularity is planned and is not currently supported by the toolkit.
 > that dimension to `axis=0` of the GEMM's right operand, satisfying the same
 > rule.
 
-```{figure} /_static/diagrams/accelerated/invlid-inner-quantized-gemm.png
+```{figure} /_static/diagrams/accelerated/invalid-inner-quantized-gemm.svg
 :alt: Invalid slice quantization varies scales along the GEMM inner dimension.
 :align: center
 :width: 100%
@@ -510,7 +510,7 @@ With inner-scoped normalization, $m=Hd$ and all heads for a token are
 normalized together. No normalization leaves Q and K unchanged. Let
 $Q^{(n)}$ and $K^{(n)}$ denote the resulting tensors; V is never normalized.
 
-```{figure} /_static/diagrams/accelerated/per-head-rms-norm.png
+```{figure} /_static/diagrams/accelerated/per-head-rms-norm.svg
 :alt: Head-scoped RMSNorm normalizes every attention head independently.
 :align: center
 :width: 100%
@@ -518,7 +518,7 @@ $Q^{(n)}$ and $K^{(n)}$ denote the resulting tensors; V is never normalized.
 Head-scoped RMSNorm normalizes each attention head independently with $m=d$.
 ```
 
-```{figure} /_static/diagrams/accelerated/inner-rms-norm.png
+```{figure} /_static/diagrams/accelerated/inner-rms-norm.svg
 :alt: Inner-scoped RMSNorm normalizes all attention heads for a token together.
 :align: center
 :width: 100%
@@ -561,7 +561,7 @@ $(a_r,b_r)=(r,r+d/2)$ for $0 \le r < d/2$. Applying these rotations to
 $Q^{(n)}$ and $K^{(n)}$ gives $Q^\star$ and $K^\star$; disabling RoPE leaves
 them unchanged. V is not rotated.
 
-```{figure} /_static/diagrams/accelerated/split-vs-interleaved-rope.png
+```{figure} /_static/diagrams/accelerated/split-vs-interleaved-rope.svg
 :alt: Interleaved RoPE pairs adjacent features, while split RoPE pairs features from opposite halves.
 :align: center
 :width: 100%
@@ -576,7 +576,7 @@ autoregressive step, only the new query and key chunk is rotated; older cached
 keys already contain their embeddings and are reused without applying RoPE
 again.
 
-```{figure} /_static/diagrams/accelerated/rope-before-kv-cache.png
+```{figure} /_static/diagrams/accelerated/rope-before-kv-cache.svg
 :alt: Before-cache RoPE rotates the current key chunk before writing it to the cache.
 :align: center
 :width: 100%
@@ -589,7 +589,7 @@ before attention, RoPE is applied to the current query and every visible cached
 key using angles for their current positions. The stored cache remains
 unrotated, so visible keys are rotated again on each autoregressive step.
 
-```{figure} /_static/diagrams/accelerated/rope-after-kv-cache.png
+```{figure} /_static/diagrams/accelerated/rope-after-kv-cache.svg
 :alt: After-cache RoPE rotates the query and all visible cached keys before attention.
 :align: center
 :width: 100%
@@ -622,7 +622,7 @@ for configuration details.
 The following examples show self-attention with before-cache RoPE and
 cross-attention with after-cache RoPE.
 
-```{figure} /_static/diagrams/accelerated/self-attention-rope-before-kv.png
+```{figure} /_static/diagrams/accelerated/self-attention-rope-before-kv.svg
 :alt: Self-attention data flow with RoPE applied before the K/V cache update.
 :align: center
 :width: 100%
@@ -630,7 +630,7 @@ cross-attention with after-cache RoPE.
 Self-attention with RoPE before the K/V cache update.
 ```
 
-```{figure} /_static/diagrams/accelerated/cross-attention-rope-after-kv.png
+```{figure} /_static/diagrams/accelerated/cross-attention-rope-after-kv.svg
 :alt: Cross-attention data flow with RoPE applied after the K/V cache update.
 :align: center
 :width: 100%
