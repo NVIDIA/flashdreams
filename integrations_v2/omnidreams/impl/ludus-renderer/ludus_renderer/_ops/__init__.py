@@ -33,6 +33,7 @@ from .primitives import (
     CAMERA_TYPE_BEV,
     CAMERA_TYPE_REGULAR,
     CUBE_FLAG_WIREFRAME,
+    PRIM_BEV_ROAD_SURFACE,
     PRIM_BUFFER_ZONE,
     PRIM_CROSSWALK,
     PRIM_DOT_WHITE,
@@ -83,6 +84,7 @@ __all__ = [
     "get_log_level",
     "set_log_level",
     # Constants
+    "PRIM_BEV_ROAD_SURFACE",
     "PRIM_ROAD_BOUNDARY",
     "PRIM_LANE_LINE",
     "PRIM_CROSSWALK",

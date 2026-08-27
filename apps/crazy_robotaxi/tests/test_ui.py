@@ -458,7 +458,8 @@ def test_fps_counter_measures_distinct_generated_video_frames(
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
-    bev = torch.full((1, 3, 32, 32), 191, dtype=torch.uint8)
+    bev = torch.full((1, 4, 32, 32), 255, dtype=torch.uint8)
+    bev[:, :3].fill_(191)
     hud_state = TaxiHudState(width, height, _calibration())
     hud_state.publish(
         build_hud_frames(
@@ -533,23 +534,19 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert renderer.reset_count == 1
 
 
-def test_bev_compositor_makes_black_offroad_pixels_transparent() -> None:
+def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
     state = TaxiHudState(4, 4, _calibration())
     state._bev_rect = (0, 0, 4, 4)
     video = torch.full((3, 4, 4), -0.5)
-    bev = torch.zeros((3, 4, 4), dtype=torch.uint8)
-    bev[:, :, 1:3] = 191
+    bev = torch.zeros((4, 4, 4), dtype=torch.uint8)
+    bev[3, :, 1:3] = 255
 
     composited = state.composite_bev(video, bev)
 
     assert torch.all(composited[:, :, (0, 3)] == -0.5)
-    expected_road = 191.0 / 127.5 - 1.0
-    assert torch.allclose(
-        composited[:, :, 1:3],
-        torch.full_like(composited[:, :, 1:3], expected_road),
-    )
+    assert torch.all(composited[:, :, 1:3] == -1.0)
     assert state._bev_alpha is not None
-    assert set(state._bev_alpha.unique().tolist()) == {0.0, 1.0}
+    assert set(state._bev_alpha.unique().tolist()) == {False, True}
 
 
 def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:

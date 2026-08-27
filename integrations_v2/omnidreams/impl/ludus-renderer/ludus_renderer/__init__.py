@@ -45,6 +45,7 @@ from ._ops import (
     CAMERA_TYPE_BEV,
     CAMERA_TYPE_REGULAR,
     CUBE_FLAG_WIREFRAME,
+    PRIM_BEV_ROAD_SURFACE,
     PRIM_CROSSWALK,
     PRIM_EGO_OBSTACLE,
     PRIM_EGO_TRAJECTORY,
@@ -141,6 +142,7 @@ __all__ = [
     "ObstaclePool",
     "TimestampedScene",
     # Constants
+    "PRIM_BEV_ROAD_SURFACE",
     "PRIM_ROAD_BOUNDARY",
     "PRIM_LANE_LINE",
     "PRIM_CROSSWALK",

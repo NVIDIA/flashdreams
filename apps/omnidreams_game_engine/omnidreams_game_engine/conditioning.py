@@ -9,15 +9,24 @@ import math
 
 import numpy as np
 import torch
-from ludus_renderer import FThetaCamera, LudusCudaTimestampedContext
+from ludus_renderer import (
+    PRIM_BEV_ROAD_SURFACE,
+    FThetaCamera,
+    LudusCudaTimestampedContext,
+    TimestampedPolygonPool,
+    TimestampedScene,
+)
 from ludus_renderer import load_scene as load_ludus_scene
+from ludus_renderer._ops import _triangulate_polygon_ear_clipping
 from ludus_renderer.render_utils import SceneAdapter
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
+from shapely.geometry import Polygon
 from torch import Tensor
 
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.dynamic_scene import MutableObjectSceneBuffer
+from omnidreams_game_engine.game_map.types import GameMapElement
 from omnidreams_game_engine.types import (
     ConditionBatch,
     SceneDefinition,
@@ -25,6 +34,8 @@ from omnidreams_game_engine.types import (
 )
 
 _BEV_CAMERA_NAME = "game_engine_bev"
+_BEV_ROAD_SIMPLIFY_M = 0.05
+_BEV_ROAD_DEPTH_OFFSET_M = -0.01
 
 
 class LudusConditionRenderer(ConditionRenderer):
@@ -93,6 +104,17 @@ class LudusConditionRenderer(ConditionRenderer):
             self._sensor_to_rig[_BEV_CAMERA_NAME] = self._bev_sensor_pose
         self._context.upload_cameras(cameras)
         base_scene = loaded.timestamped_scene
+        if self._bev.enabled and scene.game_map is not None:
+            road_surface_pool = _build_bev_road_surface_pool(
+                scene.game_map.elements,
+                self._device,
+            )
+            if road_surface_pool is not None:
+                base_scene = TimestampedScene(
+                    polyline_pools=base_scene.polyline_pools,
+                    polygon_pools=[road_surface_pool, *base_scene.polygon_pools],
+                    cube_pools=base_scene.cube_pools,
+                )
         self._scene_id = self._context.upload_scene(base_scene)
         self._dynamic_scene = MutableObjectSceneBuffer(
             self._context,
@@ -134,6 +156,7 @@ class LudusConditionRenderer(ConditionRenderer):
                 sensor_to_rig=self._bev_sensor_pose,
                 camera_type=CAMERA_TYPE_BEV,
                 resolution=(self._bev.height, self._bev.width),
+                preserve_alpha=True,
             )
             # BEV is a UI-only channel. Preserve the renderer's native bytes
             # instead of normalizing to BF16 only for presentation to reverse
@@ -158,6 +181,7 @@ class LudusConditionRenderer(ConditionRenderer):
         sensor_to_rig: Tensor,
         camera_type: int,
         resolution: tuple[int, int],
+        preserve_alpha: bool = False,
     ) -> Tensor:
         assert self._scene_id is not None
         camera_to_world = torch.einsum(
@@ -173,12 +197,12 @@ class LudusConditionRenderer(ConditionRenderer):
             camera_poses=torch.linalg.inv(camera_to_world),
             resolution=resolution,
         )
-        rgb = images[..., :3]
+        output = images if preserve_alpha else images[..., :3]
         if self._context.needs_vflip:
-            rgb = rgb.flip(1)
-        if rgb.dtype != torch.uint8:
-            rgb = (rgb.clamp(0.0, 1.0) * 255.0 + 0.5).to(torch.uint8)
-        return rgb.detach().contiguous()
+            output = output.flip(1)
+        if output.dtype != torch.uint8:
+            output = (output.clamp(0.0, 1.0) * 255.0 + 0.5).to(torch.uint8)
+        return output.detach().contiguous()
 
 
 def _normalize_hwc(frames: Tensor) -> Tensor:
@@ -186,10 +210,63 @@ def _normalize_hwc(frames: Tensor) -> Tensor:
 
 
 def _bev_presentation_frames(frames: Tensor) -> Tensor:
-    """Keep renderer-native BEV bytes while changing HWC to TCHW layout."""
-    if frames.dtype != torch.uint8 or frames.ndim != 4 or frames.shape[-1] != 3:
-        raise ValueError("BEV renderer output must be uint8 THWC RGB")
+    """Keep renderer-native BEV RGBA bytes while changing to TCHW layout."""
+    if frames.dtype != torch.uint8 or frames.ndim != 4 or frames.shape[-1] != 4:
+        raise ValueError("BEV renderer output must be uint8 THWC RGBA")
     return frames.permute(0, 3, 1, 2).contiguous()
+
+
+def _build_bev_road_surface_pool(
+    elements: tuple[GameMapElement, ...],
+    device: torch.device,
+) -> TimestampedPolygonPool | None:
+    """Build a lightweight black paved-surface layer for BEV alpha coverage."""
+    vertices: list[Tensor] = []
+    triangles: list[Tensor] = []
+    vertex_counts: list[int] = []
+    triangle_counts: list[int] = []
+    for element in elements:
+        surface = np.asarray(element.surface_world, dtype=np.float32)
+        polygon = Polygon(surface[:, :2]).simplify(
+            _BEV_ROAD_SIMPLIFY_M,
+            preserve_topology=True,
+        )
+        if polygon.is_empty or polygon.geom_type != "Polygon":
+            continue
+        xy = np.asarray(polygon.exterior.coords[:-1], dtype=np.float32)
+        if len(xy) < 3:
+            continue
+        z_m = float(np.median(surface[:, 2])) + _BEV_ROAD_DEPTH_OFFSET_M
+        polygon_vertices = torch.from_numpy(
+            np.column_stack((xy, np.full(len(xy), z_m, dtype=np.float32))).astype(
+                np.float32
+            )
+        )
+        polygon_triangles = _triangulate_polygon_ear_clipping(polygon_vertices)
+        if not polygon_triangles:
+            continue
+        vertices.append(polygon_vertices)
+        triangles.append(torch.tensor(polygon_triangles, dtype=torch.int32))
+        vertex_counts.append(len(polygon_vertices))
+        triangle_counts.append(len(polygon_triangles))
+
+    if not vertices:
+        return None
+    return TimestampedPolygonPool(
+        timestamps_us=torch.tensor([0], dtype=torch.int64, device=device),
+        timestamped_varrays_prefix_sum=torch.tensor(
+            [len(vertices)], dtype=torch.int32, device=device
+        ),
+        varrays_prefix_sum=torch.tensor(
+            np.cumsum(vertex_counts), dtype=torch.int32, device=device
+        ),
+        triangle_prefix_sum=torch.tensor(
+            np.cumsum(triangle_counts), dtype=torch.int32, device=device
+        ),
+        vertices=torch.cat(vertices).to(device),
+        triangles=torch.cat(triangles).to(device),
+        prim_type_id=PRIM_BEV_ROAD_SURFACE,
+    )
 
 
 def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:

@@ -165,7 +165,7 @@ class TaxiHudState:
     """Cached normalized CHW BEV panel retained on its source device."""
 
     _bev_alpha: Tensor | None = None
-    """Cached binary road/feature alpha mask retained on the source device."""
+    """Cached binary renderer coverage retained on the source device."""
 
     _bev_rect: tuple[int, int, int, int] | None = None
     """Current ImGui content rectangle as ``(top, left, height, width)``."""
@@ -891,8 +891,8 @@ class TaxiHudState:
         rect = self._bev_rect
         if frame is None or rect is None:
             return video
-        if frame.ndim != 3 or frame.shape[0] != 3:
-            raise ValueError("BEV presentation frames must use [3,H,W]")
+        if frame.ndim != 3 or frame.shape[0] != 4:
+            raise ValueError("BEV presentation frames must use [4,H,W] RGBA")
         if frame.dtype != torch.uint8 and not frame.is_floating_point():
             raise ValueError("BEV presentation frames must be uint8 or floating point")
         if frame.device != video.device:
@@ -915,13 +915,9 @@ class TaxiHudState:
         panel = self._bev_panel
         alpha = self._bev_alpha
         if source_key != self._bev_source_key or panel is None or alpha is None:
-            source = frame.detach().to(dtype=torch.float32)
+            source = frame[:3].detach().to(dtype=torch.float32)
             panel = source.div(127.5).sub(1.0) if frame.dtype == torch.uint8 else source
-            if frame.dtype == torch.uint8:
-                alpha = frame.detach().ne(0).any(dim=0, keepdim=True)
-            else:
-                alpha = frame.detach().gt(-1.0 + 1.0e-6).any(dim=0, keepdim=True)
-            alpha = alpha.to(dtype=torch.float32)
+            alpha_source = frame[3:4].detach()
             if tuple(panel.shape[-2:]) != (image_height, image_width):
                 panel = functional.interpolate(
                     panel.unsqueeze(0),
@@ -929,11 +925,12 @@ class TaxiHudState:
                     mode="bilinear",
                     align_corners=False,
                 )[0]
-                alpha = functional.interpolate(
-                    alpha.unsqueeze(0),
+                alpha_source = functional.interpolate(
+                    alpha_source.unsqueeze(0),
                     size=(image_height, image_width),
                     mode="nearest",
                 )[0]
+            alpha = alpha_source.ne(0)
             self._bev_source_key = source_key
             self._bev_panel = panel
             self._bev_alpha = alpha
@@ -942,7 +939,7 @@ class TaxiHudState:
         target = output[:, top:bottom, left:right]
         source_panel = panel[:, : bottom - top, : right - left]
         source_alpha = alpha[:, : bottom - top, : right - left]
-        target.mul_(1.0 - source_alpha).add_(source_panel * source_alpha)
+        torch.where(source_alpha, source_panel, target, out=target)
         return output
 
     def _draw_input_diagnostic(self, imgui: Any) -> None:

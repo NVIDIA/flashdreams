@@ -321,6 +321,7 @@ static __device__ uint32_t get_default_prim_color(uint32_t prim_type_id)
         case 19: return pack_rgba8(255/255.f,255/255.f,   0/255.f); // lane_line_yellow_dashed
         case 20: return pack_rgba8(255/255.f,255/255.f,   0/255.f); // dot_yellow
         case 21: return pack_rgba8(255/255.f,255/255.f, 255/255.f); // dot_white
+        case 22: return pack_rgba8(  0/255.f,  0/255.f,   0/255.f); // BEV road surface
         default: return pack_rgba8(1.0f, 1.0f, 1.0f);              // default white
     }
 }
@@ -1538,6 +1539,8 @@ __global__ void polygonPoolKernel(
     if (poolId >= numPools) return;
 
     const TsPolygonPoolHeader& pool = poolHeaders[poolId];
+    if (pool.prim_type_id == PRIM_BEV_ROAD_SURFACE &&
+        params.cameraTypeId != CAMERA_TYPE_BEV) return;
 
     if (threadIdx.x == 0) {
         s_triStart = -1;  // sentinel: "no work"

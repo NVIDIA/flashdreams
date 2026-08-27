@@ -43,7 +43,8 @@ enum PrimTypeId : uint32_t {
     PRIM_EGO_TRAJECTORY   = 4,
     PRIM_OBSTACLE         = 5,  // Dynamic obstacles (uses front/back colors from ObstaclePool)
     PRIM_EGO_OBSTACLE     = 6,  // Ego vehicle obstacle
-    PRIM_TYPE_COUNT       = 7
+    PRIM_BEV_ROAD_SURFACE = 22, // Black paved-surface fill, visible only to BEV cameras
+    PRIM_TYPE_COUNT       = 23
 };
 
 // Camera type IDs for per-camera-type style adjustments
