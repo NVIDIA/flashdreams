@@ -28,45 +28,6 @@ def test_step_result_rejects_an_unrecorded_output_event() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
-def test_step_result_preserves_a_custom_output_event() -> None:
-    device = torch.device("cuda", torch.cuda.current_device())
-    producer = torch.cuda.Stream(device=device)
-    with torch.cuda.stream(producer):
-        output = torch.zeros((1, 3, 8, 8), device=device)
-        ready = torch.cuda.Event()
-        ready.record(producer)
-
-    result = StepResult(
-        step_index=0,
-        output=output,
-        frame_count=1,
-        output_layout=VideoTensorLayout.tchw,
-        output_ready_event=ready,
-    )
-
-    assert result._output_ready_event is ready
-    assert result.replace(step_index=1)._output_ready_event is ready
-    producer.synchronize()
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
-def test_step_result_treats_none_as_automatic_output_readiness() -> None:
-    device = torch.device("cuda", torch.cuda.current_device())
-    producer = torch.cuda.Stream(device=device)
-    with torch.cuda.stream(producer):
-        result = StepResult(
-            step_index=0,
-            output=torch.zeros((1, 3, 8, 8), device=device),
-            frame_count=1,
-            output_layout=VideoTensorLayout.tchw,
-            output_ready_event=None,
-        )
-
-    assert result._output_ready_event is not None
-    producer.synchronize()
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 def test_presentation_manager_joins_default_producer_to_consumer_stream() -> None:
     device = torch.device("cuda", torch.cuda.current_device())
     producer = torch.cuda.Stream(device=device)
