@@ -55,7 +55,7 @@ class WaypointModelLoop(IModelLoop[WaypointModelState]):
             return [
                 StepResult(
                     step_index=0,
-                    output=state.seed_frames,
+                    output=state.seed_frames.detach(),
                     frame_count=WAYPOINT_1_5.frames_per_action,
                     output_layout=state.session_desc.output_layout,
                     metrics={"autoregressive_index": 0, "seed_frames": 4},
@@ -258,7 +258,7 @@ def _presentation_frames(video: Tensor, session_desc: SessionDesc) -> Tensor:
             f"{target_size[1]}x{target_size[0]}, got "
             f"{output.shape[-1]}x{output.shape[-2]}"
         )
-    return output.contiguous()
+    return output.detach().contiguous()
 
 
 __all__ = ["WaypointModelLoop", "WaypointModelState", "WaypointSession"]

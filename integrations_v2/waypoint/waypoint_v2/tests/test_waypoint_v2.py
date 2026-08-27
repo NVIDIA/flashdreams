@@ -85,6 +85,25 @@ class _FakePipeline:
         return {"diffuse_ms": 1.25, "finalize_ms": 0.25}
 
 
+class _AutogradFakePipeline(_FakePipeline):
+    """Fake pipeline that exposes a graph-owning output for boundary tests."""
+
+    def __init__(self, seed: int = 7) -> None:
+        super().__init__(seed)
+        self.last_output: Tensor | None = None
+
+    def generate(
+        self,
+        autoregressive_index: int,
+        cache: dict[str, Any],
+        control: WaypointControl,
+    ) -> Tensor:
+        self.last_output = (
+            super().generate(autoregressive_index, cache, control).requires_grad_()
+        )
+        return self.last_output
+
+
 def _pipeline(seed: int = 7) -> WaypointInferencePipeline:
     return cast(WaypointInferencePipeline, _FakePipeline(seed))
 
@@ -270,6 +289,28 @@ def test_file_session_emits_seed_then_exactly_four_frames_per_action() -> None:
         "generated_frames": 4,
     }
     assert loop.is_finished()
+
+
+def test_model_loop_detaches_results_from_model_owned_tensors() -> None:
+    """Presentation results never retain model-owned autograd state."""
+    fake = _AutogradFakePipeline()
+    session = _session(
+        cast(WaypointInferencePipeline, fake),
+        controls=(WaypointControl(),),
+    )
+    session.init()
+    loop = cast(WaypointModelLoop, session.model_loop)
+    loop.state.seed_frames.requires_grad_()
+
+    seed = loop.step(0, _empty_events())[0]
+    generated = loop.step(1, _empty_events())[0]
+
+    assert loop.state.seed_frames.requires_grad
+    assert fake.last_output is not None and fake.last_output.requires_grad
+    assert not seed.output.requires_grad
+    assert seed.output.grad_fn is None
+    assert not generated.output.requires_grad
+    assert generated.output.grad_fn is None
 
 
 def test_reset_rebuilds_cache_and_replays_first_action_deterministically() -> None:
