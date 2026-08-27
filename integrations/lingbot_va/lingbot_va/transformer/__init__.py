@@ -104,7 +104,7 @@ class LingbotVATransformerConfig(TransformerConfig):
     # Spatial layout
     latent_height: int = 0
     latent_width: int = 0
-    frame_chunk_size: int = 4
+    frame_chunk_size: int = 2
     action_per_frame: int = 16
     attn_window: int = 72
 
@@ -195,6 +195,10 @@ class LingbotVATransformer(Transformer[LingbotVATransformerCache]):
             * (cfg.latent_width // ps[2])
         )
         action_chunk = cfg.frame_chunk_size * cfg.action_per_frame
+        # Preserve upstream ``create_empty_cache`` semantics: ``attn_window``
+        # counts alternating video/action regions, so two regions make one AR
+        # cache slot. The divisor is intentionally independent of chunk size;
+        # upstream applies it to both two- and four-frame configurations.
         window_slots = cfg.attn_window // 2
 
         network_cache = self.network.initialize_cache(

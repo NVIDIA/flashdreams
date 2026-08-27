@@ -188,6 +188,10 @@ class WanVADiTNetwork(nn.Module):
             nn.SiLU(),
             nn.Linear(self.dim, self.dim * 6),
         )
+        # Retained for strict upstream checkpoint-schema parity. The pinned
+        # upstream model embeds text through ``condition_embedder.text_embedder``
+        # for both video and action inference; its copied action text embedder
+        # is never called, so using this module would change model behavior.
         self.action_text_embedding = nn.Sequential(
             nn.Linear(config.text_dim, self.dim),
             nn.GELU(approximate="tanh"),

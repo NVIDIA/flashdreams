@@ -92,6 +92,43 @@ class _BranchRecordingNetwork(nn.Module):
         return torch.full_like(x, value * 3)
 
 
+def test_transformer_default_chunk_size_matches_robotwin() -> None:
+    assert LingbotVATransformerConfig().frame_chunk_size == 2
+
+
+def test_cache_window_counts_paired_video_action_regions() -> None:
+    config = LingbotVATransformerConfig(
+        network=WanVADiTNetworkConfig(
+            patch_size=(1, 2, 2),
+            dim=12,
+            num_heads=1,
+            num_layers=1,
+            text_dim=8,
+        ),
+        guidance_scale=1.0,
+        action_guidance_scale=1.0,
+        latent_height=8,
+        latent_width=8,
+        frame_chunk_size=4,
+        action_per_frame=3,
+        attn_window=30,
+        compile_network=False,
+    )
+    transformer = LingbotVATransformer(config)
+    network = WanVADiTNetwork(config.network)
+    object.__setattr__(transformer, "_network", network)
+
+    cache = transformer.initialize_autoregressive_cache(
+        text_embeddings=torch.zeros(1, 1, 8),
+        batch_size=1,
+    )
+
+    self_attn = cache.network_cache.block_caches[0].self_attn
+    assert self_attn.video_chunk == 64
+    assert self_attn.action_chunk == 12
+    assert self_attn.kv_cache.window_size == 15 * (64 + 12)
+
+
 def test_cfg_action_branches_consume_their_matching_video_kv() -> None:
     cond_cache = WanVADiTNetworkCache(block_caches=[])
     uncond_cache = WanVADiTNetworkCache(block_caches=[])

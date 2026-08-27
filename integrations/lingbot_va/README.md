@@ -429,8 +429,10 @@ earlier inference failure.
 - `cache.start()` rolls before denoising and excludes the stale trailing write
   region. Terminal video writes provisional KV, terminal action overwrites the
   full video/action slot, and `finalize()` advances bookkeeping exactly once.
-- The upstream attention setting of 72 frames becomes 36 two-frame chunk slots,
-  or 9,792 tokens per block and branch.
+- The upstream Robotwin setting `attn_window=72` allocates 36 autoregressive
+  slots, or 9,792 tokens per block and branch. Each slot stores one video chunk
+  and one action chunk; the divisor reflects those paired modalities, not the
+  two latent frames in a chunk.
 
 Deliberate exclusions are the V1 runner, application-owned output files,
 application-owned model components, multi-GPU/FSDP claims, live RoboTwin
