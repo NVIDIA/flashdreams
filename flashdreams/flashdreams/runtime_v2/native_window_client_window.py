@@ -215,9 +215,7 @@ class NativeWindowClientWindow(IClientWindow):
             return
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
-        self._input_events.put(
-            replace(event, timestamp=uint64(elapsed_ns // 1_000))
-        )
+        self._input_events.put(replace(event, timestamp=uint64(elapsed_ns // 1_000)))
 
     def _on_keyboard_event(self, event: spy.KeyboardEvent) -> None:
         if _is_keyboard_input(event):
@@ -629,9 +627,7 @@ def _mouse_event(
     normalized_x = min(1.0, max(0.0, x / width))
     normalized_y = min(1.0, max(0.0, y / height))
     if event.is_move():
-        return MouseUserInputEvent(
-            timestamp=uint64(0), x=normalized_x, y=normalized_y
-        )
+        return MouseUserInputEvent(timestamp=uint64(0), x=normalized_x, y=normalized_y)
     if event.is_button_down() or event.is_button_up():
         button_name = event.button.name.lower()
         button = {"left": 0, "middle": 1, "right": 2}.get(button_name)
