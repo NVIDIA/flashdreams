@@ -11,7 +11,11 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-from crazy_robotaxi.application import _MODEL_PRESETS, CrazyRobotaxiApplication
+from crazy_robotaxi.application import (
+    _MODEL_PRESETS,
+    CrazyRobotaxiApplication,
+    _fit_bev_renderer_to_ui,
+)
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.session import CrazyRobotaxiModelLoop, CrazyRobotaxiSession
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
@@ -20,7 +24,8 @@ from omnidreams.config import (
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
 )
-from omnidreams_game_engine.config import RasterConfig
+from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -97,6 +102,8 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
     assert ui_loop.state.profile_input_latency
+    assert session._config.renderer.bev.width == 234
+    assert session._config.renderer.bev.height == 234
 
 
 def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
@@ -265,6 +272,9 @@ def test_original_perf_adapts_renderer_to_session_geometry(
     assert configured == [app._pipeline_config]
     assert raster_sizes == [resolution_wh]
     assert session._config.renderer.raster.resolution_wh == resolution_wh
+    expected_bev_size = min(resolution_wh[0] // 4, resolution_wh[1] // 3)
+    assert session._config.renderer.bev.width == expected_bev_size
+    assert session._config.renderer.bev.height == expected_bev_size
     assert session._scene.initial_rgb.shape == (
         resolution_wh[1],
         resolution_wh[0],
@@ -294,6 +304,26 @@ def test_original_perf_honors_explicit_pipeline_overrides() -> None:
     assert transformer.skip_finalize_kv_cache is True
     assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
     assert pipeline.enable_sync_and_profile is True
+
+
+def test_bev_render_fit_preserves_authored_aspect_ratio_and_smaller_sources() -> None:
+    raster = RasterConfig()
+    wide = RendererSettings(raster=raster, bev=BevConfig(width=800, height=400))
+    small = RendererSettings(raster=raster, bev=BevConfig(width=120, height=80))
+
+    fitted_wide = _fit_bev_renderer_to_ui(
+        wide,
+        video_width=1280,
+        video_height=704,
+    )
+    fitted_small = _fit_bev_renderer_to_ui(
+        small,
+        video_width=1280,
+        video_height=704,
+    )
+
+    assert (fitted_wide.bev.width, fitted_wide.bev.height) == (234, 117)
+    assert fitted_small is small
 
 
 @pytest.mark.parametrize(

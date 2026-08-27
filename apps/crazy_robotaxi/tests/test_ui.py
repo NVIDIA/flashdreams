@@ -339,7 +339,7 @@ def test_pickup_waypoint_projection_batches_anchors_and_ring_geometry() -> None:
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
-    bev = torch.full((1, 3, 32, 32), 0.5)
+    bev = torch.full((1, 3, 32, 32), 191, dtype=torch.uint8)
     hud_state = TaxiHudState(width, height, _calibration())
     hud_state.publish(
         build_hud_frames(

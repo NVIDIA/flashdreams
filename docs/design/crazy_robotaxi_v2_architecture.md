@@ -76,8 +76,11 @@ description, lazily constructs the shared pipeline, prepares immutable scene
 data, and returns an uninitialized session.
 
 The session registers a model loop and a `CrazyRobotaxiImGuiUILoop`. The model
-loop emits generated RGB frames and, when configured, the synchronized raw BEV
-frame. For each generated frame it publishes an immutable
+loop emits generated RGB frames and, when configured, the synchronized raw
+uint8 BEV frame. Because the BEV exists only inside a HUD window, session
+creation caps its raster to the actual ImGui image extent while preserving an
+authored aspect ratio; model HD-map conditioning retains full output
+resolution. For each generated frame it publishes an immutable
 `TaxiHudFrame` containing its game snapshot and camera pose to the UI loop with
 `invoke_async`. The UI loop selects the metadata aligned with the currently
 presented model frame and caches that frame's projected in-world waypoint
@@ -185,9 +188,10 @@ return [video StepResult, optional raw_bev StepResult]
 
 The UI loop uses V2's `ImGuiUILoop` and `presented_model_frames()`. It projects
 waypoint geometry only when the presented frame changes and submits the cached
-primitives to ImGui's background draw list each UI tick. It converts the small
-raw BEV frame to cached RGB bytes only when the presented BEV changes and
-displays it through the runtime-provided ImGui image bridge. The base loop
+primitives to ImGui's background draw list each UI tick. It materializes the
+small renderer-native uint8 BEV frame as cached RGB bytes only when the
+presented BEV changes and displays it through the runtime-provided ImGui image
+bridge. The base loop
 composites the complete Dear ImGui overlay over the video back buffer. There is
 no full-frame waypoint or BEV layer, retained SlangPy widget tree, intermediate
 app renderer, local adapter, model session, chunk request, private command
@@ -233,8 +237,8 @@ The reusable engine defines narrow game-facing contracts:
 - `PhysicsWorld` resolves ego, static, and actor interactions and produces
   synchronized actor trajectories.
 - `ConditionRenderer` converts a scene and `EngineStep` into model-ready HD-map
-  frames plus optional raw BEV data; the application turns that data into an
-  RGBA presentation layer before publishing the model step.
+  frames plus optional renderer-native uint8 BEV data; the application
+  publishes that data as a second synchronized result for the UI loop.
 - `GameEngine` sequences these components; it knows nothing about taxi fares,
   leaderboards, application entry points, V2 windows, or model presets.
 

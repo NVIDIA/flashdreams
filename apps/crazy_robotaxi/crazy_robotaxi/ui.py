@@ -60,6 +60,12 @@ _PROFILE_DRIVE_KEYS = frozenset(
 _LOGGER = logging.getLogger(__name__)
 
 
+def bev_display_extent(video_width: int, video_height: int) -> tuple[int, int]:
+    """Return the largest BEV image extent used by the fixed HUD layout."""
+    size = max(1, min(int(video_width) // 4, int(video_height) // 3))
+    return size, size
+
+
 @dataclass(frozen=True, slots=True)
 class TaxiHudFrame:
     """Immutable UI data aligned with one generated video frame."""
@@ -339,13 +345,20 @@ class TaxiHudState:
     def _draw_bev_window(self, imgui: Any, bev_frame: Tensor | None) -> None:
         if bev_frame is None:
             return
-        image_size = min(self.width // 4, self.height // 3)
-        if image_size <= 4:
+        maximum_width, maximum_height = bev_display_extent(self.width, self.height)
+        frame_height, frame_width = (int(value) for value in bev_frame.shape[1:])
+        scale = min(maximum_width / frame_width, maximum_height / frame_height)
+        image_width = max(1, round(frame_width * scale))
+        image_height = max(1, round(frame_height * scale))
+        if image_width <= 4 or image_height <= 4:
             return
         pixels = self._bev_image_pixels(bev_frame)
         padding = 16
         title_height = 34
-        window_size = (float(image_size + padding), float(image_size + title_height))
+        window_size = (
+            float(image_width + padding),
+            float(image_height + title_height),
+        )
         margin = float(max(8, min(self.width, self.height) // 80))
         position = (
             float(self.width) - window_size[0] - margin,
@@ -358,7 +371,7 @@ class TaxiHudState:
                 imgui.image(
                     "crazy_robotaxi_bev",
                     pixels,
-                    size=(float(image_size), float(image_size)),
+                    size=(float(image_width), float(image_height)),
                 )
         finally:
             imgui.end()
@@ -369,18 +382,23 @@ class TaxiHudState:
         source_key = (int(frame.data_ptr()), tuple(int(value) for value in frame.shape))
         if source_key == self._bev_source_key and self._bev_pixels is not None:
             return self._bev_pixels
-        pixels = (
-            frame.detach()
-            .to(dtype=torch.float32)
-            .add(1.0)
-            .mul(127.5)
-            .clamp_(0.0, 255.0)
-            .to(torch.uint8)
-            .permute(1, 2, 0)
-            .contiguous()
-            .cpu()
-            .numpy()
-        )
+        source = frame.detach()
+        if source.dtype == torch.uint8:
+            pixels = source.permute(1, 2, 0).contiguous().cpu().numpy()
+        elif source.is_floating_point():
+            pixels = (
+                source.to(dtype=torch.float32)
+                .add(1.0)
+                .mul(127.5)
+                .clamp_(0.0, 255.0)
+                .to(torch.uint8)
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
+        else:
+            raise ValueError("BEV presentation frames must be uint8 or floating point")
         self._bev_source_key = source_key
         self._bev_pixels = np.ascontiguousarray(pixels)
         return self._bev_pixels
@@ -634,5 +652,6 @@ __all__ = [
     "CrazyRobotaxiImGuiUILoop",
     "TaxiHudFrame",
     "TaxiHudState",
+    "bev_display_extent",
     "build_hud_frames",
 ]

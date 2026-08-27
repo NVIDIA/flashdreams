@@ -101,9 +101,21 @@ duration of the frames it produces. The live `model_step_wall_ms`,
 metrics separate a throughput miss from model-thread CPU work; the pipeline's
 `encode_ms`, `diffuse_ms`, `decode_ms`, and `finalize_ms` metrics identify the
 corresponding GPU stage. Waypoint projection and ImGui draw submission are
-UI-thread work and are not included in model-step metrics. The JSON sink normalizes `_ms` metric names to
-`_s`. Exclude the first chunks when judging steady state because compilation
-and graph capture are startup costs.
+UI-thread work and are not included in model-step metrics. The JSON sink
+normalizes `_ms` metric names to `_s`. Exclude the first chunks when judging
+steady state because compilation and graph capture are startup costs.
+
+The BEV is HUD-only data, so Crazy Robotaxi caps its raster resolution to the
+actual ImGui map-image extent while preserving the authored aspect ratio. At
+the default 1280x704 output this changes the default square BEV from 1024x1024
+to 234x234. The renderer's uint8 pixels remain uint8 through the game-engine
+contract; only the much smaller displayed image crosses to the CPU for ImGui's
+current pixel-upload helper. A fully GPU-resident BEV texture still requires a
+CUDA-tensor image hook in the V2 ImGui renderer.
+
+The saved [performance investigation](../../docs/design/crazy_robotaxi_v2_performance.md)
+records the current baseline, what the existing captures prove, and the exact
+like-for-like `original-perf` rerun needed after presentation changes.
 
 Presentation remains fixed at 30 fps. Disabling diagnostic synchronization
 removes an avoidable pause source, but it does not make a model preset whose

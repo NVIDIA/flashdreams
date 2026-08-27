@@ -135,7 +135,10 @@ class LudusConditionRenderer(ConditionRenderer):
                 camera_type=CAMERA_TYPE_BEV,
                 resolution=(self._bev.height, self._bev.width),
             )
-            bev = _normalize_hwc(bev_hwc)
+            # BEV is a UI-only channel. Preserve the renderer's native bytes
+            # instead of normalizing to BF16 only for presentation to reverse
+            # the conversion before uploading the ImGui texture.
+            bev = _bev_presentation_frames(bev_hwc)
         return ConditionBatch(hdmap_bvtchw=hdmap, bev_tchw=bev)
 
     def close(self) -> None:
@@ -180,6 +183,13 @@ class LudusConditionRenderer(ConditionRenderer):
 
 def _normalize_hwc(frames: Tensor) -> Tensor:
     return frames.permute(0, 3, 1, 2).to(torch.bfloat16) / 127.5 - 1.0
+
+
+def _bev_presentation_frames(frames: Tensor) -> Tensor:
+    """Keep renderer-native BEV bytes while changing HWC to TCHW layout."""
+    if frames.dtype != torch.uint8 or frames.ndim != 4 or frames.shape[-1] != 3:
+        raise ValueError("BEV renderer output must be uint8 THWC RGB")
+    return frames.permute(0, 3, 1, 2).contiguous()
 
 
 def _build_bev_camera(bev: BevConfig, device: torch.device) -> FThetaCamera:

@@ -29,6 +29,7 @@ from crazy_robotaxi.config import load_game_settings
 from crazy_robotaxi.high_scores import default_high_scores_path
 from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
+from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
@@ -229,6 +230,14 @@ class CrazyRobotaxiApplication(IApplication):
                     ),
                 ),
             )
+        config = replace(
+            config,
+            renderer=_fit_bev_renderer_to_ui(
+                config.renderer,
+                video_width=actual[0],
+                video_height=actual[1],
+            ),
+        )
         expected = config.renderer.raster.resolution_wh
         if actual != expected:
             raise ValueError(
@@ -236,10 +245,12 @@ class CrazyRobotaxiApplication(IApplication):
             )
         transformer = self._pipeline_config.diffusion_model.transformer
         scheduler = self._pipeline_config.diffusion_model.scheduler
+        bev = config.renderer.bev
+        bev_resolution = f"{bev.width}x{bev.height}" if bev.enabled else "disabled"
         _LOGGER.info(
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
             "native_backend=%s attention_backend=%s skip_finalize=%s "
-            "denoising_timesteps=%s",
+            "denoising_timesteps=%s bev=%s",
             config.model_preset_name,
             actual[0],
             actual[1],
@@ -248,6 +259,7 @@ class CrazyRobotaxiApplication(IApplication):
             transformer.native_dit_attention_backend,
             transformer.skip_finalize_kv_cache,
             list(scheduler.denoising_timesteps),
+            bev_resolution,
         )
         if self._pipeline is None:
             self._pipeline = self._pipeline_factory(
@@ -279,6 +291,32 @@ def create_app() -> IApplication:
 
 def _build_pipeline(config: Any, device: str) -> Any:
     return config.setup().to(device).eval()
+
+
+def _fit_bev_renderer_to_ui(
+    renderer: RendererSettings,
+    *,
+    video_width: int,
+    video_height: int,
+) -> RendererSettings:
+    """Avoid rasterizing a HUD-only BEV above its presented pixel extent."""
+    bev = renderer.bev
+    if not bev.enabled:
+        return renderer
+    maximum_width, maximum_height = bev_display_extent(video_width, video_height)
+    scale = min(
+        1.0,
+        maximum_width / bev.width,
+        maximum_height / bev.height,
+    )
+    if scale >= 1.0:
+        return renderer
+    fitted = replace(
+        bev,
+        width=max(1, round(bev.width * scale)),
+        height=max(1, round(bev.height * scale)),
+    )
+    return replace(renderer, bev=fitted)
 
 
 def _parser() -> argparse.ArgumentParser:

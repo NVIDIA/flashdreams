@@ -228,4 +228,4 @@ class ConditionBatch:
     """Semantic main-camera frames in ``[B,V,T,C,H,W]`` and ``[-1,1]``."""
 
     bev_tchw: Tensor | None = None
-    """Optional top-down frames in ``[T,C,H,W]`` and ``[-1,1]``."""
+    """Optional uint8 top-down UI frames in ``[T,C,H,W]``."""
