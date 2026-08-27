@@ -616,7 +616,6 @@ class MapTrafficController:
                 object_id=state.object_id,
                 timestamp_us=self._drive_target_timestamp_us(state),
                 velocity_scale=state.velocity_scale,
-                loop_duration_us=state.duration_us,
             )
             for state in self._states
             if state.object_id in self._active_ids

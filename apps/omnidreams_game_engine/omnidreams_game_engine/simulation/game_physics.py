@@ -861,9 +861,7 @@ class GamePhysicsWorld:
             for controller in self._actor_controllers
             for target in controller.prepare_step(ego_before_step, dt_s)
         )
-        self._world.apply_actor_track_targets(
-            actor_targets, rollout_timestamp_us=timestamp_us
-        )
+        self._world.apply_actor_track_targets(actor_targets)
         traffic_prepare_ms = (time.perf_counter() - traffic_prepare_started_at) * 1000.0
         physics_step = self._world.step_compact(
             ego_before_step,

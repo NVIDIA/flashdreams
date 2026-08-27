@@ -32,9 +32,6 @@ class ActorTrackTarget:
     velocity_scale: float = 1.0
     """Track velocity multiplier within ``[0, 1]``."""
 
-    loop_duration_us: int | None = None
-    """Track loop duration; ``None`` clamps at the source track endpoints."""
-
 
 class PhysicsActorController(Protocol):
     """Gameplay owner for a set of optional PhysX-driven scene objects.

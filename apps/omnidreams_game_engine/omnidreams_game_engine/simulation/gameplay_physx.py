@@ -20,33 +20,17 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-import numpy as np
 from ludus_renderer import PhysicsObjectGraph, PhysXWorld, RigidBodyModel, SceneObject
 
 from omnidreams_game_engine.simulation.actor_controller import ActorTrackTarget
 
-_TRACK_SAMPLE_WINDOW_US = 100_000
-"""Half-width of the local native track window around each physics step."""
-
-
-def _sample_target_track(
-    scene_object: SceneObject,
-    timestamp_us: int,
-    *,
-    loop_duration_us: int | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    if loop_duration_us is not None:
-        timestamp_us %= loop_duration_us
-    position, orientation, _ = scene_object.sample(timestamp_us)
-    return position, orientation
-
 
 class GameplayPhysXWorld(PhysXWorld):
-    """Adapt gameplay-owned actor clocks to Ludus's global track clock.
+    """Adapt gameplay-owned actor clocks to Ludus's external track progress.
 
-    Ludus samples every native track from the rollout timestamp. This adapter
-    publishes a small, rollout-aligned window for each procedural actor while
-    leaving recorded scene objects on Ludus's normal global timeline.
+    Gameplay controllers publish logical timestamps independently of the rollout
+    clock. Ludus applies those timestamps and velocity scales to the actors'
+    original tracks in one native batch.
     """
 
     def __init__(
@@ -68,11 +52,9 @@ class GameplayPhysXWorld(PhysXWorld):
             max_actor_drive_speed_mps=max_actor_drive_speed_mps,
             capacity=capacity,
         )
-        if not hasattr(self._scene, "set_body_track") or not hasattr(
-            self, "_object_native_ids"
-        ):
+        if not hasattr(self._scene, "set_body_track_progress"):
             raise RuntimeError(
-                "the installed ludus_renderer lacks the native track replacement "
+                "the installed ludus_renderer lacks the native track-progress "
                 "bridge required by gameplay actors"
             )
 
@@ -130,58 +112,14 @@ class GameplayPhysXWorld(PhysXWorld):
     def apply_actor_track_targets(
         self,
         targets: tuple[ActorTrackTarget, ...],
-        *,
-        rollout_timestamp_us: int,
     ) -> None:
-        """Publish logical actor targets on Ludus's rollout clock."""
-        if not targets:
-            return
-        native_timestamps = np.asarray(
-            [
-                rollout_timestamp_us - _TRACK_SAMPLE_WINDOW_US,
-                rollout_timestamp_us,
-                rollout_timestamp_us + _TRACK_SAMPLE_WINDOW_US,
-            ],
-            dtype=np.int64,
+        """Publish logical actor targets through Ludus's batched progress API."""
+        self.apply_track_progress(
+            tuple(
+                (target.object_id, target.timestamp_us, target.velocity_scale)
+                for target in targets
+            )
         )
-        for target in targets:
-            if target.object_id not in self._objects:
-                raise KeyError(target.object_id)
-            if not math.isfinite(target.velocity_scale) or not (
-                0.0 <= target.velocity_scale <= 1.0
-            ):
-                raise ValueError("track velocity scale must be within [0, 1]")
-            if target.loop_duration_us is not None and target.loop_duration_us <= 0:
-                raise ValueError("track loop duration must be positive")
-
-            logical_window_us = int(
-                round(_TRACK_SAMPLE_WINDOW_US * target.velocity_scale)
-            )
-            logical_timestamps = (
-                target.timestamp_us - logical_window_us,
-                target.timestamp_us,
-                target.timestamp_us + logical_window_us,
-            )
-            scene_object = self._objects[target.object_id]
-            samples = tuple(
-                _sample_target_track(
-                    scene_object,
-                    timestamp,
-                    loop_duration_us=target.loop_duration_us,
-                )
-                for timestamp in logical_timestamps
-            )
-            self._scene.set_body_track(
-                self._object_native_ids[target.object_id],
-                native_timestamps,
-                np.ascontiguousarray(
-                    np.stack([sample[0] for sample in samples]), dtype=np.float32
-                ),
-                np.ascontiguousarray(
-                    np.stack([sample[1] for sample in samples]), dtype=np.float32
-                ),
-                -1.0,
-            )
 
 
 __all__ = ["GameplayPhysXWorld"]
