@@ -19,7 +19,8 @@ results are in [INTEGRATION.md](INTEGRATION.md).
 - An NVIDIA GPU with enough memory for the 22B transformer. Model-level CPU offload is
   the default; this host's validation target is a 96 GB RTX PRO 6000 Blackwell.
 - Enough host RAM and disk for roughly 70 GB of selected checkpoint components.
-- A Hugging Face account that has accepted the LTX 2.5 repository gate and license.
+- A Hugging Face account that has requested and received access through the LTX 2.5
+  Diffusers repository gate.
 - A host-provided `ffmpeg` executable on `PATH` for MP4 output.
 
 No Lightricks source or weights are redistributed. The adapter pins
@@ -74,8 +75,8 @@ Run the complete prompt, duration, and resolution matrix with one model load:
     uv run --no-sync flashdreams-ltx25-benchmark \
         --output-dir "$HOME/ltx25-gallery" --offload model
 
-The output directory receives an MP4 and runtime stats JSON per case, plus
-`manifest.json` with codec, timing, signal, drift, hash, and validation checks,
+The output directory receives an MP4 and runtime stats JSON per case, plus a JSON
+manifest with codec, timing, signal, drift, hash, and validation checks,
 and a portable `gallery.html` that embeds every clip. Use repeated `--case LABEL`
 arguments for a subset; `--help` lists the stable case labels. Existing media is
 not replaced unless `--overwrite` is explicit.

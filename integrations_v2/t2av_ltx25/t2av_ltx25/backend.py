@@ -221,7 +221,7 @@ def load_diffusers_backend(config: BackendLoadConfig) -> LTX25Backend:
         )
     except GatedRepoError as error:
         raise RuntimeError(
-            "LTX 2.5 checkpoint access is gated. Accept the model terms at "
+            "LTX 2.5 checkpoint access is gated. Request access at "
             f"{MODEL_ACCESS_URL}, then retry."
         ) from error
 

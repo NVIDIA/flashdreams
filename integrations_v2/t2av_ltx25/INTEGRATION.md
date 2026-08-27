@@ -115,10 +115,11 @@ peak CUDA memory, output path, media properties, and hashes.
 | --- | --- | --- |
 | PR #526 focused CPU tests | Passed | 112 tests passed in 29.64 s |
 | Adapter CPU contracts | Passed | 23 CPU tests passed in 3.66 s |
+| Full runtime V2 CPU regression | Passed | 363 tests passed in 39.01 s |
 | Synchronized stand-in MP4 | Passed | H.264/AAC probe, exact 25 frames, decoded audible 48 kHz stereo |
 | Lint/type checks | Passed | pre-commit Ruff format/import checks and workspace `ty` |
 | Wheel/install/entry point | Passed | sdist/wheel built; `t2av-ltx25` discovered; delegated help passed |
 | Matrix/gallery harness | Passed | Two distinct stand-in cases, one backend load, inspected MP4s, JSON and HTML |
-| Checkpoint access/load | Blocked | HF account must accept the LTX 2.5 gate |
+| Checkpoint access/load | Blocked | HF mirror returns 403; account must request access |
 | GPU matrix | Pending | |
 | Gallery and selected MP4s | Pending | |
