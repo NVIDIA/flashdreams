@@ -171,8 +171,7 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="{" + ",".join(mode.value for mode in PresentationMode) + "}",
         help=(
-            "Whether the UI runs continuously or on demand for new frames and "
-            "requested input refreshes."
+            "Whether the UI runs continuously or only for newly selected model frames."
         ),
     )
 

@@ -266,32 +266,6 @@ class IUILoop(ILoop[StateT], ABC):
     :meth:`presented_model_frames` rather than from the model loop directly.
     """
 
-    def should_redraw_for_input(self, events: UserInputEvents) -> bool:
-        """Return whether fresh input needs a UI step without a new model frame.
-
-        The runtime consults this hook only on an idle
-        :attr:`~flashdreams.runtime_v2.session_desc.PresentationMode.ON_DEMAND`
-        tick. Returning ``True`` requests one UI step using the currently
-        presented model frame. By default, every non-empty event batch requests
-        a refresh so the UI can respond immediately. Subclasses may override
-        this method to ignore events that cannot affect their output. Continuous
-        mode and ticks that already advanced a model frame do not consult this
-        hook.
-
-        Args:
-            events: Events collected from the client in the current UI tick.
-        """
-        return bool(events.get_events())
-
-    def should_redraw_on_idle(self) -> bool:
-        """Return whether an idle on-demand tick needs a time-driven UI step.
-
-        The default keeps on-demand output unchanged when neither input nor a
-        model frame changed. Clock- or status-driven UIs may opt into a redraw;
-        the runtime still calls this at most once per UI tick.
-        """
-        return False
-
     @final
     def register_session_ui_loop_objects(
         self,

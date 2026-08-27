@@ -28,9 +28,9 @@ synchronized step wall time, and chunk FPS. Model metrics retain the
 warmup-excluded cumulative `steady_state_fps` metric for benchmark comparisons.
 
 Cam2V runs SlangPy rendering, model-frame conversion, and composition on a
-high-priority CUDA presentation stream. `ON_DEMAND` suppresses idle redraws
-while browser input and recent-rate expiry refresh the UI. The UI/write path
-owns output cadence; WebRTC does not pace
+high-priority CUDA presentation stream. `CONTINUOUS` runs the UI every tick so
+browser input and time-driven status changes are reflected without waiting for
+a new model frame. The UI/write path owns output cadence; WebRTC does not pace
 frames again. It keeps two unsent frames in FIFO order and evicts the oldest
 queued frame on overflow. A frame already dequeued for the sender or encoder is
 committed and is outside that capacity. CUDA priority can overtake queued

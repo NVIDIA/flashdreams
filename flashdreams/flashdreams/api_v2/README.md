@@ -68,11 +68,8 @@ The UI thread initially selects frames from model chunks at
 output rate. This paces chunked output evenly without tying input and UI redraws
 to model throughput.
 `PresentationMode.CONTINUOUS` lets an `IUILoop` redraw every UI tick;
-`PresentationMode.ON_DEMAND` runs it when the selected model frame changes or
-when input arrives. The default `IUILoop.should_redraw_for_input()` requests a
-refresh for every non-empty event batch; UI loops may override it to ignore
-events that cannot change their output. A clock-driven on-demand UI may also
-override `should_redraw_on_idle()` without switching to continuous output.
+`PresentationMode.ON_DEMAND` runs it only when the selected model frame changes.
+Interactive or clock-driven UIs should use continuous presentation.
 
 ## Loops
 
@@ -196,13 +193,10 @@ model-generation-loop produces frames:
 - `PresentationMode.CONTINUOUS` runs the UI every tick and may reuse
   the newest generated model frame.
 - `PresentationMode.ON_DEMAND` runs the UI after the presentation manager
-  advances to a new model frame, or when `IUILoop.should_redraw_for_input()` asks
-  for an input-driven refresh. The default hook returns `True` for every
-  non-empty input batch; subclasses may filter events if needed.
+  advances to a new model frame.
 
 Use `PresentationMode.ON_DEMAND` with `BackpressureMode.BLOCK` when every
-generated model frame must be selected in order. An input-driven refresh may
-add a write that reuses the currently selected model frame.
+generated model frame must be selected and written exactly once in order.
 
 For widgets drawn over the model output, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop` and implement

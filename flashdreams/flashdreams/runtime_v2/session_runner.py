@@ -213,24 +213,22 @@ def run_session(
     cleanup_failures: list[BaseException] = []
     attempted_output_sinks: list[OutputSink] = []
 
-    def collect_input() -> UserInputEvents:
+    def collect_input() -> None:
         events = window.get_user_input_events()
         event_buffer.append(events)
         if _contains(events, CloseUserInputEvent):
             stop.set()
-        return events
 
-    def process_ui_events(
+    def run_ui_once(
         *,
-        redraw: bool,
         presented_model_traces: tuple[InputEventTrace, ...] = (),
     ) -> StepResult | None:
-        """Advance the UI reader and optionally execute one UI step."""
+        """Run one UI step with events not yet seen by that loop."""
         if ui_loop is None:
             return None
         events, generation = event_buffer.read(_UI_READER_ID)
         step_index = ui_loop._begin_run(events, generation)
-        if step_index is None or stop.is_set() or not redraw:
+        if step_index is None or stop.is_set():
             return None
         result = ui_loop.step(step_index, events)
         if result is not None and not isinstance(result, StepResult):
@@ -298,10 +296,7 @@ def run_session(
         presented_model_traces: tuple[InputEventTrace, ...] = (),
     ) -> None:
         """Run one UI step and write its result, if any."""
-        result = process_ui_events(
-            redraw=True,
-            presented_model_traces=presented_model_traces,
-        )
+        result = run_ui_once(presented_model_traces=presented_model_traces)
         if result is None:
             if presented_model_traces:
                 window.discard_input_event_ids(
@@ -310,7 +305,7 @@ def run_session(
             return
         window.write(result)
 
-    def tick_ui(*, input_events: UserInputEvents | None = None) -> None:
+    def tick_ui() -> None:
         assert ui_loop is not None
         generation = event_buffer.generation
         model_advanced = False
@@ -325,12 +320,7 @@ def run_session(
             run_and_write_ui_once(presentation_manager.presented_input_event_traces())
             return
         if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
-            redraw_for_input = input_events is not None and (
-                ui_loop.should_redraw_for_input(input_events)
-            )
-            if not redraw_for_input and not ui_loop.should_redraw_on_idle():
-                process_ui_events(redraw=False)
-                return
+            return
         run_and_write_ui_once()
 
     try:
@@ -346,8 +336,8 @@ def run_session(
         if metrics_output_sink is not None:
             attempted_output_sinks.append(metrics_output_sink)
             metrics_output_sink.open(session_desc)
-        initial_input = collect_input()
-        tick_ui(input_events=initial_input)
+        collect_input()
+        tick_ui()
 
         if not stop.is_set():
             model_thread_handle = threading.Thread(
@@ -375,10 +365,10 @@ def run_session(
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
                 if stop.wait(wait_seconds):
                     break
-                current_input = collect_input()
+                collect_input()
                 if stop.is_set():
                     break
-                tick_ui(input_events=current_input)
+                tick_ui()
                 event_buffer.collect_garbage()
                 next_tick_at += tick_seconds
                 completed_at = time.monotonic()

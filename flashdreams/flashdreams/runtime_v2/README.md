@@ -84,7 +84,7 @@ These override whatever session the application asked for:
 | `--fps` | `frames_per_second_for_step`, which is also the rate an MP4 plays back at. |
 | `--layout` | Tensor layout to generate results in. |
 | `--backpressure-mode` | What the model thread does when the presentation queue is full. |
-| `--presentation-mode` | Whether the UI runs continuously or on demand for new frames and requested input refreshes. |
+| `--presentation-mode` | Whether the UI runs continuously or only for newly selected model frames. |
 
 Each defaults to asking for nothing, so a run that names none of them gets what
 the application generates. There is no argument for the UI tick rate, and none
@@ -164,19 +164,14 @@ ready:
 
 - `CONTINUOUS` runs the UI loop every tick, re-presenting the newest
   model frame.
-- `ON_DEMAND` runs the UI loop when `advance` moves to a new frame, or when the
-  UI requests an input-driven refresh through `should_redraw_for_input`. The
-  default hook requests a refresh for every non-empty input batch; UI loops may
-  override it to filter events. Time-driven status UIs may request an idle tick
-  through `should_redraw_on_idle()` without enabling continuous output.
+- `ON_DEMAND` runs the UI loop only when `advance` moves to a new frame.
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ON_DEMAND`: together they keep every frame in the presentation manager
-and present each in order. When no input refresh is requested, each is written
-exactly once; an input refresh may intentionally re-present the current model
-frame. Steps that could not be kept are counted in `dropped_for_space` and
-`discarded_at_reset`, and logged when the run ends. Both count model steps
-rather than frames, so one step of twelve frames counts once.
+and present each exactly once in order. Steps that could not be kept are counted
+in `dropped_for_space` and `discarded_at_reset`, and logged when the run ends.
+Both count model steps rather than frames, so one step of twelve frames counts
+once.
 
 ## Presenting and writing
 

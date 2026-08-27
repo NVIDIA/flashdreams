@@ -88,11 +88,11 @@ class Cam2VApplicationDefaults:
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
     """Preserve every generated model frame in presentation order."""
 
-    presentation_mode: PresentationMode = PresentationMode.ON_DEMAND
-    """Render selected model frames and UI-relevant browser input changes."""
+    presentation_mode: PresentationMode = PresentationMode.CONTINUOUS
+    """Render the UI every tick so controls and status remain responsive."""
 
     ui_fps: int = 60
-    """Rate at which the io-thread reads inputs and runs the UI loop."""
+    """Rate at which the UI thread reads inputs and runs the UI loop."""
 
     warmup_blocks: int = 5
     """Leading blocks excluded from steady-state FPS."""

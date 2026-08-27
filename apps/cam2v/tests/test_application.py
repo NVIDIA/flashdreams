@@ -25,7 +25,6 @@ from cam2v import (
     Cam2VConditioning,
     Cam2VModelLoop,
     Cam2VModelState,
-    Cam2VModelStepTiming,
     Cam2VSession,
     Cam2VSessionConfig,
     Cam2VSlangPyUILoop,
@@ -36,13 +35,16 @@ from cam2v import (
 )
 from cam2v.dummy import DummyCam2VPipelineConfig
 from cam2v.dummy import create_app as create_dummy_app
-from cam2v.session import _RecentModelFrameRate
 from numpy import uint64
 
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.recent_frame_rate import (
+    RecentFrameRateSnapshot,
+    RecentFrameRateTracker,
+)
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -54,7 +56,6 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -62,17 +63,16 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 pytestmark = pytest.mark.ci_cpu
 
 
-def _recent_model_steps(
+def _recent_model_rate_snapshot(
     frame_count: int = 13,
-) -> tuple[Cam2VModelStepTiming, ...]:
-    completed_at = time.perf_counter()
-    return (
-        Cam2VModelStepTiming(
-            completed_at=completed_at,
-            frame_count=frame_count,
-            wall_s=1.0,
-        ),
+) -> RecentFrameRateSnapshot:
+    tracker = RecentFrameRateTracker(window_seconds=2.0)
+    tracker.observe(
+        completed_at=time.perf_counter(),
+        frame_count=frame_count,
+        elapsed_s=1.0,
     )
+    return tracker.snapshot()
 
 
 class _Decoder:
@@ -219,11 +219,10 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     assert ui_state.status is not None
     assert ui_state.status.completed_blocks == 1
     assert ui_state.status.frames_generated == 2
-    model_steps = ui_state.status.recent_model_steps
-    assert model_steps is not None
-    assert ui_state.status.recent_model_fps(
-        model_steps[-1].completed_at
-    ) == pytest.approx(result.metrics["recent_model_fps"])
+    assert ui_state.status.recent_model_rate_snapshot is not None
+    assert ui_state.status.recent_model_fps() == pytest.approx(
+        result.metrics["recent_model_fps"]
+    )
     assert pipeline.camera_input is not None
     assert pipeline.camera_input.poses.shape == (2, 4, 4)
     assert pipeline.camera_input.poses[-1, 2, 3] > 0
@@ -263,29 +262,6 @@ def _input_test_model_loop(
         failure_queue=queue.Queue(),
     )
     return model_loop, state, pipeline
-
-
-def test_recent_model_frame_rate_aggregates_recent_ar_step_throughput() -> None:
-    """Weight variable chunks by wall time without an intra-step sawtooth."""
-    rate = _RecentModelFrameRate(window_seconds=2.0)
-
-    assert rate.observe(completed_at=0.5, frame_count=5, wall_s=0.5) == pytest.approx(
-        10.0
-    )
-    assert rate.observe(completed_at=1.5, frame_count=20, wall_s=1.0) == pytest.approx(
-        25.0 / 1.5
-    )
-    assert rate.observe(completed_at=2.5, frame_count=30, wall_s=1.0) == pytest.approx(
-        25.0
-    )
-    assert rate.observe(completed_at=3.0, frame_count=15, wall_s=0.5) == pytest.approx(
-        26.0
-    )
-
-    rate.reset()
-    assert rate.observe(completed_at=11.0, frame_count=4, wall_s=1.0) == pytest.approx(
-        4.0
-    )
 
 
 def test_model_loop_logs_each_ar_step_wall_timing(
@@ -330,14 +306,14 @@ def test_keyboard_resampler_keeps_an_aliased_key_held_until_all_sources_release(
 
 
 def test_ui_recent_model_frame_rate_reaches_zero_during_a_stall() -> None:
+    rate = RecentFrameRateTracker(window_seconds=2.0)
+    rate.observe(completed_at=0.5, frame_count=5, elapsed_s=0.5)
+    rate.observe(completed_at=1.5, frame_count=20, elapsed_s=1.0)
     status = Cam2VUIStatus(
         completed_blocks=2,
         frames_generated=25,
         chunk_fps=20.0,
-        recent_model_steps=(
-            Cam2VModelStepTiming(completed_at=0.5, frame_count=5, wall_s=0.5),
-            Cam2VModelStepTiming(completed_at=1.5, frame_count=20, wall_s=1.0),
-        ),
+        recent_model_rate_snapshot=rate.snapshot(),
         model_step_wall_s=1.0,
     )
 
@@ -346,10 +322,12 @@ def test_ui_recent_model_frame_rate_reaches_zero_during_a_stall() -> None:
     assert status.recent_model_fps(now=3.6) == 0.0
 
 
-def test_slangpy_expiry_uses_the_same_sample_for_render_and_redraw_tracking(
+def test_slangpy_continuous_redraw_expires_recent_model_rate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Do not lose the zero-rate redraw when composition crosses the cutoff."""
+    """Refresh the recent model rate on every continuous UI step."""
+    rate = RecentFrameRateTracker(window_seconds=2.0)
+    rate.observe(completed_at=0.0, frame_count=13, elapsed_s=1.0)
     ui_loop = Cam2VSlangPyUILoop(renderer=Mock())
     state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=0)
     state.update_status(
@@ -357,13 +335,7 @@ def test_slangpy_expiry_uses_the_same_sample_for_render_and_redraw_tracking(
             completed_blocks=1,
             frames_generated=13,
             chunk_fps=13.0,
-            recent_model_steps=(
-                Cam2VModelStepTiming(
-                    completed_at=0.0,
-                    frame_count=13,
-                    wall_s=1.0,
-                ),
-            ),
+            recent_model_rate_snapshot=rate.snapshot(),
             model_step_wall_s=1.0,
         )
     )
@@ -389,9 +361,11 @@ def test_slangpy_expiry_uses_the_same_sample_for_render_and_redraw_tracking(
     assert "Recent model rate (2 s): 13.00 FPS" in (
         widget.text for widget in state.status_widgets
     )
-    assert ui_loop._last_rendered_recent_fps == 13.0
     monkeypatch.setattr(cam2v_ui.time, "perf_counter", lambda: 2.4)
-    assert ui_loop.should_redraw_on_idle()
+    ui_loop.step_ui(ui, 1, UserInputEvents([]))
+    assert "Recent model rate (2 s): 0.00 FPS" in (
+        widget.text for widget in state.status_widgets
+    )
 
 
 def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:
@@ -445,7 +419,7 @@ def test_model_loop_traces_each_event_to_its_first_affected_frame() -> None:
         (trace.event_id, trace.frame_index)
         for trace in second_result.input_event_traces
     ] == [("page:2", 0)]
-    assert not state._pending_input_event_traces
+    assert state.input_event_trace_tracker.pending_count == 0
 
 
 def test_model_loop_acknowledges_ignored_keys_without_tracing_pointer_input() -> None:
@@ -604,38 +578,10 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
             completed_blocks=2,
             frames_generated=24,
             chunk_fps=13.5,
-            recent_model_steps=_recent_model_steps(),
+            recent_model_rate_snapshot=_recent_model_rate_snapshot(),
             model_step_wall_s=0.89,
         )
     )
-
-    assert ui_loop.should_redraw_for_input(pressed)
-    assert ui_loop.should_redraw_for_input(
-        UserInputEvents(
-            [
-                MouseUserInputEvent(
-                    timestamp=uint64(0),
-                    x=0.5,
-                    y=0.5,
-                )
-            ]
-        )
-    )
-    assert ui_loop.should_redraw_for_input(
-        UserInputEvents([ResetUserInputEvent(timestamp=uint64(0))])
-    )
-    assert ui_loop.should_redraw_for_input(
-        UserInputEvents(
-            [
-                KeyboardUserInputEvent(
-                    timestamp=uint64(0),
-                    key="Escape",
-                    state=KeyboardInputState.PRESSED,
-                )
-            ]
-        )
-    )
-    assert not ui_loop.should_redraw_for_input(UserInputEvents([]))
 
     result = ui_loop.step(0, pressed)
 
@@ -747,7 +693,7 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
         pipeline=_Pipeline(),
         session_desc=SessionDesc(
             output_layout=VideoTensorLayout.tchw,
-            presentation_mode=PresentationMode.ON_DEMAND,
+            presentation_mode=PresentationMode.CONTINUOUS,
             frames_per_second_for_step=16,
             video_width=8,
             video_height=4,
@@ -770,7 +716,7 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
     assert session.model_loop.state.keyboard_resampler is not None
     assert session.model_loop.state.keyboard_resampler.fps == 16
     assert session.session_desc.backpressure_mode is BackpressureMode.BLOCK
-    assert session.session_desc.presentation_mode is PresentationMode.ON_DEMAND
+    assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
 
 
 def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> None:
@@ -885,7 +831,7 @@ def test_dummy_cam2v_application_exposes_slow_step_controls() -> None:
 
     assert isinstance(app, Cam2VApplication)
     assert app.session_desc().backpressure_mode is BackpressureMode.BLOCK
-    assert app.session_desc().presentation_mode is PresentationMode.ON_DEMAND
+    assert app.session_desc().presentation_mode is PresentationMode.CONTINUOUS
     assert app.pipeline_config == DummyCam2VPipelineConfig(
         step_wait_seconds=0.25,
         frames_per_chunk=3,

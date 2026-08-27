@@ -32,7 +32,6 @@ from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
-    MouseUserInputEvent,
     ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -575,41 +574,6 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
     assert "ui_loop.step" in log.calls
 
 
-def test_on_demand_processes_input_while_model_generation_waits() -> None:
-    """Refresh the default UI loop for input without waiting for a model frame."""
-    log = CallLog()
-    input_processed = threading.Event()
-
-    class SlowModelSession(FakeSession):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-            assert input_processed.wait(timeout=1.0)
-            return super().step(step_index, events)
-
-        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-            if events.get_events():
-                input_processed.set()
-            return super().run_ui(step_index, events)
-
-    session = SlowModelSession(
-        _session_desc(
-            presentation_mode=PresentationMode.ON_DEMAND,
-            ui_fps=100,
-            model_fps=1,
-        ),
-        log,
-    )
-    window = RecordingClientWindow(
-        log,
-        [UserInputEvents([]), _key_event()],
-    )
-
-    run_session(session, window, steps=1)
-
-    assert input_processed.is_set()
-    assert log.calls.index("ui_loop.step") < log.calls.index("session.step(0)")
-    assert [result.step_index for result in window.results] == [1]
-
-
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
     log = CallLog()
 
@@ -941,54 +905,6 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
     assert [result.step_index for result in window.results] == [0, 1, 2]
 
 
-def test_filtered_input_is_consumed_without_reaching_a_later_ui_step() -> None:
-    log = CallLog()
-
-    class FilteringUILoop(FakeUILoop):
-        def should_redraw_for_input(self, events: UserInputEvents) -> bool:
-            return any(
-                isinstance(event, KeyboardUserInputEvent)
-                for event in events.get_events()
-            )
-
-    class FilteringSession(FakeSession):
-        def __init__(self) -> None:
-            super().__init__(
-                _session_desc(
-                    presentation_mode=PresentationMode.ON_DEMAND,
-                    ui_fps=100,
-                    model_fps=100,
-                ),
-                log,
-            )
-            self.ui_event_batches: list[UserInputEvents] = []
-
-        def init(self) -> None:
-            self.register_ui_loop(FilteringUILoop, state=self)
-            self.register_model_loop(FakeModelLoop, state=self)
-
-        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
-            self.ui_event_batches.append(events)
-            return super().run_ui(step_index, events)
-
-    session = FilteringSession()
-    window = RecordingClientWindow(
-        log,
-        [
-            UserInputEvents([MouseUserInputEvent(timestamp=uint64(0), x=0.5, y=0.5)]),
-            _key_event(),
-        ],
-    )
-
-    run_session(session, window, steps=1)
-
-    assert len(session.ui_event_batches) == 1
-    assert all(
-        isinstance(event, KeyboardUserInputEvent)
-        for event in session.ui_event_batches[0].get_events()
-    )
-
-
 def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
     manager = PresentationManager()
     manager.configure(
@@ -1132,10 +1048,8 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     ]
     assert calls == ["session.reset", "session.step(0)", "session.step(1)"]
     assert log.calls.index("session.reset") < log.calls.index("session.step(0)")
-    # A reset restarts both loops without granting extra model steps. The reset
-    # event itself requests UI step 0; this fake has no frame to emit until the
-    # model runs, so the two visible UI results use indices 1 and 2.
-    assert [result.step_index for result in window.results] == [1, 2]
+    # A reset restarts both loops without granting extra model steps.
+    assert [result.step_index for result in window.results] == [0, 1]
 
 
 def test_run_session_stops_when_the_session_says_it_has_finished() -> None:
@@ -1169,9 +1083,8 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
     run_session(session, window, steps=3)
 
     # Finished before the run began, so without the reset nothing would be
-    # generated. It is applied first, requests an input refresh with no frame,
-    # and the session then runs its length again.
-    assert [result.step_index for result in window.results] == [1]
+    # generated. It is applied before the session runs its length again.
+    assert [result.step_index for result in window.results] == [0]
     assert "session.reset" in log.calls
 
 
@@ -1263,10 +1176,9 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
 
     # The first step was still running when the client asked to start over, so
     # what it produced belongs to a generation nobody is watching any more. Only
-    # the step from after the reset reaches the window. The reset event's UI
-    # refresh has no frame to emit, but still consumes UI step index 0.
+    # the step from after the reset reaches the window.
     assert log.calls.count("session.step(0)") == 2
-    assert [result.step_index for result in window.results] == [1]
+    assert [result.step_index for result in window.results] == [0]
 
 
 def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:

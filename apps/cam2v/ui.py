@@ -13,6 +13,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.runtime.keyboard import KeyboardState, normalize_key
+from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateSnapshot
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.step_result import InputEventTrace
 from flashdreams.runtime_v2.user_input_event import (
@@ -31,23 +32,6 @@ _CAMERA_KEYS = frozenset(_CAMERA_KEY_ORDER)
 RECENT_MODEL_FPS_WINDOW_SECONDS = 2.0
 """Trailing AR-step completion window displayed in the model status panel."""
 
-_IDLE_STATUS_REFRESH_SECONDS = 0.25
-"""Maximum four-Hz UI refresh while a recent model rate can expire."""
-
-
-@dataclass(frozen=True, slots=True)
-class Cam2VModelStepTiming:
-    """One completed autoregressive model step used for recent throughput."""
-
-    completed_at: float
-    """Timestamp recorded after the step and required CUDA synchronization."""
-
-    frame_count: int
-    """Generated frames returned by this autoregressive step."""
-
-    wall_s: float
-    """Wall time for input preparation, generation, finalization, and CUDA sync."""
-
 
 @dataclass(frozen=True, slots=True)
 class Cam2VUIStatus:
@@ -62,22 +46,18 @@ class Cam2VUIStatus:
     chunk_fps: float
     """Frame throughput measured across the latest model step."""
 
-    recent_model_steps: tuple[Cam2VModelStepTiming, ...] | None
-    """Post-warmup model steps completed in the recent sampling window."""
+    recent_model_rate_snapshot: RecentFrameRateSnapshot | None
+    """Post-warmup model throughput observations shared by the model thread."""
 
     model_step_wall_s: float
     """Wall time spent producing the latest model chunk."""
 
     def recent_model_fps(self, now: float | None = None) -> float | None:
         """Return recent post-warmup model-step throughput at ``now``."""
-        steps = self.recent_model_steps
-        if steps is None:
+        snapshot = self.recent_model_rate_snapshot
+        if snapshot is None:
             return None
-        return _recent_model_fps(
-            steps,
-            now=time.perf_counter() if now is None else now,
-            window_seconds=RECENT_MODEL_FPS_WINDOW_SECONDS,
-        )
+        return snapshot.frames_per_second(time.perf_counter() if now is None else now)
 
 
 @dataclass(slots=True)
@@ -131,22 +111,6 @@ class Cam2VUIState:
 class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
     """Draw Cam2V controls and model throughput over generated video."""
 
-    _last_redraw_at: float | None = None
-    _last_rendered_recent_fps: float | None = None
-
-    def should_redraw_on_idle(self) -> bool:
-        """Refresh an expired recent-model rate at most four times per second."""
-        status = self.state.status
-        last_redraw_at = self._last_redraw_at
-        if status is None or last_redraw_at is None:
-            return False
-        now = time.perf_counter()
-        if now - last_redraw_at < _IDLE_STATUS_REFRESH_SECONDS:
-            return False
-        recent_model_fps = status.recent_model_fps(now)
-        rounded_fps = None if recent_model_fps is None else round(recent_model_fps, 1)
-        return rounded_fps != self._last_rendered_recent_fps
-
     def step_ui(
         self,
         ui: Any,
@@ -160,16 +124,7 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         self.state.frames_presented = self._presentation_manager.presented_frame_count
         sampled_at = time.perf_counter()
         _ensure_widgets(ui, self.state, sampled_at=sampled_at)
-        recent_model_fps = (
-            None
-            if self.state.status is None
-            else self.state.status.recent_model_fps(sampled_at)
-        )
         _refresh_widgets(self.state, sampled_at=sampled_at)
-        self._last_redraw_at = sampled_at
-        self._last_rendered_recent_fps = (
-            None if recent_model_fps is None else round(recent_model_fps, 1)
-        )
 
         if frame is None:
             return None
@@ -187,8 +142,6 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
     def reset(self) -> None:
         """Clear UI-loop state for a new generation."""
         self.state.reset()
-        self._last_redraw_at = None
-        self._last_rendered_recent_fps = None
         super().reset()
 
 
@@ -246,17 +199,21 @@ def _status_lines(
     recent_model_fps = status.recent_model_fps(sampled_at)
     if recent_model_fps is None:
         warmup_done = min(status.completed_blocks, state.warmup_blocks)
-        recent_model_rate = (
+        recent_model_rate_line = (
             f"Recent model rate: warming up ({warmup_done}/{state.warmup_blocks})"
         )
     else:
-        recent_model_rate = f"Recent model rate (2 s): {recent_model_fps:.2f} FPS"
+        assert status.recent_model_rate_snapshot is not None
+        window_seconds = status.recent_model_rate_snapshot.window_seconds
+        recent_model_rate_line = (
+            f"Recent model rate ({window_seconds:g} s): {recent_model_fps:.2f} FPS"
+        )
     return (
         f"Rollout: {status.completed_blocks}/{state.total_blocks} blocks",
         f"Presented: {state.frames_presented} frames "
         f"({status.frames_generated} generated)",
         f"Latest model rate: {status.chunk_fps:.2f} FPS",
-        recent_model_rate,
+        recent_model_rate_line,
         f"Target video rate: {state.target_fps} FPS",
         f"Latest model step: {status.model_step_wall_s * 1_000.0:.0f} ms",
     )
@@ -265,24 +222,6 @@ def _status_lines(
 def _active_keys_text(state: Cam2VUIState) -> str:
     active = [key.upper() for key in _CAMERA_KEY_ORDER if key in state.held_keys]
     return f"Active keys: {', '.join(active) if active else 'none'}"
-
-
-def _recent_model_fps(
-    steps: tuple[Cam2VModelStepTiming, ...],
-    *,
-    now: float,
-    window_seconds: float,
-) -> float:
-    """Aggregate model-step throughput completed in a trailing time window."""
-    if not steps:
-        return 0.0
-    now = max(float(now), steps[-1].completed_at)
-    cutoff = now - window_seconds
-    recent_steps = tuple(step for step in steps if step.completed_at > cutoff)
-    elapsed_s = sum(step.wall_s for step in recent_steps)
-    if elapsed_s <= 0.0:
-        return 0.0
-    return sum(step.frame_count for step in recent_steps) / elapsed_s
 
 
 def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
@@ -316,7 +255,6 @@ def _ui_input_event_traces(
 
 
 __all__ = [
-    "Cam2VModelStepTiming",
     "Cam2VSlangPyUILoop",
     "Cam2VUIState",
     "Cam2VUIStatus",
