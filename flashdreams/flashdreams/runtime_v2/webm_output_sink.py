@@ -30,10 +30,10 @@ from numpy import uint8
 
 from flashdreams.api_v2.output_sink import AbortableOutputSink
 from flashdreams.core.exceptions import add_exception_note
-from flashdreams.runtime_v2.mp4_audio import F32leAudioStager
+from flashdreams.runtime_v2.audio_stager import F32leAudioStager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
+from flashdreams.runtime_v2.video_frames import result_to_rgb24_frames
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -30,7 +30,7 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
+from flashdreams.runtime_v2.video_frames import result_to_rgb24_frames
 from flashdreams.t2v_v2.application import T2VApplication
 
 _REAL_CLIP_LUMINANCE = (16.0, 240.0)

@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 import torch
 
-import flashdreams.runtime_v2.mp4_audio as mp4_audio_module
+import flashdreams.runtime_v2.legacy_mp4.ffmpeg_audio as ffmpeg_audio_module
 from flashdreams.runtime_v2.audio_output import AudioOutput
-from flashdreams.runtime_v2.mp4_audio import (
-    F32leAudioStager,
+from flashdreams.runtime_v2.audio_stager import F32leAudioStager
+from flashdreams.runtime_v2.legacy_mp4.ffmpeg_audio import (
     Mp4AudioMuxer,
     preflight_audio_codec,
 )
@@ -141,8 +141,10 @@ def test_audio_codec_preflight_encodes_the_exact_session_format(
         calls.append((command, kwargs))
         return Completed()
 
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
-    monkeypatch.setattr(mp4_audio_module.subprocess, "run", run)
+    monkeypatch.setattr(
+        ffmpeg_audio_module.shutil, "which", lambda name: "/host/ffmpeg"
+    )
+    monkeypatch.setattr(ffmpeg_audio_module.subprocess, "run", run)
 
     assert preflight_audio_codec(sample_rate=32_000, channels=2) == "/host/ffmpeg"
     assert calls[0][0] == [
@@ -173,8 +175,8 @@ def test_audio_codec_preflight_encodes_the_exact_session_format(
     ]
     options = calls[0][1]
     assert options["input"] == b"\0" * (1024 * 2 * 4)
-    assert options["stdout"] == mp4_audio_module.subprocess.DEVNULL
-    assert options["stderr"] == mp4_audio_module.subprocess.PIPE
+    assert options["stdout"] == ffmpeg_audio_module.subprocess.DEVNULL
+    assert options["stderr"] == ffmpeg_audio_module.subprocess.PIPE
     assert options["timeout"] == 10
     assert options["check"] is False
 
@@ -195,8 +197,8 @@ def test_audio_codec_preflight_canonicalizes_a_relative_executable(
         return Completed()
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "bin/ffmpeg")
-    monkeypatch.setattr(mp4_audio_module.subprocess, "run", run)
+    monkeypatch.setattr(ffmpeg_audio_module.shutil, "which", lambda name: "bin/ffmpeg")
+    monkeypatch.setattr(ffmpeg_audio_module.subprocess, "run", run)
     expected = str((tmp_path / "bin/ffmpeg").resolve())
 
     assert preflight_audio_codec(sample_rate=32_000, channels=2) == expected
@@ -210,9 +212,11 @@ def test_audio_codec_preflight_rejects_failed_aac_encoding(
         returncode = 1
         stderr = b"Unknown encoder 'aac'"
 
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
     monkeypatch.setattr(
-        mp4_audio_module.subprocess, "run", lambda *args, **kwargs: Completed()
+        ffmpeg_audio_module.shutil, "which", lambda name: "/host/ffmpeg"
+    )
+    monkeypatch.setattr(
+        ffmpeg_audio_module.subprocess, "run", lambda *args, **kwargs: Completed()
     )
 
     with pytest.raises(RuntimeError, match="Unknown encoder 'aac'"):
@@ -222,7 +226,7 @@ def test_audio_codec_preflight_rejects_failed_aac_encoding(
 def test_audio_codec_preflight_rejects_a_missing_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(ffmpeg_audio_module.shutil, "which", lambda name: None)
 
     with pytest.raises(RuntimeError, match="ffmpeg executable on PATH"):
         preflight_audio_codec(sample_rate=32_000, channels=2)
@@ -232,10 +236,12 @@ def test_audio_codec_preflight_bounds_a_hung_external_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def hang(*args: object, **kwargs: object) -> None:
-        raise mp4_audio_module.subprocess.TimeoutExpired("ffmpeg", 10)
+        raise ffmpeg_audio_module.subprocess.TimeoutExpired("ffmpeg", 10)
 
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
-    monkeypatch.setattr(mp4_audio_module.subprocess, "run", hang)
+    monkeypatch.setattr(
+        ffmpeg_audio_module.shutil, "which", lambda name: "/host/ffmpeg"
+    )
+    monkeypatch.setattr(ffmpeg_audio_module.subprocess, "run", hang)
 
     with pytest.raises(RuntimeError, match="Timed out"):
         preflight_audio_codec(sample_rate=32_000, channels=2)
@@ -247,8 +253,10 @@ def test_audio_codec_preflight_surfaces_an_external_spawn_failure(
     def fail_spawn(*args: object, **kwargs: object) -> None:
         raise OSError("process table full")
 
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: "/host/ffmpeg")
-    monkeypatch.setattr(mp4_audio_module.subprocess, "run", fail_spawn)
+    monkeypatch.setattr(
+        ffmpeg_audio_module.shutil, "which", lambda name: "/host/ffmpeg"
+    )
+    monkeypatch.setattr(ffmpeg_audio_module.subprocess, "run", fail_spawn)
 
     with pytest.raises(RuntimeError, match="process table full"):
         preflight_audio_codec(sample_rate=32_000, channels=2)
@@ -309,9 +317,9 @@ def test_audio_muxer_surfaces_external_process_diagnostics(
             assert timeout == 30.0
             return None, b"codec failed"
 
-    monkeypatch.setattr(mp4_audio_module.shutil, "which", lambda name: f"/{name}")
+    monkeypatch.setattr(ffmpeg_audio_module.shutil, "which", lambda name: f"/{name}")
     monkeypatch.setattr(
-        mp4_audio_module.subprocess, "Popen", lambda *args, **kw: Process()
+        ffmpeg_audio_module.subprocess, "Popen", lambda *args, **kw: Process()
     )
     muxer = Mp4AudioMuxer(
         video_path=tmp_path / "video.mp4",
@@ -427,12 +435,12 @@ def test_audio_muxer_timeout_escalates_to_kill_and_reaps(
             calls.append(f"communicate({timeout:g})")
             self.communicate_calls += 1
             if self.communicate_calls < 3:
-                raise mp4_audio_module.subprocess.TimeoutExpired("ffmpeg", timeout)
+                raise ffmpeg_audio_module.subprocess.TimeoutExpired("ffmpeg", timeout)
             return None, b""
 
     process = Process()
     monkeypatch.setattr(
-        mp4_audio_module.subprocess, "Popen", lambda *args, **kwargs: process
+        ffmpeg_audio_module.subprocess, "Popen", lambda *args, **kwargs: process
     )
     muxer = Mp4AudioMuxer(
         video_path=tmp_path / "video.mp4",
@@ -478,12 +486,12 @@ def test_audio_muxer_timeout_retains_unreaped_child_for_abort_retry(
         def communicate(self, timeout: float) -> tuple[None, bytes]:
             calls.append(f"communicate({timeout:g})")
             if not self.allow_reap:
-                raise mp4_audio_module.subprocess.TimeoutExpired("ffmpeg", timeout)
+                raise ffmpeg_audio_module.subprocess.TimeoutExpired("ffmpeg", timeout)
             return None, b""
 
     process = Process()
     monkeypatch.setattr(
-        mp4_audio_module.subprocess, "Popen", lambda *args, **kwargs: process
+        ffmpeg_audio_module.subprocess, "Popen", lambda *args, **kwargs: process
     )
     muxer = Mp4AudioMuxer(
         video_path=tmp_path / "video.mp4",
