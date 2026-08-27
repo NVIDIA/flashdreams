@@ -160,6 +160,9 @@ class TaxiHudState:
     _bev_panel: Tensor | None = None
     """Cached normalized CHW BEV panel retained on its source device."""
 
+    _bev_alpha: Tensor | None = None
+    """Cached binary road/feature alpha mask retained on the source device."""
+
     _bev_rect: tuple[int, int, int, int] | None = None
     """Current ImGui content rectangle as ``(top, left, height, width)``."""
 
@@ -467,6 +470,7 @@ class TaxiHudState:
         self._name_input = ""
         self._bev_source_key = None
         self._bev_panel = None
+        self._bev_alpha = None
         self._bev_rect = None
         self._presented_frame_times_s.clear()
         self._video_fps = 0.0
@@ -535,8 +539,25 @@ class TaxiHudState:
                 )
                 imgui.dummy(imgui.ImVec2(float(image_width), float(image_height)))
                 self._draw_bev_navigation(imgui, hud_frame)
+                self._draw_bev_border(imgui)
         finally:
             imgui.end()
+
+    def _draw_bev_border(self, imgui: Any) -> None:
+        """Draw an opaque white border at the exact BEV image extent."""
+        rect = self._bev_rect
+        if rect is None:
+            return
+        top, left, height, width = rect
+        draw_list = imgui.get_background_draw_list()
+        draw_list.add_rect(
+            imgui.ImVec2(float(left), float(top)),
+            imgui.ImVec2(float(left + width), float(top + height)),
+            _imgui_color(imgui, (1.0, 1.0, 1.0, 1.0)),
+            0.0,
+            2.0,
+            0,
+        )
 
     def _draw_navigation_arrow(
         self,
@@ -570,7 +591,7 @@ class TaxiHudState:
         color = _imgui_color(imgui, (*color_rgb, 1.0))
         panel = _imgui_color(
             imgui,
-            (12.0 / 255.0, 12.0 / 255.0, 18.0 / 255.0, 0.82),
+            (12.0 / 255.0, 12.0 / 255.0, 18.0 / 255.0, 0.75),
         )
         center = imgui.ImVec2(center_x, center_y)
         draw_list.add_circle_filled(center, 42.0, panel)
@@ -749,9 +770,15 @@ class TaxiHudState:
             image_width,
         )
         panel = self._bev_panel
-        if source_key != self._bev_source_key or panel is None:
+        alpha = self._bev_alpha
+        if source_key != self._bev_source_key or panel is None or alpha is None:
             source = frame.detach().to(dtype=torch.float32)
             panel = source.div(127.5).sub(1.0) if frame.dtype == torch.uint8 else source
+            if frame.dtype == torch.uint8:
+                alpha = frame.detach().ne(0).any(dim=0, keepdim=True)
+            else:
+                alpha = frame.detach().gt(-1.0 + 1.0e-6).any(dim=0, keepdim=True)
+            alpha = alpha.to(dtype=torch.float32)
             if tuple(panel.shape[-2:]) != (image_height, image_width):
                 panel = functional.interpolate(
                     panel.unsqueeze(0),
@@ -759,13 +786,20 @@ class TaxiHudState:
                     mode="bilinear",
                     align_corners=False,
                 )[0]
+                alpha = functional.interpolate(
+                    alpha.unsqueeze(0),
+                    size=(image_height, image_width),
+                    mode="nearest",
+                )[0]
             self._bev_source_key = source_key
             self._bev_panel = panel
+            self._bev_alpha = alpha
 
         output = video.clone()
-        output[:, top:bottom, left:right].copy_(
-            panel[:, : bottom - top, : right - left]
-        )
+        target = output[:, top:bottom, left:right]
+        source_panel = panel[:, : bottom - top, : right - left]
+        source_alpha = alpha[:, : bottom - top, : right - left]
+        target.mul_(1.0 - source_alpha).add_(source_panel * source_alpha)
         return output
 
     def _draw_input_diagnostic(self, imgui: Any) -> None:

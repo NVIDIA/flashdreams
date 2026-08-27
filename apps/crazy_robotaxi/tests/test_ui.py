@@ -89,8 +89,18 @@ class _FakeDrawList:
     def add_triangle_filled(self, *args: Any) -> None:
         self.commands.append(("triangle_filled", args))
 
-    def add_rect(self, *args: Any) -> None:
-        self.commands.append(("rect", args))
+    def add_rect(
+        self,
+        p_min: Any,
+        p_max: Any,
+        color: int,
+        rounding: float = 0.0,
+        thickness: float = 1.0,
+        flags: int = 0,
+    ) -> None:
+        self.commands.append(
+            ("rect", (p_min, p_max, color, rounding, thickness, flags))
+        )
 
     def add_rect_filled(self, *args: Any) -> None:
         self.commands.append(("rect_filled", args))
@@ -466,6 +476,12 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     map_flags = renderer.ui.window_flags["Map"]
     assert map_flags & renderer.ui.WindowFlags_.no_title_bar
     assert map_flags & renderer.ui.WindowFlags_.no_background
+    map_borders = [
+        command
+        for command in renderer.ui.background_draw_list.commands
+        if command[0] == "rect" and command[1][4] == 2.0
+    ]
+    assert len(map_borders) == 1
     command_names = [name for name, _ in renderer.ui.background_draw_list.commands]
     assert "triangle_filled" in command_names
     assert "circle_filled" in command_names
@@ -488,6 +504,25 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert hud_state._bev_panel is None
     assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
+
+
+def test_bev_compositor_makes_black_offroad_pixels_transparent() -> None:
+    state = TaxiHudState(4, 4, _calibration())
+    state._bev_rect = (0, 0, 4, 4)
+    video = torch.full((3, 4, 4), -0.5)
+    bev = torch.zeros((3, 4, 4), dtype=torch.uint8)
+    bev[:, :, 1:3] = 191
+
+    composited = state.composite_bev(video, bev)
+
+    assert torch.all(composited[:, :, (0, 3)] == -0.5)
+    expected_road = 191.0 / 127.5 - 1.0
+    assert torch.allclose(
+        composited[:, :, 1:3],
+        torch.full_like(composited[:, :, 1:3], expected_road),
+    )
+    assert state._bev_alpha is not None
+    assert set(state._bev_alpha.unique().tolist()) == {0.0, 1.0}
 
 
 def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
