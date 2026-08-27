@@ -33,6 +33,8 @@ rollout before reporting finished.
 `--input-image-dir` is required because no camera images are bundled. Use
 `-- --help` after the application slug for checkpoint, input, compilation,
 offload, seed, guidance, inference-step, and scheduler-shift overrides. The
-[model package README](../../integrations/lingbot_va/README.md) documents input
-provenance, checkpoint modes, camera/action contracts, lifecycle, opt-in GPU
-tests, measured parity evidence, and limitations.
+[model card](../../integrations/lingbot_va/README.md#model-card) records
+provenance, intended use, safety boundaries, tensor geometry, and measured
+evidence. The accompanying
+[architecture design review](../../integrations/lingbot_va/README.md#architecture-design-review)
+documents package and class ownership, modalities, runtime sequencing, cache
