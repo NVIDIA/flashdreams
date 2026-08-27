@@ -264,8 +264,7 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
     assert pipeline.encoder.native_vae_backend == "fp8"
     assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
     assert (
-        pipeline.diffusion_model.transformer.native_dit_backend
-        == "fp8_kvcache_cudnn"
+        pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
     )
 
 
@@ -479,6 +478,29 @@ def test_taxi_physics_uses_spatial_and_traffic_topology_refreshes_only() -> None
 
     assert changed
     synchronize.assert_called_once_with(center, timestamp_us=None)
+
+
+def test_taxi_physics_forwards_forced_controller_refresh() -> None:
+    world = object.__new__(TaxiPhysicsWorld)
+    world._has_external_actor_controllers = False
+    center = np.asarray([0.0, 0.0], dtype=np.float32)
+    with patch.object(
+        GamePhysicsWorld,
+        "synchronize_window",
+        return_value=True,
+    ) as synchronize:
+        changed = world.synchronize_window(
+            center,
+            timestamp_us=2_000_000,
+            force_controller_refresh=True,
+        )
+
+    assert changed
+    synchronize.assert_called_once_with(
+        center,
+        2_000_000,
+        force_controller_refresh=True,
+    )
 
 
 def test_application_rejects_geometry_the_model_does_not_produce() -> None:

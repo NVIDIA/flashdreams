@@ -442,6 +442,26 @@ class CosmosDiTNetwork(nn.Module):
             )
         return CosmosDiTNetworkCache(block_caches=block_caches)
 
+    @torch.no_grad()
+    def replace_text_embeddings(
+        self,
+        cache: CosmosDiTNetworkCache,
+        text_embeddings: Tensor,
+    ) -> None:
+        """Replace every block's cached cross-attention text K/V in place.
+
+        Args:
+            cache: Live per-rollout network cache.
+            text_embeddings: Replacement text embeddings ``[B, V, L, D]``.
+        """
+        context = text_embeddings
+        if self.config.use_crossattn_projection:
+            context = self.crossattn_proj(context)
+        for block, block_cache in zip(self.blocks, cache.block_caches, strict=True):
+            assert isinstance(block, Block)
+            fresh = block.cross_attn.compute_kv(context)
+            block_cache.cross_attn.overwrite_kv_(*fresh.clone_kv())
+
     def forward(
         self,
         x: Tensor,

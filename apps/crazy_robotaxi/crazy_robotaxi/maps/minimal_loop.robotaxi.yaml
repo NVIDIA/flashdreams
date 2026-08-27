@@ -86,6 +86,20 @@ roads:
     to: dead_end
     profile: neighborhood
 
+race_courses:
+  - id: neighborhood-loop
+    start: neighborhood_loop_southwest
+    checkpoints:
+      - hub
+      - neighborhood_loop_southeast
+      - neighborhood_loop_northeast_corner
+      - neighborhood_loop_north
+      - neighborhood_loop_northwest_corner
+      - neighborhood_loop_west
+      - neighborhood_loop_southwest_corner
+    lap_count: 3
+    checkpoint_markers: true
+
 spawns:
   - id: taxi_start
     road: neighborhood_loop_southwest

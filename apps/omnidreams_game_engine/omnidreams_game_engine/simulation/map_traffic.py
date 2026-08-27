@@ -10,11 +10,15 @@ from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
-from ludus_renderer import BodyState, PhysXWorld, SceneObject
+from ludus_renderer import BodyState, SceneObject
 
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
+from omnidreams_game_engine.simulation.actor_controller import (
+    ActorControlDecision,
+    ActorTrackTarget,
+)
 from omnidreams_game_engine.simulation.components import rigid_body_model_for_object
 
 _OBJECT_ID_PREFIX = "map-traffic:"
@@ -25,6 +29,7 @@ _LANE_CORRIDOR_M = 2.25
 _MAX_HEADING_DELTA_RAD = math.radians(40.0)
 _HEADWAY_GRID_CELL_M = 64.0
 _RESTART_AFTER_STOPPED_S = 1.0
+_MAX_COLLISION_SETTLING_S = 3.0
 _STOPPED_LINEAR_SPEED_MPS = 0.10
 _STOPPED_ANGULAR_SPEED_RADPS = 0.10
 _RECOVERED_POSITION_ERROR_M = 0.60
@@ -46,12 +51,9 @@ class MapTrafficPhase(str, Enum):
     RECOVERING = "recovering"
 
 
-@dataclass(frozen=True)
-class MapTrafficDecision:
-    """Native actuator and renderer state derived from an NPC's phase."""
-
-    drive_enabled: bool
-    detached_from_track: bool
+# Compatibility name for callers and tests written before external gameplay
+# actor controllers were supported.
+MapTrafficDecision = ActorControlDecision
 
 
 @dataclass
@@ -72,13 +74,14 @@ class MapTrafficVehicleState:
     velocity_scale: float = 1.0
     phase: MapTrafficPhase = MapTrafficPhase.TRAVERSING
     stopped_duration_s: float = 0.0
+    collision_duration_s: float = 0.0
 
     @property
-    def decision(self) -> MapTrafficDecision:
+    def decision(self) -> ActorControlDecision:
         """Return control outputs derived solely from the gameplay phase."""
-        return MapTrafficDecision(
+        return ActorControlDecision(
             drive_enabled=self.phase is not MapTrafficPhase.COLLISION,
-            detached_from_track=self.phase is not MapTrafficPhase.TRAVERSING,
+            detached_from_track=self.phase is MapTrafficPhase.COLLISION,
         )
 
     @property
@@ -171,6 +174,7 @@ class MapTrafficController:
         traffic: tuple[GameMapTrafficVehicle, ...],
         vehicle: VehicleConfig,
     ) -> None:
+        self._ego_half_length_m = vehicle.aabb_length_m * 0.5
         states: list[MapTrafficVehicleState] = []
         for definition in traffic:
             scene_object, start_timestamp_us, duration_us = _route_track(
@@ -264,6 +268,7 @@ class MapTrafficController:
     def _reset_offscreen(cls, state: MapTrafficVehicleState) -> None:
         state.phase = MapTrafficPhase.TRAVERSING
         state.stopped_duration_s = 0.0
+        state.collision_duration_s = 0.0
         state.velocity_scale = 1.0
         cls._set_route_snapshot(state)
 
@@ -460,9 +465,11 @@ class MapTrafficController:
         if struck:
             state.phase = MapTrafficPhase.COLLISION
             state.stopped_duration_s = 0.0
+            state.collision_duration_s = 0.0
             return state.decision
 
         if state.phase is MapTrafficPhase.COLLISION:
+            state.collision_duration_s += dt_s
             linear_speed = float(np.linalg.norm(body.linear_velocity_mps[:2]))
             angular_speed = float(np.linalg.norm(body.angular_velocity_radps))
             stopped = (
@@ -472,13 +479,17 @@ class MapTrafficController:
             state.stopped_duration_s = (
                 state.stopped_duration_s + dt_s if stopped else 0.0
             )
-            if state.stopped_duration_s >= _RESTART_AFTER_STOPPED_S:
+            if (
+                state.stopped_duration_s >= _RESTART_AFTER_STOPPED_S
+                or state.collision_duration_s >= _MAX_COLLISION_SETTLING_S
+            ):
                 self._apply_route_projection(
                     state,
                     self._nearest_route_projection(state, body.position_m[:2]),
                 )
                 state.phase = MapTrafficPhase.RECOVERING
                 state.stopped_duration_s = 0.0
+                state.collision_duration_s = 0.0
                 state.velocity_scale = 1.0
         elif state.phase is MapTrafficPhase.RECOVERING and self._is_recovered(
             state, body
@@ -536,8 +547,27 @@ class MapTrafficController:
             )
         )
 
-    def prepare_step(self, world: PhysXWorld, ego: BodyState, dt_s: float) -> None:
-        """Advance all logical cars and publish active tracks in one native batch."""
+    def prepare_topology(self, ego: BodyState) -> None:
+        """Keep the stable authored traffic set unchanged between steps."""
+        del ego
+
+    def prepare_step(
+        self,
+        ego_or_world: BodyState | object,
+        dt_or_ego: float | BodyState,
+        legacy_dt_s: float | None = None,
+    ) -> tuple[ActorTrackTarget, ...]:
+        """Advance logical cars and return targets for active physical bodies."""
+        legacy_world = None
+        if legacy_dt_s is None:
+            ego = ego_or_world
+            dt_s = float(dt_or_ego)
+        else:
+            legacy_world = ego_or_world
+            ego = dt_or_ego
+            dt_s = float(legacy_dt_s)
+        if not isinstance(ego, BodyState):
+            raise TypeError("prepare_step requires an ego BodyState")
         for state in self._states:
             if state.phase is MapTrafficPhase.TRAVERSING:
                 if state.object_id in self._active_ids:
@@ -560,7 +590,7 @@ class MapTrafficController:
         ego_observation = _TrafficObservation(
             position_xy=np.asarray(ego.position_m[:2], dtype=np.float32),
             velocity_xy=np.asarray(ego.linear_velocity_mps[:2], dtype=np.float32),
-            half_length_m=float(world.ego_model.half_extents_m[0]),
+            half_length_m=self._ego_half_length_m,
         )
         buckets: dict[tuple[int, int], list[_TrafficObservation]] = {}
         for observation in (*observations.values(), ego_observation):
@@ -581,17 +611,24 @@ class MapTrafficController:
                 if state.phase is MapTrafficPhase.COLLISION
                 else self._headway_scale(observation, candidates)
             )
-        world.apply_track_progress(
-            tuple(
-                (
-                    state.object_id,
-                    self._drive_target_timestamp_us(state),
-                    state.velocity_scale,
-                )
-                for state in self._states
-                if state.object_id in self._active_ids
+        targets = tuple(
+            ActorTrackTarget(
+                object_id=state.object_id,
+                timestamp_us=self._drive_target_timestamp_us(state),
+                velocity_scale=state.velocity_scale,
+                loop_duration_us=state.duration_us,
             )
+            for state in self._states
+            if state.object_id in self._active_ids
         )
+        if legacy_world is not None:
+            legacy_world.apply_track_progress(
+                tuple(
+                    (target.object_id, target.timestamp_us, target.velocity_scale)
+                    for target in targets
+                )
+            )
+        return targets
 
 
 __all__ = [

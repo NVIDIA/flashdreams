@@ -69,6 +69,7 @@ class WorldModelRollout:
         self._postprocess = postprocess
         self.engine = engine_factory()
         self.cache = self._new_cache()
+        self._attach_live_edit(None)
         self._closed = False
 
     @property
@@ -105,6 +106,15 @@ class WorldModelRollout:
 
         pipeline_wall_started = time.perf_counter()
         pipeline_cpu_started = time.thread_time()
+        live_edit = getattr(self.engine, "live_edit", None)
+        prepare_model_step = getattr(live_edit, "prepare_model_step", None)
+        if callable(prepare_model_step):
+            prepare_model_step(
+                self.pipeline,
+                self.engine,
+                engine_step,
+                autoregressive_index,
+            )
         with torch.no_grad():
             video = self.pipeline.generate(
                 autoregressive_index=autoregressive_index,
@@ -122,6 +132,11 @@ class WorldModelRollout:
         postprocess_cpu_started = time.thread_time()
         if self._postprocess is not None:
             video = self._postprocess(video)
+        else:
+            live_edit = getattr(self.engine, "live_edit", None)
+            live_edit_postprocess = getattr(live_edit, "postprocess_video", None)
+            if callable(live_edit_postprocess):
+                video = live_edit_postprocess(video, engine_step)
         postprocess_wall_ms = (time.perf_counter() - postprocess_wall_started) * 1000.0
         postprocess_cpu_ms = (time.thread_time() - postprocess_cpu_started) * 1000.0
         if video.ndim != 6 or tuple(video.shape[:2]) != (1, 1):
@@ -156,9 +171,11 @@ class WorldModelRollout:
         """Recreate all mutable rollout state while retaining model weights."""
         if self._closed:
             raise RuntimeError("WorldModelRollout is closed")
+        previous_live_edit = getattr(self.engine, "live_edit", None)
         self.engine.close()
         self.engine = self._engine_factory()
         self.cache = self._new_cache()
+        self._attach_live_edit(previous_live_edit)
 
     def close(self) -> None:
         """Release all session-local resources."""
@@ -176,6 +193,32 @@ class WorldModelRollout:
                 device=self.pipeline.device,
             ),
             view_names=[self.scene.selected_camera.logical_name],
+        )
+
+    def _attach_live_edit(self, previous: Any | None) -> None:
+        live_edit = getattr(self.engine, "live_edit", None)
+        if live_edit is None:
+            return
+        adopt_model_state = getattr(live_edit, "adopt_model_state", None)
+        if previous is not None and callable(adopt_model_state):
+            adopt_model_state(
+                previous,
+                self.pipeline,
+                self.cache,
+                self.scene.prompt,
+            )
+            return
+        attach_model = getattr(live_edit, "attach_model", None)
+        if callable(attach_model):
+            attach_model(self.pipeline)
+        style = getattr(live_edit, "style", None)
+        if style is None:
+            return
+        style.attach_v2(
+            self.pipeline,
+            self.cache,
+            self.scene.prompt,
+            seconds_per_chunk=float(self.frame_count(1)) / 30.0,
         )
 
 

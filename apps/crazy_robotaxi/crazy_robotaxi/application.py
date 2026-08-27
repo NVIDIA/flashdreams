@@ -11,14 +11,26 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from omnidreams.config import (
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
 )
-from omnidreams_game_engine.config import DriverInputConfig
+from omnidreams_game_engine.cli_args import (
+    ExplicitArgTrackingArgumentParser,
+    arg_was_explicit,
+)
+from omnidreams_game_engine.config import BevConfig, DriverInputConfig, RasterConfig
+from omnidreams_game_engine.engine_settings import (
+    EngineSettings,
+    MapLaunchSettings,
+    RenderingSettings,
+    WorldModelLaunchSettings,
+    load_engine_settings,
+)
+from omnidreams_game_engine.game_map import load_game_map_header
 from omnidreams_game_engine.renderer_settings import (
     RendererSettings,
     load_renderer_settings,
@@ -26,8 +38,13 @@ from omnidreams_game_engine.renderer_settings import (
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
-from crazy_robotaxi.config import load_game_settings
-from crazy_robotaxi.high_scores import default_high_scores_path
+from crazy_robotaxi.config import CrazyRobotaxiSettings, load_game_settings
+from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
+from crazy_robotaxi.live_edit.config import (
+    LiveEditConfig,
+    add_live_edit_args,
+    live_edit_config_from_args,
+)
 from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
 from crazy_robotaxi.ui import bev_display_extent
@@ -39,8 +56,6 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ROOT = Path(__file__).resolve().parent
 _DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
-_DEFAULT_GAME = _ROOT / "configs" / "default_game.yaml"
-_DEFAULT_RENDERER = _ROOT / "configs" / "default_renderer.yaml"
 _VIDEO_FPS = 30
 """Generation and UI cadence; each UI tick advances one generated frame."""
 
@@ -123,6 +138,22 @@ class ApplicationConfig:
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
 
+    game_mode: Literal["taxi", "race"] = "taxi"
+    """Rules mode selected for every session created by the application."""
+
+    race_course_id: str | None = None
+    """Requested race course, or ``None`` for the map's first course."""
+
+    race_times_path: Path | None = None
+    """Persistent map- and course-scoped race leaderboard."""
+
+    live_edit: LiveEditConfig = LiveEditConfig()
+    """Flag-gated style, weather, pickup, nitro, and obstacle abilities."""
+
+    visual_flare_enabled: bool = False
+    """Whether collision feedback may darken the presented game frame."""
+
+
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
 
@@ -136,7 +167,7 @@ class CrazyRobotaxiApplication(IApplication):
         pipeline_factory: PipelineFactory | None = None,
         scene_factory: SceneFactory | None = None,
     ) -> None:
-        self._defaults = load_renderer_settings(_DEFAULT_RENDERER)
+        self._defaults = RendererSettings(raster=RasterConfig(), bev=BevConfig())
         self._pipeline_factory = pipeline_factory or _build_pipeline
         self._scene_factory = scene_factory or load_scene
         self._pipeline_config: Any = _MODEL_PRESETS["standard"].pipeline
@@ -145,7 +176,11 @@ class CrazyRobotaxiApplication(IApplication):
 
     def session_desc(self) -> SessionDesc:
         """Declare the trained single-view output contract without loading."""
-        raster = self._defaults.raster
+        raster = (
+            self._defaults.raster
+            if self._config is None
+            else self._config.renderer.raster
+        )
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             frames_per_second_for_ui=_VIDEO_FPS,
@@ -157,66 +192,197 @@ class CrazyRobotaxiApplication(IApplication):
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse application options without starting another runtime."""
         args = _parser().parse_args(list(commandline_args))
-        if args.total_blocks is not None and args.total_blocks <= 0:
+        engine_settings = self._resolve_engine_settings(args)
+        game_settings = self._resolve_game_settings(args)
+        if (
+            engine_settings.runtime.total_blocks is not None
+            and engine_settings.runtime.total_blocks <= 0
+        ):
             raise ValueError("--total-blocks must be positive")
         if args.game_time_s is not None and args.game_time_s <= 0.0:
             raise ValueError("--game-time-s must be positive")
-        if args.prewarm_blocks < 0:
+        if engine_settings.runtime.prewarm_blocks < 0:
             raise ValueError("--prewarm-blocks must be non-negative")
-        renderer = load_renderer_settings(args.renderer_config)
-        settings = load_game_settings(args.game_config)
-        game = settings.game
+        if game_settings.mode != "race" and (
+            arg_was_explicit(args, "race_course")
+            or arg_was_explicit(args, "race_times")
+        ):
+            raise ValueError("--race-course and --race-times require --game-mode race")
+        map_path = engine_settings.map.path
+        if map_path is None:
+            raise ValueError("A map path is required (set engine.map.path or --map)")
+        if game_settings.mode == "race":
+            header = load_game_map_header(map_path.expanduser())
+            if not header.race_course_ids:
+                raise ValueError(f"Map {header.map_id!r} defines no race courses")
+            if (
+                game_settings.race.course is not None
+                and game_settings.race.course not in header.race_course_ids
+            ):
+                available = ", ".join(header.race_course_ids)
+                raise ValueError(
+                    f"Unknown race course {game_settings.race.course!r}; available: {available}"
+                )
+        renderer = RendererSettings(
+            raster=engine_settings.rendering.raster,
+            bev=engine_settings.rendering.bev,
+        )
+        game = game_settings.game
         game = replace(
             game,
-            seed=args.seed,
             global_time_s=(
                 game.global_time_s if args.game_time_s is None else args.game_time_s
             ),
             high_scores_path=(
                 default_high_scores_path()
-                if args.high_scores is None
-                else args.high_scores.expanduser()
+                if game_settings.taxi.high_scores_path is None
+                else game_settings.taxi.high_scores_path.expanduser()
             ),
         )
-        model_preset = _MODEL_PRESETS[args.model_preset]
+        model_preset_name = engine_settings.world_model.model_preset
+        if model_preset_name not in _MODEL_PRESETS:
+            available = ", ".join(_MODEL_PRESETS)
+            raise ValueError(
+                f"Unknown model preset {model_preset_name!r}; available: {available}"
+            )
+        model_preset = _MODEL_PRESETS[model_preset_name]
         pipeline_config = model_preset.pipeline
-        if args.compile is not None:
+        if engine_settings.world_model.compile is not None:
             pipeline_config = derive_config(
                 pipeline_config,
                 diffusion_model={
-                    "transformer": {"compile_network": bool(args.compile)}
+                    "transformer": {
+                        "compile_network": bool(engine_settings.world_model.compile)
+                    }
                 },
             )
-        if args.seed is not None:
+        if game_settings.taxi.seed is not None:
             pipeline_config = derive_config(
                 pipeline_config,
-                diffusion_model={"seed": int(args.seed)},
+                diffusion_model={"seed": int(game_settings.taxi.seed)},
             )
         pipeline_config = derive_config(
             pipeline_config,
-            enable_sync_and_profile=bool(args.profile_pipeline),
+            enable_sync_and_profile=bool(engine_settings.world_model.profile_pipeline),
         )
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
             scene_request=SceneRequest(
-                map_path=args.map.expanduser(),
-                camera_name=args.camera,
-                variant=args.variant,
-                prompt=args.prompt,
-                force_recompile=args.force_map_recompile,
+                map_path=map_path.expanduser(),
+                camera_name=engine_settings.map.camera,
+                variant=engine_settings.map.variant,
+                prompt=engine_settings.map.prompt,
+                force_recompile=engine_settings.map.force_recompile,
             ),
             renderer=renderer,
             game=game,
-            driver_input=settings.driver_input,
-            device=args.device,
-            total_blocks=args.total_blocks,
-            model_preset_name=args.model_preset,
+            driver_input=game_settings.driver_input,
+            device=engine_settings.world_model.device,
+            total_blocks=engine_settings.runtime.total_blocks,
+            model_preset_name=model_preset_name,
             renderer_follows_session=model_preset.renderer_follows_session,
-            pipeline_profiling=bool(args.profile_pipeline),
-            prewarm_blocks=args.prewarm_blocks,
-            profile_input_latency=bool(args.profile_input_latency),
-            show_fps=bool(args.show_fps),
+            pipeline_profiling=bool(engine_settings.world_model.profile_pipeline),
+            prewarm_blocks=engine_settings.runtime.prewarm_blocks,
+            profile_input_latency=engine_settings.runtime.profile_input_latency,
+            show_fps=engine_settings.presentation.show_fps,
+            game_mode=game_settings.mode,
+            race_course_id=game_settings.race.course,
+            race_times_path=(
+                default_race_times_path()
+                if game_settings.race.times_path is None
+                else game_settings.race.times_path.expanduser()
+            ),
+            live_edit=game_settings.live_edit,
+            visual_flare_enabled=game_settings.effects.visual_flare_enabled,
         )
+
+    def _resolve_engine_settings(self, args: argparse.Namespace) -> EngineSettings:
+        settings = EngineSettings(
+            map=MapLaunchSettings(path=_DEFAULT_MAP),
+            world_model=WorldModelLaunchSettings(),
+            rendering=RenderingSettings(
+                raster=self._defaults.raster,
+                bev=self._defaults.bev,
+            ),
+        )
+        if args.engine_config is not None:
+            settings = load_engine_settings(args.engine_config, base=settings)
+        if args.renderer_config is not None:
+            legacy = load_renderer_settings(args.renderer_config)
+            settings = replace(
+                settings,
+                rendering=RenderingSettings(raster=legacy.raster, bev=legacy.bev),
+            )
+        map_settings = settings.map
+        for destination, field_name in (
+            ("map", "path"),
+            ("camera", "camera"),
+            ("variant", "variant"),
+            ("prompt", "prompt"),
+            ("force_map_recompile", "force_recompile"),
+        ):
+            if arg_was_explicit(args, destination):
+                map_settings = replace(
+                    map_settings, **{field_name: getattr(args, destination)}
+                )
+        world_model = settings.world_model
+        for destination in ("model_preset", "device", "compile", "profile_pipeline"):
+            if arg_was_explicit(args, destination):
+                world_model = replace(
+                    world_model, **{destination: getattr(args, destination)}
+                )
+        runtime = settings.runtime
+        for destination in ("total_blocks", "prewarm_blocks", "profile_input_latency"):
+            if arg_was_explicit(args, destination):
+                runtime = replace(runtime, **{destination: getattr(args, destination)})
+        if runtime.profile_world_model:
+            world_model = replace(world_model, profile_pipeline=True)
+        presentation = settings.presentation
+        if arg_was_explicit(args, "show_fps"):
+            presentation = replace(presentation, show_fps=bool(args.show_fps))
+        return replace(
+            settings,
+            map=map_settings,
+            world_model=world_model,
+            presentation=presentation,
+            runtime=runtime,
+        )
+
+    def _resolve_game_settings(self, args: argparse.Namespace) -> CrazyRobotaxiSettings:
+        settings = CrazyRobotaxiSettings(
+            driver_input=DriverInputConfig(
+                steering_scale=1.0,
+                steering_rate_per_s=3.5,
+                steering_return_rate_per_s=5.0,
+            )
+        )
+        if args.game_config is not None:
+            settings = load_game_settings(args.game_config, base=settings)
+        game = settings.game
+        taxi = settings.taxi
+        race = settings.race
+        if arg_was_explicit(args, "game_mode"):
+            settings = replace(settings, mode=args.game_mode)
+        if arg_was_explicit(args, "visual_flare"):
+            settings = replace(
+                settings,
+                effects=replace(
+                    settings.effects,
+                    visual_flare_enabled=bool(args.visual_flare),
+                ),
+            )
+        if arg_was_explicit(args, "seed"):
+            taxi = replace(taxi, seed=args.seed)
+            game = replace(game, seed=args.seed)
+        if arg_was_explicit(args, "high_scores"):
+            taxi = replace(taxi, high_scores_path=args.high_scores)
+        if arg_was_explicit(args, "race_course"):
+            race = replace(race, course=args.race_course)
+        if arg_was_explicit(args, "race_times"):
+            race = replace(race, times_path=args.race_times)
+        settings = replace(settings, game=game, taxi=taxi, race=race)
+        args._live_edit_settings = settings.live_edit
+        return replace(settings, live_edit=live_edit_config_from_args(args))
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one session after validating its fixed model geometry."""
@@ -339,13 +505,14 @@ def _fit_bev_renderer_to_ui(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = ExplicitArgTrackingArgumentParser(
         prog="flashdreams-run-v2 crazy-robotaxi --",
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
+    parser.add_argument("--engine-config", type=Path)
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
-    parser.add_argument("--game-config", type=Path, default=_DEFAULT_GAME)
-    parser.add_argument("--renderer-config", type=Path, default=_DEFAULT_RENDERER)
+    parser.add_argument("--game-config", type=Path)
+    parser.add_argument("--renderer-config", type=Path)
     parser.add_argument("--camera", default="camera_front_wide_120fov")
     parser.add_argument("--variant", default="default")
     parser.add_argument("--prompt")
@@ -358,6 +525,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--game-time-s", type=float)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--high-scores", type=Path)
+    parser.add_argument("--game-mode", choices=("taxi", "race"), default="taxi")
+    parser.add_argument(
+        "--visual-flare",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--race-course")
+    parser.add_argument("--race-times", type=Path)
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction)
     parser.add_argument(
         "--profile-pipeline",
@@ -384,4 +559,5 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="show the measured generated-video frame rate in the HUD",
     )
+    add_live_edit_args(parser)
     return parser

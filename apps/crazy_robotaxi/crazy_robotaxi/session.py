@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 from omnidreams_game_engine.input import DriverInput
-from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.rules import TaxiGameSnapshot
+from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.ui import (
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
@@ -85,6 +85,10 @@ class ModelState:
                     bev=self.config.renderer.bev,
                     frame_interval_s=frame_interval_s,
                     device=self.config.device,
+                    game_mode=self.config.game_mode,
+                    race_course_id=self.config.race_course_id,
+                    race_times_path=self.config.race_times_path,
+                    live_edit=self.config.live_edit,
                 ),
             )
         if not self.prewarm_complete:
@@ -169,9 +173,15 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         step_wall_started = time.perf_counter()
         step_cpu_started = time.thread_time()
         snapshot = rollout.engine.current_game_frame
-        if not isinstance(snapshot, TaxiGameSnapshot):
-            raise TypeError("Taxi engine returned a non-taxi game frame")
-        if snapshot.session_state == "playing":
+        if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
+            raise TypeError("Crazy Robotaxi engine returned an unknown game frame")
+        active_states = {"playing", "awaiting_start", "racing"}
+        if snapshot.session_state in active_states:
+            live_edit = getattr(rollout.engine, "live_edit", None)
+            if live_edit is not None:
+                live_edit.process_events(events)
+                if live_edit.style is not None:
+                    live_edit.style.before_v2_chunk()
             frame_count = rollout.frame_count(state.blocks_generated)
             input_batch = state.driver_input.reduce(
                 events,
@@ -185,6 +195,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 autoregressive_index=state.blocks_generated,
                 commands=input_batch.commands,
             )
+            if live_edit is not None and live_edit.style is not None:
+                live_edit.style.after_v2_chunk()
             state.blocks_generated += 1
             video = generated.video_bvtchw[0, 0]
             expected_shape = (
@@ -244,7 +256,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         )
         latest = game_frames[-1]
         if (
-            isinstance(latest, TaxiGameSnapshot)
+            isinstance(latest, (TaxiGameSnapshot, RaceGameSnapshot))
             and latest.session_state == "leaderboard"
         ):
             state.finished = True
@@ -254,7 +266,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         ):
             state.finished = True
         count = int(video.shape[0])
-        if snapshot.session_state == "playing":
+        if snapshot.session_state in active_states:
             model_step_wall_ms = (time.perf_counter() - step_wall_started) * 1000.0
             model_step_cpu_ms = (time.thread_time() - step_cpu_started) * 1000.0
             chunk_duration_ms = (

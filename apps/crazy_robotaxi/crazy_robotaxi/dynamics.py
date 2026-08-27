@@ -20,13 +20,18 @@ from omnidreams_game_engine.types import DriverCommand, VehicleState
 class TaxiVehicleConfig(VehicleConfig):
     """Arcade vehicle values used only when the Taxi game is active."""
 
+    max_steer_rad: float = 0.69
+    """Full-lock steering angle for tight arcade turns."""
+
     max_accel_mps2: float = 10.0
     reverse_accel_mps2: float = 10.0
     max_brake_mps2: float = 14.0
     handbrake_decel_mps2: float = 18.0
     handbrake_yaw_gain: float = 3.25
     max_handbrake_yaw_rate_radps: float = 1.5
-    max_lateral_accel_mps2: float = 8.5
+    max_lateral_accel_mps2: float = 17.0
+    """Lateral-acceleration ceiling for responsive high-speed steering."""
+
     max_body_roll_rad: float = 0.16
     curb_collision_restitution: float = 0.45
     """Rebound coefficient for map curbs and other static barriers."""

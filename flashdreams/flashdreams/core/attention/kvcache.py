@@ -365,3 +365,23 @@ class BlockKVCache:
         self._prev_chunk_idx = -1
         self._curr_chunk_idx = None
         self._n_cached = 0
+
+    def clone_kv(self) -> tuple[Tensor, Tensor]:
+        """Return clones of the full physical K/V buffers."""
+        return self._k.clone(), self._v.clone()
+
+    def overwrite_kv_(self, k: Tensor, v: Tensor) -> None:
+        """Overwrite the full K/V buffers without changing their addresses.
+
+        Args:
+            k: Replacement keys with the exact cache shape.
+            v: Replacement values with the exact cache shape.
+        """
+        if k.shape != self._k.shape or v.shape != self._v.shape:
+            raise ValueError(
+                "overwrite_kv_ shape mismatch: "
+                f"got k {tuple(k.shape)} / v {tuple(v.shape)}, "
+                f"cache holds k {tuple(self._k.shape)} / v {tuple(self._v.shape)}"
+            )
+        self._k.copy_(k)
+        self._v.copy_(v)

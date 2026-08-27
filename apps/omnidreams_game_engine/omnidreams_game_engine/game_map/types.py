@@ -245,6 +245,26 @@ class GameMapTrafficVehicle:
 
 
 @dataclass(frozen=True)
+class GameMapRaceCourse:
+    """One ordered race course authored from map nodes and roads."""
+
+    course_id: str
+    """Stable course identifier scoped to the containing map."""
+
+    start_element_id: str
+    """Node or road surface that starts the timer and closes each lap."""
+
+    checkpoint_element_ids: tuple[str, ...]
+    """Ordered node or road surfaces that must be reached."""
+
+    lap_count: int
+    """Required laps, or zero for a point-to-point course."""
+
+    checkpoint_markers: bool = True
+    """Whether presenters display camera-view start and checkpoint markers."""
+
+
+@dataclass(frozen=True)
 class GameMapLane:
     """Explicit directed lane and its legal successors."""
 
@@ -428,6 +448,9 @@ class ResolvedGameMap:
     spawns: tuple[GameMapSpawn, ...]
     """Playable vehicle spawns."""
 
+    race_courses: tuple[GameMapRaceCourse, ...] = ()
+    """Optional ordered race courses authored for this map."""
+
     traffic: tuple[GameMapTrafficVehicle, ...] = ()
     """Map-authored vehicles with compiled cyclic public-road routes."""
 
@@ -580,6 +603,16 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 ],
             }
             for spawn in game_map.spawns
+        ],
+        "race_courses": [
+            {
+                "course_id": course.course_id,
+                "start_element_id": course.start_element_id,
+                "checkpoint_element_ids": list(course.checkpoint_element_ids),
+                "lap_count": course.lap_count,
+                "checkpoint_markers": course.checkpoint_markers,
+            }
+            for course in game_map.race_courses
         ],
         "traffic": [
             {
@@ -818,6 +851,18 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         )
         for raw in value.get("traffic", [])
     )
+    race_courses = tuple(
+        GameMapRaceCourse(
+            course_id=str(raw["course_id"]),
+            start_element_id=str(raw["start_element_id"]),
+            checkpoint_element_ids=tuple(
+                str(item) for item in raw["checkpoint_element_ids"]
+            ),
+            lap_count=int(raw["lap_count"]),
+            checkpoint_markers=bool(raw.get("checkpoint_markers", True)),
+        )
+        for raw in value.get("race_courses", [])
+    )
     return ResolvedGameMap(
         schema_version=int(value["schema_version"]),
         map_id=str(value["map_id"]),
@@ -846,5 +891,6 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
         ground_vertices=np.asarray(value["ground_vertices"], dtype=np.float32),
         ground_faces=np.asarray(value["ground_faces"], dtype=np.int32),
         spawns=spawns,
+        race_courses=race_courses,
         traffic=traffic,
     )

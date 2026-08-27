@@ -33,7 +33,11 @@ dev = ["pytest>=8.0", "pytest-manual-marker>=2.0"]
 include = ["crazy_robotaxi*"]
 
 [tool.setuptools.package-data]
-crazy_robotaxi = ["configs/*.yaml", "maps/*.robotaxi.yaml"]
+crazy_robotaxi = [
+    "assets/*.npz",
+    "configs/*.yaml",
+    "maps/*.robotaxi.yaml",
+]
 
 [tool.uv]
 managed = true

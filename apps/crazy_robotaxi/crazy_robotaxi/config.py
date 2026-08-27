@@ -1,130 +1,212 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Strict Crazy Robotaxi gameplay configuration loading."""
+"""Layered Crazy Robotaxi gameplay configuration."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Literal
 
 from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.yaml_config import (
     StrictConfigError,
     load_yaml_mapping,
-    require_bool,
-    require_exact_keys,
-    require_float,
+    overlay_dataclass,
     require_mapping,
     require_version,
 )
 
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
+from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.rules import TaxiGameConfig
 
-_RUNTIME_GAME_FIELDS = {
-    "seed",
-    "high_scores_path",
-}
+_RUNTIME_GAME_FIELDS = {"seed", "high_scores_path"}
 _RULE_FIELDS = (
-    {field.name for field in fields(TaxiGameConfig)}
-    - _RUNTIME_GAME_FIELDS
-    - {"vehicle"}
+    {item.name for item in fields(TaxiGameConfig)} - _RUNTIME_GAME_FIELDS - {"vehicle"}
 )
-_VEHICLE_FIELDS = {field.name for field in fields(TaxiVehicleConfig)}
-_VEHICLE_BOOL_FIELDS = {
-    "speed_limit_enabled",
-    "actor_collision_enabled",
-    "static_collision_enabled",
+_VEHICLE_FIELDS = {item.name for item in fields(TaxiVehicleConfig)}
+_INPUT_FIELDS = {item.name for item in fields(DriverInputConfig)}
+_TOP_LEVEL_FIELDS = {
+    "schema_version",
+    "mode",
+    "effects",
+    "rules",
+    "input",
+    "vehicle",
+    "taxi",
+    "race",
+    "live_edit",
+    "diagnostics",
 }
-_INPUT_FIELDS = {field.name for field in fields(DriverInputConfig)}
 
 
-@dataclass(frozen=True, slots=True)
-class TaxiSettings:
-    """Game rules, driver input, and vehicle dynamics loaded together."""
+@dataclass(frozen=True)
+class GameEffectsSettings:
+    """Game-directed visual effects."""
 
-    game: TaxiGameConfig
-    driver_input: DriverInputConfig
+    visual_flare_enabled: bool = False
+    """Whether collisions may trigger the full-screen visual flare."""
 
 
-def load_game_settings(path: Path) -> TaxiSettings:
-    """Load a complete Crazy Robotaxi game YAML document.
+@dataclass(frozen=True)
+class TaxiSessionSettings:
+    """Taxi-mode session and persistence settings."""
+
+    seed: int | None = None
+    """Optional deterministic fare-layout seed."""
+
+    high_scores_path: Path | None = None
+    """Taxi leaderboard path; ``None`` uses the cache-directory default."""
+
+
+@dataclass(frozen=True)
+class RaceSessionSettings:
+    """Race-mode selection and persistence settings."""
+
+    course: str | None = None
+    """Race-course identifier; ``None`` selects the map's first course."""
+
+    times_path: Path | None = None
+    """Race leaderboard path; ``None`` uses the cache-directory default."""
+
+
+@dataclass(frozen=True)
+class GameDiagnosticsSettings:
+    """Optional Crazy Robotaxi diagnostic outputs."""
+
+    alignment_directory: Path | None = None
+    """Optional frame-alignment diagnostic output directory."""
+
+
+@dataclass(frozen=True)
+class CrazyRobotaxiSettings:
+    """Complete durable game configuration for the V2 application."""
+
+    mode: Literal["taxi", "race"] = "taxi"
+    """Gameplay mode selected for the session."""
+
+    effects: GameEffectsSettings = field(default_factory=GameEffectsSettings)
+    """Game-directed visual effects."""
+
+    game: TaxiGameConfig = field(default_factory=TaxiGameConfig)
+    """Taxi rules and player-vehicle configuration."""
+
+    driver_input: DriverInputConfig = field(default_factory=DriverInputConfig)
+    """V2 keyboard-to-command reduction settings."""
+
+    taxi: TaxiSessionSettings = field(default_factory=TaxiSessionSettings)
+    """Taxi session and persistence settings."""
+
+    race: RaceSessionSettings = field(default_factory=RaceSessionSettings)
+    """Race selection and persistence settings."""
+
+    live_edit: LiveEditConfig = field(default_factory=LiveEditConfig)
+    """Map-context prompting and live-edit ability settings."""
+
+    diagnostics: GameDiagnosticsSettings = field(
+        default_factory=GameDiagnosticsSettings
+    )
+    """Optional diagnostic outputs."""
+
+
+TaxiSettings = CrazyRobotaxiSettings
+
+
+def load_game_settings(
+    path: Path,
+    *,
+    base: CrazyRobotaxiSettings | None = None,
+) -> CrazyRobotaxiSettings:
+    """Overlay a partial game YAML onto typed settings.
 
     Args:
-        path: Game YAML path.
+        path: Game configuration path.
+        base: Lower-precedence settings; ``None`` uses typed defaults.
 
     Returns:
-        Validated game rules, V2 input reduction, and taxi dynamics.
+        Resolved game, input, session, and live-edit settings.
+
+    Raises:
+        StrictConfigError: The YAML or merged settings are invalid.
     """
-    doc = load_yaml_mapping(path)
-    require_exact_keys(
-        doc,
-        {"schema_version", "rules", "input", "vehicle"},
-        "game",
-    )
+    config_path = path.expanduser().resolve()
+    doc = load_yaml_mapping(config_path)
     require_version(doc, "game")
-    raw_rules = require_mapping(doc["rules"], "game.rules")
-    require_exact_keys(raw_rules, _RULE_FIELDS, "game.rules")
-    rules = {
-        name: require_float(raw_rules[name], f"game.rules.{name}", minimum=0.0)
-        for name in _RULE_FIELDS
-    }
-    for integer_name in ("base_fare_points", "bonus_points_per_second"):
-        value = raw_rules[integer_name]
-        if type(value) is not int or value < 0:
-            raise StrictConfigError(
-                f"game.rules.{integer_name} must be a nonnegative integer"
-            )
-        rules[integer_name] = value
-    if rules["fare_min_route_distance_m"] > rules["fare_max_route_distance_m"]:
+    _reject_unknown(doc, _TOP_LEVEL_FIELDS, "game")
+    settings = base or CrazyRobotaxiSettings()
+    base_dir = config_path.parent
+
+    if "mode" in doc:
+        settings = overlay_dataclass(
+            settings, {"mode": doc["mode"]}, "game", base_dir=base_dir
+        )
+    for yaml_name in ("effects", "taxi", "race", "live_edit", "diagnostics"):
+        if yaml_name not in doc:
+            continue
+        nested = overlay_dataclass(
+            getattr(settings, yaml_name),
+            require_mapping(doc[yaml_name], f"game.{yaml_name}"),
+            f"game.{yaml_name}",
+            base_dir=base_dir,
+        )
+        settings = replace(settings, **{yaml_name: nested})
+
+    game = settings.game
+    if "rules" in doc:
+        rules = require_mapping(doc["rules"], "game.rules")
+        _reject_unknown(rules, _RULE_FIELDS, "game.rules")
+        game = overlay_dataclass(game, rules, "game.rules", base_dir=base_dir)
+    if "vehicle" in doc:
+        vehicle_values = require_mapping(doc["vehicle"], "game.vehicle")
+        _reject_unknown(vehicle_values, _VEHICLE_FIELDS, "game.vehicle")
+        vehicle = overlay_dataclass(
+            game.vehicle, vehicle_values, "game.vehicle", base_dir=base_dir
+        )
+        game = replace(game, vehicle=vehicle)
+    driver_input = settings.driver_input
+    if "input" in doc:
+        input_values = require_mapping(doc["input"], "game.input")
+        _reject_unknown(input_values, _INPUT_FIELDS, "game.input")
+        driver_input = overlay_dataclass(
+            driver_input, input_values, "game.input", base_dir=base_dir
+        )
+
+    game = replace(
+        game,
+        seed=settings.taxi.seed,
+        **(
+            {"high_scores_path": settings.taxi.high_scores_path}
+            if settings.taxi.high_scores_path is not None
+            else {}
+        ),
+    )
+    settings = replace(settings, game=game, driver_input=driver_input)
+    _validate_game_settings(settings)
+    return settings
+
+
+def _reject_unknown(values: dict[str, object], allowed: set[str], context: str) -> None:
+    unknown = sorted(values.keys() - allowed)
+    if unknown:
+        raise StrictConfigError(f"{context} has unknown keys: {', '.join(unknown)}")
+
+
+def _validate_game_settings(settings: CrazyRobotaxiSettings) -> None:
+    game = settings.game
+    for name in _RULE_FIELDS:
+        if getattr(game, name) < 0:
+            raise StrictConfigError(f"game.rules.{name} must be non-negative")
+    for name in _VEHICLE_FIELDS:
+        value = getattr(game.vehicle, name)
+        if type(value) is not bool and value < 0:
+            raise StrictConfigError(f"game.vehicle.{name} must be non-negative")
+    if game.fare_min_route_distance_m > game.fare_max_route_distance_m:
         raise StrictConfigError(
             "game.rules.fare_min_route_distance_m must not exceed fare_max_route_distance_m"
         )
-    if rules["min_time_s"] > rules["max_time_s"]:
+    if game.min_time_s > game.max_time_s:
         raise StrictConfigError("game.rules.min_time_s must not exceed max_time_s")
-
-    raw_input = require_mapping(doc["input"], "game.input")
-    require_exact_keys(raw_input, _INPUT_FIELDS, "game.input")
-    input_values = {
-        name: require_float(raw_input[name], f"game.input.{name}", minimum=0.0)
-        for name in _INPUT_FIELDS
-    }
-    if input_values["steering_scale"] <= 0.0:
+    if settings.driver_input.steering_scale <= 0.0:
         raise StrictConfigError("game.input.steering_scale must be positive")
-
-    raw_vehicle = require_mapping(doc["vehicle"], "game.vehicle")
-    require_exact_keys(raw_vehicle, _VEHICLE_FIELDS, "game.vehicle")
-    vehicle_values = {
-        name: require_bool(raw_vehicle[name], f"game.vehicle.{name}")
-        if name in _VEHICLE_BOOL_FIELDS
-        else require_float(raw_vehicle[name], f"game.vehicle.{name}", minimum=0.0)
-        for name in _VEHICLE_FIELDS
-    }
-    for name in (
-        "wheel_base_m",
-        "max_speed_mps",
-        "aabb_length_m",
-        "aabb_width_m",
-        "aabb_height_m",
-        "speed_taper_knee_fraction",
-    ):
-        if vehicle_values[name] <= 0.0:
-            raise StrictConfigError(f"game.vehicle.{name} must be positive")
-    for name in (
-        "speed_taper_knee_fraction",
-        "speed_taper_low_floor",
-        "speed_taper_high_floor",
-        "curb_collision_restitution",
-        "curb_forward_momentum_retention",
-    ):
-        if vehicle_values[name] > 1.0:
-            raise StrictConfigError(f"game.vehicle.{name} must be at most 1")
-    return TaxiSettings(
-        game=TaxiGameConfig(
-            vehicle=TaxiVehicleConfig(**cast(Any, vehicle_values)),
-            **cast(Any, rules),
-        ),
-        driver_input=DriverInputConfig(**input_values),
-    )

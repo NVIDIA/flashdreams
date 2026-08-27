@@ -11,6 +11,9 @@ from dataclasses import replace
 import numpy as np
 from loguru import logger
 from ludus_renderer import PhysicsObjectGraph, RigidBodyModel
+from omnidreams_game_engine.simulation.actor_controller import (
+    PhysicsActorController,
+)
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     DriverCommand,
@@ -51,6 +54,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         vehicle: TaxiVehicleConfig,
         *,
         curb_segments_world: np.ndarray | None = None,
+        actor_controllers: tuple[PhysicsActorController, ...] = (),
     ) -> None:
         curb_segments = np.asarray(
             curb_segments_world
@@ -70,7 +74,9 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
                 else None
             ),
             static_barrier_restitution=vehicle.curb_collision_restitution,
+            actor_controllers=actor_controllers,
         )
+        self._has_external_actor_controllers = bool(actor_controllers)
         self._taxi_vehicle = vehicle
         logger.info(
             "[crazy-robotaxi] Taxi physics active: app-authoritative heading, "
@@ -83,6 +89,8 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         self,
         center_xy_m: np.ndarray,
         timestamp_us: int | None = None,
+        *,
+        force_controller_refresh: bool = False,
     ) -> bool:
         """Refresh Taxi collision topology only when its spatial window changes.
 
@@ -93,6 +101,15 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         thousands of static curb segments. Passing no timestamp retains spatial
         recentering and traffic additions/removals without that redundant scan.
         """
+        if (
+            getattr(self, "_has_external_actor_controllers", False)
+            or force_controller_refresh
+        ):
+            return super().synchronize_window(
+                center_xy_m,
+                timestamp_us,
+                force_controller_refresh=force_controller_refresh,
+            )
         del timestamp_us
         center = np.asarray(center_xy_m, dtype=np.float32)
         if center.shape != (2,):

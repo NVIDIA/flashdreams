@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import tempfile
 import zipfile
@@ -20,6 +21,9 @@ import pyarrow.parquet as pq
 import yaml
 from filelock import FileLock
 from PIL import Image
+from shapely.geometry import LineString, Polygon
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import substring, unary_union
 
 from omnidreams_game_engine import camera_defaults
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
@@ -38,6 +42,11 @@ from omnidreams_game_engine.scene_fixture import _calibration_row
 # during development; a future release process owns version changes.
 _COMPILER_VERSION = "1"
 _START_TIMESTAMP_US = 1_700_000_000_000_000
+_BOUNDARY_CHUNK_CORE_LENGTH_M = 80.0
+"""Maximum non-overlapping span represented by one BEV boundary record."""
+
+_BOUNDARY_CHUNK_OVERLAP_M = 5.0
+"""Per-side overlap that hides record endpoints without leaving the perimeter."""
 
 
 @dataclass(frozen=True)
@@ -187,19 +196,111 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     return rows
 
 
+def _line_geometries(geometry: BaseGeometry) -> list[LineString]:
+    """Return every line component nested in a Shapely geometry."""
+    if isinstance(geometry, LineString):
+        return [geometry]
+    return [
+        line
+        for part in getattr(geometry, "geoms", ())
+        for line in _line_geometries(part)
+    ]
+
+
+def _cyclic_substring(
+    line: LineString, start_distance: float, end_distance: float
+) -> np.ndarray:
+    """Extract a wrapping interval from a closed perimeter line.
+
+    Args:
+        line: Closed surface-boundary ring.
+        start_distance: Possibly negative start distance along ``line``.
+        end_distance: Possibly over-length end distance along ``line``.
+
+    Returns:
+        Ordered XY points for the requested cyclic interval.
+    """
+    length = float(line.length)
+    ranges = (
+        ((length + start_distance, length), (0.0, end_distance))
+        if start_distance < 0.0
+        else (
+            ((start_distance, length), (0.0, end_distance - length))
+            if end_distance > length
+            else ((start_distance, end_distance),)
+        )
+    )
+    parts: list[np.ndarray] = []
+    for range_start, range_end in ranges:
+        points = np.asarray(
+            substring(line, range_start, range_end).coords,
+            dtype=np.float32,
+        )
+        if parts and np.linalg.norm(parts[-1][-1] - points[0]) <= 1.0e-6:
+            points = points[1:]
+        if len(points):
+            parts.append(points)
+    return np.concatenate(parts, axis=0)
+
+
+def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
+    """Build overlapping local chunks along the true road-surface perimeter.
+
+    Args:
+        game_map: Resolved semantic map whose surfaces define the BEV boundary.
+
+    Returns:
+        Deterministically ordered XYZ boundary chunks. Every point remains on
+        the surface-union perimeter, including at intersections and openings.
+    """
+    surfaces = [Polygon(element.surface_world[:, :2]) for element in game_map.elements]
+    lines = _line_geometries(unary_union(surfaces).boundary)
+    lines.sort(key=lambda line: tuple(round(value, 6) for value in line.bounds))
+    z_m = float(game_map.elements[0].surface_world[0, 2])
+    chunks: list[np.ndarray] = []
+    for line in lines:
+        length = float(line.length)
+        chunk_count = max(1, math.ceil(length / _BOUNDARY_CHUNK_CORE_LENGTH_M))
+        if chunk_count == 1:
+            chunks.append(
+                np.column_stack(
+                    (
+                        np.asarray(line.coords, dtype=np.float32),
+                        np.full(len(line.coords), z_m, dtype=np.float32),
+                    )
+                )
+            )
+            continue
+        core_length = length / chunk_count
+        for index in range(chunk_count):
+            points_xy = _cyclic_substring(
+                line,
+                index * core_length - _BOUNDARY_CHUNK_OVERLAP_M,
+                (index + 1) * core_length + _BOUNDARY_CHUNK_OVERLAP_M,
+            )
+            chunks.append(
+                np.column_stack(
+                    (
+                        points_xy,
+                        np.full(len(points_xy), z_m, dtype=np.float32),
+                    )
+                )
+            )
+    return tuple(chunks)
+
+
 def _boundary_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
     return [
         {
-            "key": _key(game_map, boundary.boundary_id),
+            "key": _key(game_map, f"road_boundary:{index}"),
             "road_boundary": {
-                "location": [_point(point) for point in boundary.polyline_world],
+                "location": [_point(point) for point in chunk],
                 "category": "road_boundary",
                 "egomotion_label_class_id": "ego",
             },
             "version": 1,
         }
-        for element in game_map.elements
-        for boundary in element.road_boundaries
+        for index, chunk in enumerate(_boundary_chunks(game_map))
     ]
 
 

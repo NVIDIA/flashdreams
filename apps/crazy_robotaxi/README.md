@@ -45,6 +45,76 @@ and the autoregressive cache together while retaining the loaded model.
 Leaderboard name entry is owned by the Dear ImGui UI and submitted to the model
 loop through V2's asynchronous loop-message contract.
 
+## Layered configuration
+
+Crazy Robotaxi accepts strict, partial `schema_version: 1` configuration files:
+
+- `--engine-config` covers the map request, model preset, renderer, and V2
+  runtime diagnostics.
+- `--game-config` covers taxi/race mode, rules, input reduction, vehicle
+  physics, persistence, and live-edit abilities.
+
+Settings resolve from packaged typed defaults, then YAML, then explicitly
+supplied application flags. Omitted YAML fields retain their lower-precedence
+values, unknown keys are errors, and relative paths inside YAML resolve beside
+that file. The legacy `--renderer-config` option remains available as an
+explicit compatibility layer.
+
+The checked-in `example_engine_config.yaml` and `example_game_config.yaml`
+show the complete V2 surface:
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
+  --engine-config \
+    apps/crazy_robotaxi/crazy_robotaxi/configs/example_engine_config.yaml \
+  --game-config \
+    apps/crazy_robotaxi/crazy_robotaxi/configs/example_game_config.yaml \
+  --model-preset perf
+```
+
+Here `--model-preset perf` wins over the value in the engine YAML. Maps remain
+separate authoritative `.robotaxi.yaml` documents referenced by path; layered
+configuration does not copy or reinterpret map content.
+
+## Race mode
+
+Authored maps may define ordered race courses using the same schema and map
+files as the original Crazy Robotaxi branch. Start the bundled demonstration
+course with:
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/demo_race_track.robotaxi.yaml \
+  --game-mode race
+```
+
+Race progression uses swept, direction-aware gate crossings, supports looped
+and point-to-point courses, and persists times per map/course. Select a
+non-default course with `--race-course ID` and override its leaderboard with
+`--race-times PATH`.
+
+## Live-edit gameplay
+
+The source game's flag-gated abilities are available through V2 application
+arguments. `C` toggles collectible coins, `K` cycles style skins, `V` cycles
+weather, and `O` spawns a crossing-obstacle event. Effect items can trigger
+rain, snow, a timed mystery skin, or a physics-authoritative nitro boost.
+
+```bash
+uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
+  --live-edit-coins \
+  --live-edit-items \
+  --live-edit-weather \
+  --live-edit-obstacle
+```
+
+Style mode additionally requires `--live-edit-style-lora PATH`. Optional
+style/base/weather correctors retain the source branch's fused and unfused
+deployment modes. Text-edit and obstacle guidance require a non-native DiT
+preset because those paths intercept the Python transformer conditioning
+seam; the application reports this before generation if an incompatible
+native preset is selected. All abilities are disabled by default.
+
 ## Original demo performance preset
 
 The opt-in `original-perf` preset reproduces the performance knobs from the

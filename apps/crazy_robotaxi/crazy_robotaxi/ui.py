@@ -29,10 +29,12 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn.functional as functional
+from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
-from crazy_robotaxi.high_scores import validate_player_name
+from crazy_robotaxi.high_scores import format_race_time_us, validate_player_name
+from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import TaxiCameraMarkerProjection, TaxiGameSnapshot
 from crazy_robotaxi.world_overlay import (
     draw_waypoints as draw_waypoint_markers,
@@ -77,8 +79,8 @@ class TaxiHudFrame:
     frame_key: int
     """Live tensor data pointer identifying the corresponding video frame."""
 
-    snapshot: TaxiGameSnapshot
-    """Taxi rules snapshot for the corresponding simulation frame."""
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot
+    """Game-rules snapshot for the corresponding simulation frame."""
 
     rig_pose_world: npt.NDArray[np.float32]
     """Read-only rig pose that generated the corresponding video frame."""
@@ -285,21 +287,48 @@ class TaxiHudState:
         if source is None:
             return
         if source is not self._waypoint_source:
-            self._waypoint_projections = project_waypoints(
-                source.snapshot,
-                source.rig_pose_world,
-                self.calibration,
+            if isinstance(source.snapshot, TaxiGameSnapshot):
+                self._waypoint_projections = project_waypoints(
+                    source.snapshot,
+                    source.rig_pose_world,
+                    self.calibration,
+                    width=self.width,
+                    height=self.height,
+                )
+            else:
+                self._waypoint_projections = ()
+            self._waypoint_source = source
+        if isinstance(source.snapshot, TaxiGameSnapshot):
+            draw_waypoint_markers(
+                imgui,
+                self._waypoint_projections,
+                phase=source.snapshot.phase,
                 width=self.width,
                 height=self.height,
             )
-            self._waypoint_source = source
-        draw_waypoint_markers(
-            imgui,
-            self._waypoint_projections,
-            phase=source.snapshot.phase,
-            width=self.width,
-            height=self.height,
-        )
+        elif source.snapshot.checkpoint_markers:
+            camera = FThetaCameraModel(
+                self.calibration,
+                output_width=self.width,
+                output_height=self.height,
+            )
+            gate = project_race_gate_to_camera(
+                source.snapshot,
+                source.rig_pose_world,
+                camera,
+                image_width=self.width,
+                image_height=self.height,
+            )
+            if gate is not None:
+                draw_list = imgui.get_background_draw_list()
+                color = int(
+                    imgui.color_convert_float4_to_u32(
+                        imgui.ImVec4(1.0, 0.18, 0.08, 1.0)
+                    )
+                )
+                draw_list.add_line(
+                    imgui.ImVec2(*gate[0]), imgui.ImVec2(*gate[1]), color, 6.0
+                )
 
     def draw(
         self,
@@ -325,7 +354,38 @@ class TaxiHudState:
             return
 
         snapshot = hud_frame.snapshot
-        if snapshot.session_state == "playing":
+        if isinstance(snapshot, RaceGameSnapshot) and snapshot.session_state in {
+            "awaiting_start",
+            "racing",
+        }:
+            lap = (
+                "POINT TO POINT"
+                if snapshot.lap_count == 0
+                else f"LAP  {snapshot.completed_laps + 1}/{snapshot.lap_count}"
+            )
+            self._draw_text_window(
+                imgui,
+                "Crazy Robotaxi Race",
+                position=(14.0, 14.0),
+                size=(360.0, 190.0),
+                lines=(
+                    format_race_time_us(snapshot.elapsed_time_us),
+                    lap,
+                    (
+                        f"CHECKPOINT  {snapshot.checkpoint_index + 1}/"
+                        f"{snapshot.checkpoint_count}"
+                    ),
+                    f"{snapshot.target_label}  {snapshot.distance_m:04.0f} m",
+                    snapshot.event.replace("_", " ").upper()
+                    if snapshot.event is not None
+                    else "",
+                ),
+            )
+            self._draw_bev_window(imgui, bev_frame)
+        elif (
+            isinstance(snapshot, TaxiGameSnapshot)
+            and snapshot.session_state == "playing"
+        ):
             objective = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
             fare_time = (
                 ""
@@ -532,7 +592,9 @@ class TaxiHudState:
             lines=(input_state, latency_label, counts),
         )
 
-    def _draw_terminal(self, imgui: Any, snapshot: TaxiGameSnapshot) -> None:
+    def _draw_terminal(
+        self, imgui: Any, snapshot: TaxiGameSnapshot | RaceGameSnapshot
+    ) -> None:
         awaiting_name = snapshot.session_state == "awaiting_name"
         leaderboard = snapshot.session_state == "leaderboard"
         if not (awaiting_name or leaderboard):
@@ -549,8 +611,18 @@ class TaxiHudState:
         try:
             if not visible:
                 return
-            imgui.text("NEW HIGH SCORE" if awaiting_name else "LEADERBOARD")
-            imgui.text(f"FINAL SCORE  {snapshot.score:06d}")
+            race = isinstance(snapshot, RaceGameSnapshot)
+            imgui.text(
+                ("NEW BEST TIME" if race else "NEW HIGH SCORE")
+                if awaiting_name
+                else "LEADERBOARD"
+            )
+            if race:
+                imgui.text(
+                    "FINAL TIME  " + format_race_time_us(snapshot.final_time_us or 0)
+                )
+            else:
+                imgui.text(f"FINAL SCORE  {snapshot.score:06d}")
             if snapshot.high_score_rank is not None:
                 imgui.text(f"RANK  #{snapshot.high_score_rank}")
             if awaiting_name:
@@ -563,7 +635,7 @@ class TaxiHudState:
                         self._name_input,
                         flags=imgui.InputTextFlags_.enter_returns_true,
                     )
-                    clicked = imgui.button("Submit score")
+                    clicked = imgui.button("Submit time" if race else "Submit score")
                 finally:
                     if disabled:
                         imgui.end_disabled()
@@ -572,13 +644,18 @@ class TaxiHudState:
                 if self._validation_message:
                     imgui.text(self._validation_message)
             else:
-                entries = (
-                    "\n".join(
+                if race:
+                    entries = "\n".join(
+                        f"{rank:>2}. {entry.name:<12} "
+                        f"{format_race_time_us(entry.elapsed_time_us)}"
+                        for rank, entry in enumerate(snapshot.leaderboard, start=1)
+                    )
+                else:
+                    entries = "\n".join(
                         f"{rank:>2}. {entry.name:<12} {entry.score:>7}"
                         for rank, entry in enumerate(snapshot.leaderboard, start=1)
                     )
-                    or "NO SCORES YET"
-                )
+                entries = entries or "NO SCORES YET"
                 imgui.text(entries)
         finally:
             imgui.end()
@@ -659,7 +736,6 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
             torch.cuda.set_stream(self._presentation_stream)
         return self._presentation_stream
 
-
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
         self.state.reset()
@@ -703,8 +779,8 @@ def build_hud_frames(
         raise ValueError("Input transitions and video frames must align")
     frames = []
     for index, snapshot in enumerate(snapshots):
-        if not isinstance(snapshot, TaxiGameSnapshot):
-            raise TypeError("Taxi HUD received a non-taxi game snapshot")
+        if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
+            raise TypeError("Taxi HUD received an unknown game snapshot")
         pose = poses[index].copy()
         pose.setflags(write=False)
         frames.append(

@@ -397,6 +397,84 @@ class OmnidreamsPipeline(
         )
 
     @torch.no_grad()
+    def replace_text(
+        self,
+        cache: OmnidreamsPipelineCache,
+        text: list[list[str]],
+        *,
+        guidance_scale: float = 1.0,
+        guidance_chunks: int = 0,
+        recache_last_chunk: bool = False,
+    ) -> None:
+        """Replace a live rollout's prompt between autoregressive steps.
+
+        Args:
+            cache: Live rollout cache.
+            text: Nested ``[B, V]`` prompt strings.
+            guidance_scale: Strength of transient old/new prompt guidance.
+            guidance_chunks: Number of future chunks to guide.
+            recache_last_chunk: Whether to recommit the last context chunk.
+        """
+        if self.text_encoder is None:
+            raise RuntimeError("replace_text requires the resident text encoder")
+        if not text or not isinstance(text[0], list):
+            raise ValueError("text must be a non-empty [B, V] nested list")
+        text_embeddings = torch.stack([self.text_encoder(row) for row in text], dim=0)
+        self.replace_text_from_embeddings(
+            cache,
+            text_embeddings,
+            guidance_scale=guidance_scale,
+            guidance_chunks=guidance_chunks,
+            recache_last_chunk=recache_last_chunk,
+        )
+
+    @torch.no_grad()
+    def replace_text_from_embeddings(
+        self,
+        cache: OmnidreamsPipelineCache,
+        text_embeddings: Tensor,
+        *,
+        guidance_scale: float = 1.0,
+        guidance_chunks: int = 0,
+        recache_last_chunk: bool = False,
+    ) -> None:
+        """Replace text conditioning from precomputed ``[B,V,L,D]`` embeddings."""
+        transformer = self.diffusion_model.transformer
+        if not isinstance(transformer, CosmosTransformer):
+            raise TypeError("Omnidreams text replacement requires CosmosTransformer")
+        text_embeddings = split_inputs_cp(
+            text_embeddings.to(device=self.device),
+            seq_dim=1,
+            cp_group=self.V_group,
+        )
+        transformer.replace_text_embeddings(
+            cache.transformer_cache,
+            text_embeddings,
+            guidance_scale=guidance_scale,
+            guidance_chunks=guidance_chunks,
+        )
+        if recache_last_chunk:
+            self.recache_last_chunk(cache)
+
+    @torch.no_grad()
+    def recache_last_chunk(self, cache: OmnidreamsPipelineCache) -> None:
+        """Recommit the last finalized chunk under the current text prompt."""
+        final_state = cache.final_state
+        if final_state is None:
+            return
+        diffusion_model = self.diffusion_model
+        saved_rng = diffusion_model._rng
+        if diffusion_model.rng is not None:
+            diffusion_model._rng = torch.Generator(device=self.device).manual_seed(
+                118_000 + final_state.autoregressive_index
+            )
+        try:
+            final_state.cache.start(final_state.autoregressive_index)
+            diffusion_model.finalize(final_state=final_state)
+        finally:
+            diffusion_model._rng = saved_rng
+
+    @torch.no_grad()
     def generate(
         self,
         autoregressive_index: int,
