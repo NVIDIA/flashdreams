@@ -67,6 +67,9 @@ _MAX_BUFFERED_INPUT_EVENTS = 64
 _VIDEO_FPS_WINDOW_SECONDS = 2.0
 """Rolling window used to smooth the generated-video frame-rate estimate."""
 
+_BEV_WAYPOINT_ALPHA = 0.5
+"""Opacity of visible pickup and drop-off waypoints on the BEV map."""
+
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
 )
@@ -634,20 +637,20 @@ class TaxiHudState:
             )
             return
 
-        rgba = (
-            (118.0 / 255.0, 185.0 / 255.0, 0.0, 1.0)
+        rgb = (
+            (118.0 / 255.0, 185.0 / 255.0, 0.0)
             if snapshot.phase == "seeking_pickup"
-            else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0, 1.0)
+            else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
         )
-        color = _imgui_color(imgui, rgba)
+        color = _imgui_color(imgui, (*rgb, _BEV_WAYPOINT_ALPHA))
         targets = (
             snapshot.pickup_targets_xyz_m
             if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
             else (snapshot.target_xyz_m,)
         )
         visible = False
-        white = _imgui_color(imgui, (1.0, 1.0, 1.0, 1.0))
-        outline = _imgui_color(imgui, (0.08, 0.08, 0.12, 1.0))
+        white = _imgui_color(imgui, (1.0, 1.0, 1.0, _BEV_WAYPOINT_ALPHA))
+        outline = _imgui_color(imgui, (0.08, 0.08, 0.12, _BEV_WAYPOINT_ALPHA))
         for target in targets:
             u, v, inside = project_target_pose_to_bev(target, pose, self.bev)
             if not inside:
@@ -663,7 +666,7 @@ class TaxiHudState:
                 imgui,
                 snapshot.target_xyz_m,
                 pose,
-                color=color,
+                color=_imgui_color(imgui, (*rgb, 1.0)),
             )
 
     def _draw_bev_edge_arrow(

@@ -22,6 +22,7 @@ from crazy_robotaxi.rules import (
     project_taxi_markers_to_camera,
 )
 from crazy_robotaxi.ui import (
+    _BEV_WAYPOINT_ALPHA,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
@@ -514,6 +515,32 @@ def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
         if command[0] == "triangle_filled"
     ]
     assert len(triangles) == 2
+    expected_white = imgui.color_convert_float4_to_u32((1.0, 1.0, 1.0, 1.0))
+    assert triangles[0][1][-1] == expected_white
+
+
+def test_bev_draws_visible_waypoints_at_half_opacity() -> None:
+    video = torch.zeros(1, 3, 96, 160)
+    state = TaxiHudState(160, 96, _calibration())
+    frame = build_hud_frames(
+        video,
+        (_snapshot(),),
+        np.eye(4, dtype=np.float32)[None],
+    )[0]
+    state._bev_rect = (0, 0, 96, 96)
+    imgui = _FakeImGui()
+
+    state._draw_bev_navigation(imgui, frame)
+
+    circles = [
+        command
+        for command in imgui.background_draw_list.commands
+        if command[0] == "circle_filled"
+    ]
+    expected_white = imgui.color_convert_float4_to_u32(
+        (1.0, 1.0, 1.0, _BEV_WAYPOINT_ALPHA)
+    )
+    assert circles[0][1][-1] == expected_white
 
 
 def test_imgui_ui_loop_owns_and_restores_a_cuda_presentation_stream(
