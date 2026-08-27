@@ -98,6 +98,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert desc.frames_per_second_for_step == 30
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    assert ui_loop._presentation_device == torch.device("cpu")
     assert model_loop.state.pipeline is pipeline
     assert model_loop.state.rollout is None
     assert model_loop.state.ui_loop is ui_loop

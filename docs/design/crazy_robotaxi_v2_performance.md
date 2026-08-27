@@ -84,6 +84,25 @@ cleanly requires the ImGui renderer to accept a CUDA tensor or expose a
 CUDA-backed SlangPy texture registration hook. The app should not duplicate
 the renderer's Vulkan/CUDA resource ownership to work around that missing API.
 
+### CUDA-upload follow-up
+
+The `*-3.json` native-window capture on commit `ece9c52` confirms that the BEV
+change removed its original synchronization hotspot. BEV submission fell from
+45.68 seconds total and 195.7 ms p90 to 0.32 seconds total and 0.31 ms p90.
+UI-step p90 fell from 37.2 ms to 4.2 ms, presented throughput increased from
+17.25 to 22.62 fps, and elapsed time after the first publication fell from
+104.58 to 79.76 seconds.
+
+The capture also exposes a second synchronization boundary. Native surface
+acquisition consumed 22.15 seconds, with 222 of its 227 waits above 10 ms
+occurring on a model-frame advance. Those waits cluster near 90--110 ms, once
+per generated chunk. The app therefore records a CUDA event after each model
+chunk and keeps UI conversion, ImGui interop, composition, and native upload on
+a dedicated presentation stream. The stream waits only for the selected
+chunk's event instead of making Vulkan depend on subsequently queued model
+work. This follow-up remains pending a target-machine `*-4.json` validation and
+is not yet a validated performance result.
+
 ## App-side PhysX bridge correction
 
 The matched native `original-perf` capture attributes 39.2 ms per chunk to

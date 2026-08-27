@@ -45,12 +45,12 @@ flowchart TD
         INPUT["DriverInput<br/>timestamped transition timeline"]
         ENGINE["GameEngine"]
         CACHE["session-local OmniDreams cache"]
-        HUDSTATE["immutable TaxiHudFrame batches"]
+        HUDSTATE["immutable TaxiHudFrame batches<br/>+ CUDA ready event"]
     end
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
         BUFFER["PresentationManager<br/>RGB + optional raw BEV frames"]
-        HUD["CrazyRobotaxiImGuiUILoop<br/>waypoint projection + BEV pixel caches"]
+        HUD["CrazyRobotaxiImGuiUILoop<br/>dedicated CUDA stream<br/>waypoints + BEV presentation cache"]
         COMPOSE["one Dear ImGui overlay<br/>background waypoints + HUD + BEV window"]
         WINDOW["V2 client window<br/>native / WebRTC / MP4"]
     end
@@ -64,7 +64,7 @@ flowchart TD
     INPUT --> ENGINE
     ENGINE --> HUDSTATE
     ENGINE -->|"RGB + optional raw BEV"| BUFFER
-    HUDSTATE -->|"invoke_async"| HUD
+    HUDSTATE -->|"invoke_async; wait on ready event"| HUD
     HUD -->|"invoke_async game actions"| ENGINE
     BUFFER --> HUD --> COMPOSE --> WINDOW
 ```
@@ -82,11 +82,14 @@ creation caps its raster to the actual ImGui image extent while preserving an
 authored aspect ratio; model HD-map conditioning retains full output
 resolution. For each generated frame it publishes an immutable
 `TaxiHudFrame` containing its game snapshot and camera pose to the UI loop with
-`invoke_async`. The UI loop selects the metadata aligned with the currently
-presented model frame and caches that frame's projected in-world waypoint
-geometry. It submits rings, beacons, anchors, and labels to ImGui's background
-draw list, beneath the HUD windows, without constructing a full-size waypoint
-tensor. It draws the HUD and raw BEV in immediate Dear ImGui windows;
+`invoke_async`. Each batch also carries a CUDA event recorded after the model
+outputs so the app-owned presentation stream waits for exactly that chunk,
+rather than fencing Vulkan against later model work on the shared default
+stream. The UI loop selects the metadata aligned with the currently presented
+model frame and caches that frame's projected in-world waypoint geometry. It
+submits rings, beacons, anchors, and labels to ImGui's background draw list,
+beneath the HUD windows, without constructing a full-size waypoint tensor. It
+draws the HUD and BEV in an immediate Dear ImGui window;
 `ImGuiUILoop` composites that one UI layer over the world frame. UI callbacks
 send validated game actions back to the model loop with `invoke_async`; they
 never call game state directly.

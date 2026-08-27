@@ -91,6 +91,9 @@ class TaxiHudFrame:
     input_dropped_transition_count: int = 0
     """Cumulative transitions displaced by fixed-size model chunks."""
 
+    ready_event: torch.cuda.Event | None = None
+    """CUDA event recorded after the model produced this frame's tensors."""
+
 
 @dataclass(slots=True)
 class TaxiHudState:
@@ -122,6 +125,9 @@ class TaxiHudState:
 
     _waypoint_projections: tuple[TaxiCameraMarkerProjection, ...] = ()
     """Cached world-marker projections for the presented generated frame."""
+
+    _ready_source: TaxiHudFrame | None = None
+    """Presented frame whose model-to-UI CUDA dependency was submitted."""
 
     _name_input: str = ""
     """Immediate-mode name-entry buffer retained by the UI state."""
@@ -204,6 +210,16 @@ class TaxiHudState:
             self._input_received_at_s.move_to_end(timestamp_us)
         while len(self._input_received_at_s) > _MAX_BUFFERED_INPUT_EVENTS:
             self._input_received_at_s.popitem(last=False)
+
+    def wait_for_presented_frame(self, stream: torch.cuda.Stream) -> bool:
+        """Submit the current model frame's dependency to ``stream`` once."""
+        selected = self._current
+        if selected is None or selected is self._ready_source:
+            return False
+        if selected.ready_event is not None:
+            stream.wait_event(selected.ready_event)
+        self._ready_source = selected
+        return selected.ready_event is not None
 
     def _record_presented_input(self, selected: TaxiHudFrame) -> None:
         if not self.profile_input_latency:
@@ -311,6 +327,7 @@ class TaxiHudState:
         self._current = None
         self._waypoint_source = None
         self._waypoint_projections = ()
+        self._ready_source = None
         self._validation_message = ""
         self._submission_pending = False
         self._loading_status = "LOADING WORLD MODEL"
@@ -514,26 +531,76 @@ class TaxiHudState:
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     """Present generated frames beneath a responsive Dear ImGui taxi HUD."""
 
+    def __init__(
+        self,
+        *,
+        presentation_device: str | torch.device | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Configure the HUD renderer and its app-owned presentation stream.
+
+        Args:
+            presentation_device: Device used for generated and composited
+                frames; ``None`` retains the calling thread's current stream.
+            **kwargs: Arguments forwarded to :class:`ImGuiUILoop`.
+        """
+        super().__init__(**kwargs)
+        self._presentation_device = (
+            None if presentation_device is None else torch.device(presentation_device)
+        )
+        self._presentation_stream: torch.cuda.Stream | None = None
+
     def step_ui(
         self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
+        presentation_stream = self._activate_presentation_stream()
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
         bev_frame = frames[1] if len(frames) > 1 else None
         if video is not None:
             self.state.select_presented_frame(video)
+            if presentation_stream is not None:
+                self.state.wait_for_presented_frame(presentation_stream)
+                video.record_stream(presentation_stream)
+                if bev_frame is not None:
+                    bev_frame.record_stream(presentation_stream)
             self.state.draw_waypoints(imgui, video)
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
         return video.to(torch.float32)
 
+    def _activate_presentation_stream(self) -> torch.cuda.Stream | None:
+        """Make the app-owned CUDA stream current on the V2 UI thread."""
+        device = self._presentation_device
+        if device is None or device.type != "cuda":
+            return None
+        with torch.cuda.device(device):
+            if self._presentation_stream is None:
+                self._presentation_stream = torch.cuda.Stream(device=device)
+            torch.cuda.set_stream(self._presentation_stream)
+        return self._presentation_stream
+
+
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
         self.state.reset()
         super().reset()
+
+    def close(self) -> None:
+        """Release the renderer and restore the UI thread's default stream."""
+        try:
+            super().close()
+        finally:
+            if self._presentation_stream is not None:
+                assert self._presentation_device is not None
+                with torch.cuda.device(self._presentation_device):
+                    torch.cuda.set_stream(
+                        torch.cuda.default_stream(self._presentation_device)
+                    )
+                self._presentation_stream = None
 
 
 def build_hud_frames(
@@ -545,6 +612,7 @@ def build_hud_frames(
     input_transition_count: int = 0,
     input_ignored_event_count: int = 0,
     input_dropped_transition_count: int = 0,
+    ready_event: torch.cuda.Event | None = None,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -572,6 +640,7 @@ def build_hud_frames(
                 input_transition_count=input_transition_count,
                 input_ignored_event_count=input_ignored_event_count,
                 input_dropped_transition_count=input_dropped_transition_count,
+                ready_event=ready_event,
             )
         )
     return tuple(frames)

@@ -236,6 +236,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             input_transition_count=state.input_transition_count,
             input_ignored_event_count=state.input_ignored_event_count,
             input_dropped_transition_count=state.input_dropped_transition_count,
+            ready_event=_record_ready_event(video),
         )
         invoke_async(
             state.ui_loop,
@@ -365,6 +366,7 @@ class CrazyRobotaxiSession(ISession):
             state=hud_state,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
+            presentation_device=self._config.device,
         )
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
@@ -378,3 +380,11 @@ class CrazyRobotaxiSession(ISession):
             ),
         )
         hud_state.model_loop = model_loop
+
+
+def _record_ready_event(video: torch.Tensor) -> torch.cuda.Event | None:
+    if not video.is_cuda:
+        return None
+    event = torch.cuda.Event()
+    event.record(torch.cuda.current_stream(video.device))
+    return event
