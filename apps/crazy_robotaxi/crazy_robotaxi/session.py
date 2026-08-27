@@ -184,6 +184,19 @@ class ModelState:
             )
         ]
 
+    def return_to_map_menu(self) -> None:
+        """Tear down the active game and resume menu-frame publication."""
+        self.close()
+        self.scene = None
+        self.game_selected = False
+        self.prewarm_complete = False
+        self.prewarm_wall_ms = 0.0
+        self.reset()
+
+    def request_exit(self) -> None:
+        """Finish the model loop after the root menu requests exit."""
+        self.finished = True
+
     def _prewarm_rollout(self) -> None:
         rollout = self.rollout
         assert rollout is not None

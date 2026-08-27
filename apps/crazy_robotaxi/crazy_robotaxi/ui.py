@@ -216,6 +216,8 @@ class TaxiHudState:
 
     def select_presented_frame(self, frame: Tensor) -> TaxiHudFrame | None:
         """Select the HUD snapshot aligned with ``frame`` when available."""
+        if self.model_loop is not None and self._menu_stage in {"mode", "map"}:
+            return None
         selected = self._frames.get(int(frame.data_ptr()))
         if selected is not None:
             frame_changed = selected is not self._current
@@ -249,9 +251,12 @@ class TaxiHudState:
 
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
+        received = events.get_events()
+        if any(_is_escape_press(event) for event in received):
+            self._handle_escape()
         if not self.profile_input_latency:
             return
-        for event in events.get_events():
+        for event in received:
             recognized = False
             if isinstance(event, FocusUserInputEvent) and not event.focused:
                 self._profile_pressed.clear()
@@ -310,8 +315,28 @@ class TaxiHudState:
 
     def activate_scene(self, calibration: CameraCalibration) -> None:
         """Install projection data after the model thread loads the chosen map."""
+        self._clear_presented_game()
         self.calibration = calibration
         self._menu_stage = "loading"
+
+    def _handle_escape(self) -> None:
+        model_loop = self.model_loop
+        if self._menu_stage == "game":
+            self.reset()
+            self._menu_stage = "map"
+            if model_loop is not None:
+                invoke_async(
+                    model_loop,
+                    lambda model_state: model_state.return_to_map_menu(),
+                )
+        elif self._menu_stage == "map":
+            self._selected_game_mode = None
+            self._menu_stage = "mode"
+        elif self._menu_stage == "mode" and model_loop is not None:
+            self._loading_status = "EXITING GAME"
+            self._loading_started_at_s = time.monotonic()
+            self._menu_stage = "loading"
+            invoke_async(model_loop, lambda model_state: model_state.request_exit())
 
     def _select_mode(self, mode: GameMode) -> None:
         self._selected_game_mode = mode
@@ -506,11 +531,7 @@ class TaxiHudState:
 
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
-        self._frames.clear()
-        self._current = None
-        self._waypoint_source = None
-        self._waypoint_projections = ()
-        self._ready_source = None
+        self._clear_presented_game()
         self._validation_message = ""
         self._submission_pending = False
         self._loading_status = "LOADING WORLD MODEL"
@@ -520,6 +541,14 @@ class TaxiHudState:
         self._reported_input_timestamps_us.clear()
         self._latest_input_latency_ms = None
         self._name_input = ""
+
+    def _clear_presented_game(self) -> None:
+        """Discard frame-aligned HUD and BEV resources from the previous game."""
+        self._frames.clear()
+        self._current = None
+        self._waypoint_source = None
+        self._waypoint_projections = ()
+        self._ready_source = None
         self._bev_source_key = None
         self._bev_panel = None
         self._bev_alpha = None
@@ -545,6 +574,7 @@ class TaxiHudState:
                 return
             imgui.text("SELECT GAME MODE")
             imgui.text("Choose how you want to play.")
+            imgui.text("ESC: EXIT")
             if imgui.button("TAXI"):
                 self._select_mode("taxi")
             if imgui.button("RACE"):
@@ -581,6 +611,7 @@ class TaxiHudState:
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
                 return
+            imgui.text("ESC: BACK")
             imgui.text("SELECT MAP" if mode == "taxi" else "SELECT MAP & RACE COURSE")
             available = False
             for index, option in enumerate(self.map_options):
@@ -1156,6 +1187,15 @@ def build_hud_frames(
             )
         )
     return tuple(frames)
+
+
+def _is_escape_press(event: object) -> bool:
+    """Return whether an input event is a pressed Escape key."""
+    return (
+        isinstance(event, KeyboardUserInputEvent)
+        and event.state is KeyboardInputState.PRESSED
+        and str(event.key).strip().lower() in {"esc", "escape"}
+    )
 
 
 def _prepare_window(

@@ -131,6 +131,20 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert menu_results[0].frame_count == 1
     assert torch.all(menu_results[0].output == -1.0)
 
+    rollout_closed: list[bool] = []
+    model_loop.state.scene = _scene()
+    model_loop.state.rollout = cast(
+        Any,
+        SimpleNamespace(close=lambda: rollout_closed.append(True)),
+    )
+    model_loop.state.game_selected = True
+    model_loop.state.return_to_map_menu()
+    assert rollout_closed == [True]
+    assert model_loop.state.scene is None
+    assert not model_loop.state.game_selected
+    model_loop.state.request_exit()
+    assert model_loop.is_finished()
+
 
 def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
     """Keep the app's fixed output contract compatible with V2 native output."""

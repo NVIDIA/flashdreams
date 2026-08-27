@@ -241,9 +241,17 @@ class _SubmissionLoop(IModelLoop[_SubmissionState]):
 @dataclass
 class _SelectionState:
     selections: list[GameSelection] = field(default_factory=list)
+    return_to_map_count: int = 0
+    exit_requested: bool = False
 
     def select_game(self, selection: GameSelection) -> None:
         self.selections.append(selection)
+
+    def return_to_map_menu(self) -> None:
+        self.return_to_map_count += 1
+
+    def request_exit(self) -> None:
+        self.exit_requested = True
 
 
 class _SelectionLoop(IModelLoop[_SelectionState]):
@@ -748,6 +756,48 @@ def test_race_menu_selects_map_and_course_together() -> None:
     ]
 
 
+def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    state._selected_game_mode = "race"
+    state._menu_stage = "game"
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="Escape",
+        state=KeyboardInputState.RELEASED,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="Escape",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    state.consume_input_events(UserInputEvents([released]))
+    assert state._menu_stage == "game"
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state._menu_stage == "map"
+    model_loop._run_message_batch()
+    assert model_loop.state.return_to_map_count == 1
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state._menu_stage == "mode"
+    assert state._selected_game_mode is None
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state._menu_stage == "loading"
+    assert state._loading_status == "EXITING GAME"
+    model_loop._run_message_batch()
+    assert model_loop.state.exit_requested
+
+
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
     video = torch.zeros(1, 3, 96, 160)
     state = TaxiHudState(
@@ -822,6 +872,7 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
             np.eye(4, dtype=np.float32)[None],
         )
     )
+    state._menu_stage = "loading"
     state.select_presented_frame(video[0])
     imgui = _FakeImGui()
     imgui.input_value = " DRIVER 7 "
