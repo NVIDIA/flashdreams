@@ -216,10 +216,6 @@ SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_OPTIMIZED_RTX_PRO_6000 = cast(
                             quantized_sdpa=True,
                         ),
                     ),
-                    cross_attn_optimized_impl_config=OptimizedImplConfig(
-                        qkv_fusion_option=QKVFusionOption.FUSE_KV,
-                        sdpa_backend=SDPABackend.FA2,
-                    ),
                 ),
             ),
         ),
