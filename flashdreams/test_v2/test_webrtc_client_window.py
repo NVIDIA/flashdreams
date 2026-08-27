@@ -244,16 +244,37 @@ async def test_video_track_resolves_pending_cuda_transfer_without_blocking() -> 
 
 
 @pytest.mark.asyncio
+async def test_video_track_repeats_latest_frame_without_buffering() -> None:
+    track = _VideoTrack(frames_per_second=60)
+    frame = torch.full((16, 16, 3), 31, dtype=torch.uint8).numpy()
+    try:
+        await track.enqueue((frame,))
+        first = await asyncio.wait_for(track.recv(), timeout=1)
+
+        assert track.qsize() == 0
+
+        repeated = await asyncio.wait_for(track.recv(), timeout=1)
+
+        assert first.pts == 0
+        assert repeated.pts == 1
+        assert abs(float(repeated.to_ndarray(format="rgb24").mean()) - 31.0) <= 2.0
+    finally:
+        await track.close()
+
+
+@pytest.mark.asyncio
 async def test_video_track_does_not_burst_to_catch_up_after_a_stall() -> None:
     track = _VideoTrack(frames_per_second=30)
     frame = torch.zeros((16, 16, 3), dtype=torch.uint8).numpy()
     try:
-        await track.enqueue((frame, frame, frame))
+        await track.enqueue((frame,))
         await track.recv()
         await asyncio.sleep(0.1)
 
+        await track.enqueue((frame,))
         await track.recv()
         resumed_at = asyncio.get_running_loop().time()
+        await track.enqueue((frame,))
         await track.recv()
         next_frame_at = asyncio.get_running_loop().time()
 
@@ -302,8 +323,8 @@ async def test_video_track_timestamps_sparse_frames_at_their_source_cadence() ->
 
 
 @pytest.mark.asyncio
-async def test_drop_oldest_video_track_keeps_the_latest_ui_frame() -> None:
-    track = _VideoTrack(frames_per_second=60, drop_oldest=True)
+async def test_video_track_keeps_the_latest_ui_frame() -> None:
+    track = _VideoTrack(frames_per_second=60)
     frames = tuple(
         torch.full((16, 16, 3), value, dtype=torch.uint8).numpy()
         for value in (10, 20, 30)
