@@ -13,12 +13,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "accelerate>=1.0",
-    "diffusers",
+    "diffusers @ git+https://github.com/huggingface/diffusers.git@119c339551f68ea523b9f204120b929e56342421",
     "flashdreams",
 ]
 
 [tool.uv.sources]
-diffusers = { git = "https://github.com/huggingface/diffusers.git", rev = "119c339551f68ea523b9f204120b929e56342421" }
 flashdreams = { workspace = true }
 
 [project.entry-points."flashdreams.applications_v2"]

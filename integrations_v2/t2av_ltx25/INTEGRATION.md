@@ -117,12 +117,46 @@ peak CUDA memory, output path, media properties, and hashes.
 | --- | --- | --- |
 | PR #526 focused CPU tests | Passed | 112 tests passed in 29.64 s |
 | Adapter CPU contracts | Passed | 23 CPU tests passed in 3.66 s |
-| Full runtime V2 CPU regression | Passed | 363 tests passed in 39.01 s |
+| Full runtime V2 CPU regression | Passed | 363 tests passed in 38.46 s |
 | Synchronized stand-in MP4 | Passed | H.264/AAC probe, exact 25 frames, decoded audible 48 kHz stereo |
 | Lint/type checks | Passed | pre-commit Ruff format/import checks and workspace `ty` |
-| Wheel/install/entry point | Passed | sdist/wheel built; `t2av-ltx25` discovered; delegated help passed |
+| Wheel/install/entry point | Passed | sdist/wheel built with the Diffusers Git SHA in `METADATA`; entry point and delegated help passed |
 | Matrix/gallery harness | Passed | Two distinct stand-in cases, one backend load, inspected MP4s, JSON and HTML |
 | Checkpoint access/load | Passed | Gate accepted; pinned snapshot downloaded and loaded from the official mirror |
 | Minimal real-model A/V smoke | Passed | 9 frames at 384x256; stereo 48 kHz audio; 4.8 s denoising, 42.41 s cached end to end |
-| GPU matrix | Pending | |
-| Gallery and selected MP4s | Pending | |
+| GPU matrix | Passed | 6/6 real cases; all codec, geometry, frame, signal, motion, and drift checks passed |
+| Gallery and selected MP4s | Passed | Portable HTML/JSON plus six MP4s; train, market, and maximum-duration greenhouse clips selected |
+
+### Real GPU matrix
+
+The matrix ran on an NVIDIA RTX PRO 6000 Blackwell Workstation Edition with model
+offload, BF16 weights, one shared model load, 24 fps output, and the local pinned
+checkpoint cache. The exact invocation was:
+
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/flashdreams-ltx25-benchmark \
+  --output-dir /home/jmccaffrey/projects/ltx25-gallery-20260827 \
+  --offload model --local-files-only --continue-on-error
+```
+
+| Case | Output | Generation | Throughput | Peak CUDA | Wall | Audio RMS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `sync_percussion_short` | 25 · 768x512 | 48.81 s | 0.512 fps | 41.91 GiB | 53.86 s | 0.2418 |
+| `dialogue_portrait` | 25 · 960x544 | 72.73 s | 0.344 fps | 41.98 GiB | 74.22 s | 0.1572 |
+| `ocean_wide` | 25 · 1280x736 | 35.00 s | 0.714 fps | 42.22 GiB | 36.62 s | 0.0275 |
+| `train_medium` | 121 · 768x512 | 43.14 s | 2.805 fps | 42.57 GiB | 48.78 s | 0.1516 |
+| `market_medium` | 121 · 960x544 | 50.23 s | 2.409 fps | 42.85 GiB | 56.07 s | 0.0163 |
+| `multishot_max` | 241 · 768x512 | 66.21 s | 3.640 fps | 43.39 GiB | 77.12 s | 0.0265 |
+
+Every artifact contains the exact requested frame count, H.264 video, AAC stereo at
+48 kHz, finite audible audio, changing video, and the requested dimensions. Video and
+audio duration differ by 0.000667 s in every case, well below one 48 kHz AAC frame.
+The shared model loaded in 3.42 s from the warm cache. Visual contact-sheet review found
+coherent motion and identity in all cases; `train_medium`, `market_medium`, and
+`multishot_max` were selected for their longer duration and visual coherence, while
+`sync_percussion_short` remains the focused transient-synchronization stress case.
+
+Artifacts are outside the Git worktree at
+`/home/jmccaffrey/projects/ltx25-gallery-20260827`. `manifest.json` records prompts,
+seeds, revisions, runtime measurements, media properties, all checks, paths, sizes, and
+SHA-256 digests; `gallery.html` embeds all six MP4 files with controls.
