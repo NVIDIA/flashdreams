@@ -46,5 +46,9 @@ class Mp4ClientWindow(IClientWindow):
         self._video_sink.write(result)
 
     def close(self) -> None:
-        """Finish the MP4 file."""
+        """Finish and atomically publish the MP4 file."""
         self._video_sink.close()
+
+    def abort(self) -> None:
+        """Discard an incomplete MP4 without changing the target."""
+        self._video_sink.abort()

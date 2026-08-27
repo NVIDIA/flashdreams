@@ -3,7 +3,6 @@
 
 """Description of the session a runtime asks an application for."""
 
-import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -18,7 +17,11 @@ class BackpressureMode(Enum):
     """Wait when the presentation queue is full."""
 
     DROP_OLDEST = "drop_oldest"
-    """Drop the oldest queued model step."""
+    """Drop the oldest queued model step.
+
+    For synchronized audio output, a dropped step is absent from the staged PCM
+    and becomes timeline silence when the file sink pads to the video duration.
+    """
 
 
 class PresentationMode(Enum):
@@ -61,6 +64,12 @@ class SessionDesc:
     video_height: int = 720
     """Output video height in pixels."""
 
+    audio_sample_rate: int | None = None
+    """PCM sample rate, or ``None`` when the session emits no audio."""
+
+    audio_channels: int | None = None
+    """PCM channel count, or ``None`` when the session emits no audio."""
+
     metadata: dict[str, Any] = field(default_factory=dict)
     """Extra values a runtime and an application agree on. Nothing here reads it."""
 
@@ -70,23 +79,43 @@ class SessionDesc:
         if not isinstance(self.presentation_mode, PresentationMode):
             raise TypeError("SessionDesc.presentation_mode must be a PresentationMode.")
         if (
-            not math.isfinite(self.frames_per_second_for_ui)
+            isinstance(self.frames_per_second_for_ui, bool)
+            or not isinstance(self.frames_per_second_for_ui, int)
             or self.frames_per_second_for_ui <= 0
         ):
             raise ValueError(
-                "SessionDesc.frames_per_second_for_ui must be > 0 when set."
+                "SessionDesc.frames_per_second_for_ui must be a positive integer."
             )
         if (
-            not math.isfinite(self.frames_per_second_for_step)
+            isinstance(self.frames_per_second_for_step, bool)
+            or not isinstance(self.frames_per_second_for_step, int)
             or self.frames_per_second_for_step <= 0
         ):
             raise ValueError(
-                "SessionDesc.frames_per_second_for_step must be > 0 when set."
+                "SessionDesc.frames_per_second_for_step must be a positive integer."
             )
         if self.video_width <= 0:
             raise ValueError("SessionDesc.video_width must be > 0 when set.")
         if self.video_height <= 0:
             raise ValueError("SessionDesc.video_height must be > 0 when set.")
+        if (self.audio_sample_rate is None) != (self.audio_channels is None):
+            raise ValueError(
+                "SessionDesc.audio_sample_rate and audio_channels must be set together."
+            )
+        if self.audio_sample_rate is not None and (
+            isinstance(self.audio_sample_rate, bool)
+            or not isinstance(self.audio_sample_rate, int)
+            or self.audio_sample_rate <= 0
+        ):
+            raise ValueError(
+                "SessionDesc.audio_sample_rate must be a positive integer."
+            )
+        if self.audio_channels is not None and (
+            isinstance(self.audio_channels, bool)
+            or not isinstance(self.audio_channels, int)
+            or self.audio_channels not in (1, 2)
+        ):
+            raise ValueError("SessionDesc.audio_channels must be the integer 1 or 2.")
 
 
 __all__ = ["BackpressureMode", "PresentationMode", "SessionDesc"]

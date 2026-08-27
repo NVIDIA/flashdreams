@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.api_v2.output_sink import AbortableOutputSink, OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -56,6 +56,13 @@ class ApplicationRunner:
             commandline_args: Arguments owned and parsed by the application.
         """
         run_started = False
+        application_closed = False
+
+        def close_before_output_commit() -> None:
+            nonlocal application_closed
+            application_closed = True
+            self._application.close()
+
         try:
             self._application.init(commandline_args)
             session = self._application.create_session(session_desc)
@@ -64,25 +71,30 @@ class ApplicationRunner:
                 session,
                 self._client_window,
                 metrics_output_sink=self._metrics_output_sink,
+                before_output_commit=close_before_output_commit,
             )
         finally:
             if not run_started:
                 _close_client_window(self._client_window)
                 if self._metrics_output_sink is not None:
                     _close_output_sink(self._metrics_output_sink)
-            _close_application(
-                self._application, run_failed=sys.exc_info()[0] is not None
-            )
+            if not application_closed:
+                _close_application(
+                    self._application, run_failed=sys.exc_info()[0] is not None
+                )
 
 
 def _close_client_window(client_window: IClientWindow) -> None:
-    """Close a window the run never reached, so what it was serving goes with it.
+    """Release a window the run never reached, aborting transactions.
 
     The run has already failed by the time this is called, so a failure here is
     logged rather than raised over the top of it.
     """
     try:
-        client_window.close()
+        if isinstance(client_window, AbortableOutputSink):
+            client_window.abort()
+        else:
+            client_window.close()
     except Exception:
         _LOGGER.exception(
             "The client window failed to close after a run that never started."
@@ -90,9 +102,12 @@ def _close_client_window(client_window: IClientWindow) -> None:
 
 
 def _close_output_sink(output_sink: OutputSink) -> None:
-    """Close a metrics sink after a run that never reached it."""
+    """Release a metrics sink after a run that never reached it."""
     try:
-        output_sink.close()
+        if isinstance(output_sink, AbortableOutputSink):
+            output_sink.abort()
+        else:
+            output_sink.close()
     except Exception:
         _LOGGER.exception(
             "The metrics output sink failed to close after a run that never started."
