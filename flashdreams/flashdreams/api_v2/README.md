@@ -112,6 +112,28 @@ Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the
 runtime presents them one per UI tick rather than dropping all but the last.
 
+A model `StepResult` may also carry auxiliary outputs. `metrics` holds scalar
+measurements. `tensor_artifacts` holds `TensorArtifactOutput` values, each
+pairing a tensor with a `TensorArtifactSchema`. The application declares every
+available schema in `SessionDesc.tensor_artifact_schemas`; each declared
+artifact is optional on every step.
+
+Artifact names are unique, portable filename stems. Dimension names are
+non-empty and unique, and define the tensor rank and storage order.
+`concatenate_axis` must name one of those dimensions; its default is axis zero.
+Set it to `None` when the artifact may be emitted only once per session
+generation. Each output tensor must have the declared rank and reuse the exact
+declared schema.
+
+The standard `TensorArtifactOutputSink` saves tensor values in `.npy` files and
+preserves dimension names, concatenation axes, dtypes, and shapes in the
+directory's **tensor_artifacts.json** manifest.
+
+A model step is one complete list of result channels. An artifact name may occur
+at most once across that whole list, so attach it to exactly one channel. These
+outputs are not video channels, are not composited by the UI, and UI-loop
+results do not reach model-output sinks.
+
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.

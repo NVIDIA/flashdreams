@@ -156,6 +156,12 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
             "to read. Nothing is measured unless this is asked for."
         ),
     )
+    parser.add_argument(
+        "--tensor-artifact-dir",
+        type=Path,
+        default=None,
+        help="Directory for named tensor outputs.",
+    )
     for mode in _MODES:
         mode.add_arguments(parser)
 

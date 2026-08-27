@@ -30,10 +30,14 @@ from flashdreams.runtime_v2.client_window_factory import (
     client_window_mode,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.model_output_sink import ModelOutputSink
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
     SessionDesc,
+)
+from flashdreams.runtime_v2.tensor_artifact_output_sink import (
+    TensorArtifactOutputSink,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -73,6 +77,13 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         application.init(application_args)
         return
     session_desc = _session_desc(application, parsed)
+    if parsed.tensor_artifact_dir is not None and not (
+        session_desc.tensor_artifact_schemas
+    ):
+        parser.error(
+            "--tensor-artifact-dir was requested, but the application declares "
+            "no tensor artifacts."
+        )
     window = mode.create(parsed)
     _report(mode.starting(window))
     # Nothing here says how long the run is: a session reports itself finished,
@@ -80,10 +91,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     metrics_output_sink = (
         None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )
+    model_output_sinks: list[ModelOutputSink] = []
+    if parsed.tensor_artifact_dir is not None:
+        model_output_sinks.append(TensorArtifactOutputSink(parsed.tensor_artifact_dir))
     ApplicationRunner(
         application,
         window,
         metrics_output_sink=metrics_output_sink,
+        model_output_sinks=model_output_sinks,
     ).run(session_desc, application_args)
     _report(mode.finished(window))
 

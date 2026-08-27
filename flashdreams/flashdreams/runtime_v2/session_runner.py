@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 from collections import deque
+from collections.abc import Sequence
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -14,7 +15,8 @@ from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
-from flashdreams.runtime_v2.session_desc import PresentationMode
+from flashdreams.runtime_v2.model_output_sink import ModelOutputSink
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -149,6 +151,25 @@ def _contains(events: UserInputEvents, event_type: type[UserInputEvent]) -> bool
     return any(isinstance(event, event_type) for event in events.get_events())
 
 
+class _PerResultModelOutputSink:
+    """Adapt the original per-result output contract to model batches."""
+
+    def __init__(self, output_sink: OutputSink) -> None:
+        self._output_sink = output_sink
+
+    def open(self, session_desc: SessionDesc) -> None:
+        self._output_sink.open(session_desc)
+
+    def write(self, generation: int, results: Sequence[StepResult]) -> None:
+        del generation
+        for result in results:
+            self._output_sink.write(result)
+
+    def close(self, *, commit: bool = True) -> None:
+        del commit
+        self._output_sink.close()
+
+
 def _log_secondary_failure(message: str, error: BaseException) -> None:
     """Log a cleanup failure that cannot replace an earlier exception."""
     _LOGGER.error(message, exc_info=error)
@@ -159,6 +180,7 @@ def run_session(
     window: IClientWindow,
     *,
     metrics_output_sink: OutputSink | None = None,
+    model_output_sinks: Sequence[ModelOutputSink] = (),
     steps: int | None = None,
     max_pending: int = 2,
 ) -> None:
@@ -176,7 +198,10 @@ def run_session(
         session: Session to run.
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
-            the model loop's results rather than the UI loop's.
+            the model loop's results rather than the UI loop's. Kept as a
+            compatibility shim for the original per-result contract.
+        model_output_sinks: Sinks receiving each complete model result batch and
+            the generation that produced it.
         steps: Maximum model steps; ``None`` runs until stopped.
         max_pending: Maximum model steps waiting to be shown.
 
@@ -211,7 +236,15 @@ def run_session(
     model_loop: IModelLoop[object] | None = None
     high_level_failures: BaseException | None = None
     cleanup_failures: list[BaseException] = []
-    attempted_output_sinks: list[OutputSink] = []
+    attempted_window = False
+    attempted_model_output_sinks: list[ModelOutputSink] = []
+    loop_failure: BaseException | None = None
+    active_model_output_sinks = tuple(model_output_sinks)
+    if metrics_output_sink is not None:
+        active_model_output_sinks = (
+            _PerResultModelOutputSink(metrics_output_sink),
+            *active_model_output_sinks,
+        )
 
     def collect_input() -> UserInputEvents:
         events = window.get_user_input_events()
@@ -244,9 +277,8 @@ def run_session(
                 frame_count=results[0].frame_count,
             )
         presentation_manager.publish(generation, results)
-        if metrics_output_sink is not None:
-            for result in results:
-                metrics_output_sink.write(result)
+        for model_output_sink in active_model_output_sinks:
+            model_output_sink.write(generation, results)
 
     def tick_ui() -> None:
         assert ui_loop is not None
@@ -274,11 +306,11 @@ def run_session(
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
-        attempted_output_sinks.append(window)
+        attempted_window = True
         window.open(session_desc)
-        if metrics_output_sink is not None:
-            attempted_output_sinks.append(metrics_output_sink)
-            metrics_output_sink.open(session_desc)
+        for model_output_sink in active_model_output_sinks:
+            attempted_model_output_sinks.append(model_output_sink)
+            model_output_sink.open(session_desc)
         collect_input()
         tick_ui()
 
@@ -333,9 +365,17 @@ def run_session(
         event_buffer.unregister(_MODEL_READER_ID)
         event_buffer.clear()
 
-        for output_sink in attempted_output_sinks:
+        if not session._failure_queue.empty():
+            loop_failure = session._failure_queue.get()
+        if attempted_window:
             try:
-                output_sink.close()
+                window.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
+        commit_model_outputs = loop_failure is None and high_level_failures is None
+        for model_output_sink in attempted_model_output_sinks:
+            try:
+                model_output_sink.close(commit=commit_model_outputs)
             except BaseException as error:
                 cleanup_failures.append(error)
         try:
@@ -343,10 +383,7 @@ def run_session(
         except BaseException as error:
             cleanup_failures.append(error)
 
-    loop_failures = (
-        None if session._failure_queue.empty() else session._failure_queue.get()
-    )
-    primary_failure = loop_failures or high_level_failures
+    primary_failure = loop_failure or high_level_failures
     if primary_failure is None and cleanup_failures:
         primary_failure = cleanup_failures.pop(0)
     for error in cleanup_failures:
