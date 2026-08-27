@@ -1,0 +1,1734 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>flashdreams.accelerated &#8212; FlashDreams v0.1.0</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=4b493ea1" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5" />
+
+    <script src="../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=fd10adb8"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){ dataLayer.push(arguments); }
+                gtag('consent', 'default', {
+                    'ad_storage': 'denied',
+                    'ad_user_data': 'denied',
+                    'ad_personalization': 'denied',
+                    'analytics_storage': 'denied'
+                });
+            </script>
+    <script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-Q44TKZ8777"></script>
+    <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', 'G-Q44TKZ8777');
+            </script>
+    <script>window.MathJax = {"options": {"processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developer_guides/flashdreams_accelerated';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
+    <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CLI and API Reference" href="../api/index.html" />
+    <link rel="prev" title="Local Demo Benchmarks" href="local_benchmarks.html" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="v0.1.0" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  <link rel="icon" type="image/svg+xml" href="../_static/logo-light.svg" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="../_static/logo-dark.svg" media="(prefers-color-scheme: dark)">
+
+  </head>
+  
+  
+  
+  <body data-default-mode="light">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+    
+    <img src="../_static/horizontal-light.svg" class="logo__image only-light" alt="FlashDreams v0.1.0 - Home"/>
+    <img src="../_static/horizontal-dark.svg" class="logo__image only-dark pst-js-only" alt="FlashDreams v0.1.0 - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../community/index.html">
+    Contribute
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quickstart/index.html">
+    Get Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../documentation.html">
+    Documentation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../models/index.html">
+    Models
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../community/index.html">
+    Contribute
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
+<li class="toctree-l2"><a class="reference internal" href="local_benchmarks.html">Local Demo Benchmarks</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">flashdreams.accelerated</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">CLI and API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/cli.html">CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/launch_manifests.html">Launch manifests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+  
+    
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../documentation.html" class="nav-link">Documentation</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">flashdreams.accelerated</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<section class="tex2jax_ignore mathjax_ignore" id="flashdreams-accelerated">
+<h1>flashdreams.accelerated<a class="headerlink" href="#flashdreams-accelerated" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">flashdreams.accelerated</span></code> is a low-level acceleration library used by
+FlashDreams to build high-performance modules for streaming video models. It
+currently contains two components:</p>
+<ul class="simple">
+<li><p>Quantization Toolkit</p></li>
+<li><p>Optimized Multi Head Attention</p></li>
+</ul>
+<p>In the future, <code class="docutils literal notranslate"><span class="pre">flashdreams.accelerated</span></code> should be refactored into
+<code class="docutils literal notranslate"><span class="pre">flashdreams.core</span></code> alongside CUDA graph capture, context parallelism,
+disaggregated execution, additional low-level optimized kernels such as the
+optimized multi-head attention implementation, and a possible autotuning
+system. These building blocks will help FlashDreams achieve speed-of-light
+performance across different platforms.</p>
+<section id="quantization-toolkit">
+<h2>Quantization Toolkit<a class="headerlink" href="#quantization-toolkit" title="Link to this heading">#</a></h2>
+<p>The toolkit currently has two features:</p>
+<ul class="simple">
+<li><p><strong>Accelerated quantizer for tensor quantize and dequantize</strong></p></li>
+<li><p><strong>Quantized linear layer</strong></p></li>
+</ul>
+<section id="accelerated-quantizer">
+<h3>Accelerated Quantizer<a class="headerlink" href="#accelerated-quantizer" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">quantize</span></code> quantizes a tensor to a specified dtype and scale granularity.</p>
+<section id="target-dtype">
+<h4>Target Dtype<a class="headerlink" href="#target-dtype" title="Link to this heading">#</a></h4>
+<p>The supported target dtypes/formats are <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code>,
+<code class="docutils literal notranslate"><span class="pre">torch.float8_e5m2</span></code>, and <code class="docutils literal notranslate"><span class="pre">torch.int8</span></code>.</p>
+<p>For example, consider the floating-point vector</p>
+<div class="math notranslate nohighlight">
+\[
+x = [0.42, 0.37, -0.67].
+\]</div>
+<p>For INT8, <span class="math notranslate nohighlight">\(M_{\mathrm{int8}} = 127\)</span>. Using one scale and rounding the scaled
+values to the nearest integers gives</p>
+<div class="math notranslate nohighlight">
+\[
+s = \frac{0.67}{127} \approx 0.005276, \qquad
+\bar{x} = \mathrm{round}(x / s) = [80, 70, -127].
+\]</div>
+<p>The quantized vector is therefore <span class="math notranslate nohighlight">\([80, 70, -127]\)</span> with scale
+<span class="math notranslate nohighlight">\(s \approx 0.005276\)</span>.</p>
+</section>
+<section id="scale-granularity">
+<h4>Scale Granularity<a class="headerlink" href="#scale-granularity" title="Link to this heading">#</a></h4>
+<p>For an input matrix <span class="math notranslate nohighlight">\(X \in \mathbb{R}^{L \times D}\)</span> and a target dtype <span class="math notranslate nohighlight">\(t\)</span>,
+let <span class="math notranslate nohighlight">\(M_t\)</span> be the largest finite positive value that <span class="math notranslate nohighlight">\(t\)</span> can represent and let
+<span class="math notranslate nohighlight">\(\epsilon\)</span> be a small positive scale floor.</p>
+<p>Per-tensor granularity computes one scale for the complete matrix:</p>
+<div class="math notranslate nohighlight">
+\[
+s_{\text{tensor}} =
+\max\left(\frac{\max_{i,j}|X_{ij}|}{M_t}, \epsilon\right).
+\]</div>
+<p>Every element is divided by <span class="math notranslate nohighlight">\(s_{\text{tensor}}\)</span> before it is clipped to
+<span class="math notranslate nohighlight">\([-M_t, M_t]\)</span> and converted to <span class="math notranslate nohighlight">\(t\)</span>.</p>
+<figure class="align-center" id="id2">
+<a class="reference internal image-reference" href="../_images/tensor-wise-quantization.svg"><img alt="Tensor-wise quantization applies one shared scale to the complete tensor." src="../_images/tensor-wise-quantization.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Tensor-wise quantization applies one shared scale to the complete tensor.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Per-slice granularity computes a scale for every slice along the selected
+axis. For a matrix, <code class="docutils literal notranslate"><span class="pre">axis=0</span></code> reduces across rows and produces one scale per
+column, while <code class="docutils literal notranslate"><span class="pre">axis=1</span></code> reduces across columns and produces one scale per row:</p>
+<div class="math notranslate nohighlight">
+\[
+s_j^{(\text{axis}=0)} =
+\max\left(\frac{\max_i|X_{ij}|}{M_t}, \epsilon\right), \qquad
+s_i^{(\text{axis}=1)} =
+\max\left(\frac{\max_j|X_{ij}|}{M_t}, \epsilon\right).
+\]</div>
+<p>Thus, <code class="docutils literal notranslate"><span class="pre">axis=0</span></code> divides each <span class="math notranslate nohighlight">\(X_{ij}\)</span> by its column scale <span class="math notranslate nohighlight">\(s_j\)</span>, and <code class="docutils literal notranslate"><span class="pre">axis=1</span></code>
+divides it by its row scale <span class="math notranslate nohighlight">\(s_i\)</span>.</p>
+<figure class="align-center" id="id3">
+<a class="reference internal image-reference" href="../_images/slice-wise-quantization-axis0.svg"><img alt="Slice-wise quantization along axis zero applies one scale to each column." src="../_images/slice-wise-quantization-axis0.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Slice-wise quantization with <code class="docutils literal notranslate"><span class="pre">axis=0</span></code> applies one scale to each column.</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="align-center" id="id4">
+<a class="reference internal image-reference" href="../_images/slice-wise-quantization-axis1.svg"><img alt="Slice-wise quantization along axis one applies one scale to each row." src="../_images/slice-wise-quantization-axis1.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Slice-wise quantization with <code class="docutils literal notranslate"><span class="pre">axis=1</span></code> applies one scale to each row.</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Using the same vector as the first column of a <span class="math notranslate nohighlight">\((3, 2)\)</span> matrix and adding a
+second column gives</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}
+X =
+\begin{bmatrix}
+0.42 &amp; 0.12 \\
+0.37 &amp; -0.91 \\
+-0.67 &amp; 0.55
+\end{bmatrix}.
+\end{split}\]</div>
+<p><strong>Per tensor.</strong> One scale covers all six elements:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}
+s_{\mathrm{tensor}} = \frac{0.91}{127} \approx 0.007165, \qquad
+\bar{X}_{\mathrm{tensor}} =
+\begin{bmatrix}
+59 &amp; 17 \\
+52 &amp; -127 \\
+-94 &amp; 77
+\end{bmatrix}.
+\end{split}\]</div>
+<p><strong>Per slice with <code class="docutils literal notranslate"><span class="pre">axis=0</span></code>.</strong> Reducing across the three rows produces one scale
+for each of the two columns:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}
+s^{(\mathrm{axis}=0)} =
+\begin{bmatrix}0.67 / 127 &amp; 0.91 / 127\end{bmatrix}
+\approx
+\begin{bmatrix}0.005276 &amp; 0.007165\end{bmatrix}, \qquad
+\bar{X}^{(\mathrm{axis}=0)} =
+\begin{bmatrix}
+80 &amp; 17 \\
+70 &amp; -127 \\
+-127 &amp; 77
+\end{bmatrix}.
+\end{split}\]</div>
+<p><strong>Per slice with <code class="docutils literal notranslate"><span class="pre">axis=1</span></code>.</strong> Reducing across the two columns produces one scale
+for each of the three rows:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}
+s^{(\mathrm{axis}=1)} =
+\begin{bmatrix}
+0.42 / 127 \\
+0.91 / 127 \\
+0.67 / 127
+\end{bmatrix}
+\approx
+\begin{bmatrix}
+0.003307 \\
+0.007165 \\
+0.005276
+\end{bmatrix}, \qquad
+\bar{X}^{(\mathrm{axis}=1)} =
+\begin{bmatrix}
+127 &amp; 36 \\
+52 &amp; -127 \\
+-127 &amp; 104
+\end{bmatrix}.
+\end{split}\]</div>
+<blockquote>
+<div><p><strong>Why retain the scale for FP8 quantization?</strong> Although an FP16 or FP32
+tensor can be cast directly to FP8, a direct cast does not adapt FP8’s
+limited representable range to the tensor’s magnitude. Dividing by the
+scale before conversion maps the tensor into <span class="math notranslate nohighlight">\([-M_t, M_t]\)</span> and uses more of
+the available FP8 range, preserving more precision. The scale must be kept
+to recover the original magnitude during dequantization or to incorporate
+it into a subsequent operation. This is especially important for quantized
+algorithms such as SageAttention, whose accuracy depends on applying the
+quantization scales correctly.</p>
+</div></blockquote>
+<blockquote>
+<div><p><strong>Planned: per-tile quantization.</strong> SageAttention also uses per-tile
+quantization, a powerful scheme that computes scales over individual tensor
+tiles. The Quantization Toolkit does not currently support this granularity;
+it is one of its most important missing features and should be planned for a
+future version.</p>
+</div></blockquote>
+<figure class="align-center" id="id5">
+<a class="reference internal image-reference" href="../_images/tile-wise-quantization.svg"><img alt="Tile-wise quantization applies a separate scale to each tensor tile." src="../_images/tile-wise-quantization.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Tile-wise quantization applies a separate scale to each tile and is planned for a future version.</span><a class="headerlink" href="#id5" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>CUDA tensors use the Triton implementation by default; CPU tensors use the
+Torch implementation. The quantizer performs scale computation in detached
+FP32 values. The returned scale tensor is FP32 and retains all input
+dimensions, with reduced dimensions kept at size one.</p>
+<p><code class="docutils literal notranslate"><span class="pre">dequantize</span></code> casts <span class="math notranslate nohighlight">\(\bar X\)</span> to the first scale’s dtype and applies every
+provided scale in order with normal tensor broadcasting:</p>
+<div class="math notranslate nohighlight">
+\[
+X = \mathrm{dequantize}\left(\bar X, s^{(1)}, \ldots, s^{(m)}\right)
+\approx \bar X \odot \prod_{r=1}^{m}s^{(r)}.
+\]</div>
+<p>For example, the INT8 vector and scale from the earlier example are</p>
+<div class="math notranslate nohighlight">
+\[
+\bar{x} = [80, 70, -127], \qquad
+s = \frac{0.67}{127} \approx 0.005276.
+\]</div>
+<p>Dequantization multiplies every quantized value by the scale:</p>
+<div class="math notranslate nohighlight">
+\[
+\hat{x} = \bar{x}s
+= [80s, 70s, -127s]
+\approx [0.4220, 0.3693, -0.6700].
+\]</div>
+<p>The result approximates the original vector <span class="math notranslate nohighlight">\([0.42, 0.37, -0.67]\)</span>. The small
+difference in the first two values comes from rounding during INT8
+quantization.</p>
+<p>It then casts the result to the requested output dtype (FP16 by default). With
+no scales, it directly casts <span class="math notranslate nohighlight">\(\bar X\)</span> to that dtype. This supports, for
+example, separately applying activation and weight scales after a GEMM.</p>
+</section>
+<section id="quantized-gemm">
+<h4>Quantized GEMM<a class="headerlink" href="#quantized-gemm" title="Link to this heading">#</a></h4>
+<p>For a quantized-GEMM example, let <span class="math notranslate nohighlight">\(Q \in \mathbb{R}^{L \times D}\)</span> and
+<span class="math notranslate nohighlight">\(K \in \mathbb{R}^{S \times D}\)</span> be token-major query and key matrices,
+with <span class="math notranslate nohighlight">\(L\)</span> query tokens, <span class="math notranslate nohighlight">\(S\)</span> key tokens, and feature width <span class="math notranslate nohighlight">\(D\)</span>. Their
+full-precision score matrix is <span class="math notranslate nohighlight">\(QK^\mathsf{T} \in \mathbb{R}^{L \times S}\)</span>.
+With tensorwise quantization, scalar scales <span class="math notranslate nohighlight">\(s_Q\)</span> and <span class="math notranslate nohighlight">\(s_K\)</span>, and quantized
+matrices <span class="math notranslate nohighlight">\(\bar Q\)</span> and <span class="math notranslate nohighlight">\(\bar K\)</span>, the scaled product is</p>
+<div class="math notranslate nohighlight">
+\[
+QK^\mathsf{T} \approx (s_Qs_K)\,(\bar Q\bar K^\mathsf{T}).
+\]</div>
+<figure class="align-center" id="id6">
+<a class="reference internal image-reference" href="../_images/tensor-tensor-quantized-gemm.svg"><img alt="Tensor-tensor quantized GEMM applies the two tensor scales to the quantized matrix product." src="../_images/tensor-tensor-quantized-gemm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Tensor–tensor quantized GEMM combines the two scalar scales.</span><a class="headerlink" href="#id6" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>With <code class="docutils literal notranslate"><span class="pre">Granularity.SLICE</span></code> and <code class="docutils literal notranslate"><span class="pre">axis=-1</span></code>, each token instead has a scale:
+<span class="math notranslate nohighlight">\(s_Q \in \mathbb{R}^{L \times 1}\)</span> and
+<span class="math notranslate nohighlight">\(s_K \in \mathbb{R}^{S \times 1}\)</span>. The corresponding per-token result is</p>
+<div class="math notranslate nohighlight">
+\[
+QK^\mathsf{T} \approx
+\left(s_Qs_K^\mathsf{T}\right) \odot
+\left(\bar Q\bar K^\mathsf{T}\right),
+\]</div>
+<p>where <span class="math notranslate nohighlight">\(s_Qs_K^\mathsf{T} \in \mathbb{R}^{L \times S}\)</span> is the outer product
+of the query and key token scales and <span class="math notranslate nohighlight">\(\odot\)</span> is elementwise multiplication.
+These equations describe composing the tensor quantizer with a GEMM; the
+quantizer itself does not perform attention or provide a fused QK kernel.</p>
+<figure class="align-center" id="id7">
+<a class="reference internal image-reference" href="../_images/slice-slice-quantized-gemm.svg"><img alt="Slice-slice quantized GEMM applies an outer product of row and column scales." src="../_images/slice-slice-quantized-gemm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Slice–slice quantized GEMM applies the outer product of the slice scales.</span><a class="headerlink" href="#id7" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="align-center" id="id8">
+<a class="reference internal image-reference" href="../_images/slice-tensor-quantized-gemm.svg"><img alt="Slice-tensor quantized GEMM combines per-slice scales with one tensor scale." src="../_images/slice-tensor-quantized-gemm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Slice–tensor quantized GEMM combines per-slice scales with one scalar scale.</span><a class="headerlink" href="#id8" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="align-center" id="id9">
+<a class="reference internal image-reference" href="../_images/tile-tile-quantized-gemm.svg"><img alt="Tile-tile quantized GEMM scales and accumulates the products of quantized tiles." src="../_images/tile-tile-quantized-gemm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Tile–tile quantized GEMM scales and accumulates individual tile products. Tile
+granularity is planned and is not currently supported by the toolkit.</span><a class="headerlink" href="#id9" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<blockquote>
+<div><p><strong>Inner-dimension rule for slice-quantized GEMM.</strong> For
+<span class="math notranslate nohighlight">\(C = AB\)</span> with <span class="math notranslate nohighlight">\(A \in \mathbb{R}^{M \times K}\)</span> and
+<span class="math notranslate nohighlight">\(B \in \mathbb{R}^{K \times N}\)</span>, the shared inner dimension <span class="math notranslate nohighlight">\(K\)</span> must be the
+quantization axis: use <code class="docutils literal notranslate"><span class="pre">axis=1</span></code> for <span class="math notranslate nohighlight">\(A\)</span> and <code class="docutils literal notranslate"><span class="pre">axis=0</span></code> for <span class="math notranslate nohighlight">\(B\)</span>. This produces
+row scales <span class="math notranslate nohighlight">\(s_{A,i}\)</span> and column scales <span class="math notranslate nohighlight">\(s_{B,j}\)</span> that remain constant across
+each dot product, allowing
+<span class="math notranslate nohighlight">\(C_{ij} \approx s_{A,i}s_{B,j}\sum_k \bar A_{ik}\bar B_{kj}\)</span>. If either
+scale varied with <span class="math notranslate nohighlight">\(k\)</span>, it would have to stay inside the sum; a single scale
+applied after GEMM could not dequantize the accumulator correctly. For
+<span class="math notranslate nohighlight">\(QK^\mathsf{T}\)</span>, both <span class="math notranslate nohighlight">\(Q\)</span> and the untransposed <span class="math notranslate nohighlight">\(K\)</span> store their shared feature
+dimension on <code class="docutils literal notranslate"><span class="pre">axis=1</span></code>, so both are quantized with <code class="docutils literal notranslate"><span class="pre">axis=1</span></code>. For token-major
+<span class="math notranslate nohighlight">\(Q\)</span> and <span class="math notranslate nohighlight">\(K\)</span>, this produces one scale per token and is referred to as
+per-token quantization in the
+<a class="reference external" href="https://arxiv.org/abs/2410.02367">SageAttention paper</a>.
+Transposing <span class="math notranslate nohighlight">\(K\)</span> then moves
+that dimension to <code class="docutils literal notranslate"><span class="pre">axis=0</span></code> of the GEMM’s right operand, satisfying the same
+rule.</p>
+</div></blockquote>
+<figure class="align-center" id="id10">
+<a class="reference internal image-reference" href="../_images/invalid-inner-quantized-gemm.svg"><img alt="Invalid slice quantization varies scales along the GEMM inner dimension." src="../_images/invalid-inner-quantized-gemm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Invalid inner-dimension quantization cannot use a single post-GEMM scale.</span><a class="headerlink" href="#id10" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</section>
+<section id="worked-slice-quantized-gemm">
+<h4>Worked Slice-Quantized GEMM<a class="headerlink" href="#worked-slice-quantized-gemm" title="Link to this heading">#</a></h4>
+<p>This example quantizes <span class="math notranslate nohighlight">\(A\)</span> per row and <span class="math notranslate nohighlight">\(B\)</span> per column, accumulates their GEMM
+in INT32, and dequantizes the result with both scale tensors:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.quantization.quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Granularity</span><span class="p">,</span>
+    <span class="n">dequantize</span><span class="p">,</span>
+    <span class="n">quantize</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">]])</span>
+<span class="c1"># a: shape=(3, 2), dtype=torch.float32</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">7.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">9.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">11.0</span><span class="p">,</span> <span class="mf">12.0</span><span class="p">]])</span>
+<span class="c1"># b: shape=(2, 3), dtype=torch.float32</span>
+
+<span class="n">quantized_a</span><span class="p">,</span> <span class="n">scale_a</span> <span class="o">=</span> <span class="n">quantize</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">Granularity</span><span class="o">.</span><span class="n">SLICE</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span>
+<span class="p">)</span>
+<span class="c1"># quantized_a: shape=(3, 2), dtype=torch.int8</span>
+<span class="c1"># scale_a: shape=(3, 1), dtype=torch.float32</span>
+<span class="n">quantized_b</span><span class="p">,</span> <span class="n">scale_b</span> <span class="o">=</span> <span class="n">quantize</span><span class="p">(</span>
+    <span class="n">b</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">Granularity</span><span class="o">.</span><span class="n">SLICE</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span>
+<span class="p">)</span>
+<span class="c1"># quantized_b: shape=(2, 3), dtype=torch.int8</span>
+<span class="c1"># scale_b: shape=(1, 3), dtype=torch.float32</span>
+
+<span class="c1"># Accumulate in INT32 so the INT8 products do not overflow.</span>
+<span class="n">quantized_c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_int_mm</span><span class="p">(</span><span class="n">quantized_a</span><span class="p">,</span> <span class="n">quantized_b</span><span class="p">)</span>
+<span class="c1"># quantized_c: shape=(3, 3), dtype=torch.int32</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">dequantize</span><span class="p">(</span>
+    <span class="n">quantized_c</span><span class="p">,</span> <span class="n">scale_a</span><span class="p">,</span> <span class="n">scale_b</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+<span class="p">)</span>
+<span class="c1"># c: shape=(3, 3), dtype=torch.float32</span>
+<span class="n">reference_c</span> <span class="o">=</span> <span class="n">a</span> <span class="o">@</span> <span class="n">b</span>
+<span class="c1"># reference_c: shape=(3, 3), dtype=torch.float32</span>
+
+<span class="k">assert</span> <span class="n">quantized_a</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="p">[[</span><span class="mi">64</span><span class="p">,</span> <span class="mi">127</span><span class="p">],</span> <span class="p">[</span><span class="mi">95</span><span class="p">,</span> <span class="mi">127</span><span class="p">],</span> <span class="p">[</span><span class="mi">106</span><span class="p">,</span> <span class="mi">127</span><span class="p">]]</span>
+<span class="k">assert</span> <span class="n">quantized_b</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="p">[[</span><span class="mi">89</span><span class="p">,</span> <span class="mi">92</span><span class="p">,</span> <span class="mi">95</span><span class="p">],</span> <span class="p">[</span><span class="mi">127</span><span class="p">,</span> <span class="mi">127</span><span class="p">,</span> <span class="mi">127</span><span class="p">]]</span>
+<span class="k">assert</span> <span class="n">quantized_c</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="p">[</span>
+    <span class="p">[</span><span class="mi">21825</span><span class="p">,</span> <span class="mi">22017</span><span class="p">,</span> <span class="mi">22209</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">24584</span><span class="p">,</span> <span class="mi">24869</span><span class="p">,</span> <span class="mi">25154</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">25563</span><span class="p">,</span> <span class="mi">25881</span><span class="p">,</span> <span class="mi">26199</span><span class="p">],</span>
+<span class="p">]</span>
+<span class="k">assert</span> <span class="n">scale_a</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>  <span class="c1"># One scale per row of A.</span>
+<span class="k">assert</span> <span class="n">scale_b</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>  <span class="c1"># One scale per column of B.</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_close</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">reference_c</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+<span class="c1"># tensor([[ 27.0631,  30.0312,  33.0471],</span>
+<span class="c1">#         [ 60.9684,  67.8428,  74.8585],</span>
+<span class="c1">#         [ 95.0946, 105.9053, 116.9526]])</span>
+</pre></div>
+</div>
+<p>Passing <code class="docutils literal notranslate"><span class="pre">scale_a</span></code> and <code class="docutils literal notranslate"><span class="pre">scale_b</span></code> separately to <code class="docutils literal notranslate"><span class="pre">dequantize</span></code> applies them with
+normal broadcasting, combining each row scale from <span class="math notranslate nohighlight">\(A\)</span> with each column scale
+from <span class="math notranslate nohighlight">\(B\)</span> without materializing their outer product.</p>
+</section>
+</section>
+<section id="quantized-linear-layer">
+<h3>Quantized Linear Layer<a class="headerlink" href="#quantized-linear-layer" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">QuantizedNonPersistentLinear</span></code> constructs an inference projection from existing
+weight <span class="math notranslate nohighlight">\(W \in \mathbb{R}^{O \times I}\)</span> and optional bias
+<span class="math notranslate nohighlight">\(b \in \mathbb{R}^{O}\)</span>. It keeps the derived quantized weight, bias, and
+FP32 weight scale as nonpersistent buffers, so callers rebuild them from
+checkpoint tensors rather than loading them from <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">WeightGranularity.PER_OUT_CHANNEL</span></code> quantizes each weight row with
+<code class="docutils literal notranslate"><span class="pre">Granularity.SLICE</span></code> and <code class="docutils literal notranslate"><span class="pre">axis=-1</span></code>, giving a weight scale shaped <span class="math notranslate nohighlight">\([O, 1]\)</span>.
+<code class="docutils literal notranslate"><span class="pre">WeightGranularity.TENSOR</span></code> gives one <span class="math notranslate nohighlight">\([1, 1]\)</span> scale for all weights. The
+supported weight granularities are deliberately limited to per-output-channel
+and per-tensor quantization by the inner-dimension rule described above. In
+<span class="math notranslate nohighlight">\(XW^\mathsf{T}\)</span>, the input dimension <span class="math notranslate nohighlight">\(I\)</span> is the GEMM reduction dimension.
+Per-output-channel scales and a tensorwise scale remain constant across <span class="math notranslate nohighlight">\(I\)</span>
+and can therefore be applied after GEMM. A per-input-channel scale would vary
+across <span class="math notranslate nohighlight">\(I\)</span>, so it would have to remain inside the reduction and could not be
+applied as a single post-GEMM scale. The layer accepts the same quantized
+dtypes as the quantizer.</p>
+<p>For activations <span class="math notranslate nohighlight">\(X \in \mathbb{R}^{\ldots \times I}\)</span>, inference has two
+paths. Passing a <code class="docutils literal notranslate"><span class="pre">Granularity</span></code> dynamically quantizes <span class="math notranslate nohighlight">\(X\)</span> with <code class="docutils literal notranslate"><span class="pre">axis=-1</span></code>.
+Passing prequantized <span class="math notranslate nohighlight">\(\bar X\)</span> instead requires the layer’s activation dtype
+and an FP32 tensorwise scale shaped <span class="math notranslate nohighlight">\([1, \ldots, 1]\)</span> or slice scale shaped
+<span class="math notranslate nohighlight">\([\ldots, 1]\)</span>. After flattening leading dimensions into GEMM rows, both
+paths compute the scaled projection</p>
+<div class="math notranslate nohighlight">
+\[
+Y \approx (\bar X\bar W^\mathsf{T}) \odot
+\left(S_XS_W^\mathsf{T}\right) + b,
+\]</div>
+<p>where <span class="math notranslate nohighlight">\(S_X\)</span> broadcasts down output rows and <span class="math notranslate nohighlight">\(S_W^\mathsf{T}\)</span> broadcasts
+across output columns. <code class="docutils literal notranslate"><span class="pre">int8</span></code> uses an integer GEMM followed by application of
+the activation and weight scales; FP8 uses scaled GEMM with those same scales.
+The result is returned as <code class="docutils literal notranslate"><span class="pre">out_dtype</span></code> (FP16 by default), including after any
+internal BF16 FP8 rowwise GEMM result is cast, and the optional bias is applied
+in that output dtype.</p>
+<section id="quantized-forward-example">
+<span id="id1"></span><h4>Quantized Forward Example<a class="headerlink" href="#quantized-forward-example" title="Link to this heading">#</a></h4>
+<p>The layer can quantize a full-precision input during <code class="docutils literal notranslate"><span class="pre">forward</span></code>, or reuse an
+input that was quantized beforehand:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.quantization.linear</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">QuantizedNonPersistentLinear</span><span class="p">,</span>
+    <span class="n">WeightGranularity</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.quantization.quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">Granularity</span><span class="p">,</span> <span class="n">quantize</span>
+
+<span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">]])</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QuantizedNonPersistentLinear</span><span class="p">(</span>
+    <span class="n">weight</span><span class="p">,</span>
+    <span class="n">bias</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">granularity</span><span class="o">=</span><span class="n">WeightGranularity</span><span class="o">.</span><span class="n">PER_OUT_CHANNEL</span><span class="p">,</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">]])</span>
+
+<span class="c1"># Quantize full-precision x inside the forward call.</span>
+<span class="n">dynamic_output</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">Granularity</span><span class="o">.</span><span class="n">SLICE</span><span class="p">,</span> <span class="n">out_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="c1"># dynamic_output: shape=(2, 3), dtype=torch.float32</span>
+
+<span class="c1"># Quantize x once, then reuse it for the prequantized forward path.</span>
+<span class="n">quantized_x</span><span class="p">,</span> <span class="n">x_scale</span> <span class="o">=</span> <span class="n">quantize</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">,</span> <span class="n">layer</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">Granularity</span><span class="o">.</span><span class="n">SLICE</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span>
+<span class="p">)</span>
+<span class="c1"># quantized_x: shape=(2, 2), dtype=torch.int8</span>
+<span class="c1"># x_scale: shape=(2, 1), dtype=torch.float32</span>
+<span class="n">prequantized_output</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span>
+    <span class="n">quantized_x</span><span class="p">,</span> <span class="n">x_scale</span><span class="p">,</span> <span class="n">out_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+<span class="p">)</span>
+<span class="c1"># prequantized_output: shape=(2, 3), dtype=torch.float32</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_close</span><span class="p">(</span><span class="n">dynamic_output</span><span class="p">,</span> <span class="n">prequantized_output</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The prequantized path is useful when several projections consume the same
+input. For example, the Q, K, and V projections in self-attention all consume
+the same <span class="math notranslate nohighlight">\(x\)</span>, so its quantized tensor and scale can be shared across those
+forward calls.</p>
+</section>
+</section>
+</section>
+<section id="optimized-multi-head-attention">
+<h2>Optimized Multi Head Attention<a class="headerlink" href="#optimized-multi-head-attention" title="Link to this heading">#</a></h2>
+<section id="multi-head-attention-definition">
+<h3>Multi Head Attention Definition<a class="headerlink" href="#multi-head-attention-definition" title="Link to this heading">#</a></h3>
+<p>Let query tokens be <span class="math notranslate nohighlight">\(X \in \mathbb{R}^{B \times L \times C_Q}\)</span> and
+context tokens be <span class="math notranslate nohighlight">\(C \in \mathbb{R}^{B \times S \times C_K}\)</span>, where
+<span class="math notranslate nohighlight">\(B\)</span> is the flattened leading batch/group size, <span class="math notranslate nohighlight">\(L\)</span> the query length,
+<span class="math notranslate nohighlight">\(S\)</span> the context length, <span class="math notranslate nohighlight">\(H\)</span> the number of heads, and <span class="math notranslate nohighlight">\(d\)</span> the head
+dimension. With inner width <span class="math notranslate nohighlight">\(Hd\)</span>, the projections are</p>
+<div class="math notranslate nohighlight">
+\[
+Q = \mathrm{reshape}(XW_Q + b_Q), \qquad
+K = \mathrm{reshape}(CW_K + b_K), \qquad
+V = \mathrm{reshape}(CW_V + b_V),
+\]</div>
+<p>where each reshaped tensor has shape <span class="math notranslate nohighlight">\([B, L, H, d]\)</span> for <span class="math notranslate nohighlight">\(Q\)</span> or
+<span class="math notranslate nohighlight">\([B, S, H, d]\)</span> for <span class="math notranslate nohighlight">\(K\)</span> and <span class="math notranslate nohighlight">\(V\)</span>.</p>
+<p>Optional Q/K RMS normalization maps a feature vector
+<span class="math notranslate nohighlight">\(z \in \mathbb{R}^{m}\)</span> to</p>
+<div class="math notranslate nohighlight">
+\[
+\mathrm{RMSNorm}_{\gamma}(z)
+= \gamma \odot
+\frac{z}{\sqrt{\frac{1}{m}\sum_{i=1}^{m}z_i^2 + \epsilon}},
+\]</div>
+<p>where <span class="math notranslate nohighlight">\(\gamma \in \mathbb{R}^{m}\)</span> is the learned elementwise weight. With
+head-scoped normalization, <span class="math notranslate nohighlight">\(m=d\)</span> and each head is normalized independently.
+With inner-scoped normalization, <span class="math notranslate nohighlight">\(m=Hd\)</span> and all heads for a token are
+normalized together. No normalization leaves Q and K unchanged. Let
+<span class="math notranslate nohighlight">\(Q^{(n)}\)</span> and <span class="math notranslate nohighlight">\(K^{(n)}\)</span> denote the resulting tensors; V is never normalized.</p>
+<figure class="align-center" id="id11">
+<a class="reference internal image-reference" href="../_images/per-head-rms-norm.svg"><img alt="Head-scoped RMSNorm normalizes every attention head independently." src="../_images/per-head-rms-norm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Head-scoped RMSNorm normalizes each attention head independently with <span class="math notranslate nohighlight">\(m=d\)</span>.</span><a class="headerlink" href="#id11" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="align-center" id="id12">
+<a class="reference internal image-reference" href="../_images/inner-rms-norm.svg"><img alt="Inner-scoped RMSNorm normalizes all attention heads for a token together." src="../_images/inner-rms-norm.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Inner-scoped RMSNorm normalizes the complete projected inner dimension with <span class="math notranslate nohighlight">\(m=Hd\)</span>.</span><a class="headerlink" href="#id12" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>For even <span class="math notranslate nohighlight">\(d\)</span>, RoPE starts with geometrically spaced inverse frequencies. For
+a one-dimensional position and base <span class="math notranslate nohighlight">\(\Theta\)</span> (typically <span class="math notranslate nohighlight">\(10000\)</span>), pair <span class="math notranslate nohighlight">\(r\)</span>
+uses</p>
+<div class="math notranslate nohighlight">
+\[
+\omega_r = \Theta^{-2r/d}, \qquad
+\theta_{p,r} = p\,\omega_r, \qquad 0 \le r &lt; d/2.
+\]</div>
+<p>Optional extrapolation changes the effective base <span class="math notranslate nohighlight">\(\Theta\)</span>. Video models can
+apply the same construction independently to temporal, height, and width
+coordinates, allocate feature pairs to each axis, and concatenate the resulting
+angles. FlashDreams receives these expanded angles as <code class="docutils literal notranslate"><span class="pre">rope_freqs</span></code> shaped
+<span class="math notranslate nohighlight">\([L,1,1,d]\)</span>. Given angle <span class="math notranslate nohighlight">\(\theta_{p,r}\)</span>, RoPE rotates pair <span class="math notranslate nohighlight">\(r\)</span> as</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}
+\begin{bmatrix}
+z'_{p,a_r} \\
+z'_{p,b_r}
+\end{bmatrix} =
+\begin{bmatrix}
+\cos\theta_{p,r} &amp; -\sin\theta_{p,r} \\
+\sin\theta_{p,r} &amp; \cos\theta_{p,r}
+\end{bmatrix}
+\begin{bmatrix}
+z_{p,a_r} \\
+z_{p,b_r}
+\end{bmatrix}.
+\end{split}\]</div>
+<p>Interleaved RoPE pairs <span class="math notranslate nohighlight">\((a_r,b_r)=(2r,2r+1)\)</span>; split-half RoPE pairs
+<span class="math notranslate nohighlight">\((a_r,b_r)=(r,r+d/2)\)</span> for <span class="math notranslate nohighlight">\(0 \le r &lt; d/2\)</span>. Applying these rotations to
+<span class="math notranslate nohighlight">\(Q^{(n)}\)</span> and <span class="math notranslate nohighlight">\(K^{(n)}\)</span> gives <span class="math notranslate nohighlight">\(Q^\star\)</span> and <span class="math notranslate nohighlight">\(K^\star\)</span>; disabling RoPE leaves
+them unchanged. V is not rotated.</p>
+<figure class="align-center" id="id13">
+<a class="reference internal image-reference" href="../_images/split-vs-interleaved-rope.svg"><img alt="Interleaved RoPE pairs adjacent features, while split RoPE pairs features from opposite halves." src="../_images/split-vs-interleaved-rope.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Interleaved RoPE pairs adjacent features; split-half RoPE pairs corresponding
+features from the two halves of the head dimension.</span><a class="headerlink" href="#id13" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><strong>Before the K/V cache update.</strong> RoPE is applied to the current key chunk
+before it is written, so the cache stores position-embedded K. At each
+autoregressive step, only the new query and key chunk is rotated; older cached
+keys already contain their embeddings and are reused without applying RoPE
+again.</p>
+<figure class="align-center" id="id14">
+<a class="reference internal image-reference" href="../_images/rope-before-kv-cache.svg"><img alt="Before-cache RoPE rotates the current key chunk before writing it to the cache." src="../_images/rope-before-kv-cache.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Before-cache RoPE writes position-embedded keys to the K/V cache.</span><a class="headerlink" href="#id14" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><strong>After the K/V cache update.</strong> The cache stores unrotated K. Immediately
+before attention, RoPE is applied to the current query and every visible cached
+key using angles for their current positions. The stored cache remains
+unrotated, so visible keys are rotated again on each autoregressive step.</p>
+<figure class="align-center" id="id15">
+<a class="reference internal image-reference" href="../_images/rope-after-kv-cache.svg"><img alt="After-cache RoPE rotates the query and all visible cached keys before attention." src="../_images/rope-after-kv-cache.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">After-cache RoPE rotates visible keys while leaving cached keys unrotated.</span><a class="headerlink" href="#id15" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>For head <span class="math notranslate nohighlight">\(h\)</span>, scaled dot-product attention is</p>
+<div class="math notranslate nohighlight">
+\[
+A_h = \mathrm{softmax}\left(
+\frac{Q_h^\star(K_h^\star)^\mathsf{T}}{\sqrt d}
+\right)V_h,
+\qquad
+Y = \mathrm{concat}(A_1, \ldots, A_H)W_O + b_O.
+\]</div>
+<p>Implementations own the exact normalization and RoPE operation order; the
+reference below normalizes before applying RoPE as shown above.
+In self-attention, <span class="math notranslate nohighlight">\(C = X\)</span> and the current K/V chunk is written into a
+rolling cache before the score calculation. In cross-attention, K/V are
+precomputed from static <span class="math notranslate nohighlight">\(C\)</span> and reused for each query.</p>
+<p>Q/K RMSNorm scope, RoPE pairing style, and RoPE cache-update scope are
+independent choices. They can be combined in any supported arrangement for
+both self-attention and cross-attention. See the
+<a class="reference internal" href="#generic-multi-head-attention-interface">Generic Multi Head Attention Interface</a>
+for configuration details.</p>
+<p>The following examples show self-attention with before-cache RoPE and
+cross-attention with after-cache RoPE.</p>
+<figure class="align-center" id="id16">
+<a class="reference internal image-reference" href="../_images/self-attention-rope-before-kv.svg"><img alt="Self-attention data flow with RoPE applied before the K/V cache update." src="../_images/self-attention-rope-before-kv.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Self-attention with RoPE before the K/V cache update.</span><a class="headerlink" href="#id16" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="align-center" id="id17">
+<a class="reference internal image-reference" href="../_images/cross-attention-rope-after-kv.svg"><img alt="Cross-attention data flow with RoPE applied after the K/V cache update." src="../_images/cross-attention-rope-after-kv.svg" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Cross-attention with RoPE after the K/V cache update.</span><a class="headerlink" href="#id17" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</section>
+<section id="generic-multi-head-attention-interface">
+<h3>Generic Multi Head Attention Interface<a class="headerlink" href="#generic-multi-head-attention-interface" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">AttentionConfig</span></code> describes the attention geometry through the query and
+context widths, number of heads, and head dimension. It also exposes the
+RMSNorm and RoPE policies. Q/K RMSNorm can be disabled, applied independently
+per head, or applied across the complete projected inner dimension. RoPE can
+be disabled or configured with split-half or interleaved feature pairing and
+can run before or after the K/V cache update.</p>
+<p>For example, Cosmos-Predict2.5 2B self-attention uses:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.multi_head_attention</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AttentionConfig</span><span class="p">,</span>
+    <span class="n">QKNormScope</span><span class="p">,</span>
+    <span class="n">RoPEConfig</span><span class="p">,</span>
+    <span class="n">RoPEScope</span><span class="p">,</span>
+    <span class="n">RoPEStyle</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">cosmos_attention_config</span> <span class="o">=</span> <span class="n">AttentionConfig</span><span class="p">(</span>
+    <span class="n">query_dim</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="n">context_dim</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="n">n_heads</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">head_dim</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">qk_norm_scope</span><span class="o">=</span><span class="n">QKNormScope</span><span class="o">.</span><span class="n">HEAD</span><span class="p">,</span>
+    <span class="n">qk_norm_eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span>
+    <span class="n">rope_config</span><span class="o">=</span><span class="n">RoPEConfig</span><span class="p">(</span>
+        <span class="n">style</span><span class="o">=</span><span class="n">RoPEStyle</span><span class="o">.</span><span class="n">SPLIT</span><span class="p">,</span>
+        <span class="n">scope</span><span class="o">=</span><span class="n">RoPEScope</span><span class="o">.</span><span class="n">BEFORE_KV_CACHE</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>WAN 2.1 1.3B self-attention uses:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.multi_head_attention</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AttentionConfig</span><span class="p">,</span>
+    <span class="n">QKNormScope</span><span class="p">,</span>
+    <span class="n">RoPEConfig</span><span class="p">,</span>
+    <span class="n">RoPEScope</span><span class="p">,</span>
+    <span class="n">RoPEStyle</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">wan_attention_config</span> <span class="o">=</span> <span class="n">AttentionConfig</span><span class="p">(</span>
+    <span class="n">query_dim</span><span class="o">=</span><span class="mi">1536</span><span class="p">,</span>
+    <span class="n">context_dim</span><span class="o">=</span><span class="mi">1536</span><span class="p">,</span>
+    <span class="n">n_heads</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+    <span class="n">head_dim</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">qk_norm_scope</span><span class="o">=</span><span class="n">QKNormScope</span><span class="o">.</span><span class="n">INNER</span><span class="p">,</span>
+    <span class="n">qk_norm_eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span>
+    <span class="n">rope_config</span><span class="o">=</span><span class="n">RoPEConfig</span><span class="p">(</span>
+        <span class="n">style</span><span class="o">=</span><span class="n">RoPEStyle</span><span class="o">.</span><span class="n">INTERLEAVED</span><span class="p">,</span>
+        <span class="n">scope</span><span class="o">=</span><span class="n">RoPEScope</span><span class="o">.</span><span class="n">BEFORE_KV_CACHE</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">MultiHeadAttention</span></code> is an adapter-friendly abstract interface. A concrete
+implementation owns the Q, K, V, and output projection layers and the Q/K
+RMSNorm modules. These modules must retain the checkpoint-native attribute
+names so checkpoint loading resolves the expected parameter keys. The
+implementation must also expose them through the <code class="docutils literal notranslate"><span class="pre">query_projection</span></code>,
+<code class="docutils literal notranslate"><span class="pre">key_projection</span></code>, <code class="docutils literal notranslate"><span class="pre">value_projection</span></code>, <code class="docutils literal notranslate"><span class="pre">output_projection</span></code>, <code class="docutils literal notranslate"><span class="pre">query_norm</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">key_norm</span></code> properties required by the shared interface.</p>
+<p><code class="docutils literal notranslate"><span class="pre">compute_kv(context,</span> <span class="pre">rope_freqs)</span></code> projects a context and precomputes its K/V
+cache, which is typically used to prepare static cross-attention context.
+<code class="docutils literal notranslate"><span class="pre">forward(x,</span> <span class="pre">kv_cache,</span> <span class="pre">rope_freqs)</span></code> runs query tokens through the complete MHA
+operation: projection, optional Q/K normalization, RoPE, an optional K/V cache
+update, scaled dot-product attention, and output projection. Self-attention
+updates and attends to the streaming rolling K/V cache, while cross-attention
+attends to the context cache returned by <code class="docutils literal notranslate"><span class="pre">compute_kv</span></code> without updating it.</p>
+<p>The caller owns the <code class="docutils literal notranslate"><span class="pre">BlockKVCache</span></code> lifecycle for streaming self-attention:
+<code class="docutils literal notranslate"><span class="pre">before_update(chunk_idx)</span></code>, <code class="docutils literal notranslate"><span class="pre">forward</span></code>, then <code class="docutils literal notranslate"><span class="pre">after_update(chunk_idx)</span></code>. The
+current query chunk writes its K/V into the rolling cache before it is queried.
+Cross-attention instead calls <code class="docutils literal notranslate"><span class="pre">compute_kv</span></code> once for static context and reuses
+the finalized cache without rolling-cache update bookkeeping.</p>
+<p>For example, assume a model adapter has constructed concrete <code class="docutils literal notranslate"><span class="pre">self_attention</span></code>
+and <code class="docutils literal notranslate"><span class="pre">cross_attention</span></code> modules and allocated <code class="docutils literal notranslate"><span class="pre">self_kv_cache</span></code> for the streaming
+window:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># B: flattened batch size; L: query-chunk length; S: context/cache length.</span>
+<span class="c1"># H: number of heads; d: head dimension; C_Q/C_C: query/context width.</span>
+
+<span class="c1"># Streaming self-attention updates the rolling cache once per query chunk.</span>
+<span class="c1"># query_chunks[i]: [..., L, C_Q].</span>
+<span class="c1"># query_rope_freqs[i]: [R, 1, 1, d], or None when RoPE is disabled. R = L</span>
+<span class="c1"># for before-cache RoPE; for after-cache RoPE, R covers the query and all</span>
+<span class="c1"># visible cache positions.</span>
+<span class="c1"># self_kv_cache K/V storage: [B, sink_size + window_size, H, d].</span>
+<span class="n">self_outputs</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">chunk_idx</span><span class="p">,</span> <span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">rope_freqs</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span>
+    <span class="nb">zip</span><span class="p">(</span><span class="n">query_chunks</span><span class="p">,</span> <span class="n">query_rope_freqs</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="p">):</span>
+    <span class="n">self_kv_cache</span><span class="o">.</span><span class="n">before_update</span><span class="p">(</span><span class="n">chunk_idx</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">self_attention</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">self_kv_cache</span><span class="p">,</span> <span class="n">rope_freqs</span><span class="p">)</span>  <span class="c1"># [..., L, C_Q].</span>
+    <span class="n">self_outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+    <span class="n">self_kv_cache</span><span class="o">.</span><span class="n">after_update</span><span class="p">(</span><span class="n">chunk_idx</span><span class="p">)</span>
+<span class="c1"># self_outputs[i]: [..., L, C_Q].</span>
+<span class="c1"># Visible cached K/V after each step: [B, S, H, d].</span>
+
+<span class="c1"># Cross-attention projects static context once and reuses its cache.</span>
+<span class="c1"># context: [..., S, C_C].</span>
+<span class="c1"># context_rope_freqs: [S, 1, 1, d] for before-cache RoPE; otherwise None.</span>
+<span class="n">context_kv_cache</span> <span class="o">=</span> <span class="n">cross_attention</span><span class="o">.</span><span class="n">compute_kv</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">context_rope_freqs</span><span class="p">)</span>
+<span class="c1"># context_kv_cache K/V tensors: [B, S, H, d].</span>
+<span class="n">cross_outputs</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">query</span><span class="p">,</span> <span class="n">rope_freqs</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">query_chunks</span><span class="p">,</span> <span class="n">query_rope_freqs</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="c1"># query: [..., L, C_Q]; rope_freqs: [R, 1, 1, d] or None.</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">cross_attention</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">context_kv_cache</span><span class="p">,</span> <span class="n">rope_freqs</span><span class="p">)</span>  <span class="c1"># [..., L, C_Q].</span>
+    <span class="n">cross_outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+<span class="c1"># cross_outputs[i]: [..., L, C_Q].</span>
+</pre></div>
+</div>
+</section>
+<section id="torchmultiheadattention-reference">
+<h3>TorchMultiHeadAttention Reference<a class="headerlink" href="#torchmultiheadattention-reference" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">TorchMultiHeadAttention</span></code> is the portable PyTorch reference implementation that
+conforms to the interface above. It is primarily used as a correctness oracle
+for <code class="docutils literal notranslate"><span class="pre">OptimizedMultiHeadAttention</span></code>.</p>
+</section>
+<section id="optimizedmultiheadattention">
+<h3>OptimizedMultiHeadAttention<a class="headerlink" href="#optimizedmultiheadattention" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">OptimizedMultiHeadAttention</span></code> is one highly optimized MHA implementation in
+<code class="docutils literal notranslate"><span class="pre">flashdreams.accelerated</span></code>. It combines an optional Triton FlashAttention2
+kernel, an optional PyTorch cuDNN SDPA backend, an optional native FP8 cuDNN
+backend, fine-grained quantization of projections and attention, and several
+Q/K/V projection-fusion schedules.</p>
+<p><code class="docutils literal notranslate"><span class="pre">OptimizedImplConfig</span></code> configures the algorithm used for each optimized
+component. Except for numerical error introduced by quantization, these choices
+do not change the mathematical MHA operation. They change how that operation is
+scheduled and executed. It can be viewed as a deliberately small scheduling
+DSL, analogous to a simplified Halide schedule.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">qkv_fusion_option</span></code> (<code class="docutils literal notranslate"><span class="pre">QKVFusionOption</span></code>, default <code class="docutils literal notranslate"><span class="pre">FULL</span></code>) controls the projection
+GEMM schedule.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">NONE</span></code> runs independent Q, K, and V projections.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FUSE_KV</span></code> runs Q independently and concatenates the K/V weights into one
+projection. It supports different query and context widths.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FULL</span></code> runs one fused QKV projection for streaming self-attention. Static
+context projection still uses the derived fused KV projection. This option
+requires equal query and context widths.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">sdpa_backend</span></code> (<code class="docutils literal notranslate"><span class="pre">SDPABackend</span></code>, default <code class="docutils literal notranslate"><span class="pre">CUDNN</span></code>) selects the non-causal
+scaled-dot-product attention kernel.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">CUDNN</span></code> uses PyTorch cuDNN SDPA for FP16/BF16 Q, K, and V. When
+<code class="docutils literal notranslate"><span class="pre">quantized_sdpa=True</span></code>, it instead uses the native cuDNN Frontend FP8 graph,
+which requires <code class="docutils literal notranslate"><span class="pre">nvidia-cudnn-frontend</span></code> and must be warmed up before CUDA
+graph capture.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FA2</span></code> uses the bundled Triton FlashAttention2 implementation with
+token-major <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">L,</span> <span class="pre">H,</span> <span class="pre">D]</span></code> queries and <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">S,</span> <span class="pre">H,</span> <span class="pre">D]</span></code> keys and values.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">use_tma</span></code> (<code class="docutils literal notranslate"><span class="pre">bool</span></code>, default <code class="docutils literal notranslate"><span class="pre">True</span></code>) refines the <code class="docutils literal notranslate"><span class="pre">FA2</span></code> schedule. When enabled,
+the TMA FlashAttention2 kernel is selected only if the device, tensor layout,
+and alignment pass its support check; otherwise execution falls back to the
+pointer-based FlashAttention2 kernel. Setting it to <code class="docutils literal notranslate"><span class="pre">False</span></code> always selects the
+pointer-based kernel. It has no effect on the <code class="docutils literal notranslate"><span class="pre">CUDNN</span></code> backend.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quantization</span></code> (<code class="docutils literal notranslate"><span class="pre">QuantizationOption</span></code>) controls the precision schedule.</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">projection</span></code> (<code class="docutils literal notranslate"><span class="pre">torch.dtype</span> <span class="pre">|</span> <span class="pre">None</span></code>, default <code class="docutils literal notranslate"><span class="pre">None</span></code>) quantizes the Q/K/V
+projection GEMMs when set to <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code>, <code class="docutils literal notranslate"><span class="pre">torch.float8_e5m2</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">torch.int8</span></code>. Weights use one scale per output channel, activations use one
+scale per input slice, and projection results return to the input FP16/BF16
+dtype. The output projection remains in native precision.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quantized_sdpa</span></code> (<code class="docutils literal notranslate"><span class="pre">bool</span></code>, default <code class="docutils literal notranslate"><span class="pre">False</span></code>) directly casts Q, K, and V to
+unscaled <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code>, stores K/V caches in that dtype, and runs the
+selected SDPA backend in FP8. The FA2 path also uses FP8 softmax
+probabilities for the P&#64;V product. This is not an accuracy-preserving
+quantization scheme such as SageAttention3 and can make attention
+inaccurate, so validate quality for each model and workload.</p></li>
+</ul>
+</li>
+</ul>
+<p>All configurations require CUDA FP16/BF16 inputs, compute capability 9.0 or
+newer, and a power-of-two head dimension from 16 through 256.</p>
+<blockquote>
+<div><p><strong>Why do we need a scheduling language for optimized MHA?</strong> The generic MHA
+interface supports variants with different query and context widths, head
+counts, head dimensions, normalization scopes, RoPE styles, and RoPE cache
+scopes. A schedule that performs well for one variant may be less effective
+for another. Even within one model, self-attention and cross-attention have
+different projection, sequence-length, and cache-reuse behavior and can prefer
+very different schedules. The best schedule for the same MHA variant can also
+change across hardware platforms.</p>
+<p>The benchmark-selected policies in
+<code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/benchmarks/cases.py</span></code> make these differences concrete:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Platform</p></th>
+<th class="head"><p>Component</p></th>
+<th class="head"><p>Implementation</p></th>
+<th class="head"><p>Fusion</p></th>
+<th class="head"><p>SDPA</p></th>
+<th class="head"><p>TMA</p></th>
+<th class="head"><p>Projection</p></th>
+<th class="head"><p>FP8 SDPA</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>GB300</p></td>
+<td><p>Self-attention</p></td>
+<td><p>Optimized MHA</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FULL</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">CUDNN</span></code></p></td>
+<td><p>Off</p></td>
+<td><p>Native</p></td>
+<td><p>On</p></td>
+</tr>
+<tr class="row-odd"><td><p>GB300</p></td>
+<td><p>Cross-attention</p></td>
+<td><p>Optimized MHA</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FUSE_KV</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FA2</span></code></p></td>
+<td><p>On</p></td>
+<td><p>Native</p></td>
+<td><p>Off</p></td>
+</tr>
+<tr class="row-even"><td><p>RTX PRO 6000</p></td>
+<td><p>Self-attention</p></td>
+<td><p>Optimized MHA</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FULL</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FA2</span></code></p></td>
+<td><p>On</p></td>
+<td><p>FP8 e4m3</p></td>
+<td><p>On</p></td>
+</tr>
+<tr class="row-odd"><td><p>RTX PRO 6000</p></td>
+<td><p>Cross-attention</p></td>
+<td><p>OmniDreams</p></td>
+<td><p>N/A</p></td>
+<td><p>N/A</p></td>
+<td><p>N/A</p></td>
+<td><p>N/A</p></td>
+<td><p>N/A</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>On GB300, self-attention prefers native-precision projections with cuDNN FP8
+SDPA, while cross-attention prefers fused KV projection with TMA
+FlashAttention2 in native precision. On RTX PRO 6000, self-attention instead
+prefers TMA FlashAttention2 with FP8 e4m3 projection and FP8 SDPA, while
+cross-attention remains on the checkpoint-native OmniDreams implementation.
+Treating <code class="docutils literal notranslate"><span class="pre">OptimizedImplConfig</span></code> as a small scheduling language makes these
+choices easy to enumerate, benchmark, and select independently for every
+component and hardware platform.</p>
+</div></blockquote>
+</section>
+</section>
+<section id="supporting-flashdreams-accelerated-in-an-integration">
+<h2>Supporting flashdreams.accelerated in an Integration<a class="headerlink" href="#supporting-flashdreams-accelerated-in-an-integration" title="Link to this heading">#</a></h2>
+<section id="quantization">
+<h3>Quantization<a class="headerlink" href="#quantization" title="Link to this heading">#</a></h3>
+<p>Use the APIs described in the <a class="reference internal" href="#quantization-toolkit">Quantization Toolkit</a> and
+follow its examples directly. <code class="docutils literal notranslate"><span class="pre">QuantizedNonPersistentLinear</span></code> should be used as
+the inference-time drop-in replacement for any regular <code class="docutils literal notranslate"><span class="pre">nn.Linear</span></code> layer; the
+<a class="reference internal" href="#quantized-forward-example">quantized forward example</a> shows both dynamic and
+prequantized activation paths.</p>
+</section>
+<section id="optimized-mha">
+<h3>Optimized MHA<a class="headerlink" href="#optimized-mha" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">OptimizedMultiHeadAttention</span></code> remains a generic interface: it does not know an
+integration’s checkpoint parameter names, attention geometry, normalization,
+or RoPE convention. Each integration provides a thin model adapter and lets the
+shared implementation own projection fusion, quantization, K/V cache updates,
+and SDPA dispatch.</p>
+<section id="implement-the-model-adapter">
+<h4>1. Implement the model adapter<a class="headerlink" href="#implement-the-model-adapter" title="Link to this heading">#</a></h4>
+<p>Inherit <code class="docutils literal notranslate"><span class="pre">OptimizedMultiHeadAttention</span></code> separately for each self- or
+cross-attention variant that has a different contract. The adapter must:</p>
+<ol class="arabic simple">
+<li><p>Pass the correct <code class="docutils literal notranslate"><span class="pre">AttentionType</span></code> and architecture-specific <code class="docutils literal notranslate"><span class="pre">AttentionConfig</span></code>
+to <code class="docutils literal notranslate"><span class="pre">super().__init__</span></code>.</p></li>
+<li><p>Construct the Q, K, V, output, Q-norm, and K-norm modules using the exact
+attribute names and bias policy expected by the checkpoint.</p></li>
+<li><p>Implement all six logical properties required by <code class="docutils literal notranslate"><span class="pre">MultiHeadAttention</span></code>.</p></li>
+<li><p>Call <code class="docutils literal notranslate"><span class="pre">_initialize_derived_weights()</span></code> after the canonical checkpoint modules
+exist. This builds nonpersistent fused or quantized execution weights and
+installs the hook that refreshes them after checkpoint loading.</p></li>
+</ol>
+<p>For example, the OmniDreams self-attention adapter in
+<code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/omnidreams/transformer/impl/modules.py</span></code> follows this
+shape:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.multi_head_attention</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AttentionConfig</span><span class="p">,</span>
+    <span class="n">AttentionType</span><span class="p">,</span>
+    <span class="n">QKNormScope</span><span class="p">,</span>
+    <span class="n">RoPEConfig</span><span class="p">,</span>
+    <span class="n">RoPEScope</span><span class="p">,</span>
+    <span class="n">RoPEStyle</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.multi_head_attention.optimized</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">OptimizedImplConfig</span><span class="p">,</span>
+    <span class="n">OptimizedMultiHeadAttention</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">OptimizedSelfAttention</span><span class="p">(</span><span class="n">OptimizedMultiHeadAttention</span><span class="p">):</span>
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">query_projection</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_proj</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">key_projection</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_proj</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">value_projection</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">v_proj</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">output_projection</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_proj</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">query_norm</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_norm</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">key_norm</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_norm</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">optimized_impl_config</span><span class="p">:</span> <span class="n">OptimizedImplConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">attention_config</span> <span class="o">=</span> <span class="n">AttentionConfig</span><span class="p">(</span>
+            <span class="n">query_dim</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+            <span class="n">context_dim</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+            <span class="n">n_heads</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+            <span class="n">head_dim</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+            <span class="n">qk_norm_scope</span><span class="o">=</span><span class="n">QKNormScope</span><span class="o">.</span><span class="n">HEAD</span><span class="p">,</span>
+            <span class="n">qk_norm_eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span>
+            <span class="n">rope_config</span><span class="o">=</span><span class="n">RoPEConfig</span><span class="p">(</span>
+                <span class="n">style</span><span class="o">=</span><span class="n">RoPEStyle</span><span class="o">.</span><span class="n">SPLIT</span><span class="p">,</span>
+                <span class="n">scope</span><span class="o">=</span><span class="n">RoPEScope</span><span class="o">.</span><span class="n">BEFORE_KV_CACHE</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">attention_type</span><span class="o">=</span><span class="n">AttentionType</span><span class="o">.</span><span class="n">SELF_ATTENTION</span><span class="p">,</span>
+            <span class="n">attention_config</span><span class="o">=</span><span class="n">attention_config</span><span class="p">,</span>
+            <span class="n">optimized_impl_config</span><span class="o">=</span><span class="n">optimized_impl_config</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">inner_dim</span> <span class="o">=</span> <span class="n">attention_config</span><span class="o">.</span><span class="n">inner_dim</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="n">inner_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="n">inner_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">v_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="n">inner_dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">inner_dim</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q_norm</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">RMSNorm</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k_norm</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">RMSNorm</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initialize_derived_weights</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Those values describe OmniDreams self-attention: 2048-wide tokens, 16 heads,
+128 features per head, per-head Q/K RMSNorm, and split RoPE applied before the
+K/V cache update. Its cross-attention adapter exposes the same six properties
+but uses a different architecture policy:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">omnidreams_cross_attention_config</span> <span class="o">=</span> <span class="n">AttentionConfig</span><span class="p">(</span>
+    <span class="n">query_dim</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="n">context_dim</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+    <span class="n">n_heads</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">head_dim</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+    <span class="n">qk_norm_scope</span><span class="o">=</span><span class="n">QKNormScope</span><span class="o">.</span><span class="n">HEAD</span><span class="p">,</span>
+    <span class="n">qk_norm_eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span>
+    <span class="n">rope_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">nn.Identity</span></code> for <code class="docutils literal notranslate"><span class="pre">query_norm</span></code> and <code class="docutils literal notranslate"><span class="pre">key_norm</span></code> when Q/K normalization is
+disabled. With <code class="docutils literal notranslate"><span class="pre">QKNormScope.HEAD</span></code>, the RMSNorm width is <code class="docutils literal notranslate"><span class="pre">head_dim</span></code>; with
+<code class="docutils literal notranslate"><span class="pre">QKNormScope.INNER</span></code>, it is <code class="docutils literal notranslate"><span class="pre">n_heads</span> <span class="pre">*</span> <span class="pre">head_dim</span></code>. The optimized base then
+provides <code class="docutils literal notranslate"><span class="pre">allocate_kv_cache</span></code>, <code class="docutils literal notranslate"><span class="pre">compute_kv</span></code>, and the complete <code class="docutils literal notranslate"><span class="pre">forward</span></code> path.
+Preserve any additional interface required by the integration’s existing call
+sites; for example, OmniDreams also implements its context-parallel methods.</p>
+</section>
+<section id="select-the-adapter-in-each-model-component">
+<h4>2. Select the adapter in each model component<a class="headerlink" href="#select-the-adapter-in-each-model-component" title="Link to this heading">#</a></h4>
+<p>Instantiate the optimized adapter at the same point where the original
+attention module was constructed. OmniDreams makes this choice independently
+for self-attention and cross-attention in every transformer block, then passes
+the corresponding <code class="docutils literal notranslate"><span class="pre">OptimizedImplConfig</span></code> into each adapter. The block’s forward
+and cache lifecycle do not change because both implementations conform to the
+same MHA interface.</p>
+</section>
+<section id="expose-the-optimization-schedule-to-higher-level-configuration">
+<h4>3. Expose the optimization schedule to higher-level configuration<a class="headerlink" href="#expose-the-optimization-schedule-to-higher-level-configuration" title="Link to this heading">#</a></h4>
+<p>An integration may hard-code one <code class="docutils literal notranslate"><span class="pre">OptimizedImplConfig</span></code> inside its concrete
+adapter. That is valid, but it commits every model component and every hardware
+platform to that one schedule. Prefer separate self-attention and
+cross-attention fields on the integration’s network config:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.accelerated.multi_head_attention.optimized</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">OptimizedImplConfig</span><span class="p">,</span>
+    <span class="n">QKVFusionOption</span><span class="p">,</span>
+    <span class="n">SDPABackend</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MyNetworkConfig</span><span class="p">:</span>
+    <span class="n">self_attn_optimized_impl_config</span><span class="p">:</span> <span class="n">OptimizedImplConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">OptimizedImplConfig</span><span class="p">(</span>
+            <span class="n">qkv_fusion_option</span><span class="o">=</span><span class="n">QKVFusionOption</span><span class="o">.</span><span class="n">FULL</span><span class="p">,</span>
+            <span class="n">sdpa_backend</span><span class="o">=</span><span class="n">SDPABackend</span><span class="o">.</span><span class="n">FA2</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">cross_attn_optimized_impl_config</span><span class="p">:</span> <span class="n">OptimizedImplConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">OptimizedImplConfig</span><span class="p">(</span>
+            <span class="n">qkv_fusion_option</span><span class="o">=</span><span class="n">QKVFusionOption</span><span class="o">.</span><span class="n">FUSE_KV</span><span class="p">,</span>
+            <span class="n">sdpa_backend</span><span class="o">=</span><span class="n">SDPABackend</span><span class="o">.</span><span class="n">FA2</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p>Thread these fields from the network config into every block and then into the
+concrete attention adapters. Platform-specific pipeline or runner configs can
+override them independently after benchmarking. This is the pattern used by
+OmniDreams: its GB300 and RTX PRO 6000 variants select different self-attention
+schedules, and the RTX PRO 6000 variant keeps its original cross-attention
+implementation. Exposing the schedules at this level avoids baking one
+hardware-specific result into the model architecture.</p>
+<blockquote>
+<div><p><strong>Future direction.</strong> FlashDreams should define a more general declarative,
+nested configuration system and scheduling DSL. <code class="docutils literal notranslate"><span class="pre">OptimizedImplConfig</span></code> should
+be refactored into that common DSL, and an autotuning system should be built
+around it to search schedules and replace the current manual performance
+tuning process.</p>
+</div></blockquote>
+</section>
+</section>
+</section>
+<section id="running-testing-and-benchmarking">
+<h2>Running, Testing, and Benchmarking<a class="headerlink" href="#running-testing-and-benchmarking" title="Link to this heading">#</a></h2>
+<p>Run all commands below from the repository root. Config inspection and CPU
+tests do not instantiate models. Actual OmniDreams runs and benchmarks require
+a supported NVIDIA GPU, access to the model assets, and the appropriate
+integration dependencies.</p>
+<section id="run-omnidreams-with-different-runner-configs">
+<h3>Run OmniDreams with different runner configs<a class="headerlink" href="#run-omnidreams-with-different-runner-configs" title="Link to this heading">#</a></h3>
+<p>List every installed runner or inspect a resolved config without loading its
+model:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span>--help
+uv<span class="w"> </span>run<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--no-instantiate<span class="w"> </span>omnidreams-optimized-gb300
+</pre></div>
+</div>
+<p>The accelerated-relevant runner configs are:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Runner</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams</span></code></p></td>
+<td><p>Reference OmniDreams implementation.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-perf</span></code></p></td>
+<td><p>Compile and CUDA-graph performance preset.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-optimized-gb300</span></code></p></td>
+<td><p>Optimized MHA schedule selected for GB300.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-optimized-rtx-pro-6000</span></code></p></td>
+<td><p>Optimized MHA schedule selected for RTX PRO 6000.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>For example, run the GB300 preset in <code class="docutils literal notranslate"><span class="pre">mp4</span></code> mode with the bundled example data:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omnidreams-optimized-gb300<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--device<span class="w"> </span>cuda:0<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario.example-data<span class="w"> </span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario.example-data-uuid<span class="w"> </span>239560dc-33d1-11ef-9720-00044bcbccac<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario.total-blocks<span class="w"> </span><span class="m">120</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output.fps<span class="w"> </span><span class="m">30</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output.path<span class="w"> </span>outputs/omnidreams-optimized-gb300.mp4
+</pre></div>
+</div>
+<p>Replace the runner name and output path to run a different preset.
+Use <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> with any runner name to compare nested pipeline and
+attention configs before launching GPU work.</p>
+</section>
+<section id="run-correctness-tests">
+<h3>Run correctness tests<a class="headerlink" href="#run-correctness-tests" title="Link to this heading">#</a></h3>
+<p>Run the CPU-safe accelerated tests first:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>flashdreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams/tests/accelerated<span class="w"> </span>-m<span class="w"> </span>ci_cpu
+</pre></div>
+</div>
+<p>On a supported CUDA system, run the optimized MHA, quantization, and Triton
+kernel tests with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>flashdreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams/tests/accelerated<span class="w"> </span>-m<span class="w"> </span>ci_gpu
+</pre></div>
+</div>
+<p>Validate the OmniDreams adapter/config plumbing and benchmark plotting helpers
+on CPU with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>integrations/omnidreams/tests/test_transformer_attention_backend.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-m<span class="w"> </span>ci_cpu
+
+uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>flashdreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>scripts/benchmark/test_common.py<span class="w"> </span>-m<span class="w"> </span>ci_cpu
+</pre></div>
+</div>
+</section>
+<section id="run-benchmarks-directly-with-pytest">
+<h3>Run benchmarks directly with pytest<a class="headerlink" href="#run-benchmarks-directly-with-pytest" title="Link to this heading">#</a></h3>
+<p>The benchmarks are manual GPU tests. Run every accelerated quantization and MHA
+benchmark directly with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>flashdreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams/benchmarks/accelerated<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-p<span class="w"> </span>no:manual_marker<span class="w"> </span>-m<span class="w"> </span>manual<span class="w"> </span>--benchmark-only<span class="w"> </span>-v
+</pre></div>
+</div>
+<p>For the OmniDreams module, network, and pipeline benchmarks, first synchronize
+the required third-party source and then run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>python<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py<span class="w"> </span>sync
+
+uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>integrations/omnidreams/benchmarks<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-p<span class="w"> </span>no:manual_marker<span class="w"> </span>-m<span class="w"> </span>manual<span class="w"> </span>--benchmark-only<span class="w"> </span>-v
+</pre></div>
+</div>
+<p>Direct pytest runs print results to the terminal. Add
+<code class="docutils literal notranslate"><span class="pre">--benchmark-json=&lt;path&gt;</span></code> when a machine-readable result is required.</p>
+</section>
+<section id="run-the-scripts-benchmark-workflows">
+<h3>Run the scripts/benchmark workflows<a class="headerlink" href="#run-the-scripts-benchmark-workflows" title="Link to this heading">#</a></h3>
+<p>The scripts run pytest-benchmark, save JSON artifacts, and generate comparison
+plots. Run an individual benchmark family with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/benchmark/flashdreams/accelerated/quantization/run.sh
+./scripts/benchmark/flashdreams/accelerated/multi_head_attention/run.sh
+./scripts/benchmark/omnidreams/run.sh
+</pre></div>
+</div>
+<p>Run all default benchmark families, or opt into every supported exhaustive
+sweep, with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/benchmark/run_all.sh
+<span class="nv">FLASHDREAMS_RUN_FULL_BENCHMARK</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>./scripts/benchmark/run_all.sh
+</pre></div>
+</div>
+<p>Recreate plots from saved default or full-sweep JSON without rerunning GPU
+measurements:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/benchmark/run_all_plot.sh
+<span class="nv">FLASHDREAMS_RUN_FULL_BENCHMARK</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>./scripts/benchmark/run_all_plot.sh
+</pre></div>
+</div>
+<p>Default artifacts are written below <code class="docutils literal notranslate"><span class="pre">artifacts/benchmark/flashdreams</span></code> and
+<code class="docutils literal notranslate"><span class="pre">artifacts/benchmark/omnidreams</span></code>; exhaustive-sweep artifacts use a <code class="docutils literal notranslate"><span class="pre">full</span></code>
+subdirectory. Record the commit, runner/config, GPU and software stack, warmup
+policy, and benchmark JSON when comparing schedules. Results selected on one
+platform should not be treated as portable performance claims.</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="local_benchmarks.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Local Demo Benchmarks</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../api/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">CLI and API Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization-toolkit">Quantization Toolkit</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#accelerated-quantizer">Accelerated Quantizer</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#target-dtype">Target Dtype</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#scale-granularity">Scale Granularity</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#quantized-gemm">Quantized GEMM</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#worked-slice-quantized-gemm">Worked Slice-Quantized GEMM</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quantized-linear-layer">Quantized Linear Layer</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#quantized-forward-example">Quantized Forward Example</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optimized-multi-head-attention">Optimized Multi Head Attention</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-head-attention-definition">Multi Head Attention Definition</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#generic-multi-head-attention-interface">Generic Multi Head Attention Interface</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchmultiheadattention-reference">TorchMultiHeadAttention Reference</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optimizedmultiheadattention">OptimizedMultiHeadAttention</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supporting-flashdreams-accelerated-in-an-integration">Supporting flashdreams.accelerated in an Integration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quantization">Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optimized-mha">Optimized MHA</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#implement-the-model-adapter">1. Implement the model adapter</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#select-the-adapter-in-each-model-component">2. Select the adapter in each model component</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#expose-the-optimization-schedule-to-higher-level-configuration">3. Expose the optimization schedule to higher-level configuration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-testing-and-benchmarking">Running, Testing, and Benchmarking</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-omnidreams-with-different-runner-configs">Run OmniDreams with different runner configs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-correctness-tests">Run correctness tests</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-benchmarks-directly-with-pytest">Run benchmarks directly with pytest</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-scripts-benchmark-workflows">Run the scripts/benchmark workflows</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+  
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, NVIDIA Corporation &amp; Affiliates.
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/NVIDIA/flashdreams" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://discord.com/invite/nvidiaomniverse" title="Discord" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-discord fa-lg" aria-hidden="true"></i><span class="visually-hidden">Discord</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
