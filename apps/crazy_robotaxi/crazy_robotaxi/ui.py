@@ -28,6 +28,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.nn.functional as functional
 from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
@@ -138,11 +139,14 @@ class TaxiHudState:
     _name_input: str = ""
     """Immediate-mode name-entry buffer retained by the UI state."""
 
-    _bev_source_key: tuple[int, tuple[int, ...]] | None = None
-    """Identity and shape of the raw BEV frame cached for ImGui upload."""
+    _bev_source_key: tuple[object, ...] | None = None
+    """Identity, geometry, and format of the cached GPU BEV panel."""
 
-    _bev_pixels: npt.NDArray[np.uint8] | None = None
-    """Cached HWC RGB bytes for the currently presented BEV frame."""
+    _bev_panel: Tensor | None = None
+    """Cached normalized CHW BEV panel retained on its source device."""
+
+    _bev_rect: tuple[int, int, int, int] | None = None
+    """Current ImGui content rectangle as ``(top, left, height, width)``."""
 
     _validation_message: str = ""
     """Name-entry validation or submission status."""
@@ -305,6 +309,7 @@ class TaxiHudState:
         bev_frame: Tensor | None = None,
     ) -> None:
         """Draw one immediate Dear ImGui HUD frame."""
+        self._bev_rect = None
         self._draw_fps_counter(imgui)
         hud_frame = self._current
         if hud_frame is None:
@@ -381,7 +386,8 @@ class TaxiHudState:
         self._latest_input_latency_ms = None
         self._name_input = ""
         self._bev_source_key = None
-        self._bev_pixels = None
+        self._bev_panel = None
+        self._bev_rect = None
         self._presented_frame_times_s.clear()
         self._video_fps = 0.0
 
@@ -414,7 +420,6 @@ class TaxiHudState:
         image_height = max(1, round(frame_height * scale))
         if image_width <= 4 or image_height <= 4:
             return
-        pixels = self._bev_image_pixels(bev_frame)
         padding = 16
         title_height = 34
         window_size = (
@@ -426,44 +431,69 @@ class TaxiHudState:
             float(self.width) - window_size[0] - margin,
             float(self.height) - window_size[1] - margin,
         )
-        _prepare_window(imgui, position=position, size=window_size, alpha=0.82)
+        # The app composites the CUDA BEV beneath this transparent content area.
+        # ImGui still owns the map window's title, border, clipping and layout.
+        _prepare_window(imgui, position=position, size=window_size, alpha=0.0)
         visible = _begin_window(imgui, "Map")
         try:
             if visible:
-                imgui.image(
-                    "crazy_robotaxi_bev",
-                    pixels,
-                    size=(float(image_width), float(image_height)),
+                cursor = imgui.get_cursor_screen_pos()
+                left, top = _point_xy(cursor)
+                self._bev_rect = (
+                    max(0, round(top)),
+                    max(0, round(left)),
+                    image_height,
+                    image_width,
                 )
+                imgui.dummy(imgui.ImVec2(float(image_width), float(image_height)))
         finally:
             imgui.end()
 
-    def _bev_image_pixels(self, frame: Tensor) -> npt.NDArray[np.uint8]:
+    def composite_bev(self, video: Tensor, frame: Tensor | None) -> Tensor:
+        """Composite the current BEV into its ImGui-owned rectangle on-device."""
+        rect = self._bev_rect
+        if frame is None or rect is None:
+            return video
         if frame.ndim != 3 or frame.shape[0] != 3:
             raise ValueError("BEV presentation frames must use [3,H,W]")
-        source_key = (int(frame.data_ptr()), tuple(int(value) for value in frame.shape))
-        if source_key == self._bev_source_key and self._bev_pixels is not None:
-            return self._bev_pixels
-        source = frame.detach()
-        if source.dtype == torch.uint8:
-            pixels = source.permute(1, 2, 0).contiguous().cpu().numpy()
-        elif source.is_floating_point():
-            pixels = (
-                source.to(dtype=torch.float32)
-                .add(1.0)
-                .mul(127.5)
-                .clamp_(0.0, 255.0)
-                .to(torch.uint8)
-                .permute(1, 2, 0)
-                .contiguous()
-                .cpu()
-                .numpy()
-            )
-        else:
+        if frame.dtype != torch.uint8 and not frame.is_floating_point():
             raise ValueError("BEV presentation frames must be uint8 or floating point")
-        self._bev_source_key = source_key
-        self._bev_pixels = np.ascontiguousarray(pixels)
-        return self._bev_pixels
+        if frame.device != video.device:
+            raise ValueError("BEV and video presentation frames must share a device")
+
+        top, left, image_height, image_width = rect
+        bottom = min(int(video.shape[-2]), top + image_height)
+        right = min(int(video.shape[-1]), left + image_width)
+        if bottom <= top or right <= left:
+            return video
+        source_key = (
+            id(self._current),
+            int(frame.data_ptr()),
+            tuple(int(value) for value in frame.shape),
+            frame.dtype,
+            frame.device,
+            image_height,
+            image_width,
+        )
+        panel = self._bev_panel
+        if source_key != self._bev_source_key or panel is None:
+            source = frame.detach().to(dtype=torch.float32)
+            panel = source.div(127.5).sub(1.0) if frame.dtype == torch.uint8 else source
+            if tuple(panel.shape[-2:]) != (image_height, image_width):
+                panel = functional.interpolate(
+                    panel.unsqueeze(0),
+                    size=(image_height, image_width),
+                    mode="bilinear",
+                    align_corners=False,
+                )[0]
+            self._bev_source_key = source_key
+            self._bev_panel = panel
+
+        output = video.clone()
+        output[:, top:bottom, left:right].copy_(
+            panel[:, : bottom - top, : right - left]
+        )
+        return output
 
     def _draw_input_diagnostic(self, imgui: Any) -> None:
         if not self.profile_input_latency:
@@ -615,7 +645,8 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
-        return video.to(torch.float32)
+        converted = video.to(torch.float32)
+        return self.state.composite_bev(converted, bev_frame)
 
     def _activate_presentation_stream(self) -> torch.cuda.Stream | None:
         """Make the app-owned CUDA stream current on the V2 UI thread."""
@@ -727,6 +758,13 @@ def _normalize_profile_key(key: str) -> str:
         "arrowright": "right",
         "spacebar": "space",
     }.get(normalized, normalized)
+
+
+def _point_xy(value: Any) -> tuple[float, float]:
+    """Return an ImGui vector's coordinates across supported Python bindings."""
+    if hasattr(value, "x") and hasattr(value, "y"):
+        return float(value.x), float(value.y)
+    return float(value[0]), float(value[1])
 
 
 def _score_label(snapshot: TaxiGameSnapshot) -> str:

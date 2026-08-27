@@ -107,8 +107,9 @@ class _FakeImGui:
 
     def __init__(self) -> None:
         self.windows: dict[str, list[str]] = {}
-        self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
+        self.dummies: list[tuple[float, float]] = []
         self.current_window: str | None = None
+        self.next_window_position = (0.0, 0.0)
         self.input_value = ""
         self.submit_input = False
         self.click_submit = False
@@ -134,7 +135,8 @@ class _FakeImGui:
         return self.background_draw_list
 
     def set_next_window_pos(self, position, condition) -> None:
-        del position, condition
+        self.next_window_position = position
+        del condition
 
     def set_next_window_size(self, size, condition) -> None:
         del size, condition
@@ -155,14 +157,14 @@ class _FakeImGui:
         assert self.current_window is not None
         self.windows[self.current_window].append(value)
 
-    def image(
-        self,
-        key: str,
-        pixels: np.ndarray,
-        *,
-        size: tuple[float, float],
-    ) -> None:
-        self.images.append((key, pixels, size))
+    def get_cursor_screen_pos(self) -> tuple[float, float]:
+        return (
+            float(self.next_window_position[0]) + 8.0,
+            float(self.next_window_position[1]) + 26.0,
+        )
+
+    def dummy(self, size: tuple[float, float]) -> None:
+        self.dummies.append(size)
 
     def input_text(self, label: str, value: str, *, flags: int):
         del label, value, flags
@@ -451,25 +453,26 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert hud_state._current is not None
     assert "SCORE  001200    HIGH  009000" in renderer.ui.windows["Crazy Robotaxi"]
     assert "TARGET AHEAD  0 deg" in renderer.ui.windows["Navigation"]
-    assert len(renderer.ui.images) == 1
-    image_key, pixels, image_size = renderer.ui.images[0]
-    assert image_key == "crazy_robotaxi_bev"
-    assert pixels.shape == (32, 32, 3)
-    assert np.all(pixels == 191)
-    assert image_size == (32.0, 32.0)
+    assert renderer.ui.dummies == [(32.0, 32.0)]
     assert renderer.ui.background_draw_list.commands
-    assert torch.all(result.output == video)
+    top, left, panel_height, panel_width = hud_state._bev_rect or (0, 0, 0, 0)
+    panel = result.output[0, :, top : top + panel_height, left : left + panel_width]
+    assert torch.allclose(panel, torch.full_like(panel, 191.0 / 127.5 - 1.0))
+    outside = result.output[0].clone()
+    outside[:, top : top + panel_height, left : left + panel_width] = -0.5
+    assert torch.all(outside == video[0])
 
     cached_waypoints = hud_state._waypoint_projections
-    cached_bev = hud_state._bev_pixels
+    cached_bev = hud_state._bev_panel
     loop.step(1, UserInputEvents([]))
     assert hud_state._waypoint_projections is cached_waypoints
-    assert hud_state._bev_pixels is cached_bev
+    assert hud_state._bev_panel is cached_bev
 
     loop.reset()
     assert hud_state._current is None
     assert hud_state._waypoint_projections == ()
-    assert hud_state._bev_pixels is None
+    assert hud_state._bev_panel is None
+    assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
 
 

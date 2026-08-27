@@ -78,16 +78,17 @@ materialization versus 0.061 ms for the new 234x234 uint8 layout conversion.
 Those CPU numbers validate the direction only; GPU renderer, synchronization,
 and UI timings still require a target-machine run.
 
-The remaining D2H/H2D round trip is an API boundary: V2's ImGui pixel helper
-accepts NumPy-like pixels and calls `texture.copy_from_numpy`. Eliminating it
-cleanly requires the ImGui renderer to accept a CUDA tensor or expose a
-CUDA-backed SlangPy texture registration hook. The app should not duplicate
-the renderer's Vulkan/CUDA resource ownership to work around that missing API.
+The app removes the remaining D2H/H2D round trip without changing the V2 API.
+ImGui owns a transparent map window and reserves its content rectangle; the UI
+loop normalizes and resizes the renderer-native BEV on its presentation CUDA
+stream, caches the panel across repeated ticks, and composites that small region
+into the returned video. No Vulkan texture ownership escapes the ImGui renderer.
 
 ### CUDA-upload follow-up
 
-The `*-3.json` native-window capture on commit `ece9c52` confirms that the BEV
-change removed its original synchronization hotspot. BEV submission fell from
+The `*-3.json` native-window capture from the superseded `ece9c52` experiment
+confirmed that removing the BEV host round trip eliminates its original
+synchronization hotspot. BEV submission fell from
 45.68 seconds total and 195.7 ms p90 to 0.32 seconds total and 0.31 ms p90.
 UI-step p90 fell from 37.2 ms to 4.2 ms, presented throughput increased from
 17.25 to 22.62 fps, and elapsed time after the first publication fell from

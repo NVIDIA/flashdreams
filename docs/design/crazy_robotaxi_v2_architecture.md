@@ -50,8 +50,8 @@ flowchart TD
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
         BUFFER["PresentationManager<br/>RGB + optional raw BEV frames"]
-        HUD["CrazyRobotaxiImGuiUILoop<br/>dedicated CUDA stream<br/>waypoints + BEV presentation cache"]
-        COMPOSE["one Dear ImGui overlay<br/>background waypoints + HUD + BEV window"]
+        HUD["CrazyRobotaxiImGuiUILoop<br/>dedicated CUDA stream<br/>waypoints + GPU BEV panel cache"]
+        COMPOSE["app GPU BEV panel<br/>+ Dear ImGui overlay"]
         WINDOW["V2 client window<br/>native / WebRTC / MP4"]
     end
 
@@ -89,7 +89,7 @@ stream. The UI loop selects the metadata aligned with the currently presented
 model frame and caches that frame's projected in-world waypoint geometry. It
 submits rings, beacons, anchors, and labels to ImGui's background draw list,
 beneath the HUD windows, without constructing a full-size waypoint tensor. It
-draws the HUD and BEV in an immediate Dear ImGui window;
+uses an immediate Dear ImGui window to place and clip a GPU-composited BEV;
 `ImGuiUILoop` composites that one UI layer over the world frame. UI callbacks
 send validated game actions back to the model loop with `invoke_async`; they
 never call game state directly.
@@ -191,14 +191,15 @@ return [video StepResult, optional raw_bev StepResult]
 
 The UI loop uses V2's `ImGuiUILoop` and `presented_model_frames()`. It projects
 waypoint geometry only when the presented frame changes and submits the cached
-primitives to ImGui's background draw list each UI tick. It materializes the
-small renderer-native uint8 BEV frame as cached RGB bytes only when the
-presented BEV changes and displays it through the runtime-provided ImGui image
-bridge. The base loop
-composites the complete Dear ImGui overlay over the video back buffer. There is
-no full-frame waypoint or BEV layer, retained SlangPy widget tree, intermediate
-app renderer, local adapter, model session, chunk request, private command
-queue, private frame queue, or legacy `PresentedFrame` aggregate.
+primitives to ImGui's background draw list each UI tick. A transparent ImGui
+map window owns the BEV's layout, clipping, title, and border. The app normalizes
+and resizes the small renderer-native BEV on its presentation CUDA stream, caches
+that panel for repeated UI ticks, and writes it into the returned video before
+the base loop composites the ImGui overlay. The BEV never reaches a host image
+or requires a FlashDreams image-upload extension. There is no full-frame
+waypoint or BEV layer, retained SlangPy widget tree, intermediate app renderer,
+local adapter, model session, chunk request, private command queue, private frame
+queue, or legacy `PresentedFrame` aggregate.
 
 ## Game-engine internals
 
