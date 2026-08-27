@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for Crazy Robotaxi's V2 SlangPy UI loop."""
+"""CPU tests for Crazy Robotaxi's V2 Dear ImGui UI loop."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-import slangpy as spy
 import torch
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
@@ -22,13 +21,12 @@ from crazy_robotaxi.rules import (
     project_taxi_markers_to_camera,
 )
 from crazy_robotaxi.ui import (
-    CrazyRobotaxiSlangPyUILoop,
+    CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import (
     _paint_lines,
-    render_bev_overlay,
     render_waypoint_layers,
 )
 from omnidreams_game_engine.types import CameraCalibration
@@ -105,46 +103,79 @@ def _legacy_line_pixels(
     return np.concatenate(x_parts), np.concatenate(y_parts)
 
 
-class _Widget:
-    def __init__(
-        self,
-        parent: object,
-        label: str = "",
-        *,
-        value: Any = None,
-        callback: Any = None,
-        position: tuple[float, float] = (0.0, 0.0),
-        size: tuple[float, float] = (0.0, 0.0),
-        **kwargs: Any,
-    ) -> None:
-        del parent, kwargs
-        self.label = label
-        self.title = label
-        self.text = label
-        self.value = value
-        self.callback = callback
-        self.position = position
-        self.size = size
-        self.visible = True
-        self.enabled = True
-
-
-class _FakeUI:
-    Window = _Widget
-    Text = _Widget
-    InputText = _Widget
-    Button = _Widget
-    InputTextFlags = SimpleNamespace(enter_returns_true=1)
+class _FakeImGui:
+    Cond_ = SimpleNamespace(always=1)
+    WindowFlags_ = SimpleNamespace(
+        no_move=1,
+        no_resize=2,
+        no_collapse=4,
+        no_saved_settings=8,
+    )
+    InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
 
     def __init__(self) -> None:
-        self.screen = object()
+        self.windows: dict[str, list[str]] = {}
+        self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
+        self.current_window: str | None = None
+        self.input_value = ""
+        self.submit_input = False
+        self.click_submit = False
+
+    @staticmethod
+    def ImVec2(x: float, y: float) -> tuple[float, float]:
+        return x, y
+
+    def set_next_window_pos(self, position, condition) -> None:
+        del position, condition
+
+    def set_next_window_size(self, size, condition) -> None:
+        del size, condition
+
+    def set_next_window_bg_alpha(self, alpha) -> None:
+        del alpha
+
+    def begin(self, title: str, *, flags: int) -> bool:
+        del flags
+        self.current_window = title
+        self.windows.setdefault(title, [])
+        return True
+
+    def end(self) -> None:
+        self.current_window = None
+
+    def text(self, value: str) -> None:
+        assert self.current_window is not None
+        self.windows[self.current_window].append(value)
+
+    def image(
+        self,
+        key: str,
+        pixels: np.ndarray,
+        *,
+        size: tuple[float, float],
+    ) -> None:
+        self.images.append((key, pixels, size))
+
+    def input_text(self, label: str, value: str, *, flags: int):
+        del label, value, flags
+        return self.submit_input, self.input_value
+
+    def button(self, label: str) -> bool:
+        del label
+        return self.click_submit
+
+    def begin_disabled(self) -> None:
+        return
+
+    def end_disabled(self) -> None:
+        return
 
 
 class _Renderer:
     def __init__(self, width: int, height: int) -> None:
         self.width = width
         self.height = height
-        self.ui = _FakeUI()
+        self.ui = _FakeImGui()
         self.reset_count = 0
         self.closed = False
 
@@ -308,29 +339,10 @@ def test_pickup_waypoint_projection_batches_anchors_and_ring_geometry() -> None:
     assert [projection.distance_m for projection in projections] == [10.0, 20.0, 30.0]
 
 
-def test_bev_is_rendered_as_frame_aligned_rgba_overlay() -> None:
-    overlay = render_bev_overlay(
-        torch.full((1, 3, 32, 32), 0.5),
-        width=160,
-        height=96,
-    )
-
-    assert overlay.shape == (1, 4, 96, 160)
-    assert overlay.dtype is torch.float32
-    assert torch.count_nonzero(overlay[:, 3, :56, :]) == 0
-    assert overlay[0, 3, 56, 120] == 1.0
-    assert overlay[0, 3, 58, 122] == pytest.approx(0.82)
-    assert torch.all(overlay[0, :3, 58, 122] == 0.5)
-
-
-def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
+def test_imgui_ui_loop_composites_waypoints_and_draws_bev_in_a_window() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
-    bev_overlay = render_bev_overlay(
-        torch.full((1, 3, 32, 32), 0.5),
-        width=width,
-        height=height,
-    )
+    bev = torch.full((1, 3, 32, 32), 0.5)
     hud_state = TaxiHudState(width, height, _calibration())
     hud_state.publish(
         build_hud_frames(
@@ -344,12 +356,12 @@ def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
         0,
         [
             StepResult(0, video, 1, VideoTensorLayout.tchw),
-            StepResult(0, bev_overlay, 1, VideoTensorLayout.tchw),
+            StepResult(0, bev, 1, VideoTensorLayout.tchw),
         ],
     )
     changed, _ = presentation.advance(0)
     renderer = _Renderer(width, height)
-    loop = CrazyRobotaxiSlangPyUILoop(
+    loop = CrazyRobotaxiImGuiUILoop(
         renderer=renderer,
     )
     loop.register_session_loop_objects(
@@ -369,25 +381,31 @@ def test_slangpy_ui_loop_composites_world_waypoints_then_bev_and_ui() -> None:
     assert result.output.shape == (1, 3, height, width)
     assert result.output.dtype is torch.float32
     assert hud_state._current is not None
-    assert hud_state._widgets is not None
-    assert hud_state._widgets.score.text == "SCORE  001200    HIGH  009000"
-    assert hud_state._widgets.navigation.text == "TARGET AHEAD  0 deg"
-    assert not hasattr(hud_state._widgets, "marker_windows")
+    assert "SCORE  001200    HIGH  009000" in renderer.ui.windows["Crazy Robotaxi"]
+    assert "TARGET AHEAD  0 deg" in renderer.ui.windows["Navigation"]
+    assert len(renderer.ui.images) == 1
+    image_key, pixels, image_size = renderer.ui.images[0]
+    assert image_key == "crazy_robotaxi_bev"
+    assert pixels.shape == (32, 32, 3)
+    assert np.all(pixels == 191)
+    assert image_size == (32.0, 32.0)
     assert result.output[0, 0, 48, 80] != -0.5
-    assert result.output[0, 0, 58, 122] == pytest.approx(0.32)
     assert torch.any(result.output != video)
 
     cached_waypoints = hud_state._waypoint_layer
+    cached_bev = hud_state._bev_pixels
     loop.step(1, UserInputEvents([]))
     assert hud_state._waypoint_layer is cached_waypoints
+    assert hud_state._bev_pixels is cached_bev
 
     loop.reset()
     assert hud_state._current is None
     assert hud_state._waypoint_layer is None
+    assert hud_state._bev_pixels is None
     assert renderer.reset_count == 1
 
 
-def test_hud_builds_real_slangpy_imgui_widgets_without_a_renderer() -> None:
+def test_hud_draws_immediate_imgui_windows() -> None:
     state = TaxiHudState(160, 96, _calibration())
     state.publish(
         build_hud_frames(
@@ -397,41 +415,24 @@ def test_hud_builds_real_slangpy_imgui_widgets_without_a_renderer() -> None:
         )
     )
     state._current = next(iter(state._frames.values()))
-    ui = SimpleNamespace(
-        screen=None,
-        Window=spy.ui.Window,
-        Text=spy.ui.Text,
-        InputText=spy.ui.InputText,
-        Button=spy.ui.Button,
-        InputTextFlags=spy.ui.InputTextFlags,
-    )
+    imgui = _FakeImGui()
 
-    state.draw(ui)
+    state.draw(imgui)
 
-    assert state._widgets is not None
-    assert isinstance(state._widgets.status_window, spy.ui.Window)
-    assert isinstance(state._widgets.name_input, spy.ui.InputText)
-    assert state._widgets.score.text == "SCORE  001200    HIGH  009000"
+    assert set(imgui.windows) == {"Crazy Robotaxi", "Navigation"}
+    assert "SCORE  001200    HIGH  009000" in imgui.windows["Crazy Robotaxi"]
 
 
 def test_hud_animates_prepresentation_warmup_status() -> None:
     state = TaxiHudState(160, 96, _calibration())
     state.set_loading_status("WARMING WORLD MODEL  2/4")
-    ui = SimpleNamespace(
-        screen=None,
-        Window=spy.ui.Window,
-        Text=spy.ui.Text,
-        InputText=spy.ui.InputText,
-        Button=spy.ui.Button,
-        InputTextFlags=spy.ui.InputTextFlags,
-    )
+    imgui = _FakeImGui()
 
-    state.draw(ui, ui_tick=30)
+    state.draw(imgui, ui_tick=30)
 
-    assert state._widgets is not None
-    assert state._widgets.status_window.visible
-    assert state._widgets.score.text == "WARMING WORLD MODEL  2/4..."
-    assert state._widgets.time.text.startswith("ELAPSED  ")
+    lines = imgui.windows["Crazy Robotaxi"]
+    assert lines[0] == "WARMING WORLD MODEL  2/4..."
+    assert lines[1].startswith("ELAPSED  ")
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
@@ -466,34 +467,28 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
     )
 
     state.select_presented_frame(video[0])
-    state.draw(_FakeUI())
+    imgui = _FakeImGui()
+    state.draw(imgui)
 
     assert state._latest_input_latency_ms is not None
-    assert state._widgets is not None
-    assert state._widgets.input_window is not None
-    input_state = state._widgets.input_state
-    input_latency = state._widgets.input_latency
-    assert input_state is not None
-    assert input_latency is not None
-    assert "A [X]" in input_state.text
-    assert "UI TO MODEL FRAME" in input_latency.text
-    assert "TRANSITIONS  1" in input_latency.text
-    assert "IGNORED  2" in input_latency.text
+    diagnostics = imgui.windows["Input Latency"]
+    assert "A [X]" in diagnostics[0]
+    assert "UI TO MODEL FRAME" in diagnostics[1]
+    assert "TRANSITIONS  1" in diagnostics[2]
+    assert "IGNORED  2" in diagnostics[2]
 
     state.reset()
     assert not state._profile_pressed
     assert state._latest_input_latency_ms is None
 
 
-def test_input_latency_widgets_are_absent_by_default() -> None:
+def test_input_latency_window_is_absent_by_default() -> None:
     state = TaxiHudState(160, 96, _calibration())
+    imgui = _FakeImGui()
 
-    state.draw(_FakeUI())
+    state.draw(imgui)
 
-    assert state._widgets is not None
-    assert state._widgets.input_window is None
-    assert state._widgets.input_state is None
-    assert state._widgets.input_latency is None
+    assert "Input Latency" not in imgui.windows
 
 
 def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
@@ -506,11 +501,24 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
         failure_queue=queue.Queue(),
     )
     state.model_loop = model_loop
+    video = torch.zeros(1, 3, 96, 160)
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(session_state="awaiting_name"),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+    imgui.input_value = " DRIVER 7 "
+    imgui.click_submit = True
 
-    state._submit_name(" DRIVER 7 ")
-    state._submit_name("SECOND")
+    state.draw(imgui)
+    state.draw(imgui)
 
     assert model_loop.state.names == []
     model_loop._run_message_batch()
     assert model_loop.state.names == ["DRIVER 7"]
     assert state._submission_pending
+    assert "Game Over" in imgui.windows

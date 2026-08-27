@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ImGui HUD and presentation state for Crazy Robotaxi."""
+"""Dear ImGui HUD and presentation state for Crazy Robotaxi."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from crazy_robotaxi.high_scores import validate_player_name
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.world_overlay import render_waypoint_layers
 from flashdreams.api_v2.loop import ILoop, invoke_async
-from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
+from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     KeyboardInputState,
@@ -82,33 +82,8 @@ class TaxiHudFrame:
 
 
 @dataclass(slots=True)
-class _HudWidgets:
-    """Retained SlangPy widget handles owned by the UI thread."""
-
-    status_window: Any
-    score: Any
-    time: Any
-    objective: Any
-    fare_time: Any
-    event: Any
-    navigation_window: Any
-    navigation: Any
-    terminal_window: Any
-    terminal_title: Any
-    terminal_score: Any
-    terminal_rank: Any
-    name_input: Any
-    submit: Any
-    validation: Any
-    leaderboard: Any
-    input_window: Any | None
-    input_state: Any | None
-    input_latency: Any | None
-
-
-@dataclass(slots=True)
 class TaxiHudState:
-    """Mutable ImGui state owned exclusively by the V2 UI thread."""
+    """Mutable Dear ImGui state owned exclusively by the V2 UI thread."""
 
     width: int
     """Presentation width in pixels."""
@@ -137,8 +112,14 @@ class TaxiHudState:
     _waypoint_layer: Tensor | None = None
     """Cached world overlay for the currently presented generated frame."""
 
-    _widgets: _HudWidgets | None = None
-    """Lazily created retained widgets."""
+    _name_input: str = ""
+    """Immediate-mode name-entry buffer retained by the UI state."""
+
+    _bev_source_key: tuple[int, tuple[int, ...]] | None = None
+    """Identity and shape of the raw BEV frame cached for ImGui upload."""
+
+    _bev_pixels: npt.NDArray[np.uint8] | None = None
+    """Cached HWC RGB bytes for the currently presented BEV frame."""
 
     _validation_message: str = ""
     """Name-entry validation or submission status."""
@@ -269,40 +250,58 @@ class TaxiHudState:
         self._waypoint_layer = layer
         return layer
 
-    def draw(self, ui: Any, ui_tick: int = 0) -> None:
-        """Create or update the retained ImGui HUD widget tree."""
-        widgets = self._ensure_widgets(ui)
-        self._update_input_diagnostic(widgets)
+    def draw(
+        self,
+        imgui: Any,
+        ui_tick: int = 0,
+        *,
+        bev_frame: Tensor | None = None,
+    ) -> None:
+        """Draw one immediate Dear ImGui HUD frame."""
         hud_frame = self._current
         if hud_frame is None:
             dots = "." * (1 + (ui_tick // 15) % 3)
             elapsed_s = max(0, int(time.monotonic() - self._loading_started_at_s))
-            widgets.status_window.visible = True
-            widgets.score.text = f"{self._loading_status}{dots}"
-            widgets.time.text = f"ELAPSED  {elapsed_s}s"
-            widgets.objective.text = ""
-            widgets.fare_time.text = ""
-            widgets.event.text = ""
-            widgets.navigation_window.visible = False
-            widgets.terminal_window.visible = False
+            self._draw_text_window(
+                imgui,
+                "Crazy Robotaxi",
+                position=(14.0, 14.0),
+                size=(360.0, 104.0),
+                lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
+            )
             return
 
         snapshot = hud_frame.snapshot
-        widgets.status_window.visible = snapshot.session_state == "playing"
-        widgets.score.text = _score_label(snapshot)
-        widgets.time.text = f"GAME TIME  {snapshot.global_remaining_time_s:05.1f}s"
-        objective = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
-        widgets.objective.text = f"{objective}  {snapshot.distance_m:04.0f} m"
-        widgets.fare_time.text = (
-            ""
-            if snapshot.remaining_time_s is None
-            else f"FARE TIME  {snapshot.remaining_time_s:04.1f}s"
-        )
-        widgets.event.text = _event_label(snapshot)
-
-        widgets.navigation_window.visible = snapshot.session_state == "playing"
-        widgets.navigation.text = _navigation_label(snapshot.relative_bearing_rad)
-        self._update_terminal(widgets, snapshot)
+        if snapshot.session_state == "playing":
+            objective = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+            fare_time = (
+                ""
+                if snapshot.remaining_time_s is None
+                else f"FARE TIME  {snapshot.remaining_time_s:04.1f}s"
+            )
+            self._draw_text_window(
+                imgui,
+                "Crazy Robotaxi",
+                position=(14.0, 14.0),
+                size=(360.0, 190.0),
+                lines=(
+                    _score_label(snapshot),
+                    f"GAME TIME  {snapshot.global_remaining_time_s:05.1f}s",
+                    f"{objective}  {snapshot.distance_m:04.0f} m",
+                    fare_time,
+                    _event_label(snapshot),
+                ),
+            )
+            self._draw_text_window(
+                imgui,
+                "Navigation",
+                position=(float(self.width - 294), 14.0),
+                size=(280.0, 92.0),
+                lines=(_navigation_label(snapshot.relative_bearing_rad),),
+            )
+            self._draw_bev_window(imgui, bev_frame)
+        self._draw_terminal(imgui, snapshot)
+        self._draw_input_diagnostic(imgui)
 
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
@@ -318,103 +317,83 @@ class TaxiHudState:
         self._input_received_at_s.clear()
         self._reported_input_timestamps_us.clear()
         self._latest_input_latency_ms = None
-        if self._widgets is not None:
-            self._widgets.name_input.value = ""
-            self._widgets.name_input.enabled = True
-            self._widgets.submit.enabled = True
+        self._name_input = ""
+        self._bev_source_key = None
+        self._bev_pixels = None
 
-    def _ensure_widgets(self, ui: Any) -> _HudWidgets:
-        if self._widgets is not None:
-            return self._widgets
-        status_window = ui.Window(
-            ui.screen,
-            "Crazy Robotaxi",
-            position=(14.0, 14.0),
-            size=(360.0, 190.0),
-        )
-        score = ui.Text(status_window, "LOADING WORLD MODEL")
-        time = ui.Text(status_window, "")
-        objective = ui.Text(status_window, "")
-        fare_time = ui.Text(status_window, "")
-        event = ui.Text(status_window, "")
+    def _draw_text_window(
+        self,
+        imgui: Any,
+        title: str,
+        *,
+        position: tuple[float, float],
+        size: tuple[float, float],
+        lines: Sequence[str],
+    ) -> None:
+        _prepare_window(imgui, position=position, size=size)
+        visible = _begin_window(imgui, title)
+        try:
+            if visible:
+                for line in lines:
+                    if line:
+                        imgui.text(line)
+        finally:
+            imgui.end()
 
-        navigation_window = ui.Window(
-            ui.screen,
-            "Navigation",
-            position=(float(self.width - 294), 14.0),
-            size=(280.0, 92.0),
+    def _draw_bev_window(self, imgui: Any, bev_frame: Tensor | None) -> None:
+        if bev_frame is None:
+            return
+        image_size = min(self.width // 4, self.height // 3)
+        if image_size <= 4:
+            return
+        pixels = self._bev_image_pixels(bev_frame)
+        padding = 16
+        title_height = 34
+        window_size = (float(image_size + padding), float(image_size + title_height))
+        margin = float(max(8, min(self.width, self.height) // 80))
+        position = (
+            float(self.width) - window_size[0] - margin,
+            float(self.height) - window_size[1] - margin,
         )
-        navigation = ui.Text(navigation_window, "")
+        _prepare_window(imgui, position=position, size=window_size, alpha=0.82)
+        visible = _begin_window(imgui, "Map")
+        try:
+            if visible:
+                imgui.image(
+                    "crazy_robotaxi_bev",
+                    pixels,
+                    size=(float(image_size), float(image_size)),
+                )
+        finally:
+            imgui.end()
 
-        terminal_window = ui.Window(
-            ui.screen,
-            "Game Over",
-            position=(
-                float(max(20, self.width // 2 - 270)),
-                float(max(20, self.height // 2 - 220)),
-            ),
-            size=(540.0, 440.0),
+    def _bev_image_pixels(self, frame: Tensor) -> npt.NDArray[np.uint8]:
+        if frame.ndim != 3 or frame.shape[0] != 3:
+            raise ValueError("BEV presentation frames must use [3,H,W]")
+        source_key = (int(frame.data_ptr()), tuple(int(value) for value in frame.shape))
+        if source_key == self._bev_source_key and self._bev_pixels is not None:
+            return self._bev_pixels
+        pixels = (
+            frame.detach()
+            .to(dtype=torch.float32)
+            .add(1.0)
+            .mul(127.5)
+            .clamp_(0.0, 255.0)
+            .to(torch.uint8)
+            .permute(1, 2, 0)
+            .contiguous()
+            .cpu()
+            .numpy()
         )
-        terminal_title = ui.Text(terminal_window, "")
-        terminal_score = ui.Text(terminal_window, "")
-        terminal_rank = ui.Text(terminal_window, "")
-        name_input = ui.InputText(
-            terminal_window,
-            "Driver name",
-            value="",
-            callback=self._submit_name,
-            flags=ui.InputTextFlags.enter_returns_true,
-        )
-        submit = ui.Button(
-            terminal_window,
-            "Submit score",
-            callback=self._submit_name_from_button,
-        )
-        validation = ui.Text(terminal_window, "")
-        leaderboard = ui.Text(terminal_window, "")
-        input_window = None
-        input_state = None
-        input_latency = None
-        if self.profile_input_latency:
-            input_window = ui.Window(
-                ui.screen,
-                "Input Latency",
-                position=(14.0, float(max(14, self.height - 124))),
-                size=(440.0, 110.0),
-            )
-            input_state = ui.Text(input_window, "")
-            input_latency = ui.Text(input_window, "")
-        self._widgets = _HudWidgets(
-            status_window=status_window,
-            score=score,
-            time=time,
-            objective=objective,
-            fare_time=fare_time,
-            event=event,
-            navigation_window=navigation_window,
-            navigation=navigation,
-            terminal_window=terminal_window,
-            terminal_title=terminal_title,
-            terminal_score=terminal_score,
-            terminal_rank=terminal_rank,
-            name_input=name_input,
-            submit=submit,
-            validation=validation,
-            leaderboard=leaderboard,
-            input_window=input_window,
-            input_state=input_state,
-            input_latency=input_latency,
-        )
-        return self._widgets
+        self._bev_source_key = source_key
+        self._bev_pixels = np.ascontiguousarray(pixels)
+        return self._bev_pixels
 
-    def _update_input_diagnostic(self, widgets: _HudWidgets) -> None:
+    def _draw_input_diagnostic(self, imgui: Any) -> None:
         if not self.profile_input_latency:
             return
-        assert widgets.input_window is not None
-        assert widgets.input_state is not None
-        assert widgets.input_latency is not None
         pressed = self._profile_pressed
-        widgets.input_state.text = "  ".join(
+        input_state = "  ".join(
             f"{label} [{'X' if bool(keys & pressed) else ' '}]"
             for label, keys in (
                 ("W", {"w", "up"}),
@@ -439,43 +418,64 @@ class TaxiHudState:
             if latency is None
             else f"UI TO MODEL FRAME  {latency:.1f} ms"
         )
-        widgets.input_latency.text = f"{latency_label}\n{counts}"
+        self._draw_text_window(
+            imgui,
+            "Input Latency",
+            position=(14.0, float(max(14, self.height - 124))),
+            size=(440.0, 110.0),
+            lines=(input_state, latency_label, counts),
+        )
 
-    def _update_terminal(
-        self, widgets: _HudWidgets, snapshot: TaxiGameSnapshot
-    ) -> None:
+    def _draw_terminal(self, imgui: Any, snapshot: TaxiGameSnapshot) -> None:
         awaiting_name = snapshot.session_state == "awaiting_name"
         leaderboard = snapshot.session_state == "leaderboard"
-        widgets.terminal_window.visible = awaiting_name or leaderboard
         if not (awaiting_name or leaderboard):
             return
-        widgets.terminal_title.text = (
-            "NEW HIGH SCORE" if awaiting_name else "LEADERBOARD"
+        _prepare_window(
+            imgui,
+            position=(
+                float(max(20, self.width // 2 - 270)),
+                float(max(20, self.height // 2 - 220)),
+            ),
+            size=(540.0, 440.0),
         )
-        widgets.terminal_score.text = f"FINAL SCORE  {snapshot.score:06d}"
-        widgets.terminal_rank.text = (
-            ""
-            if snapshot.high_score_rank is None
-            else f"RANK  #{snapshot.high_score_rank}"
-        )
-        widgets.name_input.visible = awaiting_name
-        widgets.submit.visible = awaiting_name
-        widgets.name_input.enabled = awaiting_name and not self._submission_pending
-        widgets.submit.enabled = awaiting_name and not self._submission_pending
-        widgets.validation.visible = awaiting_name
-        widgets.validation.text = self._validation_message
-        widgets.leaderboard.visible = leaderboard
-        widgets.leaderboard.text = (
-            "\n".join(
-                f"{rank:>2}. {entry.name:<12} {entry.score:>7}"
-                for rank, entry in enumerate(snapshot.leaderboard, start=1)
-            )
-            or "NO SCORES YET"
-        )
-
-    def _submit_name_from_button(self) -> None:
-        assert self._widgets is not None
-        self._submit_name(str(self._widgets.name_input.value))
+        visible = _begin_window(imgui, "Game Over")
+        try:
+            if not visible:
+                return
+            imgui.text("NEW HIGH SCORE" if awaiting_name else "LEADERBOARD")
+            imgui.text(f"FINAL SCORE  {snapshot.score:06d}")
+            if snapshot.high_score_rank is not None:
+                imgui.text(f"RANK  #{snapshot.high_score_rank}")
+            if awaiting_name:
+                disabled = self._submission_pending
+                if disabled:
+                    imgui.begin_disabled()
+                try:
+                    submitted, self._name_input = imgui.input_text(
+                        "Driver name",
+                        self._name_input,
+                        flags=imgui.InputTextFlags_.enter_returns_true,
+                    )
+                    clicked = imgui.button("Submit score")
+                finally:
+                    if disabled:
+                        imgui.end_disabled()
+                if submitted or clicked:
+                    self._submit_name(self._name_input)
+                if self._validation_message:
+                    imgui.text(self._validation_message)
+            else:
+                entries = (
+                    "\n".join(
+                        f"{rank:>2}. {entry.name:<12} {entry.score:>7}"
+                        for rank, entry in enumerate(snapshot.leaderboard, start=1)
+                    )
+                    or "NO SCORES YET"
+                )
+                imgui.text(entries)
+        finally:
+            imgui.end()
 
     def _submit_name(self, value: str) -> None:
         if self._submission_pending:
@@ -491,43 +491,33 @@ class TaxiHudState:
             return
         self._submission_pending = True
         self._validation_message = "Submitting score..."
-        if self._widgets is not None:
-            self._widgets.name_input.enabled = False
-            self._widgets.submit.enabled = False
         invoke_async(
             model_loop,
             lambda state, name=normalized: state.submit_player_name(name),
         )
 
 
-class CrazyRobotaxiSlangPyUILoop(SlangPyUILoop[TaxiHudState]):
-    """Present generated frames beneath a responsive SlangPy taxi HUD."""
+class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
+    """Present generated frames beneath a responsive Dear ImGui taxi HUD."""
 
     def step_ui(
-        self, ui: Any, step_index: int, events: UserInputEvents
+        self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
-        """Draw the HUD and return the current generated frame beneath it."""
+        """Draw the HUD and return the generated world frame beneath it."""
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
-        bev_overlay = frames[1] if len(frames) > 1 else None
+        bev_frame = frames[1] if len(frames) > 1 else None
         if video is not None:
             self.state.select_presented_frame(video)
-        self.state.draw(ui, step_index)
+        self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
         world = video.to(torch.float32)
         waypoints = self.state.waypoint_layer(video)
         if waypoints is not None:
             world = self._presentation_manager.composite(world, waypoints)
-        if bev_overlay is None:
-            return world
-        if bev_overlay.shape[0] != 4:
-            raise ValueError("BEV presentation frames must use [4,H,W]")
-        return self._presentation_manager.composite(
-            world,
-            bev_overlay.to(device=video.device, dtype=torch.float32),
-        )
+        return world
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
@@ -574,6 +564,31 @@ def build_hud_frames(
             )
         )
     return tuple(frames)
+
+
+def _prepare_window(
+    imgui: Any,
+    *,
+    position: tuple[float, float],
+    size: tuple[float, float],
+    alpha: float = 0.72,
+) -> None:
+    """Set deterministic overlay geometry for the next ImGui window."""
+    imgui.set_next_window_pos(imgui.ImVec2(*position), imgui.Cond_.always)
+    imgui.set_next_window_size(imgui.ImVec2(*size), imgui.Cond_.always)
+    imgui.set_next_window_bg_alpha(alpha)
+
+
+def _begin_window(imgui: Any, title: str) -> bool:
+    """Begin a fixed HUD window and normalize ImGui's binding return form."""
+    flags = 0
+    window_flags = imgui.WindowFlags_
+    for name in ("no_move", "no_resize", "no_collapse", "no_saved_settings"):
+        flags |= int(getattr(window_flags, name))
+    result = imgui.begin(title, flags=flags)
+    if isinstance(result, tuple):
+        return bool(result[0])
+    return bool(result)
 
 
 def _normalize_profile_key(key: str) -> str:
@@ -623,7 +638,7 @@ def _navigation_label(bearing_rad: float) -> str:
 
 
 __all__ = [
-    "CrazyRobotaxiSlangPyUILoop",
+    "CrazyRobotaxiImGuiUILoop",
     "TaxiHudFrame",
     "TaxiHudState",
     "build_hud_frames",

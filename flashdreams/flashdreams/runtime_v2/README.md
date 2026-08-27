@@ -207,9 +207,11 @@ enforces matching dimensions and device instead of silently repairing them.
 
 The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into
-the session's layout. `SlangPyUILoop` is the alternative, for widgets drawn over
-the model output; it returns a `[1, C, H, W]` frame, so a session using it
-declares a `tchw` layout.
+the session's layout. `SlangPyUILoop` is the alternative for SlangPy's retained
+widget subset. `ImGuiUILoop` exposes the complete immediate Dear ImGui API and
+adds `imgui.image(key, pixels, size=(width, height))` for app-owned RGB/RGBA
+images. Both return a `[1, C, H, W]` frame, so a session using either declares
+a `tchw` layout.
 
 `IClientWindow` is both an `InputSource` and an `OutputSink`, so a window is
 written to with the same three calls as any sink: `open` with the session

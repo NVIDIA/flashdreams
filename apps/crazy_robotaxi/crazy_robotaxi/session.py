@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Crazy Robotaxi V2 session with model and SlangPy UI loops."""
+"""Crazy Robotaxi V2 session with model and Dear ImGui UI loops."""
 
 from __future__ import annotations
 
@@ -20,11 +20,10 @@ from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
-    CrazyRobotaxiSlangPyUILoop,
+    CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
 )
-from crazy_robotaxi.world_overlay import render_bev_overlay
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -52,7 +51,7 @@ class ModelState:
 
     rollout: WorldModelRollout | None = None
     last_video: torch.Tensor | None = None
-    last_bev_overlay: torch.Tensor | None = None
+    last_bev: torch.Tensor | None = None
     last_pose: np.ndarray | None = None
     blocks_generated: int = 0
     finished: bool = False
@@ -141,7 +140,7 @@ class ModelState:
         self.finished = False
         self.realtime_miss_count = 0
         self.last_video = None
-        self.last_bev_overlay = None
+        self.last_bev = None
         self.last_pose = None
         self.input_transition_count = 0
         self.input_ignored_event_count = 0
@@ -202,17 +201,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
             bev = engine_step.condition.bev_tchw
-            bev_cpu_started = time.thread_time()
-            bev_overlay = (
-                None
-                if bev is None
-                else render_bev_overlay(
-                    bev,
-                    width=state.session_desc.video_width,
-                    height=state.session_desc.video_height,
-                )
-            )
-            bev_overlay_cpu_ms = (time.thread_time() - bev_cpu_started) * 1000.0
             metrics = dict(generated.metrics)
             metrics.update(
                 {
@@ -228,9 +216,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
             state.last_video = video[-1:].detach()
-            state.last_bev_overlay = (
-                None if bev_overlay is None else bev_overlay[-1:].detach()
-            )
+            state.last_bev = None if bev is None else bev[-1:].detach()
             state.last_pose = poses[-1].copy()
         else:
             if state.last_video is None or state.last_pose is None:
@@ -238,9 +224,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             video = state.last_video
             game_frames = (snapshot,)
             poses = state.last_pose[None, ...]
-            bev_overlay = state.last_bev_overlay
+            bev = state.last_bev
             metrics = {}
-            bev_overlay_cpu_ms = 0.0
             transition_timestamps_us = (None,) * int(video.shape[0])
 
         hud_frames = build_hud_frames(
@@ -276,7 +261,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             )
             metrics.update(
                 {
-                    "bev_overlay_cpu_ms": bev_overlay_cpu_ms,
                     "model_step_cpu_ms": model_step_cpu_ms,
                     "chunk_duration_ms": chunk_duration_ms,
                 }
@@ -323,11 +307,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 metrics=metrics,
             ),
         ]
-        if bev_overlay is not None:
+        if bev is not None:
             results.append(
                 StepResult(
                     step_index=step_index,
-                    output=bev_overlay,
+                    output=bev,
                     frame_count=count,
                     output_layout=VideoTensorLayout.tchw,
                 )
@@ -345,7 +329,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
 
 
 class CrazyRobotaxiSession(ISession):
-    """Register the model loop and Crazy Robotaxi SlangPy UI loop."""
+    """Register the model loop and Crazy Robotaxi Dear ImGui UI loop."""
 
     def __init__(
         self,
@@ -372,7 +356,7 @@ class CrazyRobotaxiSession(ISession):
             profile_input_latency=self._config.profile_input_latency,
         )
         ui_loop = self.register_ui_loop(
-            CrazyRobotaxiSlangPyUILoop,
+            CrazyRobotaxiImGuiUILoop,
             state=hud_state,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,

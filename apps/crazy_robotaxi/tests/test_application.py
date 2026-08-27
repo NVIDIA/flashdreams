@@ -14,7 +14,7 @@ import torch
 from crazy_robotaxi.application import _MODEL_PRESETS, CrazyRobotaxiApplication
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.session import CrazyRobotaxiModelLoop, CrazyRobotaxiSession
-from crazy_robotaxi.ui import CrazyRobotaxiSlangPyUILoop
+from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
 from omnidreams.config import (
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
@@ -66,7 +66,7 @@ def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
     )
 
 
-def test_application_registers_model_and_slangpy_ui_loops() -> None:
+def test_application_registers_model_and_imgui_ui_loops() -> None:
     pipeline = object()
     app = CrazyRobotaxiApplication(
         pipeline_factory=lambda config, device: pipeline,
@@ -91,7 +91,7 @@ def test_application_registers_model_and_slangpy_ui_loops() -> None:
     assert desc.frames_per_second_for_ui == 30
     assert desc.frames_per_second_for_step == 30
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
-    assert isinstance(ui_loop, CrazyRobotaxiSlangPyUILoop)
+    assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert model_loop.state.pipeline is pipeline
     assert model_loop.state.rollout is None
     assert model_loop.state.ui_loop is ui_loop

@@ -3,16 +3,16 @@
 Crazy Robotaxi is a FlashDreams V2 application built on the model/UI-loop API
 and `omnidreams-game-engine`. FlashDreams owns input collection, reset
 generations, presentation buffering, client windows, and the two-thread
-runtime. The UI loop uses FlashDreams' SlangPy renderer for the game HUD and
+runtime. The UI loop uses FlashDreams' Dear ImGui renderer for the game HUD and
 composites it over model frames for native-window, WebRTC, and file clients.
 Camera-projected waypoint rings, beacons, and labels are rendered as a
 frame-aligned world layer on the UI thread; they are not ImGui windows. The
 model loop publishes immutable snapshot-and-pose metadata for each generated
 frame, and the UI loop rasterizes each presented waypoint layer once and
-caches it while that frame remains visible. The optional BEV view is published
-as an RGBA model-result layer. `CrazyRobotaxiSlangPyUILoop` composites video,
-waypoints, and BEV through V2's presentation manager before the base loop
-applies the SlangPy ImGui HUD.
+caches it while that frame remains visible. The optional raw BEV view is a
+second model result displayed inside a real ImGui `Map` window.
+`CrazyRobotaxiImGuiUILoop` composites the in-world waypoints over video before
+the base loop applies the Dear ImGui HUD and BEV overlay.
 
 ```bash
 uv sync --package crazy-robotaxi
@@ -42,7 +42,7 @@ Use `flashdreams-run-v2 crazy-robotaxi -- --help` for the complete application
 options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. The V2
 client's reset event rebuilds simulation, game rules, traffic, conditioning,
 and the autoregressive cache together while retaining the loaded model.
-Leaderboard name entry is owned by the SlangPy UI and submitted to the model
+Leaderboard name entry is owned by the Dear ImGui UI and submitted to the model
 loop through V2's asynchronous loop-message contract.
 
 ## Original demo performance preset

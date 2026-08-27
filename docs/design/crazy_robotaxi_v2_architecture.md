@@ -15,7 +15,7 @@ not part of this design.
    input-device worker is created by the game engine.
 3. The model thread exclusively owns mutable simulation, game, conditioning,
    autoregressive-cache, and driving-input state.
-4. The UI thread owns all HUD widgets, name-entry state, and presentation.
+4. The UI thread owns all HUD interaction state, name entry, and presentation.
    Immutable HUD frame batches cross from model to UI through V2
    `invoke_async`; neither thread reads the other's mutable state.
 5. The loaded OmniDreams pipeline is application-owned and reusable; every
@@ -38,7 +38,7 @@ flowchart TD
 
     subgraph SESSION["CrazyRobotaxiSession — one run"]
         SCENE["immutable SceneDefinition<br/>map, camera, seed, prompt"]
-        REG["register one model loop<br/>register one SlangPy UI loop"]
+        REG["register one model loop<br/>register one Dear ImGui UI loop"]
     end
 
     subgraph MODELTHREAD["FlashDreams V2 model thread"]
@@ -49,9 +49,9 @@ flowchart TD
     end
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
-        BUFFER["PresentationManager<br/>RGB + optional RGBA BEV channels"]
-        HUD["CrazyRobotaxiSlangPyUILoop<br/>waypoint cache + HUD widgets"]
-        COMPOSE["RGB → waypoint → BEV composition<br/>then SlangPy ImGui HUD"]
+        BUFFER["PresentationManager<br/>RGB + optional raw BEV frames"]
+        HUD["CrazyRobotaxiImGuiUILoop<br/>waypoint + BEV pixel caches"]
+        COMPOSE["RGB → in-world waypoint composition<br/>then Dear ImGui HUD + BEV window"]
         WINDOW["V2 client window<br/>native / WebRTC / MP4"]
     end
 
@@ -63,7 +63,7 @@ flowchart TD
     PIPELINE --> CACHE
     INPUT --> ENGINE
     ENGINE --> HUDSTATE
-    ENGINE -->|"RGB + optional RGBA BEV"| BUFFER
+    ENGINE -->|"RGB + optional raw BEV"| BUFFER
     HUDSTATE -->|"invoke_async"| HUD
     HUD -->|"invoke_async game actions"| ENGINE
     BUFFER --> HUD --> COMPOSE --> WINDOW
@@ -75,18 +75,18 @@ application-owned options. `create_session()` validates the requested
 description, lazily constructs the shared pipeline, prepares immutable scene
 data, and returns an uninitialized session.
 
-The session registers a model loop and a `CrazyRobotaxiSlangPyUILoop`. The
-model loop emits generated RGB frames and, when configured, a frame-aligned
-transparent BEV layer. For each generated frame it publishes an immutable
+The session registers a model loop and a `CrazyRobotaxiImGuiUILoop`. The model
+loop emits generated RGB frames and, when configured, the synchronized raw BEV
+frame. For each generated frame it publishes an immutable
 `TaxiHudFrame` containing its game snapshot and camera pose to the UI loop with
 `invoke_async`. The UI loop selects the metadata aligned with the currently
 presented model frame, rasterizes and caches that frame's in-world waypoint
-geometry, and uses V2's `PresentationManager` to compose waypoints and BEV over
-the generated frame. This avoids constructing an entire chunk of full-size
-waypoint tensors at the model-step boundary. It updates its retained ImGui
-widgets and returns the composed frame to `SlangPyUILoop`, which applies the
-widget overlay. UI callbacks send validated game actions back to the model loop
-with `invoke_async`; they never call game state directly.
+geometry, and uses V2's `PresentationManager` to compose only those in-world
+waypoints over the generated frame. This avoids constructing an entire chunk
+of full-size waypoint tensors at the model-step boundary. It draws the HUD and
+raw BEV in immediate Dear ImGui windows; `ImGuiUILoop` composites that UI layer
+over the world frame. UI callbacks send validated game actions back to the
+model loop with `invoke_async`; they never call game state directly.
 
 ## Pre-presentation startup
 
@@ -136,10 +136,10 @@ flowchart LR
     GENERATE["pipeline.generate"]
     FINALIZE["pipeline.finalize"]
     POST["optional session-local postprocess stream"]
-    BEV["raw BEV frames → frame-aligned<br/>RGBA presentation layers"]
+    BEV["raw BEV frames<br/>small synchronized UI result"]
     HUDFRAMES["immutable TaxiHudFrame batch<br/>snapshot + camera pose"]
     SEND["invoke_async(UI loop)"]
-    RESULTS["list[StepResult]<br/>RGB + optional RGBA BEV"]
+    RESULTS["list[StepResult]<br/>RGB + optional raw BEV"]
 
     EVENTS --> REDUCE
     COUNT --> COMMANDS
@@ -179,19 +179,20 @@ trajectory = engine_step.trajectory
 hdmap = condition_renderer.render(trajectory)       # [B,V,T,3,H,W]
 video = pipeline.generate(autoregressive_index, cache, hdmap)
 metrics = pipeline.finalize(autoregressive_index, cache)
-bev_overlay = render_bev_overlay(condition.bev_tchw, output_size)
 invoke_async(ui_loop, publish_hud_frames(game_snapshots, poses, video))
-return [video StepResult, optional bev_overlay StepResult]
+return [video StepResult, optional raw_bev StepResult]
 ```
 
-The UI loop uses V2's `SlangPyUILoop` and `presented_model_frames()`;
-its `step_ui()` method renders a waypoint layer only when the presented frame
-changes, composites the frame-aligned layers with
-`PresentationManager.composite()`, then lets the base loop composite the
-SlangPy widget overlay over that back buffer. Raw BEV resizing still happens
-once per generated chunk. There is no image widget and there is no intermediate
-render backend, local adapter, model session, chunk request, private command
-queue, private frame queue, or legacy `PresentedFrame` aggregate.
+The UI loop uses V2's `ImGuiUILoop` and `presented_model_frames()`; its
+`step_ui()` method renders a waypoint layer only when the presented frame
+changes and composites that in-world layer with
+`PresentationManager.composite()`. It converts the small raw BEV frame to
+cached RGB bytes only when the presented BEV changes and displays it through
+the runtime-provided ImGui image bridge. The base loop composites the complete
+Dear ImGui overlay over that world back buffer. There is no full-frame BEV
+layer, retained SlangPy widget tree, intermediate app renderer, local adapter,
+model session, chunk request, private command queue, private frame queue, or
+legacy `PresentedFrame` aggregate.
 
 ## Game-engine internals
 
@@ -257,7 +258,7 @@ flowchart LR
     FRAME["TaxiGameFrame"]
     HUDSTATE["TaxiHudFrame<br/>immutable presentation state"]
     WAYPOINTS["camera-projected waypoint layer<br/>ring + beacon + label"]
-    IMGUI["CrazyRobotaxiSlangPyUILoop<br/>score, time, navigation,<br/>name entry, leaderboard"]
+    IMGUI["CrazyRobotaxiImGuiUILoop<br/>score, time, navigation, BEV,<br/>name entry, leaderboard"]
 
     MAP --> NAV --> FARES
     TAXI --> TAXIPHYS
@@ -271,7 +272,7 @@ flowchart LR
 
 Taxi-specific code supplies the generic engine with arcade vehicle dynamics,
 curb/chassis physics policy, map-derived navigation/fare regions, game rules,
-passenger actors, persistent scores, and UI-thread ImGui widgets. It does not
+passenger actors, persistent scores, and UI-thread ImGui controls. It does not
 subclass a game-engine application host or presenter.
 
 ## State and lifetime table
@@ -281,7 +282,7 @@ subclass a game-engine application host or presenter.
 | Application | resolved pipeline configuration; one loaded OmniDreams pipeline |
 | Session, immutable | validated session description; compiled/loaded scene definition; game configuration |
 | Model loop, per reset generation | driving-input reducer; simulation/PhysX/traffic; game rules; condition renderer; OmniDreams cache; last generated frame; AR index |
-| UI loop, per reset generation | retained ImGui widgets; immutable HUD-frame lookup; name-entry buffer; validation messages |
+| UI loop, per reset generation | immediate ImGui state; immutable HUD-frame lookup; BEV pixel cache; name-entry buffer; validation messages |
 | Outside runtime | authored map YAML; derived map cache; high-score file |
 
 All simulation, condition-renderer, and world-model CUDA calls that mutate
@@ -356,8 +357,8 @@ apps/crazy_robotaxi/
   crazy_robotaxi/
     application.py            # IApplication composition root
     session.py                # ISession + model/UI loop wiring
-    ui.py                     # ImGui HUD state and SlangPy UI loop
-    world_overlay.py          # UI waypoint and frame-aligned BEV RGBA layers
+    ui.py                     # Dear ImGui HUD state and UI loop
+    world_overlay.py          # UI-thread in-world waypoint rasterization
     rules.py                  # taxi fare state machine
     dynamics.py               # arcade taxi controls
     physics.py                # taxi collision policy
