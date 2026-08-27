@@ -23,6 +23,9 @@ flashdreams = { workspace = true }
 [project.entry-points."flashdreams.applications_v2"]
 "t2av-ltx25" = "t2av_ltx25.app:create_app"
 
+[project.scripts]
+flashdreams-ltx25-benchmark = "t2av_ltx25.benchmark:main"
+
 [tool.setuptools.packages.find]
 include = ["t2av_ltx25*"]
 

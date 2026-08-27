@@ -40,6 +40,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from t2av_ltx25 import LTX25Application, create_app
+from t2av_ltx25 import benchmark as benchmark_module
 from t2av_ltx25.app import LTX25ModelLoop
 from t2av_ltx25.backend import (
     DEFAULT_AUDIO_CHANNELS,
@@ -47,6 +48,13 @@ from t2av_ltx25.backend import (
     BackendLoadConfig,
     GeneratedMedia,
     GenerationRequest,
+)
+from t2av_ltx25.benchmark import (
+    DEFAULT_CASES,
+    MatrixCase,
+    inspect_artifact,
+    render_gallery,
+    run_matrix,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -400,6 +408,105 @@ def test_application_owns_and_closes_the_backend_once() -> None:
     assert loader.backend.close_count == 1
 
 
+def test_validation_matrix_spans_prompts_durations_and_resolutions() -> None:
+    assert len({case.label for case in DEFAULT_CASES}) == len(DEFAULT_CASES)
+    assert len({case.prompt for case in DEFAULT_CASES}) == len(DEFAULT_CASES)
+    assert {case.num_frames for case in DEFAULT_CASES} == {25, 121, 241}
+    assert {case.width for case in DEFAULT_CASES} == {768, 960, 1280}
+    assert all((case.num_frames - 1) % 8 == 0 for case in DEFAULT_CASES)
+    assert all(case.width % 32 == case.height % 32 == 0 for case in DEFAULT_CASES)
+
+
+def test_gallery_escapes_text_and_url_quotes_media_paths() -> None:
+    gallery = render_gallery(
+        {
+            "generated_at": "now",
+            "model_id": "model",
+            "model_revision": "revision",
+            "cases": [
+                {
+                    "label": "<case>",
+                    "prompt": "<script>alert(1)</script>",
+                    "status": "passed",
+                    "video_path": "clip with space.mp4",
+                    "num_frames": 25,
+                    "width": 320,
+                    "height": 192,
+                    "seed": 7,
+                    "metrics": {},
+                    "media": {},
+                }
+            ],
+        }
+    )
+
+    assert "<script>" not in gallery
+    assert "&lt;script&gt;" in gallery
+    assert "&lt;case&gt;" in gallery
+    assert 'src="clip%20with%20space.mp4"' in gallery
+
+
+@needs_ffmpeg
+def test_matrix_reuses_one_backend_and_publishes_gallery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = RecordingLoader()
+    app = _application(loader)
+
+    def create_stand_in_application() -> LTX25Application:
+        return app
+
+    monkeypatch.setattr(
+        benchmark_module,
+        "LTX25Application",
+        create_stand_in_application,
+    )
+    cases = (
+        MatrixCase(
+            label="short",
+            prompt="A bell rings.",
+            num_frames=9,
+            width=_WIDTH,
+            height=_HEIGHT,
+            seed=1,
+        ),
+        MatrixCase(
+            label="longer",
+            prompt="A drum sounds twice.",
+            num_frames=17,
+            width=_WIDTH,
+            height=_HEIGHT,
+            seed=2,
+        ),
+    )
+
+    manifest = run_matrix(
+        output_dir=tmp_path,
+        cases=cases,
+        device="cuda",
+        offload="model",
+        local_files_only=True,
+        overwrite=False,
+        continue_on_error=False,
+    )
+
+    assert [record["status"] for record in manifest["cases"]] == [
+        "passed",
+        "passed",
+    ]
+    assert len(loader.configs) == 1
+    assert [request.prompt for request in loader.backend.requests] == [
+        case.prompt for case in cases
+    ]
+    assert loader.backend.close_count == 1
+    assert (tmp_path / "short.mp4").stat().st_size > 10_000
+    assert (tmp_path / "longer.mp4").stat().st_size > 10_000
+    assert (tmp_path / "manifest.json").is_file()
+    gallery = (tmp_path / "gallery.html").read_text(encoding="utf-8")
+    assert gallery.count("<video controls") == 2
+
+
 @needs_ffmpeg
 def test_runtime_writes_decodable_synchronized_audio_video_and_stats(
     tmp_path: Path,
@@ -446,3 +553,20 @@ def test_runtime_writes_decodable_synchronized_audio_video_and_stats(
     assert samples["generation_s"]["unit"] == "s"
     assert samples["audio_samples_count"]["unit"] == "count"
     assert loader.backend.close_count == 1
+
+    inspection = inspect_artifact(
+        video_path=video_path,
+        stats_path=stats_path,
+        case=MatrixCase(
+            label="stand_in",
+            prompt=_PROMPT,
+            num_frames=_FRAMES,
+            width=_WIDTH,
+            height=_HEIGHT,
+            seed=7,
+        ),
+    )
+    assert all(inspection["checks"].values())
+    assert inspection["video_signal"]["decoded_frames"] == _FRAMES
+    assert inspection["audio_signal"]["rms"] > 0.05
+    assert len(inspection["sha256"]) == 64

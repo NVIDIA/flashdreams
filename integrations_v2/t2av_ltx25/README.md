@@ -68,3 +68,14 @@ T2AV_LTX25_REAL_MODEL_RUN=1 uv run --no-sync pytest \
     integrations_v2/t2av_ltx25 -m ci_gpu -s \
     --basetemp="$HOME/ltx25-test-out"
 ```
+
+Run the complete prompt, duration, and resolution matrix with one model load:
+
+    uv run --no-sync flashdreams-ltx25-benchmark \
+        --output-dir "$HOME/ltx25-gallery" --offload model
+
+The output directory receives an MP4 and runtime stats JSON per case, plus
+`manifest.json` with codec, timing, signal, drift, hash, and validation checks,
+and a portable `gallery.html` that embeds every clip. Use repeated `--case LABEL`
+arguments for a subset; `--help` lists the stable case labels. Existing media is
+not replaced unless `--overwrite` is explicit.
