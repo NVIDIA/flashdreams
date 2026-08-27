@@ -28,6 +28,7 @@ Models
    flashvsr
    hy_worldplay
    lingbot_world
+   lingbot_va
    sana_wm_streaming
    sana_wm_bidirectional
    wan21
@@ -41,14 +42,13 @@ method.
 Available models
 ----------------
 
-The models come in three flavors. Streaming and autoregressive generation
-methods build a video step by step and stay fast once warmed up, aiming for
-sub-second latency per step; bidirectional methods produce a clip in a single
-pass and serve as the quality reference for their streaming counterparts; and
-super-resolution methods upscale existing frames in chunks, so their latency
-scales with output resolution rather than step count. Each card links to that
-method's page, where you'll find the exact command to run it, the checkpoint it
-uses, and the settings you can tune.
+The models cover streaming and autoregressive generation, bidirectional
+generation, and super-resolution. Streaming methods can present output
+incrementally; other autoregressive methods may generate step by step but
+return one complete rollout. Bidirectional methods produce a clip in a single
+pass, while super-resolution methods upscale existing frames in chunks. Each
+card links to that method's page, where you'll find the exact command to run,
+the checkpoint it uses, and the settings you can tune.
 
 .. container:: fd-eyebrow
 
@@ -126,6 +126,14 @@ uses, and the settings you can tune.
          </div>
 
       Camera-controllable image-to-video world model.
+
+   .. grid-item-card:: LingBot-VA
+      :class-card: fd-feature
+      :link: /models/lingbot_va
+      :link-type: doc
+
+      Offline autoregressive RoboTwin image-and-instruction to joint
+      video/action rollout.
 
    .. grid-item-card:: HY-WorldPlay
       :class-card: fd-feature

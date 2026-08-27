@@ -33,7 +33,7 @@ rollout before reporting finished.
 `--input-image-dir` is required because no camera images are bundled. Use
 `-- --help` after the application slug for checkpoint, input, compilation,
 offload, seed, guidance, inference-step, and scheduler-shift overrides. The
-[model card](../../integrations/lingbot_va/README.md#model-card) records
+[model card](../../docs/source/models/lingbot_va.rst) records
 provenance, intended use, safety boundaries, tensor geometry, and measured
 evidence. The accompanying
 [architecture design review](../../integrations/lingbot_va/README.md#architecture-design-review)

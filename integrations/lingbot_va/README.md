@@ -16,52 +16,10 @@ propagation, lifecycle, and output contracts were corrected for the V2 API. The
 draft performance claims are intentionally omitted; only matched measurements
 from the checked-in implementation are recorded below.
 
-## Model card
-
-### Identity and supported task
-
-| Field | Integrated behavior |
-| --- | --- |
-| Model family | [LingBot-VA](https://arxiv.org/abs/2601.21998), an autoregressive diffusion video-action world-model policy with a shared video/action backbone |
-| Checkpoint | [`robbyant/lingbot-va-posttrain-robotwin`](https://huggingface.co/robbyant/lingbot-va-posttrain-robotwin), pinned to `8c9dea8abbc5c91cc9e18bc3264b8915083bbe70` |
-| Implemented task | Offline, batch-one Robotwin image-and-instruction to predicted video-and-action rollout (I2AV) |
-| Input modalities | One natural-language prompt and three RGB camera PNGs: high, left wrist, and right wrist |
-| Output modalities | Predicted high-camera video, 16 denormalized Robotwin action channels, and inference metrics |
-| Core models | UMT5-XXL text encoder (4,096-wide states), Wan VAE (48 latent channels, 16x spatial and 4x temporal scaling), and the shared video/action DiT |
-| DiT architecture | 5,088,872,670 parameters; 30 blocks; width 3,072; FFN width 14,336; 24 heads of width 128; `[1, 2, 2]` video patches |
-| Chunk and cache geometry | Two latent frames per chunk; 240 video plus 32 action tokens; 36 rolling chunk slots per conditional/unconditional branch |
-| Checkpoint footprint | About 22.7 GiB of resolved weight files (9.48 GiB transformer, 10.58 GiB text encoder, 2.63 GiB VAE), measured from the pinned snapshot |
-| Runtime profile | BF16 on one CUDA device; optional `torch.compile` and component offload; one complete rollout per engine |
-| License | This package is Apache-2.0. The [upstream repository](https://github.com/Robbyant/lingbot-va) and published checkpoint model card also identify Apache-2.0; users remain responsible for checkpoint and dataset terms. |
-
-### Provenance, data, and evaluation boundary
-
-- The architecture and inference behavior are ported from
-  [`Robbyant/lingbot-va@7c6ffa9`](https://github.com/Robbyant/lingbot-va/tree/7c6ffa9bfc4b83582cafc860fab4c82cc7deeeeb).
-- The upstream project identifies
-  [`robotwin-clean-and-aug-lerobot`](https://huggingface.co/datasets/robbyant/robotwin-clean-and-aug-lerobot)
-  as its cleaned and augmented RoboTwin post-training dataset. FlashDreams does
-  not train, alter, or independently audit the checkpoint or dataset.
-- The upstream [paper](https://arxiv.org/abs/2601.21998) reports simulated and
-  real-robot results. This integration has not reproduced task success rates;
-  the evidence below establishes native-flow parity, output contracts, and
-  system execution on the pinned checkpoint.
-
-### Intended use and safety boundary
-
-| Intended and validated | Outside this integration's validated scope |
-| --- | --- |
-| Research and development of offline Robotwin video/action rollout inference | Direct, unattended, or safety-critical robot actuation |
-| Numerical parity, lifecycle, packaging, and V2 runtime regression testing | Claims of physical accuracy, task success, or safe action execution |
-| Generating inspectable MP4, NumPy action, and JSON metric artifacts | Training, fine-tuning, LIBERO checkpoints, multi-GPU/FSDP, or online serving |
-
-Predicted actions can be wrong, temporally inconsistent, or unsafe. This port
-starts from one fixed camera observation and does not implement the upstream
-closed-loop observation feedback or asynchronous motor-execution system.
-Distribution shift, camera calibration, prompt ambiguity, and accumulated
-autoregressive error can affect both modalities. Evaluate in simulation or a
-hardware-interlocked environment with task-specific limits and human oversight
-before considering any physical use.
+The public [LingBot-VA model card](../../docs/source/models/lingbot_va.rst)
+records model identity, checkpoint and data provenance, requirements, intended
+use, safety boundaries, and measured validation evidence. This README focuses
+on package contracts, architecture, and reproduction details.
 
 ## Install and run
 
