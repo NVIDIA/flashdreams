@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -67,6 +68,13 @@ _ORIGINAL_PERF_PIPELINE = derive_config(
     },
 )
 
+_FAST_PERF_PIPELINE = derive_config(
+    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline,
+    name="crazy-robotaxi-fast-perf",
+    diffusion_model=copy.deepcopy(_ORIGINAL_PERF_PIPELINE.diffusion_model),
+)
+"""Candidate maximum-performance path: native FP8 LightVAE and native FP8 DiT."""
+
 
 @dataclass(frozen=True, slots=True)
 class _ModelPreset:
@@ -84,6 +92,10 @@ _MODEL_PRESETS = {
     ),
     "original-perf": _ModelPreset(
         _ORIGINAL_PERF_PIPELINE,
+        renderer_follows_session=True,
+    ),
+    "fast-perf": _ModelPreset(
+        _FAST_PERF_PIPELINE,
         renderer_follows_session=True,
     ),
 }
@@ -245,11 +257,13 @@ class CrazyRobotaxiApplication(IApplication):
             )
         transformer = self._pipeline_config.diffusion_model.transformer
         scheduler = self._pipeline_config.diffusion_model.scheduler
+        encoder = self._pipeline_config.encoder
         bev = config.renderer.bev
         bev_resolution = f"{bev.width}x{bev.height}" if bev.enabled else "disabled"
         _LOGGER.info(
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
-            "native_backend=%s attention_backend=%s skip_finalize=%s "
+            "native_backend=%s attention_backend=%s native_vae=%s "
+            "native_vae_backend=%s skip_finalize=%s "
             "denoising_timesteps=%s bev=%s",
             config.model_preset_name,
             actual[0],
@@ -257,6 +271,8 @@ class CrazyRobotaxiApplication(IApplication):
             transformer.native_dit_acceleration,
             transformer.native_dit_backend,
             transformer.native_dit_attention_backend,
+            encoder.native_vae_acceleration,
+            encoder.native_vae_backend,
             transformer.skip_finalize_kv_cache,
             list(scheduler.denoising_timesteps),
             bev_resolution,

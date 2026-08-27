@@ -244,9 +244,34 @@ def test_original_perf_matches_the_original_demo_manifest() -> None:
     assert pipeline.encoder.native_vae_acceleration == "disabled"
 
 
+def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
+    preset = _MODEL_PRESETS["fast-perf"]
+    pipeline = preset.pipeline
+    original = _MODEL_PRESETS["original-perf"].pipeline
+    native = _MODEL_PRESETS["native-perf"].pipeline
+
+    assert preset.renderer_follows_session
+    assert pipeline.name == "crazy-robotaxi-fast-perf"
+    assert pipeline.diffusion_model == original.diffusion_model
+    assert pipeline.image_encoder == native.image_encoder
+    assert pipeline.encoder == native.encoder
+    assert pipeline.decoder == original.decoder
+    assert pipeline.image_encoder.native_vae_acceleration == "required"
+    assert pipeline.image_encoder.native_vae_backend == "fp8"
+    assert pipeline.encoder.native_vae_acceleration == "required"
+    assert pipeline.encoder.native_vae_backend == "fp8"
+    assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
+    assert (
+        pipeline.diffusion_model.transformer.native_dit_backend
+        == "fp8_kvcache_cudnn"
+    )
+
+
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
-def test_original_perf_adapts_renderer_to_session_geometry(
+@pytest.mark.parametrize("preset_name", ["original-perf", "fast-perf"])
+def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
     resolution_wh: tuple[int, int],
+    preset_name: str,
 ) -> None:
     configured: list[object] = []
     raster_sizes: list[tuple[int, int]] = []
@@ -261,7 +286,7 @@ def test_original_perf_adapts_renderer_to_session_geometry(
         pipeline_factory=lambda config, device: configured.append(config) or object(),
         scene_factory=load_test_scene,
     )
-    app.init(["--model-preset", "original-perf"])
+    app.init(["--model-preset", preset_name])
     desc = replace(
         app.session_desc(),
         video_width=resolution_wh[0],

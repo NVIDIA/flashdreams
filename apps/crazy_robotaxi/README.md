@@ -80,6 +80,31 @@ file. Use the existing `perf` and `native-perf` presets for their previous
 behavior. GPU throughput and quality still need to be validated on the target
 machine before treating this preset as a regression baseline.
 
+## Candidate maximum-performance preset
+
+The opt-in `fast-perf` preset combines `original-perf`'s required native FP8
+DiT and cuDNN attention with `native-perf`'s native FP8 LightVAE image and
+per-chunk encoders. It retains the compiled/CUDA-graphed LightTAE decoder and
+the original demo's two-step schedule. This combination is a performance
+candidate, not yet a validated default; compare its steady-state timings and
+output quality with `original-perf` on the target GPU.
+
+It requires a calibrated LightVAE FP8 state. After generating that state, run:
+
+```bash
+OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH=artifacts/native_vae/lightvae-fp8-state.pt \
+  uv run flashdreams-run-v2 crazy-robotaxi \
+  --mode native-window \
+  --pixel-width 1168 \
+  --pixel-height 640 \
+  -- \
+  --model-preset fast-perf
+```
+
+The native DiT sources must also have been prepared as described above. As
+with `original-perf`, the resolution flags are optional and the app renderer
+follows the V2 session dimensions.
+
 ## Performance diagnostics
 
 Crazy Robotaxi emits lightweight model-thread, engine, overlay, and PhysX
