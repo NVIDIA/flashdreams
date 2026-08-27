@@ -308,20 +308,20 @@ stateDiagram-v2
     Playing --> AwaitingName: timer ends and score qualifies
     Playing --> Leaderboard: timer ends without qualification
     AwaitingName --> Leaderboard: name submitted
-    Leaderboard --> [*]: terminal output presented
+    Leaderboard --> Leaderboard: terminal frame remains visible
     Playing --> Playing: V2 reset generation rebuilds rollout
     AwaitingName --> Playing: V2 reset generation rebuilds rollout
-    Leaderboard --> Playing: V2 reset generation rebuilds rollout
+    Leaderboard --> Playing: R or V2 reset rebuilds rollout
 ```
 
 While awaiting a name, no new world-model block is generated. The model loop
 re-emits the last generated RGB frame and publishes an updated immutable HUD
 frame; the UI loop replaces its cached waypoint projections from that metadata.
 ImGui owns the editable name buffer and submits a validated name to the model
-loop with `invoke_async`. The model
-loop reports `is_finished()` only after a leaderboard frame has been emitted
-(or an explicit finite block limit is reached), allowing MP4 mode to terminate
-without a client close event.
+loop with `invoke_async`. A leaderboard does not finish the model loop: it keeps
+the last generated frame visible so R can rebuild the rollout without closing
+the client window. Only an explicit finite block limit or a client close ends
+the run.
 
 On reset, the model loop closes and recreates the simulation, traffic, rules,
 condition renderer state, and autoregressive cache as one unit. On close, it

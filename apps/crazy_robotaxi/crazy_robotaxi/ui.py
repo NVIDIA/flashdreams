@@ -30,12 +30,19 @@ import numpy.typing as npt
 import torch
 import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
+from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
 from crazy_robotaxi.high_scores import format_race_time_us, validate_player_name
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
-from crazy_robotaxi.rules import TaxiCameraMarkerProjection, TaxiGameSnapshot
+from crazy_robotaxi.rules import (
+    TaxiCameraMarkerProjection,
+    TaxiGameSnapshot,
+    project_segment_pose_to_bev,
+    project_target_pose_to_bev,
+    project_target_pose_to_bev_edge,
+)
 from crazy_robotaxi.world_overlay import (
     draw_waypoints as draw_waypoint_markers,
 )
@@ -113,6 +120,9 @@ class TaxiHudState:
 
     calibration: CameraCalibration
     """Camera calibration used to project world markers on the UI thread."""
+
+    bev: BevConfig = BevConfig()
+    """BEV camera geometry used to place navigation markers on the map."""
 
     profile_input_latency: bool = False
     """Whether input arrival and model-frame latency diagnostics are visible."""
@@ -381,7 +391,12 @@ class TaxiHudState:
                     else "",
                 ),
             )
-            self._draw_bev_window(imgui, bev_frame)
+            self._draw_navigation_arrow(
+                imgui,
+                snapshot.relative_bearing_rad,
+                color_rgb=(1.0, 0.18, 0.08),
+            )
+            self._draw_bev_window(imgui, bev_frame, hud_frame)
         elif (
             isinstance(snapshot, TaxiGameSnapshot)
             and snapshot.session_state == "playing"
@@ -405,14 +420,16 @@ class TaxiHudState:
                     _event_label(snapshot),
                 ),
             )
-            self._draw_text_window(
+            self._draw_navigation_arrow(
                 imgui,
-                "Navigation",
-                position=(float(self.width - 294), 14.0),
-                size=(280.0, 92.0),
-                lines=(_navigation_label(snapshot.relative_bearing_rad),),
+                snapshot.relative_bearing_rad,
+                color_rgb=(
+                    (118.0 / 255.0, 185.0 / 255.0, 0.0)
+                    if snapshot.phase == "seeking_pickup"
+                    else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
+                ),
             )
-            self._draw_bev_window(imgui, bev_frame)
+            self._draw_bev_window(imgui, bev_frame, hud_frame)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
 
@@ -470,7 +487,12 @@ class TaxiHudState:
         finally:
             imgui.end()
 
-    def _draw_bev_window(self, imgui: Any, bev_frame: Tensor | None) -> None:
+    def _draw_bev_window(
+        self,
+        imgui: Any,
+        bev_frame: Tensor | None,
+        hud_frame: TaxiHudFrame,
+    ) -> None:
         if bev_frame is None:
             return
         maximum_width, maximum_height = bev_display_extent(self.width, self.height)
@@ -506,8 +528,193 @@ class TaxiHudState:
                     image_width,
                 )
                 imgui.dummy(imgui.ImVec2(float(image_width), float(image_height)))
+                self._draw_bev_navigation(imgui, hud_frame)
         finally:
             imgui.end()
+
+    def _draw_navigation_arrow(
+        self,
+        imgui: Any,
+        bearing_rad: float,
+        *,
+        color_rgb: tuple[float, float, float],
+    ) -> None:
+        """Draw the always-visible target-bearing arrow from the original HUD."""
+        draw_list = imgui.get_background_draw_list()
+        center_x = float(self.width) * 0.5
+        center_y = 74.0
+        radius = 30.0
+        direction_x = -math.sin(bearing_rad)
+        direction_y = -math.cos(bearing_rad)
+        perpendicular_x = -direction_y
+        perpendicular_y = direction_x
+        tip_x = center_x + direction_x * radius
+        tip_y = center_y + direction_y * radius
+        base_x = center_x + direction_x * radius * 0.25
+        base_y = center_y + direction_y * radius * 0.25
+        tail = imgui.ImVec2(
+            center_x - direction_x * radius * 0.62,
+            center_y - direction_y * radius * 0.62,
+        )
+        left_x = base_x - perpendicular_x * radius * 0.42
+        left_y = base_y - perpendicular_y * radius * 0.42
+        right_x = base_x + perpendicular_x * radius * 0.42
+        right_y = base_y + perpendicular_y * radius * 0.42
+        black = _imgui_color(imgui, (0.0, 0.0, 0.0, 1.0))
+        color = _imgui_color(imgui, (*color_rgb, 1.0))
+        panel = _imgui_color(
+            imgui,
+            (12.0 / 255.0, 12.0 / 255.0, 18.0 / 255.0, 0.82),
+        )
+        center = imgui.ImVec2(center_x, center_y)
+        draw_list.add_circle_filled(center, 42.0, panel)
+        draw_list.add_circle(center, 42.0, color, 0, 3.0)
+        draw_list.add_line(tail, imgui.ImVec2(base_x, base_y), black, 11.0)
+        draw_list.add_line(tail, imgui.ImVec2(base_x, base_y), color, 7.0)
+        tip = imgui.ImVec2(tip_x, tip_y)
+        draw_list.add_triangle_filled(
+            tip,
+            imgui.ImVec2(left_x, left_y),
+            imgui.ImVec2(right_x, right_y),
+            black,
+        )
+        inset = 0.78
+        draw_list.add_triangle_filled(
+            tip,
+            imgui.ImVec2(
+                tip_x + (left_x - tip_x) * inset,
+                tip_y + (left_y - tip_y) * inset,
+            ),
+            imgui.ImVec2(
+                tip_x + (right_x - tip_x) * inset,
+                tip_y + (right_y - tip_y) * inset,
+            ),
+            color,
+        )
+
+    def _draw_bev_navigation(self, imgui: Any, hud_frame: TaxiHudFrame) -> None:
+        """Draw target markers and off-map arrows over the composited BEV."""
+        rect = self._bev_rect
+        if rect is None or not self.bev.enabled:
+            return
+        top, left, height, width = rect
+        if width <= 0 or height <= 0:
+            return
+        snapshot = hud_frame.snapshot
+        pose = hud_frame.rig_pose_world
+        draw_list = imgui.get_background_draw_list()
+
+        if isinstance(snapshot, RaceGameSnapshot):
+            segment = project_segment_pose_to_bev(
+                np.asarray(
+                    [snapshot.gate_start_xyz_m, snapshot.gate_end_xyz_m],
+                    dtype=np.float32,
+                ),
+                pose,
+                self.bev,
+            )
+            red = _imgui_color(imgui, (1.0, 0.18, 0.08, 1.0))
+            if segment is not None:
+                start, end = (
+                    imgui.ImVec2(left + uv[0] * width, top + uv[1] * height)
+                    for uv in segment
+                )
+                white = _imgui_color(imgui, (1.0, 1.0, 1.0, 1.0))
+                draw_list.add_line(start, end, white, 9.0)
+                draw_list.add_line(start, end, red, 6.0)
+                return
+            self._draw_bev_edge_arrow(
+                imgui,
+                snapshot.target_xyz_m,
+                pose,
+                color=red,
+            )
+            return
+
+        rgba = (
+            (118.0 / 255.0, 185.0 / 255.0, 0.0, 1.0)
+            if snapshot.phase == "seeking_pickup"
+            else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0, 1.0)
+        )
+        color = _imgui_color(imgui, rgba)
+        targets = (
+            snapshot.pickup_targets_xyz_m
+            if snapshot.phase == "seeking_pickup" and snapshot.pickup_targets_xyz_m
+            else (snapshot.target_xyz_m,)
+        )
+        visible = False
+        white = _imgui_color(imgui, (1.0, 1.0, 1.0, 1.0))
+        outline = _imgui_color(imgui, (0.08, 0.08, 0.12, 1.0))
+        for target in targets:
+            u, v, inside = project_target_pose_to_bev(target, pose, self.bev)
+            if not inside:
+                continue
+            visible = True
+            center = imgui.ImVec2(left + u * width, top + v * height)
+            radius = float(max(8, min(width, height) // 16))
+            draw_list.add_circle_filled(center, radius + 3.0, white)
+            draw_list.add_circle_filled(center, radius, color)
+            draw_list.add_circle(center, radius, outline, 0, 2.0)
+        if snapshot.phase == "to_dropoff" and not visible:
+            self._draw_bev_edge_arrow(
+                imgui,
+                snapshot.target_xyz_m,
+                pose,
+                color=color,
+            )
+
+    def _draw_bev_edge_arrow(
+        self,
+        imgui: Any,
+        target_xyz_m: tuple[float, float, float],
+        pose: npt.NDArray[np.float32],
+        *,
+        color: int,
+    ) -> None:
+        rect = self._bev_rect
+        assert rect is not None
+        projected = project_target_pose_to_bev_edge(target_xyz_m, pose, self.bev)
+        if projected is None:
+            return
+        top, left, height, width = rect
+        edge_x = left + projected[0] * width
+        edge_y = top + projected[1] * height
+        center_x = left + width * 0.5
+        center_y = top + height * 0.5
+        delta_x, delta_y = edge_x - center_x, edge_y - center_y
+        length = math.hypot(delta_x, delta_y)
+        if length <= 1.0e-6:
+            return
+        direction_x, direction_y = delta_x / length, delta_y / length
+        perpendicular_x, perpendicular_y = -direction_y, direction_x
+        size = float(max(9, min(width, height) // 14))
+        arrow_x = edge_x - direction_x * (size + 3.0)
+        arrow_y = edge_y - direction_y * (size + 3.0)
+
+        def points(scale: float) -> tuple[Any, Any, Any]:
+            tip = imgui.ImVec2(
+                arrow_x + direction_x * size * scale,
+                arrow_y + direction_y * size * scale,
+            )
+            base_x = arrow_x - direction_x * size * scale * 0.72
+            base_y = arrow_y - direction_y * size * scale * 0.72
+            half_width = size * scale * 0.68
+            return (
+                tip,
+                imgui.ImVec2(
+                    base_x + perpendicular_x * half_width,
+                    base_y + perpendicular_y * half_width,
+                ),
+                imgui.ImVec2(
+                    base_x - perpendicular_x * half_width,
+                    base_y - perpendicular_y * half_width,
+                ),
+            )
+
+        draw_list = imgui.get_background_draw_list()
+        white = _imgui_color(imgui, (1.0, 1.0, 1.0, 1.0))
+        draw_list.add_triangle_filled(*points(1.0), white)
+        draw_list.add_triangle_filled(*points(0.68), color)
 
     def composite_bev(self, video: Tensor, frame: Tensor | None) -> Tensor:
         """Composite the current BEV into its ImGui-owned rectangle on-device."""
@@ -657,6 +864,7 @@ class TaxiHudState:
                     )
                 entries = entries or "NO SCORES YET"
                 imgui.text(entries)
+                imgui.text("Press R to play again")
         finally:
             imgui.end()
 
@@ -841,6 +1049,13 @@ def _point_xy(value: Any) -> tuple[float, float]:
     if hasattr(value, "x") and hasattr(value, "y"):
         return float(value.x), float(value.y)
     return float(value[0]), float(value[1])
+
+
+def _imgui_color(
+    imgui: Any,
+    rgba: tuple[float, float, float, float],
+) -> int:
+    return int(imgui.color_convert_float4_to_u32(imgui.ImVec4(*rgba)))
 
 
 def _score_label(snapshot: TaxiGameSnapshot) -> str:

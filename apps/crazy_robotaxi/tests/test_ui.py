@@ -85,6 +85,9 @@ class _FakeDrawList:
     def add_circle_filled(self, *args: Any) -> None:
         self.commands.append(("circle_filled", args))
 
+    def add_triangle_filled(self, *args: Any) -> None:
+        self.commands.append(("triangle_filled", args))
+
     def add_rect(self, *args: Any) -> None:
         self.commands.append(("rect", args))
 
@@ -452,9 +455,11 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert result.output.dtype is torch.float32
     assert hud_state._current is not None
     assert "SCORE  001200    HIGH  009000" in renderer.ui.windows["Crazy Robotaxi"]
-    assert "TARGET AHEAD  0 deg" in renderer.ui.windows["Navigation"]
+    assert "Navigation" not in renderer.ui.windows
     assert renderer.ui.dummies == [(32.0, 32.0)]
-    assert renderer.ui.background_draw_list.commands
+    command_names = [name for name, _ in renderer.ui.background_draw_list.commands]
+    assert "triangle_filled" in command_names
+    assert "circle_filled" in command_names
     top, left, panel_height, panel_width = hud_state._bev_rect or (0, 0, 0, 0)
     panel = result.output[0, :, top : top + panel_height, left : left + panel_width]
     assert torch.allclose(panel, torch.full_like(panel, 191.0 / 127.5 - 1.0))
@@ -474,6 +479,33 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert hud_state._bev_panel is None
     assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
+
+
+def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
+    video = torch.zeros(1, 3, 96, 160)
+    snapshot = replace(
+        _snapshot(),
+        phase="to_dropoff",
+        target_xyz_m=(500.0, 0.0, 0.0),
+        remaining_time_s=20.0,
+    )
+    state = TaxiHudState(160, 96, _calibration())
+    frame = build_hud_frames(
+        video,
+        (snapshot,),
+        np.eye(4, dtype=np.float32)[None],
+    )[0]
+    state._bev_rect = (0, 0, 96, 96)
+    imgui = _FakeImGui()
+
+    state._draw_bev_navigation(imgui, frame)
+
+    triangles = [
+        command
+        for command in imgui.background_draw_list.commands
+        if command[0] == "triangle_filled"
+    ]
+    assert len(triangles) == 2
 
 
 def test_imgui_ui_loop_owns_and_restores_a_cuda_presentation_stream(
@@ -523,8 +555,11 @@ def test_hud_draws_immediate_imgui_windows() -> None:
 
     state.draw(imgui)
 
-    assert set(imgui.windows) == {"Crazy Robotaxi", "Navigation"}
+    assert set(imgui.windows) == {"Crazy Robotaxi"}
     assert "SCORE  001200    HIGH  009000" in imgui.windows["Crazy Robotaxi"]
+    assert any(
+        name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
+    )
 
 
 def test_hud_animates_prepresentation_warmup_status() -> None:
@@ -626,3 +661,21 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
     assert model_loop.state.names == ["DRIVER 7"]
     assert state._submission_pending
     assert "Game Over" in imgui.windows
+
+
+def test_leaderboard_prompts_for_restart() -> None:
+    state = TaxiHudState(160, 96, _calibration())
+    video = torch.zeros(1, 3, 96, 160)
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(session_state="leaderboard"),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert "Press R to play again" in imgui.windows["Game Over"]

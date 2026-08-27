@@ -17,8 +17,8 @@ from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 from crazy_robotaxi.factory import build_taxi_engine
-from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.race import RaceGameSnapshot
+from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
@@ -28,6 +28,10 @@ from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -175,6 +179,13 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         snapshot = rollout.engine.current_game_frame
         if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
             raise TypeError("Crazy Robotaxi engine returned an unknown game frame")
+        if snapshot.session_state != "awaiting_name" and _restart_requested(events):
+            state.reset()
+            invoke_async(state.ui_loop, lambda ui_state: ui_state.reset())
+            rollout = state.ensure_rollout()
+            snapshot = rollout.engine.current_game_frame
+            if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
+                raise TypeError("Crazy Robotaxi reset returned an unknown game frame")
         active_states = {"playing", "awaiting_start", "racing"}
         if snapshot.session_state in active_states:
             live_edit = getattr(rollout.engine, "live_edit", None)
@@ -254,12 +265,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             state.ui_loop,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
         )
-        latest = game_frames[-1]
-        if (
-            isinstance(latest, (TaxiGameSnapshot, RaceGameSnapshot))
-            and latest.session_state == "leaderboard"
-        ):
-            state.finished = True
         if (
             state.config.total_blocks is not None
             and state.blocks_generated >= state.config.total_blocks
@@ -371,6 +376,7 @@ class CrazyRobotaxiSession(ISession):
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
             calibration=self._scene.selected_camera,
+            bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
         )
@@ -401,3 +407,13 @@ def _record_ready_event(video: torch.Tensor) -> torch.cuda.Event | None:
     event = torch.cuda.Event()
     event.record(torch.cuda.current_stream(video.device))
     return event
+
+
+def _restart_requested(events: UserInputEvents) -> bool:
+    """Return whether this model step received a pressed R key."""
+    return any(
+        isinstance(event, KeyboardUserInputEvent)
+        and event.state is KeyboardInputState.PRESSED
+        and str(event.key).strip().lower() == "r"
+        for event in events.get_events()
+    )

@@ -5,6 +5,7 @@
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -17,7 +18,13 @@ from crazy_robotaxi.application import (
     _fit_bev_renderer_to_ui,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
-from crazy_robotaxi.session import CrazyRobotaxiModelLoop, CrazyRobotaxiSession
+from crazy_robotaxi.rules import TaxiGameSnapshot
+from crazy_robotaxi.session import (
+    CrazyRobotaxiModelLoop,
+    CrazyRobotaxiSession,
+    ModelState,
+    _restart_requested,
+)
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
 from omnidreams.config import (
     RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
@@ -37,6 +44,11 @@ from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+)
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -173,6 +185,81 @@ def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
     assert presenter.frames[0].dtype is torch.uint8
     assert torch.all(presenter.frames[0] == 128)
     assert presenter.closed
+
+
+def test_pressed_r_requests_a_v2_game_restart() -> None:
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="R",
+        state=KeyboardInputState.PRESSED,
+    )
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="r",
+        state=KeyboardInputState.RELEASED,
+    )
+
+    assert _restart_requested(UserInputEvents([pressed]))
+    assert not _restart_requested(UserInputEvents([released]))
+
+
+def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
+    snapshot = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(25.0, 0.0, 0.0),
+        distance_m=25.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=5.0,
+        remaining_time_s=None,
+        score=1200,
+        global_remaining_time_s=0.0,
+        session_state="leaderboard",
+    )
+
+    class UILoop:
+        def __init__(self) -> None:
+            self.operations = []
+
+        def _invoke_async(self, operation) -> None:
+            self.operations.append(operation)
+
+    rollout = SimpleNamespace(
+        engine=SimpleNamespace(current_game_frame=snapshot),
+        close=lambda: None,
+        reset=lambda: None,
+    )
+    ui_loop = UILoop()
+    state = ModelState(
+        pipeline=object(),
+        scene=cast(Any, object()),
+        config=cast(
+            Any,
+            SimpleNamespace(total_blocks=None, pipeline_profiling=False),
+        ),
+        session_desc=cast(
+            Any,
+            SimpleNamespace(
+                frames_per_second_for_step=30,
+                video_height=4,
+                video_width=4,
+            ),
+        ),
+        driver_input=cast(Any, object()),
+        ui_loop=cast(Any, ui_loop),
+        rollout=cast(Any, rollout),
+        last_video=torch.zeros(1, 3, 4, 4),
+        last_pose=np.eye(4, dtype=np.float32),
+        prewarm_complete=True,
+    )
+    loop = CrazyRobotaxiModelLoop()
+    loop.state = state
+
+    results = loop.step(0, UserInputEvents([]))
+
+    assert len(results) == 1
+    assert not state.finished
+    assert not loop.is_finished()
+    assert len(ui_loop.operations) == 1
 
 
 @pytest.mark.parametrize(

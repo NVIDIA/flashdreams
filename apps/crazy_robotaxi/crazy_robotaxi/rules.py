@@ -288,6 +288,24 @@ def project_target_pose_to_bev(
     return u, v, 0.0 <= u <= 1.0 and 0.0 <= v <= 1.0
 
 
+def project_target_pose_to_bev_edge(
+    target_xyz_m: tuple[float, float, float],
+    rig_to_world: npt.NDArray[np.float32],
+    bev: BevConfig,
+) -> tuple[float, float] | None:
+    """Project a target direction to the edge of a pose-aligned BEV."""
+    target_u, target_v, _visible = project_target_pose_to_bev(
+        target_xyz_m, rig_to_world, bev
+    )
+    delta_u = target_u - 0.5
+    delta_v = target_v - 0.5
+    extent = max(abs(delta_u), abs(delta_v))
+    if not math.isfinite(extent) or extent <= 1.0e-9:
+        return None
+    scale = 0.5 / extent
+    return 0.5 + delta_u * scale, 0.5 + delta_v * scale
+
+
 def project_segment_pose_to_bev(
     segment_world: npt.NDArray[np.float32],
     rig_to_world: npt.NDArray[np.float32],
