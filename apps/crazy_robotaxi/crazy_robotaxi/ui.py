@@ -587,7 +587,6 @@ class TaxiHudState:
         left_y = base_y - perpendicular_y * radius * 0.42
         right_x = base_x + perpendicular_x * radius * 0.42
         right_y = base_y + perpendicular_y * radius * 0.42
-        black = _imgui_color(imgui, (0.0, 0.0, 0.0, 1.0))
         color = _imgui_color(imgui, (*color_rgb, 1.0))
         panel = _imgui_color(
             imgui,
@@ -596,26 +595,12 @@ class TaxiHudState:
         center = imgui.ImVec2(center_x, center_y)
         draw_list.add_circle_filled(center, 42.0, panel)
         draw_list.add_circle(center, 42.0, color, 0, 3.0)
-        draw_list.add_line(tail, imgui.ImVec2(base_x, base_y), black, 11.0)
         draw_list.add_line(tail, imgui.ImVec2(base_x, base_y), color, 7.0)
         tip = imgui.ImVec2(tip_x, tip_y)
         draw_list.add_triangle_filled(
             tip,
             imgui.ImVec2(left_x, left_y),
             imgui.ImVec2(right_x, right_y),
-            black,
-        )
-        inset = 0.78
-        draw_list.add_triangle_filled(
-            tip,
-            imgui.ImVec2(
-                tip_x + (left_x - tip_x) * inset,
-                tip_y + (left_y - tip_y) * inset,
-            ),
-            imgui.ImVec2(
-                tip_x + (right_x - tip_x) * inset,
-                tip_y + (right_y - tip_y) * inset,
-            ),
             color,
         )
 

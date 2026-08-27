@@ -632,6 +632,21 @@ def test_hud_draws_immediate_imgui_windows() -> None:
     )
 
 
+def test_compass_arrow_has_no_black_underlay() -> None:
+    state = TaxiHudState(160, 96, _calibration())
+    imgui = _FakeImGui()
+
+    state._draw_navigation_arrow(
+        imgui,
+        0.0,
+        color_rgb=(118.0 / 255.0, 185.0 / 255.0, 0.0),
+    )
+
+    commands = imgui.background_draw_list.commands
+    assert sum(name == "line" for name, _ in commands) == 1
+    assert sum(name == "triangle_filled" for name, _ in commands) == 1
+
+
 def test_hud_animates_prepresentation_warmup_status() -> None:
     state = TaxiHudState(160, 96, _calibration())
     state.set_loading_status("WARMING WORLD MODEL  2/4")
