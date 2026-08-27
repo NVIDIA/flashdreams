@@ -43,6 +43,7 @@ members = [
     "flashdreams-t2v-wan21",
     "flashdreams-wan21",
     "flashdreams-wan22",
+    "flashdreams-webm",
     "ludus-renderer",
 ]
 overrides = [
@@ -1054,6 +1055,9 @@ serving = [
     { name = "aiohttp" },
     { name = "aiortc" },
 ]
+webm = [
+    { name = "flashdreams-webm" },
+]
 
 [package.dev-dependencies]
 cuda12 = [
@@ -1077,6 +1081,7 @@ requires-dist = [
     { name = "botocore", specifier = ">=1.35" },
     { name = "einops", specifier = ">=0.7" },
     { name = "filelock", specifier = ">=3" },
+    { name = "flashdreams-webm", marker = "extra == 'webm'", editable = "extensions/flashdreams-webm" },
     { name = "ftfy", specifier = ">=6.0" },
     { name = "huggingface-hub", specifier = ">=0.33" },
     { name = "loguru", specifier = ">=0.7" },
@@ -1106,7 +1111,7 @@ requires-dist = [
     { name = "tyro", specifier = ">=1.0" },
     { name = "urllib3", specifier = ">=2.7.0" },
 ]
-provides-extras = ["dev", "examples", "runners", "local-window", "rtx-postprocess", "serving"]
+provides-extras = ["dev", "examples", "runners", "local-window", "webm", "rtx-postprocess", "serving"]
 
 [package.metadata.requires-dev]
 cuda12 = [
@@ -1656,6 +1661,11 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-webm"
+version = "0.1.0"
+source = { editable = "extensions/flashdreams-webm" }
 
 [[package]]
 name = "flip-evaluator"

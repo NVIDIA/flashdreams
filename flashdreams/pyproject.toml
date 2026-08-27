@@ -122,6 +122,9 @@ runners = [
 local-window = [
     "slangpy==0.42.0",
 ]
+webm = [
+    "flashdreams-webm>=0.1.0",
+]
 
 # Optional NVIDIA VFX runtime used only by the RTX postprocess presets.
 # Kept out of the default install because it is proprietary and requires
@@ -191,6 +194,7 @@ torchvision = [
     { index = "pytorch-cu128", group = "cuda12", marker = "sys_platform != 'win32'" },
     { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
 ]
+flashdreams-webm = { workspace = true }
 
 [tool.uv]
 managed = true

@@ -115,3 +115,31 @@ path = "integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/fr
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2005-2011 Lode Vandevenne"
 SPDX-License-Identifier = "Zlib"
+
+# --- Exact upstream notices shipped in the optional flashdreams-webm wheel. ---
+[[annotations]]
+path = "extensions/flashdreams-webm/licenses/libvpx-LICENSE.txt"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2010, The WebM Project authors. All rights reserved."
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "extensions/flashdreams-webm/licenses/libopus-COPYING.txt"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "extensions/flashdreams-webm/licenses/libwebm-LICENSE.txt"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2010, Google Inc. All rights reserved."
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = [
+    "extensions/flashdreams-webm/licenses/libvpx-PATENTS.txt",
+    "extensions/flashdreams-webm/licenses/libwebm-PATENTS.txt",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright Google LLC"
+SPDX-License-Identifier = "LicenseRef-WebM-Additional-IP-Rights-Grant"
