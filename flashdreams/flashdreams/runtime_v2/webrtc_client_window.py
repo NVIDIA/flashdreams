@@ -77,10 +77,10 @@ class WebRTCClientWindow(IClientWindow):
                 return UserInputEvents(events)
 
     def write(self, result: StepResult) -> None:
-        """Implement ``OutputSink.write`` by delivering a result to the browser.
+        """Materialize and queue one UI-composited frame for the browser.
 
         Args:
-            result: Generated frames matching the opened session.
+            result: One frame matching the opened session.
         """
         self.server.write(result)
 

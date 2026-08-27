@@ -120,6 +120,14 @@ Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
 other range converts before returning.
 
+CUDA results may cross from a producer stream to a dedicated presentation or
+transfer stream. `PresentationManager` records readiness on the current stream
+when a model result does not already carry it. A producer that returns output
+from another stream must record that dependency in
+`StepResult.output_ready_event`. UI loops pass their consumer stream to
+`presented_model_frame` or `presented_model_frames`; sinks wait for a UI
+result's event before reading it.
+
 ## A minimal application
 
 Using the default UI loop, so there is only a model loop to write:

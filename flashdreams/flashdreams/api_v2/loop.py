@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar, final
 
+import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -282,12 +283,19 @@ class IUILoop(ILoop[StateT], ABC):
         self._presentation_manager = presentation_manager
 
     @final
-    def presented_model_frame(self, channel_index: int = 0) -> Tensor | None:
+    def presented_model_frame(
+        self,
+        channel_index: int = 0,
+        *,
+        stream: torch.cuda.Stream | None = None,
+    ) -> Tensor | None:
         """Return the current frame from one model-result channel.
 
         Args:
             channel_index: Channel to read, indexed as the model loop returned
                 them.
+            stream: CUDA stream that will consume the frame. ``None`` uses the
+                current stream on the frame's device.
 
         Returns:
             A ``[C, H, W]`` frame with one, three or four channels, or ``None``
@@ -295,18 +303,35 @@ class IUILoop(ILoop[StateT], ABC):
 
         Raises:
             IndexError: The presented result has no such channel.
+            ValueError: ``stream`` is on a different CUDA device from the
+                presented result.
         """
-        return self._presentation_manager.presented_frame(channel_index)
+        return self._presentation_manager.presented_frame(
+            channel_index,
+            stream=stream,
+        )
 
     @final
-    def presented_model_frames(self) -> tuple[Tensor, ...]:
+    def presented_model_frames(
+        self,
+        *,
+        stream: torch.cuda.Stream | None = None,
+    ) -> tuple[Tensor, ...]:
         """Return the current frame from every model-result channel.
+
+        Args:
+            stream: CUDA stream that will consume the frames. ``None`` uses
+                each frame's current device stream.
 
         Returns:
             One ``[C, H, W]`` frame per channel, bottom channel first, or an
             empty tuple before the first model result has been presented.
+
+        Raises:
+            ValueError: ``stream`` is on a different CUDA device from a
+                presented result.
         """
-        return self._presentation_manager.presented_frames()
+        return self._presentation_manager.presented_frames(stream=stream)
 
 
 def _contains_close(events: UserInputEvents) -> bool:

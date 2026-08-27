@@ -6,6 +6,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar, final
 
+import torch
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
@@ -87,11 +88,16 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
 
         overlay = self.renderer.render(step_index, events, draw)
         frame = self._presentation_manager.composite(back_buffer, overlay)
+        output_ready_event = None
+        if frame.is_cuda:
+            output_ready_event = torch.cuda.Event()
+            output_ready_event.record(torch.cuda.current_stream(frame.device))
         return StepResult(
             step_index=step_index,
             output=frame.unsqueeze(0),
             frame_count=1,
             output_layout=self.output_layout,
+            output_ready_event=output_ready_event,
         )
 
     def reset(self) -> None:

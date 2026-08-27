@@ -5,8 +5,9 @@
 
 import asyncio
 import json
+from contextlib import suppress
 from typing import Any, cast
-from unittest.mock import ANY, Mock, call
+from unittest.mock import ANY, AsyncMock, Mock, call
 
 import pytest
 import torch
@@ -23,14 +24,11 @@ from aiortc import (
     RTCPeerConnection,
     RTCSessionDescription,
 )
+from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 
 from flashdreams.runtime_v2.serving import webrtc_server
-from flashdreams.runtime_v2.serving.webrtc_server import (
-    _FramePacer,
-    _PendingRGBFrame,
-    _VideoTrack,
-)
+from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -52,6 +50,17 @@ def _session_desc() -> SessionDesc:
         video_width=16,
         video_height=16,
     )
+
+
+def _video_frame(value: int) -> VideoFrame:
+    """Return one independently owned RGB frame filled with ``value``."""
+    pixels = torch.full((16, 16, 3), value, dtype=torch.uint8).numpy()
+    return VideoFrame.from_ndarray(pixels, format="rgb24")
+
+
+def _frame_mean(frame: VideoFrame) -> float:
+    """Return the mean RGB value of one video frame."""
+    return float(frame.to_ndarray(format="rgb24").mean())
 
 
 async def _connect_browser(
@@ -196,13 +205,24 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         window.write(
             StepResult(
                 step_index=0,
-                output=torch.full((2, 3, 16, 16), 17, dtype=torch.uint8),
-                frame_count=2,
+                output=torch.full((1, 3, 16, 16), 17, dtype=torch.uint8),
+                frame_count=1,
                 output_layout=VideoTensorLayout.tchw,
                 metrics={},
             )
         )
-
+        # WebRTC receivers may hold one decoded timestamp until the next RTP
+        # timestamp arrives. Use a distinct second source frame, then verify
+        # that the first was delivered rather than replaced.
+        window.write(
+            StepResult(
+                step_index=1,
+                output=torch.full((1, 3, 16, 16), 29, dtype=torch.uint8),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+                metrics={},
+            )
+        )
         frame = await asyncio.wait_for(track.recv(), timeout=5)
         assert isinstance(frame, VideoFrame)
         pixels = frame.to_ndarray(format="rgb24")
@@ -214,128 +234,293 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         window.close()
 
 
-@pytest.mark.asyncio
-async def test_video_track_resolves_pending_cuda_transfer_without_blocking() -> None:
-    class FakeCUDAEvent:
-        def __init__(self) -> None:
-            self.queries = 0
+def test_cpu_materialization_returns_an_independently_owned_video_frame() -> None:
+    source = torch.full((3, 16, 16), 23, dtype=torch.uint8)
 
-        def query(self) -> bool:
-            self.queries += 1
-            return self.queries >= 3
+    materialized = webrtc_server._prepare_cpu_video_frame(source)
+    source.fill_(99)
 
-    ready_event = FakeCUDAEvent()
-    pending = _PendingRGBFrame(
-        host_frames=torch.full((1, 16, 16, 3), 23, dtype=torch.uint8),
-        frame_index=0,
-        ready_event=cast(Any, ready_event),
-    )
-    track = _VideoTrack(frames_per_second=30)
+    assert _frame_mean(materialized) == 23.0
+
+
+def test_window_write_materializes_before_synchronous_sender_admission() -> None:
+    window = WebRTCClientWindow()
+    captured: list[VideoFrame] = []
+    track = Mock()
+    track.enqueue.side_effect = lambda frame: captured.append(frame) or True
+    source = torch.full((1, 3, 16, 16), 31, dtype=torch.uint8)
     try:
-        await track.enqueue((pending,))
-        frame = await asyncio.wait_for(track.recv(), timeout=1)
+        window.open(_session_desc())
+        window.server._video_track = cast(Any, track)
+        window.server._media_connected.set()
+        window.write(
+            StepResult(
+                step_index=0,
+                output=source,
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
 
-        assert ready_event.queries == 3
-        pixels = frame.to_ndarray(format="rgb24")
-        assert pixels.shape == (16, 16, 3)
-        assert abs(float(pixels.mean()) - 23.0) <= 2.0
+        source.fill_(99)
+        track.enqueue.assert_called_once()
+        assert [_frame_mean(frame) for frame in captured] == [31.0]
     finally:
-        await track.close()
+        window.server._video_track = None
+        window.server._media_connected.clear()
+        window.close()
+
+
+def test_window_write_queues_during_media_negotiation() -> None:
+    window = WebRTCClientWindow()
+    captured: list[VideoFrame] = []
+    track = Mock()
+    track.enqueue.side_effect = lambda frame: captured.append(frame) or True
+    try:
+        window.open(_session_desc())
+        window.server._video_track = cast(Any, track)
+
+        window.write(
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 16, 16), dtype=torch.uint8),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
+
+        track.enqueue.assert_called_once()
+        assert [_frame_mean(frame) for frame in captured] == [0.0]
+    finally:
+        window.server._video_track = None
+        window.close()
+
+
+def test_window_write_rejects_a_multi_frame_ui_result() -> None:
+    window = WebRTCClientWindow()
+    try:
+        window.open(_session_desc())
+        with pytest.raises(ValueError, match="exactly one UI-composited frame"):
+            window.write(
+                StepResult(
+                    step_index=0,
+                    output=torch.zeros((2, 3, 16, 16), dtype=torch.uint8),
+                    frame_count=2,
+                    output_layout=VideoTensorLayout.tchw,
+                )
+            )
+    finally:
+        window.close()
 
 
 @pytest.mark.asyncio
-async def test_video_track_repeats_latest_frame_without_buffering() -> None:
+async def test_video_track_waits_for_a_new_frame_instead_of_repeating_latest() -> None:
     track = _VideoTrack(frames_per_second=60)
-    frame = torch.full((16, 16, 3), 31, dtype=torch.uint8).numpy()
+    waiting: asyncio.Task[VideoFrame] | None = None
     try:
-        await track.enqueue((frame,))
+        track.enqueue(_video_frame(31))
         first = await asyncio.wait_for(track.recv(), timeout=1)
-
         assert track.qsize() == 0
 
-        repeated = await asyncio.wait_for(track.recv(), timeout=1)
+        waiting = asyncio.create_task(track.recv())
+        await asyncio.sleep(0)
+        assert not waiting.done()
+        track.enqueue(_video_frame(47))
+        second = await asyncio.wait_for(waiting, timeout=1)
 
         assert first.pts == 0
-        assert repeated.pts == 1
-        assert abs(float(repeated.to_ndarray(format="rgb24").mean()) - 31.0) <= 2.0
+        assert second.pts is not None and second.pts >= 1
+        assert [_frame_mean(first), _frame_mean(second)] == [31.0, 47.0]
     finally:
         await track.close()
+        if waiting is not None:
+            with suppress(MediaStreamError):
+                await waiting
 
 
 @pytest.mark.asyncio
-async def test_video_track_does_not_burst_to_catch_up_after_a_stall() -> None:
-    track = _VideoTrack(frames_per_second=30)
-    frame = torch.zeros((16, 16, 3), dtype=torch.uint8).numpy()
-    try:
-        await track.enqueue((frame,))
-        await track.recv()
-        await asyncio.sleep(0.1)
-
-        await track.enqueue((frame,))
-        await track.recv()
-        resumed_at = asyncio.get_running_loop().time()
-        await track.enqueue((frame,))
-        await track.recv()
-        next_frame_at = asyncio.get_running_loop().time()
-
-        assert next_frame_at - resumed_at >= 0.02
-    finally:
-        await track.close()
-
-
-def test_video_track_pacer_does_not_accumulate_wakeup_delay() -> None:
-    """Keep repeated scheduler overshoot out of subsequent frame deadlines."""
-    pacer = _FramePacer(frames_per_second=60)
-    now = 0.0
-    sent_at: list[float] = []
-    overshoot = 0.001
-
-    for frame_index in range(240):
-        delay = pacer.delay_seconds(
-            now=now,
-            source_at=frame_index / 120.0,
-        )
-        now += delay
-        if delay > 0.0:
-            now += overshoot
-        sent_at.append(now)
-
-    ideal_last_frame_at = (len(sent_at) - 1) / 60.0
-    assert sent_at[-1] - ideal_last_frame_at == pytest.approx(overshoot)
-
-
-@pytest.mark.asyncio
-async def test_video_track_timestamps_sparse_frames_at_their_source_cadence() -> None:
-    track = _VideoTrack(frames_per_second=30)
-    frame = torch.zeros((16, 16, 3), dtype=torch.uint8).numpy()
-    try:
-        await track.enqueue((frame,))
-        first = await track.recv()
-        await asyncio.sleep(0.1)
-        await track.enqueue((frame,))
-        second = await track.recv()
-
-        assert first.pts == 0
-        assert second.pts is not None
-        assert second.pts >= 2
-    finally:
-        await track.close()
-
-
-@pytest.mark.asyncio
-async def test_video_track_keeps_the_latest_ui_frame() -> None:
+async def test_video_track_delivers_two_queued_frames_in_fifo_order() -> None:
     track = _VideoTrack(frames_per_second=60)
-    frames = tuple(
-        torch.full((16, 16, 3), value, dtype=torch.uint8).numpy()
-        for value in (10, 20, 30)
+    try:
+        track.enqueue(_video_frame(10))
+        track.enqueue(_video_frame(20))
+
+        assert track.qsize() == 2
+        frames = [await track.recv(), await track.recv()]
+
+        assert track.qsize() == 0
+        assert [_frame_mean(frame) for frame in frames] == [10.0, 20.0]
+    finally:
+        await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_overflow_retains_the_two_newest_queued_frames() -> None:
+    track = _VideoTrack(frames_per_second=60)
+    try:
+        track.enqueue(_video_frame(10))
+        track.enqueue(_video_frame(20))
+        track.enqueue(_video_frame(30))
+
+        assert track.qsize() == 2
+        retained = [await track.recv(), await track.recv()]
+        assert [_frame_mean(frame) for frame in retained] == [20.0, 30.0]
+    finally:
+        await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_does_not_overwrite_a_dequeued_frame(
+    monkeypatch: Any,
+) -> None:
+    track = _VideoTrack(frames_per_second=60)
+    dequeued = asyncio.Event()
+    continue_recv = asyncio.Event()
+    original_next = track._next_queued_frame
+
+    async def pause_after_dequeue() -> Any:
+        queued = await original_next()
+        dequeued.set()
+        await continue_recv.wait()
+        return queued
+
+    monkeypatch.setattr(track, "_next_queued_frame", pause_after_dequeue)
+    recv_task: asyncio.Task[VideoFrame] | None = None
+    try:
+        track.enqueue(_video_frame(10))
+        recv_task = asyncio.create_task(track.recv())
+        await asyncio.wait_for(dequeued.wait(), timeout=1)
+
+        track.enqueue(_video_frame(20))
+        track.enqueue(_video_frame(30))
+        continue_recv.set()
+
+        committed = await asyncio.wait_for(recv_task, timeout=1)
+        retained = [await track.recv(), await track.recv()]
+        assert [_frame_mean(frame) for frame in (committed, *retained)] == [
+            10.0,
+            20.0,
+            30.0,
+        ]
+    finally:
+        continue_recv.set()
+        await track.close()
+        if recv_task is not None:
+            with suppress(MediaStreamError):
+                await recv_task
+
+
+@pytest.mark.asyncio
+async def test_video_track_recv_has_no_sender_side_pacing(monkeypatch: Any) -> None:
+    track = _VideoTrack(frames_per_second=1)
+    sender_sleep = AsyncMock(
+        side_effect=AssertionError("recv must not pace send-ready frames")
     )
     try:
-        for frame in frames:
-            await track.enqueue((frame,))
+        track.enqueue(_video_frame(10))
+        track.enqueue(_video_frame(20))
+        with monkeypatch.context() as patch:
+            patch.setattr(webrtc_server.asyncio, "sleep", sender_sleep)
+            frames = [await track.recv(), await track.recv()]
 
-        assert track.qsize() == 1
-        assert track.dropped_for_lag == 2
-        latest = await track.recv()
-        assert abs(float(latest.to_ndarray(format="rgb24").mean()) - 30.0) <= 2.0
+        sender_sleep.assert_not_awaited()
+        assert [_frame_mean(frame) for frame in frames] == [10.0, 20.0]
     finally:
         await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_pts_follow_source_time_and_remain_monotonic(
+    monkeypatch: Any,
+) -> None:
+    track = _VideoTrack(frames_per_second=30)
+    source_time = 100.0
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(webrtc_server.time, "monotonic", lambda: source_time)
+            track.enqueue(_video_frame(10))
+            track.enqueue(_video_frame(20))
+        first = await track.recv()
+        second = await track.recv()
+
+        source_time += 0.1
+        with monkeypatch.context() as patch:
+            patch.setattr(webrtc_server.time, "monotonic", lambda: source_time)
+            track.enqueue(_video_frame(30))
+        third = await track.recv()
+
+        assert [first.pts, second.pts, third.pts] == [0, 1, 3]
+    finally:
+        await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_drain_signal_follows_the_next_sender_request() -> None:
+    track = _VideoTrack(frames_per_second=60)
+    waiting: asyncio.Task[VideoFrame] | None = None
+    try:
+        track.enqueue(_video_frame(10))
+        assert not track.wait_until_drained(0.0)
+        await track.recv()
+        assert not track.wait_until_drained(0.0)
+
+        waiting = asyncio.create_task(track.recv())
+        await asyncio.sleep(0)
+        assert track.wait_until_drained(0.0)
+    finally:
+        await track.close()
+        if waiting is not None:
+            with suppress(MediaStreamError):
+                await waiting
+
+
+@pytest.mark.asyncio
+async def test_video_track_close_wakes_a_waiting_receiver() -> None:
+    track = _VideoTrack(frames_per_second=60)
+    receiver = asyncio.create_task(track.recv())
+    await asyncio.sleep(0)
+
+    await track.close()
+
+    with pytest.raises(MediaStreamError):
+        await receiver
+
+
+def test_server_close_drains_without_inventing_a_frame() -> None:
+    window = WebRTCClientWindow()
+    track = Mock()
+    track.wait_until_drained.return_value = True
+    track.close = AsyncMock()
+    window.server._video_track = cast(Any, track)
+    window.server._media_connected.set()
+
+    window.close()
+
+    track.wait_until_drained.assert_called_once_with(
+        webrtc_server._SHUTDOWN_DRAIN_TIMEOUT_SECONDS
+    )
+    track.enqueue.assert_not_called()
+    track.close.assert_awaited_once()
+
+
+def test_server_close_quarantines_storage_after_a_failed_cuda_drain() -> None:
+    window = WebRTCClientWindow()
+    stream = Mock()
+    stream.synchronize.side_effect = RuntimeError("CUDA drain failed")
+    buffer = window.server._materialization_buffer
+    buffer._frame = torch.empty((16, 16, 3), dtype=torch.uint8)
+    window.server._transfer_streams[0] = cast(Any, stream)
+
+    try:
+        with pytest.raises(RuntimeError, match="CUDA drain failed"):
+            window.close()
+
+        with webrtc_server._QUARANTINED_CUDA_TRANSFERS_LOCK:
+            retained_streams, retained_buffer = (
+                webrtc_server._QUARANTINED_CUDA_TRANSFERS.pop()
+            )
+        assert retained_streams == (stream,)
+        assert retained_buffer is buffer
+        assert buffer._frame is not None
+    finally:
+        buffer.close()

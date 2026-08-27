@@ -17,6 +17,7 @@
 
 from typing import final
 
+import torch
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
@@ -37,11 +38,16 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
             output = self._presentation_manager.composite(output, frame)
         if output is None:
             return None
+        output_ready_event = None
+        if output.is_cuda:
+            output_ready_event = torch.cuda.Event()
+            output_ready_event.record(torch.cuda.current_stream(output.device))
         return StepResult(
             step_index=step_index,
             output=_frame_to_layout(output, self.output_layout),
             frame_count=1,
             output_layout=self.output_layout,
+            output_ready_event=output_ready_event,
         )
 
     def reset(self) -> None:
