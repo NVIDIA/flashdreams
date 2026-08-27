@@ -37,9 +37,9 @@ from crazy_robotaxi.world_overlay import render_waypoint_layers
 from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -192,17 +192,16 @@ class TaxiHudState:
         if not self.profile_input_latency:
             return
         for event in events.get_events():
-            data = event.get_event_data()
             recognized = False
-            if isinstance(data, FocusUserInputEventData) and not data.focused:
+            if isinstance(event, FocusUserInputEvent) and not event.focused:
                 self._profile_pressed.clear()
                 recognized = True
-            elif isinstance(data, KeyboardUserInputEventData):
-                key = _normalize_profile_key(str(data.key))
+            elif isinstance(event, KeyboardUserInputEvent):
+                key = _normalize_profile_key(str(event.key))
                 if key not in _PROFILE_DRIVE_KEYS:
                     continue
                 recognized = True
-                if data.state is KeyboardInputState.PRESSED:
+                if event.state is KeyboardInputState.PRESSED:
                     self._profile_pressed.add(key)
                 else:
                     self._profile_pressed.discard(key)

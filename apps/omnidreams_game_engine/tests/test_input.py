@@ -3,45 +3,46 @@
 
 """CPU tests for V2 event reduction."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.input import DriverInput
 
-from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    UserInputEvent,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
 
 
-def _events(*data: UserInputEventData) -> UserInputEvents:
+def _events(*events: UserInputEvent) -> UserInputEvents:
     return UserInputEvents(
         [
-            UserInputEvent(timestamp=np.uint64(index), event_data=value)
-            for index, value in enumerate(data)
+            replace(event, timestamp=np.uint64(index))
+            for index, event in enumerate(events)
         ]
     )
 
 
 def _timed_events(
-    *events: tuple[int, UserInputEventData],
+    *events: tuple[int, UserInputEvent],
 ) -> UserInputEvents:
     return UserInputEvents(
         [
-            UserInputEvent(timestamp=np.uint64(timestamp_us), event_data=data)
-            for timestamp_us, data in events
+            replace(event, timestamp=np.uint64(timestamp_us))
+            for timestamp_us, event in events
         ]
     )
 
 
-def _key(key: str, state: KeyboardInputState) -> KeyboardUserInputEventData:
-    return KeyboardUserInputEventData(key=key, state=state)
+def _key(key: str, state: KeyboardInputState) -> KeyboardUserInputEvent:
+    return KeyboardUserInputEvent(timestamp=np.uint64(0), key=key, state=state)
 
 
 def test_held_keys_produce_one_command_per_model_frame() -> None:
@@ -91,7 +92,7 @@ def test_focus_loss_releases_drive_state() -> None:
     assert not reverse.commands[0].reverse
 
     result = reducer.reduce(
-        _events(FocusUserInputEventData(focused=False)),
+        _events(FocusUserInputEvent(timestamp=np.uint64(0), focused=False)),
         frame_count=1,
         frame_interval_s=1.0 / 30.0,
     )

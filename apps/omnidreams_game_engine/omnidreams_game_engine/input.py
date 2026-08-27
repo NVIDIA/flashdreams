@@ -9,9 +9,9 @@ import logging
 from dataclasses import dataclass
 
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from omnidreams_game_engine.config import DriverInputConfig
@@ -80,15 +80,14 @@ class DriverInput:
         transitions: list[_TimedDriveLevel] = []
         ignored_event_count = 0
         for event in events.get_events():
-            data = event.get_event_data()
             previous = self._drive_level()
-            if isinstance(data, FocusUserInputEventData) and not data.focused:
+            if isinstance(event, FocusUserInputEvent) and not event.focused:
                 self._pressed.clear()
-            elif isinstance(data, KeyboardUserInputEventData):
-                key = _normalize_key(str(data.key))
+            elif isinstance(event, KeyboardUserInputEvent):
+                key = _normalize_key(str(event.key))
                 if key not in _DRIVE_KEYS:
                     continue
-                if data.state is KeyboardInputState.PRESSED:
+                if event.state is KeyboardInputState.PRESSED:
                     self._pressed.add(key)
                 else:
                     self._pressed.discard(key)

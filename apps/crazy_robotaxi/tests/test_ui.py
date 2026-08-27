@@ -38,8 +38,7 @@ from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    UserInputEvent,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -446,12 +445,10 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
     state.consume_input_events(
         UserInputEvents(
             [
-                UserInputEvent(
+                KeyboardUserInputEvent(
                     timestamp=np.uint64(100),
-                    event_data=KeyboardUserInputEventData(
-                        key="ArrowLeft",
-                        state=KeyboardInputState.PRESSED,
-                    ),
+                    key="ArrowLeft",
+                    state=KeyboardInputState.PRESSED,
                 )
             ]
         )
