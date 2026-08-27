@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -53,6 +53,9 @@ _MAX_BUFFERED_HUD_FRAMES = 64
 
 _MAX_BUFFERED_INPUT_EVENTS = 64
 """Maximum diagnostic event receipts retained before model-frame correlation."""
+
+_VIDEO_FPS_WINDOW_SECONDS = 2.0
+"""Rolling window used to smooth the generated-video frame-rate estimate."""
 
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
@@ -111,6 +114,9 @@ class TaxiHudState:
     profile_input_latency: bool = False
     """Whether input arrival and model-frame latency diagnostics are visible."""
 
+    show_fps: bool = False
+    """Whether to display the measured generated-video frame rate."""
+
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
 
@@ -162,6 +168,12 @@ class TaxiHudState:
     _latest_input_latency_ms: float | None = None
     """Latest UI-ingress-to-model-frame-selection latency measurement."""
 
+    _presented_frame_times_s: deque[float] = field(default_factory=deque)
+    """Recent times when distinct generated video frames were selected."""
+
+    _video_fps: float = 0.0
+    """Generated-video frame rate estimated from recent selections."""
+
     def publish(self, frames: Sequence[TaxiHudFrame]) -> None:
         """Publish immutable model-frame state to the UI-owned lookup."""
         for frame in frames:
@@ -174,6 +186,7 @@ class TaxiHudState:
         """Select the HUD snapshot aligned with ``frame`` when available."""
         selected = self._frames.get(int(frame.data_ptr()))
         if selected is not None:
+            frame_changed = selected is not self._current
             if (
                 self._current is None
                 or selected.snapshot.session_state
@@ -182,8 +195,24 @@ class TaxiHudState:
                 self._validation_message = ""
                 self._submission_pending = False
             self._current = selected
+            if frame_changed:
+                self._record_presented_frame(time.monotonic())
             self._record_presented_input(selected)
         return self._current
+
+    def _record_presented_frame(self, now_s: float) -> None:
+        """Update generated-video throughput after selecting a new frame."""
+        times = self._presented_frame_times_s
+        times.append(now_s)
+        cutoff_s = now_s - _VIDEO_FPS_WINDOW_SECONDS
+        while len(times) >= 3 and times[1] <= cutoff_s:
+            times.popleft()
+        if len(times) < 2:
+            self._video_fps = 0.0
+            return
+        elapsed_s = times[-1] - times[0]
+        if elapsed_s > 0.0:
+            self._video_fps = (len(times) - 1) / elapsed_s
 
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
@@ -276,6 +305,7 @@ class TaxiHudState:
         bev_frame: Tensor | None = None,
     ) -> None:
         """Draw one immediate Dear ImGui HUD frame."""
+        self._draw_fps_counter(imgui)
         hud_frame = self._current
         if hud_frame is None:
             dots = "." * (1 + (ui_tick // 15) % 3)
@@ -321,6 +351,19 @@ class TaxiHudState:
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
 
+    def _draw_fps_counter(self, imgui: Any) -> None:
+        """Draw the measured generated-video rate when the counter is enabled."""
+        if not self.show_fps:
+            return
+        width = 170.0
+        self._draw_text_window(
+            imgui,
+            "Performance",
+            position=(float(max(14.0, self.width - width - 14.0)), 14.0),
+            size=(width, 66.0),
+            lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
+        )
+
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
         self._frames.clear()
@@ -339,6 +382,8 @@ class TaxiHudState:
         self._name_input = ""
         self._bev_source_key = None
         self._bev_pixels = None
+        self._presented_frame_times_s.clear()
+        self._video_fps = 0.0
 
     def _draw_text_window(
         self,

@@ -120,6 +120,8 @@ class ApplicationConfig:
     profile_input_latency: bool
     """Whether the UI displays and logs input-to-model-frame diagnostics."""
 
+    show_fps: bool
+    """Whether the HUD displays the measured generated-video frame rate."""
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -213,6 +215,7 @@ class CrazyRobotaxiApplication(IApplication):
             pipeline_profiling=bool(args.profile_pipeline),
             prewarm_blocks=args.prewarm_blocks,
             profile_input_latency=bool(args.profile_input_latency),
+            show_fps=bool(args.show_fps),
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
@@ -374,5 +377,11 @@ def _parser() -> argparse.ArgumentParser:
         "--profile-input-latency",
         action="store_true",
         help="show and log UI-input-to-model-frame latency diagnostics",
+    )
+    parser.add_argument(
+        "--show-fps",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="show the measured generated-video frame rate in the HUD",
     )
     return parser

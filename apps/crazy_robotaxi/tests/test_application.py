@@ -85,6 +85,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
             "--total-blocks",
             "2",
             "--profile-input-latency",
+            "--show-fps",
         ]
     )
 
@@ -104,6 +105,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
     assert ui_loop.state.profile_input_latency
+    assert ui_loop.state.show_fps
     assert session._config.renderer.bev.width == 234
     assert session._config.renderer.bev.height == 234
 
@@ -370,6 +372,26 @@ def test_input_latency_profiling_is_an_app_local_opt_in(
 
     assert app._config is not None
     assert app._config.profile_input_latency is expected
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ([], False),
+        (["--show-fps"], True),
+        (["--show-fps", "--no-show-fps"], False),
+    ],
+)
+def test_fps_counter_is_an_app_local_option(
+    arguments: list[str],
+    expected: bool,
+) -> None:
+    app = CrazyRobotaxiApplication()
+
+    app.init(arguments)
+
+    assert app._config is not None
+    assert app._config.show_fps is expected
 
 
 @pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])

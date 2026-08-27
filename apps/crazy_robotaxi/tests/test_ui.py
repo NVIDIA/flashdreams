@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
@@ -371,6 +372,39 @@ def test_pickup_waypoint_projection_batches_anchors_and_ring_geometry() -> None:
 
     assert camera.point_counts == [6, 102]
     assert [projection.distance_m for projection in projections] == [10.0, 20.0, 30.0]
+
+
+@pytest.mark.parametrize("show_fps", [False, True])
+def test_fps_counter_is_configurable(show_fps: bool) -> None:
+    state = TaxiHudState(640, 360, _calibration(), show_fps=show_fps)
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert ("Performance" in imgui.windows) is show_fps
+    if show_fps:
+        assert imgui.windows["Performance"] == ["VIDEO FPS    0.0"]
+
+
+def test_fps_counter_measures_distinct_generated_video_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame_count = 61
+    video = torch.zeros(frame_count, 3, 96, 160)
+    snapshots = tuple(_snapshot() for _ in range(frame_count))
+    poses = np.repeat(np.eye(4, dtype=np.float32)[None], frame_count, axis=0)
+    state = TaxiHudState(640, 360, _calibration(), show_fps=True)
+    state.publish(build_hud_frames(video, snapshots, poses))
+    frame_times = iter(index / 30.0 for index in range(frame_count))
+    monkeypatch.setattr(time, "monotonic", lambda: next(frame_times))
+
+    for frame in video:
+        state.select_presented_frame(frame)
+    state.select_presented_frame(video[-1])
+    imgui = _FakeImGui()
+    state._draw_fps_counter(imgui)
+
+    assert imgui.windows["Performance"] == ["VIDEO FPS   30.0"]
 
 
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:

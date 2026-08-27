@@ -360,6 +360,7 @@ class CrazyRobotaxiSession(ISession):
             height=self._session_desc.video_height,
             calibration=self._scene.selected_camera,
             profile_input_latency=self._config.profile_input_latency,
+            show_fps=self._config.show_fps,
         )
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiImGuiUILoop,
