@@ -23,7 +23,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -34,6 +34,7 @@ from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
+from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import format_race_time_us, validate_player_name
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
@@ -121,7 +122,7 @@ class TaxiHudState:
     height: int
     """Presentation height in pixels."""
 
-    calibration: CameraCalibration
+    calibration: CameraCalibration | None
     """Camera calibration used to project world markers on the UI thread."""
 
     bev: BevConfig = BevConfig()
@@ -132,6 +133,9 @@ class TaxiHudState:
 
     show_fps: bool = False
     """Whether to display the measured generated-video frame rate."""
+
+    map_options: tuple[GameMapOption, ...] = ()
+    """Lightweight authored-map choices supplied by the application."""
 
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
@@ -178,6 +182,12 @@ class TaxiHudState:
     _loading_started_at_s: float = field(default_factory=time.monotonic)
     """Monotonic timestamp used to make startup progress visibly live."""
 
+    _menu_stage: Literal["mode", "map", "loading", "game"] = "mode"
+    """Current startup screen owned by the UI thread."""
+
+    _selected_game_mode: GameMode | None = None
+    """Mode chosen on the first screen while the map screen is visible."""
+
     _profile_pressed: set[str] = field(default_factory=set)
     """Normalized drive keys currently held according to UI-thread events."""
 
@@ -217,6 +227,7 @@ class TaxiHudState:
                 self._validation_message = ""
                 self._submission_pending = False
             self._current = selected
+            self._menu_stage = "game"
             if frame_changed:
                 self._record_presented_frame(time.monotonic())
             self._record_presented_input(selected)
@@ -297,8 +308,43 @@ class TaxiHudState:
         """Update the startup phase from a model-loop message."""
         self._loading_status = status
 
+    def activate_scene(self, calibration: CameraCalibration) -> None:
+        """Install projection data after the model thread loads the chosen map."""
+        self.calibration = calibration
+        self._menu_stage = "loading"
+
+    def _select_mode(self, mode: GameMode) -> None:
+        self._selected_game_mode = mode
+        self._menu_stage = "map"
+
+    def _select_game(
+        self,
+        option: GameMapOption,
+        *,
+        race_course_id: str | None = None,
+    ) -> None:
+        mode = self._selected_game_mode
+        model_loop = self.model_loop
+        if mode is None or model_loop is None or self._menu_stage != "map":
+            return
+        selection = GameSelection(
+            mode=mode,
+            map_option=option,
+            race_course_id=race_course_id,
+        )
+        self._menu_stage = "loading"
+        self._loading_status = f"LOADING {option.name.upper()}"
+        self._loading_started_at_s = time.monotonic()
+        invoke_async(
+            model_loop,
+            lambda model_state, value=selection: model_state.select_game(value),
+        )
+
     def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
         """Draw cached world-marker projections aligned with ``frame``."""
+        calibration = self.calibration
+        if calibration is None:
+            return
         source = self._frames.get(int(frame.data_ptr()))
         if source is None:
             return
@@ -307,7 +353,7 @@ class TaxiHudState:
                 self._waypoint_projections = project_waypoints(
                     source.snapshot,
                     source.rig_pose_world,
-                    self.calibration,
+                    calibration,
                     width=self.width,
                     height=self.height,
                 )
@@ -324,7 +370,7 @@ class TaxiHudState:
             )
         elif source.snapshot.checkpoint_markers:
             camera = FThetaCameraModel(
-                self.calibration,
+                calibration,
                 output_width=self.width,
                 output_height=self.height,
             )
@@ -356,6 +402,12 @@ class TaxiHudState:
         """Draw one immediate Dear ImGui HUD frame."""
         self._bev_rect = None
         self._draw_fps_counter(imgui)
+        if self._menu_stage == "mode":
+            self._draw_mode_selection(imgui)
+            return
+        if self._menu_stage == "map":
+            self._draw_map_selection(imgui)
+            return
         hud_frame = self._current
         if hud_frame is None:
             dots = "." * (1 + (ui_tick // 15) % 3)
@@ -474,6 +526,81 @@ class TaxiHudState:
         self._bev_rect = None
         self._presented_frame_times_s.clear()
         self._video_fps = 0.0
+
+    def _draw_mode_selection(self, imgui: Any) -> None:
+        window_width = max(1.0, min(460.0, float(self.width) - 28.0))
+        window_height = max(1.0, min(250.0, float(self.height) - 28.0))
+        _prepare_window(
+            imgui,
+            position=(
+                max(14.0, (self.width - window_width) / 2.0),
+                max(14.0, (self.height - window_height) / 2.0),
+            ),
+            size=(window_width, window_height),
+            alpha=0.94,
+        )
+        visible = _begin_window(imgui, "Crazy Robotaxi — Select Game Mode")
+        try:
+            if not visible:
+                return
+            imgui.text("SELECT GAME MODE")
+            imgui.text("Choose how you want to play.")
+            if imgui.button("TAXI"):
+                self._select_mode("taxi")
+            if imgui.button("RACE"):
+                self._select_mode("race")
+        finally:
+            imgui.end()
+
+    def _draw_map_selection(self, imgui: Any) -> None:
+        mode = self._selected_game_mode
+        if mode is None:
+            self._menu_stage = "mode"
+            return
+        window_width = max(1.0, min(620.0, float(self.width) - 28.0))
+        window_height = max(1.0, min(560.0, float(self.height) - 28.0))
+        _prepare_window(
+            imgui,
+            position=(
+                max(14.0, (self.width - window_width) / 2.0),
+                max(14.0, (self.height - window_height) / 2.0),
+            ),
+            size=(window_width, window_height),
+            alpha=0.94,
+        )
+        title = (
+            "Crazy Robotaxi — Select Map"
+            if mode == "taxi"
+            else "Crazy Robotaxi — Select Map & Race Course"
+        )
+        visible = _begin_window(imgui, title)
+        try:
+            if not visible:
+                return
+            if imgui.button("BACK"):
+                self._selected_game_mode = None
+                self._menu_stage = "mode"
+                return
+            imgui.text("SELECT MAP" if mode == "taxi" else "SELECT MAP & RACE COURSE")
+            available = False
+            for index, option in enumerate(self.map_options):
+                if mode == "taxi":
+                    available = True
+                    if imgui.button(f"{option.name}##map-{index}"):
+                        self._select_game(option)
+                    continue
+                if not option.race_course_ids:
+                    continue
+                available = True
+                imgui.text(option.name)
+                for course_index, course_id in enumerate(option.race_course_ids):
+                    label = course_id.replace("-", " ").replace("_", " ").upper()
+                    if imgui.button(f"{label}##course-{index}-{course_index}"):
+                        self._select_game(option, race_course_id=course_id)
+            if not available:
+                imgui.text("NO COMPATIBLE MAPS FOUND")
+        finally:
+            imgui.end()
 
     def _draw_text_window(
         self,

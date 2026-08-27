@@ -10,12 +10,14 @@ import threading
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
 import pytest
 import torch
+from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
     TaxiSessionState,
@@ -129,6 +131,7 @@ class _FakeImGui:
         self.input_value = ""
         self.submit_input = False
         self.click_submit = False
+        self.clicked_buttons: set[str] = set()
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
 
@@ -190,8 +193,7 @@ class _FakeImGui:
         return self.submit_input, self.input_value
 
     def button(self, label: str) -> bool:
-        del label
-        return self.click_submit
+        return self.click_submit or label in self.clicked_buttons
 
     def begin_disabled(self) -> None:
         return
@@ -231,6 +233,23 @@ class _SubmissionLoop(IModelLoop[_SubmissionState]):
     def step(self, step_index, events):
         del step_index, events
         return None
+
+    def reset(self) -> None:
+        return
+
+
+@dataclass
+class _SelectionState:
+    selections: list[GameSelection] = field(default_factory=list)
+
+    def select_game(self, selection: GameSelection) -> None:
+        self.selections.append(selection)
+
+
+class _SelectionLoop(IModelLoop[_SelectionState]):
+    def step(self, step_index, events):
+        del step_index, events
+        return []
 
     def reset(self) -> None:
         return
@@ -621,6 +640,7 @@ def test_hud_draws_immediate_imgui_windows() -> None:
         )
     )
     state._current = next(iter(state._frames.values()))
+    state._menu_stage = "game"
     imgui = _FakeImGui()
 
     state.draw(imgui)
@@ -649,6 +669,7 @@ def test_compass_arrow_has_no_black_underlay() -> None:
 
 def test_hud_animates_prepresentation_warmup_status() -> None:
     state = TaxiHudState(160, 96, _calibration())
+    state._menu_stage = "loading"
     state.set_loading_status("WARMING WORLD MODEL  2/4")
     imgui = _FakeImGui()
 
@@ -657,6 +678,74 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     lines = imgui.windows["Crazy Robotaxi"]
     assert lines[0] == "WARMING WORLD MODEL  2/4..."
     assert lines[1].startswith("ELAPSED  ")
+
+
+def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml"),
+        variant="default",
+        race_course_ids=("downtown-sprint",),
+    )
+    state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("TAXI")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "map"
+    assert "Crazy Robotaxi — Select Game Mode" in imgui.windows
+    imgui.clicked_buttons = {"Test City##map-0"}
+    state.draw(imgui)
+
+    assert state._menu_stage == "loading"
+    model_loop._run_message_batch()
+    assert model_loop.state.selections == [
+        GameSelection(mode="taxi", map_option=option)
+    ]
+
+
+def test_race_menu_selects_map_and_course_together() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml"),
+        variant="default",
+        race_course_ids=("downtown-sprint",),
+    )
+    state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("RACE")
+    state.draw(imgui)
+    imgui.clicked_buttons = {"DOWNTOWN SPRINT##course-0-0"}
+
+    state.draw(imgui)
+    model_loop._run_message_batch()
+
+    assert model_loop.state.selections == [
+        GameSelection(
+            mode="race",
+            map_option=option,
+            race_course_id="downtown-sprint",
+        )
+    ]
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:

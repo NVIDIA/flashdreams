@@ -30,7 +30,7 @@ from omnidreams_game_engine.engine_settings import (
     WorldModelLaunchSettings,
     load_engine_settings,
 )
-from omnidreams_game_engine.game_map import load_game_map_header
+from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
 from omnidreams_game_engine.renderer_settings import (
     RendererSettings,
     load_renderer_settings,
@@ -39,6 +39,7 @@ from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
 from crazy_robotaxi.config import CrazyRobotaxiSettings, load_game_settings
+from crazy_robotaxi.game_selection import GameMapOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
     LiveEditConfig,
@@ -173,6 +174,7 @@ class CrazyRobotaxiApplication(IApplication):
         self._pipeline_config: Any = _MODEL_PRESETS["standard"].pipeline
         self._pipeline: Any | None = None
         self._config: ApplicationConfig | None = None
+        self._map_options: tuple[GameMapOption, ...] = ()
 
     def session_desc(self) -> SessionDesc:
         """Declare the trained single-view output contract without loading."""
@@ -294,6 +296,10 @@ class CrazyRobotaxiApplication(IApplication):
             ),
             live_edit=game_settings.live_edit,
             visual_flare_enabled=game_settings.effects.visual_flare_enabled,
+        )
+        self._map_options = _discover_game_maps(
+            map_path,
+            requested_variant=engine_settings.map.variant,
         )
 
     def _resolve_engine_settings(self, args: argparse.Namespace) -> EngineSettings:
@@ -451,10 +457,10 @@ class CrazyRobotaxiApplication(IApplication):
                 self._pipeline_config,
                 config.device,
             )
-        scene = self._scene_factory(config.scene_request, config.renderer.raster)
         return CrazyRobotaxiSession(
             pipeline=self._pipeline,
-            scene=scene,
+            scene_factory=self._scene_factory,
+            map_options=self._map_options,
             config=config,
             session_desc=session_desc,
         )
@@ -464,6 +470,7 @@ class CrazyRobotaxiApplication(IApplication):
         pipeline = self._pipeline
         self._pipeline = None
         self._config = None
+        self._map_options = ()
         close = getattr(pipeline, "close", None)
         if callable(close):
             close()
@@ -476,6 +483,44 @@ def create_app() -> IApplication:
 
 def _build_pipeline(config: Any, device: str) -> Any:
     return config.setup().to(device).eval()
+
+
+def _discover_game_maps(
+    selected_path: Path,
+    *,
+    requested_variant: str,
+) -> tuple[GameMapOption, ...]:
+    """Read menu metadata for bundled maps and maps beside the CLI selection."""
+    selected = selected_path.expanduser().resolve()
+    paths = {selected}
+    for directory in (_DEFAULT_MAP.parent, selected.parent):
+        if directory.is_dir():
+            paths.update(
+                path.resolve() for path in directory.glob(f"*{GAME_MAP_SUFFIX}")
+            )
+
+    options: list[GameMapOption] = []
+    for path in paths:
+        header = load_game_map_header(path)
+        variants = tuple(item.name for item in header.variants)
+        preferred = requested_variant if path == selected else "default"
+        variant = (
+            preferred
+            if preferred in variants
+            else ("default" if "default" in variants else variants[0])
+        )
+        options.append(
+            GameMapOption(
+                map_id=header.map_id,
+                name=header.name,
+                path=header.source_path,
+                variant=variant,
+                race_course_ids=header.race_course_ids,
+            )
+        )
+    return tuple(
+        sorted(options, key=lambda item: (item.path != selected, item.name.casefold()))
+    )
 
 
 def _fit_bev_renderer_to_ui(

@@ -38,6 +38,12 @@ uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
   --game-time-s 90
 ```
 
+At startup, choose Taxi or Race mode, then choose a discovered map. Race mode
+shows each map's authored race courses on the map-selection screen and starts
+the selected course. The configured `--map` is listed first; the menu also
+discovers bundled maps and `.robotaxi.yaml` maps beside that configured file.
+Map compilation and scene loading begin only after the menu choice.
+
 Use `flashdreams-run-v2 crazy-robotaxi -- --help` for the complete application
 options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. Press R
 to restart without closing the window. Restart rebuilds simulation, game rules,
@@ -81,8 +87,8 @@ configuration does not copy or reinterpret map content.
 ## Race mode
 
 Authored maps may define ordered race courses using the same schema and map
-files as the original Crazy Robotaxi branch. Start the bundled demonstration
-course with:
+files as the original Crazy Robotaxi branch. Put the bundled demonstration map
+first in the selection screen with:
 
 ```bash
 uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
@@ -90,10 +96,10 @@ uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
   --game-mode race
 ```
 
-Race progression uses swept, direction-aware gate crossings, supports looped
-and point-to-point courses, and persists times per map/course. Select a
-non-default course with `--race-course ID` and override its leaderboard with
-`--race-times PATH`.
+Choose Race on the first screen, then choose its course on the second. Race
+progression uses swept, direction-aware gate crossings, supports looped and
+point-to-point courses, and persists times per map/course. Override the race
+leaderboard path with `--race-times PATH`.
 
 ## Live-edit gameplay
 

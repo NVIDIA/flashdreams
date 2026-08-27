@@ -7,16 +7,19 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout
+from omnidreams_game_engine.scene import SceneRequest
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 from crazy_robotaxi.factory import build_taxi_engine
+from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
@@ -46,14 +49,24 @@ class ModelState:
     """All mutable state owned by the one V2 model thread."""
 
     pipeline: Any
-    scene: SceneDefinition
+    scene_factory: Callable[[SceneRequest, Any], SceneDefinition]
+    """Scene loader invoked after a complete UI selection."""
+
     config: ApplicationConfig
     session_desc: SessionDesc
     driver_input: DriverInput
     ui_loop: IUILoop[TaxiHudState]
     """UI-loop endpoint used only through ``invoke_async``."""
 
+    scene: SceneDefinition | None = None
+    """Selected immutable scene; ``None`` while the startup menu is active."""
+
     rollout: WorldModelRollout | None = None
+    game_selected: bool = False
+    """Whether the UI has supplied a complete mode and map selection."""
+
+    menu_video: torch.Tensor | None = None
+    """Cached black model channel published while the menu is active."""
     last_video: torch.Tensor | None = None
     last_bev: torch.Tensor | None = None
     last_pose: np.ndarray | None = None
@@ -78,12 +91,17 @@ class ModelState:
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
         if self.rollout is None:
+            scene = self.scene
+            if scene is None:
+                raise RuntimeError(
+                    "Select a game mode and map before starting a rollout"
+                )
             frame_interval_s = 1.0 / self.session_desc.frames_per_second_for_step
             self.rollout = WorldModelRollout(
                 pipeline=self.pipeline,
-                scene=self.scene,
+                scene=scene,
                 engine_factory=lambda: build_taxi_engine(
-                    scene=self.scene,
+                    scene=scene,
                     game_config=self.config.game,
                     raster=self.config.renderer.raster,
                     bev=self.config.renderer.bev,
@@ -98,6 +116,73 @@ class ModelState:
         if not self.prewarm_complete:
             self._prewarm_rollout()
         return self.rollout
+
+    def select_game(self, selection: GameSelection) -> None:
+        """Load the selected map and configure its rules on the model thread."""
+        option = selection.map_option
+        if selection.mode == "race":
+            if selection.race_course_id not in option.race_course_ids:
+                raise ValueError(
+                    f"Unknown race course {selection.race_course_id!r} "
+                    f"for map {option.map_id!r}"
+                )
+        elif selection.race_course_id is not None:
+            raise ValueError("Taxi mode cannot select a race course")
+
+        self._set_loading_status(f"LOADING {option.name.upper()}")
+        request = replace(
+            self.config.scene_request,
+            map_path=option.path,
+            variant=option.variant,
+            prompt=(
+                self.config.scene_request.prompt
+                if option.path
+                == self.config.scene_request.map_path.expanduser().resolve()
+                else None
+            ),
+        )
+        scene = self.scene_factory(request, self.config.renderer.raster)
+        self.close()
+        self.config = replace(
+            self.config,
+            scene_request=request,
+            game_mode=selection.mode,
+            race_course_id=selection.race_course_id,
+        )
+        self.scene = scene
+        self.game_selected = True
+        self.prewarm_complete = False
+        self.prewarm_wall_ms = 0.0
+        self.reset()
+        invoke_async(
+            self.ui_loop,
+            lambda ui_state, calibration=scene.selected_camera: (
+                ui_state.activate_scene(calibration)
+            ),
+        )
+
+    def menu_result(self, step_index: int) -> list[StepResult]:
+        """Return a cached black frame while the UI waits for a menu choice."""
+        if self.menu_video is None:
+            self.menu_video = torch.full(
+                (
+                    1,
+                    3,
+                    self.session_desc.video_height,
+                    self.session_desc.video_width,
+                ),
+                -1.0,
+                dtype=torch.float32,
+                device=self.config.device,
+            )
+        return [
+            StepResult(
+                step_index=step_index,
+                output=self.menu_video,
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        ]
 
     def _prewarm_rollout(self) -> None:
         rollout = self.rollout
@@ -173,6 +258,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         state = self.state
+        if not state.game_selected:
+            return state.menu_result(step_index)
         rollout = state.ensure_rollout()
         step_wall_started = time.perf_counter()
         step_cpu_started = time.thread_time()
@@ -358,12 +445,14 @@ class CrazyRobotaxiSession(ISession):
         self,
         *,
         pipeline: Any,
-        scene: SceneDefinition,
+        scene_factory: Callable[[SceneRequest, Any], SceneDefinition],
+        map_options: tuple[GameMapOption, ...],
         config: ApplicationConfig,
         session_desc: SessionDesc,
     ) -> None:
         self._pipeline = pipeline
-        self._scene = scene
+        self._scene_factory = scene_factory
+        self._map_options = map_options
         self._config = config
         self._session_desc = session_desc
 
@@ -375,10 +464,11 @@ class CrazyRobotaxiSession(ISession):
         hud_state = TaxiHudState(
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
-            calibration=self._scene.selected_camera,
+            calibration=None,
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
+            map_options=self._map_options,
         )
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiImGuiUILoop,
@@ -391,7 +481,7 @@ class CrazyRobotaxiSession(ISession):
             CrazyRobotaxiModelLoop,
             state=ModelState(
                 pipeline=self._pipeline,
-                scene=self._scene,
+                scene_factory=self._scene_factory,
                 config=self._config,
                 session_desc=self._session_desc,
                 driver_input=DriverInput(self._config.driver_input),

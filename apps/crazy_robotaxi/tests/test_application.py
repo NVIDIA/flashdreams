@@ -17,6 +17,7 @@ from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     _fit_bev_renderer_to_ui,
 )
+from crazy_robotaxi.game_selection import GameSelection
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
@@ -113,13 +114,22 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert ui_loop._presentation_device == torch.device("cpu")
     assert model_loop.state.pipeline is pipeline
+    assert model_loop.state.scene is None
     assert model_loop.state.rollout is None
+    assert not model_loop.state.game_selected
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
+    assert len(ui_loop.state.map_options) >= 4
+    assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
     assert session._config.renderer.bev.width == 234
     assert session._config.renderer.bev.height == 234
+
+    menu_results = model_loop.step(0, UserInputEvents([]))
+    assert len(menu_results) == 1
+    assert menu_results[0].frame_count == 1
+    assert torch.all(menu_results[0].output == -1.0)
 
 
 def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
@@ -231,6 +241,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
     ui_loop = UILoop()
     state = ModelState(
         pipeline=object(),
+        scene_factory=cast(Any, lambda request, raster: object()),
         scene=cast(Any, object()),
         config=cast(
             Any,
@@ -250,6 +261,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         last_video=torch.zeros(1, 3, 4, 4),
         last_pose=np.eye(4, dtype=np.float32),
         prewarm_complete=True,
+        game_selected=True,
     )
     loop = CrazyRobotaxiModelLoop()
     loop.state = state
@@ -382,15 +394,21 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
     )
 
     session = app.create_session(desc)
-
     assert isinstance(session, CrazyRobotaxiSession)
+    session.init()
+    _, model_loop = session._take_loops()
+    model_loop.state.select_game(
+        GameSelection(mode="taxi", map_option=session._map_options[0])
+    )
+
     assert configured == [app._pipeline_config]
     assert raster_sizes == [resolution_wh]
     assert session._config.renderer.raster.resolution_wh == resolution_wh
     expected_bev_size = min(resolution_wh[0] // 4, resolution_wh[1] // 3)
     assert session._config.renderer.bev.width == expected_bev_size
     assert session._config.renderer.bev.height == expected_bev_size
-    assert session._scene.initial_rgb.shape == (
+    assert model_loop.state.scene is not None
+    assert model_loop.state.scene.initial_rgb.shape == (
         resolution_wh[1],
         resolution_wh[0],
         3,
@@ -526,8 +544,12 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
     )
     app.init(["--device", "cpu", "--prewarm-blocks", "4"])
     session = app.create_session(app.session_desc())
+    assert isinstance(session, CrazyRobotaxiSession)
     session.init()
     ui_loop, model_loop = session._take_loops()
+    model_loop.state.select_game(
+        GameSelection(mode="taxi", map_option=session._map_options[0])
+    )
 
     rollout = model_loop.state.ensure_rollout()
     ui_loop._run_message_batch()
