@@ -44,6 +44,8 @@ override-dependencies = [
 no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
+exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
+ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 extraPaths = [
     "flashdreams",
     "apps",
@@ -155,6 +157,7 @@ markers = [
 # flashdreams/_pytest_plugins.
 test = [
     "pytest>=8.0",
+    "pytest-benchmark>=5.1",
     "pytest-asyncio>=0.23",
     "pytest-manual-marker>=2.0",
     "tomli>=2.0",
@@ -162,6 +165,7 @@ test = [
 ]
 lint = [
     "pre-commit>=4.3.0",
+    "ruff==0.12.7",
     "sphinx>=7.0",
     "ty>=0.0.39",
     {include-group = "test"},
@@ -194,4 +198,7 @@ docs-ci = [
     "safetensors>=0.4",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
+]
+dev = [
+    "python-dotenv>=1.2.2",
 ]

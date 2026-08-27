@@ -4,6 +4,9 @@ compile_commands.json
 # Visual Studio Code configs.
 .vscode/
 
+# Neovim configs.
+.nvim.lua
+
 .pytest-tmp*
 
 # Byte-compiled / optimized / DLL files
@@ -93,6 +96,7 @@ celerybeat-schedule
 .env
 .venv
 .venv*
+.direnv/
 env/
 venv/
 ENV/

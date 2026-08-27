@@ -33,8 +33,10 @@ import pytest
 import tomli as tomllib
 from omnidreams import config as config_mod
 from omnidreams.config import OMNIDREAMS_RUNNERS
+from omnidreams.transformer import CosmosTransformerConfig
 
 from flashdreams.infra.runner import RunnerConfig
+from integrations.omnidreams.benchmarks.cases import BENCHMARK_CASES
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -51,10 +53,94 @@ def test_public_runner_slugs_map_to_internal_pipeline_presets() -> None:
     expected = {
         "omnidreams": "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae",
         "omnidreams-perf": "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        "omnidreams-optimized-gb300": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-optimized-gb300"
+        ),
+        "omnidreams-optimized-rtx-pro-6000": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-optimized-rtx-pro-6000"
+        ),
+        "omnidreams-cuda-cudnn": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-cudnn"
+        ),
+        "omnidreams-cuda-sparge": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-sparge"
+        ),
+        "omnidreams-cuda-sage3": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-sage3"
+        ),
+        "omnidreams-cuda-sage3fp8": (
+            "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-cuda-sage3-fp8"
+        ),
     }
     actual = {slug: cfg.pipeline.name for slug, cfg in OMNIDREAMS_RUNNERS.items()}
     assert actual == expected
     assert all(slug == cfg.runner_name for slug, cfg in OMNIDREAMS_RUNNERS.items())
+
+
+def test_accelerated_runners_skip_finalize_kv_cache() -> None:
+    """Only accelerated public runners skip the finalize cache refresh."""
+    skipped = set()
+    for slug, cfg in OMNIDREAMS_RUNNERS.items():
+        transformer = cfg.pipeline.diffusion_model.transformer
+        assert isinstance(transformer, CosmosTransformerConfig)
+        if transformer.skip_finalize_kv_cache:
+            skipped.add(slug)
+
+    assert skipped == {
+        "omnidreams-perf",
+        "omnidreams-optimized-gb300",
+        "omnidreams-optimized-rtx-pro-6000",
+        "omnidreams-cuda-cudnn",
+        "omnidreams-cuda-sparge",
+        "omnidreams-cuda-sage3",
+        "omnidreams-cuda-sage3fp8",
+    }
+
+
+def test_accelerated_runner_configs_match_benchmark_cases() -> None:
+    """Public acceleration presets must mirror the benchmark matrix."""
+    implementation_by_runner = {
+        "omnidreams-optimized-gb300": (
+            "optimized_cudnn_fp8_self_full_no_tma_cross_none_tma"
+        ),
+        "omnidreams-optimized-rtx-pro-6000": (
+            "optimized_fa2_quantized_sdpa_self_full_tma_cross_none_tma"
+        ),
+        "omnidreams-cuda-cudnn": "cuda",
+        "omnidreams-cuda-sparge": "cuda_sparge",
+        "omnidreams-cuda-sage3": "cuda_sage3",
+        "omnidreams-cuda-sage3fp8": "cuda_sage3_fp8",
+    }
+    cases = {case.implementation: case for case in BENCHMARK_CASES}
+
+    for runner_name, implementation in implementation_by_runner.items():
+        transformer = OMNIDREAMS_RUNNERS[
+            runner_name
+        ].pipeline.diffusion_model.transformer
+        assert isinstance(transformer, CosmosTransformerConfig)
+        network = transformer.network
+        case = cases[implementation]
+
+        assert network.self_attention_backend is case.self_attention_backend
+        assert network.cross_attention_backend is case.cross_attention_backend
+        assert (
+            network.self_attn_optimized_impl_config
+            == case.self_attn_optimized_impl_config
+        )
+        assert (
+            network.cross_attn_optimized_impl_config
+            == case.cross_attn_optimized_impl_config
+        )
+
+        if case.native_dit:
+            assert transformer.native_dit_acceleration == "required"
+            assert transformer.native_dit_backend == case.native_dit_backend
+            assert (
+                transformer.native_dit_attention_backend
+                == case.native_attention_backend
+            )
+        else:
+            assert transformer.native_dit_acceleration == "disabled"
 
 
 def test_runners_have_descriptions() -> None:

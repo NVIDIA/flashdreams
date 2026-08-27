@@ -153,6 +153,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: None)
     monkeypatch.delenv("MAX_JOBS", raising=False)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
@@ -211,8 +212,6 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "lightvae_fp8_warp_mma_stages.cu",
         "lightvae_fp8_attention.cu",
         "streaming_dit_bridge.cu",
-        "sage3_blackwell_api_shim.cu",
-        "sage3_fp4_quant_shim.cu",
         "attention.cu",
         "block_quant.cu",
         "cosmos_adaln_lora.cu",
@@ -224,7 +223,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "cosmos_gemm_bf16.cu",
         "cosmos_modulate.cu",
         "ops.cu",
-        "sage3_attention.cu",
+        "sage3_attention_stub.cu",
         "sparge_attention_sm89_inst.cu",
         "transformer_block.cu",
     ]
@@ -267,25 +266,79 @@ def test_load_extension_uses_build_root_for_torch_cache(
         '-DOMNIDREAMS_SINGLEVIEW_SAGE_ATTENTION_SHA=\\"sage-test-sha\\"'
         in captured["extra_cflags"]
     )
-    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1" in captured["extra_cflags"]
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=0" in captured["extra_cflags"]
     assert (
         '-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA=\\"sparge-test-sha\\"'
         in captured["extra_cflags"]
     )
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cflags"]
     assert (
-        '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"12.0a\\"' in captured["extra_cflags"]
+        '-DOMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST=\\"pytorch-default\\"'
+        in captured["extra_cflags"]
     )
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cuda_cflags"]
     if os.name == "nt":
         assert "-Xcompiler=/Zc:preprocessor" in captured["extra_cuda_cflags"]
-    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=1" in captured["extra_cuda_cflags"]
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=0" in captured["extra_cuda_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cuda_cflags"]
     assert captured["with_cuda"] is True
     assert captured["max_jobs_env"] == "8"
-    assert captured["cuda_arch_list_env"] == "12.0a"
+    assert captured["cuda_arch_list_env"] is None
     assert "MAX_JOBS" not in os.environ
     assert "TORCH_CUDA_ARCH_LIST" not in os.environ
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("capability", "device_name", "expected"),
+    [
+        ((12, 0), "NVIDIA GeForce RTX 5090", "12.0a"),
+        ((12, 0), "NVIDIA RTX PRO 6000 Blackwell", "12.0a"),
+        ((12, 0), "Unvalidated Compute Capability 12.0 GPU", None),
+        ((10, 3), "NVIDIA GB300", None),
+        ((8, 9), "NVIDIA RTX 6000 Ada Generation", None),
+    ],
+)
+def test_detected_cuda_arch_list_only_selects_validated_sm120a_devices(
+    capability: tuple[int, int],
+    device_name: str,
+    expected: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: capability)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda: device_name)
+
+    assert native._detected_cuda_arch_list() == expected
+
+
+@pytest.mark.ci_cpu
+def test_effective_cuda_arch_list_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: "12.0a")
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
+
+    assert native._effective_cuda_arch_list() == "12.0a"
+
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "10.3a")
+    assert native._effective_cuda_arch_list() == "10.3a"
+
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.9")
+    assert native._effective_cuda_arch_list() == "8.9"
+
+
+@pytest.mark.ci_cpu
+def test_effective_cuda_arch_list_uses_pytorch_default_without_sm120a(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native, "_detected_cuda_arch_list", lambda: None)
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
+
+    assert native._effective_cuda_arch_list() is None
+    assert native._cuda_arch_identity(None) == "pytorch-default"
 
 
 @pytest.mark.ci_cpu
@@ -307,6 +360,7 @@ def test_sage3_build_opt_out_parses_affirmative_values(
     expected: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
     if value is None:
         monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
     else:
@@ -324,6 +378,23 @@ def test_sage3_build_opt_out_parses_affirmative_values(
         assert "sage3_blackwell_api_shim.cu" in sources
         assert "sage3_fp4_quant_shim.cu" in sources
         assert "sage3_attention.cu" in sources
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("cuda_arch_list", "expected"),
+    [
+        ("12.0a", False),
+        ("pytorch-default", True),
+        ("10.3a", True),
+        ("12.0", True),
+    ],
+)
+def test_sage3_build_requires_exact_sm120a_target(
+    cuda_arch_list: str,
+    expected: bool,
+) -> None:
+    assert native._sage3_disabled(cuda_arch_list) is expected
 
 
 @pytest.mark.ci_cpu
@@ -381,6 +452,7 @@ def test_load_extension_caches_separate_sage3_modes(
     monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
 
     sage3_extension = native.load_extension(build_root=tmp_path / "native-build")
@@ -398,12 +470,52 @@ def test_load_extension_caches_separate_sage3_modes(
 
 
 @pytest.mark.ci_cpu
+def test_load_extension_caches_separate_cuda_architectures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch.utils.cpp_extension as cpp_extension
+
+    extensions: list[ModuleType] = []
+
+    def fake_load_torch_extension(**_: object) -> ModuleType:
+        extension = _fake_extension_module()
+        extensions.append(extension)
+        return extension
+
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
+    monkeypatch.setattr(native, "_extension", {})
+    monkeypatch.setattr(native, "_extension_load_error", None)
+    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
+    monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
+
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "10.3a")
+    sm103_extension = native.load_extension(build_root=tmp_path / "native-build")
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
+    sm120_extension = native.load_extension(build_root=tmp_path / "native-build")
+
+    assert sm103_extension is extensions[0]
+    assert sm120_extension is extensions[1]
+    assert (
+        native.load_extension(build_root=tmp_path / "native-build") is sm120_extension
+    )
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "10.3a")
+    assert (
+        native.load_extension(build_root=tmp_path / "native-build") is sm103_extension
+    )
+    assert len(extensions) == 2
+
+
+@pytest.mark.ci_cpu
 def test_extension_name_isolated_by_sage3_build_opt_out(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     thirdparty_info = _fake_thirdparty_info(tmp_path)
     monkeypatch.setattr(native, "_source_fingerprint", lambda: "fixed-fingerprint")
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
     full_name = native._extension_name(thirdparty_info)
 
@@ -413,6 +525,26 @@ def test_extension_name_isolated_by_sage3_build_opt_out(
     assert stubbed_name != full_name
     assert "_sage3_1_" in full_name
     assert "_sage3_0_" in stubbed_name
+
+
+@pytest.mark.ci_cpu
+def test_extension_name_isolated_by_cuda_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thirdparty_info = _fake_thirdparty_info(tmp_path)
+    monkeypatch.setattr(native, "_source_fingerprint", lambda: "fixed-fingerprint")
+
+    sm103_name = native._extension_name(
+        thirdparty_info,
+        cuda_arch_list="10.3a",
+    )
+    sm120_name = native._extension_name(
+        thirdparty_info,
+        cuda_arch_list="12.0a",
+    )
+
+    assert sm103_name != sm120_name
 
 
 @pytest.mark.ci_cpu
@@ -937,10 +1069,7 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert extension.is_available()
     build_info = extension.build_info()
     assert build_info["with_cuda"] is True
-    expected_arch = os.environ.get(
-        "TORCH_CUDA_ARCH_LIST",
-        os.environ.get("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a"),
-    )
+    expected_arch = native._cuda_arch_identity(native._effective_cuda_arch_list())
     assert build_info["cuda_arch_list"] == expected_arch
     assert hasattr(extension, "native_tensor_descriptor")
     assert hasattr(extension, "native_tensor_ref_descriptor")
