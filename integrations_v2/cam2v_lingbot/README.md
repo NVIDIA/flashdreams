@@ -55,30 +55,6 @@ by this package and do not use the legacy Lingbot runtime/schema path.
 
 Use `--warmup-blocks N` to change the five-block default warmup exclusion.
 
-## WebRTC UI regression benchmark
-
-The manual ABBA scenario runs no-UI/UI/UI/no-UI in fresh processes, waits
-for a loopback aiortc receiver before generation, excludes five warmup blocks,
-and measures twenty blocks per run:
-
-```bash
-uv run --project integrations_v2/cam2v_lingbot --no-sync \
-  python -m tools.benchmarks.v2_webrtc_ab \
-    --config configs/v2_webrtc_benchmarks.json \
-    --benchmark cam2v-lingbot-hud-ab \
-    --repo-root . \
-    --output-dir artifacts/benchmarks/cam2v-lingbot-hud-ab
-```
-
-The output contains raw records for every run plus webrtc_ab.json and
-webrtc_ab.md. Acceptance checks decoded and model FPS ratios, model-step
-timing, presentation publish waits, decode cadence, ordered RTP timestamps, and
-receiver drain. Raw and summarized artifacts also retain sender queue/drop and
-frame-conservation counts; per-frame `window_write_s` captures synchronous
-materialization cost without substituting the synthetic flush frame.
-This is a server-to-aiortc-decoder benchmark; it does not measure browser DOM,
-display-compositor, or network performance.
-
 ## Tests
 
 ```bash

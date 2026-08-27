@@ -10,44 +10,6 @@ runs the same prompt and seed through every model on the v2 API, writing a clip
 and its runtime metrics for each. Use it to compare the models against each
 other, or a change against a baseline of a previous run.
 
-[`configs/v2_webrtc_benchmarks.json`](../../../configs/v2_webrtc_benchmarks.json)
-contains command-backed presentation benchmarks. Its Lingbot scenario runs a
-process-isolated ABBA comparison with a loopback aiortc receiver, retains raw
-model/window/WebRTC records, and applies explicit FPS, model-compute, and
-publish-wait thresholds. Every run must also complete the configured model-step
-count, drain its receiver tail, preserve strictly increasing timestamps, and
-report zero sender drops and zero missing or extra receiver frames. WebRTC keeps
-its normal capacity-two FIFO queue for unsent frames, evicts the oldest queued
-frame on overflow, and records frames dropped when the receiver lags. A frame
-already handed to aiortc is committed and excluded from that capacity.
-Run it directly with:
-
-```bash
-uv run --project integrations_v2/cam2v_lingbot --no-sync \
-  python -m tools.benchmarks.v2_webrtc_ab \
-    --config configs/v2_webrtc_benchmarks.json \
-    --benchmark cam2v-lingbot-hud-ab \
-    --repo-root . \
-    --output-dir artifacts/benchmarks/cam2v-lingbot-hud-ab
-```
-
-The resulting webrtc_ab.json is machine-readable, webrtc_ab.md is the
-compact report, and `runs/<run-id>/` retains requests, raw events, and command
-logs. Sender snapshots include synchronous write-side materialization and
-queue state. Steady model FPS is the sum of measured output frames
-divided by the sum of every measured model step's wall time; no measured step is
-dropped from the rate. The ABBA variants compare the SlangPy UI presentation
-path with the default blit path; they are not a pure overlay microbenchmark and
-do not compare high-priority versus default-priority stream scheduling. Loopback
-aiortc measures the server through decoder materialization; it does not include
-browser DOM/display compositing or real-network behavior.
-`runtime_presentation_publish_wait_s` is model-thread wait for presentation-manager
-capacity, not CUDA composition or transfer time.
-
-Each case starts a fresh Python worker, but the harness does not clear or
-isolate persistent TorchInductor, Triton, or CUDA caches. Control those cache
-directories outside the harness when cold-cache behavior matters.
-
 The v1 demo suites that run through `flashdreams-run` are a separate workflow,
 in [the local benchmarks guide](../../../docs/source/developer_guides/local_benchmarks.rst).
 
