@@ -35,6 +35,7 @@ from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
     FocusUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -216,6 +217,13 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "channel: pointerControls" in browser_script
                 assert "requestAnimationFrame" in browser_script
                 assert "latency_report" not in browser_script
+                connection_handler = browser_script.split(
+                    'peer.addEventListener("connectionstatechange"',
+                    maxsplit=1,
+                )[1].split('window.addEventListener("keydown"', maxsplit=1)[0]
+                assert "status.hidden = true" in connection_handler
+                assert '"disconnected"' not in connection_handler
+                assert '["failed", "closed"]' in connection_handler
 
         window.open(_session_desc())
         peer, channel, _ = await _connect_browser(window)
@@ -254,6 +262,74 @@ async def test_window_buffers_browser_events_until_drained() -> None:
     finally:
         if peer is not None:
             await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_state_distinguishes_recovery_from_terminal_close(
+    monkeypatch: Any,
+) -> None:
+    handlers: dict[str, Any] = {}
+
+    def capture_handler(event_name: str) -> Any:
+        def register(callback: Any) -> Any:
+            handlers[event_name] = callback
+            return callback
+
+        return register
+
+    peer = Mock()
+    peer.connectionState = "new"
+    peer.localDescription = RTCSessionDescription(sdp="v=0\r\n", type="answer")
+    peer.on.side_effect = capture_handler
+    peer.setRemoteDescription = AsyncMock()
+    peer.createAnswer = AsyncMock(return_value=peer.localDescription)
+    peer.setLocalDescription = AsyncMock()
+    peer.close = AsyncMock()
+    monkeypatch.setattr(webrtc_server, "RTCPeerConnection", Mock(return_value=peer))
+    window = WebRTCClientWindow()
+    try:
+        window.open(_session_desc())
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/webrtc/offer",
+                json={"sdp": "v=0\r\n", "type": "offer"},
+            ) as response:
+                assert response.status == 200
+
+        window.server._client_connected = True
+
+        async def transition(connection_state: str) -> None:
+            peer.connectionState = connection_state
+            await handlers["connectionstatechange"]()
+
+        server_loop = window.server._loop
+        assert server_loop is not None
+
+        for connection_state in ("connected", "disconnected", "connected"):
+            future = asyncio.run_coroutine_threadsafe(
+                transition(connection_state),
+                server_loop,
+            )
+            await asyncio.wrap_future(future)
+
+        assert window.server._media_connected.is_set()
+        assert window.server._client_connected
+        assert window.get_user_input_events().get_events() == []
+
+        for connection_state in ("failed", "closed"):
+            future = asyncio.run_coroutine_threadsafe(
+                transition(connection_state),
+                server_loop,
+            )
+            await asyncio.wrap_future(future)
+
+        assert not window.server._media_connected.is_set()
+        assert not window.server._client_connected
+        events = window.get_user_input_events().get_events()
+        assert len(events) == 1
+        assert isinstance(events[0], CloseUserInputEvent)
+    finally:
         window.close()
 
 

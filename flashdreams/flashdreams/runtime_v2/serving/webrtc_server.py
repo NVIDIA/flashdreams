@@ -814,11 +814,9 @@ class WebRTCServer:
         async def on_connectionstatechange() -> None:
             if peer_connection.connectionState == "connected":
                 self._media_connected.set()
-            elif peer_connection.connectionState in {
-                "failed",
-                "disconnected",
-                "closed",
-            }:
+            elif peer_connection.connectionState == "disconnected":
+                self._media_connected.clear()
+            elif peer_connection.connectionState in {"failed", "closed"}:
                 self._media_connected.clear()
                 self._record_client_disconnect()
 

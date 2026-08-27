@@ -780,13 +780,15 @@ video.addEventListener("playing", () => {
 });
 
 peer.addEventListener("connectionstatechange", () => {
-  if (peer.connectionState === "connected" && video.readyState < 2) {
-    showStatus("Connected. Waiting for the first video frame…");
-  } else if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
-    showStatus(`WebRTC connection ${peer.connectionState}.`, true);
-    if (["failed", "closed"].includes(peer.connectionState)) {
-      failPendingInputs(`WebRTC connection ${peer.connectionState}`);
+  if (peer.connectionState === "connected") {
+    if (video.readyState < 2) {
+      showStatus("Connected. Waiting for the first video frame…");
+    } else {
+      status.hidden = true;
     }
+  } else if (["failed", "closed"].includes(peer.connectionState)) {
+    showStatus(`WebRTC connection ${peer.connectionState}.`, true);
+    failPendingInputs(`WebRTC connection ${peer.connectionState}`);
   }
 });
 
