@@ -236,7 +236,7 @@ class Cam2VApplication(IApplication):
                 f"{session_desc.output_layout.value}."
             )
         if self._use_ui and session_desc.output_layout is not VideoTensorLayout.tchw:
-            raise ValueError("The Cam2V server-rendered HUD requires tchw output.")
+            raise ValueError("The Cam2V SlangPy UI overlay requires tchw output.")
 
     def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
         """Reject frame dimensions that cannot map to integral latents."""

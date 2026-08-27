@@ -36,7 +36,7 @@ compact report, and `runs/<run-id>/` retains requests, raw events, and command
 logs. Sender snapshots include synchronous write-side materialization and
 queue state. Steady model FPS is the sum of measured output frames
 divided by the sum of every measured model step's wall time; no measured step is
-dropped from the rate. The ABBA variants compare the HUD-enabled presentation
+dropped from the rate. The ABBA variants compare the SlangPy UI presentation
 path with the default blit path; they are not a pure overlay microbenchmark and
 do not compare high-priority versus default-priority stream scheduling. Loopback
 aiortc measures the server through decoder materialization; it does not include

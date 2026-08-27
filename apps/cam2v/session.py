@@ -36,8 +36,8 @@ from .controls import CameraPoseIntegrator, KeyboardResampler
 from .defaults import Cam2VConditioning
 from .ui import (
     RECENT_MODEL_FPS_WINDOW_SECONDS,
-    Cam2VHUDLoop,
     Cam2VModelStepTiming,
+    Cam2VSlangPyUILoop,
     Cam2VUIState,
     Cam2VUIStatus,
 )
@@ -202,9 +202,9 @@ class Cam2VModelState:
     _recent_model_frame_rate: _RecentModelFrameRate = field(
         default_factory=_RecentModelFrameRate
     )
-    """Trailing post-warmup AR-step throughput shown by the HUD."""
+    """Trailing post-warmup AR-step throughput shown by the UI."""
 
-    ui_loop: Cam2VHUDLoop | None = None
+    ui_loop: Cam2VSlangPyUILoop | None = None
     """Registered UI-loop handle used only through ``invoke_async``."""
 
     def __post_init__(self) -> None:
@@ -398,7 +398,7 @@ class Cam2VSession(ISession):
         ui_loop = None
         if self._use_ui:
             registered_ui = self.register_ui_loop(
-                Cam2VHUDLoop,
+                Cam2VSlangPyUILoop,
                 state=Cam2VUIState(
                     total_blocks=self._config.total_blocks,
                     target_fps=self._session_desc.frames_per_second_for_step,
@@ -408,7 +408,7 @@ class Cam2VSession(ISession):
                 height=self._session_desc.video_height,
                 device=self._config.device,
             )
-            assert isinstance(registered_ui, Cam2VHUDLoop)
+            assert isinstance(registered_ui, Cam2VSlangPyUILoop)
             ui_loop = registered_ui
         self.register_model_loop(
             Cam2VModelLoop,

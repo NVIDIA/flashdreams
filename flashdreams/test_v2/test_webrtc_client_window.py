@@ -185,11 +185,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'id="reset"' not in browser_page
                 assert '<video id="video" autoplay muted playsinline>' in browser_page
                 assert 'id="status"' in browser_page
-                assert 'id="input-latency"' in browser_page
-                assert 'id="latencyValue"' in browser_page
-                assert 'id="latencyEventTime"' in browser_page
-                assert 'id="latencyFrameTime"' in browser_page
-                assert "INPUT → PRESENTED FRAME" in browser_page
+                assert 'id="input-latency"' not in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
@@ -217,6 +213,8 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "channel: pointerControls" in browser_script
                 assert "requestAnimationFrame" in browser_script
                 assert "latency_report" not in browser_script
+                assert "latencyPanel" not in browser_script
+                assert "renderLatencyPanel" not in browser_script
                 connection_handler = browser_script.split(
                     'peer.addEventListener("connectionstatechange"',
                     maxsplit=1,

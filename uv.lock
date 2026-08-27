@@ -1128,14 +1128,10 @@ version = "0.1.0"
 source = { editable = "apps/cam2v" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "runners", "serving"] },
-    { name = "pillow" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "flashdreams", extras = ["local-window", "runners", "serving"], editable = "flashdreams" },
-    { name = "pillow", specifier = ">=10.1.0" },
-]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "runners", "serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-cam2v-lingbot"

@@ -1,66 +1,59 @@
-# Polish the Cam2V server-rendered UI
+# Fix write-driven WebRTC presentation
 
 ## Summary
 
-- Replace the raw Cam2V image with a Lingbot-inspired HUD composited on the
-  server, including session status, progress, model throughput, and camera
-  controls.
-- Highlight browser key state immediately, including WASD/arrow aliases and
-  focus-loss cleanup.
-- Show model AR throughput over the trailing two seconds instead of a
-  warmup-to-date average, while retaining concise per-step Lingbot timing logs.
-- Correlate browser input with the presented frame and display browser-local
-  end-to-end input latency.
-- Add a repeatable Lingbot HUD/no-HUD WebRTC benchmark and focused CPU/CUDA
-  coverage.
+- Make the UI thread own frame selection, composition, and output cadence.
+- Materialize each frame in `window.write()` and let WebRTC deliver accepted
+  frames immediately, without a second sender pacer.
+- Keep at most two queued, unsent WebRTC frames and evict the oldest queued
+  frame when congestion fills the queue.
+- Run SlangPy rendering and composition on a high-priority CUDA presentation
+  stream, then transfer the ready result through the WebRTC sink's dedicated
+  CUDA stream.
+- Redraw the retained Cam2V SlangPy controls immediately for relevant browser
+  input while preserving the latest model frame.
+- Generalize timestamped realtime input buffering and source-aware keyboard
+  state for reuse by other applications.
 
-This branch is stacked on the write-driven WebRTC presentation fix. Transport
-delivery, presentation cadence ownership, frame ownership, the two-frame sender
-mailbox, and CUDA sink readiness remain in that prerequisite PR.
+## Presentation and transport
 
-## UI and input responsiveness
+- Advance multi-frame model chunks one frame at a time in the UI thread.
+- Adapt presentation cadence to recent model completion throughput without
+  bursting after a slow model step.
+- Synchronize and materialize CUDA output before `window.write()` returns, so
+  queued frames own independent host storage.
+- Deliver dequeued frames to aiortc as soon as they are requested. WebRTC
+  neither sleeps nor repeats frames.
+- Preserve FIFO order for the two unsent queue slots and report frames evicted
+  by sender lag.
+- Treat transient WebRTC `disconnected` state as recoverable; show an error only
+  for terminal `failed` or `closed` states.
 
-- Render a custom Cam2V HUD with Lingbot-style camera controls and explicit
-  model-generation status.
-- Highlight held `W`/`A`/`S`/`D`, `Q`/`E`, `I`/`K`, and `J`/`L` controls;
-  arrow keys map to the matching WASD controls.
-- Redraw on fresh input under `PresentationMode.ON_DEMAND`, even when model
-  generation has not produced a new frame. UI loops may filter events that do
-  not affect their output.
-- Cache static HUD chrome and upload compact RGBA8 updates through a two-slot
-  pinned staging pool on a high-priority presentation stream.
-- Add Pillow as the Cam2V image/font rasterizer dependency and include its
-  license attribution.
+## Cam2V responsiveness
 
-## Live model status
+- Keep the original retained SlangPy/ImGui-style camera-control overlay.
+- Use `PresentationMode.ON_DEMAND` so browser input can refresh the overlay
+  before another model chunk completes.
+- Display model throughput from AR steps completed in the trailing two seconds
+  and retain optional synchronized per-step AR timing logs.
+- Propagate browser event IDs and timestamps to the first UI or model frame that
+  processed them. Browser frame-correlation support remains available for
+  diagnostics without adding a visible HTML/CSS latency panel.
+- Coalesce pointer traffic on a separate ordered data channel so it cannot build
+  a backlog ahead of keyboard controls.
 
-- Compute MODEL GENERATION FPS from AR steps completed in the trailing two
-  seconds, weighted by generated frame count and wall time.
-- Redraw at a low idle rate so the panel falls to `AR 0.0 FPS` after two
-  seconds without a completion.
-- Keep warmup-excluded cumulative throughput available to benchmark output.
-- Log each Lingbot AR step's synchronized wall time and chunk FPS to the
-  console without enabling device-wide profiling barriers in the interactive
-  path.
+## Input handling
 
-## Input-to-display latency
-
-- Timestamp browser input, attach bounded correlation IDs, and propagate the
-  acknowledgement to the exact UI/model frame that processed it.
-- Correlate frame markers with `requestVideoFrameCallback` metadata and show
-  latest/P50/P90 browser-local latency.
-- Expire samples when presentation or sender congestion drops their frame.
-- Move coalesced pointer traffic to a separate ordered data channel so mouse
-  backlog cannot block keyboard controls.
+- Hoist realtime timestamp normalization and catch-up into
+  `RealtimeInputTimeline`.
+- Hoist source-aware key aliasing and state segments into `KeyboardStateTrack`.
+- Keep `KeyboardResampler` as a compatibility facade for existing Cam2V users.
 
 ## Benchmarking
 
-- Add `configs/v2_webrtc_benchmarks.json` and
-  `flashdreams/tools/benchmarks/v2_webrtc_ab.py`.
-- Run Lingbot HUD/no-HUD variants in ABBA order in fresh processes with a
-  gated loopback aiortc receiver.
-- Record raw model, sender, and receiver data and generate JSON/Markdown
-  summaries with FPS, latency, queue, and RTP-timestamp checks.
+- Add a process-isolated ABBA WebRTC benchmark with a loopback aiortc receiver.
+- Record model, presentation, sender, and receiver metrics with explicit FPS,
+  queue, and RTP timestamp checks.
 
 The loopback benchmark covers server composition through aiortc decoding. It
 does not include a real network, browser DOM work, or the physical display
@@ -86,5 +79,5 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 ## Validation
 
 - Focused Cam2V, runtime, input, WebRTC, and benchmark CPU suites.
-- CUDA HUD composition and frame-readiness tests on NVIDIA GB300.
+- CUDA SlangPy composition, output-readiness, and WebRTC materialization tests.
 - Full repository pre-commit checks.

@@ -4,8 +4,8 @@
   "scenarios": [
     {
       "id": "cam2v-lingbot-hud-ab",
-      "name": "Cam2V Lingbot server-rendered HUD WebRTC A/B",
-      "description": "Runs no-HUD and HUD variants in ABBA order with receiver readiness gated before generation. Five model blocks are warmup and twenty are measured. Every run must complete all model steps, drain the receiver, preserve increasing PTS, and report no sender drops or receiver count mismatch.",
+      "name": "Cam2V Lingbot SlangPy UI WebRTC A/B",
+      "description": "Runs no-UI and SlangPy UI variants in ABBA order with receiver readiness gated before generation. Five model blocks are warmup and twenty are measured. Every run must complete all model steps, drain the receiver, preserve increasing PTS, and report no sender drops or receiver count mismatch.",
       "tags": [
         "manual",
         "gpu",

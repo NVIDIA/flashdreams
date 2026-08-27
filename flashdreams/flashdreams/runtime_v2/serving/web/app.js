@@ -7,15 +7,6 @@ const pointerControls = peer.createDataChannel("pointer-controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const video = document.getElementById("video");
 const status = document.getElementById("status");
-const latencyPanel = document.getElementById("input-latency");
-const latencyValue = document.getElementById("latencyValue");
-const latencyState = document.getElementById("latencyState");
-const latencyEventLabel = document.getElementById("latencyEventLabel");
-const latencyEventTime = document.getElementById("latencyEventTime");
-const latencyFrameTime = document.getElementById("latencyFrameTime");
-const latencyP50 = document.getElementById("latencyP50");
-const latencyP90 = document.getElementById("latencyP90");
-const latencyDetail = document.getElementById("latencyDetail");
 const pressedKeys = new Map();
 const pressedButtons = new Set();
 let lastPointerPosition = {x: 0, y: 0};
@@ -24,7 +15,6 @@ const UINT32_MODULUS = 0x100000000;
 const MAX_PENDING_INPUTS = 4096;
 const MAX_FRAME_CACHE = 512;
 const MAX_COMPLETED_IDS = 8192;
-const MAX_LATENCY_SAMPLES = 240;
 const INPUT_TRACE_TTL_MS = 10 * 60 * 1000;
 const FRAME_TRACE_TTL_MS = 30 * 1000;
 const RTP_TIMESTAMP_TOLERANCE_TICKS = 2;
@@ -36,12 +26,9 @@ const renderedFrames = new Map();
 const completedEventIds = new Map();
 const completedFrameIds = new Map();
 const renderedFrameSignatures = new Map();
-const latencySamples = [];
 
 let inputSequence = 0;
 let renderedFrameSequence = 0;
-let latestPanelRecord = null;
-let panelRenderHandle = null;
 let rtpTimestampOffset = null;
 let rtpCalibrationConflicted = false;
 let lastCachePruneAtMs = Number.NEGATIVE_INFINITY;
@@ -112,92 +99,6 @@ const send = (payload, channel = controls) => {
   }
 };
 
-const formatClockTime = browserTimestampMs => {
-  if (!isFiniteNonnegative(browserTimestampMs)) {
-    return "—";
-  }
-  const absoluteTime = performance.timeOrigin + browserTimestampMs;
-  const date = new Date(absoluteTime);
-  if (!Number.isFinite(date.getTime())) {
-    return `${browserTimestampMs.toFixed(3)} ms`;
-  }
-  const pad = (value, width = 2) => String(value).padStart(width, "0");
-  return [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    `${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`,
-  ].join(":");
-};
-
-const percentile = quantile => {
-  if (!latencySamples.length) {
-    return null;
-  }
-  const values = [...latencySamples].sort((left, right) => left - right);
-  const position = (values.length - 1) * quantile;
-  const lowerIndex = Math.floor(position);
-  const upperIndex = Math.ceil(position);
-  const fraction = position - lowerIndex;
-  return values[lowerIndex] + (values[upperIndex] - values[lowerIndex]) * fraction;
-};
-
-const formatLatency = value =>
-  value === null ? "—" : `${Math.round(value)} ms`;
-
-const renderLatencyPanel = () => {
-  panelRenderHandle = null;
-  const record = latestPanelRecord;
-  const p50 = percentile(0.5);
-  const p90 = percentile(0.9);
-  latencyP50.textContent = formatLatency(p50);
-  latencyP90.textContent = formatLatency(p90);
-
-  if (record === null) {
-    latencyPanel.dataset.state = "unavailable";
-    latencyValue.textContent = "— ms";
-    latencyState.textContent = videoFrameCallbacksAvailable
-      ? "Unavailable"
-      : "Unsupported";
-    latencyEventLabel.textContent = "NO EVENT";
-    latencyEventTime.textContent = "—";
-    latencyFrameTime.textContent = "—";
-    latencyDetail.textContent = videoFrameCallbacksAvailable
-      ? "Waiting for input"
-      : "Frame callbacks unavailable";
-    return;
-  }
-
-  latencyEventLabel.textContent = record.label;
-  latencyEventTime.textContent = formatClockTime(record.browserEventAtMs);
-  latencyFrameTime.textContent = formatClockTime(record.browserPresentedAtMs);
-
-  if (record.status === "presented") {
-    latencyPanel.dataset.state = "ready";
-    latencyValue.textContent = `${Math.round(record.latencyMs)} ms`;
-    latencyState.textContent = "Presented";
-  } else if (record.status === "pending" || record.status === "frame-pending") {
-    latencyPanel.dataset.state = "pending";
-    latencyValue.textContent = "— ms";
-    latencyState.textContent = "Pending";
-  } else {
-    latencyPanel.dataset.state = "unavailable";
-    latencyValue.textContent = "— ms";
-    latencyState.textContent = "Unavailable";
-  }
-
-  const pending = pendingInputs.size;
-  const pendingLabel = `${pending} pending`;
-  latencyDetail.textContent = record.detail
-    ? `${record.detail} · ${pendingLabel}`
-    : pendingLabel;
-};
-
-const scheduleLatencyPanelRender = () => {
-  if (panelRenderHandle === null) {
-    panelRenderHandle = window.requestAnimationFrame(renderLatencyPanel);
-  }
-};
-
 const completeEvent = eventId => {
   pendingInputs.delete(eventId);
   rememberBounded(
@@ -221,9 +122,6 @@ const markEventUnavailable = (eventId, detail) => {
   record.browserPresentedAtMs = null;
   record.latencyMs = null;
   completeEvent(eventId);
-  if (latestPanelRecord === record) {
-    scheduleLatencyPanelRender();
-  }
 };
 
 const expireMarker = (marker, detail) => {
@@ -319,9 +217,7 @@ const sendInput = (
   if (!videoFrameCallbacksAvailable) {
     completeEvent(eventId);
   }
-  latestPanelRecord = record;
   pruneCaches();
-  scheduleLatencyPanelRender();
   return eventId;
 };
 
@@ -420,9 +316,6 @@ const markMarkerPending = marker => {
     }
     record.status = "frame-pending";
     record.detail = `Frame ${marker.frameId} tagged; waiting for display`;
-    if (latestPanelRecord === record) {
-      scheduleLatencyPanelRender();
-    }
   }
 };
 
@@ -435,9 +328,6 @@ const markMarkerAmbiguous = marker => {
     }
     record.status = "ambiguous";
     record.detail = "Frame correlation is ambiguous";
-    if (latestPanelRecord === record) {
-      scheduleLatencyPanelRender();
-    }
   }
 };
 
@@ -614,11 +504,6 @@ const recordLatency = (marker, renderedFrame, trace) => {
   record.browserPresentedAtMs = browserPresentedAtMs;
   record.latencyMs = latencyMs;
   completeEvent(eventId);
-  latencySamples.push(latencyMs);
-  if (latencySamples.length > MAX_LATENCY_SAMPLES) {
-    latencySamples.splice(0, latencySamples.length - MAX_LATENCY_SAMPLES);
-  }
-  latestPanelRecord = record;
 };
 
 const resolveFramePair = (marker, renderedFrame, matchedByMediaTime) => {
@@ -636,7 +521,6 @@ const resolveFramePair = (marker, renderedFrame, matchedByMediaTime) => {
   for (const trace of marker.traces) {
     recordLatency(marker, renderedFrame, trace);
   }
-  scheduleLatencyPanelRender();
 };
 
 const reconcileFrames = () => {
@@ -751,7 +635,6 @@ controls.addEventListener("close", () => {
 
 const observeVideoFrames = () => {
   if (!videoFrameCallbacksAvailable) {
-    renderLatencyPanel();
     return;
   }
   const onFrame = (now, metadata) => {

@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
@@ -22,13 +23,12 @@ from cam2v import (
     Cam2VApplication,
     Cam2VApplicationDefaults,
     Cam2VConditioning,
-    Cam2VHUDLoop,
-    Cam2VHUDRenderer,
     Cam2VModelLoop,
     Cam2VModelState,
     Cam2VModelStepTiming,
     Cam2VSession,
     Cam2VSessionConfig,
+    Cam2VSlangPyUILoop,
     Cam2VUIState,
     Cam2VUIStatus,
     CameraControlInput,
@@ -156,7 +156,7 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
     shutdown_event = threading.Event()
     failure_queue: queue.Queue[BaseException] = queue.Queue()
     presentation_manager = PresentationManager()
-    ui_loop = Cam2VHUDLoop(renderer=Mock())
+    ui_loop = Cam2VSlangPyUILoop(renderer=Mock())
     ui_loop.register_session_loop_objects(
         state=ui_state,
         frequency=60,
@@ -346,13 +346,11 @@ def test_ui_recent_model_frame_rate_reaches_zero_during_a_stall() -> None:
     assert status.recent_model_fps(now=3.6) == 0.0
 
 
-def test_hud_expiry_uses_the_same_sample_for_render_and_redraw_tracking(
+def test_slangpy_expiry_uses_the_same_sample_for_render_and_redraw_tracking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Do not lose the zero-rate redraw when composition crosses the cutoff."""
-    renderer = Mock(spec=Cam2VHUDRenderer)
-    renderer.render.return_value = torch.zeros((4, 1, 1), dtype=torch.float32)
-    ui_loop = Cam2VHUDLoop(renderer=renderer)
+    ui_loop = Cam2VSlangPyUILoop(renderer=Mock())
     state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=0)
     state.update_status(
         Cam2VUIStatus(
@@ -379,12 +377,18 @@ def test_hud_expiry_uses_the_same_sample_for_render_and_redraw_tracking(
         output_layout=VideoTensorLayout.tchw,
         presentation_manager=PresentationManager(),
     )
-    sample_times = iter((1.9, 2.1))
-    monkeypatch.setattr(cam2v_ui.time, "perf_counter", lambda: next(sample_times))
+    ui = SimpleNamespace(
+        screen=object(),
+        Window=Mock(return_value=object()),
+        Text=Mock(side_effect=lambda parent, text: SimpleNamespace(text=text)),
+    )
+    monkeypatch.setattr(cam2v_ui.time, "perf_counter", lambda: 1.9)
 
-    ui_loop.step(0, UserInputEvents([]))
+    ui_loop.step_ui(ui, 0, UserInputEvents([]))
 
-    assert renderer.render.call_args.kwargs["status_sampled_at"] == 1.9
+    assert "Recent model rate (2 s): 13.00 FPS" in (
+        widget.text for widget in state.status_widgets
+    )
     assert ui_loop._last_rendered_recent_fps == 13.0
     monkeypatch.setattr(cam2v_ui.time, "perf_counter", lambda: 2.4)
     assert ui_loop.should_redraw_on_idle()
@@ -542,10 +546,8 @@ def test_model_loop_normalizes_browser_arrow_keys() -> None:
     assert pipeline.camera_input.poses[-1, 2, 3].item() == pytest.approx(0.1)
 
 
-def test_server_hud_tracks_controls_and_model_status(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Render browser-held controls and model status into the outgoing frame."""
+def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
+    """Keep immediate input display in UI-loop-owned state."""
     state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=1)
     presentation_manager = PresentationManager()
     presentation_manager.publish(
@@ -553,15 +555,30 @@ def test_server_hud_tracks_controls_and_model_status(
         [
             StepResult(
                 step_index=0,
-                output=torch.zeros((3, 3, 360, 640), dtype=torch.bfloat16),
+                output=torch.zeros((3, 3, 2, 2), dtype=torch.bfloat16),
                 frame_count=3,
                 output_layout=VideoTensorLayout.tchw,
             )
         ],
     )
     assert presentation_manager.advance(0)[0]
-    renderer = Cam2VHUDRenderer(width=640, height=360)
-    ui_loop = Cam2VHUDLoop(renderer=renderer)
+    ui = SimpleNamespace(
+        screen=object(),
+        Window=Mock(return_value=object()),
+        Text=Mock(side_effect=lambda parent, text: SimpleNamespace(text=text)),
+    )
+    renderer = Mock()
+
+    def render(
+        step_index: int,
+        events: UserInputEvents,
+        draw: Any,
+    ) -> torch.Tensor:
+        draw(ui, step_index, events)
+        return torch.zeros((4, 2, 2), dtype=torch.float32)
+
+    renderer.render.side_effect = render
+    ui_loop = Cam2VSlangPyUILoop(renderer=renderer)
     ui_loop.register_session_loop_objects(
         state=state,
         frequency=60,
@@ -572,7 +589,7 @@ def test_server_hud_tracks_controls_and_model_status(
         output_layout=VideoTensorLayout.tchw,
         presentation_manager=presentation_manager,
     )
-    events = UserInputEvents(
+    pressed = UserInputEvents(
         [
             KeyboardUserInputEvent(
                 timestamp=uint64(0),
@@ -582,21 +599,32 @@ def test_server_hud_tracks_controls_and_model_status(
             )
         ]
     )
-    mouse_motion = UserInputEvents(
-        [
-            MouseUserInputEvent(
-                timestamp=uint64(0),
-                x=0.5,
-                y=0.5,
-            )
-        ]
+    state.update_status(
+        Cam2VUIStatus(
+            completed_blocks=2,
+            frames_generated=24,
+            chunk_fps=13.5,
+            recent_model_steps=_recent_model_steps(),
+            model_step_wall_s=0.89,
+        )
     )
-    assert ui_loop.should_redraw_for_input(events)
-    assert not ui_loop.should_redraw_for_input(mouse_motion)
+
+    assert ui_loop.should_redraw_for_input(pressed)
+    assert ui_loop.should_redraw_for_input(
+        UserInputEvents(
+            [
+                MouseUserInputEvent(
+                    timestamp=uint64(0),
+                    x=0.5,
+                    y=0.5,
+                )
+            ]
+        )
+    )
     assert ui_loop.should_redraw_for_input(
         UserInputEvents([ResetUserInputEvent(timestamp=uint64(0))])
     )
-    assert not ui_loop.should_redraw_for_input(
+    assert ui_loop.should_redraw_for_input(
         UserInputEvents(
             [
                 KeyboardUserInputEvent(
@@ -608,33 +636,23 @@ def test_server_hud_tracks_controls_and_model_status(
         )
     )
     assert not ui_loop.should_redraw_for_input(UserInputEvents([]))
-    state.update_status(
-        Cam2VUIStatus(
-            completed_blocks=2,
-            frames_generated=24,
-            chunk_fps=13.5,
-            recent_model_steps=_recent_model_steps(),
-            model_step_wall_s=0.89,
-        )
-    )
 
-    result = ui_loop.step(0, events)
-    active_overlay = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    ).clone()
+    result = ui_loop.step(0, pressed)
 
-    assert result.output.shape == (1, 3, 360, 640)
+    assert result.output.shape == (1, 3, 2, 2)
     assert result.output.dtype is torch.bfloat16
-    assert state.held_keys == {"w"}
     assert result.input_event_traces == (
         InputEventTrace(event_id="page:arrow-up", frame_index=0),
     )
-    assert ui_loop.should_redraw_for_input(events)
-    assert active_overlay.shape == (4, 360, 640)
-    assert active_overlay[3].min() >= 0
-    assert active_overlay[3].max() <= 1
+    assert state.held_keys == {"w"}
+    displayed = [widget.text for widget in state.status_widgets]
+    assert "Rollout: 2/4 blocks" in displayed
+    assert "Presented: 1 frames (24 generated)" in displayed
+    assert "Latest model rate: 13.50 FPS" in displayed
+    assert any(line.startswith("Recent model rate (2 s):") for line in displayed)
+    assert state.active_keys_widget is not None
+    assert state.active_keys_widget.text == "Active keys: W"
+
     quick_tap = ui_loop.step(
         1,
         UserInputEvents(
@@ -659,203 +677,71 @@ def test_server_hud_tracks_controls_and_model_status(
         InputEventTrace(event_id="page:e-up", frame_index=0),
     )
     assert state.held_keys == {"w"}
-    released = UserInputEvents(
-        [
-            KeyboardUserInputEvent(
-                timestamp=uint64(1),
-                key="ArrowUp",
-                state=KeyboardInputState.RELEASED,
-            )
-        ]
-    )
+
     ui_loop.step(
         2,
         UserInputEvents(
             [
                 KeyboardUserInputEvent(
-                    timestamp=uint64(1),
+                    timestamp=uint64(3),
                     key="w",
                     state=KeyboardInputState.PRESSED,
-                )
+                ),
+                KeyboardUserInputEvent(
+                    timestamp=uint64(4),
+                    key="ArrowUp",
+                    state=KeyboardInputState.RELEASED,
+                ),
             ]
         ),
     )
-    ui_loop.step(3, released)
     assert state.held_keys == {"w"}
-    released_result = ui_loop.step(
-        4,
+    ui_loop.step(
+        3,
         UserInputEvents(
             [
                 KeyboardUserInputEvent(
-                    timestamp=uint64(2),
+                    timestamp=uint64(5),
                     key="w",
                     state=KeyboardInputState.RELEASED,
                 )
             ]
         ),
     )
-    inactive_overlay = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    )
-    key_rect = renderer.layout.key_rects["w"]
-    left, top, right, bottom = key_rect
-    active_key = active_overlay[:3, top:bottom, left:right]
-    inactive_key = inactive_overlay[:3, top:bottom, left:right]
-
     assert not state.held_keys
-    assert active_key[1].mean() > inactive_key[1].mean()
-    assert not torch.equal(active_key, inactive_key)
-
-    assert ui_loop._last_redraw_at is not None
-    stalled_at = (
-        ui_loop._last_redraw_at + cam2v_ui.RECENT_MODEL_FPS_WINDOW_SECONDS + 0.1
-    )
-    monkeypatch.setattr(cam2v_ui.time, "perf_counter", lambda: stalled_at)
-    assert ui_loop.should_redraw_on_idle()
-    stalled_result = ui_loop.step(5, UserInputEvents([]))
-    assert not ui_loop.should_redraw_on_idle()
-    assert not torch.equal(released_result.output, stalled_result.output)
 
     ui_loop.step(
-        5,
+        4,
         UserInputEvents(
             [
                 KeyboardUserInputEvent(
-                    timestamp=uint64(2),
-                    key=key,
+                    timestamp=uint64(6),
+                    key="e",
                     state=KeyboardInputState.PRESSED,
-                )
-                for key in ("e", "i")
+                ),
+                KeyboardUserInputEvent(
+                    timestamp=uint64(7),
+                    key="i",
+                    state=KeyboardInputState.PRESSED,
+                ),
             ]
         ),
     )
-    multi_key_overlay = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    )
-
     assert state.held_keys == {"e", "i"}
-    for key in state.held_keys:
-        left, top, right, bottom = renderer.layout.key_rects[key]
-        assert (
-            multi_key_overlay[1, top:bottom, left:right].mean()
-            > inactive_overlay[1, top:bottom, left:right].mean()
-        )
-
     ui_loop.step(
-        3,
-        UserInputEvents(
-            [
-                FocusUserInputEvent(
-                    timestamp=uint64(3),
-                    focused=False,
-                )
-            ]
-        ),
+        5,
+        UserInputEvents([FocusUserInputEvent(timestamp=uint64(8), focused=False)]),
     )
-    focus_lost_overlay = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    )
-
     assert not state.held_keys
-    assert not torch.equal(multi_key_overlay, focus_lost_overlay)
+    assert state.active_keys_widget.text == "Active keys: none"
+
+    assert presentation_manager.advance(0)[0]
+    ui_loop.step(6, UserInputEvents([]))
+    displayed = [widget.text for widget in state.status_widgets]
+    assert "Presented: 2 frames (24 generated)" in displayed
 
 
-def test_hud_renderer_preserves_dtype_and_reuses_control_raster(
-    monkeypatch: Any,
-) -> None:
-    """Keep status-only refreshes compact and model frames in native precision."""
-    draw_controls = cam2v_ui._draw_active_controls
-    control_draws = 0
-
-    def counted_draw_controls(
-        renderer: Cam2VHUDRenderer,
-        held_keys: tuple[str, ...],
-    ) -> Any:
-        nonlocal control_draws
-        control_draws += 1
-        return draw_controls(renderer, held_keys)
-
-    monkeypatch.setattr(cam2v_ui, "_draw_active_controls", counted_draw_controls)
-    renderer = Cam2VHUDRenderer(width=640, height=360)
-    state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=1)
-
-    first = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.bfloat16,
-    )
-    cached = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.bfloat16,
-    )
-    controls_image = renderer._controls_image
-    state.update_status(
-        Cam2VUIStatus(
-            completed_blocks=1,
-            frames_generated=12,
-            chunk_fps=13.5,
-            recent_model_steps=_recent_model_steps(),
-            model_step_wall_s=0.89,
-        )
-    )
-    status_refresh = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.bfloat16,
-    )
-
-    assert first.dtype is torch.bfloat16
-    assert first.shape == (4, 360, 640)
-    assert cached is first
-    assert status_refresh is not first
-    assert renderer._controls_image is controls_image
-    assert control_draws == 1
-    assert status_refresh[3].min() >= 0
-    assert status_refresh[3].max() <= 1
-
-    state.held_keys.add("w")
-    active = renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    )
-    assert active.dtype is torch.float32
-    assert control_draws == 2
-
-    static_image = renderer._static_image
-    renderer.reset()
-    renderer.render(
-        state,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    )
-    assert renderer._static_image is static_image
-    assert control_draws == 3
-
-
-def test_hud_normalization_keeps_float_storage_and_normalizes_uint8() -> None:
-    """Avoid a full-frame float32 copy while retaining integer input support."""
-    frame = torch.zeros((3, 2, 2), dtype=torch.bfloat16)
-
-    normalized_float = cam2v_ui._normalized_float_frame(frame)
-    normalized_uint8 = cam2v_ui._normalized_float_frame(
-        torch.tensor([[[0, 255]]], dtype=torch.uint8)
-    )
-
-    assert normalized_float is frame
-    assert normalized_uint8 is not None
-    assert normalized_uint8.dtype is torch.float32
-    assert normalized_uint8.tolist() == [[[-1.0, 1.0]]]
-
-
-def test_cam2v_session_registers_the_shared_server_hud_loop() -> None:
+def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
     """Construct the overlay at the shared session boundary."""
     session = Cam2VSession(
         pipeline=_Pipeline(),
@@ -878,15 +764,13 @@ def test_cam2v_session_registers_the_shared_server_hud_loop() -> None:
 
     session.init()
 
-    assert isinstance(session.ui_loop, Cam2VHUDLoop)
+    assert isinstance(session.ui_loop, Cam2VSlangPyUILoop)
     assert session.ui_loop.state.total_blocks == 2
     assert session.model_loop.state.input_timeline.samples_per_second == 16
     assert session.model_loop.state.keyboard_resampler is not None
     assert session.model_loop.state.keyboard_resampler.fps == 16
     assert session.session_desc.backpressure_mode is BackpressureMode.BLOCK
     assert session.session_desc.presentation_mode is PresentationMode.ON_DEMAND
-    tiny_frame = session.ui_loop.step(0, UserInputEvents([]))
-    assert tiny_frame.output.shape == (1, 3, 4, 8)
 
 
 def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> None:
