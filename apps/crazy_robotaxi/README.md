@@ -6,13 +6,13 @@ generations, presentation buffering, client windows, and the two-thread
 runtime. The UI loop uses FlashDreams' Dear ImGui renderer for the game HUD and
 composites it over model frames for native-window, WebRTC, and file clients.
 Camera-projected waypoint rings, beacons, and labels are rendered as a
-frame-aligned world layer on the UI thread; they are not ImGui windows. The
+background ImGui draw list on the UI thread; they are not windows or controls. The
 model loop publishes immutable snapshot-and-pose metadata for each generated
-frame, and the UI loop rasterizes each presented waypoint layer once and
-caches it while that frame remains visible. The optional raw BEV view is a
-second model result displayed inside a real ImGui `Map` window.
-`CrazyRobotaxiImGuiUILoop` composites the in-world waypoints over video before
-the base loop applies the Dear ImGui HUD and BEV overlay.
+frame, and the UI loop caches the projected marker geometry while that frame
+remains visible. The optional raw BEV view is a second model result displayed
+inside a real ImGui `Map` window. `CrazyRobotaxiImGuiUILoop` returns the video
+back buffer and the base loop composites one ImGui overlay containing the
+background waypoints, HUD, and BEV window.
 
 ```bash
 uv sync --package crazy-robotaxi
@@ -100,8 +100,8 @@ duration of the frames it produces. The live `model_step_wall_ms`,
 `simulation_cpu_ms`, `rules_cpu_ms`, `conditioning_cpu_ms`, and `physx_*_ms`
 metrics separate a throughput miss from model-thread CPU work; the pipeline's
 `encode_ms`, `diffuse_ms`, `decode_ms`, and `finalize_ms` metrics identify the
-corresponding GPU stage. Waypoint rasterization is UI-thread work and is not
-included in model-step metrics. The JSON sink normalizes `_ms` metric names to
+corresponding GPU stage. Waypoint projection and ImGui draw submission are
+UI-thread work and are not included in model-step metrics. The JSON sink normalizes `_ms` metric names to
 `_s`. Exclude the first chunks when judging steady state because compilation
 and graph capture are startup costs.
 

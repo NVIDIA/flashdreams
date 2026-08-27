@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import math
 import queue
 import threading
 from dataclasses import dataclass, field, replace
@@ -25,10 +24,7 @@ from crazy_robotaxi.ui import (
     TaxiHudState,
     build_hud_frames,
 )
-from crazy_robotaxi.world_overlay import (
-    _paint_lines,
-    render_waypoint_layers,
-)
+from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
 from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
@@ -74,33 +70,27 @@ def _snapshot(*, session_state: TaxiSessionState = "playing") -> TaxiGameSnapsho
     )
 
 
-def _legacy_line_pixels(
-    start: tuple[float, float],
-    end: tuple[float, float],
-    *,
-    width: int,
-    height: int,
-    width_px: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    delta_x = float(end[0] - start[0])
-    delta_y = float(end[1] - start[1])
-    sample_count = max(2, int(math.ceil(max(abs(delta_x), abs(delta_y)))) + 1)
-    center_x = np.rint(np.linspace(start[0], end[0], sample_count)).astype(np.int32)
-    center_y = np.rint(np.linspace(start[1], end[1], sample_count)).astype(np.int32)
-    radius = max(0.0, (float(width_px) - 1.0) / 2.0)
-    x_parts = []
-    y_parts = []
-    integer_radius = int(math.ceil(radius))
-    for offset_y in range(-integer_radius, integer_radius + 1):
-        for offset_x in range(-integer_radius, integer_radius + 1):
-            if offset_x * offset_x + offset_y * offset_y > radius * radius:
-                continue
-            x = center_x + offset_x
-            y = center_y + offset_y
-            selected = (x >= 0) & (x < width) & (y >= 0) & (y < height)
-            x_parts.append(x[selected])
-            y_parts.append(y[selected])
-    return np.concatenate(x_parts), np.concatenate(y_parts)
+class _FakeDrawList:
+    def __init__(self) -> None:
+        self.commands: list[tuple[str, tuple[Any, ...]]] = []
+
+    def add_line(self, *args: Any) -> None:
+        self.commands.append(("line", args))
+
+    def add_circle(self, *args: Any) -> None:
+        self.commands.append(("circle", args))
+
+    def add_circle_filled(self, *args: Any) -> None:
+        self.commands.append(("circle_filled", args))
+
+    def add_rect(self, *args: Any) -> None:
+        self.commands.append(("rect", args))
+
+    def add_rect_filled(self, *args: Any) -> None:
+        self.commands.append(("rect_filled", args))
+
+    def add_text(self, *args: Any) -> None:
+        self.commands.append(("text", args))
 
 
 class _FakeImGui:
@@ -120,10 +110,26 @@ class _FakeImGui:
         self.input_value = ""
         self.submit_input = False
         self.click_submit = False
+        self.background_draw_list = _FakeDrawList()
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
         return x, y
+
+    @staticmethod
+    def ImVec4(x: float, y: float, z: float, w: float) -> tuple[float, ...]:
+        return x, y, z, w
+
+    @staticmethod
+    def color_convert_float4_to_u32(color: tuple[float, ...]) -> int:
+        return hash(color)
+
+    @staticmethod
+    def calc_text_size(text: str) -> SimpleNamespace:
+        return SimpleNamespace(x=float(len(text) * 8), y=14.0)
+
+    def get_background_draw_list(self) -> _FakeDrawList:
+        return self.background_draw_list
 
     def set_next_window_pos(self, position, condition) -> None:
         del position, condition
@@ -253,49 +259,40 @@ def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
         )
 
 
-def test_waypoints_are_rendered_as_frame_aligned_world_layers() -> None:
-    poses = np.eye(4, dtype=np.float32)[None]
-
-    layers = render_waypoint_layers(
-        (_snapshot(),),
-        poses,
+def test_waypoints_are_projected_and_drawn_on_imgui_background() -> None:
+    projections = project_waypoints(
+        _snapshot(),
+        np.eye(4, dtype=np.float32),
         _calibration(),
         width=160,
         height=96,
-        device="cpu",
+    )
+    imgui = _FakeImGui()
+
+    draw_waypoints(
+        imgui,
+        projections,
+        phase="seeking_pickup",
+        width=160,
+        height=96,
     )
 
-    assert layers.shape == (1, 4, 96, 160)
-    assert layers.dtype is torch.float32
-    assert torch.any(layers[:, 3] == 1.0)
+    command_names = [name for name, _ in imgui.background_draw_list.commands]
+    assert projections
+    assert "line" in command_names
+    assert "circle" in command_names
+    assert "circle_filled" in command_names
+    assert "rect_filled" in command_names
+    assert "text" in command_names
 
-    terminal = render_waypoint_layers(
-        (_snapshot(session_state="awaiting_name"),),
-        poses,
+    terminal = project_waypoints(
+        _snapshot(session_state="awaiting_name"),
+        np.eye(4, dtype=np.float32),
         _calibration(),
         width=160,
         height=96,
-        device="cpu",
     )
-    assert torch.count_nonzero(terminal[:, 3]) == 0
-
-
-def test_batched_line_rasterizer_matches_the_original_geometry() -> None:
-    lines = (
-        ((-4.25, 10.5), (35.75, 22.5)),
-        ((30.5, -8.0), (2.5, 28.0)),
-        ((5.0, 5.0), (5.0, 5.0)),
-        ((18.25, 29.75), (45.5, 2.25)),
-    )
-    expected = np.full((32, 40), -1, dtype=np.int8)
-    for start, end in lines:
-        x, y = _legacy_line_pixels(start, end, width=40, height=32, width_px=7)
-        expected[y, x] = 3
-    actual = np.full_like(expected, -1)
-
-    _paint_lines(actual, lines, 40, 32, 7, 3)
-
-    np.testing.assert_array_equal(actual, expected)
+    assert terminal == ()
 
 
 def test_pickup_waypoint_projection_batches_anchors_and_ring_geometry() -> None:
@@ -339,7 +336,7 @@ def test_pickup_waypoint_projection_batches_anchors_and_ring_geometry() -> None:
     assert [projection.distance_m for projection in projections] == [10.0, 20.0, 30.0]
 
 
-def test_imgui_ui_loop_composites_waypoints_and_draws_bev_in_a_window() -> None:
+def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5)
     bev = torch.full((1, 3, 32, 32), 0.5)
@@ -389,18 +386,18 @@ def test_imgui_ui_loop_composites_waypoints_and_draws_bev_in_a_window() -> None:
     assert pixels.shape == (32, 32, 3)
     assert np.all(pixels == 191)
     assert image_size == (32.0, 32.0)
-    assert result.output[0, 0, 48, 80] != -0.5
-    assert torch.any(result.output != video)
+    assert renderer.ui.background_draw_list.commands
+    assert torch.all(result.output == video)
 
-    cached_waypoints = hud_state._waypoint_layer
+    cached_waypoints = hud_state._waypoint_projections
     cached_bev = hud_state._bev_pixels
     loop.step(1, UserInputEvents([]))
-    assert hud_state._waypoint_layer is cached_waypoints
+    assert hud_state._waypoint_projections is cached_waypoints
     assert hud_state._bev_pixels is cached_bev
 
     loop.reset()
     assert hud_state._current is None
-    assert hud_state._waypoint_layer is None
+    assert hud_state._waypoint_projections == ()
     assert hud_state._bev_pixels is None
     assert renderer.reset_count == 1
 

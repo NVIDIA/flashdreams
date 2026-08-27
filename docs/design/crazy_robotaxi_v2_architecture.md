@@ -50,8 +50,8 @@ flowchart TD
 
     subgraph UITHREAD["FlashDreams V2 UI thread"]
         BUFFER["PresentationManager<br/>RGB + optional raw BEV frames"]
-        HUD["CrazyRobotaxiImGuiUILoop<br/>waypoint + BEV pixel caches"]
-        COMPOSE["RGB → in-world waypoint composition<br/>then Dear ImGui HUD + BEV window"]
+        HUD["CrazyRobotaxiImGuiUILoop<br/>waypoint projection + BEV pixel caches"]
+        COMPOSE["one Dear ImGui overlay<br/>background waypoints + HUD + BEV window"]
         WINDOW["V2 client window<br/>native / WebRTC / MP4"]
     end
 
@@ -80,13 +80,13 @@ loop emits generated RGB frames and, when configured, the synchronized raw BEV
 frame. For each generated frame it publishes an immutable
 `TaxiHudFrame` containing its game snapshot and camera pose to the UI loop with
 `invoke_async`. The UI loop selects the metadata aligned with the currently
-presented model frame, rasterizes and caches that frame's in-world waypoint
-geometry, and uses V2's `PresentationManager` to compose only those in-world
-waypoints over the generated frame. This avoids constructing an entire chunk
-of full-size waypoint tensors at the model-step boundary. It draws the HUD and
-raw BEV in immediate Dear ImGui windows; `ImGuiUILoop` composites that UI layer
-over the world frame. UI callbacks send validated game actions back to the
-model loop with `invoke_async`; they never call game state directly.
+presented model frame and caches that frame's projected in-world waypoint
+geometry. It submits rings, beacons, anchors, and labels to ImGui's background
+draw list, beneath the HUD windows, without constructing a full-size waypoint
+tensor. It draws the HUD and raw BEV in immediate Dear ImGui windows;
+`ImGuiUILoop` composites that one UI layer over the world frame. UI callbacks
+send validated game actions back to the model loop with `invoke_async`; they
+never call game state directly.
 
 ## Pre-presentation startup
 
@@ -183,16 +183,15 @@ invoke_async(ui_loop, publish_hud_frames(game_snapshots, poses, video))
 return [video StepResult, optional raw_bev StepResult]
 ```
 
-The UI loop uses V2's `ImGuiUILoop` and `presented_model_frames()`; its
-`step_ui()` method renders a waypoint layer only when the presented frame
-changes and composites that in-world layer with
-`PresentationManager.composite()`. It converts the small raw BEV frame to
-cached RGB bytes only when the presented BEV changes and displays it through
-the runtime-provided ImGui image bridge. The base loop composites the complete
-Dear ImGui overlay over that world back buffer. There is no full-frame BEV
-layer, retained SlangPy widget tree, intermediate app renderer, local adapter,
-model session, chunk request, private command queue, private frame queue, or
-legacy `PresentedFrame` aggregate.
+The UI loop uses V2's `ImGuiUILoop` and `presented_model_frames()`. It projects
+waypoint geometry only when the presented frame changes and submits the cached
+primitives to ImGui's background draw list each UI tick. It converts the small
+raw BEV frame to cached RGB bytes only when the presented BEV changes and
+displays it through the runtime-provided ImGui image bridge. The base loop
+composites the complete Dear ImGui overlay over the video back buffer. There is
+no full-frame waypoint or BEV layer, retained SlangPy widget tree, intermediate
+app renderer, local adapter, model session, chunk request, private command
+queue, private frame queue, or legacy `PresentedFrame` aggregate.
 
 ## Game-engine internals
 
@@ -257,7 +256,7 @@ flowchart LR
     SCORES["HighScoreStore"]
     FRAME["TaxiGameFrame"]
     HUDSTATE["TaxiHudFrame<br/>immutable presentation state"]
-    WAYPOINTS["camera-projected waypoint layer<br/>ring + beacon + label"]
+    WAYPOINTS["ImGui background draw list<br/>ring + beacon + anchor + label"]
     IMGUI["CrazyRobotaxiImGuiUILoop<br/>score, time, navigation, BEV,<br/>name entry, leaderboard"]
 
     MAP --> NAV --> FARES
@@ -282,7 +281,7 @@ subclass a game-engine application host or presenter.
 | Application | resolved pipeline configuration; one loaded OmniDreams pipeline |
 | Session, immutable | validated session description; compiled/loaded scene definition; game configuration |
 | Model loop, per reset generation | driving-input reducer; simulation/PhysX/traffic; game rules; condition renderer; OmniDreams cache; last generated frame; AR index |
-| UI loop, per reset generation | immediate ImGui state; immutable HUD-frame lookup; BEV pixel cache; name-entry buffer; validation messages |
+| UI loop, per reset generation | immediate ImGui state; immutable HUD-frame lookup; waypoint projection and BEV pixel caches; name-entry buffer; validation messages |
 | Outside runtime | authored map YAML; derived map cache; high-score file |
 
 All simulation, condition-renderer, and world-model CUDA calls that mutate
@@ -309,7 +308,7 @@ stateDiagram-v2
 
 While awaiting a name, no new world-model block is generated. The model loop
 re-emits the last generated RGB frame and publishes an updated immutable HUD
-frame; the UI loop replaces its cached waypoint layer from that metadata.
+frame; the UI loop replaces its cached waypoint projections from that metadata.
 ImGui owns the editable name buffer and submits a validated name to the model
 loop with `invoke_async`. The model
 loop reports `is_finished()` only after a leaderboard frame has been emitted
@@ -358,7 +357,7 @@ apps/crazy_robotaxi/
     application.py            # IApplication composition root
     session.py                # ISession + model/UI loop wiring
     ui.py                     # Dear ImGui HUD state and UI loop
-    world_overlay.py          # UI-thread in-world waypoint rasterization
+    world_overlay.py          # ImGui world-marker projection and draw geometry
     rules.py                  # taxi fare state machine
     dynamics.py               # arcade taxi controls
     physics.py                # taxi collision policy

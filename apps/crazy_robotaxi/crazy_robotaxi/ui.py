@@ -32,8 +32,13 @@ from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
 from crazy_robotaxi.high_scores import validate_player_name
-from crazy_robotaxi.rules import TaxiGameSnapshot
-from crazy_robotaxi.world_overlay import render_waypoint_layers
+from crazy_robotaxi.rules import TaxiCameraMarkerProjection, TaxiGameSnapshot
+from crazy_robotaxi.world_overlay import (
+    draw_waypoints as draw_waypoint_markers,
+)
+from crazy_robotaxi.world_overlay import (
+    project_waypoints,
+)
 from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.user_input_event import (
@@ -107,10 +112,10 @@ class TaxiHudState:
     """Snapshot aligned with the frame currently beneath ImGui."""
 
     _waypoint_source: TaxiHudFrame | None = None
-    """Frame metadata used by the cached waypoint layer."""
+    """Frame metadata used by the cached waypoint projections."""
 
-    _waypoint_layer: Tensor | None = None
-    """Cached world overlay for the currently presented generated frame."""
+    _waypoint_projections: tuple[TaxiCameraMarkerProjection, ...] = ()
+    """Cached world-marker projections for the presented generated frame."""
 
     _name_input: str = ""
     """Immediate-mode name-entry buffer retained by the UI state."""
@@ -219,36 +224,27 @@ class TaxiHudState:
         """Update the startup phase from a model-loop message."""
         self._loading_status = status
 
-    def waypoint_layer(self, frame: Tensor) -> Tensor | None:
-        """Return the cached marker layer aligned with ``frame``.
-
-        Rasterizing one presented frame on the UI thread avoids constructing a
-        full chunk of large RGBA tensors at the model-step boundary. The V2
-        presentation manager may show the same generated frame for multiple UI
-        ticks, so the completed layer is retained until frame metadata changes.
-        """
+    def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
+        """Draw cached world-marker projections aligned with ``frame``."""
         source = self._frames.get(int(frame.data_ptr()))
         if source is None:
-            return None
-        cached = self._waypoint_layer
-        if (
-            source is self._waypoint_source
-            and cached is not None
-            and cached.device == frame.device
-        ):
-            return cached
-        layer = render_waypoint_layers(
-            (source.snapshot,),
-            source.rig_pose_world[None, ...],
-            self.calibration,
+            return
+        if source is not self._waypoint_source:
+            self._waypoint_projections = project_waypoints(
+                source.snapshot,
+                source.rig_pose_world,
+                self.calibration,
+                width=self.width,
+                height=self.height,
+            )
+            self._waypoint_source = source
+        draw_waypoint_markers(
+            imgui,
+            self._waypoint_projections,
+            phase=source.snapshot.phase,
             width=self.width,
             height=self.height,
-            device=frame.device,
-            dtype=torch.float32,
-        )[0]
-        self._waypoint_source = source
-        self._waypoint_layer = layer
-        return layer
+        )
 
     def draw(
         self,
@@ -308,7 +304,7 @@ class TaxiHudState:
         self._frames.clear()
         self._current = None
         self._waypoint_source = None
-        self._waypoint_layer = None
+        self._waypoint_projections = ()
         self._validation_message = ""
         self._submission_pending = False
         self._loading_status = "LOADING WORLD MODEL"
@@ -510,14 +506,11 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         bev_frame = frames[1] if len(frames) > 1 else None
         if video is not None:
             self.state.select_presented_frame(video)
+            self.state.draw_waypoints(imgui, video)
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
-        world = video.to(torch.float32)
-        waypoints = self.state.waypoint_layer(video)
-        if waypoints is not None:
-            world = self._presentation_manager.composite(world, waypoints)
-        return world
+        return video.to(torch.float32)
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
