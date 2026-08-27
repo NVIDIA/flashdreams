@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import time
+from bisect import bisect_right
+from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,9 +17,11 @@ from loguru import logger
 
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
+from flashdreams.runtime.keyboard import DEFAULT_SUPPORTED_KEYS, normalize_key
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     KeyboardInputState,
@@ -27,7 +31,73 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 from .controls import CameraPoseIntegrator, KeyboardResampler
 from .defaults import Cam2VConditioning
-from .ui import Cam2VSlangPyUILoop, Cam2VUIState, Cam2VUIStatus
+from .ui import (
+    RECENT_MODEL_FPS_WINDOW_SECONDS,
+    Cam2VHUDLoop,
+    Cam2VModelStepTiming,
+    Cam2VUIState,
+    Cam2VUIStatus,
+)
+
+
+class _RecentModelFrameRate:
+    """Aggregate recent completed model-step throughput."""
+
+    def __init__(self, window_seconds: float = RECENT_MODEL_FPS_WINDOW_SECONDS) -> None:
+        if window_seconds <= 0.0:
+            raise ValueError("window_seconds must be > 0.")
+        self._window_seconds = float(window_seconds)
+        self._steps: deque[Cam2VModelStepTiming] = deque()
+
+    def observe(
+        self,
+        *,
+        completed_at: float,
+        frame_count: int,
+        wall_s: float,
+    ) -> float:
+        """Record one completed model step and return recent throughput."""
+        if frame_count <= 0:
+            raise ValueError(f"frame_count must be > 0, got {frame_count}.")
+        if wall_s <= 0.0:
+            raise ValueError(f"wall_s must be > 0, got {wall_s}.")
+
+        completed_at = float(completed_at)
+        if self._steps and completed_at < self._steps[-1].completed_at:
+            raise ValueError("completed_at must not precede the latest model step.")
+        self._steps.append(
+            Cam2VModelStepTiming(
+                completed_at=completed_at,
+                frame_count=frame_count,
+                wall_s=float(wall_s),
+            )
+        )
+
+        cutoff = completed_at - self._window_seconds
+        while self._steps and self._steps[0].completed_at <= cutoff:
+            self._steps.popleft()
+
+        elapsed_s = sum(step.wall_s for step in self._steps)
+        return sum(step.frame_count for step in self._steps) / elapsed_s
+
+    def reset(self) -> None:
+        """Discard observations from the previous rollout."""
+        self._steps.clear()
+
+    def snapshot(self) -> tuple[Cam2VModelStepTiming, ...]:
+        """Return immutable recent model timings for the UI thread."""
+        return tuple(self._steps)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingInputEventTrace:
+    """Browser event awaiting its first affected model frame."""
+
+    event_timestamp_s: float | None
+    """Camera-clock edge time, or ``None`` to acknowledge on the next frame."""
+
+    event_id: str
+    """Browser-generated correlation ID."""
 
 
 @dataclass(kw_only=True, slots=True)
@@ -63,11 +133,11 @@ class Cam2VSessionConfig:
     first_frame_interpolation: ResizeInterpolation
     """Resize interpolation required by the model's image preprocessor."""
 
-    log_every_blocks: int
-    """Interval between live timing records after warmup."""
-
     warmup_blocks: int
     """Leading blocks excluded from steady-state FPS."""
+
+    log_model_timing: bool = False
+    """Write one synchronized wall-time record for each AR model step."""
 
     install_hint: str = ""
     """Optional first-frame loader hint for missing integration dependencies."""
@@ -75,10 +145,10 @@ class Cam2VSessionConfig:
     def __post_init__(self) -> None:
         if self.total_blocks <= 0:
             raise ValueError("Cam2VSessionConfig.total_blocks must be > 0.")
-        if self.log_every_blocks <= 0:
-            raise ValueError("Cam2VSessionConfig.log_every_blocks must be > 0.")
         if self.warmup_blocks < 0:
             raise ValueError("Cam2VSessionConfig.warmup_blocks must be >= 0.")
+        if not isinstance(self.log_model_timing, bool):
+            raise TypeError("Cam2VSessionConfig.log_model_timing must be bool.")
 
 
 @dataclass(slots=True)
@@ -96,6 +166,11 @@ class Cam2VModelState:
 
     keyboard_resampler: KeyboardResampler
     """Timestamped camera-control state sampled on the model frame clock."""
+
+    _pending_input_event_traces: deque[_PendingInputEventTrace] = field(
+        default_factory=deque
+    )
+    """Browser-tagged control edges awaiting their first affected frame."""
 
     cache: Any | None = None
     """Session-local autoregressive model cache."""
@@ -115,7 +190,12 @@ class Cam2VModelState:
     steady_frames_generated: int = 0
     """Frames generated since :attr:`steady_started_at`."""
 
-    ui_loop: Cam2VSlangPyUILoop | None = None
+    _recent_model_frame_rate: _RecentModelFrameRate = field(
+        default_factory=_RecentModelFrameRate
+    )
+    """Trailing post-warmup AR-step throughput shown by the HUD."""
+
+    ui_loop: Cam2VHUDLoop | None = None
     """Registered UI-loop handle used only through ``invoke_async``."""
 
 
@@ -151,7 +231,12 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             raise ValueError(
                 "Cam2V pipelines must generate at least one frame per step."
             )
-        event_times = _buffer_keyboard_events(state.keyboard_resampler, events)
+        event_times = _buffer_keyboard_events(
+            state.keyboard_resampler,
+            events,
+            pending_input_event_traces=state._pending_input_event_traces,
+            trace_supported_keys=state.ui_loop is None,
+        )
         _catch_up_keyboard_timeline(
             state.keyboard_resampler,
             frame_count=frame_count,
@@ -173,17 +258,11 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             ),
             world_scale=conditioning.world_scale,
         )
-        input_preparation_s = time.perf_counter() - step_started_at
-
-        generate_started_at = time.perf_counter()
         frames = state.pipeline.generate(
             autoregressive_index=step_index,
             cache=state.cache,
             input=camera_input,
         )
-        generate_call_s = time.perf_counter() - generate_started_at
-
-        finalize_started_at = time.perf_counter()
         metrics = _numeric_metrics(
             state.pipeline.finalize(
                 autoregressive_index=step_index,
@@ -192,36 +271,43 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         )
         if state.config.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.current_stream(state.config.device).synchronize()
-        finalize_and_sync_s = time.perf_counter() - finalize_started_at
-        model_step_wall_s = time.perf_counter() - step_started_at
+        step_completed_at = time.perf_counter()
+        model_step_wall_s = step_completed_at - step_started_at
 
         state.blocks_generated += 1
         state.frames_generated += frame_count
         metrics.update(
             {
-                "input_prepare_s": input_preparation_s,
-                "generate_call_s": generate_call_s,
-                "finalize_and_sync_s": finalize_and_sync_s,
                 "model_step_wall_s": model_step_wall_s,
                 "chunk_fps": frame_count / model_step_wall_s,
             }
         )
         if state.steady_started_at is not None:
             state.steady_frames_generated += frame_count
-            steady_elapsed_s = time.perf_counter() - state.steady_started_at
+            steady_elapsed_s = step_completed_at - state.steady_started_at
             metrics["steady_state_fps"] = (
                 state.steady_frames_generated / steady_elapsed_s
             )
-        if (
-            state.steady_started_at is not None
-            and state.blocks_generated % state.config.log_every_blocks == 0
-        ):
-            _log_step_timing(
-                step_index=step_index,
+            metrics["recent_model_fps"] = state._recent_model_frame_rate.observe(
+                completed_at=step_completed_at,
                 frame_count=frame_count,
-                metrics=metrics,
+                wall_s=model_step_wall_s,
+            )
+        if state.config.log_model_timing:
+            phase = "warmup" if step_index < state.config.warmup_blocks else "steady"
+            logger.info(
+                "Cam2V AR {} [{}] | {} frames | step wall {:.1f} ms | {:.2f} fps",
+                step_index,
+                phase,
+                frame_count,
+                model_step_wall_s * 1_000.0,
+                metrics["chunk_fps"],
             )
         _publish_ui_status(state, metrics)
+        input_event_traces = _resolve_input_event_traces(
+            state._pending_input_event_traces,
+            frame_times=frame_times,
+        )
         return [
             StepResult(
                 step_index=step_index,
@@ -229,6 +315,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 frame_count=frame_count,
                 output_layout=state.session_desc.output_layout,
                 metrics=metrics,
+                input_event_traces=input_event_traces,
             )
         ]
 
@@ -243,9 +330,11 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.blocks_generated = 0
         state.frames_generated = 0
         state.keyboard_resampler.reset(start_v=0.0)
+        state._pending_input_event_traces.clear()
         state.pose_integrator.reset()
         state.steady_started_at = None
         state.steady_frames_generated = 0
+        state._recent_model_frame_rate.reset()
 
     def close(self) -> None:
         """Release session-owned tensors while retaining the application model."""
@@ -286,7 +375,7 @@ class Cam2VSession(ISession):
         ui_loop = None
         if self._use_ui:
             registered_ui = self.register_ui_loop(
-                Cam2VSlangPyUILoop,
+                Cam2VHUDLoop,
                 state=Cam2VUIState(
                     total_blocks=self._config.total_blocks,
                     target_fps=self._session_desc.frames_per_second_for_step,
@@ -294,8 +383,9 @@ class Cam2VSession(ISession):
                 ),
                 width=self._session_desc.video_width,
                 height=self._session_desc.video_height,
+                device=self._config.device,
             )
-            assert isinstance(registered_ui, Cam2VSlangPyUILoop)
+            assert isinstance(registered_ui, Cam2VHUDLoop)
             ui_loop = registered_ui
         self.register_model_loop(
             Cam2VModelLoop,
@@ -314,6 +404,9 @@ class Cam2VSession(ISession):
 def _buffer_keyboard_events(
     keyboard_resampler: KeyboardResampler,
     events: UserInputEvents,
+    *,
+    pending_input_event_traces: deque[_PendingInputEventTrace],
+    trace_supported_keys: bool,
 ) -> list[float]:
     """Queue timestamped WebRTC keyboard and focus edges for resampling."""
     event_times: list[float] = []
@@ -323,8 +416,22 @@ def _buffer_keyboard_events(
             if not event.focused:
                 keyboard_resampler.release_all(arrival_t=event_t)
                 event_times.append(event_t)
+                _queue_input_event_trace(
+                    pending_input_event_traces,
+                    event=event,
+                    event_timestamp_s=event_t,
+                )
             continue
         if not isinstance(event, KeyboardUserInputEvent):
+            continue
+        supported = normalize_key(event.key) in DEFAULT_SUPPORTED_KEYS
+        if trace_supported_keys or not supported:
+            _queue_input_event_trace(
+                pending_input_event_traces,
+                event=event,
+                event_timestamp_s=event_t if supported else None,
+            )
+        if not supported:
             continue
         keyboard_resampler.on_edge(
             arrival_t=event_t,
@@ -333,6 +440,52 @@ def _buffer_keyboard_events(
         )
         event_times.append(event_t)
     return event_times
+
+
+def _queue_input_event_trace(
+    pending: deque[_PendingInputEventTrace],
+    *,
+    event: UserInputEvent,
+    event_timestamp_s: float | None,
+) -> None:
+    """Queue an event carrying a browser correlation ID."""
+    event_id = event.event_id
+    if event_id is None:
+        return
+    pending.append(
+        _PendingInputEventTrace(
+            event_timestamp_s=event_timestamp_s,
+            event_id=event_id,
+        )
+    )
+
+
+def _resolve_input_event_traces(
+    pending: deque[_PendingInputEventTrace],
+    *,
+    frame_times: list[float],
+) -> tuple[InputEventTrace, ...]:
+    """Resolve events to the first generated frame strictly after each edge."""
+    resolved: list[InputEventTrace] = []
+    carried: deque[_PendingInputEventTrace] = deque()
+    while pending:
+        event = pending.popleft()
+        frame_index = (
+            0
+            if event.event_timestamp_s is None
+            else bisect_right(frame_times, event.event_timestamp_s)
+        )
+        if frame_index == len(frame_times):
+            carried.append(event)
+            continue
+        resolved.append(
+            InputEventTrace(
+                event_id=event.event_id,
+                frame_index=frame_index,
+            )
+        )
+    pending.extend(carried)
+    return tuple(resolved)
 
 
 def _catch_up_keyboard_timeline(
@@ -371,13 +524,15 @@ def _publish_ui_status(
     ui_loop = state.ui_loop
     if ui_loop is None:
         return
-    steady_state_fps = metrics.get("steady_state_fps")
+    recent_model_fps = metrics.get("recent_model_fps")
     status = Cam2VUIStatus(
         completed_blocks=state.blocks_generated,
         frames_generated=state.frames_generated,
         chunk_fps=float(metrics["chunk_fps"]),
-        steady_state_fps=(
-            None if steady_state_fps is None else float(steady_state_fps)
+        recent_model_steps=(
+            None
+            if recent_model_fps is None
+            else state._recent_model_frame_rate.snapshot()
         ),
         model_step_wall_s=float(metrics["model_step_wall_s"]),
     )
@@ -396,28 +551,6 @@ def _numeric_metrics(stats: object) -> dict[str, float | int]:
         for name, value in stats.items()
         if isinstance(value, int | float) and not isinstance(value, bool)
     }
-
-
-def _log_step_timing(
-    *,
-    step_index: int,
-    frame_count: int,
-    metrics: Mapping[str, float | int],
-) -> None:
-    """Log one chunk's wall-time breakdown and steady-state throughput."""
-    logger.info(
-        "Cam2V block={} frames={} steady_state_fps={:.2f} chunk_fps={:.2f} "
-        "wall={:.3f}s input={:.3f}s generate_call={:.3f}s "
-        "finalize_and_sync={:.3f}s",
-        step_index,
-        frame_count,
-        metrics["steady_state_fps"],
-        metrics["chunk_fps"],
-        metrics["model_step_wall_s"],
-        metrics["input_prepare_s"],
-        metrics["generate_call_s"],
-        metrics["finalize_and_sync_s"],
-    )
 
 
 __all__ = [

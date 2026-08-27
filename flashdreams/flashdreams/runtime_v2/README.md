@@ -78,7 +78,7 @@ These override whatever session the application asked for:
 | `--fps` | `frames_per_second_for_step`, which is also the rate an MP4 plays back at. |
 | `--layout` | Tensor layout to generate results in. |
 | `--backpressure-mode` | What the model thread does when the presentation queue is full. |
-| `--presentation-mode` | Whether the UI presents eagerly or only for new model frames. |
+| `--presentation-mode` | Whether the UI runs continuously or on demand for new frames and requested input refreshes. |
 
 Each defaults to asking for nothing, so a run that names none of them gets what
 the application generates. There is no argument for the UI tick rate, and none
@@ -90,6 +90,10 @@ results as they are published, not the UI loop's output, so a benchmark measures
 what the model generated while the window still sees one composited frame per
 tick. See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
 and the [benchmark README](../../tools/benchmarks/README.md) for the suite.
+The runtime augments those model records with step wall time and
+presentation-queue depth/publish-wait measurements under the reserved
+`runtime_` metric prefix. UI and window timings are not folded into a later
+model record because they describe a different frame.
 
 ## Starting and stopping a run
 
@@ -113,7 +117,7 @@ rest.
 
 ## `EventBuffer`
 
-Input arrives once per tick on the main thread and is appended here. The buffer
+Input arrives once per tick on the UI thread and is appended here. The buffer
 keeps a flat list plus a cursor per registered reader: `read` returns everything
 that reader has not seen and moves its cursor to the end, and
 `collect_garbage` deletes the prefix every reader has passed. The UI loop is
@@ -131,9 +135,14 @@ neither thread waits on the other to notice.
 ## `PresentationManager`
 
 The model thread publishes a list of channels per step into a bounded queue
-(`max_pending`, two by default). The main thread calls `advance` once per tick,
+(`max_pending`, two by default). The UI thread calls `advance` once per tick,
 which walks the frames within the chunk it is already showing before taking
 another off the queue.
+
+Frame cadence initially uses `frames_per_second_for_step`, then follows model
+frame completions observed over the trailing two seconds. A late UI tick
+reanchors the next deadline; it never drains multiple model frames into
+back-to-back writes in one tick.
 
 `SessionDesc.backpressure_mode` decides what publishing does when the queue is
 full:
@@ -147,16 +156,21 @@ full:
 `SessionDesc.presentation_mode` decides what the UI does when no new frame is
 ready:
 
-- `ONLY_PRESENT_NEWEST` runs the UI loop every tick, re-presenting the newest
+- `CONTINUOUS` runs the UI loop every tick, re-presenting the newest
   model frame.
-- `ONLY_PRESENT_NEW` runs the UI loop only on a tick where `advance` actually
-  moved to a new frame.
+- `ON_DEMAND` runs the UI loop when `advance` moves to a new frame, or when the
+  UI requests an input-driven refresh through `should_redraw_for_input`. The
+  default hook requests a refresh for every non-empty input batch; UI loops may
+  override it to filter events. Time-driven status UIs may request an idle tick
+  through `should_redraw_on_idle()` without enabling continuous output.
 
 For output that has to be compared frame by frame, use `BLOCK` with
-`ONLY_PRESENT_NEW`: together they keep every frame and present each exactly once,
-in order. Steps that could not be kept are counted in `dropped_for_space` and
-`discarded_at_reset`, and logged when the run ends. Both count model steps rather
-than frames, so one step of twelve frames counts once.
+`ON_DEMAND`: together they keep every frame in the presentation manager
+and present each in order. When no input refresh is requested, each is written
+exactly once; an input refresh may intentionally re-present the current model
+frame. Steps that could not be kept are counted in `dropped_for_space` and
+`discarded_at_reset`, and logged when the run ends. Both count model steps
+rather than frames, so one step of twelve frames counts once.
 
 ## Presenting and writing
 

@@ -5,6 +5,9 @@
 
 import logging
 import threading
+import time
+from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 import torch
@@ -24,11 +27,12 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
-from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.step_result import InputEventTrace, StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
+    MouseUserInputEvent,
     ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -49,11 +53,15 @@ def test_session_modes_are_independent() -> None:
         BackpressureMode.DROP_OLDEST,
     ]
     assert list(PresentationMode) == [
-        PresentationMode.ONLY_PRESENT_NEW,
-        PresentationMode.ONLY_PRESENT_NEWEST,
+        PresentationMode.ON_DEMAND,
+        PresentationMode.CONTINUOUS,
     ]
+    assert [mode.value for mode in PresentationMode] == ["on_demand", "continuous"]
+    for legacy_value in ("only_present_new", "only_present_newest"):
+        with pytest.raises(ValueError):
+            PresentationMode(legacy_value)
     assert SessionDesc().backpressure_mode is BackpressureMode.BLOCK
-    assert SessionDesc().presentation_mode is PresentationMode.ONLY_PRESENT_NEWEST
+    assert SessionDesc().presentation_mode is PresentationMode.CONTINUOUS
 
 
 def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
@@ -68,6 +76,49 @@ def test_presentation_clock_paces_frames_and_reanchors_after_a_stall() -> None:
     assert not clock.is_due(now=2.24, generation=0)
     assert clock.is_due(now=2.25, generation=0)
     assert clock.is_due(now=2.0, generation=1)
+
+
+@pytest.mark.parametrize("event_id", ["", 7, None])
+def test_input_event_trace_rejects_invalid_event_ids(event_id: object) -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        InputEventTrace(event_id=cast(Any, event_id), frame_index=0)
+
+
+@pytest.mark.parametrize("frame_index", [-1, True, 1.5])
+def test_input_event_trace_rejects_invalid_frame_indices(frame_index: object) -> None:
+    error = TypeError if isinstance(frame_index, bool | float) else ValueError
+    with pytest.raises(error):
+        InputEventTrace(event_id="page:1", frame_index=cast(Any, frame_index))
+
+
+def test_step_result_rejects_invalid_or_duplicate_input_acknowledgements() -> None:
+    with pytest.raises(TypeError, match="must contain InputEventTrace"):
+        StepResult(
+            step_index=0,
+            output=torch.zeros((1, 3, 1, 1)),
+            frame_count=1,
+            output_layout=VideoTensorLayout.tchw,
+            input_event_traces=cast(Any, (object(),)),
+        )
+    with pytest.raises(ValueError, match="less than frame_count"):
+        StepResult(
+            step_index=0,
+            output=torch.zeros((1, 3, 1, 1)),
+            frame_count=1,
+            output_layout=VideoTensorLayout.tchw,
+            input_event_traces=(InputEventTrace(event_id="page:1", frame_index=1),),
+        )
+    with pytest.raises(ValueError, match="one event ID twice"):
+        StepResult(
+            step_index=0,
+            output=torch.zeros((1, 3, 1, 1)),
+            frame_count=1,
+            output_layout=VideoTensorLayout.tchw,
+            input_event_traces=(
+                InputEventTrace(event_id="page:1", frame_index=0),
+                InputEventTrace(event_id="page:1", frame_index=0),
+            ),
+        )
 
 
 def test_presentation_clock_uses_recent_model_fps() -> None:
@@ -358,6 +409,7 @@ class RecordingClientWindow(IClientWindow):
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
+        self.discarded_input_event_ids: list[str] = []
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -378,16 +430,35 @@ class RecordingClientWindow(IClientWindow):
         self._log.record(f"window.write({result.step_index})")
         self.results.append(result)
 
+    def discard_input_event_ids(self, event_ids: tuple[str, ...]) -> None:
+        self.discarded_input_event_ids.extend(event_ids)
+
     def close(self) -> None:
         self._log.record("window.close")
         if self._fail_to_close:
             raise RuntimeError("close failed")
 
 
+class RecordingMetricsSink:
+    """Retain model records passed to the optional metrics output."""
+
+    def __init__(self) -> None:
+        self.results: list[StepResult] = []
+
+    def open(self, session_desc: SessionDesc) -> None:
+        del session_desc
+
+    def write(self, result: StepResult) -> None:
+        self.results.append(result)
+
+    def close(self) -> None:
+        return
+
+
 def _session_desc(
     *,
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK,
-    presentation_mode: PresentationMode = PresentationMode.ONLY_PRESENT_NEW,
+    presentation_mode: PresentationMode = PresentationMode.ON_DEMAND,
     ui_fps: int = 100,
     model_fps: int = 1,
 ) -> SessionDesc:
@@ -487,7 +558,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
 
     session = SlowModelSession(
         _session_desc(
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
+            presentation_mode=PresentationMode.CONTINUOUS,
             ui_fps=100,
             model_fps=1,
         ),
@@ -502,6 +573,41 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
 
     assert input_processed.is_set()
     assert "ui_loop.step" in log.calls
+
+
+def test_on_demand_processes_input_while_model_generation_waits() -> None:
+    """Refresh the default UI loop for input without waiting for a model frame."""
+    log = CallLog()
+    input_processed = threading.Event()
+
+    class SlowModelSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            assert input_processed.wait(timeout=1.0)
+            return super().step(step_index, events)
+
+        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            if events.get_events():
+                input_processed.set()
+            return super().run_ui(step_index, events)
+
+    session = SlowModelSession(
+        _session_desc(
+            presentation_mode=PresentationMode.ON_DEMAND,
+            ui_fps=100,
+            model_fps=1,
+        ),
+        log,
+    )
+    window = RecordingClientWindow(
+        log,
+        [UserInputEvents([]), _key_event()],
+    )
+
+    run_session(session, window, steps=1)
+
+    assert input_processed.is_set()
+    assert log.calls.index("ui_loop.step") < log.calls.index("session.step(0)")
+    assert [result.step_index for result in window.results] == [1]
 
 
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
@@ -573,6 +679,66 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert ui.step(2, UserInputEvents([])) is None
 
 
+def test_presentation_manager_rebases_only_the_current_frame_traces() -> None:
+    manager = PresentationManager()
+    traces = tuple(
+        InputEventTrace(
+            event_id=f"page:{frame_index}",
+            frame_index=frame_index,
+        )
+        for frame_index in range(2)
+    )
+    manager.publish(
+        0,
+        [
+            StepResult(
+                step_index=0,
+                output=torch.zeros((2, 3, 1, 1)),
+                frame_count=2,
+                output_layout=VideoTensorLayout.tchw,
+                input_event_traces=traces,
+            )
+        ],
+    )
+
+    assert manager.advance(0)[0]
+    assert [trace.event_id for trace in manager.presented_input_event_traces()] == [
+        "page:0"
+    ]
+    assert manager.presented_input_event_traces()[0].frame_index == 0
+    assert manager.advance(0)[0]
+    assert [trace.event_id for trace in manager.presented_input_event_traces()] == [
+        "page:1"
+    ]
+    assert manager.presented_input_event_traces()[0].frame_index == 0
+
+    assert not manager.advance(1)[0]
+    assert manager.presented_input_event_traces() == ()
+
+
+def test_presentation_manager_rejects_disagreeing_channel_traces() -> None:
+    manager = PresentationManager()
+    trace = InputEventTrace(
+        event_id="page:1",
+        frame_index=1,
+    )
+    valid = StepResult(
+        step_index=0,
+        output=torch.zeros((2, 3, 1, 1)),
+        frame_count=2,
+        output_layout=VideoTensorLayout.tchw,
+        input_event_traces=(trace,),
+    )
+    without_trace = StepResult(
+        step_index=0,
+        output=torch.zeros((2, 3, 1, 1)),
+        frame_count=2,
+        output_layout=VideoTensorLayout.tchw,
+    )
+    with pytest.raises(ValueError, match="same input_event_traces"):
+        manager.publish(0, [valid, without_trace])
+
+
 def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     log = CallLog()
 
@@ -587,19 +753,6 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
                 output_layout=self.session_desc.output_layout,
                 metrics={"total_ms": 1.5},
             )
-
-    class RecordingMetricsSink:
-        def __init__(self) -> None:
-            self.results: list[StepResult] = []
-
-        def open(self, session_desc: SessionDesc) -> None:
-            del session_desc
-
-        def write(self, result: StepResult) -> None:
-            self.results.append(result)
-
-        def close(self) -> None:
-            return
 
     window = RecordingClientWindow(log)
     metrics = RecordingMetricsSink()
@@ -616,7 +769,153 @@ def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     )
     assert [result.metrics for result in window.results] == [{"ui_ms": 0.25}] * 12
     assert len(metrics.results) == 1
-    assert metrics.results[0].metrics == {"total_ms": 1.5}
+    recorded_metrics = metrics.results[0].metrics
+    assert recorded_metrics["total_ms"] == 1.5
+    assert recorded_metrics["runtime_presentation_publish_wait_s"] >= 0.0
+    assert recorded_metrics["runtime_presentation_queue_depth_before_count"] == 0
+    assert recorded_metrics["runtime_presentation_queue_capacity_count"] == 2
+
+
+def test_run_session_preserves_exact_model_frame_input_traces() -> None:
+    """Attach an acknowledgement only when its selected model frame is written."""
+    log = CallLog()
+    trace = InputEventTrace(
+        event_id="page:7",
+        frame_index=1,
+    )
+
+    class TracedMultiFrameSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            self._log.record(f"session.step({step_index})")
+            return StepResult(
+                step_index=step_index,
+                output=torch.arange(6, dtype=torch.float32).reshape(1, 3, 2, 1, 1),
+                frame_count=2,
+                output_layout=self.session_desc.output_layout,
+                input_event_traces=(trace,),
+            )
+
+    window = RecordingClientWindow(log)
+    run_session(TracedMultiFrameSession(_session_desc(), log), window, steps=1)
+
+    assert len(window.results) == 2
+    assert window.results[0].input_event_traces == ()
+    assert window.results[1].input_event_traces == (
+        InputEventTrace(
+            event_id="page:7",
+            frame_index=0,
+        ),
+    )
+
+
+def test_run_session_merges_ui_and_model_input_acknowledgements() -> None:
+    model_trace = InputEventTrace(event_id="page:model", frame_index=0)
+
+    class TraceUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            result = super().step(step_index, events)
+            if result is None:
+                return None
+            return replace(
+                result,
+                input_event_traces=(
+                    InputEventTrace(event_id="page:ui", frame_index=0),
+                    InputEventTrace(event_id="page:model", frame_index=0),
+                ),
+            )
+
+    class MergedTraceSession(FakeSession):
+        def init(self) -> None:
+            self.register_ui_loop(TraceUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            return replace(
+                super().step(step_index, events),
+                input_event_traces=(model_trace,),
+            )
+
+    window = RecordingClientWindow(CallLog())
+    run_session(MergedTraceSession(_session_desc(), CallLog()), window, steps=1)
+
+    assert window.results[0].input_event_traces == (
+        InputEventTrace(event_id="page:ui", frame_index=0),
+        InputEventTrace(event_id="page:model", frame_index=0),
+    )
+
+
+def test_run_session_discards_model_traces_when_ui_emits_no_frame() -> None:
+    trace = InputEventTrace(event_id="page:model", frame_index=0)
+
+    class NoFrameSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            return replace(
+                super().step(step_index, events),
+                input_event_traces=(trace,),
+            )
+
+        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            del step_index, events
+            return None
+
+    window = RecordingClientWindow(CallLog())
+    run_session(NoFrameSession(_session_desc(), CallLog()), window, steps=1)
+
+    assert window.results == []
+    assert window.discarded_input_event_ids == ["page:model"]
+
+
+def test_metrics_capture_presentation_backpressure() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(ui_fps=30, model_fps=10_000), log)
+    metrics = RecordingMetricsSink()
+    run_session(
+        session,
+        RecordingClientWindow(log),
+        metrics_output_sink=metrics,
+        steps=4,
+        max_pending=1,
+    )
+
+    assert len(metrics.results) == 4
+    captured = [result.metrics for result in metrics.results]
+    assert any(
+        item["runtime_presentation_queue_depth_before_count"] == 1 for item in captured
+    )
+    assert any(item["runtime_presentation_publish_wait_s"] >= 0.01 for item in captured)
+    assert all(
+        item["runtime_presentation_queue_capacity_count"] == 1 for item in captured
+    )
+
+    latest_model_results = session.model_loop.latest_result
+    assert isinstance(latest_model_results, list)
+    assert latest_model_results[0].metrics == {}
+
+
+def test_runtime_metric_name_collision_fails_before_publish() -> None:
+    class ReservedMetricSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            result = super().step(step_index, events)
+            return replace(
+                result,
+                metrics={"runtime_future_measurement": 1.0},
+            )
+
+    log = CallLog()
+    window = RecordingClientWindow(log)
+    metrics = RecordingMetricsSink()
+
+    with pytest.raises(ValueError, match="reserved runtime metric names"):
+        run_session(
+            ReservedMetricSession(_session_desc(), log),
+            window,
+            metrics_output_sink=metrics,
+            steps=1,
+        )
+
+    assert window.results == []
+    assert metrics.results == []
 
 
 def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
@@ -629,7 +928,7 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
 
     session = DefaultUISession(
         _session_desc(
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
             ui_fps=100,
             model_fps=30,
         ),
@@ -640,6 +939,54 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
     run_session(session, window, steps=3)
 
     assert [result.step_index for result in window.results] == [0, 1, 2]
+
+
+def test_filtered_input_is_consumed_without_reaching_a_later_ui_step() -> None:
+    log = CallLog()
+
+    class FilteringUILoop(FakeUILoop):
+        def should_redraw_for_input(self, events: UserInputEvents) -> bool:
+            return any(
+                isinstance(event, KeyboardUserInputEvent)
+                for event in events.get_events()
+            )
+
+    class FilteringSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(
+                _session_desc(
+                    presentation_mode=PresentationMode.ON_DEMAND,
+                    ui_fps=100,
+                    model_fps=100,
+                ),
+                log,
+            )
+            self.ui_event_batches: list[UserInputEvents] = []
+
+        def init(self) -> None:
+            self.register_ui_loop(FilteringUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            self.ui_event_batches.append(events)
+            return super().run_ui(step_index, events)
+
+    session = FilteringSession()
+    window = RecordingClientWindow(
+        log,
+        [
+            UserInputEvents([MouseUserInputEvent(timestamp=uint64(0), x=0.5, y=0.5)]),
+            _key_event(),
+        ],
+    )
+
+    run_session(session, window, steps=1)
+
+    assert len(session.ui_event_batches) == 1
+    assert all(
+        isinstance(event, KeyboardUserInputEvent)
+        for event in session.ui_event_batches[0].get_events()
+    )
 
 
 def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
@@ -685,6 +1032,55 @@ def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None
     assert newest is not None
     assert newest[0, 0, 0] == 20
     assert manager.presented_frame_count == 4
+
+
+def test_presentation_manager_reports_traces_discarded_for_space_and_reset() -> None:
+    manager = PresentationManager()
+    manager.configure(
+        max_pending=1,
+        backpressure_mode=BackpressureMode.DROP_OLDEST,
+        stop=threading.Event(),
+        put_timeout=0.01,
+    )
+
+    def traced_result(
+        step_index: int,
+        event_id: str,
+        *,
+        frame_count: int = 1,
+        frame_index: int = 0,
+    ) -> StepResult:
+        return StepResult(
+            step_index=step_index,
+            output=torch.zeros((frame_count, 3, 1, 1)),
+            frame_count=frame_count,
+            output_layout=VideoTensorLayout.tchw,
+            input_event_traces=(
+                InputEventTrace(event_id=event_id, frame_index=frame_index),
+            ),
+        )
+
+    manager.publish(0, [traced_result(0, "page:dropped")])
+    manager.publish(0, [traced_result(1, "page:presented")])
+    assert manager.take_discarded_input_event_ids() == ("page:dropped",)
+    assert manager.take_discarded_input_event_ids() == ()
+
+    assert manager.advance(0)[0]
+    manager.publish(
+        0,
+        [
+            traced_result(
+                2,
+                "page:reset",
+                frame_count=2,
+                frame_index=1,
+            )
+        ],
+    )
+    assert manager.advance(0)[0]
+    assert manager.advance(1)[0] is False
+
+    assert manager.take_discarded_input_event_ids() == ("page:reset",)
     assert manager.dropped_for_space == 1
 
 
@@ -736,8 +1132,10 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     ]
     assert calls == ["session.reset", "session.step(0)", "session.step(1)"]
     assert log.calls.index("session.reset") < log.calls.index("session.step(0)")
-    # A reset restarts the index without granting extra steps.
-    assert [result.step_index for result in window.results] == [0, 1]
+    # A reset restarts both loops without granting extra model steps. The reset
+    # event itself requests UI step 0; this fake has no frame to emit until the
+    # model runs, so the two visible UI results use indices 1 and 2.
+    assert [result.step_index for result in window.results] == [1, 2]
 
 
 def test_run_session_stops_when_the_session_says_it_has_finished() -> None:
@@ -771,8 +1169,9 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
     run_session(session, window, steps=3)
 
     # Finished before the run began, so without the reset nothing would be
-    # generated. It is applied first, and the session runs its length again.
-    assert [result.step_index for result in window.results] == [0]
+    # generated. It is applied first, requests an input refresh with no frame,
+    # and the session then runs its length again.
+    assert [result.step_index for result in window.results] == [1]
     assert "session.reset" in log.calls
 
 
@@ -864,9 +1263,10 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
 
     # The first step was still running when the client asked to start over, so
     # what it produced belongs to a generation nobody is watching any more. Only
-    # the step from after the reset reaches the window.
+    # the step from after the reset reaches the window. The reset event's UI
+    # refresh has no frame to emit, but still consumes UI step index 0.
     assert log.calls.count("session.step(0)") == 2
-    assert [result.step_index for result in window.results] == [0]
+    assert [result.step_index for result in window.results] == [1]
 
 
 def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:
@@ -885,7 +1285,57 @@ def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:
     ]
 
 
-def test_ONLY_PRESENT_NEW_runs_ui_once_per_new_frame() -> None:
+def test_ui_stall_does_not_burst_multiple_frames_per_input_tick() -> None:
+    log = CallLog()
+
+    class FourFrameSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            del events
+            self._log.record(f"session.step({step_index})")
+            return StepResult(
+                step_index=step_index,
+                output=torch.arange(4, dtype=torch.float32).reshape(1, 1, 4, 1, 1),
+                frame_count=4,
+                output_layout=self.session_desc.output_layout,
+            )
+
+    class FirstWriteStalls(RecordingClientWindow):
+        def __init__(self, call_log: CallLog) -> None:
+            super().__init__(call_log)
+            self._first_write = True
+
+        def write(self, result: StepResult) -> None:
+            if self._first_write:
+                self._first_write = False
+                time.sleep(0.05)
+            super().write(result)
+
+    window = FirstWriteStalls(log)
+    run_session(
+        FourFrameSession(_session_desc(ui_fps=100, model_fps=100), log),
+        window,
+        steps=1,
+    )
+
+    assert [result.output[0, 0, 0, 0, 0].item() for result in window.results] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    writes_per_input_tick: list[int] = []
+    writes = 0
+    for call in log.calls:
+        if call == "window.get_user_input_events":
+            writes_per_input_tick.append(writes)
+            writes = 0
+        elif call.startswith("window.write("):
+            writes += 1
+    writes_per_input_tick.append(writes)
+    assert max(writes_per_input_tick) == 1
+
+
+def test_on_demand_runs_ui_once_per_new_frame() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(ui_fps=1_000, model_fps=20), log)
     window = RecordingClientWindow(log)
@@ -899,11 +1349,11 @@ def test_ONLY_PRESENT_NEW_runs_ui_once_per_new_frame() -> None:
     ]
 
 
-def test_only_present_newest_runs_ui_eagerly_when_ui_is_faster() -> None:
+def test_continuous_runs_ui_eagerly_when_ui_is_faster() -> None:
     log = CallLog()
     session = FakeSession(
         _session_desc(
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEWEST,
+            presentation_mode=PresentationMode.CONTINUOUS,
             ui_fps=1_000,
             model_fps=20,
         ),

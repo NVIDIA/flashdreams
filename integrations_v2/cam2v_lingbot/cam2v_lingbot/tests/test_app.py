@@ -41,7 +41,12 @@ def test_application_reuses_lingbot_runner_config() -> None:
     runner = RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
 
     assert isinstance(application, Cam2VApplication)
-    assert application.pipeline_config is runner.pipeline
+    assert application.pipeline_config is not runner.pipeline
+    assert application.pipeline_config.enable_sync_and_profile is False
+    assert application.defaults.log_model_timing is True
+    assert (
+        application.pipeline_config.diffusion_model == runner.pipeline.diffusion_model
+    )
     assert application.defaults.total_blocks == runner.total_blocks
     assert application.session_desc().video_width == runner.pixel_width
     assert application.session_desc().video_height == runner.pixel_height

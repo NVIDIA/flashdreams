@@ -164,7 +164,7 @@ def test_the_model_generates_from_a_prompt() -> None:
         SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
             video_width=pipeline.width,
             video_height=pipeline.height,
         ),
@@ -182,7 +182,7 @@ reads them, and returns what it measured alongside the expectations it missed.
 change between frames, every field optional, since a model that samples can only
 be expected to produce a picture, not a particular one.
 
-Two details in that call are worth copying. `BLOCK` with `ONLY_PRESENT_NEW` is
+Two details in that call are worth copying. `BLOCK` with `ON_DEMAND` is
 what makes the frame count assertable, since every generated frame is then
 presented exactly once. And `steps` is `run_session`'s own limit rather than
 `--total-blocks`, so a run stops at whichever comes first, which is why a

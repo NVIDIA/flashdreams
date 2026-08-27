@@ -6,6 +6,7 @@
 import threading
 
 from flashdreams.runtime_v2.user_input_event import (
+    MouseUserInputEvent,
     ResetUserInputEvent,
     UserInputEvent,
 )
@@ -19,6 +20,11 @@ class EventBuffer:
     and they read at different rates. So this holds a flat list of events plus a
     cursor per registered reader, hands each reader only what it has not seen,
     and drops the prefix they have all passed.
+
+    Consecutive untraced pointer moves are supersedable state: only the latest
+    is retained. A reader that already consumed the replaced move is rewound so
+    it still receives the newest position. Traced moves and every non-move edge
+    remain ordered and lossless.
 
     It also counts resets. Every :class:`ResetUserInputEvent` appended bumps
     :attr:`generation`, which the loops and the presentation manager compare
@@ -45,10 +51,26 @@ class EventBuffer:
             self._reader_indexes.setdefault(reader_id, self._base_index)
 
     def append(self, events: UserInputEvents) -> None:
-        """Add a batch of client input events."""
+        """Add input, compacting only consecutive untraced pointer moves."""
         received = events.get_events()
         with self._lock:
-            self._events.extend(received)
+            for event in received:
+                if (
+                    isinstance(event, MouseUserInputEvent)
+                    and event.action == "move"
+                    and event.event_id is None
+                    and self._events
+                    and isinstance(self._events[-1], MouseUserInputEvent)
+                    and self._events[-1].action == "move"
+                    and self._events[-1].event_id is None
+                ):
+                    replaced_index = self._base_index + len(self._events) - 1
+                    self._events[-1] = event
+                    for reader_id, reader_index in self._reader_indexes.items():
+                        if reader_index > replaced_index:
+                            self._reader_indexes[reader_id] = replaced_index
+                else:
+                    self._events.append(event)
             self._generation += sum(
                 isinstance(event, ResetUserInputEvent) for event in received
             )
