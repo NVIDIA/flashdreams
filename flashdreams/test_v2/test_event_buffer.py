@@ -1,9 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for cross-loop input retention and motion compaction."""
-
-from typing import cast
+"""CPU tests for lossless cross-loop input retention."""
 
 import pytest
 from numpy import uint64
@@ -23,7 +21,7 @@ def _move(timestamp: int, x: float) -> MouseUserInputEvent:
     return MouseUserInputEvent(timestamp=uint64(timestamp), x=x, y=0.5)
 
 
-def test_consecutive_pointer_moves_are_compacted_for_fast_and_slow_readers() -> None:
+def test_consecutive_pointer_moves_are_retained_for_fast_and_slow_readers() -> None:
     buffer = EventBuffer()
     buffer.register(0)
     buffer.register(1)
@@ -36,10 +34,11 @@ def test_consecutive_pointer_moves_are_compacted_for_fast_and_slow_readers() -> 
 
     buffer.append(UserInputEvents([_move(2, 0.2), _move(3, 0.3)]))
     fast_events, _ = buffer.read(0)
-    fast_moves = [
-        cast(MouseUserInputEvent, event) for event in fast_events.get_events()
-    ]
-    assert [(event.timestamp, event.x) for event in fast_moves] == [(uint64(3), 0.3)]
+    assert [
+        (event.timestamp, event.x)
+        for event in fast_events.get_events()
+        if isinstance(event, MouseUserInputEvent)
+    ] == [(uint64(2), 0.2), (uint64(3), 0.3)]
 
     key = KeyboardUserInputEvent(
         timestamp=uint64(4),
@@ -51,16 +50,20 @@ def test_consecutive_pointer_moves_are_compacted_for_fast_and_slow_readers() -> 
     slow_events, _ = buffer.read(1)
     assert [type(event) for event in slow_events.get_events()] == [
         MouseUserInputEvent,
+        MouseUserInputEvent,
+        MouseUserInputEvent,
         KeyboardUserInputEvent,
         MouseUserInputEvent,
+        MouseUserInputEvent,
     ]
-    first_move = cast(MouseUserInputEvent, slow_events.get_events()[0])
-    last_move = cast(MouseUserInputEvent, slow_events.get_events()[2])
-    assert first_move.x == 0.3
-    assert last_move.x == 0.6
+    assert [
+        event.x
+        for event in slow_events.get_events()
+        if isinstance(event, MouseUserInputEvent)
+    ] == [0.1, 0.2, 0.3, 0.5, 0.6]
 
 
-def test_traced_pointer_moves_are_not_compacted() -> None:
+def test_traced_pointer_moves_retain_their_correlation_ids() -> None:
     buffer = EventBuffer()
     buffer.register(0)
     buffer.append(
