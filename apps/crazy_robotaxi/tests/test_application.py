@@ -17,6 +17,7 @@ from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     _fit_bev_renderer_to_ui,
 )
+from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -404,6 +405,26 @@ def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:
 
     assert command.handbrake
     assert not command.stop
+
+
+def test_taxi_keyboard_restores_arcade_brake_reverse() -> None:
+    driver_input = DriverInput(pressed_keys={"a", "s"})
+    vehicle = TaxiVehicleConfig()
+
+    command = _taxi_driver_command(driver_input.command())
+
+    assert vehicle.steer_rate_rad_per_s == pytest.approx(
+        3.5 * vehicle.max_steer_rad
+    )
+    assert vehicle.steer_return_rate_rad_per_s == pytest.approx(
+        5.0 * vehicle.max_steer_rad
+    )
+    assert command.steer == 1.0
+    assert not command.steer_is_direct
+    assert command.manual_control
+    assert command.throttle == 0.0
+    assert command.brake == 1.0
+    assert not command.reverse
 
 
 def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:

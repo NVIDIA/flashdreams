@@ -23,6 +23,12 @@ class TaxiVehicleConfig(VehicleConfig):
     max_steer_rad: float = 0.69
     """Full-lock steering angle for tight arcade turns."""
 
+    steer_rate_rad_per_s: float = 2.415
+    """Reach full lock in the original keyboard control's 1 / 3.5 seconds."""
+
+    steer_return_rate_rad_per_s: float = 3.45
+    """Return from full lock in the original keyboard control's 1 / 5 seconds."""
+
     max_accel_mps2: float = 10.0
     reverse_accel_mps2: float = 10.0
     max_brake_mps2: float = 14.0
