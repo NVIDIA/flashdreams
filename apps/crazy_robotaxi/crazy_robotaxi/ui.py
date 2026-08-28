@@ -74,6 +74,9 @@ _VIDEO_FPS_WINDOW_SECONDS = 2.0
 _BEV_WAYPOINT_ALPHA = 0.5
 """Opacity of visible pickup and drop-off waypoints on the BEV map."""
 
+_MPS_TO_MPH = 2.2369362920544
+"""Metres-per-second to miles-per-hour conversion used by the source HUD."""
+
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
 )
@@ -98,6 +101,9 @@ class TaxiHudFrame:
 
     rig_pose_world: npt.NDArray[np.float32]
     """Read-only rig pose that generated the corresponding video frame."""
+
+    speed_mps: float = 0.0
+    """Authoritative signed vehicle speed for the corresponding simulation frame."""
 
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
@@ -500,32 +506,11 @@ class TaxiHudState:
             "awaiting_start",
             "racing",
         }:
-            lap = (
-                "POINT TO POINT"
-                if snapshot.lap_count == 0
-                else f"LAP  {snapshot.completed_laps + 1}/{snapshot.lap_count}"
-            )
-            self._draw_text_window(
-                imgui,
-                "Crazy Robotaxi Race",
-                position=(14.0, 14.0),
-                size=(360.0, 190.0),
-                lines=(
-                    format_race_time_us(snapshot.elapsed_time_us),
-                    lap,
-                    (
-                        f"CHECKPOINT  {snapshot.checkpoint_index + 1}/"
-                        f"{snapshot.checkpoint_count}"
-                    ),
-                    f"{snapshot.target_label}  {snapshot.distance_m:04.0f} m",
-                    snapshot.event.replace("_", " ").upper()
-                    if snapshot.event is not None
-                    else "",
-                ),
-            )
+            self._draw_race_status(imgui, snapshot)
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
+                center_y=110.0,
                 color_rgb=(1.0, 0.18, 0.08),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
@@ -533,28 +518,11 @@ class TaxiHudState:
             isinstance(snapshot, TaxiGameSnapshot)
             and snapshot.session_state == "playing"
         ):
-            objective = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
-            fare_time = (
-                ""
-                if snapshot.remaining_time_s is None
-                else f"FARE TIME  {snapshot.remaining_time_s:04.1f}s"
-            )
-            self._draw_text_window(
-                imgui,
-                "Crazy Robotaxi",
-                position=(14.0, 14.0),
-                size=(360.0, 190.0),
-                lines=(
-                    _score_label(snapshot),
-                    f"GAME TIME  {snapshot.global_remaining_time_s:05.1f}s",
-                    f"{objective}  {snapshot.distance_m:04.0f} m",
-                    fare_time,
-                    _event_label(snapshot),
-                ),
-            )
+            self._draw_taxi_status(imgui, snapshot)
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
+                center_y=198.0,
                 color_rgb=(
                     (118.0 / 255.0, 185.0 / 255.0, 0.0)
                     if snapshot.phase == "seeking_pickup"
@@ -562,8 +530,204 @@ class TaxiHudState:
                 ),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
+        if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
+            self._draw_speed(imgui, hud_frame.speed_mps)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
+
+    def _draw_taxi_status(self, imgui: Any, snapshot: TaxiGameSnapshot) -> None:
+        """Draw the source game's one-line taxi status directly over the frame."""
+        phase = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
+        fare_time = (
+            ""
+            if snapshot.remaining_time_s is None
+            else f"  {snapshot.remaining_time_s:04.1f}s"
+        )
+        score = f"SCORE {snapshot.score}"
+        if snapshot.high_score is not None:
+            score += f"  HIGH {snapshot.high_score}"
+        label = (
+            f"GAME {snapshot.global_remaining_time_s:04.1f}s  {phase}  "
+            f"{snapshot.distance_m:.0f}m{fare_time}  {score}"
+        )
+        color = (
+            (118.0 / 255.0, 185.0 / 255.0, 0.0)
+            if snapshot.phase == "seeking_pickup"
+            else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
+        )
+        self._draw_status_strip(imgui, label, color_rgb=color, top=122.0)
+        event = _event_label(snapshot)
+        if event:
+            self._draw_centered_text(
+                imgui,
+                event,
+                top=250.0,
+                font_size=44.0,
+                color_rgb=color,
+                shadow=True,
+            )
+
+    def _draw_race_status(self, imgui: Any, snapshot: RaceGameSnapshot) -> None:
+        """Draw the source game's one-line race status directly over the frame."""
+        if snapshot.session_state == "awaiting_start":
+            progress = "CROSS START LINE TO BEGIN"
+        elif snapshot.lap_count == 0:
+            progress = (
+                f"CHECKPOINT {snapshot.checkpoint_index + 1}/"
+                f"{snapshot.checkpoint_count}"
+            )
+        elif snapshot.target_kind == "start":
+            progress = (
+                f"RETURN TO START  LAP {snapshot.completed_laps + 1}/"
+                f"{snapshot.lap_count}"
+            )
+        else:
+            progress = (
+                f"LAP {snapshot.completed_laps + 1}/{snapshot.lap_count}  "
+                f"CHECKPOINT {snapshot.checkpoint_index + 1}/"
+                f"{snapshot.checkpoint_count}"
+            )
+        best = (
+            ""
+            if snapshot.best_time_us is None
+            else f"  BEST {format_race_time_us(snapshot.best_time_us)}"
+        )
+        label = (
+            f"RACE {format_race_time_us(snapshot.elapsed_time_us)}  {progress}  "
+            f"{snapshot.distance_m:.0f}m{best}"
+        )
+        self._draw_status_strip(
+            imgui,
+            label,
+            color_rgb=(200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0),
+            top=35.0,
+            outline=True,
+        )
+
+    def _draw_status_strip(
+        self,
+        imgui: Any,
+        label: str,
+        *,
+        color_rgb: tuple[float, float, float],
+        top: float,
+        outline: bool = False,
+    ) -> None:
+        """Draw centered arcade status text without creating an ImGui window."""
+        draw_list = imgui.get_background_draw_list()
+        font_size = 22.0
+        text_width, text_height = _overlay_text_size(imgui, label, font_size)
+        available_width = max(1.0, float(self.width) - 28.0)
+        if text_width > available_width:
+            font_size = max(1.0, font_size * available_width / text_width)
+            text_width, text_height = _overlay_text_size(imgui, label, font_size)
+        left = (float(self.width) - text_width) * 0.5
+        panel_color = _imgui_color(
+            imgui,
+            (12.0 / 255.0, 12.0 / 255.0, 18.0 / 255.0, 210.0 / 255.0),
+        )
+        draw_list.add_rect_filled(
+            imgui.ImVec2(left - 14.0, top - 6.0),
+            imgui.ImVec2(left + text_width + 14.0, top + text_height + 6.0),
+            panel_color,
+            9.0,
+        )
+        color = _imgui_color(imgui, (*color_rgb, 1.0))
+        if outline:
+            draw_list.add_rect(
+                imgui.ImVec2(left - 14.0, top - 6.0),
+                imgui.ImVec2(left + text_width + 14.0, top + text_height + 6.0),
+                color,
+                9.0,
+                2.0,
+            )
+        _draw_overlay_text(
+            imgui,
+            draw_list,
+            label,
+            position=(left, top),
+            font_size=font_size,
+            color=color,
+        )
+
+    def _draw_centered_text(
+        self,
+        imgui: Any,
+        label: str,
+        *,
+        top: float,
+        font_size: float,
+        color_rgb: tuple[float, float, float],
+        shadow: bool = False,
+    ) -> None:
+        """Draw centered overlay text at an explicit display size."""
+        draw_list = imgui.get_background_draw_list()
+        text_width, _ = _overlay_text_size(imgui, label, font_size)
+        available_width = max(1.0, float(self.width) - 28.0)
+        if text_width > available_width:
+            font_size = max(1.0, font_size * available_width / text_width)
+            text_width, _ = _overlay_text_size(imgui, label, font_size)
+        left = (float(self.width) - text_width) * 0.5
+        if shadow:
+            _draw_overlay_text(
+                imgui,
+                draw_list,
+                label,
+                position=(left + 3.0, top + 3.0),
+                font_size=font_size,
+                color=_imgui_color(imgui, (0.0, 0.0, 0.0, 1.0)),
+            )
+        _draw_overlay_text(
+            imgui,
+            draw_list,
+            label,
+            position=(left, top),
+            font_size=font_size,
+            color=_imgui_color(imgui, (*color_rgb, 1.0)),
+        )
+
+    def _draw_speed(self, imgui: Any, speed_mps: float) -> None:
+        """Draw the source HUD's green speed digit directly over the frame."""
+        draw_list = imgui.get_background_draw_list()
+        font_size = max(28.0, min(76.0, float(self.height) * 0.12))
+        speed = str(round(abs(float(speed_mps)) * _MPS_TO_MPH))
+        speed_width, speed_height = _overlay_text_size(imgui, speed, font_size)
+        left = 24.0
+        top = max(10.0, float(self.height) - speed_height - 42.0)
+        shadow = _imgui_color(imgui, (0.0, 0.0, 0.0, 0.9))
+        green = _imgui_color(
+            imgui,
+            (118.0 / 255.0, 185.0 / 255.0, 0.0, 1.0),
+        )
+        _draw_overlay_text(
+            imgui,
+            draw_list,
+            speed,
+            position=(left + 3.0, top + 3.0),
+            font_size=font_size,
+            color=shadow,
+        )
+        _draw_overlay_text(
+            imgui,
+            draw_list,
+            speed,
+            position=(left, top),
+            font_size=font_size,
+            color=green,
+        )
+        unit_size = max(14.0, font_size * 0.28)
+        unit_width, _ = _overlay_text_size(imgui, "mph", unit_size)
+        _draw_overlay_text(
+            imgui,
+            draw_list,
+            "mph",
+            position=(
+                left + (speed_width - unit_width) * 0.5,
+                top + speed_height + 2.0,
+            ),
+            font_size=unit_size,
+            color=_imgui_color(imgui, (0.86, 0.86, 0.9, 1.0)),
+        )
 
     def _draw_fps_counter(self, imgui: Any) -> None:
         """Draw the measured generated-video rate when the counter is enabled."""
@@ -796,12 +960,12 @@ class TaxiHudState:
         imgui: Any,
         bearing_rad: float,
         *,
+        center_y: float,
         color_rgb: tuple[float, float, float],
     ) -> None:
         """Draw the always-visible target-bearing arrow from the original HUD."""
         draw_list = imgui.get_background_draw_list()
         center_x = float(self.width) * 0.5
-        center_y = 74.0
         radius = 30.0
         direction_x = -math.sin(bearing_rad)
         direction_y = -math.cos(bearing_rad)
@@ -1245,6 +1409,7 @@ def build_hud_frames(
     snapshots: Sequence[object],
     rig_poses_world: npt.NDArray[np.float32],
     *,
+    speeds_mps: Sequence[float] | None = None,
     transition_timestamps_us: Sequence[int | None] | None = None,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
@@ -1254,6 +1419,10 @@ def build_hud_frames(
     poses = np.asarray(rig_poses_world, dtype=np.float32)
     if poses.shape != (frame_count, 4, 4):
         raise ValueError("Video and rig poses must align")
+    if speeds_mps is None:
+        speeds_mps = (0.0,) * frame_count
+    if len(speeds_mps) != frame_count:
+        raise ValueError("Vehicle speeds and video frames must align")
     if transition_timestamps_us is None:
         transition_timestamps_us = (None,) * frame_count
     if len(transition_timestamps_us) != frame_count:
@@ -1269,6 +1438,7 @@ def build_hud_frames(
                 frame_key=int(video_tchw[index].data_ptr()),
                 snapshot=snapshot,
                 rig_pose_world=pose,
+                speed_mps=float(speeds_mps[index]),
                 transition_timestamp_us=transition_timestamps_us[index],
             )
         )
@@ -1347,11 +1517,30 @@ def _imgui_color(
     return int(imgui.color_convert_float4_to_u32(imgui.ImVec4(*rgba)))
 
 
-def _score_label(snapshot: TaxiGameSnapshot) -> str:
-    label = f"SCORE  {snapshot.score:06d}"
-    if snapshot.high_score is not None:
-        label += f"    HIGH  {snapshot.high_score:06d}"
-    return label
+def _overlay_text_size(imgui: Any, text: str, font_size: float) -> tuple[float, float]:
+    """Measure text after applying an explicit ImGui display size."""
+    width, height = _point_xy(imgui.calc_text_size(text))
+    scale = float(font_size) / max(1.0, float(imgui.get_font_size()))
+    return width * scale, height * scale
+
+
+def _draw_overlay_text(
+    imgui: Any,
+    draw_list: Any,
+    text: str,
+    *,
+    position: tuple[float, float],
+    font_size: float,
+    color: int,
+) -> None:
+    """Draw sized text directly into the shared background overlay."""
+    draw_list.add_text(
+        imgui.get_font(),
+        float(font_size),
+        imgui.ImVec2(*position),
+        color,
+        text,
+    )
 
 
 def _event_label(snapshot: TaxiGameSnapshot) -> str:
@@ -1365,19 +1554,6 @@ def _event_label(snapshot: TaxiGameSnapshot) -> str:
     if snapshot.event == "time_expired":
         return "FARE TIME EXPIRED"
     return ""
-
-
-def _navigation_label(bearing_rad: float) -> str:
-    degrees = math.degrees(math.atan2(math.sin(bearing_rad), math.cos(bearing_rad)))
-    if abs(degrees) <= 15.0:
-        direction = "AHEAD"
-    elif abs(degrees) >= 165.0:
-        direction = "BEHIND"
-    elif degrees > 0.0:
-        direction = "LEFT"
-    else:
-        direction = "RIGHT"
-    return f"TARGET {direction}  {abs(degrees):.0f} deg"
 
 
 __all__ = [

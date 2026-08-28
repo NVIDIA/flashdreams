@@ -151,6 +151,14 @@ class _FakeImGui:
     def calc_text_size(text: str) -> SimpleNamespace:
         return SimpleNamespace(x=float(len(text) * 8), y=14.0)
 
+    @staticmethod
+    def get_font() -> object:
+        return object()
+
+    @staticmethod
+    def get_font_size() -> float:
+        return 14.0
+
     def get_background_draw_list(self) -> _FakeDrawList:
         return self.background_draw_list
 
@@ -268,12 +276,13 @@ def test_hud_frames_are_immutable_messages_keyed_to_video_storage() -> None:
     snapshots = (_snapshot(), _snapshot())
     poses = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
 
-    frames = build_hud_frames(video, snapshots, poses)
+    frames = build_hud_frames(video, snapshots, poses, speeds_mps=(12.0, -3.0))
 
     assert [frame.frame_key for frame in frames] == [
         video[index].data_ptr() for index in range(2)
     ]
     assert frames[0].snapshot is snapshots[0]
+    assert [frame.speed_mps for frame in frames] == [12.0, -3.0]
     np.testing.assert_array_equal(frames[0].rig_pose_world, poses[0])
     assert not frames[0].rig_pose_world.flags.writeable
 
@@ -424,6 +433,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
             video,
             (_snapshot(),),
             np.eye(4, dtype=np.float32)[None],
+            speeds_mps=(12.0,),
         )
     )
     presentation = PresentationManager()
@@ -457,7 +467,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert output.shape == (1, 3, height, width)
     assert output.dtype is torch.float32
     assert hud_state._current is not None
-    assert "SCORE  001200    HIGH  009000" in renderer.ui.windows["Crazy Robotaxi"]
+    assert "Crazy Robotaxi" not in renderer.ui.windows
     assert "Navigation" not in renderer.ui.windows
     assert renderer.ui.dummies == [(32.0, 32.0)]
     map_flags = renderer.ui.window_flags["Map"]
@@ -472,6 +482,14 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     command_names = [name for name, _ in renderer.ui.background_draw_list.commands]
     assert "triangle_filled" in command_names
     assert "circle_filled" in command_names
+    overlay_text = [
+        args[-1]
+        for name, args in renderer.ui.background_draw_list.commands
+        if name == "text"
+    ]
+    assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
+    assert "27" in overlay_text
+    assert "mph" in overlay_text
     top, left, panel_height, panel_width = hud_state._bev_rect or (0, 0, 0, 0)
     panel = output[0, :, top : top + panel_height, left : left + panel_width]
     background = 191.0 / 127.5 - 1.0
@@ -595,11 +613,11 @@ def test_bev_draws_visible_waypoints_at_half_opacity() -> None:
     assert circles[0][1][-1] == expected_white
 
 
-def test_hud_draws_immediate_imgui_windows() -> None:
-    state = TaxiHudState(160, 96, _calibration())
+def test_live_hud_draws_directly_over_the_game_frame() -> None:
+    state = TaxiHudState(640, 360, _calibration())
     state.publish(
         build_hud_frames(
-            torch.zeros(1, 3, 96, 160),
+            torch.zeros(1, 3, 360, 640),
             (_snapshot(),),
             np.eye(4, dtype=np.float32)[None],
         )
@@ -610,11 +628,21 @@ def test_hud_draws_immediate_imgui_windows() -> None:
 
     state.draw(imgui)
 
-    assert set(imgui.windows) == {"Crazy Robotaxi"}
-    assert "SCORE  001200    HIGH  009000" in imgui.windows["Crazy Robotaxi"]
+    assert not imgui.windows
+    overlay_text = [
+        args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
+    ]
+    assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
+    assert "mph" in overlay_text
     assert any(
         name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
     )
+    compass = next(
+        args
+        for name, args in imgui.background_draw_list.commands
+        if name == "circle_filled"
+    )
+    assert compass[0][1] == 198.0
 
 
 def test_compass_arrow_has_no_black_underlay() -> None:
@@ -624,6 +652,7 @@ def test_compass_arrow_has_no_black_underlay() -> None:
     state._draw_navigation_arrow(
         imgui,
         0.0,
+        center_y=198.0,
         color_rgb=(118.0 / 255.0, 185.0 / 255.0, 0.0),
     )
 
