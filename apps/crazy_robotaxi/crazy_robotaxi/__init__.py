@@ -3,6 +3,9 @@
 
 """Crazy Robotaxi FlashDreams V2 application."""
 
-from crazy_robotaxi.application import CrazyRobotaxiApplication, create_app
+from crazy_robotaxi.application import (
+    CrazyRobotaxiApplication,
+    CrazyRobotaxiApplicationDefaults,
+)
 
-__all__ = ["CrazyRobotaxiApplication", "create_app"]
+__all__ = ["CrazyRobotaxiApplication", "CrazyRobotaxiApplicationDefaults"]

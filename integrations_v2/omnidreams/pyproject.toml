@@ -29,6 +29,7 @@ dependencies = [
     # the model adapters for the reusable Interactive Drive application.
     "flashdreams[serving]",
     "flashdreams-interactive-drive-v2",
+    "crazy-robotaxi",
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio>=2.20",
@@ -69,6 +70,7 @@ dependencies = [
 [tool.uv.sources]
 flashdreams = { workspace = true }
 flashdreams-interactive-drive-v2 = { workspace = true }
+crazy-robotaxi = { workspace = true }
 ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]
@@ -101,12 +103,16 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 "interactive-drive-omnidreams" = "omnidreams.apps.interactive_drive.adapter:create_app"
 "interactive-drive-omnidreams-perf" = "omnidreams.apps.interactive_drive.adapter:create_perf_app"
 "interactive-drive-omnidreams-fast-perf" = "omnidreams.apps.interactive_drive.adapter:create_fast_perf_app"
+"crazy-robotaxi-omnidreams" = "omnidreams.apps.crazy_robotaxi.adapter:create_app"
+"crazy-robotaxi-omnidreams-perf" = "omnidreams.apps.crazy_robotaxi.adapter:create_perf_app"
+"crazy-robotaxi-omnidreams-fast-perf" = "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
 
 [tool.setuptools]
 packages = [
     "omnidreams",
     "omnidreams.apps",
     "omnidreams.apps.interactive_drive",
+    "omnidreams.apps.crazy_robotaxi",
     "omnidreams.impl",
     "omnidreams.impl.conditioning",
     "omnidreams.impl.conditioning.world_scenario",

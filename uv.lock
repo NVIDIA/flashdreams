@@ -24,7 +24,6 @@ members = [
     "flashdreams-cam2v",
     "flashdreams-cam2v-lingbot",
     "flashdreams-causal-forcing",
-    "flashdreams-clipgt2v-v2",
     "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
@@ -686,7 +685,6 @@ version = "0.1.0"
 source = { editable = "apps/crazy_robotaxi" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window"] },
-    { name = "flashdreams-omnidreams" },
     { name = "omnidreams-game-engine" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -702,7 +700,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", extras = ["local-window"], editable = "flashdreams" },
-    { name = "flashdreams-omnidreams", editable = "integrations_v2/omnidreams" },
     { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -1220,21 +1217,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-clipgt2v-v2"
-version = "0.1.0"
-source = { editable = "apps/clipgt2v" }
-dependencies = [
-    { name = "flashdreams", extra = ["local-window", "serving"] },
-    { name = "ludus-renderer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
-    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
-]
-
-[[package]]
 name = "flashdreams-color-fade"
 version = "0.1.0"
 source = { editable = "integrations_v2/color_fade" }
@@ -1445,6 +1427,7 @@ name = "flashdreams-omnidreams"
 version = "0.1.0"
 source = { editable = "integrations_v2/omnidreams" }
 dependencies = [
+    { name = "crazy-robotaxi" },
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
     { name = "flashdreams-interactive-drive-v2" },
@@ -1491,6 +1474,7 @@ rtx-postprocess = [
 
 [package.metadata]
 requires-dist = [
+    { name = "crazy-robotaxi", editable = "apps/crazy_robotaxi" },
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["rtx-postprocess"], marker = "extra == 'rtx-postprocess'", editable = "flashdreams" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
@@ -3423,7 +3407,7 @@ source = { editable = "apps/omnidreams_game_engine" }
 dependencies = [
     { name = "filelock" },
     { name = "flashdreams" },
-    { name = "flashdreams-omnidreams" },
+    { name = "flashdreams-interactive-drive-v2" },
     { name = "ludus-renderer" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -3446,7 +3430,7 @@ dev = [
 requires-dist = [
     { name = "filelock", specifier = ">=3" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-omnidreams", editable = "integrations_v2/omnidreams" },
+    { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
     { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "numpy" },
     { name = "pillow" },

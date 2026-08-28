@@ -48,14 +48,8 @@ class WorldModelLaunchSettings:
     backend: Literal["raster", "omnidreams"] = "omnidreams"
     """Main-camera backend; the V2 game requires ``omnidreams``."""
 
-    manifest: Path | None = None
-    """Optional legacy manifest retained for configuration compatibility."""
-
     offload_text_encoder: bool = False
     """Whether one-shot encoders may be released after initialization."""
-
-    model_preset: str = "standard"
-    """V2 packaged pipeline preset."""
 
     device: str = "cuda"
     """Device used to instantiate the V2 pipeline."""

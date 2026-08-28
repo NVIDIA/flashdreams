@@ -7,17 +7,12 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
-import torch
-from omnidreams.config import (
-    OMNIDREAMS_PERF_PIPELINE_CONFIG,
-    OMNIDREAMS_PIPELINE_CONFIG,
-)
 from omnidreams_game_engine.cli_args import (
     ExplicitArgTrackingArgumentParser,
     arg_was_explicit,
@@ -28,17 +23,13 @@ from omnidreams_game_engine.engine_settings import (
     MapLaunchSettings,
     RenderingSettings,
     WorldModelLaunchSettings,
-    load_engine_settings,
 )
 from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
-from omnidreams_game_engine.renderer_settings import (
-    RendererSettings,
-    load_renderer_settings,
-)
+from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
-from crazy_robotaxi.config import CrazyRobotaxiSettings, load_game_settings
+from crazy_robotaxi.config import CrazyRobotaxiSettings
 from crazy_robotaxi.game_selection import GameMapOption, GameMode
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
@@ -60,7 +51,7 @@ _DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
 _VIDEO_FPS = 30
 """Generated-video cadence required by the model."""
 
-_UI_FPS = 60
+_UI_FPS = 30
 """Input polling and HUD cadence used by Interactive Drive."""
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,50 +60,15 @@ _DEFAULT_PREWARM_BLOCKS = 4
 """Blocks covering chunk2 cache filling and the first steady-state AR shape."""
 
 
-_FAST_PERF_PIPELINE = derive_config(
-    OMNIDREAMS_PERF_PIPELINE_CONFIG,
-    name="crazy-robotaxi-fast-perf",
-    image_encoder={
-        "dtype": torch.float16,
-        "use_compile": False,
-        "use_cuda_graph": False,
-        "native_vae_acceleration": "required",
-        "native_vae_backend": "fp8",
-        "native_vae_fp8_state_path": os.environ.get(
-            "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
-        ),
-    },
-    encoder={
-        "dtype": torch.float16,
-        "use_compile": False,
-        "use_cuda_graph": False,
-        "native_vae_acceleration": "required",
-        "native_vae_backend": "fp8",
-        "native_vae_fp8_state_path": os.environ.get(
-            "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
-        ),
-    },
-    diffusion_model={"seed": None},
-)
-"""OmniDreams perf plus native FP8 LightVAE for maximum throughput."""
-
-
 @dataclass(frozen=True, slots=True)
-class _ModelPreset:
-    """App-owned pipeline selection and renderer geometry policy."""
+class CrazyRobotaxiApplicationDefaults:
+    """Defaults supplied by a world-model integration."""
 
-    pipeline: Any
-    renderer_follows_session: bool = False
-
-
-_MODEL_PRESETS = {
-    "standard": _ModelPreset(OMNIDREAMS_PIPELINE_CONFIG),
-    "perf": _ModelPreset(OMNIDREAMS_PERF_PIPELINE_CONFIG),
-    "fast-perf": _ModelPreset(
-        _FAST_PERF_PIPELINE,
-        renderer_follows_session=True,
-    ),
-}
+    title: str = "Crazy Robotaxi"
+    slug: str = "crazy-robotaxi"
+    width: int = 1280
+    height: int = 704
+    pipeline_config: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +81,6 @@ class ApplicationConfig:
     device: str
     total_blocks: int | None
     model_preset_name: str
-    renderer_follows_session: bool
     pipeline_profiling: bool
     prewarm_blocks: int
     """Hidden neutral blocks generated before the first presented game frame."""
@@ -166,19 +121,26 @@ SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
 
 
 class CrazyRobotaxiApplication(IApplication):
-    """Load one model and create isolated V2 game sessions."""
+    """Configure isolated V2 game sessions with model-owned defaults."""
 
     def __init__(
         self,
         *,
         pipeline_factory: PipelineFactory | None = None,
+        defaults: CrazyRobotaxiApplicationDefaults | None = None,
         scene_factory: SceneFactory | None = None,
     ) -> None:
-        self._defaults = RendererSettings(raster=RasterConfig(), bev=BevConfig())
+        self._application_defaults = defaults or CrazyRobotaxiApplicationDefaults()
+        self._defaults = RendererSettings(
+            raster=RasterConfig(
+                width=self._application_defaults.width,
+                height=self._application_defaults.height,
+            ),
+            bev=BevConfig(),
+        )
         self._pipeline_factory = pipeline_factory or _build_pipeline
         self._scene_factory = scene_factory or load_scene
-        self._pipeline_config: Any = _MODEL_PRESETS["standard"].pipeline
-        self._pipeline: Any | None = None
+        self._pipeline_config = self._application_defaults.pipeline_config
         self._config: ApplicationConfig | None = None
         self._map_options: tuple[GameMapOption, ...] = ()
 
@@ -199,7 +161,10 @@ class CrazyRobotaxiApplication(IApplication):
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse application options without starting another runtime."""
-        args = _parser().parse_args(list(commandline_args))
+        pipeline_config = self._pipeline_config
+        if pipeline_config is None:
+            raise RuntimeError("A world-model integration must provide pipeline_config")
+        args = _parser(self._application_defaults).parse_args(list(commandline_args))
         engine_settings = self._resolve_engine_settings(args)
         game_settings = self._resolve_game_settings(args)
         if (
@@ -247,14 +212,7 @@ class CrazyRobotaxiApplication(IApplication):
                 else game_settings.taxi.high_scores_path.expanduser()
             ),
         )
-        model_preset_name = engine_settings.world_model.model_preset
-        if model_preset_name not in _MODEL_PRESETS:
-            available = ", ".join(_MODEL_PRESETS)
-            raise ValueError(
-                f"Unknown model preset {model_preset_name!r}; available: {available}"
-            )
-        model_preset = _MODEL_PRESETS[model_preset_name]
-        pipeline_config = model_preset.pipeline
+        model_preset_name = pipeline_config.name
         if engine_settings.world_model.compile is not None:
             pipeline_config = derive_config(
                 pipeline_config,
@@ -287,7 +245,6 @@ class CrazyRobotaxiApplication(IApplication):
             device=engine_settings.world_model.device,
             total_blocks=engine_settings.runtime.total_blocks,
             model_preset_name=model_preset_name,
-            renderer_follows_session=model_preset.renderer_follows_session,
             pipeline_profiling=bool(engine_settings.world_model.profile_pipeline),
             prewarm_blocks=engine_settings.runtime.prewarm_blocks,
             profile_input_latency=engine_settings.runtime.profile_input_latency,
@@ -329,53 +286,42 @@ class CrazyRobotaxiApplication(IApplication):
                 bev=self._defaults.bev,
             ),
         )
-        if args.engine_config is not None:
-            settings = load_engine_settings(args.engine_config, base=settings)
-        if args.renderer_config is not None:
-            legacy = load_renderer_settings(args.renderer_config)
-            settings = replace(
-                settings,
-                rendering=RenderingSettings(raster=legacy.raster, bev=legacy.bev),
-            )
-        map_settings = settings.map
-        for destination, field_name in (
-            ("map", "path"),
-            ("camera", "camera"),
-            ("variant", "variant"),
-            ("prompt", "prompt"),
-            ("force_map_recompile", "force_recompile"),
-        ):
-            if arg_was_explicit(args, destination):
-                map_settings = replace(
-                    map_settings, **{field_name: getattr(args, destination)}
-                )
-        world_model = settings.world_model
-        for destination in ("model_preset", "device", "compile", "profile_pipeline"):
-            if arg_was_explicit(args, destination):
-                world_model = replace(
-                    world_model, **{destination: getattr(args, destination)}
-                )
-        runtime = settings.runtime
-        for destination in ("total_blocks", "prewarm_blocks", "profile_input_latency"):
-            if arg_was_explicit(args, destination):
-                runtime = replace(runtime, **{destination: getattr(args, destination)})
-        if runtime.profile_world_model:
-            world_model = replace(world_model, profile_pipeline=True)
-        presentation = settings.presentation
-        if arg_was_explicit(args, "show_fps"):
-            presentation = replace(presentation, show_fps=bool(args.show_fps))
         return replace(
             settings,
-            map=map_settings,
-            world_model=world_model,
-            presentation=presentation,
-            runtime=runtime,
+            map=replace(
+                settings.map,
+                path=args.map,
+                camera=args.camera,
+                variant=args.variant,
+                prompt=args.prompt,
+                force_recompile=args.force_map_recompile,
+            ),
+            rendering=replace(
+                settings.rendering,
+                raster=replace(
+                    settings.rendering.raster, width=args.width, height=args.height
+                ),
+            ),
+            world_model=replace(
+                settings.world_model,
+                device=args.device,
+                compile=args.compile,
+                profile_pipeline=args.profile_pipeline,
+            ),
+            presentation=replace(
+                settings.presentation,
+                show_fps=bool(args.show_fps),
+            ),
+            runtime=replace(
+                settings.runtime,
+                total_blocks=args.total_blocks,
+                prewarm_blocks=args.prewarm_blocks,
+                profile_input_latency=args.profile_input_latency,
+            ),
         )
 
     def _resolve_game_settings(self, args: argparse.Namespace) -> CrazyRobotaxiSettings:
         settings = CrazyRobotaxiSettings()
-        if args.game_config is not None:
-            settings = load_game_settings(args.game_config, base=settings)
         game = settings.game
         taxi = settings.taxi
         race = settings.race
@@ -407,23 +353,14 @@ class CrazyRobotaxiApplication(IApplication):
         config = self._config
         if config is None:
             raise RuntimeError("init() must run before create_session()")
+        pipeline_config = self._pipeline_config
+        if pipeline_config is None:
+            raise RuntimeError("init() must select a pipeline before create_session()")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Crazy Robotaxi produces tchw output")
         if session_desc.frames_per_second_for_step != _VIDEO_FPS:
             raise ValueError("Crazy Robotaxi generates video at 30 frames per second")
         actual = session_desc.video_width, session_desc.video_height
-        if config.renderer_follows_session:
-            config = replace(
-                config,
-                renderer=replace(
-                    config.renderer,
-                    raster=replace(
-                        config.renderer.raster,
-                        width=actual[0],
-                        height=actual[1],
-                    ),
-                ),
-            )
         config = replace(
             config,
             renderer=_fit_bev_renderer_to_ui(
@@ -437,9 +374,9 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError(
                 f"Session dimensions {actual} do not match renderer {expected}"
             )
-        transformer = self._pipeline_config.diffusion_model.transformer
-        scheduler = self._pipeline_config.diffusion_model.scheduler
-        encoder = self._pipeline_config.encoder
+        transformer = pipeline_config.diffusion_model.transformer
+        scheduler = pipeline_config.diffusion_model.scheduler
+        encoder = pipeline_config.encoder
         bev = config.renderer.bev
         bev_resolution = f"{bev.width}x{bev.height}" if bev.enabled else "disabled"
         _LOGGER.info(
@@ -459,13 +396,12 @@ class CrazyRobotaxiApplication(IApplication):
             list(scheduler.denoising_timesteps),
             bev_resolution,
         )
-        if self._pipeline is None:
-            self._pipeline = self._pipeline_factory(
-                self._pipeline_config,
-                config.device,
-            )
         return CrazyRobotaxiSession(
-            pipeline=self._pipeline,
+            pipeline_factory=partial(
+                self._pipeline_factory,
+                pipeline_config,
+                config.device,
+            ),
             scene_factory=self._scene_factory,
             map_options=self._map_options,
             config=config,
@@ -476,19 +412,9 @@ class CrazyRobotaxiApplication(IApplication):
         )
 
     def close(self) -> None:
-        """Release process-lifetime model resources."""
-        pipeline = self._pipeline
-        self._pipeline = None
+        """Release application configuration state."""
         self._config = None
         self._map_options = ()
-        close = getattr(pipeline, "close", None)
-        if callable(close):
-            close()
-
-
-def create_app() -> IApplication:
-    """Return a fresh V2 application for entry-point discovery."""
-    return CrazyRobotaxiApplication()
 
 
 def _build_pipeline(config: Any, device: str) -> Any:
@@ -559,22 +485,20 @@ def _fit_bev_renderer_to_ui(
     return replace(renderer, bev=fitted)
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(
+    defaults: CrazyRobotaxiApplicationDefaults,
+) -> argparse.ArgumentParser:
     parser = ExplicitArgTrackingArgumentParser(
-        prog="flashdreams-run-v2 crazy-robotaxi --",
+        prog=f"flashdreams-run-v2 {defaults.slug} --",
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
-    parser.add_argument("--engine-config", type=Path)
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
-    parser.add_argument("--game-config", type=Path)
-    parser.add_argument("--renderer-config", type=Path)
+    parser.add_argument("--width", type=int, default=defaults.width)
+    parser.add_argument("--height", type=int, default=defaults.height)
     parser.add_argument("--camera", default="camera_front_wide_120fov")
     parser.add_argument("--variant", default="default")
     parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
-    parser.add_argument(
-        "--model-preset", choices=tuple(_MODEL_PRESETS), default="standard"
-    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
     parser.add_argument("--game-time-s", type=float)

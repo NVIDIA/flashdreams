@@ -11,7 +11,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "filelock>=3",
     "flashdreams",
-    "flashdreams-omnidreams",
+    "flashdreams-interactive-drive-v2",
     "ludus-renderer",
     "numpy",
     "pillow",
@@ -23,7 +23,7 @@ dependencies = [
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-flashdreams-omnidreams = { workspace = true }
+flashdreams-interactive-drive-v2 = { workspace = true }
 ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]

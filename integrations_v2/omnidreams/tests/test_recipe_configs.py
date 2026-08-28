@@ -132,4 +132,13 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         "interactive-drive-omnidreams-fast-perf": (
             "omnidreams.apps.interactive_drive.adapter:create_fast_perf_app"
         ),
+        "crazy-robotaxi-omnidreams": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_app"
+        ),
+        "crazy-robotaxi-omnidreams-perf": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams-fast-perf": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
+        ),
     }

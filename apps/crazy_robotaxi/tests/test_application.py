@@ -13,8 +13,7 @@ import numpy as np
 import pytest
 import torch
 from crazy_robotaxi.application import (
-    _FAST_PERF_PIPELINE,
-    _MODEL_PRESETS,
+    CrazyRobotaxiApplicationDefaults,
     CrazyRobotaxiApplication,
     _fit_bev_renderer_to_ui,
 )
@@ -29,7 +28,13 @@ from crazy_robotaxi.session import (
     _taxi_driver_command,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
+from omnidreams.apps.crazy_robotaxi.adapter import (
+    OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
+)
 from omnidreams.config import (
+    OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
@@ -49,6 +54,7 @@ from flashdreams.runtime_v2.native_window_client_window import (
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -61,8 +67,16 @@ _DEMO_RACE_MAP = (
     Path(__file__).parents[1]
     / "crazy_robotaxi"
     / "maps"
-    / "demo_race_track.robotaxi.yaml"
+    / "flashdreams_raceway.robotaxi.yaml"
 )
+
+
+def _application(
+    *,
+    defaults: CrazyRobotaxiApplicationDefaults = OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
+    **kwargs: Any,
+) -> CrazyRobotaxiApplication:
+    return CrazyRobotaxiApplication(defaults=defaults, **kwargs)
 
 
 def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
@@ -96,8 +110,11 @@ def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
 
 def test_application_registers_model_and_imgui_ui_loops() -> None:
     pipeline = object()
-    app = CrazyRobotaxiApplication(
-        pipeline_factory=lambda config, device: pipeline,
+    pipeline_requests: list[tuple[object, str]] = []
+    app = _application(
+        pipeline_factory=lambda config, device: (
+            pipeline_requests.append((config, device)) or pipeline
+        ),
         scene_factory=lambda request, raster: _scene(),
     )
     desc = app.session_desc()
@@ -124,13 +141,14 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert session._presentation_manager._presentation_stream is None
-    assert model_loop.state.pipeline is pipeline
+    assert model_loop.state.pipeline is None
+    assert pipeline_requests == []
     assert model_loop.state.scene is None
     assert model_loop.state.rollout is None
     assert not model_loop.state.game_selected
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
-    assert len(ui_loop.state.map_options) >= 4
+    assert len(ui_loop.state.map_options) == 2
     assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
@@ -140,7 +158,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     menu_results = model_loop.step(0, UserInputEvents([]))
     assert len(menu_results) == 1
     assert menu_results[0].frame_count == 1
-    assert torch.all(menu_results[0].output == -1.0)
+    assert torch.all(menu_results[0].read_output() == -1.0)
 
     rollout_closed: list[bool] = []
     model_loop.state.scene = _scene()
@@ -158,7 +176,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
 
 
 def test_complete_cli_game_selection_starts_without_menus() -> None:
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
     )
@@ -215,7 +233,7 @@ def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
         def close(self) -> None:
             self.closed = True
 
-    desc = CrazyRobotaxiApplication().session_desc()
+    desc = _application().session_desc()
     presenter = Presenter()
     presenter_arguments: dict[str, object] = {}
 
@@ -276,6 +294,30 @@ def test_pressed_r_requests_a_v2_game_restart() -> None:
     assert not _restart_requested(UserInputEvents([released]))
 
 
+def test_pressed_gamepad_start_requests_a_v2_game_restart() -> None:
+    released = (False,) * 10
+    pressed = (*released[:9], True)
+
+    assert _restart_requested(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(1), action="state", pressed=pressed
+                )
+            ]
+        )
+    )
+    assert not _restart_requested(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(2), action="state", pressed=released
+                )
+            ]
+        )
+    )
+
+
 def test_model_input_is_applied_before_rollout_work() -> None:
     class InputOrderVerified(Exception):
         pass
@@ -304,20 +346,19 @@ def test_model_input_is_applied_before_rollout_work() -> None:
 
 def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:
     driver_input = DriverInput()
-    driver_input.reduce(
+    driver_input.apply(
         UserInputEvents(
             [
                 KeyboardUserInputEvent(
                     timestamp=np.uint64(1),
-                    key="space",
+                    key=" ",
                     state=KeyboardInputState.PRESSED,
                 )
             ]
         ),
-        frame_count=1,
     )
 
-    command = _taxi_driver_command(driver_input)
+    command = _taxi_driver_command(driver_input.command())
 
     assert command.handbrake
     assert not command.stop
@@ -350,6 +391,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
     )
     ui_loop = UILoop()
     state = ModelState(
+        pipeline_factory=lambda: object(),
         pipeline=object(),
         scene_factory=cast(Any, lambda request, raster: object()),
         scene=cast(Any, object()),
@@ -396,40 +438,53 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
     expected: bool,
 ) -> None:
     configured = []
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: configured.append(config) or object(),
         scene_factory=lambda request, raster: _scene(),
     )
     app.init(arguments)
 
-    app.create_session(app.session_desc())
+    session = app.create_session(app.session_desc())
+    session.init()
+    _, model_loop = session._take_loops()
 
+    assert configured == []
+    model_loop.state.pipeline_factory()
     assert configured[0].enable_sync_and_profile is expected
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
-    assert _MODEL_PRESETS["standard"].pipeline.enable_sync_and_profile
+    assert OMNIDREAMS_PIPELINE_CONFIG.enable_sync_and_profile
 
 
-def test_existing_model_presets_keep_their_packaged_pipeline_configs() -> None:
-    assert _MODEL_PRESETS["standard"].pipeline is OMNIDREAMS_PIPELINE_CONFIG
-    assert _MODEL_PRESETS["perf"].pipeline is OMNIDREAMS_PERF_PIPELINE_CONFIG
-    assert _MODEL_PRESETS["fast-perf"].pipeline is _FAST_PERF_PIPELINE
-    assert not _MODEL_PRESETS["standard"].renderer_follows_session
-    assert not _MODEL_PRESETS["perf"].renderer_follows_session
+def test_model_adapters_keep_their_packaged_pipeline_configs() -> None:
+    assert (
+        OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS.pipeline_config is OMNIDREAMS_PIPELINE_CONFIG
+    )
+    assert (
+        OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS.pipeline_config
+        is OMNIDREAMS_PERF_PIPELINE_CONFIG
+    )
+    assert (
+        OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS.pipeline_config
+        is OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    )
 
 
 def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
-    preset = _MODEL_PRESETS["fast-perf"]
-    pipeline = preset.pipeline
-    assert preset.renderer_follows_session
-    assert pipeline.name == "crazy-robotaxi-fast-perf"
+    pipeline = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    assert pipeline.name == "omnidreams-fast-perf"
     assert pipeline.diffusion_model.seed is None
-    assert pipeline.decoder.use_compile is True
+    assert (
+        pipeline.decoder.use_compile
+        is OMNIDREAMS_PERF_PIPELINE_CONFIG.decoder.use_compile
+    )
     assert pipeline.decoder.use_cuda_graph is True
     assert pipeline.image_encoder.native_vae_acceleration == "required"
     assert pipeline.image_encoder.native_vae_backend == "fp8"
+    assert pipeline.image_encoder.native_vae_fp8_auto_export is True
     assert pipeline.encoder.native_vae_acceleration == "required"
     assert pipeline.encoder.native_vae_backend == "fp8"
+    assert pipeline.encoder.native_vae_fp8_auto_export is True
     assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
     assert (
         pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
@@ -438,7 +493,7 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
 
 
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
-def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
+def test_adapter_dimensions_configure_renderer_geometry(
     resolution_wh: tuple[int, int],
 ) -> None:
     configured: list[object] = []
@@ -450,11 +505,16 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
         raster_sizes.append(size)
         return _scene(width=size[0], height=size[1])
 
-    app = CrazyRobotaxiApplication(
+    app = _application(
+        defaults=replace(
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+            width=resolution_wh[0],
+            height=resolution_wh[1],
+        ),
         pipeline_factory=lambda config, device: configured.append(config) or object(),
         scene_factory=load_test_scene,
     )
-    app.init(["--model-preset", "fast-perf", "--device", "cpu"])
+    app.init(["--device", "cpu"])
     desc = replace(
         app.session_desc(),
         video_width=resolution_wh[0],
@@ -469,6 +529,8 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
         GameSelection(mode="taxi", map_option=session._map_options[0])
     )
 
+    assert configured == []
+    model_loop.state.pipeline_factory()
     assert configured == [app._pipeline_config]
     assert raster_sizes == [resolution_wh]
     assert session._config.renderer.raster.resolution_wh == resolution_wh
@@ -484,12 +546,12 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
 
 
 def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
-    app = CrazyRobotaxiApplication()
+    app = _application(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+    )
 
     app.init(
         [
-            "--model-preset",
-            "fast-perf",
             "--seed",
             "7",
             "--no-compile",
@@ -538,7 +600,7 @@ def test_input_latency_profiling_is_an_app_local_opt_in(
     arguments: list[str],
     expected: bool,
 ) -> None:
-    app = CrazyRobotaxiApplication()
+    app = _application()
 
     app.init(arguments)
 
@@ -558,7 +620,7 @@ def test_fps_counter_is_an_app_local_option(
     arguments: list[str],
     expected: bool,
 ) -> None:
-    app = CrazyRobotaxiApplication()
+    app = _application()
 
     app.init(arguments)
 
@@ -568,7 +630,7 @@ def test_fps_counter_is_an_app_local_option(
 
 @pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])
 def test_application_configures_prepresentation_warmup(prewarm_blocks: int) -> None:
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
     )
@@ -579,7 +641,7 @@ def test_application_configures_prepresentation_warmup(prewarm_blocks: int) -> N
 
 
 def test_application_rejects_negative_prewarm_blocks() -> None:
-    app = CrazyRobotaxiApplication()
+    app = _application()
 
     with pytest.raises(ValueError, match="must be non-negative"):
         app.init(["--prewarm-blocks", "-1"])
@@ -606,7 +668,7 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
             return
 
     monkeypatch.setattr("crazy_robotaxi.session.WorldModelRollout", FakeRollout)
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
     )
@@ -681,7 +743,7 @@ def test_taxi_physics_forwards_forced_controller_refresh() -> None:
 
 
 def test_application_rejects_geometry_the_model_does_not_produce() -> None:
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
     )
@@ -701,7 +763,7 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
 
 
 def test_application_rejects_mismatched_generation_rate() -> None:
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
     )
@@ -712,7 +774,7 @@ def test_application_rejects_mismatched_generation_rate() -> None:
 
 
 def test_application_forces_continuous_presentation_for_interactive_input() -> None:
-    app = CrazyRobotaxiApplication(
+    app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
     )

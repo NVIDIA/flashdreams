@@ -15,7 +15,7 @@ pytestmark = pytest.mark.ci_cpu
 
 @pytest.mark.parametrize(
     "filename",
-    ["minimal_loop.robotaxi.yaml", "boulevard_district.robotaxi.yaml"],
+    ["boulevard_district.robotaxi.yaml", "flashdreams_raceway.robotaxi.yaml"],
 )
 def test_shipped_map_is_valid(filename: str) -> None:
     path = Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / filename

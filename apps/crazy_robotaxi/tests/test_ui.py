@@ -288,15 +288,9 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
         snapshots,
         poses,
         transition_timestamps_us=(100, 200),
-        input_transition_count=4,
-        input_ignored_event_count=2,
-        input_coalesced_transition_count=1,
     )
 
     assert [frame.transition_timestamp_us for frame in frames] == [100, 200]
-    assert frames[0].input_transition_count == 4
-    assert frames[0].input_ignored_event_count == 2
-    assert frames[0].input_coalesced_transition_count == 1
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
@@ -458,9 +452,10 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
 
     result = loop.step(0, UserInputEvents([]))
 
+    output = result.read_output()
     assert changed
-    assert result.output.shape == (1, 3, height, width)
-    assert result.output.dtype is torch.float32
+    assert output.shape == (1, 3, height, width)
+    assert output.dtype is torch.float32
     assert hud_state._current is not None
     assert "SCORE  001200    HIGH  009000" in renderer.ui.windows["Crazy Robotaxi"]
     assert "Navigation" not in renderer.ui.windows
@@ -478,9 +473,9 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert "triangle_filled" in command_names
     assert "circle_filled" in command_names
     top, left, panel_height, panel_width = hud_state._bev_rect or (0, 0, 0, 0)
-    panel = result.output[0, :, top : top + panel_height, left : left + panel_width]
+    panel = output[0, :, top : top + panel_height, left : left + panel_width]
     assert torch.allclose(panel, torch.full_like(panel, 191.0 / 127.5 - 1.0))
-    outside = result.output[0].clone()
+    outside = output[0].clone()
     outside[:, top : top + panel_height, left : left + panel_width] = -0.5
     assert torch.all(outside == video[0])
 
@@ -832,9 +827,6 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
             (_snapshot(),),
             np.eye(4, dtype=np.float32)[None],
             transition_timestamps_us=(100,),
-            input_transition_count=1,
-            input_ignored_event_count=2,
-            input_coalesced_transition_count=0,
         )
     )
 
@@ -846,8 +838,6 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
     diagnostics = imgui.windows["Input Latency"]
     assert "A [X]" in diagnostics[0]
     assert "UI TO MODEL FRAME" in diagnostics[1]
-    assert "TRANSITIONS  1" in diagnostics[2]
-    assert "IGNORED  2" in diagnostics[2]
 
     state.reset()
     assert not state._profile_pressed
@@ -879,7 +869,6 @@ def test_input_latency_profile_correlates_gamepad_state() -> None:
             (_snapshot(),),
             np.eye(4, dtype=np.float32)[None],
             transition_timestamps_us=(200,),
-            input_transition_count=1,
         )
     )
 

@@ -15,6 +15,8 @@ from pathlib import Path
 
 from filelock import FileLock
 from loguru import logger
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
+
 
 _CSV_FIELDS = ("name", "score", "achieved_at_utc")
 _RACE_CSV_FIELDS = (
@@ -45,16 +47,12 @@ def format_race_time_us(elapsed_time_us: int) -> str:
 
 def default_high_scores_path() -> Path:
     """Return the default persistent taxi leaderboard path."""
-    from omnidreams.impl.scenes import FLASHDREAMS_CACHE_DIR
-
-    return FLASHDREAMS_CACHE_DIR / "crazy-robotaxi" / "highscores.csv"
+    return default_flashdreams_cache_dir() / "crazy-robotaxi" / "highscores.csv"
 
 
 def default_race_times_path() -> Path:
     """Return the default persistent race leaderboard path."""
-    from omnidreams.impl.scenes import FLASHDREAMS_CACHE_DIR
-
-    return FLASHDREAMS_CACHE_DIR / "crazy-robotaxi" / "race_times.csv"
+    return default_flashdreams_cache_dir() / "crazy-robotaxi" / "race_times.csv"
 
 
 def validate_player_name(name: str) -> str:

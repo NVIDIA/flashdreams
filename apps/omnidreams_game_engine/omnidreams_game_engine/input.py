@@ -1,13 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Latest-state V2 input handling for model-thread driving."""
+"""Retained V2 input state for model-thread driving."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from flashdreams.runtime.keyboard import normalize_key
+from flashdreams.runtime_v2.input_timeline import InputWindow
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
     KeyboardInputState,
@@ -18,32 +21,17 @@ from omnidreams_game_engine.types import DriverCommand
 
 
 @dataclass(frozen=True, slots=True)
-class DriverInputBatch:
-    """Latest driving command repeated across one model step."""
+class _DriverTransition:
+    """One timestamped change to the effective driving command."""
 
-    commands: tuple[DriverCommand, ...]
-    """Frame-aligned copies of the current driving command."""
-
-    transition_timestamps_us: tuple[int | None, ...]
-    """Newest state transition on the first frame; ``None`` otherwise."""
-
-    transition_count: int
-    """Number of active driving-state transitions applied from this event batch."""
-
-    coalesced_transition_count: int
-    """Earlier transitions collapsed into the latest state for this model step."""
-
-    ignored_event_count: int
-    """Relevant input events that did not change the active driving state."""
+    timestamp_s: float
+    timestamp_us: int
+    command: DriverCommand
 
 
 @dataclass(slots=True)
 class DriverInput:
-    """Current keyboard, gamepad, or wheel driving state for model chunks.
-
-    Unread edges are applied in order, and the resulting command conditions the
-    whole next model chunk.
-    """
+    """Driving input state owned and updated by one runtime loop."""
 
     pressed_keys: set[str] = field(default_factory=set)
     """Normalized keyboard driving keys currently held down."""
@@ -51,48 +39,68 @@ class DriverInput:
     controller_command: DriverCommand | None = None
     """Latest wheel or gamepad command; ``None`` enables keyboard input."""
 
-    def reduce(
-        self,
-        events: UserInputEvents,
-        *,
-        frame_count: int,
-    ) -> DriverInputBatch:
-        """Apply ``events`` and repeat the latest command for every model frame."""
-        if frame_count <= 0:
-            raise ValueError("frame_count must be positive")
-        transition_count = 0
-        ignored_event_count = 0
-        latest_transition_timestamp_us: int | None = None
+    _sampled_command: DriverCommand = field(
+        default_factory=DriverCommand,
+        init=False,
+        repr=False,
+    )
+    _pending_transitions: list[_DriverTransition] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
+
+    def apply(self, events: UserInputEvents) -> tuple[float, ...]:
+        """Retain new input and return command-transition times in seconds."""
+        input_times_s: list[float] = []
         for event in events.get_events():
             before = self.command()
             if not self._apply_event(event):
-                if isinstance(
-                    event,
-                    (
-                        KeyboardUserInputEvent,
-                        GamepadUserInputEvent,
-                        GameWheelUserInputEvent,
-                    ),
-                ):
-                    ignored_event_count += 1
                 continue
-            if self.command() == before:
-                ignored_event_count += 1
+            command = self.command()
+            if command == before:
                 continue
-            transition_count += 1
-            latest_transition_timestamp_us = int(event.get_timestamp())
+            timestamp_us = int(event.get_timestamp())
+            timestamp_s = timestamp_us / 1_000_000.0
+            self._pending_transitions.append(
+                _DriverTransition(timestamp_s, timestamp_us, command)
+            )
+            input_times_s.append(timestamp_s)
+        return tuple(input_times_s)
 
-        command = self.command()
-        transition_timestamps_us = (latest_transition_timestamp_us,) + (None,) * (
-            frame_count - 1
+    def sample(
+        self,
+        window: InputWindow,
+    ) -> tuple[tuple[DriverCommand, ...], tuple[int | None, ...]]:
+        """Quantize retained transitions to frame starts in ``window``."""
+        transitions = sorted(
+            self._pending_transitions,
+            key=lambda transition: transition.timestamp_s,
         )
-        return DriverInputBatch(
-            commands=(command,) * frame_count,
-            transition_timestamps_us=transition_timestamps_us,
-            transition_count=transition_count,
-            coalesced_transition_count=max(0, transition_count - 1),
-            ignored_event_count=ignored_event_count,
-        )
+        self._pending_transitions.clear()
+        command = self._sampled_command
+        transition_index = 0
+        commands: list[DriverCommand] = []
+        transition_timestamps_us: list[int | None] = []
+        # ponytail: controls quantize to one physics frame; integrate timed
+        # segments here if sub-frame inputs become necessary.
+        frame_starts_s = (window.start_s, *window.sample_times_s[:-1])
+        for frame_start_s in frame_starts_s:
+            latest_timestamp_us: int | None = None
+            while (
+                transition_index < len(transitions)
+                and transitions[transition_index].timestamp_s <= frame_start_s
+            ):
+                transition = transitions[transition_index]
+                command = transition.command
+                latest_timestamp_us = transition.timestamp_us
+                transition_index += 1
+            commands.append(command)
+            transition_timestamps_us.append(latest_timestamp_us)
+
+        self._pending_transitions.extend(transitions[transition_index:])
+        self._sampled_command = command
+        return tuple(commands), tuple(transition_timestamps_us)
 
     def command(self) -> DriverCommand:
         """Return the command represented by the current retained input state."""
@@ -107,12 +115,18 @@ class DriverInput:
         return "keyboard" if self.pressed_keys else "idle"
 
     def reset(self) -> None:
-        """Clear every retained input value."""
+        """Clear retained, sampled, and pending driving input."""
         self.pressed_keys.clear()
         self.controller_command = None
+        self._sampled_command = DriverCommand()
+        self._pending_transitions.clear()
 
     def _apply_event(self, event: object) -> bool:
-        """Apply one event using controller-over-keyboard precedence."""
+        if isinstance(event, FocusUserInputEvent):
+            if event.focused:
+                return False
+            self.pressed_keys.clear()
+            return True
         if isinstance(event, KeyboardUserInputEvent):
             key = _normalize_drive_key(event.key)
             if key is None:
@@ -143,33 +157,25 @@ class DriverInput:
 
 def _keyboard_command(pressed_keys: set[str]) -> DriverCommand:
     """Map retained keyboard state to a simulation command."""
-    forward = bool({"w", "up"} & pressed_keys)
-    reverse = bool({"s", "down"} & pressed_keys)
-    opposing_directions = forward and reverse
-    throttle = 1.0 if forward != reverse else 0.0
+    forward = "w" in pressed_keys
+    reverse = "s" in pressed_keys
+    brake = "space" in pressed_keys
     steer = 0.0
-    if {"a", "left"} & pressed_keys:
+    if "a" in pressed_keys:
         steer += 1.0
-    if {"d", "right"} & pressed_keys:
+    if "d" in pressed_keys:
         steer -= 1.0
     return DriverCommand(
-        throttle=throttle,
-        brake=1.0 if opposing_directions else 0.0,
+        throttle=1.0 if forward != reverse and not brake else 0.0,
+        brake=1.0 if brake else 0.0,
         steer=steer,
-        stop="space" in pressed_keys,
         reverse=reverse and not forward,
+        manual_control=brake,
     )
 
 
 def _normalize_drive_key(key: str) -> str | None:
-    key = key.strip().lower()
-    aliases = {
-        "arrowup": "w",
-        "arrowdown": "s",
-        "arrowleft": "a",
-        "arrowright": "d",
-    }
-    key = aliases.get(key, key)
+    key = normalize_key(key)
     return key if key in {"w", "a", "s", "d", "space"} else None
 
 

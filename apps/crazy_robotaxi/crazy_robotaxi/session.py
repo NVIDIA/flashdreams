@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -30,10 +30,12 @@ from crazy_robotaxi.ui import (
 )
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -44,21 +46,29 @@ if TYPE_CHECKING:
     from crazy_robotaxi.application import ApplicationConfig
 
 _LOGGER = logging.getLogger(__name__)
+_GAMEPAD_START_BUTTON_INDEX = 9
+"""Browser-standard gamepad index shared by Start and Nintendo Plus."""
 
 
 @dataclass(slots=True)
 class ModelState:
     """All mutable state owned by the one V2 model thread."""
 
-    pipeline: Any
+    pipeline_factory: Callable[[], Any]
     scene_factory: Callable[[SceneRequest, Any], SceneDefinition]
     """Scene loader invoked after a complete UI selection."""
 
     config: ApplicationConfig
     session_desc: SessionDesc
     driver_input: DriverInput
+    input_timeline: RealtimeInputTimeline = field(init=False)
+    """Frame-rate sampling clock for timestamped driving transitions."""
+
     ui_loop: IUILoop[TaxiHudState]
     """UI-loop endpoint used only through ``invoke_async``."""
+
+    pipeline: Any | None = None
+    """Lazily constructed after the client opens and a game is selected."""
 
     scene: SceneDefinition | None = None
     """Selected immutable scene; ``None`` while the startup menu is active."""
@@ -81,14 +91,10 @@ class ModelState:
     prewarm_wall_ms: float = 0.0
     """Wall time spent in hidden startup generation, excluding rollout creation."""
 
-    input_transition_count: int = 0
-    """Cumulative resolved drive transitions consumed by model steps."""
-
-    input_ignored_event_count: int = 0
-    """Cumulative redundant drive events consumed by model steps."""
-
-    input_coalesced_transition_count: int = 0
-    """Cumulative earlier transitions collapsed into the latest input state."""
+    def __post_init__(self) -> None:
+        self.input_timeline = RealtimeInputTimeline(
+            samples_per_second=self.session_desc.frames_per_second_for_step,
+        )
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
@@ -98,6 +104,9 @@ class ModelState:
                 raise RuntimeError(
                     "Select a game mode and map before starting a rollout"
                 )
+            if self.pipeline is None:
+                self._set_loading_status("LOADING WORLD MODEL")
+                self.pipeline = self.pipeline_factory()
             frame_interval_s = 1.0 / self.session_desc.frames_per_second_for_step
             self.rollout = WorldModelRollout(
                 pipeline=self.pipeline,
@@ -249,9 +258,8 @@ class ModelState:
         self.last_video = None
         self.last_bev = None
         self.last_pose = None
-        self.input_transition_count = 0
-        self.input_ignored_event_count = 0
-        self.input_coalesced_transition_count = 0
+        self.driver_input.reset()
+        self.input_timeline.reset()
         if self.rollout is not None:
             self.rollout.reset()
 
@@ -260,6 +268,15 @@ class ModelState:
         self.rollout = None
         if rollout is not None:
             rollout.close()
+
+    def shutdown(self) -> None:
+        """Close the active rollout and process-lifetime model pipeline."""
+        self.close()
+        pipeline = self.pipeline
+        self.pipeline = None
+        close = getattr(pipeline, "close", None)
+        if callable(close):
+            close()
 
     def submit_player_name(self, name: str) -> None:
         """Submit a UI-validated leaderboard name on the model thread."""
@@ -274,7 +291,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         state = self.state
         # Match Interactive Drive: apply every unread edge before rollout setup,
         # reset handling, or simulation reads the retained command.
-        input_batch = state.driver_input.reduce(events, frame_count=1)
+        input_times_s = state.driver_input.apply(events)
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
@@ -298,15 +315,18 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 if live_edit.style is not None:
                     live_edit.style.before_v2_chunk()
             frame_count = rollout.frame_count(state.blocks_generated)
-            state.input_transition_count += input_batch.transition_count
-            state.input_ignored_event_count += input_batch.ignored_event_count
-            state.input_coalesced_transition_count += (
-                input_batch.coalesced_transition_count
+            input_window = state.input_timeline.next_window(
+                frame_count,
+                input_times_s=input_times_s,
             )
-            command = _taxi_driver_command(state.driver_input)
+            sampled_commands, transition_timestamps_us = state.driver_input.sample(
+                input_window
+            )
             generated = rollout.step(
                 autoregressive_index=state.blocks_generated,
-                commands=(command,) * frame_count,
+                commands=tuple(
+                    _taxi_driver_command(command) for command in sampled_commands
+                ),
             )
             if live_edit is not None and live_edit.style is not None:
                 live_edit.style.after_v2_chunk()
@@ -327,18 +347,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             poses = engine_step.trajectory.rig_poses_world
             bev = engine_step.condition.bev_tchw
             metrics = dict(generated.metrics)
-            metrics.update(
-                {
-                    "input_transition_count": input_batch.transition_count,
-                    "input_ignored_event_count": input_batch.ignored_event_count,
-                    "input_coalesced_transition_count": (
-                        input_batch.coalesced_transition_count
-                    ),
-                }
-            )
-            transition_timestamps_us = input_batch.transition_timestamps_us + (
-                None,
-            ) * (int(video.shape[0]) - 1)
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
@@ -360,9 +368,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             game_frames,
             poses,
             transition_timestamps_us=transition_timestamps_us,
-            input_transition_count=state.input_transition_count,
-            input_ignored_event_count=state.input_ignored_event_count,
-            input_coalesced_transition_count=(state.input_coalesced_transition_count),
         )
         invoke_async(
             state.ui_loop,
@@ -451,7 +456,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         self.state.reset()
 
     def close(self) -> None:
-        self.state.close()
+        self.state.shutdown()
 
 
 class CrazyRobotaxiSession(ISession):
@@ -460,13 +465,13 @@ class CrazyRobotaxiSession(ISession):
     def __init__(
         self,
         *,
-        pipeline: Any,
+        pipeline_factory: Callable[[], Any],
         scene_factory: Callable[[SceneRequest, Any], SceneDefinition],
         map_options: tuple[GameMapOption, ...],
         config: ApplicationConfig,
         session_desc: SessionDesc,
     ) -> None:
-        self._pipeline = pipeline
+        self._pipeline_factory = pipeline_factory
         self._scene_factory = scene_factory
         self._map_options = map_options
         self._config = config
@@ -503,7 +508,7 @@ class CrazyRobotaxiSession(ISession):
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
             state=ModelState(
-                pipeline=self._pipeline,
+                pipeline_factory=self._pipeline_factory,
                 scene_factory=self._scene_factory,
                 config=self._config,
                 session_desc=self._session_desc,
@@ -516,18 +521,26 @@ class CrazyRobotaxiSession(ISession):
 
 
 def _restart_requested(events: UserInputEvents) -> bool:
-    """Return whether this model step received a pressed R key."""
-    return any(
-        isinstance(event, KeyboardUserInputEvent)
-        and event.state is KeyboardInputState.PRESSED
-        and str(event.key).strip().lower() == "r"
-        for event in events.get_events()
-    )
+    """Return whether this model step received a keyboard or gamepad restart."""
+    for event in events.get_events():
+        if (
+            isinstance(event, KeyboardUserInputEvent)
+            and event.state is KeyboardInputState.PRESSED
+            and str(event.key).strip().lower() == "r"
+        ):
+            return True
+        if (
+            isinstance(event, GamepadUserInputEvent)
+            and event.action == "state"
+            and len(event.pressed) > _GAMEPAD_START_BUTTON_INDEX
+            and event.pressed[_GAMEPAD_START_BUTTON_INDEX]
+        ):
+            return True
+    return False
 
 
-def _taxi_driver_command(driver_input: DriverInput) -> DriverCommand:
+def _taxi_driver_command(command: DriverCommand) -> DriverCommand:
     """Restore Crazy Robotaxi's keyboard handbrake over shared drive input."""
-    command = driver_input.command()
-    if "space" not in driver_input.pressed_keys:
+    if not command.manual_control or command.steer_is_direct or command.brake <= 0.0:
         return command
     return replace(command, throttle=0.0, stop=False, handbrake=True)

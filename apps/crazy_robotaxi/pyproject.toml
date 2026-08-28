@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "flashdreams[local-window]",
-    "flashdreams-omnidreams",
     "omnidreams-game-engine",
     "torch",
 ]
@@ -18,12 +17,8 @@ dependencies = [
 [project.scripts]
 crazy-robotaxi-map = "crazy_robotaxi.map_tool:main"
 
-[project.entry-points."flashdreams.applications_v2"]
-crazy-robotaxi = "crazy_robotaxi:create_app"
-
 [tool.uv.sources]
 flashdreams = { workspace = true }
-flashdreams-omnidreams = { workspace = true }
 omnidreams-game-engine = { workspace = true }
 
 [project.optional-dependencies]
@@ -35,7 +30,6 @@ include = ["crazy_robotaxi*"]
 [tool.setuptools.package-data]
 crazy_robotaxi = [
     "assets/*.npz",
-    "configs/*.yaml",
     "maps/*.robotaxi.yaml",
 ]
 

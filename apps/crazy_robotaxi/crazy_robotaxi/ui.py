@@ -102,15 +102,6 @@ class TaxiHudFrame:
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
 
-    input_transition_count: int = 0
-    """Cumulative resolved drive transitions consumed by the model loop."""
-
-    input_ignored_event_count: int = 0
-    """Cumulative redundant drive events ignored by the model loop."""
-
-    input_coalesced_transition_count: int = 0
-    """Cumulative earlier transitions collapsed into the latest input state."""
-
 
 @dataclass(slots=True)
 class TaxiHudState:
@@ -311,13 +302,10 @@ class TaxiHudState:
         self._reported_input_timestamps_us.add(timestamp_us)
         self._latest_input_latency_ms = (time.perf_counter() - received_at_s) * 1000.0
         _LOGGER.info(
-            "[crazy-robotaxi] input-to-model-frame latency: event_us=%d "
-            "ui_to_frame_ms=%.1f transitions=%d ignored=%d coalesced=%d",
+            "[crazy-robotaxi] input-to-model-frame latency: "
+            "event_us=%d ui_to_frame_ms=%.1f",
             timestamp_us,
             self._latest_input_latency_ms,
-            selected.input_transition_count,
-            selected.input_ignored_event_count,
-            selected.input_coalesced_transition_count,
         )
 
     def set_loading_status(self, status: str) -> None:
@@ -1078,16 +1066,7 @@ class TaxiHudState:
                 ("SPACE", {"space"}),
             )
         )
-        current = self._current
         latency = self._latest_input_latency_ms
-        if current is None:
-            counts = "TRANSITIONS  0    IGNORED  0    COALESCED  0"
-        else:
-            counts = (
-                f"TRANSITIONS  {current.input_transition_count}    "
-                f"IGNORED  {current.input_ignored_event_count}    "
-                f"COALESCED  {current.input_coalesced_transition_count}"
-            )
         latency_label = (
             "UI TO MODEL FRAME  --"
             if latency is None
@@ -1098,7 +1077,7 @@ class TaxiHudState:
             "Input Latency",
             position=(14.0, float(max(14, self.height - 124))),
             size=(440.0, 110.0),
-            lines=(input_state, latency_label, counts),
+            lines=(input_state, latency_label),
         )
 
     def _draw_terminal(
@@ -1221,9 +1200,6 @@ def build_hud_frames(
     rig_poses_world: npt.NDArray[np.float32],
     *,
     transition_timestamps_us: Sequence[int | None] | None = None,
-    input_transition_count: int = 0,
-    input_ignored_event_count: int = 0,
-    input_coalesced_transition_count: int = 0,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -1248,9 +1224,6 @@ def build_hud_frames(
                 snapshot=snapshot,
                 rig_pose_world=pose,
                 transition_timestamp_us=transition_timestamps_us[index],
-                input_transition_count=input_transition_count,
-                input_ignored_event_count=input_ignored_event_count,
-                input_coalesced_transition_count=input_coalesced_transition_count,
             )
         )
     return tuple(frames)

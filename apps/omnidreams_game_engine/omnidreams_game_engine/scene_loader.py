@@ -15,7 +15,7 @@ import numpy as np
 import pyarrow.parquet as pq
 import yaml
 from loguru import logger
-from omnidreams.impl.scenes import (
+from interactive_drive.scene_loader import (
     SCENE_FRAME_SUFFIXES,
     SCENE_FRAMES_DIRNAME,
     prompt_variant_for_scene_variant,

@@ -16,25 +16,31 @@ background waypoints, HUD, and BEV window.
 
 ```bash
 uv sync --package crazy-robotaxi
-uv run flashdreams-run-v2 crazy-robotaxi \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams \
   --mode native-window \
   --window-title "Crazy Robotaxi"
 ```
+
+`crazy-robotaxi-omnidreams` is the default app name.
+`crazy-robotaxi-omnidreams-perf` is the performance-optimized app name.
+`crazy-robotaxi-omnidreams-fast-perf` is the fast-performance-optimized app name.
 
 Native-window mode keeps the composited frame on the GPU and presents it in a
 local GLFW window. It requires a local display plus SlangPy's Vulkan/CUDA
 interop support. For a browser client instead, run:
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams --mode webrtc --port 8089
 ```
+
+Open `http://127.0.0.1:8089/`. Add `--host 0.0.0.0` when the browser connects
+through another host, matching Interactive Drive.
 
 Application arguments follow `--`:
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
-  --map /path/to/city.robotaxi.yaml \
-  --model-preset perf \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams-perf --mode webrtc -- \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml \
   --game-time-s 90
 ```
 
@@ -44,7 +50,7 @@ the selected course. The configured `--map` is listed first; the menu also
 discovers bundled maps and `.robotaxi.yaml` maps beside that configured file.
 Map compilation and scene loading begin only after the menu choice.
 
-Use `flashdreams-run-v2 crazy-robotaxi -- --help` for the complete application
+Use `flashdreams-run-v2 crazy-robotaxi-omnidreams -- --help` for the complete application
 options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. A
 standard gamepad uses the left stick for steering and the right/left triggers
 for throttle/brake. V2 game-wheel events use their normalized steering,
@@ -59,37 +65,6 @@ targets or an off-map direction arrow on the BEV. Leaderboard name entry is
 owned by the Dear ImGui UI and submitted to the model loop through V2's
 asynchronous loop-message contract.
 
-## Layered configuration
-
-Crazy Robotaxi accepts strict, partial `schema_version: 1` configuration files:
-
-- `--engine-config` covers the map request, model preset, renderer, and V2
-  runtime diagnostics.
-- `--game-config` covers taxi/race mode, rules, vehicle physics, persistence,
-  and live-edit abilities.
-
-Settings resolve from packaged typed defaults, then YAML, then explicitly
-supplied application flags. Omitted YAML fields retain their lower-precedence
-values, unknown keys are errors, and relative paths inside YAML resolve beside
-that file. The legacy `--renderer-config` option remains available as an
-explicit compatibility layer.
-
-The checked-in `example_engine_config.yaml` and `example_game_config.yaml`
-show the complete V2 surface:
-
-```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
-  --engine-config \
-    apps/crazy_robotaxi/crazy_robotaxi/configs/example_engine_config.yaml \
-  --game-config \
-    apps/crazy_robotaxi/crazy_robotaxi/configs/example_game_config.yaml \
-  --model-preset perf
-```
-
-Here `--model-preset perf` wins over the value in the engine YAML. Maps remain
-separate authoritative `.robotaxi.yaml` documents referenced by path; layered
-configuration does not copy or reinterpret map content.
-
 ## Race mode
 
 Authored maps may define ordered race courses using the same schema and map
@@ -97,7 +72,7 @@ files as the original Crazy Robotaxi branch. Put the bundled demonstration map
 first in the selection screen with:
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window -- \
   --map apps/crazy_robotaxi/crazy_robotaxi/maps/demo_race_track.robotaxi.yaml \
   --game-mode race
 ```
@@ -115,7 +90,7 @@ weather, and `O` spawns a crossing-obstacle event. Effect items can trigger
 rain, snow, a timed mystery skin, or a physics-authoritative nitro boost.
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode native-window -- \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window -- \
   --live-edit-coins \
   --live-edit-items \
   --live-edit-weather \
@@ -131,12 +106,10 @@ native preset is selected. All abilities are disabled by default.
 
 ## Maximum-performance preset
 
-Crazy Robotaxi exposes the public OmniDreams `standard` and `perf` pipeline
-configs unchanged. Its only app-specific model preset is `fast-perf`, which
-derives from the public OmniDreams perf config and adds the native FP8 LightVAE
-image and per-chunk encoders. It therefore retains perf's required native FP8
-DiT, cuDNN attention, compiled/CUDA-graphed LightTAE decoder, and two-step
-schedule.
+OmniDreams exposes `standard`, `perf`, and `fast-perf` pipeline configs. Crazy
+Robotaxi selects those model-owned configs directly. `fast-perf` retains perf's
+required native FP8 DiT, cuDNN attention, CUDA-graphed LightTAE decoder, and
+two-step schedule, while preferring the native FP8 LightVAE encoders.
 
 Prepare the native DiT sources once from the repository root:
 
@@ -144,21 +117,20 @@ Prepare the native DiT sources once from the repository root:
 uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 ```
 
-It requires a calibrated LightVAE FP8 state. After generating that state, run:
+Run the fast config directly:
 
 ```bash
-OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH=artifacts/native_vae/lightvae-fp8-state.pt \
-  uv run flashdreams-run-v2 crazy-robotaxi \
-  --mode native-window \
-  --pixel-width 1168 \
-  --pixel-height 640 \
-  -- \
-  --model-preset fast-perf
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
+  --mode native-window
 ```
 
-The native DiT sources must also have been prepared as described above. The
-resolution flags are optional; `fast-perf` adapts the app renderer to the V2
-session dimensions. GPU throughput and quality should be validated on the
+On its first launch, `fast-perf` downloads the public OmniDreams sample,
+calibrates the native FP8 LightVAE, and atomically caches the result at
+`artifacts/native_vae/lightvae_fp8_state.pt`. Later launches reuse that file.
+Set `OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH` to override the cache location.
+
+The native DiT sources must also have been prepared as described above. GPU
+throughput and quality should be validated on the
 target machine before treating it as a regression baseline.
 
 ## Performance diagnostics
@@ -168,7 +140,7 @@ timings during normal play. Capture synchronized model-step and GPU-stage
 diagnostics while reproducing a chunk pause with:
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams --mode webrtc \
   --stats-path /tmp/crazy-robotaxi-stats.json -- \
   --profile-pipeline
 ```
@@ -206,20 +178,18 @@ like-for-like `fast-perf` rerun needed after presentation changes.
 
 Presentation remains fixed at 30 fps. Disabling diagnostic synchronization
 removes an avoidable pause source, but it does not make a model preset whose
-steady-state throughput is below 30 fps meet that rate; use `--model-preset
-perf` when its quality/performance tradeoff is appropriate.
+steady-state throughput is below 30 fps meet that rate; use the
+`crazy-robotaxi-omnidreams-perf` app when that tradeoff is appropriate.
 
 Profile interactive input separately with:
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
-  --model-preset perf \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams-perf --mode webrtc -- \
   --profile-input-latency
 ```
 
 This opt-in adds a UI-thread key indicator and logs the time from V2 UI event
-receipt to the first presented model frame carrying that transition. It also
-shows applied, ignored, and coalesced transition counts. The normal
+receipt to the first presented model frame carrying that transition. The normal
 HUD does not construct these widgets when the flag is absent. The indicator's
 physical-key-to-browser delay still includes WebRTC transport latency, while
 the reported `UI TO MODEL FRAME` value isolates the synchronous app/model
@@ -239,7 +209,7 @@ it does not reduce total cold-start time. Disable it for comparisons or startup
 debugging with:
 
 ```bash
-uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams --mode webrtc -- \
   --prewarm-blocks 0
 ```
 
