@@ -223,6 +223,17 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     """Single-view example clip to pull from :data:`EXAMPLE_DATA_HF_REPO`.
     Ignored for multi-view or when paths are already populated."""
 
+    drift_corrector: Path | None = None
+    """Clean Forcing drift-corrector LoRA checkpoint. ``None`` (default)
+    disables correction and is byte-identical to current behavior. When
+    set, the corrector deploys at ``alpha*(t) * drift_corrector_gain`` per
+    denoise step (see ``omnidreams/_drift_corrector.py``). Shipped config:
+    the ``lora_v2_v3_valpeak.pt`` release checkpoint at the default gain."""
+
+    drift_corrector_gain: float = 0.25
+    """Global gain composed with the per-step ``alpha*(t)`` gate profile;
+    the shipped configuration (``corrgate025``) is 0.25."""
+
 
 class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
     """Streaming HDMap-conditioned I2V driver."""
@@ -238,6 +249,13 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
         )
         if cfg.example_data:
             self._fill_example_data_defaults()
+        if cfg.drift_corrector is not None:
+            from omnidreams._drift_corrector import apply_drift_corrector
+
+            mode = apply_drift_corrector(
+                self, cfg.drift_corrector, cfg.drift_corrector_gain
+            )
+            logger.info(f"[{cfg.runner_name}] drift corrector: {mode}")
         if cfg.save_embeddings_path is not None:
             self._run_save_embeddings(cfg.save_embeddings_path)
             return
