@@ -26,6 +26,7 @@ from crazy_robotaxi.session import (
     CrazyRobotaxiSession,
     ModelState,
     _restart_requested,
+    _taxi_driver_command,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
 from omnidreams.config import (
@@ -33,6 +34,7 @@ from omnidreams.config import (
     OMNIDREAMS_PIPELINE_CONFIG,
 )
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
@@ -44,6 +46,7 @@ from omnidreams_game_engine.types import (
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
+from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
@@ -115,8 +118,9 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     ui_loop, model_loop = session._take_loops()
 
     assert desc.output_layout is VideoTensorLayout.tchw
-    assert desc.frames_per_second_for_ui == 30
+    assert desc.frames_per_second_for_ui == 60
     assert desc.frames_per_second_for_step == 30
+    assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert session._presentation_manager._presentation_stream is None
@@ -272,6 +276,53 @@ def test_pressed_r_requests_a_v2_game_restart() -> None:
     assert not _restart_requested(UserInputEvents([released]))
 
 
+def test_model_input_is_applied_before_rollout_work() -> None:
+    class InputOrderVerified(Exception):
+        pass
+
+    class ProbeState:
+        game_selected = True
+
+        def __init__(self) -> None:
+            self.driver_input = DriverInput()
+
+        def ensure_rollout(self) -> None:
+            assert self.driver_input.command().throttle == 1.0
+            raise InputOrderVerified
+
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="w",
+        state=KeyboardInputState.PRESSED,
+    )
+    loop = CrazyRobotaxiModelLoop()
+    loop.state = cast(Any, ProbeState())
+
+    with pytest.raises(InputOrderVerified):
+        loop.step(0, UserInputEvents([pressed]))
+
+
+def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:
+    driver_input = DriverInput()
+    driver_input.reduce(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="space",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        ),
+        frame_count=1,
+    )
+
+    command = _taxi_driver_command(driver_input)
+
+    assert command.handbrake
+    assert not command.stop
+
+
 def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
     snapshot = TaxiGameSnapshot(
         phase="seeking_pickup",
@@ -314,7 +365,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
                 video_width=4,
             ),
         ),
-        driver_input=cast(Any, object()),
+        driver_input=DriverInput(),
         ui_loop=cast(Any, ui_loop),
         rollout=cast(Any, rollout),
         last_video=torch.zeros(1, 3, 4, 4),
@@ -649,16 +700,7 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
         app.create_session(desc)
 
 
-@pytest.mark.parametrize(
-    "override",
-    [
-        {"frames_per_second_for_step": 60},
-        {"frames_per_second_for_ui": 60},
-    ],
-)
-def test_application_rejects_mismatched_generation_or_ui_rate(
-    override: dict[str, int],
-) -> None:
+def test_application_rejects_mismatched_generation_rate() -> None:
     app = CrazyRobotaxiApplication(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -666,4 +708,21 @@ def test_application_rejects_mismatched_generation_or_ui_rate(
     app.init([])
 
     with pytest.raises(ValueError, match="30 frames per second"):
-        app.create_session(replace(app.session_desc(), **override))
+        app.create_session(replace(app.session_desc(), frames_per_second_for_step=60))
+
+
+def test_application_forces_continuous_presentation_for_interactive_input() -> None:
+    app = CrazyRobotaxiApplication(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init([])
+
+    session = app.create_session(
+        replace(
+            app.session_desc(),
+            presentation_mode=PresentationMode.ON_DEMAND,
+        )
+    )
+
+    assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS

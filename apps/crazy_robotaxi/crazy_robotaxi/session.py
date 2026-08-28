@@ -243,7 +243,6 @@ class ModelState:
         )
 
     def reset(self) -> None:
-        self.driver_input.reset()
         self.blocks_generated = 0
         self.finished = False
         self.realtime_miss_count = 0
@@ -273,6 +272,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         state = self.state
+        # Match Interactive Drive: apply every unread edge before rollout setup,
+        # reset handling, or simulation reads the retained command.
+        input_batch = state.driver_input.reduce(events, frame_count=1)
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
@@ -296,18 +298,15 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 if live_edit.style is not None:
                     live_edit.style.before_v2_chunk()
             frame_count = rollout.frame_count(state.blocks_generated)
-            input_batch = state.driver_input.reduce(
-                events,
-                frame_count=frame_count,
-            )
             state.input_transition_count += input_batch.transition_count
             state.input_ignored_event_count += input_batch.ignored_event_count
             state.input_coalesced_transition_count += (
                 input_batch.coalesced_transition_count
             )
+            command = _taxi_driver_command(state.driver_input)
             generated = rollout.step(
                 autoregressive_index=state.blocks_generated,
-                commands=input_batch.commands,
+                commands=(command,) * frame_count,
             )
             if live_edit is not None and live_edit.style is not None:
                 live_edit.style.after_v2_chunk()
@@ -337,7 +336,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     ),
                 }
             )
-            transition_timestamps_us = input_batch.transition_timestamps_us
+            transition_timestamps_us = input_batch.transition_timestamps_us + (
+                None,
+            ) * (int(video.shape[0]) - 1)
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
@@ -361,9 +362,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             transition_timestamps_us=transition_timestamps_us,
             input_transition_count=state.input_transition_count,
             input_ignored_event_count=state.input_ignored_event_count,
-            input_coalesced_transition_count=(
-                state.input_coalesced_transition_count
-            ),
+            input_coalesced_transition_count=(state.input_coalesced_transition_count),
         )
         invoke_async(
             state.ui_loop,
@@ -515,6 +514,7 @@ class CrazyRobotaxiSession(ISession):
         hud_state.model_loop = model_loop
         hud_state.initialize_selection()
 
+
 def _restart_requested(events: UserInputEvents) -> bool:
     """Return whether this model step received a pressed R key."""
     return any(
@@ -523,3 +523,11 @@ def _restart_requested(events: UserInputEvents) -> bool:
         and str(event.key).strip().lower() == "r"
         for event in events.get_events()
     )
+
+
+def _taxi_driver_command(driver_input: DriverInput) -> DriverCommand:
+    """Restore Crazy Robotaxi's keyboard handbrake over shared drive input."""
+    command = driver_input.command()
+    if "space" not in driver_input.pressed_keys:
+        return command
+    return replace(command, throttle=0.0, stop=False, handbrake=True)

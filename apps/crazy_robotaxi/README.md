@@ -45,7 +45,7 @@ discovers bundled maps and `.robotaxi.yaml` maps beside that configured file.
 Map compilation and scene loading begin only after the menu choice.
 
 Use `flashdreams-run-v2 crazy-robotaxi -- --help` for the complete application
-options. Drive with W/A/S/D or the arrow keys; Space stops the vehicle. A
+options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. A
 standard gamepad uses the left stick for steering and the right/left triggers
 for throttle/brake. V2 game-wheel events use their normalized steering,
 throttle, and brake values directly. A connected controller takes precedence

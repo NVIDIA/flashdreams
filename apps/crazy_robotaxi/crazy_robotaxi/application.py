@@ -52,13 +52,16 @@ from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ROOT = Path(__file__).resolve().parent
 _DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
 _VIDEO_FPS = 30
-"""Generation and UI cadence; each UI tick advances one generated frame."""
+"""Generated-video cadence required by the model."""
+
+_UI_FPS = 60
+"""Input polling and HUD cadence used by Interactive Drive."""
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -188,7 +191,7 @@ class CrazyRobotaxiApplication(IApplication):
         )
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
-            frames_per_second_for_ui=_VIDEO_FPS,
+            frames_per_second_for_ui=_UI_FPS,
             frames_per_second_for_step=_VIDEO_FPS,
             video_width=raster.width,
             video_height=raster.height,
@@ -406,13 +409,8 @@ class CrazyRobotaxiApplication(IApplication):
             raise RuntimeError("init() must run before create_session()")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Crazy Robotaxi produces tchw output")
-        if (
-            session_desc.frames_per_second_for_ui != _VIDEO_FPS
-            or session_desc.frames_per_second_for_step != _VIDEO_FPS
-        ):
-            raise ValueError(
-                "Crazy Robotaxi generates and presents video at 30 frames per second"
-            )
+        if session_desc.frames_per_second_for_step != _VIDEO_FPS:
+            raise ValueError("Crazy Robotaxi generates video at 30 frames per second")
         actual = session_desc.video_width, session_desc.video_height
         if config.renderer_follows_session:
             config = replace(
@@ -471,7 +469,10 @@ class CrazyRobotaxiApplication(IApplication):
             scene_factory=self._scene_factory,
             map_options=self._map_options,
             config=config,
-            session_desc=session_desc,
+            session_desc=replace(
+                session_desc,
+                presentation_mode=PresentationMode.CONTINUOUS,
+            ),
         )
 
     def close(self) -> None:
