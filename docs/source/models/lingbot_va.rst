@@ -44,6 +44,16 @@ The FlashDreams integration implements the pinned RoboTwin image-to-video-action
 (I2AV) path as an offline, batch-one rollout. It does not implement the upstream
 closed-loop observation-feedback or asynchronous motor-execution system.
 
+This limitation is specific to the FlashDreams adapter. The pinned upstream
+repository also contains a
+`RoboTwin evaluator
+<https://github.com/Robbyant/lingbot-va/blob/7c6ffa9bfc4b83582cafc860fab4c82cc7deeeeb/evaluation/robotwin/eval_polict_client_openpi.py#L542-L609>`_
+and `model server
+<https://github.com/Robbyant/lingbot-va/blob/7c6ffa9bfc4b83582cafc860fab4c82cc7deeeeb/wan_va/wan_va_server.py#L572-L627>`_
+that execute action chunks, capture actual simulator observations, and feed the
+observations and executed state back into the model cache. That environment and
+execution bridge is not included here.
+
 Supported FlashDreams method
 ----------------------------
 
@@ -140,6 +150,50 @@ Let ``N`` be the positive ``--num-chunks`` value. One model step returns:
 
 MP4, NumPy action, and JSON metric serialization are provided by generic V2
 runtime sinks rather than model-specific file handling.
+
+The 16 action columns are relative two-arm RoboTwin commands:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Columns
+     - Meaning
+   * - ``0..2``
+     - Left end-effector x/y/z translation delta
+   * - ``3..6``
+     - Left relative quaternion x/y/z/w
+   * - ``7``
+     - Left gripper command
+   * - ``8..10``
+     - Right end-effector x/y/z translation delta
+   * - ``11..14``
+     - Right relative quaternion x/y/z/w
+   * - ``15``
+     - Right gripper command
+
+The upstream evaluator composes the relative poses with the episode's initial
+end-effector poses and normalizes the resulting quaternions before simulator
+execution. FlashDreams emits the denormalized relative values and does not
+perform pose composition or actuation.
+
+Inspecting action outputs
+-------------------------
+
+The integration supplies a model-specific inspector that validates a committed
+tensor-artifact directory, plots both arms' translation/quaternion/gripper
+channels, and can export named CSV columns:
+
+.. code-block:: bash
+
+   uv run --project integrations/lingbot_va --extra visualization \
+       lingbot-va-visualize-actions outputs/lingbot_va \
+       --output outputs/lingbot_va/actions.png \
+       --csv-output outputs/lingbot_va/actions.csv
+
+A direct ``actions.npy`` path from an older validation run is also accepted.
+The plot is a diagnostic for inspection and batch comparison; it is not a task
+success, physical-validity, or robot-safety evaluation.
 
 Model details
 -------------
@@ -279,12 +333,13 @@ Matched resident and offloaded two-chunk runs used default CFG, 25 video steps,
      - 37.07 GiB
 
 Both runs returned finite video ``[13, 3, 256, 320]`` and actions
-``[64, 16]`` with byte-identical outputs. Final stacked-PR revalidation passed
-in 34.02 seconds with peak allocation 39,804,413,440 bytes. The action SHA-256
+``[64, 16]`` with byte-identical outputs. Final post-rebase revalidation passed
+in 35.82 seconds, with model-reported total 31.516 seconds and peak allocation
+39,804,413,440 bytes. The action SHA-256
 remained
 ``463b307b667c1ca13a47bbbc5a17f68604621dfe3c3a10fc5860077216928d95``.
 
-These are implementation measurements from 2026-08-25 and 2026-08-26, not
+These are implementation measurements from 2026-08-25 and 2026-08-27, not
 general model-performance or robot-success claims. Full input hashes,
 reproduction commands, phase timings, MP4 metadata, and architectural diagrams
 are maintained in the

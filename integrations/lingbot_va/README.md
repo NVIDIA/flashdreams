@@ -21,6 +21,24 @@ records model identity, checkpoint and data provenance, requirements, intended
 use, safety boundaries, and measured validation evidence. This README focuses
 on package contracts, architecture, and reproduction details.
 
+## Integrated scope versus the upstream policy
+
+This integration deliberately wraps the pinned upstream `generate()` I2AV path:
+one instruction and three initial RGB observations are consumed, then all video
+and action chunks are generated internally. Its V2 `step()` does not consume
+live `UserInputEvents`, simulator observations, or controller input. It is an
+offline rollout generator, not a closed-loop robot-control session.
+
+The distinction is about this adapter, not LingBot-VA as a whole. Pinned
+upstream code also includes a RoboTwin client/server evaluation loop. That loop
+executes an action chunk in the simulator, captures actual keyframe
+observations, and sends both observations and executed state back to the model
+to update its KV cache. See the upstream
+[`eval_polict_client_openpi.py`](https://github.com/Robbyant/lingbot-va/blob/7c6ffa9bfc4b83582cafc860fab4c82cc7deeeeb/evaluation/robotwin/eval_polict_client_openpi.py#L542-L609)
+and [`wan_va_server.py`](https://github.com/Robbyant/lingbot-va/blob/7c6ffa9bfc4b83582cafc860fab4c82cc7deeeeb/wan_va/wan_va_server.py#L572-L627).
+FlashDreams does not port that environment bridge, motor execution, asynchronous
+policy serving, or feedback-cache update path in this PR.
+
 ## Install and run
 
 From the repository root:
@@ -93,11 +111,50 @@ turns `2N` accumulated latent frames into `8N - 3` pixel frames. The decoded
 T layout is cropped to its 256x320 high-camera view. Actions contain 16 selected
 Robotwin channels in the order `0..6, 28, 7..13, 29`.
 
+The emitted columns have these upstream meanings:
+
+| Columns | Meaning |
+| --- | --- |
+| `0..2` | left end-effector translation delta, x/y/z |
+| `3..6` | left relative quaternion, x/y/z/w |
+| `7` | left gripper command |
+| `8..10` | right end-effector translation delta, x/y/z |
+| `11..14` | right relative quaternion, x/y/z/w |
+| `15` | right gripper command |
+
+The upstream RoboTwin evaluator composes each relative pose with the episode's
+initial end-effector pose, normalizes the resulting quaternions, and then calls
+the simulator's end-effector action API. The FlashDreams integration returns the
+denormalized relative values but intentionally performs none of those execution
+steps.
+
 MP4, JSON, and NumPy serialization belong to generic V2 runtime sinks. The
 adapter declares `actions[step, channel]` once and attaches the tensor to its
 single model-result channel. Backpressure and presentation policies selected by
 the runtime are preserved; the fixed video layout, dimensions, rate, and
 artifact schema are validated.
+
+The generic V2 result already represents artifacts as a tuple, so one result
+can carry multiple independently named tensors without changing its API.
+LingBot-VA is currently the first model integration exercising that facility;
+validation with a second model remains an explicit generalization follow-up.
+
+### Inspect the action artifact
+
+Install the optional plotting dependency, then render the persisted trajectory
+and optionally export named columns to CSV:
+
+```bash
+uv run --project integrations/lingbot_va --extra visualization \
+    lingbot-va-visualize-actions outputs/lingbot_va \
+    --output outputs/lingbot_va/actions.png \
+    --csv-output outputs/lingbot_va/actions.csv
+```
+
+The command requires a complete `tensor_artifacts.json` when given an output
+directory. It also accepts a direct `actions.npy` from older validation runs.
+The plot is for human inspection and batch comparison; it does not establish
+task success, physical correctness, or safe executability.
 
 ## Architecture design review
 
@@ -110,13 +167,21 @@ runtime code has no LingBot-specific branches.
 
 | Decision | Rationale and consequence |
 | --- | --- |
-| Separate model and V2 adapter packages | The model package owns checkpoint/model/tensor behavior; `app.py` owns only V2 contracts and lifecycle adaptation. |
+| Separate model and V2 adapter packages | The model package owns checkpoint/model/tensor behavior; V2 `app.py` owns configuration and the session contract, while `session.py` owns the finite loop and lifecycle adaptation. |
 | Declare the natural session before model initialization | CLI/runtime compatibility and output schemas fail fast without loading approximately 23 GiB of checkpoint data. |
 | Session-owned, lazily created engine | Mutable CUDA state is isolated to the model thread and reset creates a fresh one-run engine. |
 | One complete rollout per `StepResult` | Decode requires destructive DiT/KV teardown, so per-chunk presentation would claim a streaming capability the engine does not provide. |
 | Separate conditional/unconditional caches | CFG branches never contaminate one another; inactive stream CFG is skipped except on the terminal cache-commit pass. |
 | Plain tensors across the compiled block boundary | Cache extraction and writes remain eager while the 30-block video/action loops can be compiled without cache-object graph breaks. |
 | Generic runtime sinks | The adapter returns TCHW video, metrics, and a typed `actions` artifact; MP4/JSON/NumPy serialization stays reusable. |
+
+The adapter does not use the shared text-to-video session because its contract
+is materially different: it requires three image observations in addition to
+text, produces robot actions alongside video, and completes all autoregressive
+chunks before a destructive teardown and deferred decode. It does not expose
+the per-block `generate`/`finalize` lifecycle expected by the shared T2V
+adapter. Reusing V2 interfaces and generic sinks preserves the useful common
+surface without misclassifying the model as text-only video generation.
 
 ### Static view: packages and components
 
@@ -128,10 +193,10 @@ flowchart LR
     Sinks["Generic sinks<br/>MP4, metrics JSON, actions NPY"]
   end
 
-  subgraph Adapter["integrations_v2/lingbot_va/lingbot_va_v2/app.py"]
-    App["LingbotVAApplication<br/>IApplication"]
-    Session["LingbotVASession<br/>ISession"]
-    Loop["LingbotVAModelLoop<br/>IModelLoop"]
+  subgraph Adapter["integrations_v2/lingbot_va/lingbot_va_v2"]
+    App["app.py<br/>LingbotVAApplication / IApplication"]
+    Session["session.py<br/>LingbotVASession / ISession"]
+    Loop["session.py<br/>LingbotVAModelLoop / IModelLoop"]
   end
 
   subgraph Model["integrations/lingbot_va/lingbot_va"]
@@ -260,7 +325,7 @@ flowchart LR
     Metrics["Phase timing and peak CUDA allocation"]
   end
 
-  Live["Live feedback, policy serving, and robot actuation<br/>not implemented"]:::outside
+  Live["Upstream closed-loop feedback, policy serving,<br/>simulator or robot actuation: not integrated"]:::outside
 
   User --> Validate
   Prompt --> Text
@@ -399,7 +464,7 @@ control, unmeasured speedup claims, and root CUDA/Torch policy changes.
 ## Validation evidence
 
 Baseline parity and matched resident/offload evidence were produced on
-2026-08-25; final stacked-PR revalidation was produced on 2026-08-26. All runs
+2026-08-25; post-rebase PR revalidation was produced on 2026-08-27. All runs
 used an NVIDIA RTX PRO 6000 Blackwell Workstation Edition (97,887 MiB), driver
 595.84, PyTorch 2.12.1+cu130, CUDA 13.0, BF16, one CUDA device, and seed 42.
 This is implementation evidence, not a general model-performance or robot-task
@@ -474,13 +539,13 @@ uv run --no-sync pytest integrations_v2/lingbot_va -m ci_gpu -s
 Set `LINGBOT_VA_CHECKPOINT_ROOT` to reuse a local snapshot.
 `LINGBOT_VA_REAL_MODEL_COMPILE_RUN=1` separately enables the cold compile test.
 
-### Final stacked-PR revalidation
+### Final post-rebase PR revalidation
 
-After the review fixes, the same pinned checkpoint and input hashes were run
-through the final stacked code with two chunks, default CFG, offload, and no
-compilation:
+After the design-review refactor and rebase onto the updated tensor-artifact
+base, the same pinned checkpoint and input hashes were run through the final
+code with two chunks, default CFG, offload, and no compilation:
 
-- GPU test: 1 passed in 34.02 s;
+- GPU test: 1 passed in 35.82 s; model-reported total 31.516 s;
 - MP4: H.264, 320x256, 10 FPS, 13 frames, SHA-256
   `15bcdc4307e080218255e83946c2c2e5dbc30f3b7acd26c8925167017234e586`;
 - actions: float32 `[64, 16]`, finite, distinct chunks, SHA-256

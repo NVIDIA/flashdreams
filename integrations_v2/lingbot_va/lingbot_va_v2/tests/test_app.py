@@ -26,11 +26,8 @@ import pytest
 import torch
 from lingbot_va.constants import ROBOTWIN_OBS_CAM_KEYS
 from lingbot_va.engine import LingbotVAEngineConfig, LingbotVAEngineOutput
-from lingbot_va_v2.app import (
-    ACTIONS_SCHEMA,
-    LingbotVAApplication,
-    create_app,
-)
+from lingbot_va_v2.app import LingbotVAApplication, create_app
+from lingbot_va_v2.session import ACTIONS_SCHEMA
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow

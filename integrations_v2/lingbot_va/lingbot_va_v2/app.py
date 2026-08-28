@@ -18,10 +18,9 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
 
 from lingbot_va._loaders import validate_checkpoint_root
 from lingbot_va.constants import (
@@ -30,9 +29,7 @@ from lingbot_va.constants import (
     ROBOTWIN_ACTION_DIM,
     ROBOTWIN_ACTION_GUIDANCE_SCALE,
     ROBOTWIN_ACTION_INFERENCE_STEPS,
-    ROBOTWIN_ACTION_PER_FRAME,
     ROBOTWIN_ACTION_SNR_SHIFT,
-    ROBOTWIN_FRAME_CHUNK_SIZE,
     ROBOTWIN_GUIDANCE_SCALE,
     ROBOTWIN_HEIGHT,
     ROBOTWIN_SNR_SHIFT,
@@ -43,154 +40,23 @@ from lingbot_va.constants import (
 from lingbot_va.engine import (
     LingbotVAEngine,
     LingbotVAEngineConfig,
-    LingbotVAEngineOutput,
-    expected_output_shape,
     validate_device,
     validate_input_images,
 )
 from lingbot_va.utils import resolve_prompt
 
 from flashdreams.api_v2.application import IApplication
-from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.tensor_artifact import (
-    TensorArtifactOutput,
-    TensorArtifactSchema,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from lingbot_va_v2.session import ACTIONS_SCHEMA, EngineFactory, LingbotVASession
 
 _FRAMES_PER_SECOND = 10
 """Native Robotwin video playback rate."""
-
-ACTIONS_SCHEMA = TensorArtifactSchema(
-    name="actions",
-    dimension_names=("step", "channel"),
-    concatenate_axis=0,
-)
-"""Generic tensor artifact schema for denormalized Robotwin actions."""
-
-
-class LingbotVAEngineLike(Protocol):
-    """Minimal engine boundary used by the V2 adapter and CPU stand-ins."""
-
-    def run(self) -> LingbotVAEngineOutput:
-        """Generate one complete rollout."""
-        ...
-
-    def close(self) -> None:
-        """Release partially or fully initialized model state."""
-        ...
-
-
-EngineFactory = Callable[[LingbotVAEngineConfig], LingbotVAEngineLike]
-"""Create a session-owned engine from immutable application config."""
-
-
-@dataclass(slots=True)
-class LingbotVAModelState:
-    """Mutable state owned exclusively by the model loop."""
-
-    config: LingbotVAEngineConfig
-    session_desc: SessionDesc
-    engine_factory: EngineFactory
-    engine: LingbotVAEngineLike | None = None
-    generated: bool = False
-
-
-class LingbotVAModelLoop(IModelLoop[LingbotVAModelState]):
-    """Generate one complete video/action rollout in one honest model step."""
-
-    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
-        del events
-        if self.state.generated:
-            raise RuntimeError("LingBot-VA has already generated this rollout.")
-        if self.state.engine is None:
-            self.state.engine = self.state.engine_factory(self.state.config)
-        output = self.state.engine.run()
-        _validate_engine_output(self.state.config, output)
-        self.state.generated = True
-        return [
-            StepResult(
-                step_index=step_index,
-                output=output.video,
-                frame_count=output.video.shape[0],
-                output_layout=self.state.session_desc.output_layout,
-                metrics=dict(output.metrics),
-                tensor_artifacts=(
-                    TensorArtifactOutput(
-                        schema=ACTIONS_SCHEMA,
-                        tensor=output.actions,
-                    ),
-                ),
-            )
-        ]
-
-    def is_finished(self) -> bool:
-        return self.state.generated
-
-    def reset(self) -> None:
-        """Discard the destructive engine; the next step creates a new one."""
-        self.close()
-        self.state.generated = False
-
-    def close(self) -> None:
-        """Idempotently close the session-owned engine."""
-        engine = self.state.engine
-        self.state.engine = None
-        if engine is not None:
-            engine.close()
-
-
-class LingbotVASession(ISession):
-    """Own one isolated, resettable LingBot-VA rollout."""
-
-    def __init__(
-        self,
-        config: LingbotVAEngineConfig,
-        session_desc: SessionDesc,
-        engine_factory: EngineFactory,
-    ) -> None:
-        """
-        Args:
-            config: Immutable model and input settings.
-            session_desc: Canonical Robotwin output description.
-            engine_factory: Factory used lazily on the model thread.
-        """
-        self._config = config
-        self._session_desc = session_desc
-        self._engine_factory = engine_factory
-        self._model_loop: LingbotVAModelLoop | None = None
-
-    def init(self) -> None:
-        """Register one finite model loop; model loading remains lazy."""
-        if self._model_loop is not None:
-            raise RuntimeError("LingbotVASession.init() may only run once.")
-        model_loop = self.register_model_loop(
-            LingbotVAModelLoop,
-            state=LingbotVAModelState(
-                config=self._config,
-                session_desc=self._session_desc,
-                engine_factory=self._engine_factory,
-            ),
-        )
-        assert isinstance(model_loop, LingbotVAModelLoop)
-        self._model_loop = model_loop
-
-    @property
-    def session_desc(self) -> SessionDesc:
-        return self._session_desc
-
-    def close(self) -> None:
-        """Close a loop even when the runtime never started it."""
-        if self._model_loop is not None:
-            self._model_loop.close()
 
 
 class LingbotVAApplication(IApplication):
@@ -376,49 +242,12 @@ def _validate_checkpoint_reference(checkpoint_root: str | Path) -> None:
         )
 
 
-def _validate_engine_output(
-    config: LingbotVAEngineConfig,
-    output: LingbotVAEngineOutput,
-) -> None:
-    """Keep incorrect model shapes from reaching generic runtime sinks."""
-    expected_video = expected_output_shape(config)
-    if tuple(output.video.shape) != expected_video:
-        raise ValueError(
-            f"LingBot-VA engine returned video shape {tuple(output.video.shape)}; "
-            f"expected {expected_video}."
-        )
-    expected_action_shape = (
-        config.num_chunks * ROBOTWIN_FRAME_CHUNK_SIZE * ROBOTWIN_ACTION_PER_FRAME,
-        len(ROBOTWIN_USED_ACTION_CHANNEL_IDS),
-    )
-    if tuple(output.actions.shape) != expected_action_shape:
-        raise ValueError(
-            f"LingBot-VA engine returned action shape {tuple(output.actions.shape)}; "
-            f"expected {expected_action_shape}."
-        )
-    if not output.video.is_floating_point() or not output.actions.is_floating_point():
-        raise TypeError("LingBot-VA video and action outputs must be floating point.")
-    _validate_metrics(output.metrics)
-
-
-def _validate_metrics(metrics: Mapping[str, float]) -> None:
-    """Require numeric model metrics before constructing a StepResult."""
-    if any(
-        isinstance(value, bool) or not isinstance(value, (int, float))
-        for value in metrics.values()
-    ):
-        raise TypeError("LingBot-VA engine metrics must be numeric.")
-
-
 def create_app() -> IApplication:
     """Return a new uninitialized LingBot-VA V2 application."""
     return LingbotVAApplication()
 
 
 __all__ = [
-    "ACTIONS_SCHEMA",
     "LingbotVAApplication",
-    "LingbotVAModelLoop",
-    "LingbotVASession",
     "create_app",
 ]

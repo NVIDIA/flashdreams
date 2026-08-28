@@ -30,6 +30,18 @@ overrides are preserved; fixed model output properties are validated. Model
 loading is lazy on the model thread, and the finite loop emits one complete
 rollout before reporting finished.
 
+`app.py` owns argument parsing, validation, and the application/session
+contract. `session.py` separately owns the session, finite model loop, lazy
+engine lifecycle, and output validation. The loop intentionally ignores live
+user events: this adapter wraps the fixed prompt-plus-three-images I2AV
+generator, not upstream LingBot-VA's separate closed-loop RoboTwin evaluator.
+
+This application does not map to the shared text-to-video adapter. Its inputs
+include three camera observations, its result includes robot actions, and its
+engine completes all chunks before destructive denoising-state teardown and
+deferred video decode. It still reuses the common V2 interfaces and generic
+MP4, metrics, and typed tensor-artifact sinks.
+
 `--input-image-dir` is required because no camera images are bundled. Use
 `-- --help` after the application slug for checkpoint, input, compilation,
 offload, seed, guidance, inference-step, and scheduler-shift overrides. The

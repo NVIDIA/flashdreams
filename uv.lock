@@ -1355,13 +1355,21 @@ dependencies = [
     { name = "diffusers" },
     { name = "einops" },
     { name = "flashdreams" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow" },
     { name = "transformers" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pytest" },
+]
+visualization = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 
 [package.metadata]
@@ -1369,11 +1377,14 @@ requires-dist = [
     { name = "diffusers", specifier = ">=0.38,<0.39" },
     { name = "einops" },
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.8" },
+    { name = "matplotlib", marker = "extra == 'visualization'", specifier = ">=3.8" },
+    { name = "numpy", specifier = ">=1.24,<2.5" },
     { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "transformers", specifier = ">=5.0,<6" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "visualization"]
 
 [[package]]
 name = "flashdreams-lingbot-va-v2"
