@@ -1,6 +1,6 @@
 schema_version: 1
 id: crazy-robotaxi-boulevard-district
-name: Original Boulevard District
+name: Boulevard District
 
 compiler:
   sample_spacing_m: 2.0
