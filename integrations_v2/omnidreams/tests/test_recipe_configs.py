@@ -11,16 +11,21 @@ import tomli as tomllib
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
 from omnidreams.apps.interactive_drive.adapter import (
     OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
 )
 from omnidreams.apps.interactive_drive.adapter import (
     create_app as create_interactive_drive_app,
 )
 from omnidreams.apps.interactive_drive.adapter import (
+    create_fast_perf_app as create_interactive_drive_fast_perf_app,
+)
+from omnidreams.apps.interactive_drive.adapter import (
     create_perf_app as create_interactive_drive_perf_app,
 )
 from omnidreams.config import (
     OMNIDREAMS_CONFIGS,
+    OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
@@ -31,17 +36,36 @@ pytestmark = pytest.mark.ci_cpu
 
 
 def test_pipeline_configs_are_keyed_by_name() -> None:
-    """Expose exactly the two model-owned OmniDreams pipeline configs."""
+    """Expose every model-owned OmniDreams pipeline config."""
     assert OMNIDREAMS_CONFIGS == {
         "omnidreams": OMNIDREAMS_PIPELINE_CONFIG,
         "omnidreams-perf": OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        "omnidreams-fast-perf": OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     }
+
+
+def test_fast_perf_uses_native_vae_when_available() -> None:
+    config = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+
+    assert config.image_encoder.native_vae_acceleration == "required"
+    assert config.image_encoder.native_vae_backend == "fp8"
+    assert config.image_encoder.native_vae_fp8_state_path is None
+    assert config.image_encoder.native_vae_fp8_auto_export is True
+    assert config.encoder.native_vae_acceleration == "required"
+    assert config.encoder.native_vae_backend == "fp8"
+    assert config.encoder.native_vae_fp8_state_path is None
+    assert config.encoder.native_vae_fp8_auto_export is True
+    assert config.diffusion_model.transformer.native_dit_acceleration == "required"
 
 
 def test_application_defaults_are_owned_by_each_adapter() -> None:
     """Keep demo-specific configuration beside each application factory."""
     assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.slug == "interactive-drive"
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.slug == "interactive-drive-perf"
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS.slug
+        == "interactive-drive-fast-perf"
+    )
     assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width == 1280
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.width == 1168
     for defaults, pipeline_config in (
@@ -49,6 +73,10 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
         (
             OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
             OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
+            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
         ),
     ):
         assert defaults.pipeline_config is pipeline_config
@@ -59,6 +87,7 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
     [
         (create_interactive_drive_app, (1280, 704)),
         (create_interactive_drive_perf_app, (1168, 640)),
+        (create_interactive_drive_fast_perf_app, (1168, 640)),
     ],
 )
 def test_each_application_owns_its_parsed_config(
@@ -91,5 +120,8 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         ),
         "interactive-drive-omnidreams-perf": (
             "omnidreams.apps.interactive_drive.adapter:create_perf_app"
+        ),
+        "interactive-drive-omnidreams-fast-perf": (
+            "omnidreams.apps.interactive_drive.adapter:create_fast_perf_app"
         ),
     }

@@ -6,16 +6,20 @@
 from __future__ import annotations
 
 import argparse
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import torch
-from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.impl.vae_native import DEFAULT_LIGHTVAE_FP8_STATE_PATH
 
 from flashdreams.infra.config import derive_config
 
 DEFAULT_CONFIG = "omnidreams"
+DEFAULT_STATE_PATH = Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH)
+EXAMPLE_DATA_HF_REPO = "nvidia/omni-dreams-samples"
+DEFAULT_EXAMPLE_DATA_UUID = "239560dc-33d1-11ef-9720-00044bcbccac"
 VAE_FP8_VERSION_KEY = "__omnidreams_vae_fp8_version__"
 MODEL_KIND_KEY = "__omnidreams_vae_fp8_model_kind__"
 STATE_SCALE_MAX_KEY = "__omnidreams_vae_fp8_scale_max__"
@@ -24,13 +28,28 @@ MODEL_KIND_LIGHTVAE_ENCODER = 1
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, required=True, help="Output .pt path.")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_STATE_PATH,
+        help=f"Output .pt path (default: {DEFAULT_STATE_PATH}).",
+    )
     parser.add_argument(
         "--config-name",
         default=DEFAULT_CONFIG,
         help="OmniDreams config whose encoder checkpoint should be calibrated.",
     )
     parser.add_argument("--calibration-video", type=Path, default=None)
+    parser.add_argument(
+        "--example-data",
+        action="store_true",
+        help="Fetch the bundled single-view HDMap sample for calibration.",
+    )
+    parser.add_argument(
+        "--example-data-uuid",
+        default=DEFAULT_EXAMPLE_DATA_UUID,
+        help="Single-view sample UUID used with --example-data.",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--height", type=int, default=704)
     parser.add_argument("--width", type=int, default=1280)
@@ -220,10 +239,44 @@ def _build_fp8_state(
     return state
 
 
+def _ensure_hf_calibration_video(
+    uuid: str = DEFAULT_EXAMPLE_DATA_UUID,
+) -> Path:
+    from huggingface_hub import HfApi, hf_hub_download  # noqa: PLC0415
+    from huggingface_hub.hf_api import RepoFile  # noqa: PLC0415
+
+    subdir = f"data/single_view/{uuid}"
+    entries = HfApi().list_repo_tree(
+        repo_id=EXAMPLE_DATA_HF_REPO,
+        repo_type="dataset",
+        path_in_repo=subdir,
+        recursive=False,
+    )
+    candidates = [
+        entry.path
+        for entry in entries
+        if isinstance(entry, RepoFile) and entry.path.endswith("_hdmap.mp4")
+    ]
+    if len(candidates) != 1:
+        raise RuntimeError(
+            f"expected exactly one *_hdmap.mp4 under {subdir!r} in "
+            f"{EXAMPLE_DATA_HF_REPO!r}, found {candidates}"
+        )
+    return Path(
+        hf_hub_download(
+            repo_id=EXAMPLE_DATA_HF_REPO,
+            repo_type="dataset",
+            filename=candidates[0],
+        )
+    )
+
+
 def _resolve_video(args: argparse.Namespace) -> Path:
     if args.calibration_video is not None:
         return args.calibration_video.expanduser().resolve()
-    raise SystemExit("--calibration-video is required")
+    if args.example_data:
+        return _ensure_hf_calibration_video(args.example_data_uuid)
+    raise SystemExit("--calibration-video or --example-data is required")
 
 
 def _load_video_prefix_bcthw(
@@ -262,47 +315,97 @@ def _load_video_prefix_bcthw(
     return (video / 127.5 - 1.0).contiguous()
 
 
-def main() -> None:
-    args = _parse_args()
-    device = torch.device(args.device)
-    if device.type == "cuda" and not torch.cuda.is_available():
+def export_lightvae_fp8_state(
+    out: Path,
+    *,
+    calibration_video: Path,
+    config_name: str = DEFAULT_CONFIG,
+    device: str | torch.device = "cuda",
+    height: int = 704,
+    width: int = 1280,
+    frames: int = 13,
+    scale_max: float = 24.0,
+) -> Path:
+    from omnidreams.config import OMNIDREAMS_CONFIGS  # noqa: PLC0415
+
+    target = out.expanduser().resolve()
+    torch_device = torch.device(device)
+    if torch_device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError(
             "CUDA device requested but torch.cuda.is_available() is false"
         )
 
-    config = OMNIDREAMS_CONFIGS[args.config_name]
+    config = OMNIDREAMS_CONFIGS[config_name]
     if config.encoder is None:
-        raise TypeError(f"{args.config_name} does not define a VAE encoder")
+        raise TypeError(f"{config_name} does not define a VAE encoder")
     encoder_cfg = derive_config(
         config.encoder,
         dtype=torch.float16,
         use_compile=False,
         use_cuda_graph=False,
+        native_vae_acceleration="disabled",
+        native_vae_fp8_auto_export=False,
     )
-    encoder = encoder_cfg.setup().to(device).eval()
+    encoder = encoder_cfg.setup().to(torch_device).eval()
     model: Any = encoder.vae
-
-    video_path = _resolve_video(args)
     video_bcthw = _load_video_prefix_bcthw(
-        video_path,
-        frames=args.frames,
+        calibration_video,
+        frames=frames,
+        height=height,
+        width=width,
+        device=torch_device,
+    )
+    with torch.inference_mode():
+        amax = _collect_activation_amax(model, video_bcthw)
+        state = _build_fp8_state(
+            model.state_dict(),
+            _activation_scales(amax, scale_max=scale_max),
+            scale_max=scale_max,
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+    try:
+        torch.save(state, temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+    activation_scale_count = sum(key.endswith(".activation_scale") for key in state)
+    print(f"Wrote {target}")
+    print(f"Calibration video: {calibration_video}")
+    print(f"Activation scales: {activation_scale_count}")
+    return target
+
+
+def ensure_lightvae_fp8_state(
+    out: Path = DEFAULT_STATE_PATH,
+) -> Path:
+    target = out.expanduser().resolve()
+    if target.is_file():
+        return target
+
+    print(f"{target} is missing; exporting cached LightVAE FP8 state...")
+    return export_lightvae_fp8_state(
+        target,
+        calibration_video=_ensure_hf_calibration_video(),
+    )
+
+
+def main() -> None:
+    args = _parse_args()
+    export_lightvae_fp8_state(
+        args.out,
+        calibration_video=_resolve_video(args),
+        config_name=args.config_name,
+        device=args.device,
         height=args.height,
         width=args.width,
-        device=device,
-    )
-    amax = _collect_activation_amax(model, video_bcthw)
-    state = _build_fp8_state(
-        model.state_dict(),
-        _activation_scales(amax, scale_max=args.scale_max),
+        frames=args.frames,
         scale_max=args.scale_max,
-    )
-
-    args.out.expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
-    torch.save(state, args.out)
-    print(f"Wrote {args.out}")
-    print(f"Calibration video: {video_path}")
-    print(
-        f"Activation scales: {len([k for k in state if k.endswith('.activation_scale')])}"
     )
 
 

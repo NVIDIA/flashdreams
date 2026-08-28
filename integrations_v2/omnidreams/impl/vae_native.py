@@ -21,6 +21,7 @@ import math
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import ModuleType
 from typing import Literal, get_args
 
@@ -49,6 +50,7 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 
 NativeVAEBackend = Literal["fp8"]
 NATIVE_LIGHTVAE_FP8_STATE_ENV = "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
+DEFAULT_LIGHTVAE_FP8_STATE_PATH = "artifacts/native_vae/lightvae_fp8_state.pt"
 
 
 @dataclass(kw_only=True)
@@ -63,6 +65,7 @@ class OmnidreamsWanVAEEncoderConfig(WanVAEEncoderConfig):
     native_vae_verbose_build: bool = False
     native_vae_backend: NativeVAEBackend = "fp8"
     native_vae_fp8_state_path: str | None = None
+    native_vae_fp8_auto_export: bool = False
 
 
 def _native_acceleration_config(
@@ -79,9 +82,20 @@ def _native_acceleration_config(
 def _native_vae_fp8_state_path(
     config: OmnidreamsWanVAEEncoderConfig,
 ) -> str | None:
-    return config.native_vae_fp8_state_path or os.environ.get(
+    path = config.native_vae_fp8_state_path or os.environ.get(
         NATIVE_LIGHTVAE_FP8_STATE_ENV
     )
+    if (
+        not config.native_vae_fp8_auto_export
+        or config.native_vae_acceleration == "disabled"
+    ):
+        return path
+
+    from omnidreams.impl.scripts.export_lightvae_fp8_state import (  # noqa: PLC0415
+        ensure_lightvae_fp8_state,
+    )
+
+    return str(ensure_lightvae_fp8_state(Path(path or DEFAULT_LIGHTVAE_FP8_STATE_PATH)))
 
 
 def _native_vae_availability_check(
@@ -411,6 +425,8 @@ class OmnidreamsWanVAEEncoder(WanVAEEncoder):
     config: OmnidreamsWanVAEEncoderConfig
 
     def __init__(self, config: OmnidreamsWanVAEEncoderConfig) -> None:
+        if config.native_vae_fp8_auto_export:
+            _native_vae_fp8_state_path(config)
         super().__init__(config)
         self.config = config
         self._native_vae_selection: NativeBackendSelection | None = None

@@ -20,12 +20,14 @@ from types import ModuleType
 
 import pytest
 import torch
+from omnidreams.config import OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
 from omnidreams.impl.native.acceleration import (
     NativeAccelerationMode,
     NativeAccelerationUnavailable,
     NativeBackendSelection,
 )
 from omnidreams.impl.vae_native import (
+    DEFAULT_LIGHTVAE_FP8_STATE_PATH,
     NATIVE_LIGHTVAE_FP8_STATE_ENV,
     OmnidreamsWanVAEEncoder,
     OmnidreamsWanVAEEncoderConfig,
@@ -68,6 +70,7 @@ def test_omnidreams_vae_configs_default_native_disabled() -> None:
     assert encoder.native_vae_acceleration == "disabled"
     assert encoder.native_vae_backend == "fp8"
     assert encoder.native_vae_fp8_state_path is None
+    assert encoder.native_vae_fp8_auto_export is False
 
 
 @pytest.mark.ci_cpu
@@ -167,6 +170,75 @@ def test_native_wan_vae_encoder_fp8_requires_state_path() -> None:
                 native_vae_backend="fp8",
             )
         )
+
+
+@pytest.mark.ci_cpu
+def test_fast_perf_config_auto_exports_default_fp8_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from omnidreams.impl.scripts import export_lightvae_fp8_state as exporter
+
+    monkeypatch.delenv(NATIVE_LIGHTVAE_FP8_STATE_ENV, raising=False)
+    expected = tmp_path / DEFAULT_LIGHTVAE_FP8_STATE_PATH
+    calls: list[Path] = []
+
+    def ensure(path: Path) -> Path:
+        calls.append(path)
+        return expected
+
+    monkeypatch.setattr(exporter, "ensure_lightvae_fp8_state", ensure)
+    config = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+
+    assert _native_vae_fp8_state_path(config.image_encoder) == str(expected)
+    assert _native_vae_fp8_state_path(config.encoder) == str(expected)
+    assert calls == [
+        Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH),
+        Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH),
+    ]
+
+
+@pytest.mark.ci_cpu
+def test_lightvae_fp8_state_export_reuses_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from omnidreams.impl.scripts import export_lightvae_fp8_state as exporter
+
+    cached = tmp_path / "lightvae_fp8_state.pt"
+    cached.touch()
+    monkeypatch.setattr(
+        exporter,
+        "_ensure_hf_calibration_video",
+        lambda: pytest.fail("cached state must not download calibration data"),
+    )
+
+    assert exporter.ensure_lightvae_fp8_state(cached) == cached.resolve()
+
+
+@pytest.mark.ci_cpu
+def test_lightvae_fp8_state_export_populates_missing_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from omnidreams.impl.scripts import export_lightvae_fp8_state as exporter
+
+    target = tmp_path / "artifacts" / "native_vae" / "lightvae_fp8_state.pt"
+    video = tmp_path / "calibration.mp4"
+    calls: list[tuple[Path, Path]] = []
+
+    monkeypatch.setattr(exporter, "_ensure_hf_calibration_video", lambda: video)
+
+    def export(out: Path, *, calibration_video: Path) -> Path:
+        calls.append((out, calibration_video))
+        out.parent.mkdir(parents=True)
+        out.touch()
+        return out
+
+    monkeypatch.setattr(exporter, "export_lightvae_fp8_state", export)
+
+    assert exporter.ensure_lightvae_fp8_state(target) == target.resolve()
+    assert calls == [(target.resolve(), video)]
 
 
 @pytest.mark.ci_cpu

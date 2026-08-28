@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import cast
 
+import torch
+
 from omnidreams.impl.pipeline import OmnidreamsPipelineConfig
 from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.transformer.network import CosmosDiTNetworkConfig
@@ -32,7 +34,7 @@ AVAILABLE_OMNIDREAMS_CHECKPOINT_PATHS: dict[str, str] = {
         "single_view/2b_res720p_30fps_i2v_hdmap_distilled.pt"
     ),
 }
-"""Checkpoint paths required by the two public OmniDreams configs."""
+"""Checkpoint paths required by the public OmniDreams configs."""
 
 
 OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
@@ -110,11 +112,39 @@ OMNIDREAMS_PERF_PIPELINE_CONFIG = cast(
 """Performance-tuned OmniDreams world-model pipeline configuration."""
 
 
+OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        name="omnidreams-fast-perf",
+        diffusion_model=dict(seed=None),
+        image_encoder=dict(
+            dtype=torch.float16,
+            use_compile=False,
+            use_cuda_graph=False,
+            native_vae_acceleration="required",
+            native_vae_backend="fp8",
+            native_vae_fp8_auto_export=True,
+        ),
+        encoder=dict(
+            dtype=torch.float16,
+            use_compile=False,
+            use_cuda_graph=False,
+            native_vae_acceleration="required",
+            native_vae_backend="fp8",
+            native_vae_fp8_auto_export=True,
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Fast config that uses native FP8 LightVAE with cached calibration."""
+
+
 OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
     config.name: config
     for config in (
         OMNIDREAMS_PIPELINE_CONFIG,
         OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     )
 }
-"""The two public OmniDreams pipeline configurations, keyed by slug."""
+"""The public OmniDreams pipeline configurations, keyed by slug."""

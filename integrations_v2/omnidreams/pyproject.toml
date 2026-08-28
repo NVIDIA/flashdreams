@@ -100,6 +100,7 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 [project.entry-points."flashdreams.applications_v2"]
 "interactive-drive-omnidreams" = "omnidreams.apps.interactive_drive.adapter:create_app"
 "interactive-drive-omnidreams-perf" = "omnidreams.apps.interactive_drive.adapter:create_perf_app"
+"interactive-drive-omnidreams-fast-perf" = "omnidreams.apps.interactive_drive.adapter:create_fast_perf_app"
 
 [tool.setuptools]
 packages = [
@@ -114,6 +115,7 @@ packages = [
     "omnidreams.impl.grpc",
     "omnidreams.impl.grpc.protos",
     "omnidreams.impl.native",
+    "omnidreams.impl.scripts",
     "omnidreams.impl.tools",
     "omnidreams.impl.transformer",
 ]

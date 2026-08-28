@@ -10,6 +10,7 @@ from interactive_drive import (
     InteractiveDriveApplicationDefaults,
 )
 from omnidreams.config import (
+    OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
@@ -35,6 +36,16 @@ OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = InteractiveDriveApplicationDefaults
     pipeline_config=OMNIDREAMS_PERF_PIPELINE_CONFIG,
 )
 
+OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS = InteractiveDriveApplicationDefaults(
+    title="Interactive Drive (Fast Perf)",
+    slug="interactive-drive-fast-perf",
+    total_blocks=0,
+    fps=30,
+    width=1168,
+    height=640,
+    pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+)
+
 
 def create_app() -> IApplication:
     """Create Interactive Drive with the regular OmniDreams config."""
@@ -50,4 +61,11 @@ def create_perf_app() -> IApplication:
     )
 
 
-__all__ = ["create_app", "create_perf_app"]
+def create_fast_perf_app() -> IApplication:
+    """Create Interactive Drive with the fast performance OmniDreams config."""
+    return InteractiveDriveApplication(
+        defaults=OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
+    )
+
+
+__all__ = ["create_app", "create_perf_app", "create_fast_perf_app"]
