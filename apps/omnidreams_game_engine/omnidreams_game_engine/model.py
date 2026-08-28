@@ -44,12 +44,25 @@ EngineFactory = Callable[[], RolloutEngine]
 
 
 @dataclass(frozen=True, slots=True)
+class _WorldModelStepTrace:
+    """Monotonic lifecycle boundaries for one generated chunk."""
+
+    engine_step_started_ns: int
+    engine_step_returned_ns: int
+    generate_started_ns: int
+    generate_returned_ns: int
+    cache_finalize_returned_ns: int
+    rollout_step_returned_ns: int
+
+
+@dataclass(frozen=True, slots=True)
 class WorldModelStep:
     """Generated video plus the engine data that produced it."""
 
     video_bvtchw: Tensor
     engine: EngineStep
     metrics: Mapping[str, float | int]
+    _trace: _WorldModelStepTrace | None = None
 
 
 class WorldModelRollout:
@@ -62,11 +75,13 @@ class WorldModelRollout:
         scene: SceneDefinition,
         engine_factory: EngineFactory,
         postprocess: VideoPostprocessor | None = None,
+        trace_chunk_lifecycle: bool = False,
     ) -> None:
         self.pipeline = pipeline
         self.scene = scene
         self._engine_factory = engine_factory
         self._postprocess = postprocess
+        self._trace_chunk_lifecycle = trace_chunk_lifecycle
         self.engine = engine_factory()
         self.cache = self._new_cache()
         self._attach_live_edit(None)
@@ -98,9 +113,15 @@ class WorldModelRollout:
 
         rollout_wall_started = time.perf_counter()
         rollout_cpu_started = time.thread_time()
+        engine_step_started_ns = (
+            time.monotonic_ns() if self._trace_chunk_lifecycle else None
+        )
         engine_wall_started = time.perf_counter()
         engine_cpu_started = time.thread_time()
         engine_step = self.engine.step(commands)
+        engine_step_returned_ns = (
+            time.monotonic_ns() if self._trace_chunk_lifecycle else None
+        )
         engine_wall_ms = (time.perf_counter() - engine_wall_started) * 1000.0
         engine_cpu_ms = (time.thread_time() - engine_cpu_started) * 1000.0
 
@@ -115,16 +136,25 @@ class WorldModelRollout:
                 engine_step,
                 autoregressive_index,
             )
+        generate_started_ns = (
+            time.monotonic_ns() if self._trace_chunk_lifecycle else None
+        )
         with torch.no_grad():
             video = self.pipeline.generate(
                 autoregressive_index=autoregressive_index,
                 cache=self.cache,
                 input=engine_step.condition.hdmap_bvtchw,
             )
+            generate_returned_ns = (
+                time.monotonic_ns() if self._trace_chunk_lifecycle else None
+            )
             metrics = self.pipeline.finalize(
                 autoregressive_index=autoregressive_index,
                 cache=self.cache,
             )
+        cache_finalize_returned_ns = (
+            time.monotonic_ns() if self._trace_chunk_lifecycle else None
+        )
         pipeline_wall_ms = (time.perf_counter() - pipeline_wall_started) * 1000.0
         pipeline_cpu_ms = (time.thread_time() - pipeline_cpu_started) * 1000.0
 
@@ -161,10 +191,31 @@ class WorldModelRollout:
                 "rollout_cpu_ms": (time.thread_time() - rollout_cpu_started) * 1000.0,
             }
         )
+        rollout_step_returned_ns = (
+            time.monotonic_ns() if self._trace_chunk_lifecycle else None
+        )
+        trace = None
+        if engine_step_started_ns is not None:
+            assert (
+                engine_step_returned_ns is not None
+                and generate_started_ns is not None
+                and generate_returned_ns is not None
+                and cache_finalize_returned_ns is not None
+                and rollout_step_returned_ns is not None
+            )
+            trace = _WorldModelStepTrace(
+                engine_step_started_ns=engine_step_started_ns,
+                engine_step_returned_ns=engine_step_returned_ns,
+                generate_started_ns=generate_started_ns,
+                generate_returned_ns=generate_returned_ns,
+                cache_finalize_returned_ns=cache_finalize_returned_ns,
+                rollout_step_returned_ns=rollout_step_returned_ns,
+            )
         return WorldModelStep(
             video_bvtchw=video.detach(),
             engine=engine_step,
             metrics=step_metrics,
+            _trace=trace,
         )
 
     def reset(self) -> None:

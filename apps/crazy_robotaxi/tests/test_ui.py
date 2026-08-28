@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
@@ -981,6 +982,81 @@ def test_input_latency_profile_correlates_gamepad_state() -> None:
     state.select_presented_frame(video[0])
 
     assert state._latest_input_latency_ms is not None
+
+
+def test_input_trace_reports_committed_state_ahead_of_presented_frame(caplog) -> None:
+    presented_video = torch.zeros(1, 3, 96, 160)
+    committed_video = torch.ones(1, 3, 96, 160)
+    state = TaxiHudState(
+        160,
+        96,
+        _calibration(),
+        profile_input_latency=True,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(300),
+        key="d",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    with caplog.at_level(
+        logging.INFO, logger="flashdreams.runtime_v2.chunk_trace"
+    ):
+        state.consume_input_events(UserInputEvents([pressed]))
+        state.publish(
+            build_hud_frames(
+                presented_video,
+                (_snapshot(),),
+                np.eye(4, dtype=np.float32)[None],
+                transition_timestamps_us=(300,),
+                runtime_generation=2,
+                model_step_index=10,
+                rollout_epoch=4,
+                autoregressive_index=1,
+                simulation_timestamps_us=(1_000,),
+                cache_finalize_returned_ns=time.monotonic_ns() - 1_000_000,
+            )
+        )
+        state.publish(
+            build_hud_frames(
+                committed_video,
+                (_snapshot(),),
+                np.eye(4, dtype=np.float32)[None],
+                runtime_generation=2,
+                model_step_index=11,
+                rollout_epoch=4,
+                autoregressive_index=2,
+                simulation_timestamps_us=(9_000,),
+                cache_finalize_returned_ns=time.monotonic_ns(),
+            )
+        )
+        state.select_presented_frame(presented_video[0])
+
+    trace = "\n".join(record.getMessage() for record in caplog.records)
+    assert "phase=input_received" in trace
+    assert "event_us=300 source=keyboard key=d state=Pressed" in trace
+    assert "phase=app_frame_presented" in trace
+    assert "generation=2 step=10 epoch=4 ar=1 frame=0" in trace
+    assert "step_lead=1 ar_lead=1 simulation_lead_ms=8.0" in trace
+    assert "event_us=300 ui_to_frame_ms=" in trace
+
+
+def test_input_trace_is_silent_without_opt_in(caplog) -> None:
+    state = TaxiHudState(160, 96, _calibration())
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(400),
+        key="d",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    with caplog.at_level(
+        logging.INFO, logger="flashdreams.runtime_v2.chunk_trace"
+    ):
+        state.consume_input_events(UserInputEvents([pressed]))
+
+    assert "chunk-trace" not in "\n".join(
+        record.getMessage() for record in caplog.records
+    )
 
 
 def test_input_latency_window_is_absent_by_default() -> None:

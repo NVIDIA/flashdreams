@@ -81,7 +81,8 @@ _MPS_TO_MPH = 2.2369362920544
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
 )
-_LOGGER = logging.getLogger(__name__)
+_TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+_TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
 
 
 def bev_display_extent(video_width: int, video_height: int) -> tuple[int, int]:
@@ -108,6 +109,15 @@ class TaxiHudFrame:
 
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
+
+    runtime_generation: int = 0
+    model_step_index: int = -1
+    rollout_epoch: int = 0
+    autoregressive_index: int = -1
+    frame_index: int = -1
+    simulation_timestamp_us: int | None = None
+    cache_finalize_returned_ns: int | None = None
+    """Chunk-lifecycle correlation fields for input diagnosis."""
 
 
 @dataclass(slots=True)
@@ -204,7 +214,7 @@ class TaxiHudState:
     _profile_pressed: set[str] = field(default_factory=set)
     """Normalized drive keys currently held according to UI-thread events."""
 
-    _input_received_at_s: OrderedDict[int, float] = field(default_factory=OrderedDict)
+    _input_received_at_ns: OrderedDict[int, int] = field(default_factory=OrderedDict)
     """UI receipt times keyed by V2 session-relative event timestamp."""
 
     _reported_input_timestamps_us: set[int] = field(default_factory=set)
@@ -212,6 +222,9 @@ class TaxiHudState:
 
     _latest_input_latency_ms: float | None = None
     """Latest UI-ingress-to-model-frame-selection latency measurement."""
+
+    _latest_committed_frame: TaxiHudFrame | None = None
+    """Newest generated frame metadata received from the model thread."""
 
     _presented_frame_times_s: deque[float] = field(default_factory=deque)
     """Recent times when distinct generated video frames were selected."""
@@ -227,6 +240,8 @@ class TaxiHudState:
         for frame in frames:
             self._frames[frame.frame_key] = frame
             self._frames.move_to_end(frame.frame_key)
+        if frames and frames[-1].autoregressive_index >= 0:
+            self._latest_committed_frame = frames[-1]
         while len(self._frames) > _MAX_BUFFERED_HUD_FRAMES:
             self._frames.popitem(last=False)
 
@@ -250,9 +265,19 @@ class TaxiHudState:
                 self._submission_pending = False
             self._current = selected
             self._menu_stage = "game"
+            presented_at_ns = (
+                time.monotonic_ns() if self.profile_input_latency else None
+            )
             if frame_changed:
-                self._record_presented_frame(time.monotonic())
-            self._record_presented_input(selected)
+                self._record_presented_frame(
+                    time.monotonic()
+                    if presented_at_ns is None
+                    else presented_at_ns / 1_000_000_000.0
+                )
+                if presented_at_ns is not None:
+                    self._record_presented_trace(selected, presented_at_ns)
+            if presented_at_ns is not None:
+                self._record_presented_input(selected, presented_at_ns)
         return self._current
 
     def _record_presented_frame(self, now_s: float) -> None:
@@ -295,27 +320,91 @@ class TaxiHudState:
             if not recognized:
                 continue
             timestamp_us = int(event.get_timestamp())
-            self._input_received_at_s.setdefault(timestamp_us, time.perf_counter())
-            self._input_received_at_s.move_to_end(timestamp_us)
-        while len(self._input_received_at_s) > _MAX_BUFFERED_INPUT_EVENTS:
-            self._input_received_at_s.popitem(last=False)
+            received_at_ns = time.monotonic_ns()
+            self._input_received_at_ns.setdefault(timestamp_us, received_at_ns)
+            self._input_received_at_ns.move_to_end(timestamp_us)
+            _log_chunk_trace(
+                "input_received",
+                time_ns=received_at_ns,
+                event_us=timestamp_us,
+                **_input_event_trace_fields(event),
+            )
+        while len(self._input_received_at_ns) > _MAX_BUFFERED_INPUT_EVENTS:
+            self._input_received_at_ns.popitem(last=False)
 
-    def _record_presented_input(self, selected: TaxiHudFrame) -> None:
+    def _record_presented_input(
+        self,
+        selected: TaxiHudFrame,
+        presented_at_ns: int,
+    ) -> None:
         if not self.profile_input_latency:
             return
         timestamp_us = selected.transition_timestamp_us
         if timestamp_us is None or timestamp_us in self._reported_input_timestamps_us:
             return
-        received_at_s = self._input_received_at_s.pop(timestamp_us, None)
-        if received_at_s is None:
+        received_at_ns = self._input_received_at_ns.pop(timestamp_us, None)
+        if received_at_ns is None:
             return
         self._reported_input_timestamps_us.add(timestamp_us)
-        self._latest_input_latency_ms = (time.perf_counter() - received_at_s) * 1000.0
-        _LOGGER.info(
+        self._latest_input_latency_ms = (
+            presented_at_ns - received_at_ns
+        ) / 1_000_000.0
+        _TRACE_LOGGER.info(
             "[crazy-robotaxi] input-to-model-frame latency: "
-            "event_us=%d ui_to_frame_ms=%.1f",
+            "event_us=%d ui_to_frame_ms=%.1f generation=%d step=%d epoch=%d "
+            "ar=%d frame=%d",
             timestamp_us,
             self._latest_input_latency_ms,
+            selected.runtime_generation,
+            selected.model_step_index,
+            selected.rollout_epoch,
+            selected.autoregressive_index,
+            selected.frame_index,
+        )
+
+    def _record_presented_trace(
+        self,
+        selected: TaxiHudFrame,
+        presented_at_ns: int,
+    ) -> None:
+        if not self.profile_input_latency or selected.model_step_index < 0:
+            return
+        latest = self._latest_committed_frame
+        ar_lead: int | str = "unknown"
+        step_lead: int | str = "unknown"
+        simulation_lead_ms: float | str = "unknown"
+        if latest is not None and latest.rollout_epoch == selected.rollout_epoch:
+            ar_lead = latest.autoregressive_index - selected.autoregressive_index
+            step_lead = latest.model_step_index - selected.model_step_index
+            if (
+                latest.simulation_timestamp_us is not None
+                and selected.simulation_timestamp_us is not None
+            ):
+                simulation_lead_ms = (
+                    latest.simulation_timestamp_us - selected.simulation_timestamp_us
+                ) / 1000.0
+        finalize_to_present_ms: float | str = "unknown"
+        if selected.cache_finalize_returned_ns is not None:
+            finalize_to_present_ms = (
+                presented_at_ns - selected.cache_finalize_returned_ns
+            ) / 1_000_000.0
+        _log_chunk_trace(
+            "app_frame_presented",
+            time_ns=presented_at_ns,
+            generation=selected.runtime_generation,
+            step=selected.model_step_index,
+            epoch=selected.rollout_epoch,
+            ar=selected.autoregressive_index,
+            frame=selected.frame_index,
+            simulation_us=(
+                "unknown"
+                if selected.simulation_timestamp_us is None
+                else selected.simulation_timestamp_us
+            ),
+            step_lead=step_lead,
+            ar_lead=ar_lead,
+            simulation_lead_ms=simulation_lead_ms,
+            finalize_to_present_ms=finalize_to_present_ms,
         )
 
     def set_loading_status(self, status: str) -> None:
@@ -776,9 +865,10 @@ class TaxiHudState:
         self._loading_status = "LOADING WORLD MODEL"
         self._loading_started_at_s = time.monotonic()
         self._profile_pressed.clear()
-        self._input_received_at_s.clear()
+        self._input_received_at_ns.clear()
         self._reported_input_timestamps_us.clear()
         self._latest_input_latency_ms = None
+        self._latest_committed_frame = None
         self._name_input = ""
 
     def _clear_presented_game(self) -> None:
@@ -1430,6 +1520,35 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         super().reset()
 
 
+def _log_chunk_trace(phase: str, *, time_ns: int, **fields: object) -> None:
+    """Emit one grep-friendly chunk lifecycle event."""
+    details = " ".join(f"{name}={value}" for name, value in fields.items())
+    _TRACE_LOGGER.info(
+        "%s phase=%s time_ns=%d %s",
+        _TRACE_PREFIX,
+        phase,
+        time_ns,
+        details,
+    )
+
+
+def _input_event_trace_fields(event: object) -> dict[str, object]:
+    """Return non-text driving fields for one diagnostic input event."""
+    if isinstance(event, KeyboardUserInputEvent):
+        return {
+            "source": "keyboard",
+            "key": _normalize_profile_key(str(event.key)),
+            "state": event.state.value,
+        }
+    if isinstance(event, FocusUserInputEvent):
+        return {"source": "focus", "focused": event.focused}
+    if isinstance(event, GamepadUserInputEvent):
+        return {"source": "gamepad", "action": event.action}
+    if isinstance(event, GameWheelUserInputEvent):
+        return {"source": "wheel", "action": event.action}
+    return {"source": type(event).__name__}
+
+
 def build_hud_frames(
     video_tchw: Tensor,
     snapshots: Sequence[object],
@@ -1437,6 +1556,12 @@ def build_hud_frames(
     *,
     speeds_mps: Sequence[float] | None = None,
     transition_timestamps_us: Sequence[int | None] | None = None,
+    runtime_generation: int = 0,
+    model_step_index: int = -1,
+    rollout_epoch: int = 0,
+    autoregressive_index: int = -1,
+    simulation_timestamps_us: Sequence[int | None] | None = None,
+    cache_finalize_returned_ns: int | None = None,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -1453,8 +1578,14 @@ def build_hud_frames(
         transition_timestamps_us = (None,) * frame_count
     if len(transition_timestamps_us) != frame_count:
         raise ValueError("Input transitions and video frames must align")
+    if simulation_timestamps_us is None:
+        simulation_timestamps_us = (None,) * frame_count
+    if len(simulation_timestamps_us) != frame_count:
+        raise ValueError("Simulation timestamps and video frames must align")
     frames = []
-    for index, snapshot in enumerate(snapshots):
+    for index, (snapshot, simulation_timestamp_us) in enumerate(
+        zip(snapshots, simulation_timestamps_us, strict=True)
+    ):
         if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
             raise TypeError("Taxi HUD received an unknown game snapshot")
         pose = poses[index].copy()
@@ -1466,6 +1597,13 @@ def build_hud_frames(
                 rig_pose_world=pose,
                 speed_mps=float(speeds_mps[index]),
                 transition_timestamp_us=transition_timestamps_us[index],
+                runtime_generation=runtime_generation,
+                model_step_index=model_step_index,
+                rollout_epoch=rollout_epoch,
+                autoregressive_index=autoregressive_index,
+                frame_index=index,
+                simulation_timestamp_us=simulation_timestamp_us,
+                cache_finalize_returned_ns=cache_finalize_returned_ns,
             )
         )
     return tuple(frames)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from functools import partial
@@ -55,6 +56,11 @@ _VIDEO_FPS = 30
 _UI_FPS = 30
 """Input polling and HUD cadence used by Interactive Drive."""
 
+_DEFAULT_INPUT_TRACE_PATH = (
+    Path(tempfile.gettempdir()) / "crazy-robotaxi-input-trace.log"
+)
+"""Default line-oriented input trace written by the profiling flag."""
+
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_PREWARM_BLOCKS = 4
@@ -89,6 +95,9 @@ class ApplicationConfig:
     profile_input_latency: bool
     """Whether the UI displays and logs input-to-model-frame diagnostics."""
 
+    input_trace_path: Path | None
+    """Lifecycle trace destination when input profiling is enabled."""
+
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
 
@@ -119,6 +128,8 @@ class ApplicationConfig:
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
+_TRACE_METADATA_KEY = "trace_chunk_lifecycle"
+_TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
 
 
 class CrazyRobotaxiApplication(IApplication):
@@ -166,6 +177,8 @@ class CrazyRobotaxiApplication(IApplication):
         if pipeline_config is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
         args = _parser(self._application_defaults).parse_args(list(commandline_args))
+        input_trace_path = args.profile_input_latency
+        args.profile_input_latency = input_trace_path is not None
         engine_settings = self._resolve_engine_settings(args)
         game_settings = self._resolve_game_settings(args)
         if (
@@ -252,6 +265,11 @@ class CrazyRobotaxiApplication(IApplication):
             pipeline_profiling=bool(engine_settings.world_model.profile_pipeline),
             prewarm_blocks=engine_settings.runtime.prewarm_blocks,
             profile_input_latency=engine_settings.runtime.profile_input_latency,
+            input_trace_path=(
+                None
+                if input_trace_path is None
+                else input_trace_path.expanduser().resolve()
+            ),
             show_fps=engine_settings.presentation.show_fps,
             cli_game_mode=(
                 game_settings.mode if arg_was_explicit(args, "game_mode") else None
@@ -412,6 +430,17 @@ class CrazyRobotaxiApplication(IApplication):
             session_desc=replace(
                 session_desc,
                 presentation_mode=PresentationMode.CONTINUOUS,
+                metadata={
+                    **session_desc.metadata,
+                    **(
+                        {
+                            _TRACE_METADATA_KEY: True,
+                            _TRACE_PATH_METADATA_KEY: str(config.input_trace_path),
+                        }
+                        if config.input_trace_path is not None
+                        else {}
+                    ),
+                },
             ),
         )
 
@@ -533,8 +562,14 @@ def _parser(
     )
     parser.add_argument(
         "--profile-input-latency",
-        action="store_true",
-        help="show and log UI-input-to-model-frame latency diagnostics",
+        nargs="?",
+        type=Path,
+        const=_DEFAULT_INPUT_TRACE_PATH,
+        metavar="TRACE_PATH",
+        help=(
+            "show input diagnostics and write the chunk lifecycle trace "
+            f"(default path: {_DEFAULT_INPUT_TRACE_PATH})"
+        ),
     )
     parser.add_argument(
         "--show-fps",

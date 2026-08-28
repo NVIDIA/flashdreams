@@ -6,6 +6,8 @@
 import logging
 import threading
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
@@ -25,6 +27,20 @@ _UI_READER_ID = 0
 _MODEL_READER_ID = 1
 _MODEL_FPS_WINDOW_SECONDS = 2.0
 """Wall-time window used to estimate generated-frame throughput."""
+
+_TRACE_METADATA_KEY = "trace_chunk_lifecycle"
+_TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
+_TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+_TRACE_PREFIX = "[runtime-v2-chunk-trace]"
+
+
+@dataclass(frozen=True, slots=True)
+class _ChunkTraceLog:
+    """Logger state restored after one traced session."""
+
+    handler: logging.FileHandler
+    previous_level: int
+    previous_propagate: bool
 
 
 class _PresentationClock:
@@ -185,11 +201,13 @@ def run_session(
     event_buffer = EventBuffer()
     stop = session._shutdown_event
     presentation_manager = session._presentation_manager
+    trace_chunk_lifecycle = session_desc.metadata.get(_TRACE_METADATA_KEY) is True
     presentation_manager.configure(
         max_pending=max_pending,
         backpressure_mode=session_desc.backpressure_mode,
         stop=stop,
         put_timeout=tick_seconds,
+        trace_chunk_lifecycle=trace_chunk_lifecycle,
     )
     model_thread_handle: threading.Thread | None = None
     ui_loop: IUILoop[object] | None = None
@@ -254,7 +272,28 @@ def run_session(
                 return
             run_ui_once()
 
+    trace_log = (
+        _open_chunk_trace(session_desc.metadata.get(_TRACE_PATH_METADATA_KEY))
+        if trace_chunk_lifecycle
+        else None
+    )
     try:
+        if trace_chunk_lifecycle:
+            _TRACE_LOGGER.info(
+                "%s phase=session_config time_ns=%d backpressure=%s "
+                "presentation=%s max_pending=%d step_fps=%d ui_fps=%d "
+                "width=%d height=%d trace_path=%s",
+                _TRACE_PREFIX,
+                time.monotonic_ns(),
+                session_desc.backpressure_mode.value,
+                session_desc.presentation_mode.value,
+                max_pending,
+                session_desc.frames_per_second_for_step,
+                session_desc.frames_per_second_for_ui,
+                session_desc.video_width,
+                session_desc.video_height,
+                trace_log.handler.baseFilename if trace_log is not None else "none",
+            )
         session.init()
         registered_ui, registered_model = session._take_loops()
         ui_loop = registered_ui
@@ -336,6 +375,11 @@ def run_session(
             session.close()
         except BaseException as error:
             cleanup_failures.append(error)
+        if trace_log is not None:
+            try:
+                _close_chunk_trace(trace_log)
+            except BaseException as error:
+                cleanup_failures.append(error)
 
     loop_failures = (
         None if session._failure_queue.empty() else session._failure_queue.get()
@@ -360,6 +404,36 @@ def run_session(
         )
     if primary_failure is not None:
         raise primary_failure
+
+
+def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:
+    """Open a line-buffered lifecycle trace for one session."""
+    if not isinstance(path_value, str | Path):
+        raise TypeError(
+            f"{_TRACE_PATH_METADATA_KEY} must be a filesystem path when tracing"
+        )
+    path = Path(path_value).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    # ponytail: this process-global logger assumes one active traced V2 session;
+    # pass a per-session sink through the loop contracts if concurrent sessions land.
+    previous_level = _TRACE_LOGGER.level
+    previous_propagate = _TRACE_LOGGER.propagate
+    _TRACE_LOGGER.addHandler(handler)
+    _TRACE_LOGGER.setLevel(logging.INFO)
+    _TRACE_LOGGER.propagate = False
+    return _ChunkTraceLog(handler, previous_level, previous_propagate)
+
+
+def _close_chunk_trace(trace_log: _ChunkTraceLog) -> None:
+    """Flush and close a session trace, restoring the shared logger."""
+    _TRACE_LOGGER.removeHandler(trace_log.handler)
+    try:
+        trace_log.handler.close()
+    finally:
+        _TRACE_LOGGER.setLevel(trace_log.previous_level)
+        _TRACE_LOGGER.propagate = trace_log.previous_propagate
 
 
 __all__ = ["run_session"]

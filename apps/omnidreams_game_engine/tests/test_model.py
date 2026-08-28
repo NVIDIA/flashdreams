@@ -122,6 +122,7 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
         pipeline=pipeline,
         scene=_scene(),
         engine_factory=engine_factory,
+        trace_chunk_lifecycle=True,
     )
     result = rollout.step(
         autoregressive_index=0,
@@ -136,6 +137,15 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
     assert result.metrics["pipeline_cpu_ms"] >= 0.0
     assert result.metrics["rollout_wall_ms"] >= 0.0
     assert result.metrics["rollout_cpu_ms"] >= 0.0
+    assert result._trace is not None
+    assert (
+        result._trace.engine_step_started_ns
+        <= result._trace.engine_step_returned_ns
+        <= result._trace.generate_started_ns
+        <= result._trace.generate_returned_ns
+        <= result._trace.cache_finalize_returned_ns
+        <= result._trace.rollout_step_returned_ns
+    )
     assert [call[0] for call in pipeline.calls] == [
         "initialize_cache",
         "get_num_output_frames",

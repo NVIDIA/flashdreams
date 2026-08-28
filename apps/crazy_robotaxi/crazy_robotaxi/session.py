@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     from crazy_robotaxi.application import ApplicationConfig
 
 _LOGGER = logging.getLogger(__name__)
+_TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+_TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
 _GAMEPAD_START_BUTTON_INDEX = 9
 """Browser-standard gamepad index shared by Start and Nintendo Plus."""
 
@@ -86,6 +88,9 @@ class ModelState:
     """Speed aligned with the retained terminal presentation frame."""
 
     blocks_generated: int = 0
+    rollout_epoch: int = 0
+    """Incremented whenever mutable game and model state is reset."""
+
     finished: bool = False
     realtime_miss_count: int = 0
     prewarm_complete: bool = False
@@ -126,6 +131,7 @@ class ModelState:
                     race_times_path=self.config.race_times_path,
                     live_edit=self.config.live_edit,
                 ),
+                trace_chunk_lifecycle=self.config.profile_input_latency,
             )
         if not self.prewarm_complete:
             self._prewarm_rollout()
@@ -255,6 +261,13 @@ class ModelState:
         )
 
     def reset(self) -> None:
+        self.rollout_epoch += 1
+        if getattr(self.config, "profile_input_latency", False):
+            _log_chunk_trace(
+                "rollout_reset",
+                time_ns=time.monotonic_ns(),
+                epoch=self.rollout_epoch,
+            )
         self.blocks_generated = 0
         self.finished = False
         self.realtime_miss_count = 0
@@ -293,6 +306,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         state = self.state
+        runtime_generation = getattr(self, "_generation", 0)
+        trace_enabled = getattr(state.config, "profile_input_latency", False)
         # Match Interactive Drive: apply every unread edge before rollout setup,
         # reset handling, or simulation reads the retained command.
         input_times_s = state.driver_input.apply(events)
@@ -312,13 +327,17 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
                 raise TypeError("Crazy Robotaxi reset returned an unknown game frame")
         active_states = {"playing", "awaiting_start", "racing"}
+        autoregressive_index = -1
+        simulation_timestamps_us: tuple[int, ...] | None = None
+        cache_finalize_returned_ns: int | None = None
         if snapshot.session_state in active_states:
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
                 live_edit.process_events(events)
                 if live_edit.style is not None:
                     live_edit.style.before_v2_chunk()
-            frame_count = rollout.frame_count(state.blocks_generated)
+            autoregressive_index = state.blocks_generated
+            frame_count = rollout.frame_count(autoregressive_index)
             input_window = state.input_timeline.next_window(
                 frame_count,
                 input_times_s=input_times_s,
@@ -326,12 +345,58 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             sampled_commands, transition_timestamps_us = state.driver_input.sample(
                 input_window
             )
-            generated = rollout.step(
-                autoregressive_index=state.blocks_generated,
-                commands=tuple(
-                    _taxi_driver_command(command) for command in sampled_commands
-                ),
+            commands = tuple(
+                _taxi_driver_command(command) for command in sampled_commands
             )
+            if trace_enabled:
+                sampled_at_ns = time.monotonic_ns()
+                for frame_index, (command, transition_timestamp_us) in enumerate(
+                    zip(commands, transition_timestamps_us, strict=True)
+                ):
+                    _log_chunk_trace(
+                        "input_sampled",
+                        time_ns=sampled_at_ns,
+                        generation=runtime_generation,
+                        step=step_index,
+                        epoch=state.rollout_epoch,
+                        ar=autoregressive_index,
+                        frame=frame_index,
+                        event_us=(
+                            "none"
+                            if transition_timestamp_us is None
+                            else transition_timestamp_us
+                        ),
+                        window_start_us=round(input_window.start_s * 1_000_000),
+                        window_end_us=round(input_window.end_s * 1_000_000),
+                        throttle=command.throttle,
+                        brake=command.brake,
+                        steer=command.steer,
+                        reverse=command.reverse,
+                    )
+            generated = rollout.step(
+                autoregressive_index=autoregressive_index,
+                commands=commands,
+            )
+            if trace_enabled and generated._trace is not None:
+                trace = generated._trace
+                cache_finalize_returned_ns = trace.cache_finalize_returned_ns
+                for phase, timestamp_ns in (
+                    ("engine_step_started", trace.engine_step_started_ns),
+                    ("engine_step_returned", trace.engine_step_returned_ns),
+                    ("generate_started", trace.generate_started_ns),
+                    ("generate_returned", trace.generate_returned_ns),
+                    ("cache_finalize_returned", trace.cache_finalize_returned_ns),
+                    ("rollout_step_returned", trace.rollout_step_returned_ns),
+                ):
+                    _log_chunk_trace(
+                        phase,
+                        time_ns=timestamp_ns,
+                        generation=runtime_generation,
+                        step=step_index,
+                        epoch=state.rollout_epoch,
+                        ar=autoregressive_index,
+                        frames=frame_count,
+                    )
             if live_edit is not None and live_edit.style is not None:
                 live_edit.style.after_v2_chunk()
             state.blocks_generated += 1
@@ -349,6 +414,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             engine_step = generated.engine
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
+            if trace_enabled:
+                simulation_timestamps_us = tuple(
+                    int(value) for value in engine_step.trajectory.timestamps_us
+                )
             speeds_mps = tuple(
                 vehicle.speed_mps for vehicle in engine_step.trajectory.vehicle_states
             )
@@ -378,6 +447,12 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             poses,
             speeds_mps=speeds_mps,
             transition_timestamps_us=transition_timestamps_us,
+            runtime_generation=runtime_generation,
+            model_step_index=step_index,
+            rollout_epoch=state.rollout_epoch,
+            autoregressive_index=autoregressive_index,
+            simulation_timestamps_us=simulation_timestamps_us,
+            cache_finalize_returned_ns=cache_finalize_returned_ns,
         )
         invoke_async(
             state.ui_loop,
@@ -528,6 +603,18 @@ class CrazyRobotaxiSession(ISession):
         )
         hud_state.model_loop = model_loop
         hud_state.initialize_selection()
+
+
+def _log_chunk_trace(phase: str, *, time_ns: int, **fields: object) -> None:
+    """Emit one grep-friendly chunk lifecycle event."""
+    details = " ".join(f"{name}={value}" for name, value in fields.items())
+    _TRACE_LOGGER.info(
+        "%s phase=%s time_ns=%d %s",
+        _TRACE_PREFIX,
+        phase,
+        time_ns,
+        details,
+    )
 
 
 def _restart_requested(events: UserInputEvents) -> bool:

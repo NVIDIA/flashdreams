@@ -3,12 +3,13 @@
 ## Status
 
 Crazy Robotaxi follows the V2 Interactive Drive demo's latest-state input
-contract and offers opt-in UI-to-model-frame diagnostics. Keyboard, gamepad,
-and wheel events accumulated during an in-flight model step are applied in
-order, but only the resulting current command conditions the next chunk. The
-V2 WebRTC sender is bounded and drops stale unsent frames under congestion. The
-remaining held-input latency is bounded by synchronous autoregressive model
-steps: input cannot change a chunk whose inference is already in flight.
+contract and offers opt-in input/chunk lifecycle diagnostics. Keyboard,
+gamepad, and wheel events accumulated during an in-flight model step are
+applied in order, but only the resulting current command conditions the next
+chunk. Input cannot change a chunk whose inference is already in flight, and
+the lifecycle trace described below distinguishes that boundary from stale
+queued presentation and cache state that has advanced past the displayed
+frame.
 
 ## Reproduction and evidence
 
@@ -18,10 +19,35 @@ Run the app at its trained 1280×704, 30 fps output contract:
 uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc \
   --stats-path /tmp/crazy-robotaxi-latency.json -- \
   --model-preset perf \
-  --profile-input-latency
+  --profile-input-latency /tmp/crazy-robotaxi-input-trace.log
 ```
 
-The investigation observed:
+`--profile-input-latency [TRACE_PATH]` writes grep-friendly lifecycle records
+to `TRACE_PATH`, replacing that file at the start of a session and flushing
+each record as it is written. Omitting the optional path uses
+`/tmp/crazy-robotaxi-input-trace.log`. This trace is separate from the
+model-metrics JSON selected by `--stats-path`. Records use the prefixes
+`[crazy-robotaxi-chunk-trace]` and `[runtime-v2-chunk-trace]`; correlate them by
+`generation`, `step`, `epoch`, `ar`, and `frame`:
+
+- `input_received` and `input_sampled` show the UI event and the exact command
+  assigned to each simulation frame.
+- `engine_step_started`, `engine_step_returned`, `generate_started`,
+  `generate_returned`, `cache_finalize_returned`, and
+  `rollout_step_returned` show model-thread host control flow.
+- `publish_started`, `publish_completed`, `chunk_dropped`, and
+  `frame_presented` show bounded runtime queue behavior.
+- `app_frame_presented` reports how many completed model steps, AR chunks, and
+  milliseconds of simulation the cache-committed state is ahead of the frame
+  selected for display.
+- `rollout_reset` increments `epoch`, preventing a post-reset frame from being
+  compared with pre-reset mutable state.
+
+All `time_ns` values are from the CPU monotonic clock. A `*_returned` event
+means the host call returned; it deliberately does not synchronize CUDA or
+claim that asynchronous GPU work completed at that instant.
+
+The earlier investigation observed:
 
 - A held steering key took more than 1.5 seconds to affect displayed model
   video across model presets.

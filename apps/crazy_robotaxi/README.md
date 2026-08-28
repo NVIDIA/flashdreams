@@ -219,17 +219,22 @@ Profile interactive input separately with:
 
 ```bash
 uv run flashdreams-run-v2 crazy-robotaxi-omnidreams-perf --mode webrtc -- \
-  --profile-input-latency
+  --profile-input-latency /tmp/crazy-robotaxi-input-trace.log
 ```
 
 This opt-in adds a UI-thread key indicator and logs the time from V2 UI event
-receipt to the first presented model frame carrying that transition. The normal
-HUD does not construct these widgets when the flag is absent. The indicator's
-physical-key-to-browser delay still includes WebRTC transport latency, while
-the reported `UI TO MODEL FRAME` value isolates the synchronous app/model
-portion. See the
+receipt to the first presented model frame carrying that transition. It also
+logs input sampling, model/cache boundaries, runtime publication, chunk drops,
+resets, and the lead between committed and displayed simulation
+state to the optional path following `--profile-input-latency`. Without an
+explicit path, the trace is written to
+`/tmp/crazy-robotaxi-input-trace.log`; it is separate from `--stats-path`. The
+normal HUD does not construct these widgets or lifecycle records when the flag
+is absent. The indicator's physical-key-to-browser delay still includes WebRTC
+transport latency, while the reported `UI TO MODEL FRAME` value isolates the
+synchronous app/model portion. See the
 [V2 latency handoff](../../docs/design/crazy_robotaxi_v2_input_latency.md) for
-the remaining synchronous model-step boundary.
+the trace fields and interpretation caveats.
 
 All model presets generate four neutral, hidden blocks before publishing the
 first gameplay frame. The responsive ImGui HUD shows the current warmup block,

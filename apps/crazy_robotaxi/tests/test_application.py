@@ -606,6 +606,29 @@ def test_input_latency_profiling_is_an_app_local_opt_in(
 
     assert app._config is not None
     assert app._config.profile_input_latency is expected
+    session = app.create_session(app.session_desc())
+    assert (
+        session.session_desc.metadata.get("trace_chunk_lifecycle") is True
+    ) is expected
+    trace_path = session.session_desc.metadata.get("trace_chunk_lifecycle_path")
+    assert (trace_path is not None) is expected
+    if trace_path is not None:
+        assert Path(trace_path).name == "crazy-robotaxi-input-trace.log"
+
+
+def test_input_latency_trace_accepts_an_explicit_path(tmp_path) -> None:
+    trace_path = tmp_path / "robotaxi-input.log"
+    app = _application()
+
+    app.init(["--profile-input-latency", str(trace_path)])
+
+    assert app._config is not None
+    assert app._config.profile_input_latency
+    assert app._config.input_trace_path == trace_path.resolve()
+    session = app.create_session(app.session_desc())
+    assert session.session_desc.metadata["trace_chunk_lifecycle_path"] == str(
+        trace_path.resolve()
+    )
 
 
 @pytest.mark.parametrize(

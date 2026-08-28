@@ -3,8 +3,10 @@
 
 """Buffer and present model frames."""
 
+import logging
 import queue
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -18,6 +20,9 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _PRESENTATION_STREAM_PRIORITY = -1
 """Prefer short presentation work over queued model kernels."""
+
+_TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+_TRACE_PREFIX = "[runtime-v2-chunk-trace]"
 
 
 class PresentationManager:
@@ -61,6 +66,7 @@ class PresentationManager:
         self._discarded_at_reset = 0
         self._stream_lock = threading.Lock()
         self._infer_stream_device = device is None
+        self._trace_chunk_lifecycle = False
         self._presentation_stream: torch.cuda.Stream | None = None
         if device is not None:
             device = torch.device(device)
@@ -81,6 +87,7 @@ class PresentationManager:
         backpressure_mode: BackpressureMode,
         stop: threading.Event,
         put_timeout: float,
+        trace_chunk_lifecycle: bool = False,
     ) -> None:
         """Set the queue size and backpressure mode.
 
@@ -93,6 +100,7 @@ class PresentationManager:
             stop: Session shutdown event, so a blocked publish gives up.
             put_timeout: How long a blocked publish waits before rechecking
                 ``stop``, in seconds.
+            trace_chunk_lifecycle: Emit chunk lifecycle diagnostics.
 
         Raises:
             ValueError: ``max_pending`` is not positive.
@@ -103,6 +111,7 @@ class PresentationManager:
         self._backpressure_mode = backpressure_mode
         self._stop = stop
         self._put_timeout = put_timeout
+        self._trace_chunk_lifecycle = trace_chunk_lifecycle
 
     def publish(
         self,
@@ -138,16 +147,37 @@ class PresentationManager:
                 None,
             )
         )
+        started_ns: int | None = None
+        if self._trace_chunk_lifecycle:
+            started_ns = time.monotonic_ns()
+            self._trace(
+                "publish_started",
+                generation=generation,
+                step=chunk[0].step_index,
+                frames=frame_count,
+                queue_depth=self._buffer.qsize(),
+                queue_capacity=self._buffer.maxsize,
+            )
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             self._publish_latest(pending)
+            self._trace_publish_completed(pending, started_ns)
             return
         while not self._stop.is_set():
             try:
                 self._buffer.put(pending, timeout=self._put_timeout)
+                self._trace_publish_completed(pending, started_ns)
                 return
             except queue.Full:
                 continue
+        if started_ns is not None:
+            self._trace(
+                "publish_stopped",
+                generation=generation,
+                step=chunk[0].step_index,
+                wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
+                queue_depth=self._buffer.qsize(),
+            )
 
     @contextmanager
     def presentation_context(self) -> Iterator[None]:
@@ -190,6 +220,12 @@ class PresentationManager:
             already being presented.
         """
         if generation != self._generation:
+            if self._presented_chunk is not None:
+                self._trace_drop(
+                    self._generation,
+                    self._presented_chunk,
+                    reason="generation_changed_active",
+                )
             self._generation = generation
             self._presented_chunk = None
             self._frame_index = -1
@@ -201,6 +237,7 @@ class PresentationManager:
         ):
             self._frame_index += 1
             self._presented_frame_count += 1
+            self._trace_presented_frame(generation)
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -212,6 +249,7 @@ class PresentationManager:
         self._presented_chunk = chunk
         self._frame_index = 0
         self._presented_frame_count += 1
+        self._trace_presented_frame(generation)
         return True, chunk
 
     @property
@@ -389,9 +427,15 @@ class PresentationManager:
                 return
             except queue.Full:
                 try:
-                    self._buffer.get_nowait()
+                    dropped_generation, dropped_chunk = self._buffer.get_nowait()
                     with self._counter_lock:
                         self._dropped_for_space += 1
+                    self._trace_drop(
+                        dropped_generation,
+                        dropped_chunk,
+                        reason="queue_full",
+                        replacement=pending,
+                    )
                 except queue.Empty:
                     continue
 
@@ -407,13 +451,100 @@ class PresentationManager:
             if chunk_generation != generation:
                 with self._counter_lock:
                     self._discarded_at_reset += 1
+                self._trace_drop(
+                    chunk_generation,
+                    chunk,
+                    reason="generation_mismatch",
+                )
                 continue
             if selected is not None:
                 with self._counter_lock:
                     self._dropped_for_space += 1
+                self._trace_drop(
+                    generation,
+                    selected,
+                    reason="take_latest",
+                    replacement=(chunk_generation, chunk),
+                )
             selected = chunk
             if not latest:
                 return selected
+
+    def _trace_publish_completed(
+        self,
+        pending: tuple[int, list[StepResult]],
+        started_ns: int | None,
+    ) -> None:
+        if started_ns is None:
+            return
+        generation, chunk = pending
+        self._trace(
+            "publish_completed",
+            generation=generation,
+            step=chunk[0].step_index,
+            frames=chunk[0].frame_count,
+            wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
+            queue_depth=self._buffer.qsize(),
+            queue_capacity=self._buffer.maxsize,
+        )
+
+    def _trace_presented_frame(self, generation: int) -> None:
+        if not self._trace_chunk_lifecycle:
+            return
+        chunk = self._presented_chunk
+        if chunk is None:
+            return
+        self._trace(
+            "frame_presented",
+            generation=generation,
+            step=chunk[0].step_index,
+            frame=self._frame_index,
+            frames=chunk[0].frame_count,
+            edge=(
+                "both"
+                if chunk[0].frame_count == 1
+                else "first"
+                if self._frame_index == 0
+                else "last"
+                if self._frame_index + 1 == chunk[0].frame_count
+                else "middle"
+            ),
+            queue_depth=self._buffer.qsize(),
+        )
+
+    def _trace_drop(
+        self,
+        generation: int,
+        chunk: list[StepResult],
+        *,
+        reason: str,
+        replacement: tuple[int, list[StepResult]] | None = None,
+    ) -> None:
+        if not self._trace_chunk_lifecycle:
+            return
+        fields: dict[str, object] = {
+            "generation": generation,
+            "step": chunk[0].step_index,
+            "reason": reason,
+            "queue_depth": self._buffer.qsize(),
+        }
+        if replacement is not None:
+            replacement_generation, replacement_chunk = replacement
+            fields["replacement_generation"] = replacement_generation
+            fields["replacement_step"] = replacement_chunk[0].step_index
+        self._trace("chunk_dropped", **fields)
+
+    def _trace(self, phase: str, **fields: object) -> None:
+        if not self._trace_chunk_lifecycle:
+            return
+        details = " ".join(f"{name}={value}" for name, value in fields.items())
+        _TRACE_LOGGER.info(
+            "%s phase=%s time_ns=%d %s",
+            _TRACE_PREFIX,
+            phase,
+            time.monotonic_ns(),
+            details,
+        )
 
 
 def _frame_at(result: StepResult, frame_index: int) -> Tensor:
