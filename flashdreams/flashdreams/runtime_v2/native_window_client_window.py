@@ -119,7 +119,9 @@ class NativeWindowClientWindow(IClientWindow):
         self._close_event_enqueued = False
         self._presenter: _SlangPyNativeWindowPresenter | None = None
         self._poll_input_events: list[UserInputEvent] | None = None
-        self._pending_printable_keys: deque[tuple[str, int]] = deque()
+        self._pending_printable_keys: deque[
+            tuple[str, KeyboardUserInputEvent]
+        ] = deque()
         self._pressed_key_values: dict[str, str] = {}
 
     def open(self, session_desc: SessionDesc) -> None:
@@ -168,15 +170,27 @@ class NativeWindowClientWindow(IClientWindow):
         """Pump GLFW and return native input events not yet read."""
         presenter = self._presenter
         if presenter is not None:
+            pending_before_poll = tuple(self._pending_printable_keys)
             self._poll_input_events = []
             try:
                 presenter.process_events()
+                # ponytail: Text delayed by more than one poll can still arrive
+                # as a second press. Split physical and text runtime events if a
+                # client needs a longer coalescing window.
+                pending_to_flush = (
+                    tuple(self._pending_printable_keys)
+                    if presenter.should_close
+                    else pending_before_poll
+                )
+                for pending in pending_to_flush:
+                    if pending in self._pending_printable_keys:
+                        self._pending_printable_keys.remove(pending)
+                        self._put_input(pending[1])
                 if presenter.should_close:
                     self._on_window_closed()
                 polled_input_events = self._poll_input_events
             finally:
                 self._poll_input_events = None
-                self._pending_printable_keys.clear()
             for event in polled_input_events:
                 self._put_input(event)
 
@@ -245,15 +259,10 @@ class NativeWindowClientWindow(IClientWindow):
         if _is_keyboard_input(event):
             text = _keyboard_input_text(event)
             if text is not None:
-                poll_input_events = self._poll_input_events
-                if self._pending_printable_keys and poll_input_events is not None:
-                    physical_key, event_index = self._pending_printable_keys.pop()
+                if self._pending_printable_keys:
+                    physical_key, keyboard_event = self._pending_printable_keys.pop()
                     self._pressed_key_values[physical_key] = text
-                    poll_input_events[event_index] = KeyboardUserInputEvent(
-                        timestamp=uint64(0),
-                        key=text,
-                        state=KeyboardInputState.PRESSED,
-                    )
+                    self._put_input(replace(keyboard_event, key=text))
                 else:
                     self._put_input(
                         KeyboardUserInputEvent(
@@ -271,13 +280,7 @@ class NativeWindowClientWindow(IClientWindow):
             keyboard_event.state is KeyboardInputState.PRESSED
             and len(keyboard_event.key) == 1
         ):
-            poll_input_events = self._poll_input_events
-            if poll_input_events is not None:
-                event_index = len(poll_input_events)
-                self._put_input(keyboard_event)
-                self._pending_printable_keys.append((keyboard_event.key, event_index))
-            else:
-                self._put_input(keyboard_event)
+            self._pending_printable_keys.append((keyboard_event.key, keyboard_event))
             return
         if (
             keyboard_event.state is KeyboardInputState.RELEASED
@@ -293,6 +296,7 @@ class NativeWindowClientWindow(IClientWindow):
             )
             if pending_key is not None:
                 self._pending_printable_keys.remove(pending_key)
+                self._put_input(pending_key[1])
             key = self._pressed_key_values.pop(keyboard_event.key, keyboard_event.key)
             self._put_input(
                 KeyboardUserInputEvent(
