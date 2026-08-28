@@ -400,7 +400,7 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;TAEHV video decoder.&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;TAEHV video decoder and Hunyuan Video 1.5 codec configs.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -413,16 +413,18 @@ SPDX-License-Identifier: Apache-2.0
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.decoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">DecoderConfig</span><span class="p">,</span> <span class="n">StreamingVideoDecoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.encoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncoderConfig</span><span class="p">,</span> <span class="n">StreamingVideoEncoder</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">StateDictTransform</span><span class="p">,</span>
     <span class="n">compose</span><span class="p">,</span>
     <span class="n">legacy_to_blocks_keys</span><span class="p">,</span>
     <span class="n">truncate_oversize_tgrow_weights</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.recipes.taehv.impl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TAEHV</span><span class="p">,</span> <span class="n">TAEHVCache</span><span class="p">,</span> <span class="n">TAEHVEncoderCache</span>
 
 <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;lighttae&quot;</span><span class="p">:</span> <span class="s2">&quot;https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;hy1_5&quot;</span><span class="p">:</span> <span class="s2">&quot;https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth&quot;</span><span class="p">,</span>
 <span class="p">}</span>
 <span class="sd">&quot;&quot;&quot;Checkpoint paths for the TAEHV decoder.&quot;&quot;&quot;</span>
 
@@ -632,9 +634,159 @@ SPDX-License-Identifier: Apache-2.0
 
 
 
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-    <span class="kn">import</span><span class="w"> </span><span class="nn">tyro</span>
+<div class="viewcode-block" id="Hy15TAEHVDecoderConfig">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Hy15TAEHVDecoderConfig</span><span class="p">(</span><span class="n">DecoderConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Hunyuan Video 1.5 TAEHV decoder.&quot;&quot;&quot;</span>
 
+    <span class="n">_target</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">type</span><span class="p">,</span> <span class="n">tyro</span><span class="o">.</span><span class="n">conf</span><span class="o">.</span><span class="n">Suppress</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Hy15TAEHVDecoder</span>
+    <span class="p">)</span>
+
+    <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;hy1_5&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Path or URL for the Hunyuan Video 1.5 TAEHV checkpoint.&quot;&quot;&quot;</span>
+
+    <span class="n">state_dict_transform</span><span class="p">:</span> <span class="n">StateDictTransform</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">legacy_to_blocks_keys</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Pre-load state-dict remap from the published flat key layout.&quot;&quot;&quot;</span>
+
+    <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Network parameter / activation dtype.&quot;&quot;&quot;</span>
+
+    <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap the decoder forward in a CUDA graph for replay.&quot;&quot;&quot;</span>
+
+    <span class="n">use_compile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)``.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="Hy15TAEHVDecoder">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Hy15TAEHVDecoder</span><span class="p">(</span><span class="n">TeahvVAEDecoder</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hunyuan Video 1.5 TAEHV decoder with raw 32-channel latents.&quot;&quot;&quot;</span>
+
+    <span class="n">TEMPORAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="mi">4</span>
+    <span class="n">SPATIAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="mi">16</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Hy15TAEHVDecoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">StreamingVideoDecoder</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span> <span class="n">Hy15TAEHVDecoderConfig</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">need_scaled</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">taehv</span> <span class="o">=</span> <span class="n">TAEHV</span><span class="p">(</span>
+            <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">checkpoint_path</span><span class="p">,</span>
+            <span class="n">model_type</span><span class="o">=</span><span class="s2">&quot;hy1_5&quot;</span><span class="p">,</span>
+            <span class="n">use_cuda_graph</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">use_cuda_graph</span><span class="p">,</span>
+            <span class="n">use_compile</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">use_compile</span><span class="p">,</span>
+            <span class="n">state_dict_transform</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">state_dict_transform</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="Hy15TAEHVEncoderConfig">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Hy15TAEHVEncoderConfig</span><span class="p">(</span><span class="n">EncoderConfig</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Config for the Hunyuan Video 1.5 TAEHV encoder.&quot;&quot;&quot;</span>
+
+    <span class="n">_target</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">type</span><span class="p">,</span> <span class="n">tyro</span><span class="o">.</span><span class="n">conf</span><span class="o">.</span><span class="n">Suppress</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">Hy15TAEHVEncoder</span>
+    <span class="p">)</span>
+
+    <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span><span class="p">[</span><span class="s2">&quot;hy1_5&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Path or URL for the Hunyuan Video 1.5 TAEHV checkpoint.&quot;&quot;&quot;</span>
+
+    <span class="n">state_dict_transform</span><span class="p">:</span> <span class="n">StateDictTransform</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">legacy_to_blocks_keys</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Pre-load state-dict remap from the published flat key layout.&quot;&quot;&quot;</span>
+
+    <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Network parameter / activation dtype.&quot;&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="Hy15TAEHVEncoder">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Hy15TAEHVEncoder</span><span class="p">(</span><span class="n">StreamingVideoEncoder</span><span class="p">[</span><span class="n">TAEHVEncoderCache</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hunyuan Video 1.5 TAEHV pixel-video encoder.&quot;&quot;&quot;</span>
+
+    <span class="n">TEMPORAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="mi">4</span>
+    <span class="n">SPATIAL_COMPRESSION_RATIO</span> <span class="o">=</span> <span class="mi">16</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Hy15TAEHVEncoderConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span> <span class="n">Hy15TAEHVEncoderConfig</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="c1"># This instance only establishes the seed latent; its decoder is unused,</span>
+        <span class="c1"># so decoder graph/compile settings would add setup work without speeding it up.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">taehv</span> <span class="o">=</span> <span class="n">TAEHV</span><span class="p">(</span>
+            <span class="n">checkpoint_path</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">checkpoint_path</span><span class="p">,</span>
+            <span class="n">model_type</span><span class="o">=</span><span class="s2">&quot;hy1_5&quot;</span><span class="p">,</span>
+            <span class="n">enable_encoder</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">use_cuda_graph</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">use_compile</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">state_dict_transform</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">state_dict_transform</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Hy15TAEHVEncoder.initialize_autoregressive_cache">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.initialize_autoregressive_cache">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_autoregressive_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TAEHVEncoderCache</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return an empty causal encoder cache.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">taehv</span><span class="o">.</span><span class="n">prepare_encoder_cache</span><span class="p">()</span></div>
+
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="nb">input</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">cache</span><span class="p">:</span> <span class="n">TAEHVEncoderCache</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Encode frames in ``[-1, 1]`` to raw Hunyuan Video 1.5 latents.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">cache</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">cache</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">initialize_autoregressive_cache</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="nb">input</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;=</span> <span class="mi">4</span><span class="p">,</span> <span class="s2">&quot;Expected input to have shape [..., T, C, H, W]&quot;</span>
+
+        <span class="o">*</span><span class="n">batch_shape</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">W</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">batch_size</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">batch_shape</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">W</span><span class="p">)</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mul_</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">taehv</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">z</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">batch_shape</span><span class="p">,</span> <span class="o">*</span><span class="n">z</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">temporal_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel frames / latent frames for complete causal groups.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">TEMPORAL_COMPRESSION_RATIO</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">spatial_compression_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Pixel side / latent side.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">SPATIAL_COMPRESSION_RATIO</span>
+
+<div class="viewcode-block" id="Hy15TAEHVEncoder.get_output_temporal_size">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_output_temporal_size">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_output_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">input_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return latent count emitted from complete input frame groups.&quot;&quot;&quot;</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">temporal_compression_ratio</span>
+        <span class="k">assert</span> <span class="n">input_temporal_size</span> <span class="o">%</span> <span class="n">r</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Hy15 TAEHV encoder input_temporal_size=</span><span class="si">{</span><span class="n">input_temporal_size</span><span class="si">}</span><span class="s2"> must be &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;divisible by temporal_compression_ratio=</span><span class="si">{</span><span class="n">r</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">input_temporal_size</span> <span class="o">//</span> <span class="n">r</span></div>
+
+
+<div class="viewcode-block" id="Hy15TAEHVEncoder.get_input_temporal_size">
+<a class="viewcode-back" href="../../../api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_input_temporal_size">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_input_temporal_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_temporal_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return pixel frame count needed for ``output_temporal_size`` latents.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">output_temporal_size</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">temporal_compression_ratio</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
     <span class="n">config</span> <span class="o">=</span> <span class="n">tyro</span><span class="o">.</span><span class="n">cli</span><span class="p">(</span><span class="n">TeahvVAEDecoderConfig</span><span class="p">)</span>
     <span class="n">model</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>

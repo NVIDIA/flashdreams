@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>SANA-WM_streaming &#8212; FlashDreams v0.1.0</title>
+    <title>Waypoint 1.5 &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -69,14 +69,14 @@ SPDX-License-Identifier: Apache-2.0
                 gtag('js', new Date());
                 gtag('config', 'G-Q44TKZ8777');
             </script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'models/sana_wm_streaming';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'models/waypoint';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="../_static/js/image_zoom.js?v=34b2b931"></script>
     <script src="../_static/js/supported_models_nav.js?v=922a5825"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="SANA-WM_bidirectional" href="sana_wm_bidirectional.html" />
-    <link rel="prev" title="Waypoint 1.5" href="waypoint.html" />
+    <link rel="next" title="SANA-WM_streaming" href="sana_wm_streaming.html" />
+    <link rel="prev" title="LingBot-World" href="lingbot_world.html" />
   
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -350,8 +350,8 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1"><a class="reference internal" href="flashvsr.html">FlashVSR</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hy_worldplay.html">HY-WorldPlay</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lingbot_world.html">LingBot-World</a></li>
-<li class="toctree-l1"><a class="reference internal" href="waypoint.html">Waypoint 1.5</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">SANA-WM_streaming</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Waypoint 1.5</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sana_wm_streaming.html">SANA-WM_streaming</a></li>
 <li class="toctree-l1"><a class="reference internal" href="sana_wm_bidirectional.html">SANA-WM_bidirectional</a></li>
 <li class="toctree-l1"><a class="reference internal" href="wan21.html">Wan2.1</a></li>
 </ul>
@@ -399,7 +399,7 @@ SPDX-License-Identifier: Apache-2.0
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Models</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">SANA-WM_streaming</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Waypoint 1.5</span></li>
   </ul>
 </nav>
 </div>
@@ -416,172 +416,278 @@ SPDX-License-Identifier: Apache-2.0
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="sana-wm-streaming">
-<h1>SANA-WM_streaming<a class="headerlink" href="#sana-wm-streaming" title="Link to this heading">#</a></h1>
+  <section id="waypoint-1-5">
+<h1>Waypoint 1.5<a class="headerlink" href="#waypoint-1-5" title="Link to this heading">#</a></h1>
 <div class="fd-cta-row docutils container">
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://nvlabs.github.io/Sana/"><span>Project page</span></a></p>
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://arxiv.org/abs/2410.10629"><span>arXiv paper</span></a></p>
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://huggingface.co/Efficient-Large-Model/SANA-WM_streaming"><span>Checkpoint</span></a></p>
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/NVlabs/Sana"><span>Official code</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://huggingface.co/Overworld/Waypoint-1.5-1B"><span>Checkpoint and upstream model card</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/Overworldai/world_engine"><span>Official inference code</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-primary reference external" href="https://github.com/Overworldai/Biome"><span>Official desktop client</span></a></p>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">SANA-WM_streaming</span></code> is the chunk-causal, camera-controlled
-<a class="reference external" href="https://github.com/NVlabs/Sana">NVlabs/Sana</a> world model release. It
-produces video progressively across autoregressive chunks with a chunk-causal
-Stage-1 DiT, streaming LTX-2 refiner, and streaming VAE decode path.
-FlashDreams runs it through the <code class="docutils literal notranslate"><span class="pre">sana-wm-streaming</span></code> runner.</p>
-<p>The sibling full-sequence release has a separate model card:
-<a class="reference internal" href="sana_wm_bidirectional.html"><span class="doc">SANA-WM_bidirectional</span></a>.</p>
-<div class="model-video-card model-hero-media zoomable docutils container">
-<img alt="SANA-WM streaming FlashDreams sample clip." class="model-video-player" src="../_images/sana-wm-streaming.avif" />
+<p>Waypoint-1.5-1B is Overworld’s dense, autoregressive interactive video world
+model. FlashDreams integrates the published BF16 checkpoint as an
+image-established, keyboard/mouse-controlled V2 application with deterministic
+MP4 replay, per-action metrics, and live WebRTC presentation.</p>
+<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
+  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
+    <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
 </div>
+<p class="model-footnote">
+  Upstream Waypoint 1.5 teaser from the
+  <a href="https://huggingface.co/Overworld/Waypoint-1.5-1B">Overworld model card</a>;
+  this is not a FlashDreams benchmark artifact.
+</p><section id="support-summary">
+<h2>Support summary<a class="headerlink" href="#support-summary" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Surface</p></th>
+<th class="head"><p>FlashDreams support</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Application slug</p></td>
+<td><p>waypoint-1-5-1b through flashdreams-run-v2</p></td>
+</tr>
+<tr class="row-odd"><td><p>Input modalities</p></td>
+<td><p>RGB/RGBA seed image; keyboard and mouse buttons; relative mouse motion;
+ternary scroll-wheel direction</p></td>
+</tr>
+<tr class="row-even"><td><p>Output modality</p></td>
+<td><p>Four RGB frames per action, native 1024x512 TCHW in the [-1, 1] range</p></td>
+</tr>
+<tr class="row-odd"><td><p>Control modes</p></td>
+<td><p>Live browser events or a finite, versioned JSON action timeline</p></td>
+</tr>
+<tr class="row-even"><td><p>Output modes</p></td>
+<td><p>WebRTC, MP4, null output, and optional per-action metrics</p></td>
+</tr>
+<tr class="row-odd"><td><p>Precision and device</p></td>
+<td><p>BF16 on CUDA; no FlashDreams quantized or CPU inference path</p></td>
+</tr>
+<tr class="row-even"><td><p>Not implemented</p></td>
+<td><p>Text prompting, the 360P checkpoint, quantization, and multi-GPU execution</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The checkpoint’s pinned configuration sets prompt_conditioning to null.
+Although the generic upstream APIs accept prompts for other models, this
+checkpoint-compatible FlashDreams path has no text encoder or prompt-conditioned
+weights and deliberately exposes no prompt argument. In the upstream runtime,
+this configuration leaves the prompt encoder uninitialized and calling
+<code class="docutils literal notranslate"><span class="pre">set_prompt</span></code> raises. The pinned safetensors artifact contains 393 tensor keys,
+with no keys for prompt or cross-attention modules. Consequently, this model
+does not accept a text prompt that can influence its output.</p>
+</section>
 <section id="requirements">
 <h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><strong>PyTorch</strong>: &gt;= 2.9.</p></li>
-<li><p><strong>Precision</strong>: BF16 by default. FP8 Stage-1/refiner inference is available on
-Hopper or newer GPUs (<code class="docutils literal notranslate"><span class="pre">sm_90+</span></code>), and FP4 is available on Blackwell
-(<code class="docutils literal notranslate"><span class="pre">sm_100+</span></code>). These upstream precision flags belong to
-<code class="docutils literal notranslate"><span class="pre">SANA-WM_streaming</span></code>.</p></li>
+<li><p>A CUDA-capable NVIDIA GPU with BF16 and PyTorch FlexAttention support.</p></li>
+<li><p>The FlashDreams path was validated on one NVIDIA RTX PRO 6000 Blackwell
+Workstation Edition. The measured PyTorch peak allocation was 6.061 GiB, but
+this is not a minimum-VRAM guarantee and excludes non-PyTorch process memory.</p></li>
+<li><p>The first run downloads the 3.72 GB BF16 Waypoint safetensors file and the
+separate Overworld-Models/taehv1_5 checkpoint into the Hugging Face cache.</p></li>
+<li><p>ffmpeg on PATH is required for MP4 output.</p></li>
 </ul>
 </section>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-sana-wm<span class="w"> </span>--extra<span class="w"> </span>dev
+<p>From the FlashDreams repository root:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-waypoint-v2<span class="w"> </span>--inexact
+</pre></div>
+</div>
+<p>The V2 application package depends on the sibling flashdreams-waypoint model
+package, so both are installed together.</p>
+</section>
+<section id="running-the-model">
+<h2>Running the model<a class="headerlink" href="#running-the-model" title="Link to this heading">#</a></h2>
+<p>Generate a deterministic 40-action MP4 using the pinned public example image
+and bundled control timeline:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>waypoint-1-5-1b<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>waypoint.mp4<span class="w"> </span>--stats-path<span class="w"> </span>waypoint.metrics.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--<span class="w"> </span>--example-data<span class="w"> </span>--actions<span class="w"> </span><span class="m">40</span><span class="w"> </span>--seed<span class="w"> </span><span class="m">464</span><span class="w"> </span>--profile
+</pre></div>
+</div>
+<p>Run the same application interactively in a browser:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>waypoint-1-5-1b<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">8766</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--<span class="w"> </span>--seed-image<span class="w"> </span>seed.png<span class="w"> </span>--seed<span class="w"> </span><span class="m">464</span>
+</pre></div>
+</div>
+<p>Open <a class="reference external" href="http://127.0.0.1:8766/">http://127.0.0.1:8766/</a>. Arguments before the separator configure the V2
+runtime; arguments after it configure Waypoint. To inspect all model arguments:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>waypoint-1-5-1b<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 </section>
-<section id="running-the-method">
-<h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>Launch the <code class="docutils literal notranslate"><span class="pre">sana-wm-streaming</span></code> runner with a first-frame image, a prompt, and
-a camera trajectory:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-streaming<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>initial<span class="w"> </span>frame<span class="w"> </span>PNG&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>prompt<span class="w"> </span>TXT&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--camera-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>camera<span class="w"> </span>trajectory<span class="w"> </span>NPY&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--intrinsics-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>intrinsics<span class="w"> </span>NPY&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--num-frames<span class="w"> </span><span class="m">241</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-dir<span class="w"> </span>outputs/sana_wm_streaming_bf16
-</pre></div>
-</div>
-<p>The first frame, prompt, camera, and intrinsics inputs must follow the same
-shape conventions as the <code class="docutils literal notranslate"><span class="pre">SANA-WM_streaming</span></code> release examples.</p>
-<p>The runner defaults to 3 latent frames per block and the distilled schedule
-<code class="docutils literal notranslate"><span class="pre">1000,960,889,727,0</span></code>. Requested frame counts are snapped to
-<code class="docutils literal notranslate"><span class="pre">8</span> <span class="pre">*</span> <span class="pre">--num-frame-per-block</span> <span class="pre">*</span> <span class="pre">k</span> <span class="pre">+</span> <span class="pre">1</span></code> before inference.</p>
-<section id="optional-inputs-and-knobs">
-<h3>Optional inputs and knobs<a class="headerlink" href="#optional-inputs-and-knobs" title="Link to this heading">#</a></h3>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">--intrinsics-path</span></code> is optional. When omitted, intrinsics are derived from
-the first-frame size.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--camera-path</span></code> can be replaced by an <code class="docutils literal notranslate"><span class="pre">--action</span></code> DSL string:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-streaming<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>my_frame.png<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;a scene description; describe the world&#39;s own motion&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--action<span class="w"> </span><span class="s2">&quot;w-80,dw-40,w-80,aw-40&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--num-frames<span class="w"> </span><span class="m">241</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-dir<span class="w"> </span>outputs/mine_streaming
-</pre></div>
-</div>
-<p>Action trajectories are fitted to the snapped frame count: shorter action
-strings repeat, and longer action strings are truncated without materializing
-frames beyond the requested output length.</p>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--stage1-precision</span></code> and <code class="docutils literal notranslate"><span class="pre">--refiner-precision</span></code> accept <code class="docutils literal notranslate"><span class="pre">bf16</span></code>, <code class="docutils literal notranslate"><span class="pre">fp8</span></code>,
-or <code class="docutils literal notranslate"><span class="pre">fp4</span></code> when the selected hardware supports the requested precision.</p></li>
-</ul>
-<p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-streaming<span class="w"> </span>--help
-</pre></div>
-</div>
-</section>
-</section>
-<section id="what-to-expect">
-<h2>What to expect<a class="headerlink" href="#what-to-expect" title="Link to this heading">#</a></h2>
+<section id="model-and-integration-architecture">
+<h2>Model and integration architecture<a class="headerlink" href="#model-and-integration-architecture" title="Link to this heading">#</a></h2>
+<p>The pinned checkpoint configuration and FlashDreams implementation agree on
+these model-facing invariants:</p>
 <ul class="simple">
-<li><p><strong>Model checkpoint</strong>: pulled from
-<code class="docutils literal notranslate"><span class="pre">huggingface.co/Efficient-Large-Model/SANA-WM_streaming</span></code> on first run.</p></li>
-<li><p><strong>First launch</strong>: a few minutes for download and warmup; subsequent launches
-reuse local caches.</p></li>
-<li><p><strong>Outputs</strong>: <code class="docutils literal notranslate"><span class="pre">outputs/&lt;output-dir&gt;/sana-wm-streaming.mp4</span></code>.</p></li>
+<li><p>Dense 24-block autoregressive diffusion transformer, width 2048.</p></li>
+<li><p>32 query heads, 16 K/V heads, and a four-times-width feed-forward network.</p></li>
+<li><p>One model action is a 32-channel, 32x64 latent frame patchified into 512
+spatial tokens.</p></li>
+<li><p>Four rectified-flow Euler evaluations at sigmas 1.0, 0.9, 0.75, and 0.3;
+the terminal 0.0 evaluation commits clean cache state.</p></li>
+<li><p>Control conditioning uses 256 button IDs, two mouse-delta values, and one
+ternary wheel value. Control fusion is present every third block.</p></li>
+<li><p>Most blocks retain 16 latent actions densely. Blocks 3, 7, 11, 15, 19, and
+23 use a 128-action horizon with every eighth historical action pinned.</p></li>
+<li><p>TAEHV encodes four seed RGB frames into one latent action and decodes every
+generated latent action into four RGB frames.</p></li>
 </ul>
+<p>The 128-action global horizon corresponds to 512 presented RGB frames, matching
+the context length stated by the upstream model card. FlashDreams presents the
+codec’s native 1024x512 canvas. The official world_engine client can instead
+resize 1280x720 input to that native canvas and resize decoded output back to
+1280x720; FlashDreams intentionally omits those extra spatial resamples.</p>
+<p>The upstream model card advertises a <strong>1.2B parameter count</strong>. Independently,
+the pinned model.safetensors header contains <strong>1,860,823,096 BF16 tensor
+elements across 393 tensors</strong> (3,721,694,304 bytes). These are different
+published-model versus serialized-checkpoint accounting figures; FlashDreams
+reports both rather than relabeling the upstream model.</p>
+<p>The package-level design review contains component, class, use-case, and
+sequence diagrams:</p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-outline-secondary reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/waypoint/README.md"><span>Waypoint architecture design</span></a></p>
 </section>
-<section id="profiling-benchmark">
-<h2>Profiling benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">#</a></h2>
-<p>The charts below compare steady-state generation latency per produced chunk for
-FlashDreams <code class="docutils literal notranslate"><span class="pre">SANA-WM_streaming</span></code> and the official <code class="docutils literal notranslate"><span class="pre">SANA-WM_streaming</span></code>
-implementation under matched settings. Warmup runs and the first decoded chunk
-are excluded from the headline metric. These GB300 latency runs show the
-official implementation faster than FlashDreams for BF16, FP8, and FP4.</p>
-<p>In these charts, <code class="docutils literal notranslate"><span class="pre">Official</span> <span class="pre">Impl</span></code> means the pinned NVlabs/Sana upstream
-implementation measured by the FlashDreams benchmark harness under matched
-settings. It is not the SANA-WM 80-scene benchmark result published by the
-model authors.</p>
- <figure class="benchmark-figure-wrap">
-   <div
-     id="sana-wm-streaming-bf16-benchmark-chart"
-     class="benchmark-figure"
-     data-benchmark-md-url="../_static/performance/sana_wm_streaming/perf-0801-bf16.md"
-     data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
-     data-chart-aria-label="SANA-WM streaming BF16 benchmark chart"
-   ></div>
-   <figcaption>
-     <p class="model-footnote">
-       BF16 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
-       official 1,170.29 ms, FlashDreams 1,957.93 ms.
-     </p>
-   </figcaption>
- </figure>
-
- <figure class="benchmark-figure-wrap">
-   <div
-     id="sana-wm-streaming-fp8-benchmark-chart"
-     class="benchmark-figure"
-     data-benchmark-md-url="../_static/performance/sana_wm_streaming/perf-0801-fp8.md"
-     data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
-     data-chart-aria-label="SANA-WM streaming FP8 benchmark chart"
-   ></div>
-   <figcaption>
-     <p class="model-footnote">
-       FP8 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
-       official 1,482.92 ms, FlashDreams 2,392.67 ms.
-     </p>
-   </figcaption>
- </figure>
-
- <figure class="benchmark-figure-wrap">
-   <div
-     id="sana-wm-streaming-fp4-benchmark-chart"
-     class="benchmark-figure"
-     data-benchmark-md-url="../_static/performance/sana_wm_streaming/perf-0801-fp4.md"
-     data-benchmark-series="official:Official Impl:#3b82f6;flashdreams:FlashDreams:#76B900"
-     data-chart-aria-label="SANA-WM streaming FP4 benchmark chart"
-   ></div>
-   <figcaption>
-     <p class="model-footnote">
-       FP4 steady-state milliseconds per produced chunk on one NVIDIA GB300 GPU:
-       official 1,594.33 ms, FlashDreams 4,118.36 ms.
-     </p>
-   </figcaption>
- </figure>
-<script src="../_static/js/benchmark_chart.js"></script><p>All charts use the same demo image/prompt, <code class="docutils literal notranslate"><span class="pre">w-80,dw-40,w-80,aw-40</span></code>
-action path, 241 requested frames, one discarded warmup run, and three measured
-runs. The benchmark runs recorded FlashDreams commit bd0816e and upstream
-commit 6298508.</p>
-</section>
-<section id="citation">
-<h2>Citation<a class="headerlink" href="#citation" title="Link to this heading">#</a></h2>
-<p>If you use SANA-WM, please cite the original SANA work:</p>
-<div class="highlight-bibtex notranslate"><div class="highlight"><pre><span></span><span class="nc">@misc</span><span class="p">{</span><span class="nl">xie2024sana</span><span class="p">,</span>
-<span class="w">      </span><span class="na">title</span><span class="p">=</span><span class="s">{SANA: Efficient High-Resolution Image Synthesis with Linear Diffusion Transformers}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">author</span><span class="p">=</span><span class="s">{Enze Xie and Junsong Chen and Junyu Chen and Han Cai and Haotian Tang and Yujun Lin and Zhekai Zhang and Muyang Li and Ligeng Zhu and Yao Lu and Song Han}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">year</span><span class="p">=</span><span class="s">{2024}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">eprint</span><span class="p">=</span><span class="s">{2410.10629}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">archivePrefix</span><span class="p">=</span><span class="s">{arXiv}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">primaryClass</span><span class="p">=</span><span class="s">{cs.CV}</span>
-<span class="p">}</span>
-</pre></div>
+<section id="measured-flashdreams-performance">
+<h2>Measured FlashDreams performance<a class="headerlink" href="#measured-flashdreams-performance" title="Link to this heading">#</a></h2>
+<p>The final FlashDreams path was measured on 2026-08-26 using an RTX PRO 6000
+Blackwell Workstation Edition (96 GiB), driver 595.84, PyTorch 2.12.1+cu130,
+CUDA 13.0, BF16 weights, the pinned example seed/control timeline, seed 464,
+native 1024x512 output, four denoise evaluations, and synchronous profiling.
+Actions 1-19 were warmup; actions 20-40 were the steady-state sample.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 55.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Measurement</p></th>
+<th class="head"><p>Result</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Mean action latency</p></td>
+<td><p>68.791 ms per four generated frames</p></td>
+</tr>
+<tr class="row-odd"><td><p>Median action latency</p></td>
+<td><p>68.887 ms</p></td>
+</tr>
+<tr class="row-even"><td><p>p90 action latency</p></td>
+<td><p>69.737 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>Throughput derived from mean latency</p></td>
+<td><p>58.15 generated RGB frames/s</p></td>
+</tr>
+<tr class="row-even"><td><p>Peak PyTorch CUDA allocation</p></td>
+<td><p>6.061 GiB</p></td>
+</tr>
+<tr class="row-odd"><td><p>Encoded output</p></td>
+<td><p>164 frames: 4 seed + 40 actions x 4 frames</p></td>
+</tr>
+</tbody>
+</table>
 </div>
+<p>The declared 60 FPS is presentation timing, not a throughput guarantee.
+Overworld separately reports 56 FPS for its unquantized runtime on an RTX 5090;
+that result was not reproduced here and is not directly comparable across
+different GPU, runtime, and presentation stacks.</p>
+</section>
+<section id="parity-and-rollout-validation">
+<h2>Parity and rollout validation<a class="headerlink" href="#parity-and-rollout-validation" title="Link to this heading">#</a></h2>
+<p>FlashDreams loaded the same BF16 checkpoint and matched the pinned official
+world_engine implementation through one complete controlled action. The final
+comparison includes the four-step Euler solve and both cache commits:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Comparison</p></th>
+<th class="head"><p>Mean absolute error</p></th>
+<th class="head"><p>Max absolute error</p></th>
+<th class="head"><p>Cosine similarity</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Seed cache flow</p></td>
+<td><p>0.010793</p></td>
+<td><p>0.218750</p></td>
+<td><p>0.999586</p></td>
+</tr>
+<tr class="row-odd"><td><p>Clean latent after four steps</p></td>
+<td><p>0.005682</p></td>
+<td><p>0.033691</p></td>
+<td><p>0.999869</p></td>
+</tr>
+<tr class="row-even"><td><p>Final cache flow</p></td>
+<td><p>0.010511</p></td>
+<td><p>0.265625</p></td>
+<td><p>0.999487</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The residual is consistent with BF16 execution through different compiled
+kernel boundaries. Review optimizations retained a byte-identical 40-action
+MP4. Additional inference completed 15 distinct scenes at 40 actions each and
+one 118-action rollout: 718 generated actions and 2,936 decoded frames in total,
+with complete finite metrics and exact frame accounting. This demonstrates
+execution, cache longevity, and scene coverage; it is not a qualitative
+gameplay or physical-accuracy score.</p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-outline-secondary reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/VALIDATION.md"><span>Complete validation record</span></a></p>
+</section>
+<section id="intended-use-and-limitations">
+<h2>Intended use and limitations<a class="headerlink" href="#intended-use-and-limitations" title="Link to this heading">#</a></h2>
+<p>Waypoint is suitable for research and prototyping around interactive video
+worlds, creative exploration, control-conditioned generation, and low-latency
+world-model systems. It is a generative model, not a physically grounded
+simulator.</p>
+<p>Important limitations:</p>
+<ul class="simple">
+<li><p>Long rollouts can drift, collapse, or become inconsistent.</p></li>
+<li><p>Geometry, motion, object identity, and persistence can be unstable.</p></li>
+<li><p>Outputs may reflect biases or unsafe patterns learned from training data.</p></li>
+<li><p>The FlashDreams integration has no content-safety filter of its own.</p></li>
+<li><p>It is not appropriate for safety-critical decisions, surveillance,
+high-stakes automation, or deployments that remove reasonable safeguards.</p></li>
+<li><p>The current server accepts one WebRTC browser client per process. Multiple
+sessions may share model weights, but model execution is serialized.</p></li>
+<li><p>Live results depend on browser event timing. Use a control file and fixed
+seed when reproducibility matters.</p></li>
+</ul>
+<p>Review the upstream model card and world-model safety discussion before
+deployment:</p>
+<div class="fd-cta-row docutils container">
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-outline-secondary reference external" href="https://huggingface.co/Overworld/Waypoint-1.5-1B"><span>Upstream model card</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-outline-secondary reference external" href="https://over.world/blog/engineering-safety-for-interactive-world-models"><span>Upstream safety discussion</span></a></p>
+</div>
+</section>
+<section id="provenance">
+<h2>Provenance<a class="headerlink" href="#provenance" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Model: Overworld/Waypoint-1.5-1B, revision
+391f92827075edcf4a8b3c8a2ddae010698f8636, Apache-2.0.</p></li>
+<li><p>Model SHA-256:
+b872ad07968bae082a120a29072e61a13565086f042384ad7fdb79a7b0c50994.</p></li>
+<li><p>TAEHV: Overworld-Models/taehv1_5, revision
+a0253886b13b9c4c3bd224bd479be03f5988a3df.</p></li>
+<li><p>Official parity implementation: Overworldai/world_engine at
+b3f1e725dedac17ccbfaf9ee37f5e068bb44bed4.</p></li>
+<li><p>FlashDreams integration and documentation: Apache-2.0.</p></li>
+</ul>
 </section>
 </section>
 
@@ -596,20 +702,20 @@ commit 6298508.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="waypoint.html"
+       href="lingbot_world.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Waypoint 1.5</p>
+        <p class="prev-next-title">LingBot-World</p>
       </div>
     </a>
     <a class="right-next"
-       href="sana_wm_bidirectional.html"
+       href="sana_wm_streaming.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">SANA-WM_bidirectional</p>
+        <p class="prev-next-title">SANA-WM_streaming</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -632,15 +738,15 @@ commit 6298508.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#support-summary">Support summary</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requirements">Requirements</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-method">Running the method</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-inputs-and-knobs">Optional inputs and knobs</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-to-expect">What to expect</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profiling-benchmark">Profiling benchmark</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#citation">Citation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-model">Running the model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-and-integration-architecture">Model and integration architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measured-flashdreams-performance">Measured FlashDreams performance</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#parity-and-rollout-validation">Parity and rollout validation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#intended-use-and-limitations">Intended use and limitations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provenance">Provenance</a></li>
 </ul>
   </nav></div>
 

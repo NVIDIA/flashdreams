@@ -368,6 +368,7 @@ SPDX-License-Identifier: Apache-2.0
  | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
+ | <a href="#H"><strong>H</strong></a>
  | <a href="#I"><strong>I</strong></a>
  | <a href="#K"><strong>K</strong></a>
  | <a href="#L"><strong>L</strong></a>
@@ -447,18 +448,24 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.checkpoint_min_free_gb">checkpoint_min_free_gb (Wan21TransformerConfig attribute)</a>
 </li>
-      <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path">checkpoint_path (TeahvVAEDecoderConfig attribute)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.checkpoint_path">checkpoint_path (Hy15TAEHVDecoderConfig attribute)</a>
+
+      <ul>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.checkpoint_path">(Hy15TAEHVEncoderConfig attribute)</a>
 </li>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.checkpoint_path">(TeahvVAEDecoderConfig attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.chunk_size">chunk_size (BlockKVCache attribute)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent">clean_latent (DiffusionModel.FinalState attribute)</a>
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.compile_network">compile_network (Wan21TransformerConfig attribute)</a>
 </li>
-      <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.concat_image_mask_to_latent">concat_image_mask_to_latent (Wan21TransformerConfig attribute)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.concat_image_mask_to_latent">concat_image_mask_to_latent (Wan21TransformerConfig attribute)</a>
+</li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.WanDiTNetworkConfig.concat_padding_mask">concat_padding_mask (WanDiTNetworkConfig attribute)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise">context_noise (DiffusionModelConfig attribute)</a>
@@ -505,10 +512,10 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.pipeline.StreamInferencePipelineConfig.diffusion_model">diffusion_model (StreamInferencePipelineConfig attribute)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel">DiffusionModel (class in flashdreams.infra.diffusion.model)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModel.FinalState">DiffusionModel.FinalState (class in flashdreams.infra.diffusion.model)</a>
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.model.DiffusionModelConfig">DiffusionModelConfig (class in flashdreams.infra.diffusion.model)</a>
@@ -526,6 +533,10 @@ SPDX-License-Identifier: Apache-2.0
       <li><a href="api/core.html#flashdreams.core.attention.BlockKVCache.dtype">dtype (BlockKVCache attribute)</a>
 
       <ul>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.dtype">(Hy15TAEHVDecoderConfig attribute)</a>
+</li>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.dtype">(Hy15TAEHVEncoderConfig attribute)</a>
+</li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.dtype">(TeahvVAEDecoderConfig attribute)</a>
 </li>
       </ul></li>
@@ -628,9 +639,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowPredictor">FlowPredictor (class in flashdreams.infra.diffusion.scheduler)</a>
 </li>
-      <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.forward">forward() (NativeAttention method)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.forward">forward() (Hy15TAEHVEncoder method)</a>
 
       <ul>
+        <li><a href="api/core.html#flashdreams.core.attention.NativeAttention.forward">(NativeAttention method)</a>
+</li>
         <li><a href="api/infra.html#flashdreams.infra.encoder.NullEncoder.forward">(NullEncoder method)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.forward">(TeahvVAEDecoder method)</a>
@@ -658,9 +671,11 @@ SPDX-License-Identifier: Apache-2.0
       </ul></li>
       <li><a href="api/core.html#flashdreams.core.distributed.Device.get_cpu_affinity">get_cpu_affinity() (Device method)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size">get_input_temporal_size() (StreamingVideoDecoder method)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_input_temporal_size">get_input_temporal_size() (Hy15TAEHVEncoder method)</a>
 
       <ul>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size">(StreamingVideoDecoder method)</a>
+</li>
         <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size">(StreamingVideoEncoder method)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size">(TeahvVAEDecoder method)</a>
@@ -678,9 +693,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.WanInferencePipeline.get_num_output_frames">get_num_output_frames() (WanInferencePipeline method)</a>, <a href="api/integrations.html#flashdreams.recipes.wan.pipeline.WanInferencePipeline.get_num_output_frames">[1]</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size">get_output_temporal_size() (StreamingVideoDecoder method)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_output_temporal_size">get_output_temporal_size() (Hy15TAEHVEncoder method)</a>
 
       <ul>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size">(StreamingVideoDecoder method)</a>
+</li>
         <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size">(StreamingVideoEncoder method)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size">(TeahvVAEDecoder method)</a>
@@ -691,6 +708,22 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       </ul></li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.guidance_scale">guidance_scale (Wan21TransformerConfig attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="H">H</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoder">Hy15TAEHVDecoder (class in flashdreams.recipes.taehv)</a>
+</li>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig">Hy15TAEHVDecoderConfig (class in flashdreams.recipes.taehv)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder">Hy15TAEHVEncoder (class in flashdreams.recipes.taehv)</a>
+</li>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig">Hy15TAEHVEncoderConfig (class in flashdreams.recipes.taehv)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -714,9 +747,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.transformer.Transformer.initial_noise">initial_noise() (Transformer method)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache">initialize_autoregressive_cache() (StreamingDecoder method)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.initialize_autoregressive_cache">initialize_autoregressive_cache() (Hy15TAEHVEncoder method)</a>
 
       <ul>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache">(StreamingDecoder method)</a>
+</li>
         <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache">(StreamingEncoder method)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.initialize_autoregressive_cache">(TeahvVAEDecoder method)</a>
@@ -983,9 +1018,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/infra.html#flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order">solver_order (FlowMatchUniPCSchedulerConfig attribute)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio">spatial_compression_ratio (StreamingVideoDecoder property)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.spatial_compression_ratio">spatial_compression_ratio (Hy15TAEHVEncoder property)</a>
 
       <ul>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio">(StreamingVideoDecoder property)</a>
+</li>
         <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio">(StreamingVideoEncoder property)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.spatial_compression_ratio">(TeahvVAEDecoder property)</a>
@@ -1013,8 +1050,14 @@ SPDX-License-Identifier: Apache-2.0
         <li><a href="api/integrations.html#flashdreams.recipes.wan.WanVAEEncoderConfig.state_dict_transform">(WanVAEEncoderConfig attribute)</a>
 </li>
       </ul></li>
-      <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.state_dict_transform">state_dict_transform() (TeahvVAEDecoderConfig method)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.state_dict_transform">state_dict_transform() (Hy15TAEHVDecoderConfig method)</a>
+
+      <ul>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.state_dict_transform">(Hy15TAEHVEncoderConfig method)</a>
 </li>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.state_dict_transform">(TeahvVAEDecoderConfig method)</a>
+</li>
+      </ul></li>
       <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.std">std (TeahvVAEDecoder attribute)</a>
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.stream_checkpoint">stream_checkpoint (Wan21TransformerConfig attribute)</a>
@@ -1047,9 +1090,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig">TeahvVAEDecoderConfig (class in flashdreams.recipes.taehv)</a>
 </li>
-      <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio">temporal_compression_ratio (StreamingVideoDecoder property)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVEncoder.temporal_compression_ratio">temporal_compression_ratio (Hy15TAEHVEncoder property)</a>
 
       <ul>
+        <li><a href="api/infra.html#flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio">(StreamingVideoDecoder property)</a>
+</li>
         <li><a href="api/infra.html#flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio">(StreamingVideoEncoder property)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoder.temporal_compression_ratio">(TeahvVAEDecoder property)</a>
@@ -1061,10 +1106,10 @@ SPDX-License-Identifier: Apache-2.0
       </ul></li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.WanDiTNetworkConfig.text_dim">text_dim (WanDiTNetworkConfig attribute)</a>
 </li>
-      <li><a href="api/integrations.html#flashdreams.recipes.wan.WanInferencePipelineConfig.text_encoder">text_encoder (WanInferencePipelineConfig attribute)</a>, <a href="api/integrations.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig.text_encoder">[1]</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/integrations.html#flashdreams.recipes.wan.WanInferencePipelineConfig.text_encoder">text_encoder (WanInferencePipelineConfig attribute)</a>, <a href="api/integrations.html#flashdreams.recipes.wan.pipeline.WanInferencePipelineConfig.text_encoder">[1]</a>
+</li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.WanDiTNetworkConfig.text_len">text_len (WanDiTNetworkConfig attribute)</a>
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.ti2v_first_frame_per_token_timestep">ti2v_first_frame_per_token_timestep (Wan21TransformerConfig attribute)</a>
@@ -1103,9 +1148,11 @@ SPDX-License-Identifier: Apache-2.0
 </li>
       <li><a href="api/integrations.html#flashdreams.recipes.wan.WanDiTNetwork.update_parameters_after_loading_checkpoint">update_parameters_after_loading_checkpoint() (WanDiTNetwork method)</a>
 </li>
-      <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_compile">use_compile (TeahvVAEDecoderConfig attribute)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_compile">use_compile (Hy15TAEHVDecoderConfig attribute)</a>
 
       <ul>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_compile">(TeahvVAEDecoderConfig attribute)</a>
+</li>
         <li><a href="api/integrations.html#flashdreams.recipes.wan.WanVAEDecoderConfig.use_compile">(WanVAEDecoderConfig attribute)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.wan.WanVAEEncoderConfig.use_compile">(WanVAEEncoderConfig attribute)</a>
@@ -1113,9 +1160,11 @@ SPDX-License-Identifier: Apache-2.0
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph">use_cuda_graph (TeahvVAEDecoderConfig attribute)</a>
+      <li><a href="api/integrations.html#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_cuda_graph">use_cuda_graph (Hy15TAEHVDecoderConfig attribute)</a>
 
       <ul>
+        <li><a href="api/integrations.html#flashdreams.recipes.taehv.TeahvVAEDecoderConfig.use_cuda_graph">(TeahvVAEDecoderConfig attribute)</a>
+</li>
         <li><a href="api/integrations.html#flashdreams.recipes.wan.Wan21TransformerConfig.use_cuda_graph">(Wan21TransformerConfig attribute)</a>
 </li>
         <li><a href="api/integrations.html#flashdreams.recipes.wan.WanVAEDecoderConfig.use_cuda_graph">(WanVAEDecoderConfig attribute)</a>

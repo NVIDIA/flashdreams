@@ -1797,10 +1797,10 @@ encoders from <code class="docutils literal notranslate"><span class="pre">self.
 </section>
 <section id="module-flashdreams.recipes.taehv">
 <span id="taehv"></span><h2>TAEHV<a class="headerlink" href="#module-flashdreams.recipes.taehv" title="Link to this heading">#</a></h2>
-<p>TAEHV video decoder.</p>
+<p>TAEHV video decoder and Hunyuan Video 1.5 codec configs.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="flashdreams.recipes.taehv.AVAILABLE_TAEHV_CHECKPOINT_PATHS">
-<span class="sig-name descname"><span class="pre">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'lighttae':</span> <span class="pre">'https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth'}</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.AVAILABLE_TAEHV_CHECKPOINT_PATHS" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">AVAILABLE_TAEHV_CHECKPOINT_PATHS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'hy1_5':</span> <span class="pre">'https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth',</span> <span class="pre">'lighttae':</span> <span class="pre">'https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.pth'}</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.AVAILABLE_TAEHV_CHECKPOINT_PATHS" title="Link to this definition">#</a></dt>
 <dd><p>Checkpoint paths for the TAEHV decoder.</p>
 </dd></dl>
 
@@ -1925,6 +1925,118 @@ AR &gt;= 1 is a plain multiply.</p>
 <span class="sig-name descname"><span class="pre">get_input_temporal_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#TeahvVAEDecoder.get_input_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size" title="Link to this definition">#</a></dt>
 <dd><p>Return latent frame count needed to produce <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> pixel frames.</p>
 <p>Inverse of <a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size" title="flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size"><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_output_temporal_size()</span></code></a>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Hy15TAEHVDecoderConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">*,</span> <span class="pre">_target:</span> <span class="pre">~typing.Annotated[type,</span> <span class="pre">tyro.conf.Suppress]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">checkpoint_path:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth',</span> <span class="pre">state_dict_transform:</span> <span class="pre">~collections.abc.Callable[[~collections.abc.Mapping[str,</span> <span class="pre">torch.Tensor]],</span> <span class="pre">dict[str,</span> <span class="pre">torch.Tensor]]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">&lt;function</span> <span class="pre">legacy_to_blocks_keys&gt;,</span> <span class="pre">dtype:</span> <span class="pre">torch.dtype</span> <span class="pre">=</span> <span class="pre">torch.bfloat16,</span> <span class="pre">use_cuda_graph:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True,</span> <span class="pre">use_compile:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True</span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVDecoderConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">DecoderConfig</span></code></p>
+<p>Config for the Hunyuan Video 1.5 TAEHV decoder.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.checkpoint_path">
+<span class="sig-name descname"><span class="pre">checkpoint_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth'</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.checkpoint_path" title="Link to this definition">#</a></dt>
+<dd><p>Path or URL for the Hunyuan Video 1.5 TAEHV checkpoint.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.state_dict_transform">
+<span class="sig-name descname"><span class="pre">state_dict_transform</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.15.0a0+gitd4258aa ))"><span class="pre">torch.Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.state_dict_transform" title="Link to this definition">#</a></dt>
+<dd><p>Pre-load state-dict remap from the published flat key layout.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.dtype">
+<span class="sig-name descname"><span class="pre">dtype</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.15.0a0+gitd4258aa ))"><span class="pre">torch.dtype</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.dtype" title="Link to this definition">#</a></dt>
+<dd><p>Network parameter / activation dtype.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_cuda_graph">
+<span class="sig-name descname"><span class="pre">use_cuda_graph</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_cuda_graph" title="Link to this definition">#</a></dt>
+<dd><p>Wrap the decoder forward in a CUDA graph for replay.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_compile">
+<span class="sig-name descname"><span class="pre">use_compile</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_compile" title="Link to this definition">#</a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)</span></code>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVDecoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Hy15TAEHVDecoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVDecoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#flashdreams.recipes.taehv.TeahvVAEDecoder" title="flashdreams.recipes.taehv.TeahvVAEDecoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">TeahvVAEDecoder</span></code></a></p>
+<p>Hunyuan Video 1.5 TAEHV decoder with raw 32-channel latents.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Hy15TAEHVEncoderConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">*,</span> <span class="pre">_target:</span> <span class="pre">~typing.Annotated[type,</span> <span class="pre">tyro.conf.Suppress]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">checkpoint_path:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth',</span> <span class="pre">state_dict_transform:</span> <span class="pre">~collections.abc.Callable[[~collections.abc.Mapping[str,</span> <span class="pre">torch.Tensor]],</span> <span class="pre">dict[str,</span> <span class="pre">torch.Tensor]]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">&lt;function</span> <span class="pre">legacy_to_blocks_keys&gt;,</span> <span class="pre">dtype:</span> <span class="pre">torch.dtype</span> <span class="pre">=</span> <span class="pre">torch.bfloat16</span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVEncoderConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">EncoderConfig</span></code></p>
+<p>Config for the Hunyuan Video 1.5 TAEHV encoder.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.checkpoint_path">
+<span class="sig-name descname"><span class="pre">checkpoint_path</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'https://huggingface.co/Overworld-Models/taehv1_5/resolve/main/taehv1_5.pth'</span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.checkpoint_path" title="Link to this definition">#</a></dt>
+<dd><p>Path or URL for the Hunyuan Video 1.5 TAEHV checkpoint.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.state_dict_transform">
+<span class="sig-name descname"><span class="pre">state_dict_transform</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.15.0a0+gitd4258aa ))"><span class="pre">torch.Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.state_dict_transform" title="Link to this definition">#</a></dt>
+<dd><p>Pre-load state-dict remap from the published flat key layout.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.dtype">
+<span class="sig-name descname"><span class="pre">dtype</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.pytorch.org/docs/main/tensor_attributes.html#torch.dtype" title="(in PyTorch main (2.15.0a0+gitd4258aa ))"><span class="pre">torch.dtype</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.dtype" title="Link to this definition">#</a></dt>
+<dd><p>Network parameter / activation dtype.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">Hy15TAEHVEncoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVEncoder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="infra.html#flashdreams.infra.encoder.StreamingVideoEncoder" title="flashdreams.infra.encoder.base.StreamingVideoEncoder"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamingVideoEncoder</span></code></a>[<code class="xref py py-class docutils literal notranslate"><span class="pre">TAEHVEncoderCache</span></code>]</p>
+<p>Hunyuan Video 1.5 TAEHV pixel-video encoder.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder.initialize_autoregressive_cache">
+<span class="sig-name descname"><span class="pre">initialize_autoregressive_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">TAEHVEncoderCache</span></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVEncoder.initialize_autoregressive_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.initialize_autoregressive_cache" title="Link to this definition">#</a></dt>
+<dd><p>Return an empty causal encoder cache.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.15.0a0+gitd4258aa ))"><span class="pre">torch.Tensor</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">TAEHVEncoderCache</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch main (2.15.0a0+gitd4258aa ))"><span class="pre">torch.Tensor</span></a></span></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.forward" title="Link to this definition">#</a></dt>
+<dd><p>Encode frames in <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">1]</span></code> to raw Hunyuan Video 1.5 latents.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder.temporal_compression_ratio">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">temporal_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.temporal_compression_ratio" title="Link to this definition">#</a></dt>
+<dd><p>Pixel frames / latent frames for complete causal groups.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder.spatial_compression_ratio">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">spatial_compression_ratio</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.spatial_compression_ratio" title="Link to this definition">#</a></dt>
+<dd><p>Pixel side / latent side.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_output_temporal_size">
+<span class="sig-name descname"><span class="pre">get_output_temporal_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVEncoder.get_output_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_output_temporal_size" title="Link to this definition">#</a></dt>
+<dd><p>Return latent count emitted from complete input frame groups.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_input_temporal_size">
+<span class="sig-name descname"><span class="pre">get_input_temporal_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">autoregressive_index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_temporal_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/flashdreams/recipes/taehv.html#Hy15TAEHVEncoder.get_input_temporal_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_input_temporal_size" title="Link to this definition">#</a></dt>
+<dd><p>Return pixel frame count needed for <code class="docutils literal notranslate"><span class="pre">output_temporal_size</span></code> latents.</p>
 </dd></dl>
 
 </dd></dl>
@@ -2191,6 +2303,30 @@ AR &gt;= 1 is a plain multiply.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.spatial_compression_ratio"><code class="docutils literal notranslate"><span class="pre">TeahvVAEDecoder.spatial_compression_ratio</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_output_temporal_size"><code class="docutils literal notranslate"><span class="pre">TeahvVAEDecoder.get_output_temporal_size()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.TeahvVAEDecoder.get_input_temporal_size"><code class="docutils literal notranslate"><span class="pre">TeahvVAEDecoder.get_input_temporal_size()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoderConfig</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.checkpoint_path"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoderConfig.checkpoint_path</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.state_dict_transform"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoderConfig.state_dict_transform()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.dtype"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoderConfig.dtype</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_cuda_graph"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoderConfig.use_cuda_graph</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoderConfig.use_compile"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoderConfig.use_compile</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVDecoder"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVDecoder</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoderConfig</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.checkpoint_path"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoderConfig.checkpoint_path</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.state_dict_transform"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoderConfig.state_dict_transform()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoderConfig.dtype"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoderConfig.dtype</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.initialize_autoregressive_cache"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder.initialize_autoregressive_cache()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.forward"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder.forward()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.temporal_compression_ratio"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder.temporal_compression_ratio</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.spatial_compression_ratio"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder.spatial_compression_ratio</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_output_temporal_size"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder.get_output_temporal_size()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#flashdreams.recipes.taehv.Hy15TAEHVEncoder.get_input_temporal_size"><code class="docutils literal notranslate"><span class="pre">Hy15TAEHVEncoder.get_input_temporal_size()</span></code></a></li>
 </ul>
 </li>
 </ul>
