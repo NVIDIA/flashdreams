@@ -26,12 +26,18 @@ from einops import rearrange
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig,
+    QKVFusionOption,
+    SDPABackend,
+)
 from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
 )
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.recipes.wan.transformer.impl.modules import (
+    AttentionBackend,
     Block,
     BlockCache,
     Head,
@@ -109,6 +115,28 @@ class WanDiTNetworkConfig(InstantiateConfig):
     cp_method: Literal["ring", "ulysses"] = "ring"
     """Context-parallel attention method for transformer attention ops."""
 
+    self_attention_backend: AttentionBackend = AttentionBackend.TORCH
+    """Self-attention implementation used by every DiT block."""
+
+    cross_attention_backend: AttentionBackend = AttentionBackend.TORCH
+    """Cross-attention implementation used by every DiT block."""
+
+    self_attn_optimized_impl_config: OptimizedImplConfig = field(
+        default_factory=lambda: OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FULL,
+            sdpa_backend=SDPABackend.FA2,
+        )
+    )
+    """Optimized implementation policy used by self-attention."""
+
+    cross_attn_optimized_impl_config: OptimizedImplConfig = field(
+        default_factory=lambda: OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FUSE_KV,
+            sdpa_backend=SDPABackend.FA2,
+        )
+    )
+    """Optimized implementation policy used by cross-attention."""
+
 
 @dataclass
 class WanDiTNetwork1pt3BConfig(WanDiTNetworkConfig):
@@ -175,6 +203,10 @@ class WanDiTNetwork(nn.Module):
         self.patch_embedding_type = config.patch_embedding_type
         self.apply_rope_before_kvcache = config.apply_rope_before_kvcache
         self.cp_method = config.cp_method
+        self.self_attention_backend = config.self_attention_backend
+        self.cross_attention_backend = config.cross_attention_backend
+        self.self_attn_optimized_impl_config = config.self_attn_optimized_impl_config
+        self.cross_attn_optimized_impl_config = config.cross_attn_optimized_impl_config
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
@@ -230,6 +262,10 @@ class WanDiTNetwork(nn.Module):
             i2v=self.cross_attn_enable_img,
             apply_rope_before_kvcache=self.apply_rope_before_kvcache,
             cp_method=self.cp_method,
+            self_attention_backend=self.self_attention_backend,
+            cross_attention_backend=self.cross_attention_backend,
+            self_attn_optimized_impl_config=self.self_attn_optimized_impl_config,
+            cross_attn_optimized_impl_config=self.cross_attn_optimized_impl_config,
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:

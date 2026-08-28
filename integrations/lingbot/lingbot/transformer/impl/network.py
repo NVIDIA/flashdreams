@@ -24,6 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from flashdreams.recipes.wan.transformer.impl.modules import AttentionBackend
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
     WanDiTNetworkCache,
@@ -46,6 +47,12 @@ class LingbotWorldDiTNetworkConfig(WanDiTNetworkConfig):
         default_factory=lambda: LingbotWorldDiTNetwork
     )
     control_type: Literal["cam", "act"] = "cam"
+
+    self_attention_backend: AttentionBackend = AttentionBackend.TORCH
+    """Self-attention implementation used by every DiT block."""
+
+    cross_attention_backend: AttentionBackend = AttentionBackend.TORCH
+    """Cross-attention implementation used by every DiT block."""
 
 
 @dataclass
@@ -99,6 +106,10 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
             cross_attn_norm=self.cross_attn_norm,
             eps=self.eps,
             cp_method=self.cp_method,
+            self_attention_backend=self.self_attention_backend,
+            cross_attention_backend=self.cross_attention_backend,
+            self_attn_optimized_impl_config=self.self_attn_optimized_impl_config,
+            cross_attn_optimized_impl_config=self.cross_attn_optimized_impl_config,
         )
 
     def replace_text_embeddings(
