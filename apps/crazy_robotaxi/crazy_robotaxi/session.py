@@ -264,9 +264,6 @@ class ModelState:
         self.driver_input.reset()
         self.input_timeline.reset()
         self.last_speed_mps = 0.0
-        self.input_transition_count = 0
-        self.input_ignored_event_count = 0
-        self.input_coalesced_transition_count = 0
         if self.rollout is not None:
             self.rollout.reset()
 
