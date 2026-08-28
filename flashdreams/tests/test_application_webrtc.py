@@ -521,7 +521,8 @@ async def test_interactive_application_control_reaches_step_on_worker(
                 "space",
                 "up",
                 "w",
-            ]
+            ],
+            "gamepad_enabled": True,
         }
         await asyncio.wait_for(manager.preload_runtime(), timeout=1.0)
         await asyncio.wait_for(

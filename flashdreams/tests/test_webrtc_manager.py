@@ -15,6 +15,7 @@ from flashdreams.demo.outputs import WebRTCOutputSink
 from flashdreams.runtime import (
     DRIVER_COMMAND,
     DRIVING_SUPPORTED_KEYS,
+    DrivingInputConverter,
     InferenceInput,
     InputCanonicalizer,
     KeyboardToDriverCommand,
@@ -1708,7 +1709,8 @@ def test_base_manager_advertises_feedable_driver_keys() -> None:
             "space",
             "up",
             "w",
-        ]
+        ],
+        "gamepad_enabled": False,
     }
     assert manager._effective_supported_control_keys() == DRIVING_SUPPORTED_KEYS
 
@@ -1737,9 +1739,22 @@ def test_base_manager_omits_keys_without_feedable_advertisement() -> None:
     )
 
     for manager in (no_scenario, no_converter, unfeedable, no_advertisement):
-        assert manager.browser_ui_config() == {"accepted_keys": []}
+        assert manager.browser_ui_config() == {
+            "accepted_keys": [],
+            "gamepad_enabled": False,
+        }
     assert no_advertisement._effective_supported_control_keys() is None
     assert no_advertisement._supports_key_payload({"key": "q"})
+
+
+def test_base_manager_advertises_gamepad_when_converter_consumes_it() -> None:
+    manager = _make_manager(
+        _BaseTestManager,
+        SimpleNamespace(),
+        shared_scenario=_shared_scenario(DrivingInputConverter()),
+    )
+
+    assert manager.browser_ui_config()["gamepad_enabled"] is True
 
 
 def test_explicit_supported_keys_override_converter_metadata() -> None:
@@ -1805,6 +1820,40 @@ async def test_shared_key_filter_runs_before_activation() -> None:
     assert managed.first_action_received.is_set()
     assert input_source.activation_signal.is_set()
     assert [event.payload for event in input_source._events] == [{"key": "space"}]
+
+
+@pytest.mark.asyncio
+async def test_shared_manager_rejects_unconsumed_gamepad_input() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(
+        _BaseTestManager,
+        runtime,
+        shared_scenario=_shared_scenario(KeyboardToDriverCommand()),
+    )
+    managed, _track, _peer, channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    input_source = WebRTCInputSource(resampler=managed.resampler)
+    managed.input_source = input_source
+
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message=json.dumps(
+            {
+                "type": "gamepad_state",
+                "gamepad": {
+                    "connected": True,
+                    "steer": 0.5,
+                    "throttle": 0.0,
+                    "brake": 0.0,
+                },
+            }
+        ),
+    )
+
+    assert not managed.first_action_received.is_set()
+    assert not input_source.activation_signal.is_set()
+    assert tuple(input_source._events) == ()
+    assert "does not accept gamepad input" in channel.messages[-1]
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,14 @@ from flashdreams.runtime.canonical import (
     ScriptedModality,
 )
 from flashdreams.runtime.config import ExecutionBackend, InferenceConfig, Precision
+from flashdreams.runtime.gamepad import (
+    GAMEPAD_STATE_CAPABILITY,
+    GAMEPAD_STATE_EVENT,
+    DrivingInputConverter,
+    GamepadState,
+    gamepad_state_payload,
+    parse_gamepad_state,
+)
 from flashdreams.runtime.inputs import (
     INPUT_PHASES,
     CanonicalInputs,
@@ -100,6 +108,11 @@ __all__ = [
     "DRIVING_SUPPORTED_KEYS",
     "DRIVER_COMMAND",
     "ExecutionBackend",
+    "GAMEPAD_STATE_CAPABILITY",
+    "GAMEPAD_STATE_EVENT",
+    "DrivingInputConverter",
+    "GamepadState",
+    "gamepad_state_payload",
     "IdentityInputMapping",
     "InferenceConfig",
     "InferenceInput",
@@ -128,6 +141,7 @@ __all__ = [
     "NullOutputTarget",
     "OutputArtifact",
     "OutputTarget",
+    "parse_gamepad_state",
     "Precision",
     "PromptRequest",
     "ResetRequest",

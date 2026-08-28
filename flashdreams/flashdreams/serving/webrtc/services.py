@@ -40,6 +40,12 @@ from flashdreams.runtime import (
     UserInputs,
     UserInputSchema,
 )
+from flashdreams.runtime.gamepad import (
+    GAMEPAD_STATE_CAPABILITY,
+    GAMEPAD_STATE_EVENT,
+    gamepad_state_payload,
+    parse_gamepad_state,
+)
 from flashdreams.runtime._utils import freeze_mapping
 from flashdreams.runtime.demo import (
     AsyncSessionDriver,
@@ -83,6 +89,7 @@ WebRTCMessageKind = Literal[
     "action",
     "disconnect",
     "event",
+    "gamepad",
     "heartbeat",
     "error",
 ]
@@ -534,6 +541,8 @@ class WebRTCInputSource:
             return WebRTCMessageResult(kind="disconnect")
         if message_type == MESSAGE_TYPE_EVENT:
             return self._record_text_event(payload, timestamp_s=timestamp_s)
+        if message_type == GAMEPAD_STATE_EVENT:
+            return self._record_gamepad(payload, timestamp_s=timestamp_s)
         if message_type == MESSAGE_TYPE_ACTION:
             action_payload = payload.get("action", payload)
             if not isinstance(action_payload, Mapping):
@@ -549,7 +558,8 @@ class WebRTCInputSource:
             kind="error",
             error=(
                 "Unsupported message type, expected "
-                "'action', 'event', 'heartbeat', or 'disconnect'."
+                "'action', 'event', 'gamepad_state', 'heartbeat', or "
+                "'disconnect'."
             ),
         )
 
@@ -667,6 +677,42 @@ class WebRTCInputSource:
         if self._activation_timestamp_s is None:
             self._activation_timestamp_s = timestamp_s
         self._activation_signal.set()
+
+    def _record_gamepad(
+        self,
+        payload: Mapping[str, object],
+        *,
+        timestamp_s: float,
+    ) -> WebRTCMessageResult:
+        """Validate and record one browser gamepad state."""
+        raw_state = payload.get("gamepad")
+        if not isinstance(raw_state, Mapping):
+            return WebRTCMessageResult(
+                kind="error",
+                error="'gamepad' must be an object.",
+            )
+        try:
+            state = parse_gamepad_state(
+                {str(key): value for key, value in raw_state.items()}
+            )
+            if not self._activation_signal.is_set():
+                self._events = deque(
+                    event
+                    for event in self._events
+                    if event.event_type != GAMEPAD_STATE_EVENT
+                )
+            self.record_user_event(
+                timestamp_s=timestamp_s,
+                event_type=GAMEPAD_STATE_EVENT,
+                payload=gamepad_state_payload(state),
+                activate=state.is_active(),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return WebRTCMessageResult(kind="error", error=str(exc))
+        return WebRTCMessageResult(
+            kind="gamepad",
+            activated=state.is_active(),
+        )
 
     def _record_text_event(
         self,
@@ -1220,6 +1266,7 @@ WEBRTC_USER_INPUT_SCHEMA = UserInputSchema(
             input_modality="text",
             payload_fields=frozenset({"event_id", "state"}),
         ),
+        GAMEPAD_STATE_CAPABILITY,
     ),
     description="browser WebRTC data-channel events",
 )

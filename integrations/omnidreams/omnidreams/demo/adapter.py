@@ -17,6 +17,7 @@ from flashdreams.runtime import (
     InferenceConfig,
     InferenceInput,
     InferenceInputSchema,
+    DrivingInputConverter,
     InputCanonicalizer,
     UserInputSchema,
 )
@@ -223,7 +224,7 @@ class OmnidreamsDemoAdapter:
                 global_conditioning={"scenario": scenario},
             ),
             source_schema=WEBRTC_USER_INPUT_SCHEMA,
-            canonicalizer=InputCanonicalizer(),
+            canonicalizer=InputCanonicalizer((DrivingInputConverter(),)),
             mapping=self._mapping,
             metadata={
                 "conditioning_mode": OMNIDREAMS_CONDITIONING_LUDUS,

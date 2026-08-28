@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ from flashdreams.infra.runner_io import (
     DEFAULT_RUNNER_INSTALL_HINT,
     load_first_frame_tensor,
 )
+from flashdreams.infra.time import TimeWindow
+from flashdreams.runtime import DRIVER_COMMAND
 from flashdreams.runtime.config import InferenceConfig
 from flashdreams.runtime.demo import (
     PreparedScenario,
@@ -45,8 +48,9 @@ from flashdreams.serving.webrtc.services import (
 from .controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
+    ControlSegment,
+    DriverSegment,
     KeyboardResampler,
-    PoseSegment,
 )
 from .spec import (
     DEFAULT_OMNIDREAMS_WEBRTC_SCENE_UUID,
@@ -194,6 +198,12 @@ class LudusSceneConditioningProvider:
         self._keyboard_resampler: KeyboardResampler | None = None
         self._next_timestamp_us = 0
         self._step_index = 0
+        self._canonicalizer = scenario.canonicalizer
+        self._source_schema = scenario.source_schema
+        self._canonical_driver_input = any(
+            converter.schema.produces.name == DRIVER_COMMAND.name
+            for converter in self._canonicalizer.converters
+        )
         self.capabilities = ProviderCapabilities(
             supports_realtime_clock=True,
             supports_recorded_input=True,
@@ -265,7 +275,7 @@ class LudusSceneConditioningProvider:
                 step={"hdmap": hdmap},
                 metadata={
                     "frame_timestamps_us": tuple(int(t) for t in timestamps_us),
-                    "keyboard_segments": _segments_metadata(segments),
+                    **_control_metadata(segments),
                     "camera_name": scenario.camera_name,
                     "scene_uuid": scenario.scene_uuid,
                 },
@@ -339,19 +349,26 @@ class LudusSceneConditioningProvider:
         self._keyboard_resampler = keyboard_resampler
         self._next_timestamp_us = int(scene.initial_timestamp_us)
         self._step_index = 0
+        self._canonicalizer.reset()
 
     def _sample_controls(
         self,
         *,
         request: StepRequirements,
         user_window: UserInputWindow,
-    ) -> tuple[list[PoseSegment], list[float]]:
+    ) -> tuple[Sequence[ControlSegment], list[float]]:
         frame_times = list(user_window.frame_times)
         if frame_times and len(frame_times) != request.input_frame_count:
             raise RuntimeError(
                 "OmniDreams Ludus realtime window frame_times length does not "
                 "match the requested input frame count."
             )
+        if self._canonical_driver_input:
+            return self._sample_canonical_controls(
+                user_window=user_window,
+                frame_times=frame_times,
+            )
+
         resampler = self._require_keyboard_resampler()
         self._advance_skipped_input_state(user_window=user_window, resampler=resampler)
         # Realtime/WebRTC windows carry explicit frame times on the driver's
@@ -365,6 +382,54 @@ class LudusSceneConditioningProvider:
         )
         if not frame_times:
             frame_times = sampled_frame_times
+        return segments, frame_times
+
+    def _sample_canonical_controls(
+        self,
+        *,
+        user_window: UserInputWindow,
+        frame_times: list[float],
+    ) -> tuple[list[DriverSegment], list[float]]:
+        """Canonicalize realtime controls into analog driving segments."""
+        skipped_inputs = user_window.metadata.get(WEBRTC_SKIPPED_INPUTS_METADATA_KEY)
+        skipped_window = user_window.metadata.get(WEBRTC_SKIPPED_WINDOW_METADATA_KEY)
+        if (
+            isinstance(skipped_inputs, UserInputs)
+            and isinstance(skipped_window, tuple)
+            and len(skipped_window) == 2
+            and isinstance(skipped_window[0], int | float)
+            and isinstance(skipped_window[1], int | float)
+            and float(skipped_window[1]) > float(skipped_window[0])
+        ):
+            self._canonicalizer.canonicalize(
+                skipped_inputs,
+                window=TimeWindow(
+                    start_s=float(skipped_window[0]),
+                    end_s=float(skipped_window[1]),
+                ),
+                source_schema=self._source_schema,
+            )
+        canonical = self._canonicalizer.canonicalize(
+            user_window.inputs,
+            window=TimeWindow(
+                start_s=user_window.start_s,
+                end_s=user_window.end_s,
+            ),
+            source_schema=self._source_schema,
+        )
+        command = canonical.values.get(DRIVER_COMMAND.name)
+        if not isinstance(command, Mapping):
+            raise RuntimeError("Canonical driving input is missing.")
+        raw_segments = command.get("segments")
+        if not isinstance(raw_segments, tuple):
+            raise TypeError("Canonical driving segments must be a tuple.")
+        segments: list[DriverSegment] = []
+        for start, end, level in raw_segments:
+            if not isinstance(level, Mapping):
+                raise TypeError("Canonical driving segment must contain a mapping.")
+            segments.append((float(start), float(end), dict(level)))
+        if not frame_times:
+            raise RuntimeError("Realtime canonical input requires frame times.")
         return segments, frame_times
 
     def _advance_skipped_input_state(
@@ -695,12 +760,25 @@ def _to_model_range(
     return tensor.to(device=device, dtype=dtype) / 127.5 - 1.0
 
 
-def _segments_metadata(
-    segments: list[PoseSegment],
-) -> tuple[tuple[float, float, tuple[str, ...]], ...]:
-    return tuple(
-        (float(start), float(end), tuple(sorted(keys))) for start, end, keys in segments
-    )
+def _control_metadata(
+    segments: Sequence[ControlSegment],
+) -> dict[str, object]:
+    """Return truthful metadata for the active control representation."""
+    if isinstance(segments[0][2], dict):
+        return {
+            "driver_segments": tuple(
+                (float(start), float(end), dict(state))
+                for start, end, state in segments
+                if isinstance(state, dict)
+            )
+        }
+    return {
+        "keyboard_segments": tuple(
+            (float(start), float(end), tuple(sorted(state)))
+            for start, end, state in segments
+            if isinstance(state, frozenset)
+        )
+    }
 
 
 def _close_rasterizer(rasterizer: Any | None) -> None:

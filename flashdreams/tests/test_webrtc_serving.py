@@ -285,7 +285,7 @@ def test_shared_viewer_exposes_model_extension_slots() -> None:
     html = web_dir.joinpath("request_session.html").read_text(encoding="utf-8")
     javascript = web_dir.joinpath("request_session.js").read_text(encoding="utf-8")
 
-    assert "/static/request_session.js?v=shared-webrtc-v7" in html
+    assert "/static/request_session.js?v=shared-webrtc-v8" in html
     assert "attemptsRemaining: autoConnectMaxAttempts" in javascript
     assert javascript.count("connected = true") == 1
     assert 'pc.connectionState !== "connected"' in javascript
