@@ -64,9 +64,11 @@ comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
 The UI thread initially selects frames from model chunks at
-`frames_per_second_for_step`, then uses the model thread's rolling two-second
-output rate. This paces chunked output evenly without tying input and UI redraws
-to model throughput.
+`frames_per_second_for_step`. With nonblocking `DROP_OLDEST` backpressure it
+then uses the model thread's rolling two-second output rate. `BLOCK` retains the
+declared rate because its own queue waits would otherwise feed back into and
+progressively reduce the measured model rate. This paces chunked output evenly
+without tying input and UI redraws to model throughput.
 `PresentationMode.CONTINUOUS` lets an `IUILoop` redraw every UI tick;
 `PresentationMode.ON_DEMAND` runs it only when the selected model frame changes.
 Interactive or clock-driven UIs should use continuous presentation.

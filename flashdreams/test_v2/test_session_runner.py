@@ -26,7 +26,11 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
+from flashdreams.runtime_v2.session_runner import (
+    _PresentationClock,
+    _next_ui_tick_at,
+    run_session,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -117,6 +121,26 @@ def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
     _observe_model_step(clock, 2.0, 120, 1.0)
 
     assert clock.frames_per_second == 60
+
+
+def test_presentation_clock_does_not_adapt_to_blocked_model_throughput() -> None:
+    clock = _PresentationClock(
+        frames_per_second=30,
+        adapt_to_model_throughput=False,
+    )
+
+    clock.observe_model_output(now=1.0, generation=0, frame_count=8)
+    clock.observe_model_output(now=2.0, generation=0, frame_count=8)
+
+    assert clock.frames_per_second == 30
+
+
+def test_next_ui_tick_does_not_sleep_after_an_overrun() -> None:
+    assert _next_ui_tick_at(1.0, 0.1, 1.25) == 1.25
+
+
+def test_next_ui_tick_preserves_deadline_without_an_overrun() -> None:
+    assert _next_ui_tick_at(1.0, 0.1, 1.05) == 1.1
 
 
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
@@ -672,6 +696,17 @@ def test_composite_rejects_frames_with_different_dimensions() -> None:
         manager.composite(bottom, overlay)
 
 
+def test_composite_clamps_alpha_before_interpolation() -> None:
+    manager = PresentationManager()
+    bottom = torch.full((3, 1, 2), -1.0)
+    overlay = torch.tensor([[[1.0, 1.0]], [[0.5, 0.5]], [[0.0, 0.0]], [[-0.5, 1.5]]])
+
+    composited = manager.composite(bottom, overlay)
+
+    assert torch.equal(composited[:, :, 0], bottom[:, :, 0])
+    assert torch.equal(composited[:, :, 1], overlay[:3, :, 1])
+
+
 def test_default_ui_presents_each_frame_from_a_model_chunk() -> None:
     log = CallLog()
 
@@ -796,6 +831,32 @@ def test_run_session_opens_window_with_the_resolved_session_desc() -> None:
     run_session(session, window, steps=1)
 
     assert window.session_desc is resolved
+
+
+def test_window_write_stays_in_the_presentation_context() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log)
+
+    class ContextRecordingManager(PresentationManager):
+        active = False
+
+        @contextmanager
+        def presentation_context(self) -> Iterator[None]:
+            self.active = True
+            try:
+                yield
+            finally:
+                self.active = False
+
+    manager = ContextRecordingManager()
+    session.__dict__["_presentation_manager"] = manager
+
+    class ContextCheckingWindow(RecordingClientWindow):
+        def write(self, result: StepResult) -> None:
+            assert manager.active
+            super().write(result)
+
+    run_session(session, ContextCheckingWindow(log), steps=1)
 
 
 def test_run_session_gives_the_first_step_input_already_collected() -> None:

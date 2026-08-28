@@ -282,10 +282,13 @@ def _route_input_events(
 
 def _rgba8_to_compositing_frame(frame: Tensor) -> Tensor:
     """Convert shared ``[H, W, 4]`` bytes into normalized ``[4, H, W]``."""
-    rgba = frame.permute(2, 0, 1).to(torch.float32)
-    color = rgba[:3].mul_(2.0 / 255.0).sub_(1.0)
-    alpha = rgba[3:4].mul_(1.0 / 255.0)
-    return torch.cat((color, alpha), dim=0)
+    rgba = frame.permute(2, 0, 1).to(
+        torch.float32,
+        memory_format=torch.contiguous_format,
+    )
+    rgba[:3].mul_(2.0 / 255.0).sub_(1.0)
+    rgba[3:4].mul_(1.0 / 255.0)
+    return rgba
 
 
 def _resolve_slangpy_key(slangpy: Any, key: str) -> Any | None:

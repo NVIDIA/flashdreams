@@ -111,6 +111,7 @@ class TaxiHudFrame:
     input_coalesced_transition_count: int = 0
     """Cumulative earlier transitions collapsed into the latest input state."""
 
+
 @dataclass(slots=True)
 class TaxiHudState:
     """Mutable Dear ImGui state owned exclusively by the V2 UI thread."""
@@ -171,6 +172,12 @@ class TaxiHudState:
 
     _bev_alpha: Tensor | None = None
     """Cached binary renderer coverage retained on the source device."""
+
+    _bev_composite_source_key: tuple[object, ...] | None = None
+    """Identity and layout of the cached video/BEV back buffer."""
+
+    _bev_composite: Tensor | None = None
+    """Cached float32 back buffer for the current presented frame."""
 
     _bev_rect: tuple[int, int, int, int] | None = None
     """Current ImGui content rectangle as ``(top, left, height, width)``."""
@@ -605,6 +612,8 @@ class TaxiHudState:
         self._bev_source_key = None
         self._bev_panel = None
         self._bev_alpha = None
+        self._bev_composite_source_key = None
+        self._bev_composite = None
         self._bev_rect = None
         self._presented_frame_times_s.clear()
         self._video_fps = 0.0
@@ -964,10 +973,42 @@ class TaxiHudState:
         draw_list.add_triangle_filled(*points(0.68), color)
 
     def composite_bev(self, video: Tensor, frame: Tensor | None) -> Tensor:
-        """Composite the current BEV into its ImGui-owned rectangle on-device."""
+        """Return the cached float32 video and BEV back buffer."""
+        if not video.is_floating_point():
+            raise ValueError("Video presentation frames must be floating point")
         rect = self._bev_rect
+        frame_key = (
+            None
+            if frame is None
+            else (
+                int(frame.data_ptr()),
+                tuple(int(value) for value in frame.shape),
+                frame.dtype,
+                frame.device,
+            )
+        )
+        composite_source_key = (
+            id(self._current),
+            int(video.data_ptr()),
+            tuple(int(value) for value in video.shape),
+            video.dtype,
+            video.device,
+            frame_key,
+            rect,
+        )
+        if (
+            composite_source_key == self._bev_composite_source_key
+            and self._bev_composite is not None
+        ):
+            return self._bev_composite
+
+        # The shared ImGui overlay is float32. Converting once here avoids a
+        # full-frame overlay cast and extra BF16 blend kernels downstream.
+        output = video.to(dtype=torch.float32, copy=True)
         if frame is None or rect is None:
-            return video
+            self._bev_composite_source_key = composite_source_key
+            self._bev_composite = output
+            return output
         if frame.ndim != 3 or frame.shape[0] != 4:
             raise ValueError("BEV presentation frames must use [4,H,W] RGBA")
         if frame.dtype != torch.uint8 and not frame.is_floating_point():
@@ -979,7 +1020,10 @@ class TaxiHudState:
         bottom = min(int(video.shape[-2]), top + image_height)
         right = min(int(video.shape[-1]), left + image_width)
         if bottom <= top or right <= left:
-            return video
+            self._bev_composite_source_key = composite_source_key
+            self._bev_composite = output
+            return output
+
         source_key = (
             id(self._current),
             int(frame.data_ptr()),
@@ -1012,11 +1056,12 @@ class TaxiHudState:
             self._bev_panel = panel
             self._bev_alpha = alpha
 
-        output = video.clone()
         target = output[:, top:bottom, left:right]
         source_panel = panel[:, : bottom - top, : right - left]
         source_alpha = alpha[:, : bottom - top, : right - left]
         torch.where(source_alpha, source_panel, target, out=target)
+        self._bev_composite_source_key = composite_source_key
+        self._bev_composite = output
         return output
 
     def _draw_input_diagnostic(self, imgui: Any) -> None:
@@ -1162,8 +1207,7 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
-        converted = video.to(torch.float32)
-        return self.state.composite_bev(converted, bev_frame)
+        return self.state.composite_bev(video, bev_frame)
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""

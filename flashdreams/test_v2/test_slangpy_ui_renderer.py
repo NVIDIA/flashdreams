@@ -7,9 +7,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import torch
 from numpy import uint64
 
-from flashdreams.runtime_v2.slangpy_ui_renderer import _route_input_events
+from flashdreams.runtime_v2.slangpy_ui_renderer import (
+    _rgba8_to_compositing_frame,
+    _route_input_events,
+)
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -18,6 +22,27 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_rgba_conversion_normalizes_directly_into_contiguous_chw() -> None:
+    frame = torch.tensor(
+        [[[0, 127, 255, 0], [255, 0, 127, 255]]],
+        dtype=torch.uint8,
+    )
+
+    converted = _rgba8_to_compositing_frame(frame)
+
+    expected = torch.tensor(
+        [
+            [[-1.0, 1.0]],
+            [[127.0 * 2.0 / 255.0 - 1.0, -1.0]],
+            [[1.0, 127.0 * 2.0 / 255.0 - 1.0]],
+            [[0.0, 1.0]],
+        ],
+        dtype=torch.float32,
+    )
+    assert converted.is_contiguous()
+    torch.testing.assert_close(converted, expected)
 
 
 def test_space_key_routes_a_text_input_codepoint() -> None:

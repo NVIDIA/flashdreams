@@ -421,7 +421,7 @@ def test_fps_counter_measures_distinct_generated_video_frames(
 
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
-    video = torch.full((1, 3, height, width), -0.5)
+    video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
     bev = torch.full((1, 4, 32, 32), 255, dtype=torch.uint8)
     bev[:, :3].fill_(191)
     hud_state = TaxiHudState(width, height, _calibration())
@@ -486,14 +486,17 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
 
     cached_waypoints = hud_state._waypoint_projections
     cached_bev = hud_state._bev_panel
+    cached_composite = hud_state._bev_composite
     loop.step(1, UserInputEvents([]))
     assert hud_state._waypoint_projections is cached_waypoints
     assert hud_state._bev_panel is cached_bev
+    assert hud_state._bev_composite is cached_composite
 
     loop.reset()
     assert hud_state._current is None
     assert hud_state._waypoint_projections == ()
     assert hud_state._bev_panel is None
+    assert hud_state._bev_composite is None
     assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
 
@@ -511,6 +514,18 @@ def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
     assert torch.all(composited[:, :, 1:3] == -1.0)
     assert state._bev_alpha is not None
     assert set(state._bev_alpha.unique().tolist()) == {False, True}
+
+
+def test_presentation_back_buffer_is_cached_without_a_bev_frame() -> None:
+    state = TaxiHudState(4, 4, _calibration())
+    video = torch.full((3, 4, 4), -0.5, dtype=torch.bfloat16)
+
+    first = state.composite_bev(video, None)
+    repeated = state.composite_bev(video, None)
+
+    assert first.dtype is torch.float32
+    assert repeated is first
+    torch.testing.assert_close(first, video.float())
 
 
 def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
