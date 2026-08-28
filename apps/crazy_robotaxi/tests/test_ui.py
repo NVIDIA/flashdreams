@@ -111,6 +111,16 @@ class _FakeDrawList:
         self.commands.append(("text", args))
 
 
+class _FakeFontAtlas:
+    def __init__(self) -> None:
+        self.loaded: list[tuple[str, float, object]] = []
+
+    def add_font_from_file_ttf(self, path: str, size: float) -> object:
+        font = object()
+        self.loaded.append((path, size, font))
+        return font
+
+
 class _FakeImGui:
     Cond_ = SimpleNamespace(always=1)
     WindowFlags_ = SimpleNamespace(
@@ -134,6 +144,12 @@ class _FakeImGui:
         self.clicked_buttons: set[str] = set()
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.default_font = object()
+        self.current_font = self.default_font
+        self.current_font_size = 14.0
+        self.font_stack: list[tuple[object, float]] = []
+        self.fonts = _FakeFontAtlas()
+        self.io = SimpleNamespace(fonts=self.fonts)
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
@@ -151,13 +167,22 @@ class _FakeImGui:
     def calc_text_size(text: str) -> SimpleNamespace:
         return SimpleNamespace(x=float(len(text) * 8), y=14.0)
 
-    @staticmethod
-    def get_font() -> object:
-        return object()
+    def get_font(self) -> object:
+        return self.current_font
 
-    @staticmethod
-    def get_font_size() -> float:
-        return 14.0
+    def get_font_size(self) -> float:
+        return self.current_font_size
+
+    def get_io(self) -> SimpleNamespace:
+        return self.io
+
+    def push_font(self, font: object, size: float) -> None:
+        self.font_stack.append((self.current_font, self.current_font_size))
+        self.current_font = font
+        self.current_font_size = size
+
+    def pop_font(self) -> None:
+        self.current_font, self.current_font_size = self.font_stack.pop()
 
     def get_background_draw_list(self) -> _FakeDrawList:
         return self.background_draw_list
@@ -643,6 +668,39 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         if name == "circle_filled"
     )
     assert compass[0][1] == 110.0
+
+
+def test_prominent_gameplay_text_uses_droid_sans() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    state.publish(
+        build_hud_frames(
+            torch.zeros(1, 3, 360, 640),
+            (replace(_snapshot(), event="pickup_complete"),),
+            np.eye(4, dtype=np.float32)[None],
+            speeds_mps=(12.0,),
+        )
+    )
+    state._current = next(iter(state._frames.values()))
+    state._menu_stage = "game"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    [(path, size, droid_sans)] = imgui.fonts.loaded
+    assert path.endswith("DroidSans.ttf")
+    assert size == 13.0
+    text_commands = {
+        args[-1]: args
+        for name, args in imgui.background_draw_list.commands
+        if name == "text"
+    }
+    assert text_commands["PASSENGER PICKED UP"][0] is droid_sans
+    assert text_commands["27"][0] is droid_sans
+    assert text_commands["mph"][0] is droid_sans
+    assert (
+        text_commands["GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000"][0]
+        is imgui.default_font
+    )
 
 
 def test_compass_arrow_has_no_black_underlay() -> None:

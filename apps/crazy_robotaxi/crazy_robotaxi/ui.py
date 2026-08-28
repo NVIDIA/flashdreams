@@ -23,6 +23,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Literal
 
@@ -217,6 +218,9 @@ class TaxiHudState:
 
     _video_fps: float = 0.0
     """Generated-video frame rate estimated from recent selections."""
+
+    _gameplay_font: Any | None = None
+    """Droid Sans face used for prominent gameplay feedback."""
 
     def publish(self, frames: Sequence[TaxiHudFrame]) -> None:
         """Publish immutable model-frame state to the UI-owned lookup."""
@@ -565,6 +569,7 @@ class TaxiHudState:
                 font_size=44.0,
                 color_rgb=color,
                 shadow=True,
+                font=self._gameplay_overlay_font(imgui),
             )
 
     def _draw_race_status(self, imgui: Any, snapshot: RaceGameSnapshot) -> None:
@@ -659,14 +664,15 @@ class TaxiHudState:
         font_size: float,
         color_rgb: tuple[float, float, float],
         shadow: bool = False,
+        font: Any | None = None,
     ) -> None:
         """Draw centered overlay text at an explicit display size."""
         draw_list = imgui.get_background_draw_list()
-        text_width, _ = _overlay_text_size(imgui, label, font_size)
+        text_width, _ = _overlay_text_size(imgui, label, font_size, font=font)
         available_width = max(1.0, float(self.width) - 28.0)
         if text_width > available_width:
             font_size = max(1.0, font_size * available_width / text_width)
-            text_width, _ = _overlay_text_size(imgui, label, font_size)
+            text_width, _ = _overlay_text_size(imgui, label, font_size, font=font)
         left = (float(self.width) - text_width) * 0.5
         if shadow:
             _draw_overlay_text(
@@ -676,6 +682,7 @@ class TaxiHudState:
                 position=(left + 3.0, top + 3.0),
                 font_size=font_size,
                 color=_imgui_color(imgui, (0.0, 0.0, 0.0, 1.0)),
+                font=font,
             )
         _draw_overlay_text(
             imgui,
@@ -684,14 +691,18 @@ class TaxiHudState:
             position=(left, top),
             font_size=font_size,
             color=_imgui_color(imgui, (*color_rgb, 1.0)),
+            font=font,
         )
 
     def _draw_speed(self, imgui: Any, speed_mps: float) -> None:
         """Draw the source HUD's green speed digit directly over the frame."""
         draw_list = imgui.get_background_draw_list()
+        font = self._gameplay_overlay_font(imgui)
         font_size = max(28.0, min(76.0, float(self.height) * 0.12))
         speed = str(round(abs(float(speed_mps)) * _MPS_TO_MPH))
-        speed_width, speed_height = _overlay_text_size(imgui, speed, font_size)
+        speed_width, speed_height = _overlay_text_size(
+            imgui, speed, font_size, font=font
+        )
         left = 24.0
         top = max(10.0, float(self.height) - speed_height - 42.0)
         shadow = _imgui_color(imgui, (0.0, 0.0, 0.0, 0.9))
@@ -706,6 +717,7 @@ class TaxiHudState:
             position=(left + 3.0, top + 3.0),
             font_size=font_size,
             color=shadow,
+            font=font,
         )
         _draw_overlay_text(
             imgui,
@@ -714,9 +726,10 @@ class TaxiHudState:
             position=(left, top),
             font_size=font_size,
             color=green,
+            font=font,
         )
         unit_size = max(14.0, font_size * 0.28)
-        unit_width, _ = _overlay_text_size(imgui, "mph", unit_size)
+        unit_width, _ = _overlay_text_size(imgui, "mph", unit_size, font=font)
         _draw_overlay_text(
             imgui,
             draw_list,
@@ -727,7 +740,20 @@ class TaxiHudState:
             ),
             font_size=unit_size,
             color=_imgui_color(imgui, (0.86, 0.86, 0.9, 1.0)),
+            font=font,
         )
+
+    def _gameplay_overlay_font(self, imgui: Any) -> Any:
+        """Load and cache imgui-bundle's Droid Sans face."""
+        if self._gameplay_font is None:
+            resource = files("imgui_bundle").joinpath(
+                "assets", "fonts", "DroidSans.ttf"
+            )
+            with as_file(resource) as path:
+                self._gameplay_font = imgui.get_io().fonts.add_font_from_file_ttf(
+                    str(path), 13.0
+                )
+        return self._gameplay_font
 
     def _draw_fps_counter(self, imgui: Any) -> None:
         """Draw the measured generated-video rate when the counter is enabled."""
@@ -1517,8 +1543,20 @@ def _imgui_color(
     return int(imgui.color_convert_float4_to_u32(imgui.ImVec4(*rgba)))
 
 
-def _overlay_text_size(imgui: Any, text: str, font_size: float) -> tuple[float, float]:
+def _overlay_text_size(
+    imgui: Any,
+    text: str,
+    font_size: float,
+    *,
+    font: Any | None = None,
+) -> tuple[float, float]:
     """Measure text after applying an explicit ImGui display size."""
+    if font is not None:
+        imgui.push_font(font, float(font_size))
+        try:
+            return _point_xy(imgui.calc_text_size(text))
+        finally:
+            imgui.pop_font()
     width, height = _point_xy(imgui.calc_text_size(text))
     scale = float(font_size) / max(1.0, float(imgui.get_font_size()))
     return width * scale, height * scale
@@ -1532,10 +1570,11 @@ def _draw_overlay_text(
     position: tuple[float, float],
     font_size: float,
     color: int,
+    font: Any | None = None,
 ) -> None:
     """Draw sized text directly into the shared background overlay."""
     draw_list.add_text(
-        imgui.get_font(),
+        imgui.get_font() if font is None else font,
         float(font_size),
         imgui.ImVec2(*position),
         color,
