@@ -263,14 +263,6 @@ class NativeWindowClientWindow(IClientWindow):
                     physical_key, keyboard_event = self._pending_printable_keys.pop()
                     self._pressed_key_values[physical_key] = text
                     self._put_input(replace(keyboard_event, key=text))
-                else:
-                    self._put_input(
-                        KeyboardUserInputEvent(
-                            timestamp=uint64(0),
-                            key=text,
-                            state=KeyboardInputState.PRESSED,
-                        )
-                    )
             return
 
         keyboard_event = _keyboard_event(event)

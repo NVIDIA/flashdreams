@@ -5,11 +5,12 @@
 Crazy Robotaxi follows the V2 Interactive Drive demo's latest-state input
 contract and offers opt-in input/chunk lifecycle diagnostics. Keyboard,
 gamepad, and wheel events accumulated during an in-flight model step are
-applied in order, but only the resulting current command conditions the next
-chunk. Input cannot change a chunk whose inference is already in flight, and
-the lifecycle trace described below distinguishes that boundary from stale
-queued presentation and cache state that has advanced past the displayed
-frame.
+applied in order. A completed tap that would otherwise collapse to its final
+state behind the model clock is bounded to one physics frame; a release from a
+command the model already sampled still takes effect immediately. Input cannot
+change a chunk whose inference is already in flight, and the lifecycle trace
+described below distinguishes that boundary from stale queued presentation and
+cache state that has advanced past the displayed frame.
 
 ## Reproduction and evidence
 
@@ -64,12 +65,12 @@ The earlier investigation observed:
 
 V2 reads model events immediately before calling the synchronous model-loop
 `step`. Crazy Robotaxi applies the unread batch in order, retains the final
-keyboard or controller state, and repeats its resulting command across the
-next model chunk. An input arriving during the measured 760 ms step therefore
-waits for that step to finish and for the next conditioned step to finish. This
-creates an application/model response window of roughly 760–1520 ms before
-final WebRTC delivery. Smaller or preemptible model work is required to reduce
-that floor.
+keyboard or controller state, and preserves an otherwise invisible completed
+tap for one physics frame. An input arriving during the measured 760 ms step
+therefore waits for that step to finish and for the next conditioned step to
+finish. This creates an application/model response window of roughly 760–1520
+ms before final WebRTC delivery. Smaller or preemptible model work is required
+to reduce that floor.
 
 ## V2 transport behavior
 

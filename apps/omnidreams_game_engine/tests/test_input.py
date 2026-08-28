@@ -218,6 +218,69 @@ def test_timestamped_tap_is_preserved_across_physics_frames() -> None:
     assert timestamps == (1_000_000, None, None, 1_100_000, None)
 
 
+def test_completed_tap_behind_model_clock_gets_one_physics_frame() -> None:
+    state = DriverInput()
+    timeline = RealtimeInputTimeline(samples_per_second=30.0)
+    state.sample(timeline.next_window(8))
+    input_times_s = state.apply(
+        UserInputEvents(
+            [
+                replace(
+                    _key("d", KeyboardInputState.PRESSED),
+                    timestamp=np.uint64(50_000),
+                ),
+                replace(
+                    _key("d", KeyboardInputState.RELEASED),
+                    timestamp=np.uint64(150_000),
+                ),
+            ]
+        )
+    )
+
+    commands, timestamps = state.sample(
+        timeline.next_window(8, input_times_s=input_times_s)
+    )
+    following, _ = state.sample(timeline.next_window(1))
+
+    assert [command.steer for command in commands] == [-1.0] + [0.0] * 7
+    assert timestamps == (50_000, 150_000, None, None, None, None, None, None)
+    assert following == (DriverCommand(),)
+
+
+def test_stale_release_of_sampled_command_is_not_replayed() -> None:
+    state = DriverInput()
+    timeline = RealtimeInputTimeline(samples_per_second=30.0)
+    pressed_at_s = state.apply(
+        UserInputEvents(
+            [
+                replace(
+                    _key("d", KeyboardInputState.PRESSED),
+                    timestamp=np.uint64(0),
+                )
+            ]
+        )
+    )
+    held, _ = state.sample(timeline.next_window(8, input_times_s=pressed_at_s))
+    released_at_s = state.apply(
+        UserInputEvents(
+            [
+                replace(
+                    _key("d", KeyboardInputState.RELEASED),
+                    timestamp=np.uint64(150_000),
+                )
+            ]
+        )
+    )
+
+    released, timestamps = state.sample(
+        timeline.next_window(8, input_times_s=released_at_s)
+    )
+
+    assert all(command.steer == -1.0 for command in held)
+    assert released == (DriverCommand(),) * 8
+    assert timestamps == (150_000, None, None, None, None, None, None, None)
+
+
 def test_focus_loss_releases_sampled_keyboard_input() -> None:
     state = DriverInput()
     timeline = RealtimeInputTimeline(samples_per_second=30.0)

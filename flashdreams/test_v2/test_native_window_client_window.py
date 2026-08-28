@@ -70,6 +70,14 @@ class _KeyboardEvent:
         return False
 
 
+class _KeyboardRepeatEvent(_KeyboardEvent):
+    def __init__(self, key: str) -> None:
+        super().__init__(key, pressed=False)
+
+    def is_key_release(self) -> bool:
+        return False
+
+
 class _TextInputEvent:
     def __init__(self, text: str) -> None:
         self.codepoint = ord(text)
@@ -461,6 +469,32 @@ def test_native_text_input_uses_slangpy_resolved_shift_character() -> None:
         ("A", KeyboardInputState.PRESSED),
         ("A", KeyboardInputState.RELEASED),
         ("Shift", KeyboardInputState.RELEASED),
+    ]
+
+
+def test_native_text_input_discards_repeat_callbacks_after_release() -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    presenter.pending_events.put(("keyboard", _KeyboardEvent("d", pressed=True)))
+    presenter.pending_events.put(("keyboard", _TextInputEvent("d")))
+
+    pressed = window.get_user_input_events().get_events()
+    presenter.pending_events.put(("keyboard", _KeyboardRepeatEvent("d")))
+    assert window.get_user_input_events().get_events() == []
+    presenter.pending_events.put(("keyboard", _TextInputEvent("d")))
+    assert window.get_user_input_events().get_events() == []
+
+    presenter.pending_events.put(("keyboard", _KeyboardRepeatEvent("d")))
+    presenter.pending_events.put(("keyboard", _KeyboardEvent("d", pressed=False)))
+    released = window.get_user_input_events().get_events()
+    presenter.pending_events.put(("keyboard", _TextInputEvent("d")))
+    assert window.get_user_input_events().get_events() == []
+    window.close()
+
+    assert [(event.key, event.state) for event in (*pressed, *released)] == [
+        ("d", KeyboardInputState.PRESSED),
+        ("d", KeyboardInputState.RELEASED),
     ]
 
 
