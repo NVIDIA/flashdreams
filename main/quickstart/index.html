@@ -417,26 +417,22 @@ read access to <a class="reference external" href="https://huggingface.co/nvidia
 <h2>Run your first model<a class="headerlink" href="#run-your-first-model" title="Link to this heading">#</a></h2>
 <p>Launch the OmniDreams interactive driving demo. It runs the world model
 and streams the generated camera view to a browser over WebRTC:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>interactive-drive-omnidreams<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span>
 </pre></div>
 </div>
 <p>Then open <code class="docutils literal notranslate"><span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> in a browser on the same network
 (use <code class="docutils literal notranslate"><span class="pre">localhost</span></code> on the same machine). The first launch spends several
 minutes loading checkpoints and compiling kernels; later launches reuse
 the cached assets.</p>
-<p>Inspect the complete resolved runner, launch mode, scenario, and output without
-loading checkpoints:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--no-instantiate
+<p>Inspect the application arguments without loading checkpoints:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>interactive-drive-omnidreams<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> for scripted generation, scene variants,
-local-window serving, and multi-GPU options. See
-<a class="reference internal" href="../api/launch_manifests.html"><span class="doc">Launch manifests</span></a> for the shared manifest schema.</p>
+native-window serving, and multi-GPU options.</p>
 </section>
 <section id="where-to-next">
 <h2>Where to next<a class="headerlink" href="#where-to-next" title="Link to this heading">#</a></h2>

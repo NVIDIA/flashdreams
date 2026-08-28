@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Runner slugs and demo launch dispatch &#8212; FlashDreams v0.1.0</title>
+    <title>Application slugs and model adapter dispatch &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -342,7 +342,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Application slugs and model adapter dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 <li class="toctree-l2"><a class="reference internal" href="local_benchmarks.html">Local Demo Benchmarks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="flashdreams_accelerated.html">flashdreams.accelerated</a></li>
@@ -406,7 +406,7 @@ SPDX-License-Identifier: Apache-2.0
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Developer Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Runner slugs and demo launch dispatch</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Application slugs and model adapter dispatch</span></li>
   </ul>
 </nav>
 </div>
@@ -427,149 +427,68 @@ SPDX-License-Identifier: Apache-2.0
 SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 -->
-<section class="tex2jax_ignore mathjax_ignore" id="runner-slugs-and-demo-launch-dispatch">
-<h1>Runner slugs and demo launch dispatch<a class="headerlink" href="#runner-slugs-and-demo-launch-dispatch" title="Link to this heading">#</a></h1>
-<p>A runner slug is the short public name after <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>. It selects a
-registered <code class="docutils literal notranslate"><span class="pre">RunnerConfig</span></code>; it does not need to duplicate the detailed name of
-the pipeline preset inside that config.</p>
-<section id="quick-start">
-<h2>Quick start<a class="headerlink" href="#quick-start" title="Link to this heading">#</a></h2>
-<p>After installing the OmniDreams workspace package, the default MP4 demo is:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams
-uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>omnidreams<span class="w"> </span>mp4
+<section class="tex2jax_ignore mathjax_ignore" id="application-slugs-and-model-adapter-dispatch">
+<h1>Application slugs and model adapter dispatch<a class="headerlink" href="#application-slugs-and-model-adapter-dispatch" title="Link to this heading">#</a></h1>
+<p>Runnable applications live under <code class="docutils literal notranslate"><span class="pre">apps/</span></code>. Model integrations do not own demo
+implementations or runner shims; they expose small bindings from
+<code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/apps/&lt;app&gt;/adapter.py</span></code>.</p>
+<section id="application-discovery">
+<h2>Application discovery<a class="headerlink" href="#application-discovery" title="Link to this heading">#</a></h2>
+<p>Each model package registers the applications it supports through the
+<code class="docutils literal notranslate"><span class="pre">flashdreams.applications_v2</span></code> entry-point group. For example, OmniDreams binds
+regular and performance-tuned variants of the reusable application:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;flashdreams.applications_v2&quot;</span><span class="k">]</span>
+<span class="s2">&quot;interactive-drive-omnidreams&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omnidreams.apps.interactive_drive.adapter:create_app&quot;</span>
+<span class="s2">&quot;interactive-drive-omnidreams-perf&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omnidreams.apps.interactive_drive.adapter:create_perf_app&quot;</span>
 </pre></div>
 </div>
-<p>This uses the bundled single-view example data and writes
-<code class="docutils literal notranslate"><span class="pre">outputs/omnidreams.mp4</span></code>. Use a launch manifest when you need to change the
-scenario or output:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>omnidreams<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_mp4.yaml
+<p>Action2V can be bound by more than one model without duplicating the
+application:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># integrations_v2/lingbot/pyproject.toml</span>
+<span class="s2">&quot;action2v-lingbot&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lingbot.apps.action2v.adapter:create_app&quot;</span>
+
+<span class="c1"># integrations_v2/hy_worldplay/pyproject.toml</span>
+<span class="s2">&quot;action2v-hy-worldplay&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;hy_worldplay.apps.action2v.adapter:create_app&quot;</span>
 </pre></div>
 </div>
-<p>The shipped public OmniDreams runners are:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<thead>
-<tr class="row-odd"><th class="head"><p>Runner slug</p></th>
-<th class="head"><p>Registered config literal</p></th>
-<th class="head"><p>Internal pipeline preset</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-perf</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf</span></code></p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>The short slug is stable user interface. The internal pipeline name remains
-specific enough for recipe selection, checkpoints, profiling, and direct demo
-APIs.</p>
 </section>
-<section id="how-the-command-is-dispatched">
-<h2>How the command is dispatched<a class="headerlink" href="#how-the-command-is-dispatched" title="Link to this heading">#</a></h2>
-<p>For this command:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>omnidreams<span class="w"> </span>mp4
+<section id="ownership-boundary">
+<h2>Ownership boundary<a class="headerlink" href="#ownership-boundary" title="Link to this heading">#</a></h2>
+<p>The reusable package owns UI behavior, argument parsing, application sessions,
+and presentation. The model package owns its implementation and canonical
+configuration:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>apps/&lt;app&gt;/
+  &lt;app&gt;/...
+
+integrations_v2/&lt;model&gt;/
+  config.py
+  impl/...
+  apps/&lt;app&gt;/adapter.py
 </pre></div>
 </div>
-<p>the control flow is:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>flashdreams-run console script
-  -&gt; flashdreams.scripts.cli:entrypoint
-  -&gt; _prepare_cli_args([&quot;omnidreams&quot;, &quot;mp4&quot;])
-  -&gt; all_runners()
-       -&gt; built-in runner registry
-       -&gt; discover_runners()
-            -&gt; importlib.metadata entry points
-            -&gt; group: flashdreams.runner_configs
-  -&gt; registry lookup by RunnerConfig.runner_name == &quot;omnidreams&quot;
-  -&gt; remove the positional mode &quot;mp4&quot; before Tyro parsing
-  -&gt; Tyro resolves runner flags over the registered RunnerConfig
-  -&gt; main(..., mode=&quot;mp4&quot;)
-  -&gt; resolve_launch()
-  -&gt; omnidreams.launch:LAUNCH_CAPABILITY
-  -&gt; OmnidreamsLaunchCapability.resolve()
-  -&gt; ResolvedLaunch.launch()
-  -&gt; omnidreams.demo.app.launch_from_runner()
-</pre></div>
-</div>
-<p>Important details:</p>
+<p><code class="docutils literal notranslate"><span class="pre">config.py</span></code> is the only Python module at the integration root. The adapter
+imports model defaults and hooks only from <code class="docutils literal notranslate"><span class="pre">...config</span></code>, constructs the reusable
+application, and contains no model implementation or launch orchestration.</p>
+</section>
+<section id="adding-or-changing-a-binding">
+<h2>Adding or changing a binding<a class="headerlink" href="#adding-or-changing-a-binding" title="Link to this heading">#</a></h2>
 <ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">_prepare_cli_args</span></code> finds the runner token by checking the keys returned by
-<code class="docutils literal notranslate"><span class="pre">all_runners()</span></code>. The next positional token is interpreted as a mode only
-when it is one of <code class="docutils literal notranslate"><span class="pre">run</span></code>, <code class="docutils literal notranslate"><span class="pre">mp4</span></code>, <code class="docutils literal notranslate"><span class="pre">null</span></code>, <code class="docutils literal notranslate"><span class="pre">webrtc</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">local-window</span></code>.</p></li>
-<li><p>A launch manifest must name the same runner and mode as the command. Its
-<code class="docutils literal notranslate"><span class="pre">runner_overrides</span></code> are applied before Tyro parses explicit CLI overrides.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">run</span></code> calls <code class="docutils literal notranslate"><span class="pre">config.setup()</span></code> and the regular runner. Other modes are
-delegated through the config’s <code class="docutils literal notranslate"><span class="pre">launch_capability</span></code>.</p></li>
-<li><p>The OmniDreams capability validates integration-specific scenario and
-output fields, then calls the shared demo API directly. It does not invoke a
-second CLI.</p></li>
-<li><p>The demo derives its <code class="docutils literal notranslate"><span class="pre">preset_id</span></code> from <code class="docutils literal notranslate"><span class="pre">config.pipeline.name</span></code>. Therefore
-<code class="docutils literal notranslate"><span class="pre">omnidreams</span></code> still selects the detailed stable non-performance pipeline
-preset shown in the table.</p></li>
+<li><p>Add reusable behavior to <code class="docutils literal notranslate"><span class="pre">apps/&lt;app&gt;/</span></code>.</p></li>
+<li><p>Add model implementation to <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/impl/</span></code>.</p></li>
+<li><p>Define the model’s pipeline configs, defaults, and hooks in
+<code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/config.py</span></code>.</p></li>
+<li><p>Add the minimal adapter at
+<code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/apps/&lt;app&gt;/adapter.py</span></code>.</p></li>
+<li><p>Register the adapter under <code class="docutils literal notranslate"><span class="pre">flashdreams.applications_v2</span></code>.</p></li>
+<li><p>Run the CPU ownership and import checks:</p></li>
 </ol>
-</section>
-<section id="how-a-slug-is-registered">
-<h2>How a slug is registered<a class="headerlink" href="#how-a-slug-is-registered" title="Link to this heading">#</a></h2>
-<p>External integrations register runners with Python package entry points. The
-OmniDreams package declares:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;flashdreams.runner_configs&quot;</span><span class="k">]</span>
-<span class="s2">&quot;omnidreams&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE&quot;</span>
-<span class="s2">&quot;omnidreams-perf&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>apps/t2v/tests/test_integration_apps.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>integrations_v2/&lt;model&gt;/tests
 </pre></div>
 </div>
-<p>Each target resolves to an <code class="docutils literal notranslate"><span class="pre">OmnidreamsRunnerConfig</span></code> literal:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE</span> <span class="o">=</span> <span class="n">OmnidreamsRunnerConfig</span><span class="p">(</span>
-    <span class="n">runner_name</span><span class="o">=</span><span class="s2">&quot;omnidreams&quot;</span><span class="p">,</span>
-    <span class="n">pipeline</span><span class="o">=</span><span class="n">SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE</span><span class="p">,</span>
-    <span class="c1"># ...</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>Discovery loads every entry point in the <code class="docutils literal notranslate"><span class="pre">flashdreams.runner_configs</span></code> group.
-The registry key comes from <code class="docutils literal notranslate"><span class="pre">cfg.runner_name</span></code>, not from the entry-point name.
-The entry-point name should still match <code class="docutils literal notranslate"><span class="pre">runner_name</span></code>: keeping both aligned
-makes installed package metadata understandable, and the OmniDreams CPU tests
-enforce that invariant.</p>
-<p>Slug collisions are deterministic. Built-in runners take precedence over
-plugins, and the first discovered plugin with a given <code class="docutils literal notranslate"><span class="pre">runner_name</span></code> wins over
-later plugins. The registry logs skipped collisions.</p>
-</section>
-<section id="adding-or-changing-a-public-slug">
-<h2>Adding or changing a public slug<a class="headerlink" href="#adding-or-changing-a-public-slug" title="Link to this heading">#</a></h2>
-<ol class="arabic simple">
-<li><p>Choose a short, integration-level default such as <code class="docutils literal notranslate"><span class="pre">omnidreams</span></code>. Add a
-concise suffix only when users need to select a materially different public
-variant, such as <code class="docutils literal notranslate"><span class="pre">omnidreams-perf</span></code>.</p></li>
-<li><p>Set <code class="docutils literal notranslate"><span class="pre">runner_name</span></code> on the exported runner config literal.</p></li>
-<li><p>Add an entry with the same name under
-<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;flashdreams.runner_configs&quot;]</span></code>.</p></li>
-<li><p>Keep <code class="docutils literal notranslate"><span class="pre">pipeline.name</span></code> unchanged unless the actual model recipe identity is
-changing.</p></li>
-<li><p>Update launch manifests, CI commands, benchmark scenarios, and user-facing
-documentation. Do not rename checkpoint keys, asset paths, reference
-artifacts, or internal preset IDs merely because the public slug changed.</p></li>
-<li><p>Refresh the editable package metadata and run CPU-only checks:</p></li>
-</ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--group<span class="w"> </span><span class="nb">test</span>
-uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>--help
-uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>omnidreams<span class="w"> </span>mp4<span class="w"> </span>--no-instantiate
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>integrations/omnidreams/tests/test_recipe_configs.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>integrations/omnidreams/tests/test_demo_api.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>flashdreams/tests/test_launch.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>flashdreams/tests/test_launch_manifest.py
-</pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">--no-instantiate</span></code> check resolves registration, parsing, mode dispatch,
-manifest validation, and default launch settings without loading checkpoints or
-initializing the GPU.</p>
+<p>Do not add <code class="docutils literal notranslate"><span class="pre">runner.py</span></code>, <code class="docutils literal notranslate"><span class="pre">launch.py</span></code>, <code class="docutils literal notranslate"><span class="pre">runtime.py</span></code>, <code class="docutils literal notranslate"><span class="pre">model_session.py</span></code>, or a
+model-specific demo package to bridge the application and integration layers.</p>
 </section>
 </section>
 
@@ -620,10 +539,9 @@ initializing the GPU.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick start</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-command-is-dispatched">How the command is dispatched</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-a-slug-is-registered">How a slug is registered</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-or-changing-a-public-slug">Adding or changing a public slug</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#application-discovery">Application discovery</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ownership-boundary">Ownership boundary</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-or-changing-a-binding">Adding or changing a binding</a></li>
 </ul>
   </nav></div>
 

@@ -50,7 +50,7 @@ plugging into the same ``flashdreams-run`` registry.
 Reference integration folders
 -----------------------------
 
-- `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams>`_
+- `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams>`_
 - `self_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_
 - `causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing>`_
 - `lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_
@@ -62,11 +62,11 @@ Reference integration folders
 NVIDIA OmniDreams
 -----------------
 
-OmniDreams now ships as a plugin under ``integrations/omnidreams``; it
-registers its runners via the ``flashdreams.runner_configs`` entry-point
-group and is no longer part of the in-tree ``flashdreams.recipes`` API
-surface. See ``integrations/omnidreams/README.md`` for the plugin entry
-point and ``flashdreams-run omnidreams-*`` for the user-facing CLI.
+OmniDreams ships under ``integrations_v2/omnidreams``. Its model code lives
+under ``impl/`` and its application adapter binds the reusable
+``interactive-drive`` package under ``apps/`` through the
+``flashdreams.applications_v2`` entry-point group. See
+``integrations_v2/omnidreams/README.md`` for launch details.
 
 Wan
 ---

@@ -342,7 +342,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 has-children"><a class="reference internal" href="../developer_guides/index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Application slugs and model adapter dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/local_benchmarks.html">Local Demo Benchmarks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/flashdreams_accelerated.html">flashdreams.accelerated</a></li>
@@ -499,18 +499,10 @@ uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class=
 <span class="c1"># MP4 replay</span>
 uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_mp4.yaml
-
-<span class="c1"># Resolve an OmniDreams launch without loading the model</span>
-uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_webrtc.yaml<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--no-instantiate
 </pre></div>
 </div>
-<p>OmniDreams local-window also accepts the existing
-<code class="docutils literal notranslate"><span class="pre">example_world_model*.yaml</span></code> format directly as a compatibility input. New
-automation should use a versioned launch manifest whose
-<code class="docutils literal notranslate"><span class="pre">output.world_model_manifest_path</span></code> references that model-specific file.</p>
+<p>OmniDreams is a v2 application and uses <code class="docutils literal notranslate"><span class="pre">flashdreams-run-v2</span></code> application
+arguments instead of launch manifests. See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>.</p>
 </section>
 </section>
 

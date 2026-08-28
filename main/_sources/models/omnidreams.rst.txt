@@ -33,7 +33,7 @@ NVIDIA OmniDreams
 
       Model page
 
-   .. button-link:: https://github.com/NVIDIA/flashdreams/tree/main/integrations/omnidreams
+   .. button-link:: https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams
       :color: primary
 
       Official code
@@ -67,7 +67,7 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/omnidreams
+   uv sync --project integrations_v2/omnidreams
 
 Generate the default MP4 demo from bundled example data:
 
@@ -86,7 +86,7 @@ example:
 
 .. code-block:: bash
 
-   uv run --project integrations/omnidreams \
+   uv run --project integrations_v2/omnidreams \
        flashdreams-run \
        omnidreams \
        --example-data True \
@@ -113,7 +113,7 @@ For multi-GPU inference, use:
 
 .. code-block:: bash
 
-   uv run --project integrations/omnidreams \
+   uv run --project integrations_v2/omnidreams \
        torchrun --nproc_per_node=4 --no-python flashdreams-run \
        omnidreams \
        --example-data True \
@@ -124,7 +124,7 @@ To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/omnidreams \
+   uv run --project integrations_v2/omnidreams \
        flashdreams-run \
        omnidreams \
        --help
@@ -190,26 +190,12 @@ Run the WebRTC demo:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams --mode webrtc \
+       --host 0.0.0.0 --port 8089
 
 Then open ``http://<server-ip>:8089/request_session`` in any browser on the
 same network.
-
-Collision physics, the vehicle speed limit, and the collision visual effect are
-disabled by default. Add ``--game-mode`` to enable the speed limit and
-collisions with scene actors and static map geometry, along with the collision
-visual flare:
-
-.. code-block:: bash
-
-   uv run --package flashdreams-omnidreams interactive-drive \
-       --stream-mjpeg :8080 \
-       --game-mode
-
-Combine ``--game-mode`` with ``--disable-visual-flare`` to retain collision
-physics without the full-screen collision effect.
 
 .. note::
 
@@ -219,36 +205,15 @@ physics without the full-screen collision effect.
    before the view becomes interactive. The on-screen indicator shows
    ``Loading world model...`` during warmup and then ``Optimizing world
    model...`` while the first generated chunk is autotuned; this phase is
-   longest on the perf manifest. Subsequent launches are much faster because
+   longest on the perf configuration. Subsequent launches are much faster because
    the compiled kernels and CUDA graphs are cached and reused.
-
-.. note::
-
-   For local-window, set ``output.offload_text_encoder: true`` in a copy of
-   ``configs/launch_manifest/omnidreams_local_window.yaml`` to reduce peak VRAM
-   usage by ~15 GB, then launch it with the central command:
-
-   .. code-block:: bash
-
-      uv run --package flashdreams-omnidreams flashdreams-run \
-          omnidreams-perf local-window \
-          --manifest path/to/local-window.yaml
-
-   The text and first-frame encoders are run once per scene and freed before the
-   diffusion pipeline is built, and the resulting embeddings are cached and
-   reused across world-model resets.
-
-   Trade-off: the world model is rebuilt on each scene load instead of staying
-   resident, so the first load and scene/variant switches are slower. Prefer it
-   when VRAM-constrained; otherwise leave it off for faster switching.
 
 On a GPU with a graphics stack, launch the Vulkan window:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-perf local-window \
-       --manifest configs/launch_manifest/omnidreams_local_window.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams-perf --mode native-window
 
 The local window's HUD adds a weather-variant selector (clear, rain, snow)
 next to the scene picker, so the same scene can be switched between
@@ -311,35 +276,34 @@ write access to ``/dev/input/*`` (add your user to the ``input`` group):
        <https://github.com/berarma/new-lg4ff>`__ (G29, G27, G923 PS); the G920
        and Xbox/PC G923 use the HID++ driver (kernel 6.3+).
 
-Native acceleration (perf manifest)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Native acceleration (perf configuration)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The bundled ``example_world_model_perf.yaml`` manifest runs the DiT and
+The registered ``interactive-drive-omnidreams-perf`` configuration runs the DiT and
 LightVAE through the OmniDreams single-view CUDA extension
 (``native_dit_acceleration: required``), which is faster than the default
 PyTorch path. The extension builds against pinned checkouts of CUTLASS,
 SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
 repo. ``omnidreams-prepare --perf`` clones them at their pinned commits into
-``integrations/omnidreams/omnidreams_singleview/3rdparty/``:
+``integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/``:
 
 .. code-block:: bash
 
    uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 
 This step only syncs sources; the extension itself compiles on the first
-launch that uses the manifest (one-time, a few minutes). It requires a
+launch that uses the perf configuration (one-time, a few minutes). It requires a
 Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
 ``omnidreams_singleview`` sources ship only in the git tree, not the wheel),
 ``git``, and a CUDA toolchain (``nvcc``) matching your PyTorch build. Then
-point the demo at the perf manifest:
+launch the perf application:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams-perf local-window \
-       --manifest configs/launch_manifest/omnidreams_local_window.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams-perf --mode native-window
 
-``native_dit_acceleration: required`` makes the manifest fail loudly if the
+``native_dit_acceleration="required"`` makes the perf config fail loudly if the
 extension can't build or load, rather than silently falling back to PyTorch.
 
 WebRTC server
@@ -353,15 +317,15 @@ on top of the same OmniDreams pipeline.
 .. code-block:: bash
 
    # from the repo root
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams --mode webrtc \
+       --host 0.0.0.0 --port 8089
 
 Sample scene UUIDs for the interactive server are available in the
 `nvidia/omni-dreams-scenes Hugging Face dataset <https://huggingface.co/datasets/nvidia/omni-dreams-scenes/tree/main/scenes>`_.
-Each scene ships clear, rain, and snow weather variants as sibling
-archives; set ``scenario.scene_variant`` to ``rain`` or ``snow`` in the launch
-manifest to serve a specific one (the default is clear weather).
+Each scene ships clear, rain, and snow weather variants as sibling archives.
+Pass ``-- --variant rain`` or ``-- --variant snow`` to select one (the default
+is clear weather).
 
 The server may take a few minutes to warm up. Once ready, it prints
 ``Connect via http://<server-ip>:8089/request_session``.

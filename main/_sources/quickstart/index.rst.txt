@@ -58,28 +58,24 @@ and streams the generated camera view to a browser over WebRTC:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams --mode webrtc \
+       --host 0.0.0.0 --port 8089
 
 Then open ``http://<server-ip>:8089/request_session`` in a browser on the same network
 (use ``localhost`` on the same machine). The first launch spends several
 minutes loading checkpoints and compiling kernels; later launches reuse
 the cached assets.
 
-Inspect the complete resolved runner, launch mode, scenario, and output without
-loading checkpoints:
+Inspect the application arguments without loading checkpoints:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml \
-       --no-instantiate
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams -- --help
 
 See :doc:`/models/omnidreams` for scripted generation, scene variants,
-local-window serving, and multi-GPU options. See
-:doc:`/api/launch_manifests` for the shared manifest schema.
+native-window serving, and multi-GPU options.
 
 Where to next
 -------------

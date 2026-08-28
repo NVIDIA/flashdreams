@@ -342,7 +342,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 has-children"><a class="reference internal" href="../developer_guides/index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Application slugs and model adapter dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/local_benchmarks.html">Local Demo Benchmarks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/flashdreams_accelerated.html">flashdreams.accelerated</a></li>
@@ -445,7 +445,8 @@ prompt/scene semantics, and chunk generation.</p></li>
 <ul class="simple">
 <li><p>shared transport code under <code class="docutils literal notranslate"><span class="pre">flashdreams/flashdreams/serving/webrtc/</span></code>,</p></li>
 <li><p>LingBot runner and runtime wiring under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/</span></code>,</p></li>
-<li><p>OmniDreams WebRTC runtime wiring under <code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/omnidreams/webrtc/</span></code>.</p></li>
+<li><p>OmniDreams model wiring under <code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/</span></code> and serving
+under <code class="docutils literal notranslate"><span class="pre">apps/interactive_drive/</span></code>.</p></li>
 </ul>
 </section>
 <section id="launch-patterns">

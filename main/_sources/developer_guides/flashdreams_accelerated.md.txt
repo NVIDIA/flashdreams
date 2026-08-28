@@ -830,7 +830,7 @@ newer, and a power-of-two head dimension from 16 through 256.
 > change across hardware platforms.
 >
 > The benchmark-selected policies in
-> `integrations/omnidreams/benchmarks/cases.py` make these differences concrete:
+> `integrations_v2/omnidreams/benchmarks/cases.py` make these differences concrete:
 >
 > | Platform | Component | Implementation | Fusion | SDPA | TMA | Projection | FP8 SDPA |
 > | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -881,7 +881,7 @@ cross-attention variant that has a different contract. The adapter must:
    installs the hook that refreshes them after checkpoint loading.
 
 For example, the OmniDreams self-attention adapter in
-`integrations/omnidreams/omnidreams/transformer/impl/modules.py` follows this
+`integrations_v2/omnidreams/impl/transformer/modules.py` follows this
 shape:
 
 ```python
@@ -1100,8 +1100,8 @@ Validate the OmniDreams adapter/config plumbing and benchmark plotting helpers
 on CPU with:
 
 ```bash
-uv run --project integrations/omnidreams --group test pytest \
-    integrations/omnidreams/tests/test_transformer_attention_backend.py \
+uv run --project integrations_v2/omnidreams --group test pytest \
+    integrations_v2/omnidreams/tests/test_transformer_attention_backend.py \
     -m ci_cpu
 
 uv run --project flashdreams --group test pytest \
@@ -1124,10 +1124,10 @@ the required third-party source and then run:
 
 ```bash
 uv run --package flashdreams-omnidreams python \
-    integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py sync
+    integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync
 
-uv run --project integrations/omnidreams --group test pytest \
-    integrations/omnidreams/benchmarks \
+uv run --project integrations_v2/omnidreams --group test pytest \
+    integrations_v2/omnidreams/benchmarks \
     -p no:manual_marker -m manual --benchmark-only -v
 ```
 

@@ -627,7 +627,8 @@ short ping comment.</p>
 locally is the easiest way to avoid surprises.</p></li>
 <li><p>Prefer small, well-named functions over long functions with comments
 explaining each block. Comments should explain <em>why</em>, not <em>what</em>.</p></li>
-<li><p>Tests live in <code class="docutils literal notranslate"><span class="pre">flashdreams/tests/</span></code> and <code class="docutils literal notranslate"><span class="pre">integrations/*/tests/</span></code>. Use
+<li><p>Tests live in <code class="docutils literal notranslate"><span class="pre">flashdreams/tests/</span></code>, <code class="docutils literal notranslate"><span class="pre">integrations/*/tests/</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">integrations_v2/*/tests/</span></code>. Use
 <code class="docutils literal notranslate"><span class="pre">pytest</span></code> and prefer existing fixtures over hand-rolled setup. See
 <a class="reference internal" href="#testing">Testing</a> for marker requirements.</p></li>
 <li><p>Every source file added by a contribution must include the SPDX
@@ -734,7 +735,7 @@ package name with <code class="docutils literal notranslate"><span class="pre">-
 uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>dev
 
 <span class="c1"># Run a script/test from that integration only</span>
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>pytest<span class="w"> </span>integrations/omnidreams/tests/<span class="w"> </span>-m<span class="w"> </span>ci_gpu
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>pytest<span class="w"> </span>integrations_v2/omnidreams/tests/<span class="w"> </span>-m<span class="w"> </span>ci_gpu
 </pre></div>
 </div>
 <p>This avoids pulling in (and compiling) dependencies that other
@@ -765,7 +766,7 @@ integrations require but yours does not, further reducing setup time.</p>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/lingbot</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-lingbot</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/omnidreams</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-omnidreams</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations/self_forcing</span></code></p></td>
@@ -780,7 +781,7 @@ integrations require but yours does not, further reducing setup time.</p>
 </tbody>
 </table>
 </div>
-<p>The nested <code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/ludus-renderer</span></code> workspace package is
+<p>The nested <code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/impl/ludus-renderer</span></code> workspace package is
 named <code class="docutils literal notranslate"><span class="pre">ludus-renderer</span></code> and is installed as part of Omnidreams workflows
 that need it.</p>
 </section>

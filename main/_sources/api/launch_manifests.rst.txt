@@ -94,13 +94,5 @@ Examples
    uv run flashdreams-run lingbot-world-fast mp4 \
        --manifest configs/launch_manifest/lingbot_mp4.yaml
 
-   # Resolve an OmniDreams launch without loading the model
-   uv run flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml \
-       --no-instantiate
-
-OmniDreams local-window also accepts the existing
-``example_world_model*.yaml`` format directly as a compatibility input. New
-automation should use a versioned launch manifest whose
-``output.world_model_manifest_path`` references that model-specific file.
+OmniDreams is a v2 application and uses ``flashdreams-run-v2`` application
+arguments instead of launch manifests. See :doc:`/models/omnidreams`.

@@ -81,6 +81,20 @@ Video Super Resolution. Install the optional dependency with
 ``uv pip install 'flashdreams[rtx-postprocess]'`` and run on a supported RTX GPU
 before selecting this preset.
 
+Native v2 applications receive their own arguments after ``--``. Interactive
+Drive exposes the equivalent setting with the hyphenated
+``--postprocess-preset`` option:
+
+.. code-block:: bash
+
+   uv run flashdreams-run-v2 interactive-drive --mode webrtc -- \
+       --postprocess-preset rtx-super-resolution
+
+The preset starts enabled and can be toggled between generated chunks with the
+Post-processing checkbox in the Interactive Drive HUD. Use
+``flashdreams-run-v2 interactive-drive -- --help`` to list the presets
+registered in the current environment.
+
 See also
 --------
 

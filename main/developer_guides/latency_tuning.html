@@ -438,25 +438,24 @@ in the viewer.</p>
 <p>Use the OmniDreams world-model backend for latency work. The raster backend is
 useful for scene, control, and presenter debugging, but it does not exercise the
 model path and should not be used as a model-latency reference.</p>
-<p>The packaged interactive-drive manifests are the supported starting points:</p>
+<p>The registered Interactive Drive application configs are the supported starting points:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">example_world_model.yaml</span></code> is the default single-view configuration at
+<li><p><code class="docutils literal notranslate"><span class="pre">interactive-drive-omnidreams</span></code> is the default single-view configuration at
 <code class="docutils literal notranslate"><span class="pre">1280</span> <span class="pre">x</span> <span class="pre">704</span></code> (width x height), 30 FPS, 8 generated frames per steady-state
 block, LightVAE enabled, and native DiT acceleration disabled.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">example_world_model_perf.yaml</span></code> is the perf-tuned manifest. It lowers the
+<li><p><code class="docutils literal notranslate"><span class="pre">interactive-drive-omnidreams-perf</span></code> is the perf-tuned configuration. It lowers the
 default resolution to <code class="docutils literal notranslate"><span class="pre">1168</span> <span class="pre">x</span> <span class="pre">640</span></code>, keeps 30 FPS and 8-frame steady-state
 blocks, enables the performance recipe, and requires the native DiT path.</p></li>
 </ul>
-<p>Run the perf manifest only on hosts that can build and load the native extension:</p>
+<p>Run the perf application only on hosts that can build and load the native extension:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>omnidreams-perf<span class="w"> </span>local-window<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/omnidreams_local_window.yaml
+uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>interactive-drive-omnidreams-perf<span class="w"> </span>--mode<span class="w"> </span>native-window
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code> is intentional. If the native extension is
-not available, startup fails instead of silently falling back to the slower
-PyTorch path.</p>
+<p>The perf config’s <code class="docutils literal notranslate"><span class="pre">native_dit_acceleration=&quot;required&quot;</span></code> is intentional. If the
+native extension is not available, startup fails instead of silently falling
+back to the slower PyTorch path.</p>
 </section>
 <section id="resolution">
 <h2>Resolution<a class="headerlink" href="#resolution" title="Link to this heading">#</a></h2>
@@ -466,7 +465,7 @@ amount of HDMap, DiT, and VAE work per chunk. Set it in the world-model manifest
 </pre></div>
 </div>
 <p>Both values are <code class="docutils literal notranslate"><span class="pre">[width,</span> <span class="pre">height]</span></code> and must be positive multiples of 16. The
-bundled manifests list tested aspect-compatible examples:</p>
+application configs support these tested aspect-compatible examples:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">[1280,</span> <span class="pre">704]</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">[1168,</span> <span class="pre">640]</span></code></p></li>
@@ -484,7 +483,7 @@ the manifest resolution for the world-model backend.</p>
 adapter validates the FlashDreams pipeline at startup:</p>
 <ul class="simple">
 <li><p>The initial conditioning chunk is fixed at 5 frames.</p></li>
-<li><p>The public LightVAE single-view recipe used by the bundled manifests supports
+<li><p>The public LightVAE single-view recipe used by the application configs supports
 8-frame steady-state chunks.</p></li>
 <li><p>Full-VAE single-view recipes support 8- or 12-frame chunks only when the
 matching checkpoint is available.</p></li>
@@ -496,7 +495,7 @@ Reducing video-transport latency cannot remove this model-side chunk granularity
 </section>
 <section id="fp8-and-native-acceleration">
 <h2>FP8 and native acceleration<a class="headerlink" href="#fp8-and-native-acceleration" title="Link to this heading">#</a></h2>
-<p>The perf manifest uses the OmniDreams single-view native CUDA extension for the
+<p>The perf application config uses the OmniDreams single-view native CUDA extension for the
 DiT path:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">native_dit_acceleration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">required</span>
 <span class="nt">native_dit_backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fp8_kvcache_cudnn</span>
@@ -506,7 +505,7 @@ DiT path:</p>
 <p>Supported manifest values are <code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">disabled</span> <span class="pre">|</span> <span class="pre">auto</span> <span class="pre">|</span>
 <span class="pre">required</span></code> and <code class="docutils literal notranslate"><span class="pre">native_dit_backend:</span> <span class="pre">fp8_kvcache_cudnn</span> <span class="pre">|</span> <span class="pre">bf16</span></code>. The attention
 backend accepts <code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>, <code class="docutils literal notranslate"><span class="pre">sparge</span></code>, <code class="docutils literal notranslate"><span class="pre">sage3</span></code>, and <code class="docutils literal notranslate"><span class="pre">sage3_fp8</span></code>;
-the bundled perf manifest pins <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>.</p>
+the perf application config pins <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>.</p>
 <p>The native extension requires a source checkout, <code class="docutils literal notranslate"><span class="pre">git</span></code>, a CUDA toolchain
 (<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching the PyTorch build, synced third-party sources from
 <code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span> <span class="pre">--perf</span></code>, and a Blackwell-class GPU (SM 12.0) or newer.
@@ -516,11 +515,11 @@ GB300 systems.</p>
 disabled unless you are deliberately maintaining a compatible native build. That
 path is supported, but it is not the same perf path as the published GB300
 numbers.</p>
-<p>The manifest also exposes an optional native LightVAE FP8 encoder:</p>
+<p>Custom manifests also expose an optional native LightVAE FP8 encoder:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">native_vae_encoder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fp8</span>
 </pre></div>
 </div>
-<p>It is disabled in the bundled perf manifest. Enabling it requires
+<p>It is disabled in the perf application config. Enabling it requires
 <code class="docutils literal notranslate"><span class="pre">OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH</span></code> or <code class="docutils literal notranslate"><span class="pre">native_vae_fp8_state_path</span></code> pointing
 to a calibrated LightVAE FP8 state.</p>
 </section>
@@ -539,7 +538,7 @@ video-delivery latency and streaming gRPC service support. Prefer this for
 product-style remote viewing or multi-client integration.</p></li>
 </ul>
 <p>MJPEG and WebRTC affect video delivery after a frame exists. If the model is
-still spending most of the time inside each chunk, use the perf manifest,
+still spending most of the time inside each chunk, use the perf application,
 resolution, and native-acceleration knobs first.</p>
 </section>
 <section id="profiling-and-validated-reference">

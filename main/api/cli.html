@@ -342,7 +342,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 has-children"><a class="reference internal" href="../developer_guides/index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/config_system.html">Config system</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../developer_guides/runner_slugs.html">Application slugs and model adapter dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/new_integration.html">Add a new method</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/local_benchmarks.html">Local Demo Benchmarks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../developer_guides/flashdreams_accelerated.html">flashdreams.accelerated</a></li>
@@ -472,6 +472,17 @@ one with <code class="docutils literal notranslate"><span class="pre">--postproc
 Video Super Resolution. Install the optional dependency with
 <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">'flashdreams[rtx-postprocess]'</span></code> and run on a supported RTX GPU
 before selecting this preset.</p>
+<p>Native v2 applications receive their own arguments after <code class="docutils literal notranslate"><span class="pre">--</span></code>. Interactive
+Drive exposes the equivalent setting with the hyphenated
+<code class="docutils literal notranslate"><span class="pre">--postprocess-preset</span></code> option:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--postprocess-preset<span class="w"> </span>rtx-super-resolution
+</pre></div>
+</div>
+<p>The preset starts enabled and can be toggled between generated chunks with the
+Post-processing checkbox in the Interactive Drive HUD. Use
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run-v2</span> <span class="pre">interactive-drive</span> <span class="pre">--</span> <span class="pre">--help</span></code> to list the presets
+registered in the current environment.</p>
 </section>
 <section id="see-also">
 <h2>See also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
@@ -479,7 +490,7 @@ before selecting this preset.</p>
 <li><p><a class="reference internal" href="../quickstart/index.html"><span class="doc">Get Started</span></a></p></li>
 <li><p><a class="reference internal" href="launch_manifests.html"><span class="doc">Launch manifests</span></a></p></li>
 <li><p><a class="reference internal" href="../developer_guides/config_system.html"><span class="doc">Config system</span></a></p></li>
-<li><p><a class="reference internal" href="../developer_guides/runner_slugs.html"><span class="doc">Runner slugs and demo launch dispatch</span></a></p></li>
+<li><p><a class="reference internal" href="../developer_guides/runner_slugs.html"><span class="doc">Application slugs and model adapter dispatch</span></a></p></li>
 <li><p><a class="reference internal" href="infra.html"><span class="doc">Infra</span></a></p></li>
 </ul>
 </section>

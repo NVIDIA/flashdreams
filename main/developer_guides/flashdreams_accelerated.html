@@ -344,7 +344,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
-<li class="toctree-l2"><a class="reference internal" href="runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runner_slugs.html">Application slugs and model adapter dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 <li class="toctree-l2"><a class="reference internal" href="local_benchmarks.html">Local Demo Benchmarks</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">flashdreams.accelerated</a></li>
@@ -1196,7 +1196,7 @@ different projection, sequence-length, and cache-reuse behavior and can prefer
 very different schedules. The best schedule for the same MHA variant can also
 change across hardware platforms.</p>
 <p>The benchmark-selected policies in
-<code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/benchmarks/cases.py</span></code> make these differences concrete:</p>
+<code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/benchmarks/cases.py</span></code> make these differences concrete:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Platform</p></th>
@@ -1292,7 +1292,7 @@ exist. This builds nonpersistent fused or quantized execution weights and
 installs the hook that refreshes them after checkpoint loading.</p></li>
 </ol>
 <p>For example, the OmniDreams self-attention adapter in
-<code class="docutils literal notranslate"><span class="pre">integrations/omnidreams/omnidreams/transformer/impl/modules.py</span></code> follows this
+<code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/impl/transformer/modules.py</span></code> follows this
 shape:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 
@@ -1511,8 +1511,8 @@ kernel tests with:</p>
 </div>
 <p>Validate the OmniDreams adapter/config plumbing and benchmark plotting helpers
 on CPU with:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>integrations/omnidreams/tests/test_transformer_attention_backend.py<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>integrations_v2/omnidreams/tests/test_transformer_attention_backend.py<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-m<span class="w"> </span>ci_cpu
 
 uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>flashdreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
@@ -1532,10 +1532,10 @@ benchmark directly with:</p>
 <p>For the OmniDreams module, network, and pipeline benchmarks, first synchronize
 the required third-party source and then run:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>python<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>integrations/omnidreams/omnidreams_singleview/tools/sync_thirdparty.py<span class="w"> </span>sync
+<span class="w">    </span>integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py<span class="w"> </span>sync
 
-uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>integrations/omnidreams/benchmarks<span class="w"> </span><span class="se">\</span>
+uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>integrations_v2/omnidreams/benchmarks<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-p<span class="w"> </span>no:manual_marker<span class="w"> </span>-m<span class="w"> </span>manual<span class="w"> </span>--benchmark-only<span class="w"> </span>-v
 </pre></div>
 </div>

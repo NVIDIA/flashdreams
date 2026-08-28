@@ -342,7 +342,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Developer Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="inference_pipeline_overview.html">Inference pipeline overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config_system.html">Config system</a></li>
-<li class="toctree-l2"><a class="reference internal" href="runner_slugs.html">Runner slugs and demo launch dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runner_slugs.html">Application slugs and model adapter dispatch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="new_integration.html">Add a new method</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Local Demo Benchmarks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="flashdreams_accelerated.html">flashdreams.accelerated</a></li>
@@ -524,24 +524,6 @@ one minute of MP4 output. Those runners stop early if the selected conditioned
 input stream is shorter than the requested duration. <code class="docutils literal notranslate"><span class="pre">interactive-drive</span></code> is
 left out of this shipped MP4 suite for now because its public CLI is a live
 presenter rather than a file-writing runner.</p>
-</section>
-<section id="omnidreams-shared-demo-comparison">
-<h2>Omnidreams Shared Demo Comparison<a class="headerlink" href="#omnidreams-shared-demo-comparison" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">configs/omnidreams_demo_replay_benchmarks.json</span></code> contains a one-minute manual
-comparison between the legacy Omnidreams single-view runner and the experimental
-shared demo replay path:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--scenario-file<span class="w"> </span>configs/omnidreams_demo_replay_benchmarks.json<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-runner-baseline<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--scenario<span class="w"> </span>omnidreams-sv-demo-replay<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/omnidreams-demo-replay-compare
-</pre></div>
-</div>
-<p>Use the generated report’s MP4 links for side-by-side manual review. The legacy
-runner writes the stacked HDMap/RGB canvas while the shared demo writes generated
-RGB output, so this comparison intentionally disables automatic baseline quality
-scoring until those output layouts are aligned. Both scenarios use <code class="docutils literal notranslate"><span class="pre">226</span></code>
-blocks, matching the shipped Omnidreams one-minute baseline.</p>
 </section>
 <section id="quality-hooks">
 <h2>Quality Hooks<a class="headerlink" href="#quality-hooks" title="Link to this heading">#</a></h2>
@@ -913,7 +895,6 @@ GitLab-only cosmos-interactive MP4 renderer after this work is cherry-picked.</p
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifacts">Artifacts</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-scenarios">Custom Scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-minute-demo-suite">One-Minute Demo Suite</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#omnidreams-shared-demo-comparison">Omnidreams Shared Demo Comparison</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quality-hooks">Quality Hooks</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#standard-baseline-and-candidate">Standard Baseline And Candidate</a></li>
 </ul>
