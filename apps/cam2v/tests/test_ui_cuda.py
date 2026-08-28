@@ -71,23 +71,19 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
     with torch.cuda.stream(producer_stream):
         torch.cuda._sleep(2_000_000)
         source.fill_(0.25)
-        source_ready = torch.cuda.Event()
-        source_ready.record(producer_stream)
+        source_result = StepResult(
+            step_index=0,
+            output=source,
+            frame_count=1,
+            output_layout=VideoTensorLayout.tchw,
+        )
     manager = PresentationManager(device=device)
     presentation_stream = manager._presentation_stream
     assert presentation_stream is not None
     assert presentation_stream.priority < torch.cuda.default_stream(device).priority
     manager.publish(
         0,
-        [
-            StepResult(
-                step_index=0,
-                output=source,
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-                output_ready_event=source_ready,
-            )
-        ],
+        [source_result],
     )
     assert manager.advance(0)[0]
     renderer = _CudaOverlayRenderer(device=device, width=96, height=64)

@@ -86,13 +86,6 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
             back_buffer = self.step_ui(ui, index, current_events)
 
         overlay = self.renderer.render(step_index, events, draw)
-        if (
-            back_buffer is not None
-            and back_buffer.is_floating_point()
-            and overlay.is_floating_point()
-            and overlay.dtype != back_buffer.dtype
-        ):
-            overlay = overlay.to(dtype=back_buffer.dtype)
         frame = self._presentation_manager.composite(back_buffer, overlay)
         return StepResult(
             step_index=step_index,

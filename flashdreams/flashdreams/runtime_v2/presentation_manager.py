@@ -286,37 +286,48 @@ class PresentationManager:
             bottom: ``[C, H, W]`` frame to draw onto, or ``None`` to start from
                 black.
             top: ``[C, H, W]`` frame to draw. Four channels is RGBA and blends;
-                anything else replaces.
+                anything else replaces. Floating-point input is converted to
+                ``bottom.dtype`` when needed.
 
         Returns:
             An RGB ``[3, H, W]`` frame.
 
         Raises:
-            ValueError: The frames disagree about size, device or dtype, do not
-                use the presentation-stream device, or are not presentable.
+            ValueError: The frames disagree about size or device, use
+                incompatible dtypes, do not use the presentation-stream device,
+                or are not presentable.
         """
         stream = self._presentation_stream
-        if stream is None:
-            return _composite_frame(bottom, top)
+        caller_stream: torch.cuda.Stream | None = None
+        if stream is not None:
+            device = resolve_cuda_device(stream.device)
+            frames = (top,) if bottom is None else (bottom, top)
+            if any(
+                not frame.is_cuda or resolve_cuda_device(frame.device) != device
+                for frame in frames
+            ):
+                raise ValueError(
+                    "Composited frames must use the presentation-stream device."
+                )
 
-        device = resolve_cuda_device(stream.device)
-        frames = (top,) if bottom is None else (bottom, top)
-        if any(
-            not frame.is_cuda or resolve_cuda_device(frame.device) != device
-            for frame in frames
-        ):
-            raise ValueError(
-                "Composited frames must use the presentation-stream device."
-            )
+            caller_stream = torch.cuda.current_stream(device)
+            if caller_stream != stream:
+                stream.wait_stream(caller_stream)
+                for frame in frames:
+                    frame.record_stream(stream)
 
-        caller_stream = torch.cuda.current_stream(device)
-        if caller_stream != stream:
-            stream.wait_stream(caller_stream)
-            for frame in frames:
-                frame.record_stream(stream)
         with self.presentation_context():
+            if (
+                bottom is not None
+                and bottom.is_floating_point()
+                and top.is_floating_point()
+                and top.dtype != bottom.dtype
+            ):
+                top = top.to(dtype=bottom.dtype)
             output = _composite_frame(bottom, top)
-        if caller_stream != stream:
+
+        if stream is not None and caller_stream != stream:
+            assert caller_stream is not None
             caller_stream.wait_stream(stream)
             output.record_stream(caller_stream)
         return output

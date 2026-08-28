@@ -14,20 +14,6 @@ pytestmark = pytest.mark.ci_gpu
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
-def test_step_result_rejects_an_unrecorded_output_event() -> None:
-    device = torch.device("cuda", torch.cuda.current_device())
-
-    with pytest.raises(ValueError, match="must already be recorded"):
-        StepResult(
-            step_index=0,
-            output=torch.zeros((1, 3, 8, 8), device=device),
-            frame_count=1,
-            output_layout=VideoTensorLayout.tchw,
-            output_ready_event=torch.cuda.Event(),
-        )
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 def test_presentation_manager_joins_producer_to_its_presentation_stream() -> None:
     device = torch.device("cuda", torch.cuda.current_device())
     producer = torch.cuda.Stream(device=device)

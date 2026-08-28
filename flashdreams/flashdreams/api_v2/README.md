@@ -122,12 +122,9 @@ other range converts before returning.
 
 CUDA results may cross from a producer stream to a dedicated presentation or
 transfer stream. Constructing a `StepResult` for CUDA output automatically
-records readiness on the current stream. Construct the result while the actual
-producer stream is current, or pass a recorded `output_ready_event` when the
-output came from another stream. Omitting the event or passing `None` selects
-automatic recording. UI loops pass their consumer stream to
-`presented_model_frame` or `presented_model_frames`; runtime sinks call
-`StepResult.wait_for_output` on their consumer stream before reading it.
+records readiness on the current stream, so construct the result while the
+actual producer stream is current. The presentation manager and runtime sinks
+call `StepResult.wait_for_output` on their consumer stream before reading it.
 
 ## A minimal application
 

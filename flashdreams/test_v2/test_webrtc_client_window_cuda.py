@@ -71,16 +71,14 @@ def test_write_materializes_owned_cuda_frames_and_reuses_pinned_buffer() -> None
             with torch.cuda.stream(producer):
                 torch.cuda._sleep(2_000_000)
                 source.fill_(value)
-                source_ready = torch.cuda.Event()
-                source_ready.record(producer)
-
-            result = StepResult(
-                step_index=step_index,
-                output=source,
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-                output_ready_event=source_ready,
-            )
+                result = StepResult(
+                    step_index=step_index,
+                    output=source,
+                    frame_count=1,
+                    output_layout=VideoTensorLayout.tchw,
+                )
+            source_ready = result._output_ready_event
+            assert source_ready is not None
             server.write(result)
 
             # The write call owns a complete VideoFrame before handing control
