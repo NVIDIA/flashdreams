@@ -23,10 +23,6 @@ rules:
   dropoff_time_bonus_s: 30.0
   ground_snap_max_absolute_rotation_deg: 10.0
   ground_snap_settle_fraction: 0.25
-input:
-  steering_scale: 1.0
-  steering_rate_per_s: 3.5
-  steering_return_rate_per_s: 5.0
 vehicle:
   wheel_base_m: 2.8
   max_steer_rad: 0.69

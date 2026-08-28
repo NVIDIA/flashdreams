@@ -102,12 +102,3 @@ class VehicleConfig:
     aabb_length_m: float = 4.8
     aabb_width_m: float = 2.0
     aabb_height_m: float = 1.6
-
-
-@dataclass(frozen=True, slots=True)
-class DriverInputConfig:
-    """Deterministic keyboard-to-command tuning."""
-
-    steering_scale: float = 0.75
-    steering_rate_per_s: float = 0.6
-    steering_return_rate_per_s: float = 1.4

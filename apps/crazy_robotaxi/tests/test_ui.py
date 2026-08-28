@@ -35,6 +35,7 @@ from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -289,13 +290,13 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
         transition_timestamps_us=(100, 200),
         input_transition_count=4,
         input_ignored_event_count=2,
-        input_dropped_transition_count=1,
+        input_coalesced_transition_count=1,
     )
 
     assert [frame.transition_timestamp_us for frame in frames] == [100, 200]
     assert frames[0].input_transition_count == 4
     assert frames[0].input_ignored_event_count == 2
-    assert frames[0].input_dropped_transition_count == 1
+    assert frames[0].input_coalesced_transition_count == 1
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
@@ -818,7 +819,7 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
             transition_timestamps_us=(100,),
             input_transition_count=1,
             input_ignored_event_count=2,
-            input_dropped_transition_count=0,
+            input_coalesced_transition_count=0,
         )
     )
 
@@ -836,6 +837,40 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
     state.reset()
     assert not state._profile_pressed
     assert state._latest_input_latency_ms is None
+
+
+def test_input_latency_profile_correlates_gamepad_state() -> None:
+    video = torch.zeros(1, 3, 96, 160)
+    state = TaxiHudState(
+        160,
+        96,
+        _calibration(),
+        profile_input_latency=True,
+    )
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(200),
+                    action="state",
+                    axes=(0.25,),
+                )
+            ]
+        )
+    )
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            transition_timestamps_us=(200,),
+            input_transition_count=1,
+        )
+    )
+
+    state.select_presented_frame(video[0])
+
+    assert state._latest_input_latency_ms is not None
 
 
 def test_input_latency_window_is_absent_by_default() -> None:

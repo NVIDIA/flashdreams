@@ -45,15 +45,19 @@ discovers bundled maps and `.robotaxi.yaml` maps beside that configured file.
 Map compilation and scene loading begin only after the menu choice.
 
 Use `flashdreams-run-v2 crazy-robotaxi -- --help` for the complete application
-options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. Press R
-to restart without closing the window. Restart rebuilds simulation, game rules,
-traffic, conditioning, and the autoregressive cache together while retaining
-the loaded model. Press Escape to return from the game to map selection, from
-map selection to mode selection, and from mode selection to exit. The HUD keeps
-an always-visible bearing arrow and overlays visible targets or an off-map
-direction arrow on the BEV. Leaderboard name entry is owned by the Dear ImGui
-UI and submitted to the model loop through V2's asynchronous loop-message
-contract.
+options. Drive with W/A/S/D or the arrow keys; Space stops the vehicle. A
+standard gamepad uses the left stick for steering and the right/left triggers
+for throttle/brake. V2 game-wheel events use their normalized steering,
+throttle, and brake values directly. A connected controller takes precedence
+over keyboard state, and disconnecting it falls back to any keys still held.
+Press R to restart without closing the window. Restart rebuilds simulation,
+game rules, traffic, conditioning, and the autoregressive cache together while
+retaining the loaded model. Press Escape to return from the game to map
+selection, from map selection to mode selection, and from mode selection to
+exit. The HUD keeps an always-visible bearing arrow and overlays visible
+targets or an off-map direction arrow on the BEV. Leaderboard name entry is
+owned by the Dear ImGui UI and submitted to the model loop through V2's
+asynchronous loop-message contract.
 
 ## Layered configuration
 
@@ -61,8 +65,8 @@ Crazy Robotaxi accepts strict, partial `schema_version: 1` configuration files:
 
 - `--engine-config` covers the map request, model preset, renderer, and V2
   runtime diagnostics.
-- `--game-config` covers taxi/race mode, rules, input reduction, vehicle
-  physics, persistence, and live-edit abilities.
+- `--game-config` covers taxi/race mode, rules, vehicle physics, persistence,
+  and live-edit abilities.
 
 Settings resolve from packaged typed defaults, then YAML, then explicitly
 supplied application flags. Omitted YAML fields retain their lower-precedence
@@ -215,7 +219,7 @@ uv run flashdreams-run-v2 crazy-robotaxi --mode webrtc -- \
 
 This opt-in adds a UI-thread key indicator and logs the time from V2 UI event
 receipt to the first presented model frame carrying that transition. It also
-shows sampled, unsupported, and between-sample transition counts. The normal
+shows applied, ignored, and coalesced transition counts. The normal
 HUD does not construct these widgets when the flag is absent. The indicator's
 physical-key-to-browser delay still includes WebRTC transport latency, while
 the reported `UI TO MODEL FRAME` value isolates the synchronous app/model

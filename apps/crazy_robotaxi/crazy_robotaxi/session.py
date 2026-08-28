@@ -87,8 +87,8 @@ class ModelState:
     input_ignored_event_count: int = 0
     """Cumulative redundant drive events consumed by model steps."""
 
-    input_dropped_transition_count: int = 0
-    """Cumulative transitions displaced by fixed-size model chunks."""
+    input_coalesced_transition_count: int = 0
+    """Cumulative earlier transitions collapsed into the latest input state."""
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
@@ -252,7 +252,7 @@ class ModelState:
         self.last_pose = None
         self.input_transition_count = 0
         self.input_ignored_event_count = 0
-        self.input_dropped_transition_count = 0
+        self.input_coalesced_transition_count = 0
         if self.rollout is not None:
             self.rollout.reset()
 
@@ -302,7 +302,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             )
             state.input_transition_count += input_batch.transition_count
             state.input_ignored_event_count += input_batch.ignored_event_count
-            state.input_dropped_transition_count += input_batch.dropped_transition_count
+            state.input_coalesced_transition_count += (
+                input_batch.coalesced_transition_count
+            )
             generated = rollout.step(
                 autoregressive_index=state.blocks_generated,
                 commands=input_batch.commands,
@@ -330,8 +332,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 {
                     "input_transition_count": input_batch.transition_count,
                     "input_ignored_event_count": input_batch.ignored_event_count,
-                    "input_dropped_transition_count": (
-                        input_batch.dropped_transition_count
+                    "input_coalesced_transition_count": (
+                        input_batch.coalesced_transition_count
                     ),
                 }
             )
@@ -359,7 +361,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             transition_timestamps_us=transition_timestamps_us,
             input_transition_count=state.input_transition_count,
             input_ignored_event_count=state.input_ignored_event_count,
-            input_dropped_transition_count=state.input_dropped_transition_count,
+            input_coalesced_transition_count=(
+                state.input_coalesced_transition_count
+            ),
         )
         invoke_async(
             state.ui_loop,
@@ -504,12 +508,7 @@ class CrazyRobotaxiSession(ISession):
                 scene_factory=self._scene_factory,
                 config=self._config,
                 session_desc=self._session_desc,
-                driver_input=DriverInput(
-                    self._config.driver_input,
-                    samples_per_second=(
-                        self._session_desc.frames_per_second_for_step
-                    ),
-                ),
+                driver_input=DriverInput(),
                 ui_loop=ui_loop,
             ),
         )

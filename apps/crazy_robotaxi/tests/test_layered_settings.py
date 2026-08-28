@@ -26,7 +26,6 @@ def test_shipped_example_configs_load() -> None:
     )
     assert engine.world_model.model_preset == "standard"
     assert game.game.vehicle.max_steer_rad == pytest.approx(0.69)
-    assert game.driver_input.steering_rate_per_s == pytest.approx(3.5)
 
 
 def test_partial_game_config_retains_defaults_and_resolves_paths(

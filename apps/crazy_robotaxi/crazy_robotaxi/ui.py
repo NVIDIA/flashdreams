@@ -55,6 +55,8 @@ from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
+    GamepadUserInputEvent,
+    GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -106,8 +108,8 @@ class TaxiHudFrame:
     input_ignored_event_count: int = 0
     """Cumulative redundant drive events ignored by the model loop."""
 
-    input_dropped_transition_count: int = 0
-    """Cumulative transitions displaced by fixed-size model chunks."""
+    input_coalesced_transition_count: int = 0
+    """Cumulative earlier transitions collapsed into the latest input state."""
 
 @dataclass(slots=True)
 class TaxiHudState:
@@ -280,6 +282,8 @@ class TaxiHudState:
                     self._profile_pressed.add(key)
                 else:
                     self._profile_pressed.discard(key)
+            elif isinstance(event, (GamepadUserInputEvent, GameWheelUserInputEvent)):
+                recognized = True
             if not recognized:
                 continue
             timestamp_us = int(event.get_timestamp())
@@ -301,12 +305,12 @@ class TaxiHudState:
         self._latest_input_latency_ms = (time.perf_counter() - received_at_s) * 1000.0
         _LOGGER.info(
             "[crazy-robotaxi] input-to-model-frame latency: event_us=%d "
-            "ui_to_frame_ms=%.1f transitions=%d ignored=%d dropped=%d",
+            "ui_to_frame_ms=%.1f transitions=%d ignored=%d coalesced=%d",
             timestamp_us,
             self._latest_input_latency_ms,
             selected.input_transition_count,
             selected.input_ignored_event_count,
-            selected.input_dropped_transition_count,
+            selected.input_coalesced_transition_count,
         )
 
     def set_loading_status(self, status: str) -> None:
@@ -1032,12 +1036,12 @@ class TaxiHudState:
         current = self._current
         latency = self._latest_input_latency_ms
         if current is None:
-            counts = "TRANSITIONS  0    IGNORED  0    DROPPED  0"
+            counts = "TRANSITIONS  0    IGNORED  0    COALESCED  0"
         else:
             counts = (
                 f"TRANSITIONS  {current.input_transition_count}    "
                 f"IGNORED  {current.input_ignored_event_count}    "
-                f"DROPPED  {current.input_dropped_transition_count}"
+                f"COALESCED  {current.input_coalesced_transition_count}"
             )
         latency_label = (
             "UI TO MODEL FRAME  --"
@@ -1175,7 +1179,7 @@ def build_hud_frames(
     transition_timestamps_us: Sequence[int | None] | None = None,
     input_transition_count: int = 0,
     input_ignored_event_count: int = 0,
-    input_dropped_transition_count: int = 0,
+    input_coalesced_transition_count: int = 0,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -1202,7 +1206,7 @@ def build_hud_frames(
                 transition_timestamp_us=transition_timestamps_us[index],
                 input_transition_count=input_transition_count,
                 input_ignored_event_count=input_ignored_event_count,
-                input_dropped_transition_count=input_dropped_transition_count,
+                input_coalesced_transition_count=input_coalesced_transition_count,
             )
         )
     return tuple(frames)

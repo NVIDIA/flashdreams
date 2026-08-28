@@ -2,9 +2,11 @@
 
 ## Status
 
-Crazy Robotaxi uses the V2 runtime's shared real-time input timeline and
-keyboard-state track, and offers opt-in UI-to-model-frame diagnostics. The V2
-WebRTC sender is bounded and drops stale unsent frames under congestion. The
+Crazy Robotaxi follows the V2 Interactive Drive demo's latest-state input
+contract and offers opt-in UI-to-model-frame diagnostics. Keyboard, gamepad,
+and wheel events accumulated during an in-flight model step are applied in
+order, but only the resulting current command conditions the next chunk. The
+V2 WebRTC sender is bounded and drops stale unsent frames under congestion. The
 remaining held-input latency is bounded by synchronous autoregressive model
 steps: input cannot change a chunk whose inference is already in flight.
 
@@ -23,8 +25,10 @@ The investigation observed:
 
 - A held steering key took more than 1.5 seconds to affect displayed model
   video across model presets.
-- A 100–200 ms tap was often absent before timestamped transition reduction
-  was added.
+- A superseded timestamped reducer preserved 100–200 ms taps by replaying their
+  historical states into a future model chunk. That made stale input visible
+  after the user had already released or changed it and diverged from the
+  ported Interactive Drive implementation.
 - `--presentation-mode on_demand` did not materially improve the held
   steering delay, so repeated UI frames were not its dominant cause.
 - A supplied synchronized diagnostic run produced eight-frame chunks covering
@@ -33,11 +37,13 @@ The investigation observed:
   stack rather than a universal model benchmark.
 
 V2 reads model events immediately before calling the synchronous model-loop
-`step`. An input arriving during the measured 760 ms step therefore waits for
-that step to finish and for the next conditioned step to finish. This creates
-an application/model response window of roughly 760–1520 ms before final
-WebRTC delivery. Smaller or preemptible model work is required to reduce that
-floor.
+`step`. Crazy Robotaxi applies the unread batch in order, retains the final
+keyboard or controller state, and repeats its resulting command across the
+next model chunk. An input arriving during the measured 760 ms step therefore
+waits for that step to finish and for the next conditioned step to finish. This
+creates an application/model response window of roughly 760–1520 ms before
+final WebRTC delivery. Smaller or preemptible model work is required to reduce
+that floor.
 
 ## V2 transport behavior
 
@@ -64,6 +70,9 @@ in-flight conditioned chunk.
   after a stall.
 - Record browser-key-to-runtime-event and UI-write-to-browser-display latency;
   target p95 transport overhead below 100 ms on a local loopback after warmup.
+- Verify keyboard, standard-gamepad, and game-wheel state all condition the
+  complete next chunk, and controller disconnect falls back to retained
+  keyboard state.
 - Report best, average, p90, and worst latency together with encoder backend,
   resolution, host, GPU, driver, and warmup policy.
 - Verify reset and disconnect discard stale media without replaying frames from

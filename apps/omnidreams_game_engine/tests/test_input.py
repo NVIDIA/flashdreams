@@ -7,12 +7,12 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.input import DriverInput
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEvent,
+    GamepadUserInputEvent,
+    GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -46,14 +46,7 @@ def _key(key: str, state: KeyboardInputState) -> KeyboardUserInputEvent:
 
 
 def test_held_keys_produce_one_command_per_model_frame() -> None:
-    reducer = DriverInput(
-        DriverInputConfig(
-            steering_scale=1.0,
-            steering_rate_per_s=2.0,
-            steering_return_rate_per_s=4.0,
-        ),
-        samples_per_second=10.0,
-    )
+    reducer = DriverInput()
 
     first = reducer.reduce(
         _events(
@@ -67,39 +60,40 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
     )
 
     assert len(first.commands) == 3
-    assert [command.steer for command in first.commands] == pytest.approx(
-        [0.2, 0.4, 0.6]
-    )
+    assert all(command == first.commands[0] for command in first.commands)
+    assert first.commands[0].steer == 1.0
+    assert not first.commands[0].steer_is_direct
+    assert not first.commands[0].manual_control
     assert all(command.throttle == 1.0 for command in first.commands)
-    assert retained.commands[0].steer == pytest.approx(0.8)
-    assert first.transition_timestamps_us == (1, 1, 1)
+    assert retained.commands[0] == first.commands[0]
+    assert first.transition_timestamps_us == (1, None, None)
     assert first.transition_count == 2
-    assert first.dropped_transition_count == 0
+    assert first.coalesced_transition_count == 1
     assert retained.transition_timestamps_us == (None,)
 
 
-def test_focus_loss_releases_drive_state() -> None:
-    reducer = DriverInput(samples_per_second=30.0)
+def test_reverse_key_matches_interactive_drive_command() -> None:
+    reducer = DriverInput()
     reverse = reducer.reduce(
         _events(_key("ArrowDown", KeyboardInputState.PRESSED)),
         frame_count=1,
     )
 
-    assert reverse.commands[0].brake == 1.0
-    assert reverse.commands[0].throttle == 0.0
-    assert not reverse.commands[0].reverse
+    assert reverse.commands[0].brake == 0.0
+    assert reverse.commands[0].throttle == 1.0
+    assert reverse.commands[0].reverse
 
-    result = reducer.reduce(
-        _events(FocusUserInputEvent(timestamp=np.uint64(0), focused=False)),
+    released = reducer.reduce(
+        _events(_key("ArrowDown", KeyboardInputState.RELEASED)),
         frame_count=1,
     )
 
-    assert result.commands[0].throttle == 0.0
-    assert not result.commands[0].reverse
+    assert released.commands[0].throttle == 0.0
+    assert not released.commands[0].reverse
 
 
-def test_short_press_and_release_are_preserved_in_the_next_chunk() -> None:
-    reducer = DriverInput(samples_per_second=20.0)
+def test_short_press_and_release_collapse_to_latest_state() -> None:
+    reducer = DriverInput()
 
     result = reducer.reduce(
         _timed_events(
@@ -109,26 +103,20 @@ def test_short_press_and_release_are_preserved_in_the_next_chunk() -> None:
         frame_count=5,
     )
 
-    assert [command.throttle for command in result.commands] == [
-        1.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-    ]
+    assert [command.throttle for command in result.commands] == [0.0] * 5
     assert result.transition_timestamps_us == (
-        1_000_000,
-        1_000_000,
         1_100_000,
-        1_100_000,
-        1_100_000,
+        None,
+        None,
+        None,
+        None,
     )
     assert result.transition_count == 2
-    assert result.dropped_transition_count == 0
+    assert result.coalesced_transition_count == 1
 
 
 def test_duplicate_key_events_do_not_create_transitions() -> None:
-    reducer = DriverInput(samples_per_second=30.0)
+    reducer = DriverInput()
 
     result = reducer.reduce(
         _timed_events(
@@ -139,24 +127,24 @@ def test_duplicate_key_events_do_not_create_transitions() -> None:
     )
 
     assert result.transition_count == 1
-    assert result.transition_timestamps_us == (10, 10)
-    assert result.ignored_event_count == 0
+    assert result.transition_timestamps_us == (10, None)
+    assert result.ignored_event_count == 1
 
 
-def test_browser_space_key_engages_the_handbrake() -> None:
-    reducer = DriverInput(samples_per_second=30.0)
+def test_space_key_requests_the_interactive_drive_stop_command() -> None:
+    reducer = DriverInput()
 
     result = reducer.reduce(
-        _timed_events((10, _key(" ", KeyboardInputState.PRESSED))),
+        _timed_events((10, _key("space", KeyboardInputState.PRESSED))),
         frame_count=1,
     )
 
-    assert result.commands[0].handbrake
-    assert result.commands[0].brake == 1.0
+    assert result.commands[0].stop
+    assert not result.commands[0].handbrake
 
 
-def test_transition_at_window_end_carries_into_the_next_chunk() -> None:
-    reducer = DriverInput(samples_per_second=30.0)
+def test_latest_state_conditions_the_entire_next_chunk() -> None:
+    reducer = DriverInput()
 
     first = reducer.reduce(
         _timed_events(
@@ -168,9 +156,75 @@ def test_transition_at_window_end_carries_into_the_next_chunk() -> None:
     )
     retained = reducer.reduce(UserInputEvents([]), frame_count=1)
 
-    assert [command.throttle for command in first.commands] == [0.0, 0.0]
-    assert first.transition_timestamps_us == (50_000, 50_000)
-    assert first.transition_count == 2
-    assert first.dropped_transition_count == 0
+    assert [command.throttle for command in first.commands] == [1.0, 1.0]
+    assert first.transition_timestamps_us == (90_000, None)
+    assert first.transition_count == 3
+    assert first.coalesced_transition_count == 2
     assert retained.commands[0].throttle == 1.0
-    assert retained.transition_timestamps_us == (90_000,)
+    assert retained.transition_timestamps_us == (None,)
+
+
+def test_gamepad_state_overrides_keyboard_until_disconnect() -> None:
+    reducer = DriverInput()
+    buttons = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25, 0.75)
+    gamepad = GamepadUserInputEvent(
+        timestamp=np.uint64(20),
+        action="state",
+        axes=(-0.5,),
+        buttons=buttons,
+    )
+
+    controlled = reducer.reduce(
+        UserInputEvents([_key("w", KeyboardInputState.PRESSED), gamepad]),
+        frame_count=2,
+    )
+
+    assert controlled.commands[0].throttle == pytest.approx(0.75)
+    assert controlled.commands[0].brake == pytest.approx(0.25)
+    assert controlled.commands[0].steer == pytest.approx(0.5)
+    assert controlled.commands[0].steer_is_direct
+    assert controlled.commands[0].manual_control
+    assert controlled.commands[1] == controlled.commands[0]
+    assert reducer.source() == "wheel/gamepad"
+
+    disconnected = reducer.reduce(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(30),
+                    action="disconnected",
+                )
+            ]
+        ),
+        frame_count=1,
+    )
+
+    assert disconnected.commands[0].throttle == 1.0
+    assert not disconnected.commands[0].manual_control
+    assert reducer.source() == "keyboard"
+
+
+def test_wheel_state_uses_direct_pedal_and_steering_values() -> None:
+    reducer = DriverInput()
+
+    result = reducer.reduce(
+        UserInputEvents(
+            [
+                GameWheelUserInputEvent(
+                    timestamp=np.uint64(40),
+                    action="state",
+                    steering=-0.4,
+                    throttle=0.8,
+                    brake=0.1,
+                )
+            ]
+        ),
+        frame_count=2,
+    )
+
+    assert result.commands[0].steer == pytest.approx(0.4)
+    assert result.commands[0].throttle == pytest.approx(0.8)
+    assert result.commands[0].brake == pytest.approx(0.1)
+    assert result.commands[0].steer_is_direct
+    assert result.commands[0].manual_control
+    assert result.commands[1] == result.commands[0]

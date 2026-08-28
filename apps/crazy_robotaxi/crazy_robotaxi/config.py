@@ -9,7 +9,6 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Literal
 
-from omnidreams_game_engine.config import DriverInputConfig
 from omnidreams_game_engine.yaml_config import (
     StrictConfigError,
     load_yaml_mapping,
@@ -27,13 +26,11 @@ _RULE_FIELDS = (
     {item.name for item in fields(TaxiGameConfig)} - _RUNTIME_GAME_FIELDS - {"vehicle"}
 )
 _VEHICLE_FIELDS = {item.name for item in fields(TaxiVehicleConfig)}
-_INPUT_FIELDS = {item.name for item in fields(DriverInputConfig)}
 _TOP_LEVEL_FIELDS = {
     "schema_version",
     "mode",
     "effects",
     "rules",
-    "input",
     "vehicle",
     "taxi",
     "race",
@@ -93,9 +90,6 @@ class CrazyRobotaxiSettings:
     game: TaxiGameConfig = field(default_factory=TaxiGameConfig)
     """Taxi rules and player-vehicle configuration."""
 
-    driver_input: DriverInputConfig = field(default_factory=DriverInputConfig)
-    """V2 keyboard-to-command reduction settings."""
-
     taxi: TaxiSessionSettings = field(default_factory=TaxiSessionSettings)
     """Taxi session and persistence settings."""
 
@@ -126,7 +120,7 @@ def load_game_settings(
         base: Lower-precedence settings; ``None`` uses typed defaults.
 
     Returns:
-        Resolved game, input, session, and live-edit settings.
+        Resolved game, session, and live-edit settings.
 
     Raises:
         StrictConfigError: The YAML or merged settings are invalid.
@@ -165,14 +159,6 @@ def load_game_settings(
             game.vehicle, vehicle_values, "game.vehicle", base_dir=base_dir
         )
         game = replace(game, vehicle=vehicle)
-    driver_input = settings.driver_input
-    if "input" in doc:
-        input_values = require_mapping(doc["input"], "game.input")
-        _reject_unknown(input_values, _INPUT_FIELDS, "game.input")
-        driver_input = overlay_dataclass(
-            driver_input, input_values, "game.input", base_dir=base_dir
-        )
-
     game = replace(
         game,
         seed=settings.taxi.seed,
@@ -182,7 +168,7 @@ def load_game_settings(
             else {}
         ),
     )
-    settings = replace(settings, game=game, driver_input=driver_input)
+    settings = replace(settings, game=game)
     _validate_game_settings(settings)
     return settings
 
@@ -208,5 +194,3 @@ def _validate_game_settings(settings: CrazyRobotaxiSettings) -> None:
         )
     if game.min_time_s > game.max_time_s:
         raise StrictConfigError("game.rules.min_time_s must not exceed max_time_s")
-    if settings.driver_input.steering_scale <= 0.0:
-        raise StrictConfigError("game.input.steering_scale must be positive")

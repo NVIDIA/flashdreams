@@ -22,7 +22,7 @@ from omnidreams_game_engine.cli_args import (
     ExplicitArgTrackingArgumentParser,
     arg_was_explicit,
 )
-from omnidreams_game_engine.config import BevConfig, DriverInputConfig, RasterConfig
+from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.engine_settings import (
     EngineSettings,
     MapLaunchSettings,
@@ -119,7 +119,6 @@ class ApplicationConfig:
     scene_request: SceneRequest
     renderer: RendererSettings
     game: TaxiGameConfig
-    driver_input: DriverInputConfig
     device: str
     total_blocks: int | None
     model_preset_name: str
@@ -282,7 +281,6 @@ class CrazyRobotaxiApplication(IApplication):
             ),
             renderer=renderer,
             game=game,
-            driver_input=game_settings.driver_input,
             device=engine_settings.world_model.device,
             total_blocks=engine_settings.runtime.total_blocks,
             model_preset_name=model_preset_name,
@@ -372,13 +370,7 @@ class CrazyRobotaxiApplication(IApplication):
         )
 
     def _resolve_game_settings(self, args: argparse.Namespace) -> CrazyRobotaxiSettings:
-        settings = CrazyRobotaxiSettings(
-            driver_input=DriverInputConfig(
-                steering_scale=1.0,
-                steering_rate_per_s=3.5,
-                steering_return_rate_per_s=5.0,
-            )
-        )
+        settings = CrazyRobotaxiSettings()
         if args.game_config is not None:
             settings = load_game_settings(args.game_config, base=settings)
         game = settings.game
