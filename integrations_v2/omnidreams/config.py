@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import cast
 
 import torch
-
 from omnidreams.impl.pipeline import OmnidreamsPipelineConfig
 from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.transformer.network import CosmosDiTNetworkConfig

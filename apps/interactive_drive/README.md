@@ -55,8 +55,7 @@ uv sync --package flashdreams-omnidreams --extra interactive-drive
 uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
 ```
 
-Use `interactive-drive-omnidreams-perf` instead for the native-accelerated,
-performance-tuned configuration.
+Use `interactive-drive-omnidreams-perf`/`interactive-drive-omnidreams-fast-perf` instead for the native-accelerated, performance-tuned configurations.
 
 Forward so that you may connect via `<ip>:8089` by adding `--host 0.0.0.0`
 

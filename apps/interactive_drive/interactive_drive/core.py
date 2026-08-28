@@ -24,7 +24,7 @@ from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.runtime.keyboard import normalize_key
-from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_desc import BackpressureMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
@@ -453,7 +453,11 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._config: InteractiveDriveConfig | None = None
         self._desc = SessionDesc(
             output_layout=VideoTensorLayout.tchw,
-            frames_per_second_for_ui=30,
+            backpressure_mode=BackpressureMode.BLOCK,
+            # If too low we start building up a 
+            # backlog of frames which raises percived
+            # latency.
+            frames_per_second_for_ui=75,
             frames_per_second_for_step=defaults.fps,
             video_width=defaults.width,
             video_height=defaults.height,

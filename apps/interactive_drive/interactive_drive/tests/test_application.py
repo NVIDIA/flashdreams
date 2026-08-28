@@ -29,7 +29,7 @@ from interactive_drive import (
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.types import ControlSnapshot
 
-from flashdreams.runtime_v2.session_desc import PresentationMode
+from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -297,6 +297,16 @@ def test_interactive_drive_no_ui_skips_ui_and_bev(tmp_path: Path) -> None:
 
     assert isinstance(session.model_loop, InteractiveDriveModelLoop)
     assert session._registered_ui_loop is None
+
+
+def test_interactive_drive_drops_stale_chunks_for_low_latency(tmp_path: Path) -> None:
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    app = InteractiveDriveApplication()
+
+    app.init(["--scene", str(scene)])
+
+    assert app.session_desc().backpressure_mode is BackpressureMode.DROP_OLDEST
 
 
 def test_interactive_drive_resolves_default_scene_when_omitted(

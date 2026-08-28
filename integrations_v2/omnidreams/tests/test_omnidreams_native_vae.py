@@ -189,9 +189,13 @@ def test_fast_perf_config_auto_exports_default_fp8_state(
 
     monkeypatch.setattr(exporter, "ensure_lightvae_fp8_state", ensure)
     config = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    image_encoder = config.image_encoder
+    encoder = config.encoder
+    assert isinstance(image_encoder, OmnidreamsWanVAEEncoderConfig)
+    assert isinstance(encoder, OmnidreamsWanVAEEncoderConfig)
 
-    assert _native_vae_fp8_state_path(config.image_encoder) == str(expected)
-    assert _native_vae_fp8_state_path(config.encoder) == str(expected)
+    assert _native_vae_fp8_state_path(image_encoder) == str(expected)
+    assert _native_vae_fp8_state_path(encoder) == str(expected)
     assert calls == [
         Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH),
         Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH),

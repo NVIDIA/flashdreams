@@ -29,6 +29,8 @@ from omnidreams.config import (
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
+from omnidreams.impl.transformer import CosmosTransformerConfig
+from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 
 from flashdreams.api_v2.application import IApplication
 
@@ -46,16 +48,22 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
 
 def test_fast_perf_uses_native_vae_when_available() -> None:
     config = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    image_encoder = config.image_encoder
+    encoder = config.encoder
+    transformer = config.diffusion_model.transformer
+    assert isinstance(image_encoder, OmnidreamsWanVAEEncoderConfig)
+    assert isinstance(encoder, OmnidreamsWanVAEEncoderConfig)
+    assert isinstance(transformer, CosmosTransformerConfig)
 
-    assert config.image_encoder.native_vae_acceleration == "required"
-    assert config.image_encoder.native_vae_backend == "fp8"
-    assert config.image_encoder.native_vae_fp8_state_path is None
-    assert config.image_encoder.native_vae_fp8_auto_export is True
-    assert config.encoder.native_vae_acceleration == "required"
-    assert config.encoder.native_vae_backend == "fp8"
-    assert config.encoder.native_vae_fp8_state_path is None
-    assert config.encoder.native_vae_fp8_auto_export is True
-    assert config.diffusion_model.transformer.native_dit_acceleration == "required"
+    assert image_encoder.native_vae_acceleration == "required"
+    assert image_encoder.native_vae_backend == "fp8"
+    assert image_encoder.native_vae_fp8_state_path is None
+    assert image_encoder.native_vae_fp8_auto_export is True
+    assert encoder.native_vae_acceleration == "required"
+    assert encoder.native_vae_backend == "fp8"
+    assert encoder.native_vae_fp8_state_path is None
+    assert encoder.native_vae_fp8_auto_export is True
+    assert transformer.native_dit_acceleration == "required"
 
 
 def test_application_defaults_are_owned_by_each_adapter() -> None:
