@@ -78,6 +78,9 @@ _BEV_WAYPOINT_ALPHA = 0.5
 _MPS_TO_MPH = 2.2369362920544
 """Metres-per-second to miles-per-hour conversion used by the source HUD."""
 
+_TAXI_ACCENT_RGB = (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
+_RACE_ACCENT_RGB = (118.0 / 255.0, 185.0 / 255.0, 0.0)
+
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
 )
@@ -887,8 +890,10 @@ class TaxiHudState:
         self._video_fps = 0.0
 
     def _draw_mode_selection(self, imgui: Any) -> None:
-        window_width = max(1.0, min(460.0, float(self.width) - 28.0))
-        window_height = max(1.0, min(250.0, float(self.height) - 28.0))
+        window_width = max(1.0, min(500.0, float(self.width) - 28.0))
+        window_height = max(1.0, min(390.0, float(self.height) - 28.0))
+        scale = min(1.0, window_width / 500.0, window_height / 390.0)
+        _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
             position=(
@@ -896,21 +901,71 @@ class TaxiHudState:
                 max(14.0, (self.height - window_height) / 2.0),
             ),
             size=(window_width, window_height),
-            alpha=0.94,
+            alpha=0.97,
         )
-        visible = _begin_window(imgui, "Crazy Robotaxi — Select Game Mode")
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(
+            imgui,
+            "Crazy Robotaxi — Select Game Mode",
+            extra_flags=("no_title_bar",),
+        )
         try:
             if not visible:
                 return
-            imgui.text("SELECT GAME MODE")
-            imgui.text("Choose how you want to play.")
-            imgui.text("ESC: EXIT")
-            if imgui.button("TAXI"):
+            _centered_imgui_text(
+                imgui,
+                "CRAZY ROBOTAXI",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=max(24.0, 40.0 * scale),
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            _centered_imgui_text(
+                imgui,
+                "CHOOSE YOUR RIDE",
+                font_size=max(13.0, 16.0 * scale),
+                color=(0.62, 0.62, 0.68, 1.0),
+            )
+            imgui.separator()
+            button_width = _point_xy(imgui.get_content_region_avail())[0]
+            button_height = max(38.0, 54.0 * scale)
+            if imgui.button("TAXI", imgui.ImVec2(button_width, button_height)):
                 self._select_mode("taxi")
-            if imgui.button("RACE"):
-                self._select_mode("race")
+            _centered_imgui_text(
+                imgui,
+                "PICK UP PASSENGERS. DROP THEM OFF TO SCORE POINTS.",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.72, 0.72, 0.76, 1.0),
+            )
+            for color, alpha in (
+                (imgui.Col_.button, 0.78),
+                (imgui.Col_.button_hovered, 1.0),
+                (imgui.Col_.button_active, 0.62),
+            ):
+                imgui.push_style_color(color, imgui.ImVec4(*_RACE_ACCENT_RGB, alpha))
+            try:
+                if imgui.button("RACE", imgui.ImVec2(button_width, button_height)):
+                    self._select_mode("race")
+            finally:
+                imgui.pop_style_color(3)
+            _centered_imgui_text(
+                imgui,
+                "CHASE THE FASTEST TRACK TIME.",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.72, 0.72, 0.76, 1.0),
+            )
+            imgui.separator()
+            _centered_imgui_text(
+                imgui,
+                "ESC  EXIT",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.58, 0.58, 0.64, 1.0),
+            )
         finally:
             imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
 
     def _draw_map_selection(self, imgui: Any) -> None:
         mode = self._selected_game_mode
@@ -919,6 +974,9 @@ class TaxiHudState:
             return
         window_width = max(1.0, min(620.0, float(self.width) - 28.0))
         window_height = max(1.0, min(560.0, float(self.height) - 28.0))
+        scale = min(1.0, window_width / 620.0, window_height / 560.0)
+        accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
+        _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
             position=(
@@ -926,29 +984,78 @@ class TaxiHudState:
                 max(14.0, (self.height - window_height) / 2.0),
             ),
             size=(window_width, window_height),
-            alpha=0.94,
+            alpha=0.97,
         )
-        visible = _begin_window(imgui, "Crazy Robotaxi — Select Map")
+        style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
+        visible = _begin_window(
+            imgui,
+            "Crazy Robotaxi — Select Map",
+            extra_flags=("no_title_bar",),
+        )
         try:
             if not visible:
                 return
-            if imgui.button("BACK"):
+            _centered_imgui_text(
+                imgui,
+                "SELECT MAP",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=max(24.0, 38.0 * scale),
+                color=(*accent_rgb, 1.0),
+            )
+            _centered_imgui_text(
+                imgui,
+                "RACE MODE" if mode == "race" else "TAXI MODE",
+                font_size=max(13.0, 15.0 * scale),
+                color=(0.62, 0.62, 0.68, 1.0),
+            )
+            imgui.separator()
+            button_height = max(36.0, 48.0 * scale)
+            list_height = max(
+                60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
+            )
+            list_visible = imgui.begin_child(
+                "##map-options", imgui.ImVec2(0.0, list_height)
+            )
+            try:
+                if list_visible:
+                    button_width = _point_xy(imgui.get_content_region_avail())[0]
+                    available = False
+                    for index, option in enumerate(self.map_options):
+                        if mode == "race" and not option.race_course_ids:
+                            continue
+                        available = True
+                        if imgui.button(
+                            f"{option.name}##map-{index}",
+                            imgui.ImVec2(button_width, button_height),
+                        ):
+                            self._select_map(option)
+                    if not available:
+                        _centered_imgui_text(
+                            imgui,
+                            "NO COMPATIBLE MAPS FOUND",
+                            font_size=max(13.0, 15.0 * scale),
+                            color=(0.62, 0.62, 0.68, 1.0),
+                        )
+            finally:
+                imgui.end_child()
+            imgui.separator()
+            button_width = _point_xy(imgui.get_content_region_avail())[0]
+            if imgui.button(
+                "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
                 return
-            imgui.text("ESC: BACK")
-            imgui.text("SELECT MAP")
-            available = False
-            for index, option in enumerate(self.map_options):
-                if mode == "race" and not option.race_course_ids:
-                    continue
-                available = True
-                if imgui.button(f"{option.name}##map-{index}"):
-                    self._select_map(option)
-            if not available:
-                imgui.text("NO COMPATIBLE MAPS FOUND")
+            _centered_imgui_text(
+                imgui,
+                "ESC  BACK",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.58, 0.58, 0.64, 1.0),
+            )
         finally:
             imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
 
     def _draw_course_selection(self, imgui: Any) -> None:
         option = self._selected_map_option
@@ -960,6 +1067,8 @@ class TaxiHudState:
             return
         window_width = max(1.0, min(620.0, float(self.width) - 28.0))
         window_height = max(1.0, min(420.0, float(self.height) - 28.0))
+        scale = min(1.0, window_width / 620.0, window_height / 420.0)
+        _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
             position=(
@@ -967,25 +1076,70 @@ class TaxiHudState:
                 max(14.0, (self.height - window_height) / 2.0),
             ),
             size=(window_width, window_height),
-            alpha=0.94,
+            alpha=0.97,
         )
-        visible = _begin_window(imgui, "Crazy Robotaxi — Select Race Course")
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _RACE_ACCENT_RGB
+        )
+        visible = _begin_window(
+            imgui,
+            "Crazy Robotaxi — Select Race Course",
+            extra_flags=("no_title_bar",),
+        )
         try:
             if not visible:
                 return
-            if imgui.button("BACK"):
+            _centered_imgui_text(
+                imgui,
+                "SELECT RACE COURSE",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=max(22.0, 36.0 * scale),
+                color=(*_RACE_ACCENT_RGB, 1.0),
+            )
+            _centered_imgui_text(
+                imgui,
+                option.name.upper(),
+                font_size=max(13.0, 15.0 * scale),
+                color=(0.62, 0.62, 0.68, 1.0),
+            )
+            imgui.separator()
+            button_height = max(36.0, 48.0 * scale)
+            list_height = max(
+                60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
+            )
+            list_visible = imgui.begin_child(
+                "##course-options", imgui.ImVec2(0.0, list_height)
+            )
+            try:
+                if list_visible:
+                    button_width = _point_xy(imgui.get_content_region_avail())[0]
+                    for course_index, course_id in enumerate(option.race_course_ids):
+                        label = course_id.replace("-", " ").replace("_", " ").upper()
+                        if imgui.button(
+                            f"{label}##course-{course_index}",
+                            imgui.ImVec2(button_width, button_height),
+                        ):
+                            self._start_game(option, race_course_id=course_id)
+            finally:
+                imgui.end_child()
+            imgui.separator()
+            button_width = _point_xy(imgui.get_content_region_avail())[0]
+            if imgui.button(
+                "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
                 self._selected_map_option = None
                 self._menu_stage = "map"
                 return
-            imgui.text("ESC: BACK")
-            imgui.text(option.name)
-            imgui.text("SELECT RACE COURSE")
-            for course_index, course_id in enumerate(option.race_course_ids):
-                label = course_id.replace("-", " ").replace("_", " ").upper()
-                if imgui.button(f"{label}##course-{course_index}"):
-                    self._start_game(option, race_course_id=course_id)
+            _centered_imgui_text(
+                imgui,
+                "ESC  BACK",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.58, 0.58, 0.64, 1.0),
+            )
         finally:
             imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
 
     def _draw_text_window(
         self,
@@ -1369,11 +1523,7 @@ class TaxiHudState:
         if not (awaiting_name or leaderboard):
             return
         race = isinstance(snapshot, RaceGameSnapshot)
-        accent_rgb = (
-            (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
-            if race
-            else (118.0 / 255.0, 185.0 / 255.0, 0.0)
-        )
+        accent_rgb = _RACE_ACCENT_RGB if race else _TAXI_ACCENT_RGB
         margin = 16.0
         card_width = max(1.0, min(620.0, float(self.width) - 2.0 * margin))
         card_height = max(1.0, min(540.0, float(self.height) - 2.0 * margin))
@@ -1381,42 +1531,14 @@ class TaxiHudState:
         card_top = (float(self.height) - card_height) * 0.5
         scale = min(1.0, card_width / 620.0, card_height / 540.0)
 
-        draw_list = imgui.get_background_draw_list()
-        draw_list.add_rect_filled(
-            imgui.ImVec2(0.0, 0.0),
-            imgui.ImVec2(float(self.width), float(self.height)),
-            _imgui_color(imgui, (0.0, 0.0, 0.0, 0.58)),
-        )
+        _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
             position=(card_left, card_top),
             size=(card_width, card_height),
             alpha=0.97,
         )
-        style_vars = (
-            (imgui.StyleVar_.window_rounding, 16.0),
-            (imgui.StyleVar_.window_border_size, 2.0),
-            (imgui.StyleVar_.window_padding, imgui.ImVec2(28.0, 24.0)),
-            (imgui.StyleVar_.item_spacing, imgui.ImVec2(10.0, 10.0)),
-            (imgui.StyleVar_.frame_rounding, 7.0),
-            (imgui.StyleVar_.frame_padding, imgui.ImVec2(10.0, 8.0)),
-        )
-        style_colors = (
-            (imgui.Col_.window_bg, (0.047, 0.047, 0.071, 0.98)),
-            (imgui.Col_.border, (*accent_rgb, 0.95)),
-            (imgui.Col_.text, (0.94, 0.94, 0.97, 1.0)),
-            (imgui.Col_.text_disabled, (0.58, 0.58, 0.64, 1.0)),
-            (imgui.Col_.frame_bg, (0.09, 0.09, 0.13, 1.0)),
-            (imgui.Col_.frame_bg_hovered, (0.13, 0.13, 0.18, 1.0)),
-            (imgui.Col_.frame_bg_active, (0.16, 0.16, 0.22, 1.0)),
-            (imgui.Col_.button, (*accent_rgb, 0.78)),
-            (imgui.Col_.button_hovered, (*accent_rgb, 1.0)),
-            (imgui.Col_.button_active, (*accent_rgb, 0.62)),
-        )
-        for style_var, value in style_vars:
-            imgui.push_style_var(style_var, value)
-        for color, value in style_colors:
-            imgui.push_style_color(color, imgui.ImVec4(*value))
+        style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
         visible = _begin_window(imgui, "Game Over", extra_flags=("no_title_bar",))
         try:
             if not visible:
@@ -1477,8 +1599,8 @@ class TaxiHudState:
             )
         finally:
             imgui.end()
-            imgui.pop_style_color(len(style_colors))
-            imgui.pop_style_var(len(style_vars))
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
 
     def _draw_terminal_name_entry(
         self,
@@ -1784,6 +1906,46 @@ def _is_escape_press(event: object) -> bool:
         and event.state is KeyboardInputState.PRESSED
         and str(event.key).strip().lower() in {"esc", "escape"}
     )
+
+
+def _draw_arcade_backdrop(imgui: Any, width: int, height: int) -> None:
+    draw_list = imgui.get_background_draw_list()
+    draw_list.add_rect_filled(
+        imgui.ImVec2(0.0, 0.0),
+        imgui.ImVec2(float(width), float(height)),
+        _imgui_color(imgui, (0.0, 0.0, 0.0, 0.58)),
+    )
+
+
+def _push_arcade_card_style(
+    imgui: Any,
+    accent_rgb: tuple[float, float, float],
+) -> tuple[int, int]:
+    style_vars = (
+        (imgui.StyleVar_.window_rounding, 16.0),
+        (imgui.StyleVar_.window_border_size, 2.0),
+        (imgui.StyleVar_.window_padding, imgui.ImVec2(28.0, 24.0)),
+        (imgui.StyleVar_.item_spacing, imgui.ImVec2(10.0, 10.0)),
+        (imgui.StyleVar_.frame_rounding, 7.0),
+        (imgui.StyleVar_.frame_padding, imgui.ImVec2(10.0, 8.0)),
+    )
+    style_colors = (
+        (imgui.Col_.window_bg, (0.047, 0.047, 0.071, 0.98)),
+        (imgui.Col_.border, (*accent_rgb, 0.95)),
+        (imgui.Col_.text, (0.94, 0.94, 0.97, 1.0)),
+        (imgui.Col_.text_disabled, (0.58, 0.58, 0.64, 1.0)),
+        (imgui.Col_.frame_bg, (0.09, 0.09, 0.13, 1.0)),
+        (imgui.Col_.frame_bg_hovered, (0.13, 0.13, 0.18, 1.0)),
+        (imgui.Col_.frame_bg_active, (0.16, 0.16, 0.22, 1.0)),
+        (imgui.Col_.button, (*accent_rgb, 0.78)),
+        (imgui.Col_.button_hovered, (*accent_rgb, 1.0)),
+        (imgui.Col_.button_active, (*accent_rgb, 0.62)),
+    )
+    for style_var, value in style_vars:
+        imgui.push_style_var(style_var, value)
+    for color, value in style_colors:
+        imgui.push_style_color(color, imgui.ImVec4(*value))
+    return len(style_vars), len(style_colors)
 
 
 def _prepare_window(

@@ -201,6 +201,7 @@ class _FakeImGui:
         self.click_submit = False
         self.clicked_buttons: set[str] = set()
         self.buttons: list[str] = []
+        self.button_sizes: list[tuple[str, object | None]] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
         self.tables: dict[str, list[list[str]]] = {}
@@ -287,6 +288,13 @@ class _FakeImGui:
     def end(self) -> None:
         self.current_window = None
 
+    def begin_child(self, child_id: str, size: object) -> bool:
+        del child_id, size
+        return True
+
+    def end_child(self) -> None:
+        return
+
     def text(self, value: str) -> None:
         assert self.current_window is not None
         self.windows[self.current_window].append(value)
@@ -338,7 +346,7 @@ class _FakeImGui:
 
     def button(self, label: str, size: object | None = None) -> bool:
         self.buttons.append(label)
-        del size
+        self.button_sizes.append((label, size))
         submit = self.click_submit and label in {"SAVE SCORE", "SAVE TIME"}
         return submit or label in self.clicked_buttons
 
@@ -887,6 +895,47 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     lines = imgui.windows["Crazy Robotaxi"]
     assert lines[0] == "WARMING WORLD MODEL  2/4..."
     assert lines[1].startswith("ELAPSED  ")
+
+
+def test_selection_menus_use_arcade_card_layout() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml"),
+        variant="default",
+        race_course_ids=("downtown-sprint",),
+    )
+    state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+    state._selected_game_mode = "race"
+    state._menu_stage = "map"
+    state.draw(imgui)
+    state._selected_map_option = option
+    state._menu_stage = "course"
+    state.draw(imgui)
+
+    [(path, _size, droid_sans)] = imgui.fonts.loaded
+    assert path.endswith("DroidSans.ttf")
+    text_fonts = {text: font for text, font, _size in imgui.text_fonts}
+    assert text_fonts["CRAZY ROBOTAXI"] is droid_sans
+    assert text_fonts["SELECT MAP"] is droid_sans
+    assert text_fonts["SELECT RACE COURSE"] is droid_sans
+    for title in (
+        "Crazy Robotaxi — Select Game Mode",
+        "Crazy Robotaxi — Select Map",
+        "Crazy Robotaxi — Select Race Course",
+    ):
+        assert imgui.window_flags[title] & imgui.WindowFlags_.no_title_bar
+    button_sizes = dict(imgui.button_sizes)
+    assert button_sizes["TAXI"] == button_sizes["RACE"]
+    assert button_sizes["TAXI"][0] > 0.0
+    assert button_sizes["Test City##map-0"][0] > 0.0
+    assert button_sizes["DOWNTOWN SPRINT##course-0"][0] > 0.0
+    assert [command for command, _args in imgui.background_draw_list.commands].count(
+        "rect_filled"
+    ) == 3
 
 
 def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
