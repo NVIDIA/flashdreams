@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,7 +18,7 @@ from PIL import Image, ImageDraw
 from torch import Tensor
 
 from crazy_robotaxi.live_edit.coin_ability import CoinAbility
-from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.live_edit.config import ITEM_TYPES, LiveEditConfig
 from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
 from crazy_robotaxi.live_edit.item_ability import ItemAbility, ItemEffects
 from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
@@ -35,19 +36,46 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
-def _procedural_sprite(label: str, fill: tuple[int, int, int]) -> Image.Image:
+def _procedural_coin_sprite() -> Image.Image:
     image = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle(
-        (8, 8, 88, 88), radius=18, fill=(*fill, 255), outline=(20, 20, 20, 255), width=5
+    draw.ellipse(
+        (8, 8, 88, 88),
+        fill=(250, 200, 40, 255),
+        outline=(170, 120, 10, 255),
+        width=6,
     )
+    draw.ellipse((24, 24, 72, 72), outline=(170, 120, 10, 255), width=4)
+    return image
+
+
+_ITEM_PLACEHOLDERS = {
+    "rain": ((70, 130, 240, 255), (20, 60, 160, 255), "R"),
+    "snow": ((235, 245, 255, 255), (120, 160, 210, 255), "S"),
+    "mystery": ((250, 170, 40, 255), (160, 90, 10, 255), "?"),
+    "nitro": ((90, 225, 110, 255), (20, 120, 40, 255), "N"),
+}
+
+
+def _procedural_item_sprite(item_type: str) -> Image.Image:
+    fill, rim, label = _ITEM_PLACEHOLDERS[item_type]
+    image = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((9, 9, 87, 87), radius=16, fill=fill, outline=rim, width=6)
     box = draw.textbbox((0, 0), label)
     draw.text(
-        ((96 - box[2]) / 2, (96 - box[3]) / 2),
+        ((96 - (box[2] - box[0])) / 2, (96 - (box[3] - box[1])) / 2 - box[1]),
         label,
-        fill=(20, 20, 20, 255),
+        fill=rim,
     )
     return image
+
+
+def _load_sprite(path: Path | None, fallback: Image.Image) -> Image.Image:
+    if path is None:
+        return fallback
+    with Image.open(path) as image:
+        return image.convert("RGBA")
 
 
 class LiveEditGameplay:
@@ -98,19 +126,24 @@ class LiveEditGameplay:
             if config.obstacle.enabled and config.obstacle.guide_scale > 0.0
             else None
         )
-        sprites = {
-            "rain": _procedural_sprite("R", (70, 130, 240)),
-            "snow": _procedural_sprite("S", (235, 245, 255)),
-            "mystery": _procedural_sprite("?", (250, 170, 40)),
-            "nitro": _procedural_sprite("N", (90, 225, 110)),
-        }
+        sprites = (
+            {
+                item_type: _load_sprite(
+                    config.items.sprite_path(item_type),
+                    _procedural_item_sprite(item_type),
+                )
+                for item_type in ITEM_TYPES
+            }
+            if config.items.enabled
+            else {}
+        )
         self._compositor = LiveEditFrameCompositor(
-            _procedural_sprite("$", (250, 200, 40)), sprites
+            _load_sprite(config.coins.sprite_path, _procedural_coin_sprite()), sprites
         )
         self._camera = FThetaCameraModel(
             scene.selected_camera,
-            output_width=scene.selected_camera.width,
-            output_height=scene.selected_camera.height,
+            output_width=scene.initial_rgb.shape[1],
+            output_height=scene.initial_rgb.shape[0],
         )
         self._frame_index = 0
 

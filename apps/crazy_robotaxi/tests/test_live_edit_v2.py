@@ -5,18 +5,37 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
-from crazy_robotaxi.live_edit.config import LiveEditItemsConfig
+from crazy_robotaxi.live_edit.config import (
+    LiveEditCoinsConfig,
+    LiveEditConfig,
+    LiveEditItemsConfig,
+    LiveEditObstacleConfig,
+)
 from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+from crazy_robotaxi.live_edit.obstacle_events import (
+    ObstacleAbility,
+    ObstacleEvent,
+    ObstaclePhase,
+)
 from crazy_robotaxi.live_edit.obstacle_templates import load_obstacle_template_catalog
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay
+from crazy_robotaxi.navigation import NavigationLane
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.types import (
+    CameraCalibration,
+    TrajectoryChunk,
+    VehicleState,
+)
+from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -48,6 +67,25 @@ class _Obstacles:
 
     def request_spawn(self) -> None:
         self.spawns += 1
+
+
+def _scene() -> SimpleNamespace:
+    calibration = CameraCalibration(
+        clipgt_name="camera_front_wide_120fov",
+        logical_name="camera_front_wide_120fov",
+        width=3848,
+        height=2168,
+        cx=1924.0,
+        cy=1084.0,
+        polynomial=np.asarray([0.0, 1.0], dtype=np.float32),
+        is_backward_polynomial=False,
+        linear_cde=np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
+        sensor_to_rig_flu=np.eye(4, dtype=np.float32),
+    )
+    return SimpleNamespace(
+        selected_camera=calibration,
+        initial_rgb=np.zeros((640, 1168, 3), dtype=np.uint8),
+    )
 
 
 def test_v2_ability_keys_are_consumed_on_pressed_edges() -> None:
@@ -99,6 +137,88 @@ def test_nitro_boosts_and_expires_on_game_time() -> None:
     assert boosted.max_speed_mps == 16.0
     assert boosted.max_accel_mps2 == 6.0
     assert not nitro.active
+
+
+def test_v2_live_edit_camera_uses_generated_frame_size() -> None:
+    gameplay = LiveEditGameplay(LiveEditConfig(), _scene(), (), vehicle=VehicleConfig())
+
+    assert (gameplay._camera.output_width, gameplay._camera.output_height) == (
+        1168,
+        640,
+    )
+    assert gameplay._compositor.sprite_image("coin").getpixel((15, 15))[3] == 0
+
+
+def test_v2_live_edit_loads_configured_sprites(tmp_path) -> None:
+    coin_path = tmp_path / "coin.png"
+    nitro_path = tmp_path / "nitro.png"
+    Image.new("RGBA", (4, 4), (10, 20, 30, 255)).save(coin_path)
+    Image.new("RGBA", (4, 4), (40, 50, 60, 255)).save(nitro_path)
+    config = LiveEditConfig(
+        coins=LiveEditCoinsConfig(enabled=True, sprite_path=coin_path),
+        items=LiveEditItemsConfig(
+            enabled=True,
+            item_types=("nitro",),
+            nitro_sprite_path=nitro_path,
+        ),
+    )
+    lane = NavigationLane(
+        np.asarray([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]], dtype=np.float32)
+    )
+
+    gameplay = LiveEditGameplay(config, _scene(), (lane,), vehicle=VehicleConfig())
+
+    assert gameplay._compositor.sprite_image("coin").getpixel((0, 0)) == (
+        10,
+        20,
+        30,
+        255,
+    )
+    assert gameplay._compositor.sprite_image("nitro").getpixel((0, 0)) == (
+        40,
+        50,
+        60,
+        255,
+    )
+
+
+def test_physical_obstacle_lifetime_uses_relative_track_clock() -> None:
+    relative_timestamps = np.asarray([0, 4_000_000], dtype=np.int64)
+    event = ObstacleEvent(
+        entity_id="live-edit-obstacle-test",
+        object_type="Car",
+        timestamps_us=relative_timestamps,
+        translations_world=np.zeros((2, 3), dtype=np.float32),
+        orientations_xyzw=np.tile(
+            np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32), (2, 1)
+        ),
+        dimensions_lwh=np.asarray([4.0, 2.0, 1.5], dtype=np.float32),
+        template_index=0,
+        drive_speed_mps=4.0,
+        scene_object=SimpleNamespace(timestamps_us=relative_timestamps),
+    )
+    obstacle = ObstacleAbility.__new__(ObstacleAbility)
+    obstacle._config = LiveEditObstacleConfig(
+        enabled=True, physics=True, active_chunks=10
+    )
+    obstacle._events = [event]
+    obstacle._chunk_index = 0
+    state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    trajectory = TrajectoryChunk(
+        timestamps_us=np.asarray([1_000_000_000], dtype=np.int64),
+        rig_poses_world=np.eye(4, dtype=np.float32)[None],
+        vehicle_states=(state,),
+        boundary_state_after_chunk=state,
+    )
+
+    obstacle.advance_frames(trajectory)
+
+    assert event.phase is ObstaclePhase.SCRIPTED
+
+    event.logical_timestamp_us = 4_000_000.0
+    obstacle.advance_frames(trajectory)
+
+    assert event.phase is ObstaclePhase.EXPIRED
 
 
 def test_bundled_obstacle_catalog_matches_source_branch() -> None:

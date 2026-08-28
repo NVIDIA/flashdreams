@@ -751,7 +751,12 @@ class ObstacleAbility:
             if not self._config.physics:
                 self._check_visual_collision(event, trajectory)
                 actors.append(event.actor())
-            track_exhausted = last_timestamp_us >= int(event.timestamps_us[-1])
+            track_exhausted = (
+                event.logical_timestamp_us
+                >= float(event.scene_object.timestamps_us[-1])
+                if event.scene_object is not None
+                else last_timestamp_us >= int(event.timestamps_us[-1])
+            )
             if not event.static and (
                 event.chunks >= self._config.active_chunks or track_exhausted
             ):
