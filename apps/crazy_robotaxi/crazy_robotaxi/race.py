@@ -490,7 +490,7 @@ def _cross_course_gate(
             LineString((tuple(anchor - perpendicular), tuple(anchor + perpendicular))),
             direction,
         )
-    return max(cross_parts, key=lambda part: part.length), direction
+    return min(cross_parts, key=lambda part: part.distance(Point(anchor))), direction
 
 
 def _nearest_centerline_entry(
@@ -498,7 +498,7 @@ def _nearest_centerline_entry(
     approach_xy: npt.NDArray[np.float64],
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None:
     """Return the closest lane endpoint and its inward local tangent."""
-    frames: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]] = []
+    frames: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]] = []
     for centerline in centerlines:
         if centerline.shape[0] < 2:
             continue
@@ -519,17 +519,33 @@ def _nearest_centerline_entry(
                 continue
             direction = segments[index] / length
             if remaining <= length:
-                frames.append((oriented[index] + direction * remaining, direction))
+                frames.append((oriented[0], direction, remaining))
                 break
             remaining -= float(length)
     if not frames:
         return None
-    anchor = np.mean([frame[0] for frame in frames], axis=0)
+
+    reference = min(frames, key=lambda frame: np.linalg.norm(frame[0] - approach_xy))
+    frames = [
+        frame
+        for frame in frames
+        if float(np.dot(frame[1], reference[1])) >= np.sqrt(0.5)
+    ]
+    endpoints = np.unique(np.stack([frame[0] for frame in frames]), axis=0)
+    anchor = endpoints.mean(axis=0)
     direction = np.mean([frame[1] for frame in frames], axis=0)
     norm = float(np.linalg.norm(direction))
     if norm <= 1.0e-6:
         return None
-    return anchor, direction / norm
+    inward_direction = direction / norm
+    if len(endpoints) > 1:
+        _, _, axes = np.linalg.svd(endpoints - anchor, full_matrices=False)
+        direction = np.asarray([axes[0, 1], -axes[0, 0]], dtype=np.float64)
+        if float(np.dot(direction, inward_direction)) < 0.0:
+            direction *= -1.0
+    else:
+        direction = inward_direction
+    return anchor + direction * min(frame[2] for frame in frames), direction
 
 
 def _line_parts(geometry: object) -> tuple[LineString, ...]:

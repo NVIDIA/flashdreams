@@ -36,6 +36,18 @@ from shapely.geometry import Polygon
 pytestmark = pytest.mark.ci_cpu
 
 _MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+_BOULEVARD_MAP = (
+    Path(__file__).parents[1]
+    / "crazy_robotaxi"
+    / "maps"
+    / "boulevard_district.robotaxi.yaml"
+)
+_RACEWAY_MAP = (
+    Path(__file__).parents[1]
+    / "crazy_robotaxi"
+    / "maps"
+    / "flashdreams_raceway.robotaxi.yaml"
+)
 
 
 def _state(x_m: float, y_m: float) -> VehicleState:
@@ -371,6 +383,40 @@ def test_course_gates_span_the_full_road_surface(tmp_path: Path) -> None:
 
     for element_id in (course.start_element_id, *course.checkpoint_element_ids):
         assert controller._gates[element_id].length == pytest.approx(8.4, abs=0.15)
+
+
+def test_boulevard_intersection_gates_span_the_full_arterial(tmp_path: Path) -> None:
+    game_map = load_game_map(_BOULEVARD_MAP)
+    course = game_map.race_courses[0]
+    controller = RaceController(
+        game_map,
+        course,
+        _state(-300.0, -300.0),
+        RaceTimeStore(tmp_path / "times.csv"),
+    )
+
+    for element_id in (course.start_element_id, *course.checkpoint_element_ids):
+        assert controller._gates[element_id].length >= 15.5
+
+
+def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
+    game_map = load_game_map(_RACEWAY_MAP)
+    course = game_map.race_courses[0]
+    controller = RaceController(
+        game_map,
+        course,
+        _state(-300.0, -300.0),
+        RaceTimeStore(tmp_path / "times.csv"),
+    )
+    checkpoint_index = 4
+    checkpoint_id = course.checkpoint_element_ids[checkpoint_index]
+    previous_id = course.checkpoint_element_ids[checkpoint_index - 1]
+    following_id = course.checkpoint_element_ids[checkpoint_index + 1]
+
+    assert checkpoint_id == "infield_hairpin"
+    assert controller._gates[checkpoint_id].distance(
+        controller._surfaces[previous_id]
+    ) < controller._gates[checkpoint_id].distance(controller._surfaces[following_id])
 
 
 def test_race_times_are_isolated_by_map_and_course(tmp_path: Path) -> None:
