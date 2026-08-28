@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 import torch
-from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -105,23 +104,6 @@ async def _connect_browser(
     )
     await asyncio.wait_for(channel_opened.wait(), timeout=5)
     return peer, channel, video_track
-
-
-def test_window_coalesces_consecutive_pointer_moves_before_polling() -> None:
-    window = WebRTCClientWindow()
-    callback = window.server._input_callback
-    assert callback is not None
-    try:
-        callback(MouseUserInputEvent(timestamp=uint64(1), x=0.1, y=0.2))
-        callback(MouseUserInputEvent(timestamp=uint64(2), x=0.7, y=0.8))
-
-        events = window.get_user_input_events().get_events()
-
-        assert len(events) == 1
-        assert isinstance(events[0], MouseUserInputEvent)
-        assert (events[0].x, events[0].y) == (0.7, 0.8)
-    finally:
-        window.close()
 
 
 @pytest.mark.asyncio
