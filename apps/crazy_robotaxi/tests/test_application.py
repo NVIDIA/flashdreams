@@ -119,7 +119,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert desc.frames_per_second_for_step == 30
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
-    assert ui_loop._presentation_device == torch.device("cpu")
+    assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is pipeline
     assert model_loop.state.scene is None
     assert model_loop.state.rollout is None
@@ -403,7 +403,7 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
         pipeline_factory=lambda config, device: configured.append(config) or object(),
         scene_factory=load_test_scene,
     )
-    app.init(["--model-preset", "fast-perf"])
+    app.init(["--model-preset", "fast-perf", "--device", "cpu"])
     desc = replace(
         app.session_desc(),
         video_width=resolution_wh[0],

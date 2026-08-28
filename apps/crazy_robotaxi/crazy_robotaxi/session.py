@@ -9,6 +9,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -29,6 +30,7 @@ from crazy_robotaxi.ui import (
 )
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -297,7 +299,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             input_batch = state.driver_input.reduce(
                 events,
                 frame_count=frame_count,
-                frame_interval_s=(1.0 / state.session_desc.frames_per_second_for_step),
             )
             state.input_transition_count += input_batch.transition_count
             state.input_ignored_event_count += input_batch.ignored_event_count
@@ -359,7 +360,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             input_transition_count=state.input_transition_count,
             input_ignored_event_count=state.input_ignored_event_count,
             input_dropped_transition_count=state.input_dropped_transition_count,
-            ready_event=_record_ready_event(video),
         )
         invoke_async(
             state.ui_loop,
@@ -473,6 +473,11 @@ class CrazyRobotaxiSession(ISession):
     def session_desc(self) -> SessionDesc:
         return self._session_desc
 
+    @cached_property
+    def _presentation_manager(self) -> PresentationManager:
+        """Return a frame manager initialized on the game device."""
+        return PresentationManager(device=torch.device(self._config.device))
+
     def init(self) -> None:
         hud_state = TaxiHudState(
             width=self._session_desc.video_width,
@@ -491,7 +496,6 @@ class CrazyRobotaxiSession(ISession):
             state=hud_state,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
-            presentation_device=self._config.device,
         )
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
@@ -500,21 +504,17 @@ class CrazyRobotaxiSession(ISession):
                 scene_factory=self._scene_factory,
                 config=self._config,
                 session_desc=self._session_desc,
-                driver_input=DriverInput(self._config.driver_input),
+                driver_input=DriverInput(
+                    self._config.driver_input,
+                    samples_per_second=(
+                        self._session_desc.frames_per_second_for_step
+                    ),
+                ),
                 ui_loop=ui_loop,
             ),
         )
         hud_state.model_loop = model_loop
         hud_state.initialize_selection()
-
-
-def _record_ready_event(video: torch.Tensor) -> torch.cuda.Event | None:
-    if not video.is_cuda:
-        return None
-    event = torch.cuda.Event()
-    event.record(torch.cuda.current_stream(video.device))
-    return event
-
 
 def _restart_requested(events: UserInputEvents) -> bool:
     """Return whether this model step received a pressed R key."""

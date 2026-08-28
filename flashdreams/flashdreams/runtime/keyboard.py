@@ -61,6 +61,8 @@ class SparseInputSnapshot:
 
 def normalize_key(key: str) -> str:
     normalized = key.lower()
+    if normalized.strip() == "spacebar":
+        return "space"
     return KEY_ALIASES.get(normalized, normalized.strip())
 
 

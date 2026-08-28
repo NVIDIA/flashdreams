@@ -97,12 +97,12 @@ UI-step p90 fell from 37.2 ms to 4.2 ms, presented throughput increased from
 The capture also exposes a second synchronization boundary. Native surface
 acquisition consumed 22.15 seconds, with 222 of its 227 waits above 10 ms
 occurring on a model-frame advance. Those waits cluster near 90--110 ms, once
-per generated chunk. The app therefore records a CUDA event after each model
-chunk and keeps UI conversion, ImGui interop, composition, and native upload on
-a dedicated presentation stream. The stream waits only for the selected
-chunk's event instead of making Vulkan depend on subsequently queued model
-work. This follow-up remains pending a target-machine `*-4.json` validation and
-is not yet a validated performance result.
+per generated chunk. V2 now records readiness on each `StepResult`; the
+session's `PresentationManager` owns the dedicated presentation stream and
+orders UI conversion, ImGui interop, composition, and native upload behind the
+selected chunk without waiting for subsequently queued model work. This
+follow-up remains pending a target-machine `*-4.json` validation and is not yet
+a validated performance result.
 
 ## App-side PhysX bridge correction
 
@@ -146,10 +146,9 @@ the two-chunk capacity and therefore could not establish that bound.
 
 ## Required post-optimization rerun
 
-The original non-V2 demo uses `example_world_model_perf.yaml`. The
-`original-perf` preset matches its important settings: 1168x640, native FP8
-DiT with cuDNN attention, `skip_finalize_kv_cache`, and denoising timesteps
-`[1000, 100]`. Use fresh processes and keep ordered presentation:
+The `fast-perf` preset derives from OmniDreams' supported performance config,
+including its native DiT acceleration, and adds the native FP8 VAE path. Use
+fresh processes and keep ordered presentation:
 
 ```bash
 /usr/bin/time -v -o /tmp/crazy-original-native.time \
@@ -158,10 +157,10 @@ DiT with cuDNN attention, `skip_finalize_kv_cache`, and denoising timesteps
   --pixel-width 1168 \
   --pixel-height 640 \
   --backpressure-mode block \
-  --presentation-mode only_present_newest \
+  --presentation-mode continuous \
   --stats-path /tmp/crazy-vectorized-native.json \
   -- \
-  --model-preset original-perf \
+  --model-preset fast-perf \
   --seed 42 \
   --total-blocks 32 \
   --prewarm-blocks 4
@@ -178,7 +177,7 @@ median and p90. The remaining questions are:
 
 1. Does `physx_barrier_rebound_s` fall near the isolated probe, and does total
    rollout latency move below the 266.7 ms chunk budget?
-2. Does matched `original-perf` reach the original demo's measured producer
+2. Does `fast-perf` reach the original demo's measured producer
    throughput on the same machine?
 3. After the BEV correction, how much UI-thread CPU remains in native and
    WebRTC modes?

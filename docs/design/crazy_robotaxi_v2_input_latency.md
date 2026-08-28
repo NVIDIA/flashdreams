@@ -2,11 +2,11 @@
 
 ## Status
 
-Crazy Robotaxi preserves timestamped input transitions on the application side
-and offers opt-in UI-to-model-frame diagnostics. The remaining held-input
-latency cannot be removed through the public application interfaces alone.
-Shared V2 runtime changes are intentionally deferred to the API and
-architecture owners.
+Crazy Robotaxi uses the V2 runtime's shared real-time input timeline and
+keyboard-state track, and offers opt-in UI-to-model-frame diagnostics. The V2
+WebRTC sender is bounded and drops stale unsent frames under congestion. The
+remaining held-input latency is bounded by synchronous autoregressive model
+steps: input cannot change a chunk whose inference is already in flight.
 
 ## Reproduction and evidence
 
@@ -25,7 +25,7 @@ The investigation observed:
   video across model presets.
 - A 100–200 ms tap was often absent before timestamped transition reduction
   was added.
-- `--presentation-mode only_present_new` did not materially improve the held
+- `--presentation-mode on_demand` did not materially improve the held
   steering delay, so repeated UI frames were not its dominant cause.
 - A supplied synchronized diagnostic run produced eight-frame chunks covering
   266.7 ms of video in 733.6–788.7 ms after warmup, averaging 760.1 ms. Pipeline
@@ -39,41 +39,21 @@ an application/model response window of roughly 760–1520 ms before final
 WebRTC delivery. Smaller or preemptible model work is required to reduce that
 floor.
 
-## V2 transport boundary
+## V2 transport behavior
 
-The current V2 WebRTC client window has a second, independent latency risk:
+The V2 WebRTC client window now materializes UI frames at `window.write()`,
+uses a bounded two-frame sender queue, and replaces the oldest unsent frame
+during congestion. CUDA events order model output, UI composition, and WebRTC
+transfer work without device-wide synchronization. Continuous presentation
+can redraw input-responsive UI while model inference is still running, but it
+cannot alter the already-conditioned model chunk.
 
-- Its private video track uses an unbounded `asyncio.Queue` and appends every
-  submitted frame.
-- `SessionDesc.backpressure_mode` configures `PresentationManager`, but does
-  not configure or bound the WebRTC queue.
-- Every UI result is converted to CPU RGB and encoded by aiortc's software VP8
-  path. The app cannot select the encoder, inspect queue depth or frame age,
-  flush stale frames, or observe browser presentation.
-- The existing non-V2 WebRTC serving stack already contains bounded tracks,
-  stale-delivery flushing, pacing re-anchoring, delivery metrics, and optional
-  NVENC. V2 does not currently use those facilities.
+## Remaining API decision
 
-The application cannot safely work around this boundary without constructing
-or reaching into a private client window, which would violate V2 ownership and
-couple the game to one presentation mode.
-
-## Requested API decisions
-
-1. Define interactive transport backpressure end to end. Either propagate the
-   session policy through the client window or introduce a separate transport
-   policy with a bounded low-latency mode.
-2. Reuse the shared WebRTC encoder/bridge abstractions, including optional
-   NVENC, rather than maintaining a second unbounded software-only path.
-3. Expose encoder backend, conversion/encode time, queue depth, dropped or
-   flushed frames, and estimated frame age through runtime metrics.
-4. Specify the input contract for long synchronous model steps. Sub-generation
-   response requires smaller chunks, cancellation/preemption, or an explicit
-   asynchronous conditioning mechanism; event polling alone cannot modify an
-   in-flight conditioned chunk.
-5. Keep ordered/blocking delivery available for file and quality workflows,
-   while making the interactive low-latency policy explicit rather than
-   silently accumulating stale frames.
+Specify the input contract for long synchronous model steps. Sub-generation
+response requires smaller chunks, cancellation/preemption, or an explicit
+asynchronous conditioning mechanism; event polling alone cannot modify an
+in-flight conditioned chunk.
 
 ## Runtime acceptance tests
 

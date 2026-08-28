@@ -51,7 +51,8 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
             steering_scale=1.0,
             steering_rate_per_s=2.0,
             steering_return_rate_per_s=4.0,
-        )
+        ),
+        samples_per_second=10.0,
     )
 
     first = reducer.reduce(
@@ -59,12 +60,10 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
             _key("w", KeyboardInputState.PRESSED), _key("a", KeyboardInputState.PRESSED)
         ),
         frame_count=3,
-        frame_interval_s=0.1,
     )
     retained = reducer.reduce(
         UserInputEvents([]),
         frame_count=1,
-        frame_interval_s=0.1,
     )
 
     assert len(first.commands) == 3
@@ -80,11 +79,10 @@ def test_held_keys_produce_one_command_per_model_frame() -> None:
 
 
 def test_focus_loss_releases_drive_state() -> None:
-    reducer = DriverInput()
+    reducer = DriverInput(samples_per_second=30.0)
     reverse = reducer.reduce(
         _events(_key("ArrowDown", KeyboardInputState.PRESSED)),
         frame_count=1,
-        frame_interval_s=1.0 / 30.0,
     )
 
     assert reverse.commands[0].brake == 1.0
@@ -94,7 +92,6 @@ def test_focus_loss_releases_drive_state() -> None:
     result = reducer.reduce(
         _events(FocusUserInputEvent(timestamp=np.uint64(0), focused=False)),
         frame_count=1,
-        frame_interval_s=1.0 / 30.0,
     )
 
     assert result.commands[0].throttle == 0.0
@@ -102,7 +99,7 @@ def test_focus_loss_releases_drive_state() -> None:
 
 
 def test_short_press_and_release_are_preserved_in_the_next_chunk() -> None:
-    reducer = DriverInput()
+    reducer = DriverInput(samples_per_second=20.0)
 
     result = reducer.reduce(
         _timed_events(
@@ -110,7 +107,6 @@ def test_short_press_and_release_are_preserved_in_the_next_chunk() -> None:
             (1_100_000, _key("w", KeyboardInputState.RELEASED)),
         ),
         frame_count=5,
-        frame_interval_s=0.05,
     )
 
     assert [command.throttle for command in result.commands] == [
@@ -132,7 +128,7 @@ def test_short_press_and_release_are_preserved_in_the_next_chunk() -> None:
 
 
 def test_duplicate_key_events_do_not_create_transitions() -> None:
-    reducer = DriverInput()
+    reducer = DriverInput(samples_per_second=30.0)
 
     result = reducer.reduce(
         _timed_events(
@@ -140,28 +136,41 @@ def test_duplicate_key_events_do_not_create_transitions() -> None:
             (20, _key("w", KeyboardInputState.PRESSED)),
         ),
         frame_count=2,
-        frame_interval_s=1.0 / 30.0,
     )
 
     assert result.transition_count == 1
     assert result.transition_timestamps_us == (10, 10)
-    assert result.ignored_event_count == 1
+    assert result.ignored_event_count == 0
 
 
-def test_transition_overflow_preserves_the_newest_controls() -> None:
-    reducer = DriverInput()
+def test_browser_space_key_engages_the_handbrake() -> None:
+    reducer = DriverInput(samples_per_second=30.0)
 
     result = reducer.reduce(
+        _timed_events((10, _key(" ", KeyboardInputState.PRESSED))),
+        frame_count=1,
+    )
+
+    assert result.commands[0].handbrake
+    assert result.commands[0].brake == 1.0
+
+
+def test_transition_at_window_end_carries_into_the_next_chunk() -> None:
+    reducer = DriverInput(samples_per_second=30.0)
+
+    first = reducer.reduce(
         _timed_events(
             (10_000, _key("w", KeyboardInputState.PRESSED)),
             (50_000, _key("w", KeyboardInputState.RELEASED)),
             (90_000, _key("w", KeyboardInputState.PRESSED)),
         ),
         frame_count=2,
-        frame_interval_s=1.0 / 30.0,
     )
+    retained = reducer.reduce(UserInputEvents([]), frame_count=1)
 
-    assert [command.throttle for command in result.commands] == [0.0, 1.0]
-    assert result.transition_timestamps_us == (50_000, 90_000)
-    assert result.transition_count == 3
-    assert result.dropped_transition_count == 1
+    assert [command.throttle for command in first.commands] == [0.0, 0.0]
+    assert first.transition_timestamps_us == (50_000, 50_000)
+    assert first.transition_count == 2
+    assert first.dropped_transition_count == 0
+    assert retained.commands[0].throttle == 1.0
+    assert retained.transition_timestamps_us == (90_000,)

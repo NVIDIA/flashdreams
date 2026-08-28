@@ -8,11 +8,10 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pytest
@@ -299,42 +298,6 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
     assert frames[0].input_dropped_transition_count == 1
 
 
-def test_hud_submits_model_ready_dependency_once_per_presented_frame() -> None:
-    ready_event = cast(torch.cuda.Event, object())
-    waited_events = []
-    stream = cast(
-        torch.cuda.Stream,
-        SimpleNamespace(wait_event=waited_events.append),
-    )
-    video = torch.zeros(1, 3, 96, 160)
-    state = TaxiHudState(160, 96, _calibration())
-    state.publish(
-        build_hud_frames(
-            video,
-            (_snapshot(),),
-            np.eye(4, dtype=np.float32)[None],
-            ready_event=ready_event,
-        )
-    )
-    state.select_presented_frame(video[0])
-
-    assert state.wait_for_presented_frame(stream)
-    assert not state.wait_for_presented_frame(stream)
-    assert waited_events == [ready_event]
-
-    state.reset()
-    state.publish(
-        build_hud_frames(
-            video,
-            (_snapshot(),),
-            np.eye(4, dtype=np.float32)[None],
-            ready_event=ready_event,
-        )
-    )
-    state.select_presented_frame(video[0])
-    assert state.wait_for_presented_frame(stream)
-
-
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
     with pytest.raises(ValueError, match="Input transitions"):
         build_hud_frames(
@@ -600,39 +563,6 @@ def test_bev_draws_visible_waypoints_at_half_opacity() -> None:
         (1.0, 1.0, 1.0, _BEV_WAYPOINT_ALPHA)
     )
     assert circles[0][1][-1] == expected_white
-
-
-def test_imgui_ui_loop_owns_and_restores_a_cuda_presentation_stream(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    presentation_stream = cast(torch.cuda.Stream, object())
-    default_stream = cast(torch.cuda.Stream, object())
-    created_streams = []
-    selected_streams = []
-
-    def create_stream(*, device: torch.device) -> torch.cuda.Stream:
-        created_streams.append(device)
-        return presentation_stream
-
-    monkeypatch.setattr(torch.cuda, "device", lambda device: nullcontext(device))
-    monkeypatch.setattr(torch.cuda, "Stream", create_stream)
-    monkeypatch.setattr(torch.cuda, "set_stream", selected_streams.append)
-    monkeypatch.setattr(torch.cuda, "default_stream", lambda device: default_stream)
-    renderer = _Renderer(160, 96)
-    loop = CrazyRobotaxiImGuiUILoop(
-        renderer=renderer,
-        presentation_device="cuda:0",
-    )
-
-    assert loop._activate_presentation_stream() is presentation_stream
-    assert loop._activate_presentation_stream() is presentation_stream
-    assert created_streams == [torch.device("cuda:0")]
-    assert selected_streams == [presentation_stream, presentation_stream]
-
-    loop.close()
-    assert selected_streams[-1] is default_stream
-    assert loop._presentation_stream is None
-    assert renderer.closed
 
 
 def test_hud_draws_immediate_imgui_windows() -> None:
