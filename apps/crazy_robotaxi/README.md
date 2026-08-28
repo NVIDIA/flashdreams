@@ -14,6 +14,42 @@ inside a real ImGui `Map` window. `CrazyRobotaxiImGuiUILoop` returns the video
 back buffer and the base loop composites one ImGui overlay containing the
 background waypoints, HUD, and BEV window.
 
+## Controls
+
+### Keyboard
+
+| Control | Action |
+| --- | --- |
+| `W` or Up Arrow | Drive forward. |
+| `S` or Down Arrow | Reverse. |
+| `A` or Left Arrow | Steer left. |
+| `D` or Right Arrow | Steer right. |
+| `Space` | Apply the handbrake and cancel throttle. |
+| `R` | Restart the current game without reloading the model. |
+| `Escape` | Go back: game → map, course → map, map → mode, then exit from the mode screen. |
+| `C` | Toggle collectible coins when `--live-edit-coins` is enabled. |
+| `K` | Cycle style skins when `--live-edit-style` is enabled. |
+| `V` | Cycle weather when `--live-edit-weather` is enabled. Weather changes are ignored while a skin is active. |
+| `O` | Spawn a crossing-obstacle event when `--live-edit-obstacle` is enabled. |
+| `Enter` | Submit the leaderboard name while the Driver name field is focused. |
+
+Menu choices and the leaderboard Submit button can also be clicked with the mouse.
+
+### Controller
+
+| Control | Action |
+| --- | --- |
+| Left stick, push forward+tilt | Steer. |
+| Right trigger (`RT` / `R2` / `ZR`) | Throttle. |
+| Left trigger (`LT` / `L2` / `ZL`) | Brake. |
+| Start / Menu / Plus | Restart the current game without reloading the model. |
+| Steering wheel and pedals | Use normalized steering, throttle, and brake input directly. |
+
+A connected gamepad or wheel takes precedence over keyboard driving input.
+Disconnecting it returns control to any keyboard keys still held. Gamepads do
+not currently bind reverse, handbrake, menu navigation, or live-edit actions;
+use the keyboard or mouse for those controls.
+
 ```bash
 uv sync --package crazy-robotaxi
 uv run flashdreams-run-v2 crazy-robotaxi-omnidreams \
@@ -50,20 +86,11 @@ the selected course. The configured `--map` is listed first; the menu also
 discovers bundled maps and `.robotaxi.yaml` maps beside that configured file.
 Map compilation and scene loading begin only after the menu choice.
 
-Use `flashdreams-run-v2 crazy-robotaxi-omnidreams -- --help` for the complete application
-options. Drive with W/A/S/D or the arrow keys; Space is the handbrake. A
-standard gamepad uses the left stick for steering and the right/left triggers
-for throttle/brake. V2 game-wheel events use their normalized steering,
-throttle, and brake values directly. A connected controller takes precedence
-over keyboard state, and disconnecting it falls back to any keys still held.
-Press R to restart without closing the window. Restart rebuilds simulation,
-game rules, traffic, conditioning, and the autoregressive cache together while
-retaining the loaded model. Press Escape to return from the game to map
-selection, from map selection to mode selection, and from mode selection to
-exit. The HUD keeps an always-visible bearing arrow and overlays visible
-targets or an off-map direction arrow on the BEV. Leaderboard name entry is
-owned by the Dear ImGui UI and submitted to the model loop through V2's
-asynchronous loop-message contract.
+Use `flashdreams-run-v2 crazy-robotaxi-omnidreams -- --help` for the complete
+application options. Restart rebuilds simulation, game rules, traffic,
+conditioning, and the autoregressive cache while retaining the loaded model.
+The HUD keeps an always-visible bearing arrow and overlays visible targets or
+an off-map direction arrow on the BEV.
 
 ## Race mode
 
@@ -89,17 +116,23 @@ arguments. `C` toggles collectible coins, `K` cycles style skins, `V` cycles
 weather, and `O` spawns a crossing-obstacle event. Effect items can trigger
 rain, snow, a timed mystery skin, or a physics-authoritative nitro boost.
 
+To launch with coins, effect items, weather effects, and the style LoRA:
+
 ```bash
 uv run flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window -- \
   --live-edit-coins \
   --live-edit-items \
   --live-edit-weather \
-  --live-edit-obstacle
+  --live-edit-style
 ```
 
-Style mode additionally requires `--live-edit-style-lora PATH`. Optional
-style/base/weather correctors retain the source branch's fused and unfused
-deployment modes. Text-edit and obstacle guidance require a non-native DiT
+On first launch, style mode downloads the v6 style LoRA, its recommended v5
+corrector and gate, and the base-world clean-forcing corrector into
+`artifacts/crazy_robotaxi/live_edit`. Later launches reuse those files. The
+`--live-edit-style-lora`, `--live-edit-style-corrector`,
+`--live-edit-gate-alpha-json`, and `--live-edit-base-corrector` options override
+individual assets. Weather remains LoRA-free unless a nonzero weather-corrector
+gain is configured. Text-edit and obstacle guidance require a non-native DiT
 preset because those paths intercept the Python transformer conditioning
 seam; the application reports this before generation if an incompatible
 native preset is selected. All abilities are disabled by default.

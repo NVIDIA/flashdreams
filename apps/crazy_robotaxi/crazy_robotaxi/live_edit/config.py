@@ -18,7 +18,26 @@ from typing import Any, Callable, Literal, cast
 
 from omnidreams_game_engine.cli_args import arg_was_explicit
 
+from flashdreams.core.io.download import download_to_cache
+
 _CORRECTOR_MODES = ("fused", "unfused", "off")
+_DEFAULT_ASSET_DIR = Path("artifacts/crazy_robotaxi/live_edit")
+_STYLE_LORA_URL = (
+    "https://github.com/wenqingw-nv/flashdreams-wq/releases/download/"
+    "style-skin-v6-multiskin/lora_style_v6_step1600.pt"
+)
+_STYLE_CORRECTOR_URL = (
+    "https://github.com/wenqingw-nv/flashdreams-wq/releases/download/"
+    "style-skin-v5-stack/lora_style_corrector_v5_valpeak.pt"
+)
+_STYLE_GATE_URL = (
+    "https://github.com/wenqingw-nv/flashdreams-wq/releases/download/"
+    "style-skin-v5-stack/gate_style_v5.json"
+)
+_BASE_CORRECTOR_URL = (
+    "https://github.com/wenqingw-nv/flashdreams-wq/releases/download/"
+    "clean-forcing-omnidreams-v3vp/lora_v2_v3_valpeak.pt"
+)
 
 
 @dataclass(frozen=True)
@@ -149,8 +168,6 @@ class LiveEditStyleConfig:
 
     def __post_init__(self) -> None:
         """Validate style values at configuration time."""
-        if self.enabled and self.lora_checkpoint is None:
-            raise ValueError("live_edit.style requires --live-edit-style-lora")
         if not 0.0 <= self.corrector_gain <= 1.0:
             raise ValueError("corrector_gain must be in [0, 1]")
         if self.corrector_mode not in _CORRECTOR_MODES:
@@ -776,6 +793,63 @@ class LiveEditConfig:
             raise ValueError("perf_log_every_frames must be non-negative")
 
 
+def resolve_live_edit_assets(
+    config: LiveEditConfig,
+    *,
+    cache_dir: Path = _DEFAULT_ASSET_DIR,
+) -> LiveEditConfig:
+    """Download missing checkpoints needed by enabled live-edit features.
+
+    Explicit checkpoint paths remain authoritative. Style uses the latest
+    v6 multi-skin LoRA with the v5 corrector/gate stack recommended by its
+    release. Fused mode additionally corrects the base world with the shipped
+    OmniDreams clean-forcing checkpoint. Weather only needs a corrector when
+    its configured gain is nonzero; otherwise weather remains LoRA-free.
+    """
+    style = config.style
+    weather = config.weather
+    if style.enabled and style.lora_checkpoint is None:
+        style = replace(
+            style,
+            lora_checkpoint=download_to_cache(_STYLE_LORA_URL, cache_dir=cache_dir),
+        )
+
+    correctors_enabled = style.corrector_mode != "off"
+    needs_style_corrector = style.enabled or (
+        weather.enabled
+        and weather.corrector_gain > 0.0
+        and weather.corrector_checkpoint is None
+    )
+    if (
+        correctors_enabled
+        and needs_style_corrector
+        and style.corrector_checkpoint is None
+    ):
+        style = replace(
+            style,
+            corrector_checkpoint=download_to_cache(
+                _STYLE_CORRECTOR_URL, cache_dir=cache_dir
+            ),
+        )
+    if correctors_enabled and needs_style_corrector and style.gate_alpha_json is None:
+        style = replace(
+            style,
+            gate_alpha_json=download_to_cache(_STYLE_GATE_URL, cache_dir=cache_dir),
+        )
+    if (
+        style.enabled
+        and style.corrector_mode == "fused"
+        and style.base_corrector_checkpoint is None
+    ):
+        style = replace(
+            style,
+            base_corrector_checkpoint=download_to_cache(
+                _BASE_CORRECTOR_URL, cache_dir=cache_dir
+            ),
+        )
+    return replace(config, style=style)
+
+
 def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
     """Register the ``--live-edit-*`` flags next to the ``--taxi-*`` flags."""
     group = parser.add_argument_group("live edit")
@@ -783,13 +857,13 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-style",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable mid-run world-skin switching (requires the LoRA checkpoints).",
+        help="Enable mid-run world-skin switching (downloads default LoRAs).",
     )
     group.add_argument(
         "--live-edit-style-lora",
         type=Path,
         default=None,
-        help="Pre-merged text-edit LoRA checkpoint for the style ability.",
+        help="Override the automatically downloaded style LoRA checkpoint.",
     )
     group.add_argument(
         "--live-edit-style-corrector",

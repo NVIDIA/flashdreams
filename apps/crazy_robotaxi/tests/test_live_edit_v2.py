@@ -5,15 +5,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import crazy_robotaxi.live_edit.config as live_edit_config
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
     LiveEditItemsConfig,
     LiveEditObstacleConfig,
+    LiveEditStyleConfig,
+    LiveEditWeatherConfig,
+    resolve_live_edit_assets,
 )
 from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
 from crazy_robotaxi.live_edit.obstacle_events import (
@@ -86,6 +91,80 @@ def _scene() -> SimpleNamespace:
         selected_camera=calibration,
         initial_rgb=np.zeros((640, 1168, 3), dtype=np.uint8),
     )
+
+
+def test_style_assets_download_only_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    downloads: list[str] = []
+
+    def fake_download(url: str, *, cache_dir: Path) -> Path:
+        downloads.append(url)
+        return cache_dir / Path(url).name
+
+    monkeypatch.setattr(live_edit_config, "download_to_cache", fake_download)
+
+    resolved = resolve_live_edit_assets(
+        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
+        cache_dir=tmp_path,
+    )
+
+    assert [
+        resolved.style.lora_checkpoint.name,
+        resolved.style.corrector_checkpoint.name,
+        resolved.style.gate_alpha_json.name,
+        resolved.style.base_corrector_checkpoint.name,
+    ] == [
+        "lora_style_v6_step1600.pt",
+        "lora_style_corrector_v5_valpeak.pt",
+        "gate_style_v5.json",
+        "lora_v2_v3_valpeak.pt",
+    ]
+    assert len(downloads) == 4
+
+
+def test_explicit_style_assets_skip_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        live_edit_config,
+        "download_to_cache",
+        lambda *args, **kwargs: pytest.fail("explicit assets must not download"),
+    )
+    style = LiveEditStyleConfig(
+        enabled=True,
+        lora_checkpoint=tmp_path / "style.pt",
+        corrector_checkpoint=tmp_path / "corrector.pt",
+        gate_alpha_json=tmp_path / "gate.json",
+        base_corrector_checkpoint=tmp_path / "base.pt",
+    )
+    config = LiveEditConfig(style=style)
+
+    assert resolve_live_edit_assets(config, cache_dir=tmp_path) == config
+
+
+def test_weather_downloads_corrector_only_for_nonzero_gain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    downloads: list[str] = []
+
+    def fake_download(url: str, *, cache_dir: Path) -> Path:
+        downloads.append(url)
+        return cache_dir / Path(url).name
+
+    monkeypatch.setattr(live_edit_config, "download_to_cache", fake_download)
+    resolved = resolve_live_edit_assets(
+        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True, corrector_gain=0.1)),
+        cache_dir=tmp_path,
+    )
+
+    assert resolved.style.lora_checkpoint is None
+    assert resolved.style.base_corrector_checkpoint is None
+    assert resolved.style.corrector_checkpoint.name == (
+        "lora_style_corrector_v5_valpeak.pt"
+    )
+    assert resolved.style.gate_alpha_json.name == "gate_style_v5.json"
+    assert len(downloads) == 2
 
 
 def test_v2_ability_keys_are_consumed_on_pressed_edges() -> None:

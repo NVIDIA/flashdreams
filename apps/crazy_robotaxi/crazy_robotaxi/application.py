@@ -36,6 +36,7 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditConfig,
     add_live_edit_args,
     live_edit_config_from_args,
+    resolve_live_edit_assets,
 )
 from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
@@ -230,6 +231,9 @@ class CrazyRobotaxiApplication(IApplication):
         pipeline_config = derive_config(
             pipeline_config,
             enable_sync_and_profile=bool(engine_settings.world_model.profile_pipeline),
+        )
+        game_settings = replace(
+            game_settings, live_edit=resolve_live_edit_assets(game_settings.live_edit)
         )
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
