@@ -111,7 +111,7 @@ def _pipeline(seed: int = 7) -> WaypointInferencePipeline:
 def _desc(*, width: int = 8, height: int = 4) -> SessionDesc:
     return SessionDesc(
         backpressure_mode=BackpressureMode.BLOCK,
-        presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+        presentation_mode=PresentationMode.ON_DEMAND,
         output_layout=VideoTensorLayout.tchw,
         video_width=width,
         video_height=height,
@@ -165,7 +165,7 @@ def test_application_description_is_cheap_and_mp4_complete() -> None:
     assert session_desc.video_height == 512
     assert session_desc.frames_per_second_for_step == 60
     assert session_desc.backpressure_mode.value == "block"
-    assert session_desc.presentation_mode.value == "only_present_new"
+    assert session_desc.presentation_mode is PresentationMode.ON_DEMAND
 
 
 def test_application_requires_a_seed_source_and_actions_require_a_file() -> None:
@@ -276,9 +276,12 @@ def test_file_session_emits_seed_then_exactly_four_frames_per_action() -> None:
         ),
     )[0]
     second = loop.step(2, _empty_events())[0]
+    seed_output = seed.read_output()
+    first_output = first.read_output()
+    second_output = second.read_output()
 
     assert (
-        seed.output.shape == first.output.shape == second.output.shape == (4, 3, 4, 8)
+        seed_output.shape == first_output.shape == second_output.shape == (4, 3, 4, 8)
     )
     assert [seed.frame_count, first.frame_count, second.frame_count] == [4, 4, 4]
     assert [call[0] for call in fake.generate_calls] == [1, 2]
@@ -305,13 +308,15 @@ def test_model_loop_detaches_results_from_model_owned_tensors() -> None:
 
     seed = loop.step(0, _empty_events())[0]
     generated = loop.step(1, _empty_events())[0]
+    seed_output = seed.read_output()
+    generated_output = generated.read_output()
 
     assert loop.state.seed_frames.requires_grad
     assert fake.last_output is not None and fake.last_output.requires_grad
-    assert not seed.output.requires_grad
-    assert seed.output.grad_fn is None
-    assert not generated.output.requires_grad
-    assert generated.output.grad_fn is None
+    assert not seed_output.requires_grad
+    assert seed_output.grad_fn is None
+    assert not generated_output.requires_grad
+    assert generated_output.grad_fn is None
 
 
 def test_reset_rebuilds_cache_and_replays_first_action_deterministically() -> None:
@@ -325,12 +330,12 @@ def test_reset_rebuilds_cache_and_replays_first_action_deterministically() -> No
     session.init()
     loop = cast(WaypointModelLoop, session.model_loop)
     loop.step(0, _empty_events())
-    first = loop.step(1, _empty_events())[0].output.clone()
+    first = loop.step(1, _empty_events())[0].read_output().clone()
     first_cache = fake.initialized_caches[-1]
 
     loop.reset()
     loop.step(0, _empty_events())
-    replay = loop.step(1, _empty_events())[0].output
+    replay = loop.step(1, _empty_events())[0].read_output()
     second_cache = fake.initialized_caches[-1]
 
     assert torch.equal(first, replay)
@@ -370,10 +375,10 @@ def test_two_sessions_share_modules_but_keep_cache_and_rng_state_isolated() -> N
     first_loop.step(0, _empty_events())
     second_loop.step(0, _empty_events())
 
-    first_one = first_loop.step(1, _empty_events())[0].output
-    second_one = second_loop.step(1, _empty_events())[0].output
-    first_two = first_loop.step(2, _empty_events())[0].output
-    second_two = second_loop.step(2, _empty_events())[0].output
+    first_one = first_loop.step(1, _empty_events())[0].read_output()
+    second_one = second_loop.step(1, _empty_events())[0].read_output()
+    first_two = first_loop.step(2, _empty_events())[0].read_output()
+    second_two = second_loop.step(2, _empty_events())[0].read_output()
 
     assert first_loop.state.cache is not second_loop.state.cache
     assert torch.equal(first_one, second_one)

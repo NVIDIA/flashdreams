@@ -150,7 +150,7 @@ class WaypointApplication(IApplication):
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
-            presentation_mode=PresentationMode.ONLY_PRESENT_NEW,
+            presentation_mode=PresentationMode.ON_DEMAND,
             frames_per_second_for_ui=_PLAYBACK_FPS,
             frames_per_second_for_step=_PLAYBACK_FPS,
             video_width=_OUTPUT_WIDTH,
