@@ -53,17 +53,8 @@ class WebRTCClientWindow(IClientWindow):
 
         def handle_input(event: UserInputEvent) -> None:
             """Buffer one backend event for the ``InputSource`` protocol."""
-            with self._input_lock:
-                if (
-                    isinstance(event, MouseUserInputEvent)
-                    and event.action == "move"
-                    and self._input_events
-                    and isinstance(self._input_events[-1], MouseUserInputEvent)
-                    and self._input_events[-1].action == "move"
-                ):
-                    self._input_events[-1] = event
-                else:
-                    self._input_events.append(event)
+            # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
+            self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
 

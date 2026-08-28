@@ -11,6 +11,15 @@ This is the implementation. For how the pieces fit together and why the seams ar
 where they are, read [ARCHITECTURE.md](../../../ARCHITECTURE.md) first; for the
 protocols an application implements, see [`api_v2`](../api_v2/README.md).
 
+## Terminology
+
+| Term | Meaning |
+| --- | --- |
+| **Latent frame** | One temporal slice in the model's latent representation. It is not yet an RGB or RGBA image; decoding may produce one or more model frames from it. |
+| **AR step** or **AR chunk** | One autoregressive model iteration and the group of latent frames it produces. A chunk commonly contains four or eight latent frames, but the size is integration-specific. |
+| **Model frame** | One decoded RGB or RGBA image produced by the model, before UI composition. A model step may return several model frames together. |
+| **Frame** or **presented frame** | One model frame after the UI loop has composited its widgets or overlays. This is the frame written to a client window or output sink. |
+
 ## What is in here
 
 Finding and starting an application:
@@ -163,8 +172,8 @@ full:
 ready:
 
 - `CONTINUOUS` runs the UI loop every tick, re-presenting the newest
-  model frame.
-- `ON_DEMAND` runs the UI loop only when `advance` moves to a new frame.
+  model frame with UI redrawing.
+- `ON_DEMAND` runs the UI loop only when `advance` moves to a new model frame.
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ON_DEMAND`: together they keep every frame in the presentation manager
