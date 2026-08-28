@@ -9,26 +9,22 @@ House style distilled from `flashdreams/`. Match it when adding or editing Pytho
 
 ## File header
 
-Every `.py` file starts with the SPDX + Apache-2.0 block, then a blank line, then the module docstring, then a blank line, then imports.
+Every `.py` file starts with the concise two-line SPDX header, then a
+blank line, then the module docstring, then a blank line, then imports.
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) <YEAR> <COPYRIGHT HOLDER>
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Block KV cache for causal attention with a fixed-size local window."""
 ```
+
+`<COPYRIGHT HOLDER>` is the person or organization that owns the
+contribution. For NVIDIA-authored files, use `NVIDIA CORPORATION &
+AFFILIATES. All rights reserved.`; public contributors may use their own
+name or organization. Preserve all existing notices when editing a file;
+multiple `SPDX-FileCopyrightText` lines are allowed. The longer
+Apache-2.0 boilerplate is accepted but not required.
 
 **`<YEAR>` is the *current* calendar year, not a hardcoded literal.** Before stamping the header into a brand-new file, look up today's date (the agent host's clock, the system context, or `date +%Y` in a shell) and substitute it. The conversation's training-cutoff year is *not* the source of truth — emit e.g. `Copyright (c) 2027 …` if the file is being created in 2027.
 
