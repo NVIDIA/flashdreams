@@ -24,6 +24,7 @@ members = [
     "flashdreams-cam2v",
     "flashdreams-cam2v-lingbot",
     "flashdreams-causal-forcing",
+    "flashdreams-clipgt2v-v2",
     "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
@@ -701,7 +702,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", extras = ["local-window"], editable = "flashdreams" },
-    { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
+    { name = "flashdreams-omnidreams", editable = "integrations_v2/omnidreams" },
     { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -1217,6 +1218,21 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-clipgt2v-v2"
+version = "0.1.0"
+source = { editable = "apps/clipgt2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "ludus-renderer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
+]
 
 [[package]]
 name = "flashdreams-color-fade"
@@ -3430,8 +3446,8 @@ dev = [
 requires-dist = [
     { name = "filelock", specifier = ">=3" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-omnidreams", editable = "integrations/omnidreams" },
-    { name = "ludus-renderer", editable = "integrations/omnidreams/ludus-renderer" },
+    { name = "flashdreams-omnidreams", editable = "integrations_v2/omnidreams" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "pyarrow" },

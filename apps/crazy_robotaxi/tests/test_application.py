@@ -14,6 +14,7 @@ import pytest
 import torch
 from crazy_robotaxi.application import (
     _MODEL_PRESETS,
+    _NATIVE_PERF_PIPELINE,
     CrazyRobotaxiApplication,
     _fit_bev_renderer_to_ui,
 )
@@ -28,9 +29,8 @@ from crazy_robotaxi.session import (
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
 from omnidreams.config import (
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+    OMNIDREAMS_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_PIPELINE_CONFIG,
 )
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.renderer_settings import RendererSettings
@@ -197,7 +197,12 @@ def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
             self.closed = False
 
         def set_input_callbacks(self, **callbacks: object) -> None:
-            assert set(callbacks) == {"on_keyboard_event", "on_mouse_event"}
+            assert set(callbacks) == {
+                "on_keyboard_event",
+                "on_mouse_event",
+                "on_gamepad_event",
+                "on_gamepad_state",
+            }
 
         def present_frame(self, frame: torch.Tensor) -> bool:
             self.frames.append(frame)
@@ -355,18 +360,9 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
 
 
 def test_existing_model_presets_keep_their_packaged_pipeline_configs() -> None:
-    assert (
-        _MODEL_PRESETS["standard"].pipeline
-        is RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline
-    )
-    assert (
-        _MODEL_PRESETS["perf"].pipeline
-        is RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline
-    )
-    assert (
-        _MODEL_PRESETS["native-perf"].pipeline
-        is RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline
-    )
+    assert _MODEL_PRESETS["standard"].pipeline is OMNIDREAMS_PIPELINE_CONFIG
+    assert _MODEL_PRESETS["perf"].pipeline is OMNIDREAMS_PERF_PIPELINE_CONFIG
+    assert _MODEL_PRESETS["native-perf"].pipeline is _NATIVE_PERF_PIPELINE
     assert all(
         not _MODEL_PRESETS[name].renderer_follows_session
         for name in ("standard", "perf", "native-perf")
@@ -415,6 +411,7 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
     assert pipeline.image_encoder.native_vae_backend == "fp8"
     assert pipeline.encoder.native_vae_acceleration == "required"
     assert pipeline.encoder.native_vae_backend == "fp8"
+    assert native.diffusion_model.transformer.native_dit_acceleration == "disabled"
     assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
     assert (
         pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"

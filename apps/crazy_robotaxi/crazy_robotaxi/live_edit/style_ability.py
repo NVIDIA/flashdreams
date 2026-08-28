@@ -7,12 +7,12 @@ Ports the attach recipe from
 ``integrations/omnidreams/scripts/smoke_text_edit.py`` onto
 :class:`omnidreams_game_engine.world_model.flashdreams_adapter.FlashdreamsWorldModelSession`:
 
-- a pre-merged :class:`omnidreams._edit_lora.TextEditLoRA` on the
+- a pre-merged :class:`omnidreams.impl._edit_lora.TextEditLoRA` on the
   transformer (zero steady-state cost; ``replace_text`` opens its edit
   window automatically),
 - the rank-16 drift corrector. Default (``corrector_mode="fused"``): the
   CUDA-graph-safe per-state
-  :class:`omnidreams._drift_corrector.DriftCorrectorDispatch` — one
+  :class:`omnidreams.impl._drift_corrector.DriftCorrectorDispatch` — one
   pre-merged weight-set family per (base | skin | weather) state,
   ``compile_network`` and ``use_cuda_graph`` stay ON. The edit LoRA hands
   its self-attention deltas to the dispatch (``release_targets``), whose

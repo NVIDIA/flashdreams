@@ -13,7 +13,12 @@ members = [
     # Nested sub-packages that the integration globs do not reach.
     "integrations_v2/omnidreams/impl/ludus-renderer",
 ]
-exclude = ["apps/__init__.py", "apps/README.md", "integrations_v2/README.md"]
+exclude = [
+    "apps/__init__.py",
+    "apps/README.md",
+    "integrations/omnidreams",
+    "integrations_v2/README.md",
+]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
 # compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.

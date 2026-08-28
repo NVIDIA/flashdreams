@@ -8,15 +8,16 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
+import torch
 from omnidreams.config import (
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE,
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF,
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF,
+    OMNIDREAMS_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_PIPELINE_CONFIG,
 )
 from omnidreams_game_engine.cli_args import (
     ExplicitArgTrackingArgumentParser,
@@ -65,8 +66,33 @@ _LOGGER = logging.getLogger(__name__)
 _DEFAULT_PREWARM_BLOCKS = 4
 """Blocks covering chunk2 cache filling and the first steady-state AR shape."""
 
+_NATIVE_PERF_PIPELINE = derive_config(
+    OMNIDREAMS_PIPELINE_CONFIG,
+    name="crazy-robotaxi-native-perf",
+    image_encoder={
+        "dtype": torch.float16,
+        "use_compile": False,
+        "use_cuda_graph": False,
+        "native_vae_acceleration": "required",
+        "native_vae_backend": "fp8",
+        "native_vae_fp8_state_path": os.environ.get(
+            "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
+        ),
+    },
+    encoder={
+        "dtype": torch.float16,
+        "use_compile": False,
+        "use_cuda_graph": False,
+        "native_vae_acceleration": "required",
+        "native_vae_backend": "fp8",
+        "native_vae_fp8_state_path": os.environ.get(
+            "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
+        ),
+    },
+)
+
 _ORIGINAL_PERF_PIPELINE = derive_config(
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline,
+    OMNIDREAMS_PERF_PIPELINE_CONFIG,
     name="crazy-robotaxi-original-perf",
     diffusion_model={
         "seed": None,
@@ -85,7 +111,7 @@ _ORIGINAL_PERF_PIPELINE = derive_config(
 )
 
 _FAST_PERF_PIPELINE = derive_config(
-    RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline,
+    _NATIVE_PERF_PIPELINE,
     name="crazy-robotaxi-fast-perf",
     diffusion_model=copy.deepcopy(_ORIGINAL_PERF_PIPELINE.diffusion_model),
 )
@@ -101,11 +127,9 @@ class _ModelPreset:
 
 
 _MODEL_PRESETS = {
-    "standard": _ModelPreset(RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE.pipeline),
-    "perf": _ModelPreset(RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.pipeline),
-    "native-perf": _ModelPreset(
-        RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_NATIVE_PERF.pipeline
-    ),
+    "standard": _ModelPreset(OMNIDREAMS_PIPELINE_CONFIG),
+    "perf": _ModelPreset(OMNIDREAMS_PERF_PIPELINE_CONFIG),
+    "native-perf": _ModelPreset(_NATIVE_PERF_PIPELINE),
     "original-perf": _ModelPreset(
         _ORIGINAL_PERF_PIPELINE,
         renderer_follows_session=True,
