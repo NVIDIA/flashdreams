@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any
 
 import torch
@@ -18,6 +19,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
 from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -311,6 +313,11 @@ class Cam2VSession(ISession):
         """Return the resolved output dimensions and loop rates."""
         return self._session_desc
 
+    @cached_property
+    def _presentation_manager(self) -> PresentationManager:
+        """Return a frame manager initialized on the model device."""
+        return PresentationManager(device=self._config.device)
+
     def init(self) -> None:
         """Register the UI and model-generation loops with isolated state."""
         ui_loop = None
@@ -324,7 +331,6 @@ class Cam2VSession(ISession):
                 ),
                 width=self._session_desc.video_width,
                 height=self._session_desc.video_height,
-                device=self._config.device,
             )
             assert isinstance(registered_ui, Cam2VSlangPyUILoop)
             ui_loop = registered_ui

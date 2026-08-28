@@ -73,7 +73,10 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
         source.fill_(0.25)
         source_ready = torch.cuda.Event()
         source_ready.record(producer_stream)
-    manager = PresentationManager()
+    manager = PresentationManager(device=device)
+    presentation_stream = manager._presentation_stream
+    assert presentation_stream is not None
+    assert presentation_stream.priority < torch.cuda.default_stream(device).priority
     manager.publish(
         0,
         [
@@ -88,10 +91,7 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
     )
     assert manager.advance(0)[0]
     renderer = _CudaOverlayRenderer(device=device, width=96, height=64)
-    loop = Cam2VSlangPyUILoop(
-        renderer=renderer,
-        device=device,
-    )
+    loop = Cam2VSlangPyUILoop(renderer=renderer)
     loop.register_session_loop_objects(
         state=Cam2VUIState(total_blocks=2, target_fps=16, warmup_blocks=0),
         frequency=60,
@@ -105,14 +105,13 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
 
     closed = False
     try:
-        result = loop.step(0, UserInputEvents([]))
+        with manager.presentation_context():
+            result = loop.step(0, UserInputEvents([]))
 
         output_ready_event = result._output_ready_event
         assert output_ready_event is not None
         assert renderer.render_stream is not None
-        assert (
-            renderer.render_stream.priority < torch.cuda.default_stream(device).priority
-        )
+        assert renderer.render_stream == presentation_stream
         consumer_stream = torch.cuda.Stream(device=device)
         with torch.cuda.stream(consumer_stream):
             result.wait_for_output(consumer_stream)
@@ -123,14 +122,15 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
             observed.cpu(),
             torch.full((1, 3, 64, 96), 0.25, dtype=torch.bfloat16),
         )
+        manager.close()
         loop.close()
         closed = True
         assert result.output.shape == (1, 3, 64, 96)
         assert result.output.dtype is torch.bfloat16
     finally:
         if not closed:
+            manager.close()
             loop.close()
-        manager.clear()
         producer_stream.synchronize()
 
     assert renderer.closed

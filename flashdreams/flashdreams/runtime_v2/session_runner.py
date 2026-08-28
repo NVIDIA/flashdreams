@@ -214,19 +214,21 @@ def run_session(
         if _contains(events, CloseUserInputEvent):
             stop.set()
 
-    def run_ui_once() -> StepResult | None:
-        """Run one UI step with events not yet seen by that loop."""
+    def run_ui_once() -> None:
+        """Run one UI step and write every result it produces."""
         if ui_loop is None:
-            return None
+            return
         events, generation = event_buffer.read(_UI_READER_ID)
-        step_index = ui_loop._begin_run(events, generation)
-        if step_index is None or stop.is_set():
-            return None
-        result = ui_loop.step(step_index, events)
-        if result is not None and not isinstance(result, StepResult):
-            raise TypeError("A UI loop must return StepResult or None.")
-        ui_loop._finish_run(result)
-        return result
+        with presentation_manager.presentation_context():
+            step_index = ui_loop._begin_run(events, generation)
+            if step_index is None or stop.is_set():
+                return
+            result = ui_loop.step(step_index, events)
+            if result is not None and not isinstance(result, StepResult):
+                raise TypeError("A UI loop must return StepResult or None.")
+            ui_loop._finish_run(result)
+        if result is not None:
+            window.write(result)
 
     def publish_model_results(
         generation: int,
@@ -243,13 +245,6 @@ def run_session(
             for result in results:
                 metrics_output_sink.write(result)
 
-    def run_and_write_ui_once() -> None:
-        """Run one UI step and write its result, if any."""
-        result = run_ui_once()
-        if result is None:
-            return
-        window.write(result)
-
     def tick_ui() -> None:
         assert ui_loop is not None
         generation = event_buffer.generation
@@ -259,11 +254,11 @@ def run_session(
             model_advanced, _ = presentation_manager.advance(generation)
         if model_advanced:
             presentation_clock.mark_advanced(now)
-            run_and_write_ui_once()
+            run_ui_once()
             return
         if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
             return
-        run_and_write_ui_once()
+        run_ui_once()
 
     try:
         session.init()
@@ -326,11 +321,11 @@ def run_session(
             except BaseException as error:
                 cleanup_failures.append(error)
 
-        cleanup_failures.extend(session._shutdown_registered_loops())
         try:
-            presentation_manager.clear()
+            presentation_manager.close()
         except BaseException as error:
             cleanup_failures.append(error)
+        cleanup_failures.extend(session._shutdown_registered_loops())
         try:
             event_buffer.unregister(_UI_READER_ID)
             event_buffer.unregister(_MODEL_READER_ID)

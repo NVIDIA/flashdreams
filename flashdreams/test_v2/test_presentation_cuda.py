@@ -28,11 +28,10 @@ def test_step_result_rejects_an_unrecorded_output_event() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
-def test_presentation_manager_joins_default_producer_to_consumer_stream() -> None:
+def test_presentation_manager_joins_producer_to_its_presentation_stream() -> None:
     device = torch.device("cuda", torch.cuda.current_device())
     producer = torch.cuda.Stream(device=device)
-    consumer = torch.cuda.Stream(device=device, priority=-1)
-    manager = PresentationManager()
+    manager = PresentationManager(device=device)
 
     try:
         with torch.cuda.stream(producer):
@@ -50,17 +49,16 @@ def test_presentation_manager_joins_default_producer_to_consumer_stream() -> Non
         assert result._output_ready_event is not None
 
         assert manager.advance(0)[0]
-        with torch.cuda.stream(consumer):
-            frame = manager.presented_frame(0, stream=consumer)
+        with manager.presentation_context():
+            frame = manager.presented_frame(0)
             assert frame is not None
             observed = frame.clone()
-        consumer.synchronize()
+        manager.close()
 
         torch.testing.assert_close(
             observed.cpu(),
             torch.full((3, 8, 8), 0.25),
         )
     finally:
-        manager.clear()
+        manager.close()
         producer.synchronize()
-        consumer.synchronize()

@@ -5,13 +5,19 @@
 
 import queue
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import torch
 from torch import Tensor
 
+from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
+_PRESENTATION_STREAM_PRIORITY = -1
+"""Prefer short presentation work over queued model kernels."""
 
 
 class PresentationManager:
@@ -27,9 +33,21 @@ class PresentationManager:
     full. Chunks that could not be kept are counted in
     :attr:`dropped_for_space` and :attr:`discarded_at_reset` rather than lost
     silently, one count per chunk however many frames it held.
+
+    :meth:`presentation_context` keeps the complete UI presentation path on one
+    high-priority CUDA stream, separate from model inference.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, device: torch.device | None = None) -> None:
+        """Create a frame manager and its CUDA presentation stream.
+
+        Args:
+            device: Presentation device; ``None`` or a CPU device does not
+                create a CUDA stream.
+
+        Raises:
+            ValueError: ``device`` is neither a CPU nor CUDA device.
+        """
         self._buffer: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(maxsize=2)
         self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
@@ -41,6 +59,18 @@ class PresentationManager:
         self._presented_frame_count = 0
         self._dropped_for_space = 0
         self._discarded_at_reset = 0
+        self._presentation_stream: torch.cuda.Stream | None = None
+        if device is not None:
+            device = torch.device(device)
+            if device.type not in ("cpu", "cuda"):
+                raise ValueError("Presentation requires a CPU or CUDA device.")
+            if device.type == "cuda":
+                device = resolve_cuda_device(device)
+                with torch.cuda.device(device):
+                    self._presentation_stream = torch.cuda.Stream(
+                        device=device,
+                        priority=_PRESENTATION_STREAM_PRIORITY,
+                    )
 
     def configure(
         self,
@@ -110,6 +140,31 @@ class PresentationManager:
                 return
             except queue.Full:
                 continue
+
+    @contextmanager
+    def presentation_context(self) -> Iterator[None]:
+        """Make the manager-owned presentation stream current for a UI step.
+
+        Managers without a CUDA presentation stream use the caller's current
+        context.
+
+        Yields:
+            Control while the presentation stream is current.
+        """
+        stream = self._presentation_stream
+        if stream is None:
+            yield
+            return
+        device = resolve_cuda_device(stream.device)
+        with torch.cuda.device(device), torch.cuda.stream(stream):
+            yield
+
+    def close(self) -> None:
+        """Finish presentation work and release buffered output."""
+        if self._presentation_stream is not None:
+            self._presentation_stream.synchronize()
+        self.clear()
+        self._presentation_stream = None
 
     def advance(self, generation: int) -> tuple[bool, list[StepResult] | None]:
         """Move to the next model frame, if one is available.
@@ -187,15 +242,11 @@ class PresentationManager:
     def presented_frame(
         self,
         channel_index: int,
-        *,
-        stream: torch.cuda.Stream | None = None,
     ) -> Tensor | None:
-        """Return one frame ordered before its CUDA consumer stream.
+        """Return one frame ordered before the presentation stream.
 
         Args:
             channel_index: Model-result channel to read.
-            stream: CUDA stream that will consume the frame. ``None`` uses the
-                current stream on the result's device.
 
         Returns:
             The current ``[C, H, W]`` frame, or ``None`` before presentation
@@ -203,7 +254,8 @@ class PresentationManager:
 
         Raises:
             IndexError: The presented result has no such channel.
-            ValueError: The stream and output use different CUDA devices.
+            ValueError: The presentation stream and output use different CUDA
+                devices.
         """
         if self._presented_chunk is None:
             return None
@@ -214,19 +266,15 @@ class PresentationManager:
                 f"Presented chunk has {len(self._presented_chunk)} channels; "
                 f"channel {channel_index} does not exist."
             ) from error
-        result.wait_for_output(stream)
+        result.wait_for_output(self._presentation_stream)
         return _frame_at(result, self._frame_index)
 
-    def presented_frames(
-        self,
-        *,
-        stream: torch.cuda.Stream | None = None,
-    ) -> tuple[Tensor, ...]:
-        """Return all current frames ordered before a CUDA consumer stream."""
+    def presented_frames(self) -> tuple[Tensor, ...]:
+        """Return all current frames ordered before the presentation stream."""
         if self._presented_chunk is None:
             return ()
         for result in self._presented_chunk:
-            result.wait_for_output(stream)
+            result.wait_for_output(self._presentation_stream)
         return tuple(
             _frame_at(result, self._frame_index) for result in self._presented_chunk
         )
@@ -244,10 +292,34 @@ class PresentationManager:
             An RGB ``[3, H, W]`` frame.
 
         Raises:
-            ValueError: The frames disagree about size, device or dtype, or
-                either is not a presentable frame.
+            ValueError: The frames disagree about size, device or dtype, do not
+                use the presentation-stream device, or are not presentable.
         """
-        return _composite_frame(bottom, top)
+        stream = self._presentation_stream
+        if stream is None:
+            return _composite_frame(bottom, top)
+
+        device = resolve_cuda_device(stream.device)
+        frames = (top,) if bottom is None else (bottom, top)
+        if any(
+            not frame.is_cuda or resolve_cuda_device(frame.device) != device
+            for frame in frames
+        ):
+            raise ValueError(
+                "Composited frames must use the presentation-stream device."
+            )
+
+        caller_stream = torch.cuda.current_stream(device)
+        if caller_stream != stream:
+            stream.wait_stream(caller_stream)
+            for frame in frames:
+                frame.record_stream(stream)
+        with self.presentation_context():
+            output = _composite_frame(bottom, top)
+        if caller_stream != stream:
+            caller_stream.wait_stream(stream)
+            output.record_stream(caller_stream)
+        return output
 
     def has_pending_frames(self) -> bool:
         """Return whether another model frame is ready."""
