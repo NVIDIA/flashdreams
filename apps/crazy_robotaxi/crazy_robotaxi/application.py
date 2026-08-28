@@ -53,7 +53,7 @@ _DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
 _VIDEO_FPS = 30
 """Generated-video cadence required by the model."""
 
-_UI_FPS = 30
+_UI_FPS = 60
 """Input polling and HUD cadence used by Interactive Drive."""
 
 _DEFAULT_INPUT_TRACE_PATH = (
