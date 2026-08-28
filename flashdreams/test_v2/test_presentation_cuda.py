@@ -16,14 +16,14 @@ pytestmark = pytest.mark.ci_gpu
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 def test_default_manager_uses_high_priority_stream_and_joins_producer() -> None:
-    device = torch.device("cuda", torch.cuda.current_device())
+    device = torch.device(
+        "cuda", (torch.cuda.current_device() + 1) % torch.cuda.device_count()
+    )
     producer = torch.cuda.Stream(device=device)
     manager = PresentationManager()
 
     try:
-        stream = manager._presentation_stream
-        assert stream is not None
-        assert stream.priority < torch.cuda.default_stream(device).priority
+        assert manager._presentation_stream is None
         with torch.cuda.stream(producer):
             output = torch.empty((1, 3, 8, 8), device=device)
             torch.cuda._sleep(2_000_000)
@@ -36,6 +36,10 @@ def test_default_manager_uses_high_priority_stream_and_joins_producer() -> None:
             )
             manager.publish(0, [result])
 
+        stream = manager._presentation_stream
+        assert stream is not None
+        assert stream.device == device
+        assert stream.priority < torch.cuda.default_stream(device).priority
         assert result._output_ready_event is not None
 
         assert manager.advance(0)[0]
@@ -61,8 +65,12 @@ def test_ui_prepares_cpu_integer_frame_on_default_presentation_stream() -> None:
     manager = PresentationManager()
 
     try:
+        overlay = torch.zeros((4, 2, 3), device=device)
+        manager.composite(None, overlay)
+        stream = manager._presentation_stream
+        assert stream is not None
+        assert stream.device == device
         with manager.presentation_context():
-            overlay = torch.zeros((4, 2, 3), device=device)
             back_buffer = torch.tensor(
                 [0, 255, 128],
                 dtype=torch.uint8,

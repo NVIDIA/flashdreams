@@ -203,8 +203,16 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         )
         imgui.begin("Map")
         try:
-            if telemetry is not None and telemetry.bev_frame is not None:
-                imgui.image("bev-minimap", telemetry.bev_frame, size=(318.0, 210.0))
+            try:
+                bev_frame = self.presented_model_frame(1)
+            except IndexError:
+                bev_frame = None
+            if bev_frame is not None:
+                imgui.image(
+                    "bev-minimap",
+                    bev_frame.permute(1, 2, 0),
+                    size=(318.0, 210.0),
+                )
             else:
                 imgui.text("Waiting for BEV output.")
         finally:

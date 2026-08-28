@@ -42,8 +42,8 @@ class PresentationManager:
         """Create a frame manager and its CUDA presentation stream.
 
         Args:
-            device: Presentation device. ``None`` uses the current CUDA device
-                when CUDA is available. A CPU device disables the CUDA stream.
+            device: Presentation device. ``None`` uses the device of the first
+                CUDA frame. A CPU device disables the CUDA stream.
 
         Raises:
             ValueError: ``device`` is neither a CPU nor CUDA device.
@@ -59,9 +59,9 @@ class PresentationManager:
         self._presented_frame_count = 0
         self._dropped_for_space = 0
         self._discarded_at_reset = 0
+        self._stream_lock = threading.Lock()
+        self._infer_stream_device = device is None
         self._presentation_stream: torch.cuda.Stream | None = None
-        if device is None and torch.cuda.is_available():
-            device = torch.device("cuda", torch.cuda.current_device())
         if device is not None:
             device = torch.device(device)
             if device.type not in ("cpu", "cuda"):
@@ -132,6 +132,12 @@ class PresentationManager:
         frame_count = chunk[0].frame_count
         if frame_count <= 0 or any(item.frame_count != frame_count for item in chunk):
             raise ValueError("Every channel in a chunk must have the same frame_count.")
+        self._ensure_presentation_stream(
+            next(
+                (result._output.device for result in chunk if result._output.is_cuda),
+                None,
+            )
+        )
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             self._publish_latest(pending)
@@ -299,6 +305,9 @@ class PresentationManager:
                 or are not presentable.
         """
         frames = (top,) if bottom is None else (bottom, top)
+        self._ensure_presentation_stream(
+            next((frame.device for frame in frames if frame.is_cuda), None)
+        )
         stream = (
             self._presentation_stream
             if self._presentation_stream is not None
@@ -337,6 +346,21 @@ class PresentationManager:
             caller_stream.wait_stream(stream)
             output.record_stream(caller_stream)
         return output
+
+    def _ensure_presentation_stream(self, device: torch.device | None) -> None:
+        """Bind a default manager to the first CUDA device it presents."""
+        if device is None or not self._infer_stream_device:
+            return
+        with self._stream_lock:
+            if not self._infer_stream_device:
+                return
+            device = resolve_cuda_device(device)
+            with torch.cuda.device(device):
+                self._presentation_stream = torch.cuda.Stream(
+                    device=device,
+                    priority=_PRESENTATION_STREAM_PRIORITY,
+                )
+            self._infer_stream_device = False
 
     def has_pending_frames(self) -> bool:
         """Return whether another model frame is ready."""

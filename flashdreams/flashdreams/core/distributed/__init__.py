@@ -37,7 +37,7 @@ from loguru import logger
 # process start, and the filter is process-global and idempotent.
 from flashdreams.core import log_filters  # noqa: F401
 
-DEFAULT_LOG_LEVEL = "WARNING"
+DEFAULT_LOG_LEVEL = "INFO"
 
 
 def _safe_destroy_pg() -> None:

@@ -197,20 +197,6 @@ Run the WebRTC demo:
 Then open ``http://<server-ip>:8089/request_session`` in any browser on the
 same network.
 
-Collision physics, the vehicle speed limit, and the collision visual effect are
-disabled by default. Add ``--game-mode`` to enable the speed limit and
-collisions with scene actors and static map geometry, along with the collision
-visual flare:
-
-.. code-block:: bash
-
-   uv run --package flashdreams-omnidreams interactive-drive \
-       --stream-mjpeg :8080 \
-       --game-mode
-
-Combine ``--game-mode`` with ``--disable-visual-flare`` to retain collision
-physics without the full-screen collision effect.
-
 .. note::
 
    **The first launch is slow.** The first time you start the demo, the world

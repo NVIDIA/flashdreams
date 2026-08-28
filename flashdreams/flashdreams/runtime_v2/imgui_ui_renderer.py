@@ -113,7 +113,6 @@ class _ImGuiUIRenderer:
         self._rgba_tensor: Tensor | None = None
         self._rgba_buffer_size = 0
         self._rgba_row_pitch = 0
-        self._uploaded_textures: list[Any] = []
         self._has_rendered = False
 
     def render(
@@ -149,12 +148,10 @@ class _ImGuiUIRenderer:
         step_ui(self._ui, step_index, events)
         self._imgui.render()
         draw_data = self._imgui.get_draw_data()
-        self._uploaded_textures.extend(
-            self._bridge.sync_draw_data_textures(
-                self._device,
-                self._ui_context,
-                draw_data,
-            )
+        self._bridge.sync_draw_data_textures(
+            self._device,
+            self._ui_context,
+            draw_data,
         )
 
         encoder = self._device.create_command_encoder()
@@ -196,7 +193,6 @@ class _ImGuiUIRenderer:
             self._ui.clear_textures()
         if self._imgui is not None and self._imgui_context is not None:
             self._imgui.destroy_context(self._imgui_context)
-        self._uploaded_textures.clear()
         self._ui = None
         self._rgba_tensor = None
         self._rgba_buffer = None

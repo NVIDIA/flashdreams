@@ -464,7 +464,7 @@ def test_interactive_drive_owns_a_separate_session_and_ui_loop(
 
 
 def test_interactive_drive_hud_draws_imgui_controls_and_images(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     scene = tmp_path / "local.usdz"
     scene.touch()
@@ -495,8 +495,18 @@ def test_interactive_drive_hud_draws_imgui_controls_and_images(
             variant="default",
             postprocess_enabled=True,
             model_loop_ms=123.45,
-            bev_frame=np.zeros((8, 8, 3), dtype=np.uint8),
         )
+    )
+    presented_channels: list[int] = []
+
+    def presented_frame(channel_index: int) -> torch.Tensor:
+        presented_channels.append(channel_index)
+        return torch.zeros((3, 8, 8), dtype=torch.uint8)
+
+    monkeypatch.setattr(
+        loop._presentation_manager,
+        "presented_frame",
+        presented_frame,
     )
     steering_events = UserInputEvents(
         [GamepadUserInputEvent(timestamp=np.uint64(0), axes=(-0.2, -1.0))]
@@ -522,6 +532,7 @@ def test_interactive_drive_hud_draws_imgui_controls_and_images(
     assert ui.checkbox_labels == []
     # Positive steering means left, so the HUD wheel rotates counterclockwise.
     assert loop.state.wheel_cache_angle == 36
+    assert presented_channels == [1, 0]
     assert model_loop.state.drive_input.command().throttle == 0.0
 
     model_loop._apply_events(steering_events)

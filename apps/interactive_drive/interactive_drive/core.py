@@ -114,7 +114,6 @@ class DriveTelemetry:
     variant: str
     postprocess_enabled: bool
     model_loop_ms: float
-    bev_frame: Any | None = None
 
 
 @dataclass(slots=True)
@@ -243,10 +242,9 @@ class InteractiveDriveModelState:
             )
 
     def _publish_drive_telemetry(self, chunk: FrameChunk, model_loop_ms: float) -> None:
-        """Send controls, vehicle state, chunk metrics, and BEV to the UI."""
+        """Send controls, vehicle state, and chunk metrics to the UI."""
         if self.ui_loop is None or self.vehicle is None:
             return
-        bev_frame = chunk.frames[-1].bev_host_uint8 if chunk.frames else None
         telemetry = DriveTelemetry(
             speed_mps=self.vehicle.speed_mps,
             reverse=self.last_command.reverse or self.vehicle.speed_mps < -0.01,
@@ -256,7 +254,6 @@ class InteractiveDriveModelState:
             variant=self.config.app.variant,
             postprocess_enabled=self.postprocess_enabled,
             model_loop_ms=model_loop_ms,
-            bev_frame=bev_frame,
         )
         invoke_async(
             self.ui_loop,
@@ -331,37 +328,9 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
                     metrics={},
                 )
             )
-            if state.ui_loop is not None:
-                telemetry_frame = self._PresentedBevFrame(
-                    ui_loop=state.ui_loop,
-                    fallback=chunk.frames[-1].bev_host_uint8,
-                )
-                chunk = replace(
-                    chunk,
-                    frames=(
-                        *chunk.frames[:-1],
-                        replace(chunk.frames[-1], bev_host_uint8=telemetry_frame),
-                    ),
-                )
         model_loop_ms = (time.perf_counter() - step_started_at) * 1000.0
         state._publish_drive_telemetry(chunk, model_loop_ms)
         return results
-
-    @dataclass(frozen=True, slots=True)
-    class _PresentedBevFrame:
-        """Resolve the BEV image at the UI's current presentation frame."""
-
-        ui_loop: Any
-        fallback: Any
-
-        def to_numpy(self) -> Any:
-            try:
-                frame = self.ui_loop.presented_model_frame(1)
-            except IndexError:
-                frame = None
-            if frame is None:
-                return self.fallback
-            return frame.permute(1, 2, 0).detach().cpu().numpy()
 
     @staticmethod
     def _bev_chunk_tensor(chunk: FrameChunk) -> Tensor | None:

@@ -155,12 +155,12 @@ uv run --package flashdreams-omnidreams interactive-drive-configuration
 
 # Run in a browser. The first run can take a while to autotune.
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-    interactive-drive --mode webrtc --host 0.0.0.0 --port 8089
+    interactive-drive-omnidreams --mode webrtc --host 0.0.0.0 --port 8089
 
 # Or write a bounded rollout to MP4.
 mkdir -p outputs
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-    interactive-drive --mode mp4 \
+    interactive-drive-omnidreams --mode mp4 \
     --output-path outputs/interactive-drive.mp4 -- --total-blocks 10
 ```
 
