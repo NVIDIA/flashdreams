@@ -23,6 +23,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -137,6 +138,15 @@ class TaxiHudState:
     map_options: tuple[GameMapOption, ...] = ()
     """Lightweight authored-map choices supplied by the application."""
 
+    initial_game_mode: GameMode | None = None
+    """Mode selected explicitly by CLI, skipping the mode screen."""
+
+    initial_map_path: Path | None = None
+    """Map selected explicitly by CLI, skipping the map screen."""
+
+    initial_race_course_id: str | None = None
+    """Race course selected explicitly by CLI, skipping the course screen."""
+
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
 
@@ -182,11 +192,14 @@ class TaxiHudState:
     _loading_started_at_s: float = field(default_factory=time.monotonic)
     """Monotonic timestamp used to make startup progress visibly live."""
 
-    _menu_stage: Literal["mode", "map", "loading", "game"] = "mode"
+    _menu_stage: Literal["mode", "map", "course", "loading", "game"] = "mode"
     """Current startup screen owned by the UI thread."""
 
     _selected_game_mode: GameMode | None = None
     """Mode chosen on the first screen while the map screen is visible."""
+
+    _selected_map_option: GameMapOption | None = None
+    """Map chosen before the separate race-course screen."""
 
     _profile_pressed: set[str] = field(default_factory=set)
     """Normalized drive keys currently held according to UI-thread events."""
@@ -216,7 +229,11 @@ class TaxiHudState:
 
     def select_presented_frame(self, frame: Tensor) -> TaxiHudFrame | None:
         """Select the HUD snapshot aligned with ``frame`` when available."""
-        if self.model_loop is not None and self._menu_stage in {"mode", "map"}:
+        if self.model_loop is not None and self._menu_stage in {
+            "mode",
+            "map",
+            "course",
+        }:
             return None
         selected = self._frames.get(int(frame.data_ptr()))
         if selected is not None:
@@ -319,17 +336,39 @@ class TaxiHudState:
         self.calibration = calibration
         self._menu_stage = "loading"
 
+    def initialize_selection(self) -> None:
+        """Skip selection screens whose values were supplied explicitly by CLI."""
+        selected_path = self.initial_map_path
+        if selected_path is not None:
+            resolved = selected_path.expanduser().resolve()
+            self._selected_map_option = next(
+                (option for option in self.map_options if option.path == resolved),
+                None,
+            )
+            if self._selected_map_option is None:
+                raise ValueError(f"CLI-selected map is unavailable: {resolved}")
+        self._selected_game_mode = self.initial_game_mode
+        if self._selected_game_mode is None:
+            self._menu_stage = "mode"
+            return
+        self._continue_after_mode_selection()
+
     def _handle_escape(self) -> None:
         model_loop = self.model_loop
         if self._menu_stage == "game":
             self.reset()
+            self._selected_map_option = None
             self._menu_stage = "map"
             if model_loop is not None:
                 invoke_async(
                     model_loop,
                     lambda model_state: model_state.return_to_map_menu(),
                 )
+        elif self._menu_stage == "course":
+            self._selected_map_option = None
+            self._menu_stage = "map"
         elif self._menu_stage == "map":
+            self._selected_map_option = None
             self._selected_game_mode = None
             self._menu_stage = "mode"
         elif self._menu_stage == "mode" and model_loop is not None:
@@ -340,9 +379,34 @@ class TaxiHudState:
 
     def _select_mode(self, mode: GameMode) -> None:
         self._selected_game_mode = mode
-        self._menu_stage = "map"
+        self._continue_after_mode_selection()
 
-    def _select_game(
+    def _continue_after_mode_selection(self) -> None:
+        option = self._selected_map_option
+        if option is None:
+            self._menu_stage = "map"
+            return
+        self._continue_after_map_selection(option)
+
+    def _select_map(self, option: GameMapOption) -> None:
+        self._selected_map_option = option
+        self._continue_after_map_selection(option)
+
+    def _continue_after_map_selection(self, option: GameMapOption) -> None:
+        mode = self._selected_game_mode
+        if mode is None:
+            self._menu_stage = "mode"
+            return
+        if mode == "taxi":
+            self._start_game(option)
+            return
+        course_id = self.initial_race_course_id
+        if course_id is not None and course_id in option.race_course_ids:
+            self._start_game(option, race_course_id=course_id)
+            return
+        self._menu_stage = "course"
+
+    def _start_game(
         self,
         option: GameMapOption,
         *,
@@ -350,7 +414,7 @@ class TaxiHudState:
     ) -> None:
         mode = self._selected_game_mode
         model_loop = self.model_loop
-        if mode is None or model_loop is None or self._menu_stage != "map":
+        if mode is None or model_loop is None:
             return
         selection = GameSelection(
             mode=mode,
@@ -432,6 +496,9 @@ class TaxiHudState:
             return
         if self._menu_stage == "map":
             self._draw_map_selection(imgui)
+            return
+        if self._menu_stage == "course":
+            self._draw_course_selection(imgui)
             return
         hud_frame = self._current
         if hud_frame is None:
@@ -598,12 +665,7 @@ class TaxiHudState:
             size=(window_width, window_height),
             alpha=0.94,
         )
-        title = (
-            "Crazy Robotaxi — Select Map"
-            if mode == "taxi"
-            else "Crazy Robotaxi — Select Map & Race Course"
-        )
-        visible = _begin_window(imgui, title)
+        visible = _begin_window(imgui, "Crazy Robotaxi — Select Map")
         try:
             if not visible:
                 return
@@ -612,24 +674,53 @@ class TaxiHudState:
                 self._menu_stage = "mode"
                 return
             imgui.text("ESC: BACK")
-            imgui.text("SELECT MAP" if mode == "taxi" else "SELECT MAP & RACE COURSE")
+            imgui.text("SELECT MAP")
             available = False
             for index, option in enumerate(self.map_options):
-                if mode == "taxi":
-                    available = True
-                    if imgui.button(f"{option.name}##map-{index}"):
-                        self._select_game(option)
-                    continue
-                if not option.race_course_ids:
+                if mode == "race" and not option.race_course_ids:
                     continue
                 available = True
-                imgui.text(option.name)
-                for course_index, course_id in enumerate(option.race_course_ids):
-                    label = course_id.replace("-", " ").replace("_", " ").upper()
-                    if imgui.button(f"{label}##course-{index}-{course_index}"):
-                        self._select_game(option, race_course_id=course_id)
+                if imgui.button(f"{option.name}##map-{index}"):
+                    self._select_map(option)
             if not available:
                 imgui.text("NO COMPATIBLE MAPS FOUND")
+        finally:
+            imgui.end()
+
+    def _draw_course_selection(self, imgui: Any) -> None:
+        option = self._selected_map_option
+        if self._selected_game_mode != "race":
+            self._menu_stage = "map"
+            return
+        if option is None:
+            self._menu_stage = "map"
+            return
+        window_width = max(1.0, min(620.0, float(self.width) - 28.0))
+        window_height = max(1.0, min(420.0, float(self.height) - 28.0))
+        _prepare_window(
+            imgui,
+            position=(
+                max(14.0, (self.width - window_width) / 2.0),
+                max(14.0, (self.height - window_height) / 2.0),
+            ),
+            size=(window_width, window_height),
+            alpha=0.94,
+        )
+        visible = _begin_window(imgui, "Crazy Robotaxi — Select Race Course")
+        try:
+            if not visible:
+                return
+            if imgui.button("BACK"):
+                self._selected_map_option = None
+                self._menu_stage = "map"
+                return
+            imgui.text("ESC: BACK")
+            imgui.text(option.name)
+            imgui.text("SELECT RACE COURSE")
+            for course_index, course_id in enumerate(option.race_course_ids):
+                label = course_id.replace("-", " ").replace("_", " ").upper()
+                if imgui.button(f"{label}##course-{course_index}"):
+                    self._start_game(option, race_course_id=course_id)
         finally:
             imgui.end()
 

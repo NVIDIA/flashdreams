@@ -719,7 +719,7 @@ def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
     ]
 
 
-def test_race_menu_selects_map_and_course_together() -> None:
+def test_race_menu_selects_map_then_course() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
@@ -739,7 +739,11 @@ def test_race_menu_selects_map_and_course_together() -> None:
     imgui = _FakeImGui()
     imgui.clicked_buttons.add("RACE")
     state.draw(imgui)
-    imgui.clicked_buttons = {"DOWNTOWN SPRINT##course-0-0"}
+    imgui.clicked_buttons = {"Test City##map-0"}
+
+    state.draw(imgui)
+    assert state._menu_stage == "course"
+    imgui.clicked_buttons = {"DOWNTOWN SPRINT##course-0"}
 
     state.draw(imgui)
     model_loop._run_message_batch()
@@ -751,6 +755,68 @@ def test_race_menu_selects_map_and_course_together() -> None:
             race_course_id="downtown-sprint",
         )
     ]
+
+
+def test_complete_cli_selection_skips_all_selection_screens() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml").resolve(),
+        variant="default",
+        race_course_ids=("downtown-sprint",),
+    )
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        map_options=(option,),
+        initial_game_mode="race",
+        initial_map_path=option.path,
+        initial_race_course_id="downtown-sprint",
+    )
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+
+    state.initialize_selection()
+
+    assert state._menu_stage == "loading"
+    model_loop._run_message_batch()
+    assert model_loop.state.selections == [
+        GameSelection(
+            mode="race",
+            map_option=option,
+            race_course_id="downtown-sprint",
+        )
+    ]
+
+
+def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml").resolve(),
+        variant="default",
+        race_course_ids=("downtown-sprint",),
+    )
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        map_options=(option,),
+        initial_game_mode="race",
+        initial_map_path=option.path,
+    )
+
+    state.initialize_selection()
+
+    assert state._menu_stage == "course"
+    assert state._selected_map_option is option
 
 
 def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:

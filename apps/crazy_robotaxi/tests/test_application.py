@@ -54,6 +54,13 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
+_DEMO_RACE_MAP = (
+    Path(__file__).parents[1]
+    / "crazy_robotaxi"
+    / "maps"
+    / "demo_race_track.robotaxi.yaml"
+)
+
 
 def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
     calibration = CameraCalibration(
@@ -144,6 +151,39 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert not model_loop.state.game_selected
     model_loop.state.request_exit()
     assert model_loop.is_finished()
+
+
+def test_complete_cli_game_selection_starts_without_menus() -> None:
+    app = CrazyRobotaxiApplication(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--game-mode",
+            "race",
+            "--map",
+            str(_DEMO_RACE_MAP),
+            "--race-course",
+            "grand-prix",
+        ]
+    )
+    assert app._config is not None
+    assert app._config.cli_game_mode == "race"
+    assert app._config.cli_map_path == _DEMO_RACE_MAP.resolve()
+    assert app._config.cli_race_course_id == "grand-prix"
+
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+
+    assert ui_loop.state._menu_stage == "loading"
+    model_loop._run_message_batch()
+    assert model_loop.state.game_selected
+    assert model_loop.state.config.game_mode == "race"
+    assert model_loop.state.config.race_course_id == "grand-prix"
 
 
 def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:

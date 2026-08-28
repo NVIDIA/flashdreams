@@ -482,6 +482,9 @@ class CrazyRobotaxiSession(ISession):
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
             map_options=self._map_options,
+            initial_game_mode=self._config.cli_game_mode,
+            initial_map_path=self._config.cli_map_path,
+            initial_race_course_id=self._config.cli_race_course_id,
         )
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiImGuiUILoop,
@@ -502,6 +505,7 @@ class CrazyRobotaxiSession(ISession):
             ),
         )
         hud_state.model_loop = model_loop
+        hud_state.initialize_selection()
 
 
 def _record_ready_event(video: torch.Tensor) -> torch.cuda.Event | None:

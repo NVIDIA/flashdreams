@@ -39,7 +39,7 @@ from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
 from crazy_robotaxi.config import CrazyRobotaxiSettings, load_game_settings
-from crazy_robotaxi.game_selection import GameMapOption
+from crazy_robotaxi.game_selection import GameMapOption, GameMode
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
     LiveEditConfig,
@@ -138,6 +138,15 @@ class ApplicationConfig:
 
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
+
+    cli_game_mode: GameMode | None = None
+    """Game mode supplied explicitly on the command line, if any."""
+
+    cli_map_path: Path | None = None
+    """Map supplied explicitly on the command line, if any."""
+
+    cli_race_course_id: str | None = None
+    """Race course supplied explicitly on the command line, if any."""
 
     game_mode: Literal["taxi", "race"] = "taxi"
     """Rules mode selected for every session created by the application."""
@@ -287,6 +296,19 @@ class CrazyRobotaxiApplication(IApplication):
             prewarm_blocks=engine_settings.runtime.prewarm_blocks,
             profile_input_latency=engine_settings.runtime.profile_input_latency,
             show_fps=engine_settings.presentation.show_fps,
+            cli_game_mode=(
+                game_settings.mode if arg_was_explicit(args, "game_mode") else None
+            ),
+            cli_map_path=(
+                map_path.expanduser().resolve()
+                if arg_was_explicit(args, "map")
+                else None
+            ),
+            cli_race_course_id=(
+                game_settings.race.course
+                if arg_was_explicit(args, "race_course")
+                else None
+            ),
             game_mode=game_settings.mode,
             race_course_id=game_settings.race.course,
             race_times_path=(
