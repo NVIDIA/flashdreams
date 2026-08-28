@@ -51,13 +51,16 @@ integrations are:
 - :doc:`/models/causal_forcing` — Streaming Wan 2.1 T2V / I2V (1.3B).
 - :doc:`/models/causal_wan22` — FastVideo Causal Wan 2.2 14B MoE T2V.
 - :doc:`/models/lingbot_world` — Camera-controllable I2V world model.
+- :doc:`/models/lingbot_va` — Offline autoregressive RoboTwin
+  video-and-action rollout.
 - :doc:`/models/flashvsr` — Streaming video super-resolution.
 - :doc:`/models/wan21` — Bidirectional Wan 2.1 T2V / I2V reference.
 - :doc:`/models/cosmos_predict2` — Bidirectional Cosmos-Predict2.5
   T2V / I2V reference.
 
 Each model page has the canonical CLI invocation, checkpoint source,
-multi-GPU command, and per-method knobs.
+requirements, and per-method knobs. Pages include multi-GPU commands where the
+integration supports them.
 
 Installation and packaging
 --------------------------

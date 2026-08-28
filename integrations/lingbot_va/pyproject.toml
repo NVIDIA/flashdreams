@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Hongyu Zhou
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-lingbot-va"
+version = "0.1.0"
+description = "LingBot-VA Robotwin I2AV model integration for FlashDreams V2 applications."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    # The engine uses Wan VAE private streaming fields; retest before widening.
+    "diffusers>=0.38,<0.39",
+    "einops",
+    "numpy>=1.24,<2.5",
+    "Pillow>=10",
+    "transformers>=5.0,<6",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "matplotlib>=3.8",
+    "pytest>=8.0",
+]
+visualization = [
+    "matplotlib>=3.8",
+]
+
+[project.scripts]
+lingbot-va-visualize-actions = "lingbot_va.action_artifact:main"
+
+[tool.setuptools.packages.find]
+include = ["lingbot_va*"]
+exclude = ["tests"]
+
+[tool.uv]
+managed = true
