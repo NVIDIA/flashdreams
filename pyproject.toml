@@ -44,6 +44,8 @@ override-dependencies = [
 no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
+exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
+ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 extraPaths = [
     "flashdreams",
     "apps",
@@ -59,6 +61,7 @@ extraPaths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations/waypoint",
     "integrations_v2/color_fade",
     "integrations_v2/cam2v_lingbot",
     "integrations_v2/null_model",
@@ -69,6 +72,7 @@ extraPaths = [
     "integrations_v2/t2v_self_forcing",
     "integrations_v2/t2v_wan21",
     "integrations_v2/slangpy_ui_demo",
+    "integrations_v2/waypoint",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -94,6 +98,7 @@ extra-paths = [
     "integrations/self_forcing",
     "integrations/wan21",
     "integrations/wan22",
+    "integrations/waypoint",
     "integrations_v2/color_fade",
     "integrations_v2/cam2v_lingbot",
     "integrations_v2/null_model",
@@ -104,6 +109,7 @@ extra-paths = [
     "integrations_v2/t2v_self_forcing",
     "integrations_v2/t2v_wan21",
     "integrations_v2/slangpy_ui_demo",
+    "integrations_v2/waypoint",
 ]
 
 [tool.ty.src]
@@ -153,6 +159,7 @@ markers = [
 # flashdreams/_pytest_plugins.
 test = [
     "pytest>=8.0",
+    "pytest-benchmark>=5.1",
     "pytest-asyncio>=0.23",
     "pytest-manual-marker>=2.0",
     "tomli>=2.0",
@@ -160,6 +167,7 @@ test = [
 ]
 lint = [
     "pre-commit>=4.3.0",
+    "ruff==0.12.7",
     "sphinx>=7.0",
     "ty>=0.0.39",
     {include-group = "test"},
@@ -192,4 +200,7 @@ docs-ci = [
     "safetensors>=0.4",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
+]
+dev = [
+    "python-dotenv>=1.2.2",
 ]

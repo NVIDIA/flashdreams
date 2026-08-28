@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Streaming causal decoder for TAEHV (Tiny AutoEncoder for Hunyuan Video)."""
+"""Streaming causal TAEHV encoder and decoder."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -28,6 +28,7 @@ from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
 from flashdreams.infra.decoder import StreamingDecoderCache
+from flashdreams.infra.encoder import StreamingEncoderCache
 from flashdreams.recipes.taehv.checkpoint import (
     StateDictTransform,
     compose,
@@ -46,6 +47,19 @@ class TAEHVCache(StreamingDecoderCache):
     """
 
     dec_state: Dict[int, torch.Tensor] = field(default_factory=dict)
+
+
+@dataclass
+class TAEHVEncoderCache(StreamingEncoderCache):
+    """Streaming encoder work queue and per-layer causal state."""
+
+    enc_state: list[torch.Tensor | list[torch.Tensor] | None] = field(
+        default_factory=list
+    )
+    """Causal ``MemBlock`` frames and partial ``TPool`` groups per encoder layer."""
+
+    work_queue: list[tuple[torch.Tensor, int]] = field(default_factory=list)
+    """Pending ``(frame, block_index)`` items in causal evaluation order."""
 
 
 def _conv(n_in: int, n_out: int, **kwargs) -> nn.Conv2d:
@@ -118,6 +132,19 @@ class TGrow(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _NT, C, H, W = x.shape
         return self.conv(x).reshape(-1, C, H, W)
+
+
+class TPool(nn.Module):
+    """Temporal downsample by ``stride`` (channel-pack + projection)."""
+
+    def __init__(self, n_f: int, stride: int):
+        super().__init__()
+        self.stride = stride
+        self.conv = nn.Conv2d(n_f * stride, n_f, 1, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _NT, C, H, W = x.shape
+        return self.conv(x.reshape(-1, self.stride * C, H, W))
 
 
 class Decoder(nn.Module):
@@ -224,18 +251,119 @@ class Decoder(nn.Module):
                 x = blk(x)
 
 
+class Encoder(nn.Module):
+    """TAEHV encoder body with causal temporal pools and memory blocks."""
+
+    def __init__(
+        self,
+        latent_channels: int,
+        image_channels: int,
+        patch_size: int,
+        act_func: nn.Module,
+    ):
+        super().__init__()
+        self.blocks = nn.Sequential(
+            _conv(image_channels * patch_size**2, 64),
+            act_func,
+            TPool(64, 2),
+            _conv(64, 64, stride=2, bias=False),
+            MemBlock(64, 64, act_func),
+            MemBlock(64, 64, act_func),
+            MemBlock(64, 64, act_func),
+            TPool(64, 2),
+            _conv(64, 64, stride=2, bias=False),
+            MemBlock(64, 64, act_func),
+            MemBlock(64, 64, act_func),
+            MemBlock(64, 64, act_func),
+            TPool(64, 1),
+            _conv(64, 64, stride=2, bias=False),
+            MemBlock(64, 64, act_func),
+            MemBlock(64, 64, act_func),
+            MemBlock(64, 64, act_func),
+            _conv(64, latent_channels),
+        )
+
+    def initialize_state(
+        self, state: list[torch.Tensor | list[torch.Tensor] | None]
+    ) -> None:
+        """Populate empty per-layer causal encoder state."""
+        state[:] = [None] * len(self.blocks)
+
+    def _advance_work_queue(
+        self,
+        state: list[torch.Tensor | list[torch.Tensor] | None],
+        work_queue: list[tuple[torch.Tensor, int]],
+    ) -> torch.Tensor | None:
+        """Advance queued work until one latent frame is ready."""
+        while work_queue:
+            x, block_index = work_queue.pop(0)
+            if block_index == len(self.blocks):
+                return x.unsqueeze(1)
+
+            block = self.blocks[block_index]
+            if isinstance(block, MemBlock):
+                past = cast(torch.Tensor | None, state[block_index])
+                state[block_index] = x
+                x = block(x, x * 0 if past is None else past)
+                work_queue.insert(0, (x, block_index + 1))
+            elif isinstance(block, TPool):
+                group = cast(list[torch.Tensor] | None, state[block_index])
+                if group is None:
+                    group = []
+                    state[block_index] = group
+                group = cast(list[torch.Tensor], group)
+                group.append(x)
+                if len(group) == block.stride:
+                    state[block_index] = []
+                    batch, channels, height, width = x.shape
+                    x = block(
+                        torch.cat(group, dim=1).view(
+                            batch * block.stride, channels, height, width
+                        )
+                    )
+                    work_queue.insert(0, (x, block_index + 1))
+                elif len(group) > block.stride:
+                    raise RuntimeError("TAEHV TPool cache overflow.")
+            else:
+                work_queue.insert(0, (block(x), block_index + 1))
+        return None
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        state: list[torch.Tensor | list[torch.Tensor] | None],
+        work_queue: list[tuple[torch.Tensor, int]],
+    ) -> torch.Tensor:
+        """Encode a frame chunk with causal ``MemBlock`` and ``TPool`` state.
+
+        ``x`` has shape ``[B, T, C, H, W]``. Incomplete temporal groups remain
+        in ``work_queue`` / ``state`` and can therefore yield an empty ``T``
+        dimension.
+        """
+        work_queue.extend((frame, 0) for frame in x.unbind(dim=1))
+
+        outputs: list[torch.Tensor] = []
+        while (output := self._advance_work_queue(state, work_queue)) is not None:
+            outputs.append(output)
+        if outputs:
+            return torch.cat(outputs, dim=1)
+        output_projection = cast(nn.Conv2d, self.blocks[-1])
+        return x.new_empty(
+            x.shape[0],
+            0,
+            output_projection.out_channels,
+            x.shape[-2] // 8,
+            x.shape[-1] // 8,
+        )
+
+
 class TAEHV(nn.Module):
-    """TAEHV streaming decode-only network.
+    """TAEHV streaming network with configurable decoder and encoder.
 
-    Loads a TAEHV checkpoint and exposes ``decode``. Encoder weights in the
-    checkpoint are silently dropped. With ``use_cuda_graph=True``, rollout 1
-    drains Inductor autotune on the eager path; rollout 2 warms up and
-    captures, after which same-shape body chunks replay.
-
-    Supported ``model_type``: ``"wan21"`` (default; ReLU, patch_size=1,
-    latent_channels=16) and ``"wan22"`` (ReLU, patch_size=2,
-    latent_channels=48). The legacy ``"hy15"`` and ``"taecvx"`` variants are
-    not ported.
+    Loads a TAEHV checkpoint and exposes ``decode`` and ``encode``. With
+    ``use_cuda_graph=True``, rollout 1 drains Inductor autotune on the eager
+    path; rollout 2 warms up and captures, after which same-shape body chunks
+    replay.
 
     Examples:
 
@@ -268,10 +396,11 @@ class TAEHV(nn.Module):
     TEMPORAL_COMPRESSION_RATIO = 4
     SPATIAL_COMPRESSION_RATIO = 8
 
-    SUPPORTED_MODEL_TYPES = ("wan21", "wan22")
+    SUPPORTED_MODEL_TYPES = ("wan21", "wan22", "hy1_5")
 
-    # Concrete type so ``self.decoder`` access doesn't go through
+    # Concrete types so module access doesn't go through
     # ``nn.Module.__getattr__``'s ``Tensor | Module``.
+    encoder: "Encoder"
     decoder: "Decoder"
 
     def __init__(
@@ -288,14 +417,16 @@ class TAEHV(nn.Module):
         use_compile: bool = False,
         warmup_iters: int = 2,
         state_dict_transform: StateDictTransform | None = None,
+        *,
+        enable_encoder: bool = False,
     ):
         super().__init__()
         if model_type not in self.SUPPORTED_MODEL_TYPES:
             raise ValueError(
                 f"TAEHV: model_type={model_type!r} is not supported by this slim "
                 f"impl (supported: {self.SUPPORTED_MODEL_TYPES}). The legacy "
-                f"'hy15' / 'taecvx' branches (different activation, clamp range, "
-                f"or trim semantics) were dropped in the decode-only refactor."
+                f"'taecvx' branches (different activation, clamp range, "
+                f"or trim semantics) were dropped in the refactor."
             )
         if checkpoint_path is not None and "taecvx" in checkpoint_path:
             raise ValueError(
@@ -304,6 +435,8 @@ class TAEHV(nn.Module):
             )
         if model_type == "wan22":
             patch_size, latent_channels = 2, 48
+        elif model_type == "hy1_5":
+            patch_size, latent_channels = 2, 32
         act_func = nn.ReLU(inplace=True)
 
         self.patch_size = patch_size
@@ -327,6 +460,10 @@ class TAEHV(nn.Module):
                 decoder_space_upscale=decoder_space_upscale,
                 act_func=act_func,
             )
+            if enable_encoder:
+                self.encoder = Encoder(
+                    latent_channels, self.image_channels, patch_size, act_func
+                )
 
         # Runtime knobs consumed by ``load_from_checkpoint``; stashed here
         # so subclasses that defer the load (``checkpoint_path=None``)
@@ -380,9 +517,22 @@ class TAEHV(nn.Module):
             )
         sd = load_checkpoint(checkpoint_path)
         sd = state_dict_transform(sd)
-        # assign=True: meta params become the checkpoint tensors directly;
-        # strict=False: silently drop encoder-only weights.
+        # ``assign=True`` moves checkpoint tensors into meta parameters directly;
+        # ``strict=False`` lets decoder-only instances ignore encoder weights.
         self.load_state_dict(sd, strict=False, assign=True)
+        meta_tensors = [
+            f"parameter {name}"
+            for name, parameter in self.named_parameters()
+            if parameter.is_meta
+        ]
+        meta_tensors.extend(
+            f"buffer {name}" for name, buffer in self.named_buffers() if buffer.is_meta
+        )
+        if meta_tensors:
+            raise RuntimeError(
+                "TAEHV checkpoint left module tensors on meta: "
+                f"{meta_tensors[:5]} ({len(meta_tensors)} total)"
+            )
 
         self.eval().requires_grad_(False)
 
@@ -419,6 +569,40 @@ class TAEHV(nn.Module):
             assert self._decoder_wrapper is not None
             self._decoder_wrapper.reset()
         return TAEHVCache()
+
+    def prepare_encoder_cache(self) -> TAEHVEncoderCache:
+        """Return a fresh cache for a causal streaming encode rollout."""
+        cache = TAEHVEncoderCache()
+        self.encoder.initialize_state(cache.enc_state)
+        return cache
+
+    @torch.no_grad()
+    def encode(
+        self,
+        x: torch.Tensor,
+        cache: TAEHVEncoderCache | None = None,
+    ) -> torch.Tensor:
+        """Encode pixel frames in ``[0, 1]`` with causal temporal pooling.
+
+        Frames that do not complete the encoder's temporal factor remain in
+        ``cache`` for the next call. The returned tensor can therefore have zero
+        time frames when the caller submits an incomplete temporal group.
+        """
+        if cache is None:
+            cache = self.prepare_encoder_cache()
+
+        batch, _time, _channels, height, width = x.shape
+        if self.patch_size > 1:
+            x = F.pixel_unshuffle(
+                x.reshape(-1, x.shape[2], height, width), self.patch_size
+            ).reshape(
+                batch,
+                -1,
+                self.image_channels * self.patch_size**2,
+                height // self.patch_size,
+                width // self.patch_size,
+            )
+        return self.encoder(x, cache.enc_state, cache.work_queue)
 
     @torch.inference_mode()
     def decode(

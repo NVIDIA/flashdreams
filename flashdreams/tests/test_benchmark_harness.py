@@ -660,9 +660,12 @@ def test_shipped_v2_model_scenarios_load(tmp_path: Path) -> None:
         assert "--stats-path" in scenario.command
         assert _command_value(scenario.command, "--seed") == "1"
 
-    # One prompt across every model, or the clips are not comparable.
+    # One prompt across every text-to-video model, or the clips are not
+    # comparable.
     prompts = {
-        _command_value(scenario.command, "--prompt") for scenario in scenarios.values()
+        _command_value(scenario.command, "--prompt")
+        for scenario in scenarios.values()
+        if "t2v" in scenario.tags
     }
     assert len(prompts) == 1
 
@@ -716,6 +719,32 @@ def test_shipped_v2_model_scenarios_load(tmp_path: Path) -> None:
         assert _command_value(single_block.command, "--total-blocks") == "1"
         assert single_block.warmup_steps == 0
         assert "pai-bench" in single_block.tags
+
+    cam2v_quality = scenarios["cam2v-lingbot-quality-10s"]
+    cam2v_one_minute = scenarios["cam2v-lingbot-one-minute"]
+    for cam2v in (cam2v_quality, cam2v_one_minute):
+        # A camera-to-video model is conditioned on a first frame its prompt
+        # belongs with, so it pins that example rather than taking the shared
+        # prompt, and the same example across both lengths.
+        assert "--prompt" not in cam2v.command
+        assert "--example-data" in cam2v.command
+        assert _command_value(cam2v.command, "--example-idx") == "0"
+        # The overlay draws live timing over the model output, which would land
+        # in the clip the comparison reads.
+        assert "--no-ui" in cam2v.command
+        assert cam2v.report_group is not None
+        assert cam2v.report_group.id == "cam2v-lingbot"
+
+    # The same block counts as the streaming text-to-video models, which reach
+    # the same lengths: three latent frames a block through a decoder
+    # compressing four to one is 9 frames then 12, at 16 frames per second.
+    assert _command_value(cam2v_quality.command, "--total-blocks") == "14"
+    assert cam2v_quality.env["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+    assert cam2v_quality.quality_compare_region == "full"
+    assert _command_value(cam2v_one_minute.command, "--total-blocks") == "81"
+    assert "one-minute" in cam2v_one_minute.tags
+    assert cam2v_one_minute.quality_baseline_compare is False
+    assert "CUBLAS_WORKSPACE_CONFIG" not in cam2v_one_minute.env
 
 
 def test_strict_run_can_launch_either_api() -> None:

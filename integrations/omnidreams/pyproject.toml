@@ -119,6 +119,12 @@ interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app
 [project.entry-points."flashdreams.runner_configs"]
 "omnidreams" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE"
 "omnidreams-perf" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF"
+"omnidreams-optimized-gb300" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_OPTIMIZED_GB300"
+"omnidreams-optimized-rtx-pro-6000" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_OPTIMIZED_RTX_PRO_6000"
+"omnidreams-cuda-cudnn" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_CUDA_CUDNN"
+"omnidreams-cuda-sparge" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_CUDA_SPARGE"
+"omnidreams-cuda-sage3" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_CUDA_SAGE3"
+"omnidreams-cuda-sage3fp8" = "omnidreams.config:RUNNER_SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_CUDA_SAGE3_FP8"
 
 [tool.setuptools.packages.find]
 include = ["omnidreams*"]

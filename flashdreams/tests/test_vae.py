@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from typing import Literal
+from unittest.mock import patch
 
 import mediapy
 import pytest
@@ -21,9 +22,13 @@ import torch
 
 from flashdreams.recipes.taehv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
+    Hy15TAEHVDecoderConfig,
+    Hy15TAEHVEncoderConfig,
     TeahvVAEDecoder,
     TeahvVAEDecoderConfig,
 )
+from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
+from flashdreams.recipes.taehv.impl import TAEHV
 from flashdreams.recipes.wan.autoencoder.vae import (
     AVAILABLE_WAN_VAE_CHECKPOINT_PATHS,
     WanVAEDecoder,
@@ -31,6 +36,65 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEEncoder,
     WanVAEEncoderConfig,
 )
+
+
+@pytest.mark.ci_cpu
+def test_hy15_taehv_checkpoint_layout_is_a_full_bijection() -> None:
+    """The Hunyuan Video 1.5 architecture matches the TAEHV checkpoint layout.
+
+    Builds both branches on ``meta`` and recreates the published flat decoder
+    naming convention. This guards the 32-channel / patch-2 architecture and
+    verifies that the generic TAEHV remap covers every parameter without a
+    checkpoint download.
+    """
+    with torch.device("meta"):
+        codec = TAEHV(
+            checkpoint_path=None,
+            model_type="hy1_5",
+            enable_encoder=True,
+            use_cuda_graph=False,
+        )
+    model = codec.state_dict()
+    raw: dict[str, torch.Tensor] = {}
+    for key, value in model.items():
+        for prefix in ("encoder.blocks.", "decoder.blocks."):
+            if key.startswith(prefix):
+                key = key.replace(prefix, prefix.replace(".blocks.", "."), 1)
+                break
+        raw[key] = value
+    transformed = legacy_to_blocks_keys(raw)
+
+    assert len(model) == len(transformed) == 128
+    assert set(model) == set(transformed)
+    assert all(model[key].shape == transformed[key].shape for key in model)
+    assert tuple(model["encoder.blocks.0.weight"].shape) == (64, 12, 3, 3)
+    assert tuple(model["decoder.blocks.1.weight"].shape) == (256, 32, 3, 3)
+    assert tuple(model["decoder.blocks.22.weight"].shape) == (12, 64, 3, 3)
+
+
+@pytest.mark.ci_cpu
+def test_hy15_taehv_configs_select_raw_32_channel_latents() -> None:
+    """The Hunyuan Video 1.5 presets use the published checkpoint unchanged."""
+    encoder = Hy15TAEHVEncoderConfig()
+    decoder = Hy15TAEHVDecoderConfig()
+
+    assert encoder.checkpoint_path == AVAILABLE_TAEHV_CHECKPOINT_PATHS["hy1_5"]
+    assert decoder.checkpoint_path == AVAILABLE_TAEHV_CHECKPOINT_PATHS["hy1_5"]
+    assert encoder.state_dict_transform is legacy_to_blocks_keys
+    assert decoder.state_dict_transform is legacy_to_blocks_keys
+
+
+@pytest.mark.ci_cpu
+def test_taehv_rejects_an_incomplete_meta_checkpoint() -> None:
+    """Permissive key loading must not leave runtime module state on meta."""
+    with torch.device("meta"):
+        codec = TAEHV(checkpoint_path=None, use_cuda_graph=False)
+
+    with (
+        patch("flashdreams.recipes.taehv.impl.load_checkpoint", return_value={}),
+        pytest.raises(RuntimeError, match="left module tensors on meta"),
+    ):
+        codec.load_from_checkpoint("unused", state_dict_transform=dict)
 
 
 @torch.no_grad()

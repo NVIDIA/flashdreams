@@ -42,6 +42,7 @@ warningiserror = True
 # like `[Project governance](#project-governance)` resolve when MD is
 # included via `.. include:: ... :parser: myst_parser.sphinx_`.
 myst_heading_anchors = 3
+myst_enable_extensions = ["dollarmath"]
 
 extensions = [
     "sphinx.ext.napoleon",

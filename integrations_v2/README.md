@@ -20,6 +20,8 @@ follows is already done for you.
   and the reference for writing a UI loop.
 - `cam2v_lingbot` — the Lingbot World specialization of the shared interactive
   camera-to-video application.
+- `waypoint` — the interactive Waypoint 1.5 image-established application
+  with deterministic control replay and live keyboard/mouse input.
 - `t2v_self_forcing`, `t2v_causal_forcing`, `t2v_fastvideo_causal_wan22`,
   `t2v_wan21`, `t2v_cosmos_predict2` — real models, each a thin wrapper over
   `flashdreams.t2v_v2`.
