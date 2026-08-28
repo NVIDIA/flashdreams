@@ -317,6 +317,48 @@ def test_pressed_gamepad_start_requests_a_v2_game_restart() -> None:
         )
     )
 
+def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
+    class RestartRequested(Exception):
+        pass
+
+    snapshot = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(25.0, 0.0, 0.0),
+        distance_m=25.0,
+        relative_bearing_rad=0.0,
+        target_radius_m=5.0,
+        remaining_time_s=None,
+        score=1200,
+        global_remaining_time_s=0.0,
+        session_state="awaiting_name",
+        high_score_rank=1,
+    )
+
+    class ProbeState:
+        game_selected = True
+
+        def __init__(self) -> None:
+            self.driver_input = DriverInput()
+
+        @staticmethod
+        def ensure_rollout() -> object:
+            return SimpleNamespace(engine=SimpleNamespace(current_game_frame=snapshot))
+
+        @staticmethod
+        def restart_game() -> None:
+            raise RestartRequested
+
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="R",
+        state=KeyboardInputState.PRESSED,
+    )
+    loop = CrazyRobotaxiModelLoop()
+    loop.state = cast(Any, ProbeState())
+
+    with pytest.raises(RestartRequested):
+        loop.step(0, UserInputEvents([pressed]))
+
 
 def test_model_input_is_applied_before_rollout_work() -> None:
     class InputOrderVerified(Exception):
@@ -721,8 +763,11 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
 
     assert model_loop.state.ensure_rollout() is rollout
     assert len(rollout.steps) == 4
-    model_loop.state.reset()
+    ui_loop.state._name_input = "DRIVER 7"
+    model_loop.state.restart_game()
+    ui_loop._run_message_batch()
     assert rollout.reset_count == 2
+    assert ui_loop.state._name_input == ""
     assert len(rollout.steps) == 4
 
 

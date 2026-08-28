@@ -1368,67 +1368,235 @@ class TaxiHudState:
         leaderboard = snapshot.session_state == "leaderboard"
         if not (awaiting_name or leaderboard):
             return
+        race = isinstance(snapshot, RaceGameSnapshot)
+        accent_rgb = (
+            (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
+            if race
+            else (118.0 / 255.0, 185.0 / 255.0, 0.0)
+        )
+        margin = 16.0
+        card_width = max(1.0, min(620.0, float(self.width) - 2.0 * margin))
+        card_height = max(1.0, min(540.0, float(self.height) - 2.0 * margin))
+        card_left = (float(self.width) - card_width) * 0.5
+        card_top = (float(self.height) - card_height) * 0.5
+        scale = min(1.0, card_width / 620.0, card_height / 540.0)
+
+        draw_list = imgui.get_background_draw_list()
+        draw_list.add_rect_filled(
+            imgui.ImVec2(0.0, 0.0),
+            imgui.ImVec2(float(self.width), float(self.height)),
+            _imgui_color(imgui, (0.0, 0.0, 0.0, 0.58)),
+        )
         _prepare_window(
             imgui,
-            position=(
-                float(max(20, self.width // 2 - 270)),
-                float(max(20, self.height // 2 - 220)),
-            ),
-            size=(540.0, 440.0),
+            position=(card_left, card_top),
+            size=(card_width, card_height),
+            alpha=0.97,
         )
-        visible = _begin_window(imgui, "Game Over")
+        style_vars = (
+            (imgui.StyleVar_.window_rounding, 16.0),
+            (imgui.StyleVar_.window_border_size, 2.0),
+            (imgui.StyleVar_.window_padding, imgui.ImVec2(28.0, 24.0)),
+            (imgui.StyleVar_.item_spacing, imgui.ImVec2(10.0, 10.0)),
+            (imgui.StyleVar_.frame_rounding, 7.0),
+            (imgui.StyleVar_.frame_padding, imgui.ImVec2(10.0, 8.0)),
+        )
+        style_colors = (
+            (imgui.Col_.window_bg, (0.047, 0.047, 0.071, 0.98)),
+            (imgui.Col_.border, (*accent_rgb, 0.95)),
+            (imgui.Col_.text, (0.94, 0.94, 0.97, 1.0)),
+            (imgui.Col_.text_disabled, (0.58, 0.58, 0.64, 1.0)),
+            (imgui.Col_.frame_bg, (0.09, 0.09, 0.13, 1.0)),
+            (imgui.Col_.frame_bg_hovered, (0.13, 0.13, 0.18, 1.0)),
+            (imgui.Col_.frame_bg_active, (0.16, 0.16, 0.22, 1.0)),
+            (imgui.Col_.button, (*accent_rgb, 0.78)),
+            (imgui.Col_.button_hovered, (*accent_rgb, 1.0)),
+            (imgui.Col_.button_active, (*accent_rgb, 0.62)),
+        )
+        for style_var, value in style_vars:
+            imgui.push_style_var(style_var, value)
+        for color, value in style_colors:
+            imgui.push_style_color(color, imgui.ImVec4(*value))
+        visible = _begin_window(imgui, "Game Over", extra_flags=("no_title_bar",))
         try:
             if not visible:
                 return
-            race = isinstance(snapshot, RaceGameSnapshot)
-            imgui.text(
+            imgui.dummy(imgui.ImVec2(0.0, max(2.0, 8.0 * scale)))
+            headline = (
                 ("NEW BEST TIME" if race else "NEW HIGH SCORE")
                 if awaiting_name
-                else "LEADERBOARD"
+                else ("RACE COMPLETE" if race else "GAME OVER")
+            )
+            _centered_imgui_text(
+                imgui,
+                headline,
+                font=self._gameplay_overlay_font(imgui),
+                font_size=max(22.0, 38.0 * scale),
+                color=(*accent_rgb, 1.0),
+            )
+            _centered_imgui_text(
+                imgui,
+                "FINAL TIME" if race else "FINAL SCORE",
+                font_size=max(13.0, 15.0 * scale),
+                color=(0.62, 0.62, 0.68, 1.0),
             )
             if race:
-                imgui.text(
-                    "FINAL TIME  " + format_race_time_us(snapshot.final_time_us or 0)
-                )
+                result = format_race_time_us(snapshot.final_time_us or 0)
             else:
-                imgui.text(f"FINAL SCORE  {snapshot.score:06d}")
+                result = f"{snapshot.score:06d}"
+            _centered_imgui_text(
+                imgui,
+                result,
+                font=self._gameplay_overlay_font(imgui),
+                font_size=max(28.0, 50.0 * scale),
+            )
             if snapshot.high_score_rank is not None:
-                imgui.text(f"RANK  #{snapshot.high_score_rank}")
+                _centered_imgui_text(
+                    imgui,
+                    f"RANK #{snapshot.high_score_rank}",
+                    font_size=max(13.0, 17.0 * scale),
+                    color=(*accent_rgb, 1.0),
+                )
+            imgui.separator()
             if awaiting_name:
-                disabled = self._submission_pending
-                if disabled:
-                    imgui.begin_disabled()
-                try:
-                    submitted, self._name_input = imgui.input_text(
-                        "Driver name",
-                        self._name_input,
-                        flags=imgui.InputTextFlags_.enter_returns_true,
-                    )
-                    clicked = imgui.button("Submit time" if race else "Submit score")
-                finally:
-                    if disabled:
-                        imgui.end_disabled()
-                if submitted or clicked:
-                    self._submit_name(self._name_input)
-                if self._validation_message:
-                    imgui.text(self._validation_message)
+                self._draw_terminal_name_entry(imgui, race, accent_rgb, scale)
             else:
-                if race:
-                    entries = "\n".join(
-                        f"{rank:>2}. {entry.name:<12} "
-                        f"{format_race_time_us(entry.elapsed_time_us)}"
-                        for rank, entry in enumerate(snapshot.leaderboard, start=1)
-                    )
-                else:
-                    entries = "\n".join(
-                        f"{rank:>2}. {entry.name:<12} {entry.score:>7}"
-                        for rank, entry in enumerate(snapshot.leaderboard, start=1)
-                    )
-                entries = entries or "NO SCORES YET"
-                imgui.text(entries)
-                imgui.text("Press R to play again")
+                self._draw_terminal_leaderboard(imgui, snapshot, race, accent_rgb)
+            imgui.separator()
+            action_width = _point_xy(imgui.get_content_region_avail())[0]
+            if imgui.button(
+                "PLAY AGAIN",
+                imgui.ImVec2(action_width, max(34.0, 44.0 * scale)),
+            ):
+                self._request_restart()
+            _centered_imgui_text(
+                imgui,
+                "R  RESTART   ·   ESC  MAP",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.58, 0.58, 0.64, 1.0),
+            )
         finally:
             imgui.end()
+            imgui.pop_style_color(len(style_colors))
+            imgui.pop_style_var(len(style_vars))
+
+    def _draw_terminal_name_entry(
+        self,
+        imgui: Any,
+        race: bool,
+        accent_rgb: tuple[float, float, float],
+        scale: float,
+    ) -> None:
+        """Draw terminal name entry and submission feedback."""
+        _centered_imgui_text(
+            imgui,
+            "ENTER DRIVER NAME",
+            font_size=max(13.0, 16.0 * scale),
+        )
+        imgui.set_next_item_width(-1.0)
+        disabled = self._submission_pending
+        if disabled:
+            imgui.begin_disabled()
+        try:
+            submitted, self._name_input = imgui.input_text(
+                "##driver-name",
+                self._name_input,
+                flags=imgui.InputTextFlags_.enter_returns_true,
+            )
+            submit_width = _point_xy(imgui.get_content_region_avail())[0]
+            clicked = imgui.button(
+                "SAVE TIME" if race else "SAVE SCORE",
+                imgui.ImVec2(submit_width, max(32.0, 40.0 * scale)),
+            )
+        finally:
+            if disabled:
+                imgui.end_disabled()
+        if submitted or clicked:
+            self._submit_name(self._name_input)
+        if self._validation_message:
+            color = (
+                (*accent_rgb, 1.0)
+                if self._submission_pending
+                else (1.0, 0.38, 0.32, 1.0)
+            )
+            _centered_imgui_text(
+                imgui,
+                self._validation_message,
+                font_size=max(12.0, 13.0 * scale),
+                color=color,
+            )
+
+    def _draw_terminal_leaderboard(
+        self,
+        imgui: Any,
+        snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+        race: bool,
+        accent_rgb: tuple[float, float, float],
+    ) -> None:
+        """Draw the ranked terminal results table."""
+        _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
+        entries = snapshot.leaderboard
+        if not entries:
+            _centered_imgui_text(
+                imgui,
+                "NO SCORES YET",
+                font_size=14.0,
+                color=(0.62, 0.62, 0.68, 1.0),
+            )
+            return
+        available_height = _point_xy(imgui.get_content_region_avail())[1]
+        table_height = max(90.0, min(250.0, available_height - 92.0))
+        table_flags = (
+            imgui.TableFlags_.row_bg
+            | imgui.TableFlags_.borders_inner_h
+            | imgui.TableFlags_.no_saved_settings
+            | imgui.TableFlags_.sizing_stretch_prop
+            | imgui.TableFlags_.scroll_y
+        )
+        if not imgui.begin_table(
+            "##leaderboard",
+            3,
+            flags=table_flags,
+            outer_size=imgui.ImVec2(0.0, table_height),
+        ):
+            return
+        try:
+            imgui.table_setup_column("RANK", imgui.TableColumnFlags_.width_fixed, 64.0)
+            imgui.table_setup_column(
+                "DRIVER", imgui.TableColumnFlags_.width_stretch, 1.0
+            )
+            imgui.table_setup_column(
+                "TIME" if race else "SCORE",
+                imgui.TableColumnFlags_.width_fixed,
+                128.0,
+            )
+            imgui.table_headers_row()
+            for rank, entry in enumerate(entries, start=1):
+                imgui.table_next_row(min_row_height=26.0)
+                if rank == snapshot.high_score_rank:
+                    imgui.table_set_bg_color(
+                        imgui.TableBgTarget_.row_bg1,
+                        _imgui_color(imgui, (*accent_rgb, 0.24)),
+                    )
+                values = (
+                    f"#{rank}",
+                    entry.name,
+                    (
+                        format_race_time_us(entry.elapsed_time_us)
+                        if race
+                        else f"{entry.score:>7}"
+                    ),
+                )
+                for column, value in enumerate(values):
+                    imgui.table_set_column_index(column)
+                    imgui.text(value)
+        finally:
+            imgui.end_table()
+
+    def _request_restart(self) -> None:
+        """Queue a game restart on the model thread."""
+        if self.model_loop is not None:
+            invoke_async(self.model_loop, lambda state: state.restart_game())
 
     def _submit_name(self, value: str) -> None:
         if self._submission_pending:
@@ -1698,6 +1866,32 @@ def _overlay_text_size(
     width, height = _point_xy(imgui.calc_text_size(text))
     scale = float(font_size) / max(1.0, float(imgui.get_font_size()))
     return width * scale, height * scale
+
+
+def _centered_imgui_text(
+    imgui: Any,
+    text: str,
+    *,
+    font_size: float,
+    font: Any | None = None,
+    color: tuple[float, float, float, float] | None = None,
+) -> None:
+    """Draw one centered ImGui text item."""
+    cursor_x = float(imgui.get_cursor_pos_x())
+    available_width = _point_xy(imgui.get_content_region_avail())[0]
+    imgui.push_font(font, float(font_size))
+    if color is not None:
+        imgui.push_style_color(imgui.Col_.text, imgui.ImVec4(*color))
+    try:
+        text_width = _point_xy(imgui.calc_text_size(text))[0]
+        imgui.set_cursor_pos_x(
+            cursor_x + max(0.0, (available_width - text_width) * 0.5)
+        )
+        imgui.text(text)
+    finally:
+        if color is not None:
+            imgui.pop_style_color()
+        imgui.pop_font()
 
 
 def _draw_overlay_text(

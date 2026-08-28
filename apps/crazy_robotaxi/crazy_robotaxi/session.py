@@ -280,6 +280,11 @@ class ModelState:
         if self.rollout is not None:
             self.rollout.reset()
 
+    def restart_game(self) -> None:
+        """Reset the active rollout and its UI state."""
+        self.reset()
+        invoke_async(self.ui_loop, lambda ui_state: ui_state.reset())
+
     def close(self) -> None:
         rollout = self.rollout
         self.rollout = None
@@ -319,9 +324,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         snapshot = rollout.engine.current_game_frame
         if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
             raise TypeError("Crazy Robotaxi engine returned an unknown game frame")
-        if snapshot.session_state != "awaiting_name" and _restart_requested(events):
-            state.reset()
-            invoke_async(state.ui_loop, lambda ui_state: ui_state.reset())
+        if _restart_requested(events):
+            state.restart_game()
             rollout = state.ensure_rollout()
             snapshot = rollout.engine.current_game_frame
             if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):

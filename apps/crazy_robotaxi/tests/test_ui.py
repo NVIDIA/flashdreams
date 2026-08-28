@@ -18,6 +18,8 @@ import numpy as np
 import pytest
 import torch
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
+from crazy_robotaxi.high_scores import HighScoreEntry, RaceTimeEntry
+from crazy_robotaxi.race import RaceGameSnapshot, RaceSessionState
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
     TaxiSessionState,
@@ -73,6 +75,29 @@ def _snapshot(*, session_state: TaxiSessionState = "playing") -> TaxiGameSnapsho
         high_score=9000,
         global_remaining_time_s=42.5,
         session_state=session_state,
+    )
+
+
+def _race_snapshot(*, session_state: RaceSessionState = "racing") -> RaceGameSnapshot:
+    return RaceGameSnapshot(
+        map_id="test-city",
+        course_id="downtown-sprint",
+        session_state=session_state,
+        target_kind="start",
+        target_element_id="start",
+        target_xyz_m=(25.0, 0.0, 0.0),
+        gate_start_xyz_m=(25.0, -5.0, 0.0),
+        gate_end_xyz_m=(25.0, 5.0, 0.0),
+        checkpoint_markers=True,
+        distance_m=25.0,
+        relative_bearing_rad=0.0,
+        checkpoint_index=0,
+        checkpoint_count=3,
+        completed_laps=1,
+        lap_count=1,
+        elapsed_time_us=42_345_000,
+        best_time_us=41_000_000,
+        final_time_us=42_345_000,
     )
 
 
@@ -133,18 +158,56 @@ class _FakeImGui:
         no_background=32,
     )
     InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
+    StyleVar_ = SimpleNamespace(
+        window_rounding=1,
+        window_border_size=2,
+        window_padding=3,
+        item_spacing=4,
+        frame_rounding=5,
+        frame_padding=6,
+    )
+    Col_ = SimpleNamespace(
+        text=1,
+        text_disabled=2,
+        window_bg=3,
+        border=4,
+        frame_bg=5,
+        frame_bg_hovered=6,
+        frame_bg_active=7,
+        button=8,
+        button_hovered=9,
+        button_active=10,
+    )
+    TableFlags_ = SimpleNamespace(
+        row_bg=1,
+        borders_inner_h=2,
+        no_saved_settings=4,
+        sizing_stretch_prop=8,
+        scroll_y=16,
+    )
+    TableColumnFlags_ = SimpleNamespace(width_fixed=1, width_stretch=2)
+    TableBgTarget_ = SimpleNamespace(row_bg1=1)
 
     def __init__(self) -> None:
         self.windows: dict[str, list[str]] = {}
+        self.text_fonts: list[tuple[str, object, float]] = []
         self.dummies: list[tuple[float, float]] = []
         self.current_window: str | None = None
         self.next_window_position = (0.0, 0.0)
+        self.next_window_size = (640.0, 360.0)
+        self.cursor_x = 8.0
         self.input_value = ""
         self.submit_input = False
         self.click_submit = False
         self.clicked_buttons: set[str] = set()
+        self.buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.tables: dict[str, list[list[str]]] = {}
+        self.table_columns: dict[str, list[str]] = {}
+        self.highlighted_rows: list[int] = []
+        self.current_table: str | None = None
+        self.current_table_column = 0
         self.default_font = object()
         self.current_font = self.default_font
         self.current_font_size = 14.0
@@ -179,13 +242,29 @@ class _FakeImGui:
 
     def push_font(self, font: object, size: float) -> None:
         self.font_stack.append((self.current_font, self.current_font_size))
-        self.current_font = font
+        if font is not None:
+            self.current_font = font
         self.current_font_size = size
 
     def pop_font(self) -> None:
         self.current_font, self.current_font_size = self.font_stack.pop()
 
+    def push_style_var(self, style_var: int, value: object) -> None:
+        del style_var, value
+
+    def pop_style_var(self, count: int = 1) -> None:
+        del count
+
+    def push_style_color(self, color: int, value: object) -> None:
+        del color, value
+
+    def pop_style_color(self, count: int = 1) -> None:
+        del count
+
     def get_background_draw_list(self) -> _FakeDrawList:
+        return self.background_draw_list
+
+    def get_window_draw_list(self) -> _FakeDrawList:
         return self.background_draw_list
 
     def set_next_window_pos(self, position, condition) -> None:
@@ -193,7 +272,8 @@ class _FakeImGui:
         del condition
 
     def set_next_window_size(self, size, condition) -> None:
-        del size, condition
+        self.next_window_size = size
+        del condition
 
     def set_next_window_bg_alpha(self, alpha) -> None:
         del alpha
@@ -210,6 +290,30 @@ class _FakeImGui:
     def text(self, value: str) -> None:
         assert self.current_window is not None
         self.windows[self.current_window].append(value)
+        self.text_fonts.append((value, self.current_font, self.current_font_size))
+        if self.current_table is not None:
+            rows = self.tables[self.current_table]
+            while len(rows[-1]) <= self.current_table_column:
+                rows[-1].append("")
+            rows[-1][self.current_table_column] = value
+
+    def get_window_pos(self) -> tuple[float, float]:
+        return self.next_window_position
+
+    def get_window_size(self) -> tuple[float, float]:
+        return self.next_window_size
+
+    def get_cursor_pos_x(self) -> float:
+        return self.cursor_x
+
+    def set_cursor_pos_x(self, value: float) -> None:
+        self.cursor_x = value
+
+    def get_content_region_avail(self) -> tuple[float, float]:
+        return (
+            max(1.0, float(self.next_window_size[0]) - 56.0),
+            max(1.0, float(self.next_window_size[1]) - 48.0),
+        )
 
     def get_cursor_screen_pos(self) -> tuple[float, float]:
         flags = self.window_flags.get(self.current_window or "", 0)
@@ -222,18 +326,66 @@ class _FakeImGui:
     def dummy(self, size: tuple[float, float]) -> None:
         self.dummies.append(size)
 
+    def separator(self) -> None:
+        return
+
+    def set_next_item_width(self, width: float) -> None:
+        del width
+
     def input_text(self, label: str, value: str, *, flags: int):
         del label, value, flags
         return self.submit_input, self.input_value
 
-    def button(self, label: str) -> bool:
-        return self.click_submit or label in self.clicked_buttons
+    def button(self, label: str, size: object | None = None) -> bool:
+        self.buttons.append(label)
+        del size
+        submit = self.click_submit and label in {"SAVE SCORE", "SAVE TIME"}
+        return submit or label in self.clicked_buttons
 
     def begin_disabled(self) -> None:
         return
 
     def end_disabled(self) -> None:
         return
+
+    def begin_table(
+        self,
+        table_id: str,
+        columns: int,
+        *,
+        flags: int,
+        outer_size: object,
+    ) -> bool:
+        del columns, flags, outer_size
+        self.current_table = table_id
+        self.tables[table_id] = []
+        self.table_columns[table_id] = []
+        return True
+
+    def end_table(self) -> None:
+        self.current_table = None
+
+    def table_setup_column(self, label: str, flags: int, width: float) -> None:
+        del flags, width
+        assert self.current_table is not None
+        self.table_columns[self.current_table].append(label)
+
+    def table_headers_row(self) -> None:
+        return
+
+    def table_next_row(self, *, min_row_height: float) -> None:
+        del min_row_height
+        assert self.current_table is not None
+        self.tables[self.current_table].append([])
+        self.current_table_column = 0
+
+    def table_set_column_index(self, column: int) -> None:
+        self.current_table_column = column
+
+    def table_set_bg_color(self, target: int, color: int) -> None:
+        del target, color
+        assert self.current_table is not None
+        self.highlighted_rows.append(len(self.tables[self.current_table]))
 
 
 class _Renderer:
@@ -276,6 +428,7 @@ class _SubmissionLoop(IModelLoop[_SubmissionState]):
 class _SelectionState:
     selections: list[GameSelection] = field(default_factory=list)
     return_to_map_count: int = 0
+    restart_count: int = 0
     exit_requested: bool = False
 
     def select_game(self, selection: GameSelection) -> None:
@@ -283,6 +436,9 @@ class _SelectionState:
 
     def return_to_map_menu(self) -> None:
         self.return_to_map_count += 1
+
+    def restart_game(self) -> None:
+        self.restart_count += 1
 
     def request_exit(self) -> None:
         self.exit_requested = True
@@ -1102,13 +1258,23 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
     assert "Game Over" in imgui.windows
 
 
-def test_leaderboard_prompts_for_restart() -> None:
-    state = TaxiHudState(160, 96, _calibration())
-    video = torch.zeros(1, 3, 96, 160)
+def test_taxi_results_card_draws_ranked_leaderboard() -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    video = torch.zeros(1, 3, 540, 640)
+    entries = (
+        HighScoreEntry("ACE", 2400, "2026-01-01T00:00:00Z"),
+        HighScoreEntry("DRIVER 7", 1200, "2026-01-02T00:00:00Z"),
+    )
     state.publish(
         build_hud_frames(
             video,
-            (_snapshot(session_state="leaderboard"),),
+            (
+                replace(
+                    _snapshot(session_state="leaderboard"),
+                    leaderboard=entries,
+                    high_score_rank=2,
+                ),
+            ),
             np.eye(4, dtype=np.float32)[None],
         )
     )
@@ -1117,4 +1283,83 @@ def test_leaderboard_prompts_for_restart() -> None:
 
     state.draw(imgui)
 
-    assert "Press R to play again" in imgui.windows["Game Over"]
+    [(path, _size, droid_sans)] = imgui.fonts.loaded
+    assert path.endswith("DroidSans.ttf")
+    text_fonts = {text: font for text, font, _size in imgui.text_fonts}
+    assert text_fonts["GAME OVER"] is droid_sans
+    assert text_fonts["001200"] is droid_sans
+    assert text_fonts["LEADERBOARD"] is imgui.default_font
+    assert imgui.table_columns["##leaderboard"] == ["RANK", "DRIVER", "SCORE"]
+    assert imgui.tables["##leaderboard"] == [
+        ["#1", "ACE", "   2400"],
+        ["#2", "DRIVER 7", "   1200"],
+    ]
+    assert imgui.highlighted_rows == [2]
+    assert "PLAY AGAIN" in imgui.buttons
+    assert "R  RESTART   ·   ESC  MAP" in imgui.windows["Game Over"]
+
+
+def test_race_results_card_formats_times() -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    video = torch.zeros(1, 3, 540, 640)
+    entries = (
+        RaceTimeEntry(
+            "test-city",
+            "downtown-sprint",
+            "RACER",
+            42_345_000,
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    state.publish(
+        build_hud_frames(
+            video,
+            (
+                replace(
+                    _race_snapshot(session_state="leaderboard"),
+                    leaderboard=entries,
+                    high_score_rank=1,
+                ),
+            ),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert "RACE COMPLETE" in imgui.windows["Game Over"]
+    assert "0:42.345" in imgui.windows["Game Over"]
+    assert imgui.table_columns["##leaderboard"] == ["RANK", "DRIVER", "TIME"]
+    assert imgui.tables["##leaderboard"] == [["#1", "RACER", "0:42.345"]]
+
+
+@pytest.mark.parametrize("session_state", ["awaiting_name", "leaderboard"])
+def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    video = torch.zeros(1, 3, 360, 640)
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(session_state=session_state),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state._menu_stage = "loading"
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("PLAY AGAIN")
+
+    state.draw(imgui)
+    model_loop._run_message_batch()
+
+    assert model_loop.state.restart_count == 1
