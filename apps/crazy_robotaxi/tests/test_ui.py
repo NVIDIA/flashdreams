@@ -474,7 +474,12 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert "circle_filled" in command_names
     top, left, panel_height, panel_width = hud_state._bev_rect or (0, 0, 0, 0)
     panel = output[0, :, top : top + panel_height, left : left + panel_width]
-    assert torch.allclose(panel, torch.full_like(panel, 191.0 / 127.5 - 1.0))
+    background = 191.0 / 127.5 - 1.0
+    assert torch.allclose(panel[:, 0, 0], torch.full_like(panel[:, 0, 0], background))
+    assert not torch.allclose(panel, torch.full_like(panel, background))
+    torch.testing.assert_close(
+        panel[:, panel_height // 2, panel_width // 2], torch.tensor((1.0, 0.6, -1.0))
+    )
     outside = output[0].clone()
     outside[:, top : top + panel_height, left : left + panel_width] = -0.5
     assert torch.all(outside == video[0])
@@ -509,6 +514,20 @@ def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
     assert torch.all(composited[:, :, 1:3] == -1.0)
     assert state._bev_alpha is not None
     assert set(state._bev_alpha.unique().tolist()) == {False, True}
+
+
+def test_bev_compositor_draws_ego_over_transparent_center() -> None:
+    state = TaxiHudState(32, 32, _calibration())
+    state._bev_rect = (0, 0, 32, 32)
+    video = torch.full((3, 32, 32), -0.5)
+    transparent_bev = torch.zeros((4, 32, 32), dtype=torch.uint8)
+
+    composited = state.composite_bev(video, transparent_bev)
+
+    assert composited.device == video.device
+    torch.testing.assert_close(composited[:, 16, 16], torch.tensor((1.0, 0.6, -1.0)))
+    torch.testing.assert_close(composited[:, 12, 16], torch.tensor((-0.8, -0.2, 0.15)))
+    assert torch.all(composited[:, 0, 0] == -0.5)
 
 
 def test_presentation_back_buffer_is_cached_without_a_bev_frame() -> None:

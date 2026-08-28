@@ -129,6 +129,44 @@ def test_gamepad_state_overrides_keyboard_until_disconnect() -> None:
     assert state.source() == "keyboard"
 
 
+def test_gamepad_r_shoulder_selects_reverse_only_while_held() -> None:
+    state = DriverInput()
+    forward_buttons = (0.0,) * 7 + (0.75,)
+    reverse_buttons = (0.0,) * 5 + (1.0, 0.0, 0.75)
+
+    state.apply(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(30),
+                    action="state",
+                    buttons=reverse_buttons,
+                    pressed=(False,) * 5 + (True, False, True),
+                )
+            ]
+        )
+    )
+
+    assert state.command().reverse
+    assert state.command().throttle == pytest.approx(0.75)
+
+    state.apply(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(40),
+                    action="state",
+                    buttons=forward_buttons,
+                    pressed=(False,) * 8,
+                )
+            ]
+        )
+    )
+
+    assert not state.command().reverse
+    assert state.command().throttle == pytest.approx(0.75)
+
+
 def test_wheel_state_uses_direct_pedal_and_steering_values() -> None:
     state = DriverInput()
     state.apply(

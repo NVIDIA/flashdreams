@@ -42,12 +42,13 @@ Menu choices and the leaderboard Submit button can also be clicked with the mous
 | Left stick, push forward+tilt | Steer. |
 | Right trigger (`RT` / `R2` / `ZR`) | Throttle. |
 | Left trigger (`LT` / `L2` / `ZL`) | Brake. |
+| `R` / `RB` / `R1` (hold) | Select reverse gear while held; use the right trigger to drive in reverse. |
 | Start / Menu / Plus | Restart the current game without reloading the model. |
 | Steering wheel and pedals | Use normalized steering, throttle, and brake input directly. |
 
 A connected gamepad or wheel takes precedence over keyboard driving input.
 Disconnecting it returns control to any keyboard keys still held. Gamepads do
-not currently bind reverse, handbrake, menu navigation, or live-edit actions;
+not currently bind handbrake, menu navigation, or live-edit actions;
 use the keyboard or mouse for those controls.
 
 ```bash

@@ -187,10 +187,16 @@ def _gamepad_command(event: GamepadUserInputEvent) -> DriverCommand | None:
     steer = -(event.axes[0] if event.axes else 0.0)
     throttle = event.buttons[7] if len(event.buttons) > 7 else 0.0
     brake = event.buttons[6] if len(event.buttons) > 6 else 0.0
+    reverse = (
+        event.pressed[5]
+        if len(event.pressed) > 5
+        else len(event.buttons) > 5 and event.buttons[5] > 0.0
+    )
     return DriverCommand(
         throttle=throttle,
         brake=brake,
         steer=steer,
+        reverse=reverse,
         steer_is_direct=True,
         manual_control=True,
     )

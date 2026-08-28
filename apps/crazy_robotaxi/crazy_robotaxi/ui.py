@@ -1048,6 +1048,7 @@ class TaxiHudState:
         source_panel = panel[:, : bottom - top, : right - left]
         source_alpha = alpha[:, : bottom - top, : right - left]
         torch.where(source_alpha, source_panel, target, out=target)
+        _composite_bev_ego_car(target)
         self._bev_composite_source_key = composite_source_key
         self._bev_composite = output
         return output
@@ -1167,6 +1168,51 @@ class TaxiHudState:
             model_loop,
             lambda state, name=normalized: state.submit_player_name(name),
         )
+
+
+def _composite_bev_ego_car(panel: Tensor) -> None:
+    """Draw a small heading-up taxi glyph directly on its tensor device."""
+    height, width = (int(value) for value in panel.shape[-2:])
+    extent = min(height, width)
+    if extent < 16:
+        return
+
+    car_height = max(8, round(extent * 0.12))
+    car_height = min(car_height + (car_height + 1) % 2, height - 2)
+    car_width = max(5, round(car_height * 0.55))
+    car_width = min(car_width + (car_width + 1) % 2, width - 2)
+    top = (height - car_height) // 2
+    left = (width - car_width) // 2
+    bottom = top + car_height
+    right = left + car_width
+
+    white, yellow, glass = panel.new_tensor(
+        (
+            (1.0, 1.0, 1.0),
+            (1.0, 0.6, -1.0),
+            (-0.8, -0.2, 0.15),
+        )
+    ).view(3, 3, 1, 1)
+    panel[:, top + 1 : bottom - 1, left:right] = white
+    panel[:, top:bottom, left + 1 : right - 1] = white
+    panel[:, top + 1 : bottom - 1, left + 1 : right - 1] = yellow
+
+    window_left = left + max(2, car_width // 3)
+    window_right = right - max(2, car_width // 3)
+    if window_right <= window_left:
+        return
+    window_height = max(1, car_height // 5)
+    window_offset = max(2, car_height // 5)
+    panel[
+        :,
+        top + window_offset : top + window_offset + window_height,
+        window_left:window_right,
+    ] = glass
+    panel[
+        :,
+        bottom - window_offset - window_height : bottom - window_offset,
+        window_left:window_right,
+    ] = glass
 
 
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
