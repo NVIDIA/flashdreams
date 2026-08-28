@@ -522,7 +522,7 @@ class TaxiHudState:
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
-                center_y=198.0,
+                center_y=110.0,
                 color_rgb=(
                     (118.0 / 255.0, 185.0 / 255.0, 0.0)
                     if snapshot.phase == "seeking_pickup"
@@ -555,13 +555,13 @@ class TaxiHudState:
             if snapshot.phase == "seeking_pickup"
             else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
         )
-        self._draw_status_strip(imgui, label, color_rgb=color, top=122.0)
+        self._draw_status_strip(imgui, label, color_rgb=color, top=35.0)
         event = _event_label(snapshot)
         if event:
             self._draw_centered_text(
                 imgui,
                 event,
-                top=250.0,
+                top=160.0,
                 font_size=44.0,
                 color_rgb=color,
                 shadow=True,

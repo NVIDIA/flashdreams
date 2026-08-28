@@ -642,7 +642,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         for name, args in imgui.background_draw_list.commands
         if name == "circle_filled"
     )
-    assert compass[0][1] == 198.0
+    assert compass[0][1] == 110.0
 
 
 def test_compass_arrow_has_no_black_underlay() -> None:
