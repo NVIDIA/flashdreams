@@ -63,7 +63,7 @@ _DEFAULT_INPUT_TRACE_PATH = (
 
 _LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_PREWARM_BLOCKS = 4
+_DEFAULT_PREWARM_BLOCKS = 8
 """Blocks covering chunk2 cache filling and the first steady-state AR shape."""
 
 
@@ -557,7 +557,7 @@ def _parser(
         default=_DEFAULT_PREWARM_BLOCKS,
         help=(
             "generate hidden neutral blocks before presentation to compile and "
-            "autotune AR shapes (default: 4; 0 disables)"
+            "autotune AR shapes (default: 8; 0 disables)"
         ),
     )
     parser.add_argument(

@@ -236,7 +236,7 @@ synchronous app/model portion. See the
 [V2 latency handoff](../../docs/design/crazy_robotaxi_v2_input_latency.md) for
 the trace fields and interpretation caveats.
 
-All model presets generate four neutral, hidden blocks before publishing the
+All model presets generate eight neutral, hidden blocks before publishing the
 first gameplay frame. The responsive ImGui HUD shows the current warmup block,
 an animated activity marker, and elapsed time while compilation and autotuning
 run. After warmup, the app recreates simulation, rules, conditioning, and the
