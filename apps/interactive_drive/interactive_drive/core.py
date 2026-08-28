@@ -454,7 +454,7 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._desc = SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
-            # If too low we start building up a 
+            # If too low we start building up a
             # backlog of frames which raises percived
             # latency.
             frames_per_second_for_ui=75,
