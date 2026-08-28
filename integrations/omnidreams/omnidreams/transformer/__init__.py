@@ -308,9 +308,16 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
         if config.checkpoint_path is not None:
             transform = config.state_dict_transform or _strip_net_prefix
-            state_dict = load_checkpoint(config.checkpoint_path)
-            state_dict = transform(state_dict)
-            self.network.load_state_dict(state_dict)
+            try:
+                state_dict = load_checkpoint(config.checkpoint_path)
+                state_dict = transform(state_dict)
+                self.network.load_state_dict(state_dict)
+            except ValueError as exc:
+                if "Model must be provided for distributed checkpoint loading" not in str(
+                    exc
+                ):
+                    raise
+                load_checkpoint(config.checkpoint_path, model=self.network)
         self.network.update_parameters_after_loading_checkpoint()
 
         self._optimized_dit_executor: Any | None = None

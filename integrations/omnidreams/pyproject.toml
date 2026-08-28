@@ -111,6 +111,8 @@ omnidreams-eval = "omnidreams.eval.cli:main"
 # controller and writes a local input profile the demo auto-discovers.
 # Stdlib-only (Tkinter); does not need the ``interactive-drive`` extra.
 interactive-drive-configuration = "omnidreams.interactive_drive.input_config.app:main"
+omnidreams-video-service = "omnidreams.service.server:main"
+omnidreams-video-client = "omnidreams.service.client:main"
 
 # Each entry registers one ``runner_name`` slug with ``flashdreams-run``.
 # The discovery layer (``flashdreams.plugins.registry.discover_runners``)

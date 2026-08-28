@@ -223,6 +223,10 @@ class OmnidreamsRunnerConfig(RunnerConfig):
     """Single-view example clip to pull from :data:`EXAMPLE_DATA_HF_REPO`.
     Ignored for multi-view or when paths are already populated."""
 
+    release_oneshot_encoders_after_run: bool = True
+    """Free text and image encoders after cache initialization. Disable for
+    long-lived services that keep one warm pipeline across multiple rollouts."""
+
 
 class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
     """Streaming HDMap-conditioned I2V driver."""
@@ -287,10 +291,10 @@ class OmnidreamsRunner(Runner[OmnidreamsRunnerConfig, OmnidreamsPipeline]):
             image=first_frames_t,
             view_names=list(camera_names),
         )
-        # Drop the one-shot encoders to free VRAM before the AR loop;
-        # long-lived servers that reuse encoders across sessions skip
-        # this and call ``release_oneshot_encoders`` on shutdown.
-        self.pipeline.release_oneshot_encoders()
+        if cfg.release_oneshot_encoders_after_run:
+            # Drop the one-shot encoders to free VRAM before the AR loop;
+            # long-lived servers that reuse encoders across sessions keep them.
+            self.pipeline.release_oneshot_encoders()
         self._rollout_and_save(cache=cache, num_views=num_views)
 
     def _run_save_embeddings(self, output_path: Path) -> None:
