@@ -166,8 +166,8 @@ class NativeWindowClientWindow(IClientWindow):
     def write(self, result: StepResult) -> None:
         """Convert and submit one result from the runtime's UI thread.
 
-        CUDA output remains GPU-resident. The runtime synchronizes the producer
-        stream before handing ``result`` to this method.
+        CUDA output remains GPU-resident. Conversion orders the result before
+        the current consumer stream reads it.
 
         Args:
             result: UI output to present.

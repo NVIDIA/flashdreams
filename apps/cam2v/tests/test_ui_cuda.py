@@ -110,8 +110,7 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
         assert renderer.render_stream == presentation_stream
         consumer_stream = torch.cuda.Stream(device=device)
         with torch.cuda.stream(consumer_stream):
-            result.wait_for_output(consumer_stream)
-            observed = result.output.clone()
+            observed = result.read_output().clone()
         consumer_stream.synchronize()
         assert output_ready_event.query()
         torch.testing.assert_close(
@@ -121,8 +120,8 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
         manager.close()
         loop.close()
         closed = True
-        assert result.output.shape == (1, 3, 64, 96)
-        assert result.output.dtype is torch.bfloat16
+        assert observed.shape == (1, 3, 64, 96)
+        assert observed.dtype is torch.bfloat16
     finally:
         if not closed:
             manager.close()

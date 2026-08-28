@@ -254,8 +254,8 @@ class PresentationManager:
 
         Raises:
             IndexError: The presented result has no such channel.
-            ValueError: The presentation stream and output use different CUDA
-                devices.
+            ValueError: The presented result's layout or frame shape is
+                unsupported.
         """
         if self._presented_chunk is None:
             return None
@@ -266,18 +266,17 @@ class PresentationManager:
                 f"Presented chunk has {len(self._presented_chunk)} channels; "
                 f"channel {channel_index} does not exist."
             ) from error
-        result.wait_for_output(self._presentation_stream)
-        return _frame_at(result, self._frame_index)
+        with self.presentation_context():
+            return _frame_at(result, self._frame_index)
 
     def presented_frames(self) -> tuple[Tensor, ...]:
         """Return all current frames ordered before the presentation stream."""
         if self._presented_chunk is None:
             return ()
-        for result in self._presented_chunk:
-            result.wait_for_output(self._presentation_stream)
-        return tuple(
-            _frame_at(result, self._frame_index) for result in self._presented_chunk
-        )
+        with self.presentation_context():
+            return tuple(
+                _frame_at(result, self._frame_index) for result in self._presented_chunk
+            )
 
     def composite(self, bottom: Tensor | None, top: Tensor) -> Tensor:
         """Draw ``top`` over ``bottom``.
@@ -388,7 +387,7 @@ class PresentationManager:
 
 def _frame_at(result: StepResult, frame_index: int) -> Tensor:
     """Return one result frame as ``[C, H, W]``."""
-    output = result.output
+    output = result.read_output()
     if result.output_layout is VideoTensorLayout.tchw:
         frame = output[frame_index]
     elif result.output_layout is VideoTensorLayout.btchw:

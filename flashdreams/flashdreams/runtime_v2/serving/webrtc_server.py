@@ -490,7 +490,8 @@ class WebRTCServer:
             return materialized
         device = resolve_cuda_device(frame.device)
         transfer_stream = self._transfer_stream(device)
-        result.wait_for_output(transfer_stream)
+        with torch.cuda.device(device), torch.cuda.stream(transfer_stream):
+            result.read_output()
         materialized = _materialize_cuda_video_frame(
             frame,
             transfer_stream=transfer_stream,
@@ -823,7 +824,9 @@ def _validated_result_frames(
     result: StepResult, session_desc: SessionDesc
 ) -> torch.Tensor:
     """Return validated time-major frames without materializing them on the host."""
-    output = result.output.detach()
+    # This path may inspect metadata and create views only. The transfer-stream
+    # read orders the result before any CUDA operation consumes those views.
+    output = result.read_output(sync_with_event=False).detach()
     if result.output_layout == VideoTensorLayout.tchw:
         frames = output
     elif result.output_layout == VideoTensorLayout.btchw:

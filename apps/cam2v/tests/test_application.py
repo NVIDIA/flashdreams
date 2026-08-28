@@ -517,9 +517,10 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     )
 
     result = ui_loop.step(0, pressed)
+    output = result.read_output()
 
-    assert result.output.shape == (1, 3, 2, 2)
-    assert result.output.dtype is torch.bfloat16
+    assert output.shape == (1, 3, 2, 2)
+    assert output.dtype is torch.bfloat16
     assert state.held_keys == {"w"}
     displayed = [widget.text for widget in state.status_widgets]
     assert "Rollout: 2/4 blocks" in displayed

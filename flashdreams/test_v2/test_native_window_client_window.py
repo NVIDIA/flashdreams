@@ -364,7 +364,7 @@ def test_device_conversion_does_not_materialize_a_host_array() -> None:
     frames = result_to_rgb24_tensor(source, _session_desc())
 
     assert isinstance(frames, torch.Tensor)
-    assert frames.device == source.output.device
+    assert frames.device == source.read_output().device
     assert frames.shape == (1, 2, 2, 3)
     assert frames.dtype is torch.uint8
     assert torch.all(frames == 128)

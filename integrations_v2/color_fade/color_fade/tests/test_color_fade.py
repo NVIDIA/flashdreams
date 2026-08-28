@@ -88,7 +88,7 @@ def _session(*, frames_per_step: int = 5, seconds: float = _SECONDS) -> ISession
 
 def _colours(result: StepResult) -> list[tuple[float, float, float]]:
     """Return each frame's colour, checking every pixel in it agrees."""
-    frames = result.output[0]
+    frames = result.read_output()[0]
     colours = []
     for index in range(result.frame_count):
         frame = frames[:, index]
@@ -189,9 +189,10 @@ def test_frames_match_the_session_desc() -> None:
     session = _session(frames_per_step=4)
 
     result = _step(session, 0)
+    output = result.read_output()
 
-    assert result.output.shape == (1, 3, 4, _HEIGHT, _WIDTH)
-    assert result.output.dtype is torch.float32
+    assert output.shape == (1, 3, 4, _HEIGHT, _WIDTH)
+    assert output.dtype is torch.float32
     assert result.frame_count == 4
     assert result.output_layout is VideoTensorLayout.bcthw
     assert result.step_index == 0

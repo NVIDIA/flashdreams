@@ -158,7 +158,12 @@ def test_a_result_reports_the_frames_it_carries() -> None:
     second = _step(session, 1)
 
     assert first.frame_count == _FIRST_BLOCK_FRAMES
-    assert tuple(first.output.shape) == (_FIRST_BLOCK_FRAMES, 3, _HEIGHT, _WIDTH)
+    assert tuple(first.read_output().shape) == (
+        _FIRST_BLOCK_FRAMES,
+        3,
+        _HEIGHT,
+        _WIDTH,
+    )
     assert second.frame_count == _BLOCK_FRAMES
 
 

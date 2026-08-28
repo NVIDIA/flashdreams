@@ -154,10 +154,12 @@ The model thread publishes a list of channels per step into a bounded queue
 which walks the frames within the chunk it is already showing before taking
 another off the queue.
 
-Frame cadence initially uses `frames_per_second_for_step`, then follows model
-frame completions observed over the trailing two seconds. A late UI tick
-reanchors the next deadline; it never drains multiple model frames into
-back-to-back writes in one tick.
+Frame cadence initially uses `frames_per_second_for_step`, then follows the
+throughput of model steps completed over the trailing two seconds. The estimate
+uses time spent inside model steps, so presentation-queue backpressure cannot
+feed back into a progressively slower cadence. A late UI tick reanchors the next
+deadline; it never drains multiple model frames into back-to-back writes in one
+tick.
 
 `SessionDesc.backpressure_mode` decides what publishing does when the queue is
 full:

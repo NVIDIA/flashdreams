@@ -163,7 +163,7 @@ def test_write_rejects_a_frame_count_the_tensor_does_not_carry(tmp_path: Path) -
     carrying_two = _result([_RED, _BLACK])
     claiming_five = StepResult(
         step_index=0,
-        output=carrying_two.output,
+        output=carrying_two.read_output(),
         frame_count=5,
         output_layout=carrying_two.output_layout,
     )
@@ -176,9 +176,10 @@ def test_write_rejects_output_with_more_than_one_batch(tmp_path: Path) -> None:
     sink = Mp4OutputSink(tmp_path / "out.mp4")
     sink.open(_session_desc())
     one = _result([_RED])
+    output = one.read_output()
     two_batches = StepResult(
         step_index=0,
-        output=torch.cat([one.output, one.output]),
+        output=torch.cat([output, output]),
         frame_count=1,
         output_layout=one.output_layout,
     )

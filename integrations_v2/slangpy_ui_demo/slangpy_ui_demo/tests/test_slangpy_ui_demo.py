@@ -76,20 +76,20 @@ def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
         ]
     )
 
-    red = model_loop.step(0, UserInputEvents([]))[0].output
+    red = model_loop.step(0, UserInputEvents([]))[0].read_output()
     ui_loop.step_ui(ui, 0, w_pressed)
     assert not model_state.blue
 
     step_index = model_loop._begin_run(UserInputEvents([]), generation=0)
     assert step_index == 0
     blue_results = model_loop.step(step_index, UserInputEvents([]))
-    blue = blue_results[0].output
+    blue = blue_results[0].read_output()
     model_loop._finish_run(blue_results)
 
     ui_loop.step_ui(ui, 1, w_pressed)
     step_index = model_loop._begin_run(UserInputEvents([]), generation=0)
     assert step_index == 1
-    red_again = model_loop.step(step_index, UserInputEvents([]))[0].output
+    red_again = model_loop.step(step_index, UserInputEvents([]))[0].read_output()
 
     assert not model_state.blue
     assert torch.equal(red[0, :, 0, 0], torch.tensor([1.0, -1.0, -1.0]))
@@ -184,14 +184,15 @@ def test_model_output_emits_repeating_selectable_fade_channels() -> None:
     assert len(chunk) == 3
     expected = torch.linspace(255, 0, 60).round().to(torch.uint8)
     for index, (result, again) in enumerate(zip(chunk, repeated, strict=True)):
-        pixels = ((result.output[:, :3] + 1.0) * 127.5).round().to(torch.uint8)
-        assert result.output.shape == (60, 4, 3, 4)
+        output = result.read_output()
+        pixels = ((output[:, :3] + 1.0) * 127.5).round().to(torch.uint8)
+        assert output.shape == (60, 4, 3, 4)
         assert torch.equal(pixels[:, index, 0, 0], expected)
-        assert result.output[0, 3, 0, 0] == (1.0 if index == 0 else 0.5)
-        assert torch.equal(result.output, again.output)
+        assert output[0, 3, 0, 0] == (1.0 if index == 0 else 0.5)
+        assert torch.equal(output, again.read_output())
 
     session._presentation_manager.publish(0, chunk)
     assert session._presentation_manager.advance(0)[0]
     frame = ui_loop.presented_model_frame(1)
     assert frame is not None
-    assert frame.data_ptr() == chunk[1].output[0].data_ptr()
+    assert frame.data_ptr() == chunk[1].read_output()[0].data_ptr()

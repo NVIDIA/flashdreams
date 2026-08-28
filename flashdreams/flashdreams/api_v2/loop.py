@@ -218,7 +218,7 @@ class IModelLoop(ILoop[StateT], ABC):
         *,
         event_buffer: EventBuffer,
         reader_id: int,
-        publish: Callable[[int, list[StepResult]], None],
+        publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
@@ -226,7 +226,8 @@ class IModelLoop(ILoop[StateT], ABC):
         Args:
             event_buffer: Client input shared by both loops.
             reader_id: This loop's event reader ID.
-            publish: Function called with each model result.
+            publish: Function called with each model result and the elapsed
+                seconds spent in :meth:`step`.
             max_steps: Maximum steps; ``None`` runs until stopped.
         """
         steps_run = 0
@@ -242,9 +243,12 @@ class IModelLoop(ILoop[StateT], ABC):
                 last_run_started = self._pace(last_run_started)
                 if self._shutdown_event.is_set():
                     break
-                result = _model_results(self.step(step_index, events))
+                step_started_at = time.monotonic()
+                raw_result = self.step(step_index, events)
+                step_elapsed_s = time.monotonic() - step_started_at
+                result = _model_results(raw_result)
                 self._finish_run(result)
-                publish(generation, result)
+                publish(generation, result, step_elapsed_s)
                 steps_run += 1
         except BaseException as error:
             self._failure_queue.put(error)
