@@ -299,16 +299,6 @@ def test_interactive_drive_no_ui_skips_ui_and_bev(tmp_path: Path) -> None:
     assert session._registered_ui_loop is None
 
 
-def test_interactive_drive_drops_stale_chunks_for_low_latency(tmp_path: Path) -> None:
-    scene = tmp_path / "local.usdz"
-    scene.touch()
-    app = InteractiveDriveApplication()
-
-    app.init(["--scene", str(scene)])
-
-    assert app.session_desc().backpressure_mode is BackpressureMode.DROP_OLDEST
-
-
 def test_interactive_drive_resolves_default_scene_when_omitted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -454,10 +454,9 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._desc = SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
-            # If too low we start building up a
-            # backlog of frames which raises percived
-            # latency.
-            frames_per_second_for_ui=75,
+            # Run the UI faster than the generated-video frame rate so stale
+            # chunks are done presenting before model-thread finishes its next step.
+            frames_per_second_for_ui=60,
             frames_per_second_for_step=defaults.fps,
             video_width=defaults.width,
             video_height=defaults.height,
