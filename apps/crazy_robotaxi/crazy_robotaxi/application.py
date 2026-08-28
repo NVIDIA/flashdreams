@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import logging
 import os
 from collections.abc import Callable, Sequence
@@ -66,9 +65,10 @@ _LOGGER = logging.getLogger(__name__)
 _DEFAULT_PREWARM_BLOCKS = 4
 """Blocks covering chunk2 cache filling and the first steady-state AR shape."""
 
-_NATIVE_PERF_PIPELINE = derive_config(
-    OMNIDREAMS_PIPELINE_CONFIG,
-    name="crazy-robotaxi-native-perf",
+
+_FAST_PERF_PIPELINE = derive_config(
+    OMNIDREAMS_PERF_PIPELINE_CONFIG,
+    name="crazy-robotaxi-fast-perf",
     image_encoder={
         "dtype": torch.float16,
         "use_compile": False,
@@ -89,33 +89,9 @@ _NATIVE_PERF_PIPELINE = derive_config(
             "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
         ),
     },
+    diffusion_model={"seed": None},
 )
-
-_ORIGINAL_PERF_PIPELINE = derive_config(
-    OMNIDREAMS_PERF_PIPELINE_CONFIG,
-    name="crazy-robotaxi-original-perf",
-    diffusion_model={
-        "seed": None,
-        "transformer": {
-            "compile_network": True,
-            "skip_finalize_kv_cache": True,
-            "native_dit_acceleration": "required",
-            "native_dit_backend": "fp8_kvcache_cudnn",
-            "native_dit_attention_backend": "cudnn",
-        },
-        "scheduler": {
-            "denoising_timesteps": [1000, 100],
-            "num_inference_steps": 2,
-        },
-    },
-)
-
-_FAST_PERF_PIPELINE = derive_config(
-    _NATIVE_PERF_PIPELINE,
-    name="crazy-robotaxi-fast-perf",
-    diffusion_model=copy.deepcopy(_ORIGINAL_PERF_PIPELINE.diffusion_model),
-)
-"""Candidate maximum-performance path: native FP8 LightVAE and native FP8 DiT."""
+"""OmniDreams perf plus native FP8 LightVAE for maximum throughput."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,11 +105,6 @@ class _ModelPreset:
 _MODEL_PRESETS = {
     "standard": _ModelPreset(OMNIDREAMS_PIPELINE_CONFIG),
     "perf": _ModelPreset(OMNIDREAMS_PERF_PIPELINE_CONFIG),
-    "native-perf": _ModelPreset(_NATIVE_PERF_PIPELINE),
-    "original-perf": _ModelPreset(
-        _ORIGINAL_PERF_PIPELINE,
-        renderer_follows_session=True,
-    ),
     "fast-perf": _ModelPreset(
         _FAST_PERF_PIPELINE,
         renderer_follows_session=True,

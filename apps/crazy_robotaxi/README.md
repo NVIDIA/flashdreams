@@ -125,49 +125,20 @@ preset because those paths intercept the Python transformer conditioning
 seam; the application reports this before generation if an incompatible
 native preset is selected. All abilities are disabled by default.
 
-## Original demo performance preset
+## Maximum-performance preset
 
-The opt-in `original-perf` preset reproduces the performance knobs from the
-current `example_world_model_perf.yaml` without importing or depending on the
-`interactive_drive` application. It uses the compiled LightVAE/LightTAE path,
-the required native FP8 DiT with cuDNN attention, skips the KV-cache finalize
-pass, and uses denoising timesteps `[1000, 100]`. For direct comparison with
-that manifest, select its 1168x640 resolution as shown below.
+Crazy Robotaxi exposes the public OmniDreams `standard` and `perf` pipeline
+configs unchanged. Its only app-specific model preset is `fast-perf`, which
+derives from the public OmniDreams perf config and adds the native FP8 LightVAE
+image and per-chunk encoders. It therefore retains perf's required native FP8
+DiT, cuDNN attention, compiled/CUDA-graphed LightTAE decoder, and two-step
+schedule.
 
 Prepare the native DiT sources once from the repository root:
 
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 ```
-
-Then run Crazy Robotaxi with the runtime resolution arguments before the
-application-argument separator:
-
-```bash
-uv run flashdreams-run-v2 crazy-robotaxi \
-  --mode native-window \
-  --pixel-width 1168 \
-  --pixel-height 640 \
-  -- \
-  --model-preset original-perf
-```
-
-The resolution flags are optional: without them, the preset uses the V2
-session's default resolution and adapts the game renderer to match. The preset
-still fails if the required native DiT cannot be built or loaded. It keeps the
-PyTorch LightVAE encoder, so it does not require a `lightvae-fp8-state.pt`
-file. Use the existing `perf` and `native-perf` presets for their previous
-behavior. GPU throughput and quality still need to be validated on the target
-machine before treating this preset as a regression baseline.
-
-## Candidate maximum-performance preset
-
-The opt-in `fast-perf` preset combines `original-perf`'s required native FP8
-DiT and cuDNN attention with `native-perf`'s native FP8 LightVAE image and
-per-chunk encoders. It retains the compiled/CUDA-graphed LightTAE decoder and
-the original demo's two-step schedule. This combination is a performance
-candidate, not yet a validated default; compare its steady-state timings and
-output quality with `original-perf` on the target GPU.
 
 It requires a calibrated LightVAE FP8 state. After generating that state, run:
 
@@ -181,9 +152,10 @@ OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH=artifacts/native_vae/lightvae-fp8-state.pt \
   --model-preset fast-perf
 ```
 
-The native DiT sources must also have been prepared as described above. As
-with `original-perf`, the resolution flags are optional and the app renderer
-follows the V2 session dimensions.
+The native DiT sources must also have been prepared as described above. The
+resolution flags are optional; `fast-perf` adapts the app renderer to the V2
+session dimensions. GPU throughput and quality should be validated on the
+target machine before treating it as a regression baseline.
 
 ## Performance diagnostics
 
@@ -226,7 +198,7 @@ CUDA-tensor image hook in the V2 ImGui renderer.
 
 The saved [performance investigation](../../docs/design/crazy_robotaxi_v2_performance.md)
 records the current baseline, what the existing captures prove, and the exact
-like-for-like `original-perf` rerun needed after presentation changes.
+like-for-like `fast-perf` rerun needed after presentation changes.
 
 Presentation remains fixed at 30 fps. Disabling diagnostic synchronization
 removes an avoidable pause source, but it does not make a model preset whose

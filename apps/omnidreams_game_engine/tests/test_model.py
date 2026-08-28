@@ -64,12 +64,12 @@ class _Pipeline:
         self.calls.append(("initialize_cache", kwargs))
         return {"rollout": len(self.calls)}
 
-    def get_num_frames(self, autoregressive_index):
-        self.calls.append(("get_num_frames", autoregressive_index))
+    def get_num_output_frames(self, autoregressive_index):
+        self.calls.append(("get_num_output_frames", autoregressive_index))
         return 2
 
-    def generate(self, *, autoregressive_index, cache, hdmap):
-        self.calls.append(("generate", (autoregressive_index, cache, hdmap.shape)))
+    def generate(self, *, autoregressive_index, cache, input):
+        self.calls.append(("generate", (autoregressive_index, cache, input.shape)))
         return torch.zeros(1, 1, 2, 3, 4, 8)
 
     def finalize(self, *, autoregressive_index, cache):
@@ -138,7 +138,7 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
     assert result.metrics["rollout_cpu_ms"] >= 0.0
     assert [call[0] for call in pipeline.calls] == [
         "initialize_cache",
-        "get_num_frames",
+        "get_num_output_frames",
         "generate",
         "finalize",
     ]

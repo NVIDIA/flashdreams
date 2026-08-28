@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 import torch
 from crazy_robotaxi.application import (
+    _FAST_PERF_PIPELINE,
     _MODEL_PRESETS,
-    _NATIVE_PERF_PIPELINE,
     CrazyRobotaxiApplication,
     _fit_bev_renderer_to_ui,
 )
@@ -362,67 +362,33 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
 def test_existing_model_presets_keep_their_packaged_pipeline_configs() -> None:
     assert _MODEL_PRESETS["standard"].pipeline is OMNIDREAMS_PIPELINE_CONFIG
     assert _MODEL_PRESETS["perf"].pipeline is OMNIDREAMS_PERF_PIPELINE_CONFIG
-    assert _MODEL_PRESETS["native-perf"].pipeline is _NATIVE_PERF_PIPELINE
-    assert all(
-        not _MODEL_PRESETS[name].renderer_follows_session
-        for name in ("standard", "perf", "native-perf")
-    )
-
-
-def test_original_perf_matches_the_original_demo_manifest() -> None:
-    preset = _MODEL_PRESETS["original-perf"]
-    pipeline = preset.pipeline
-    transformer = pipeline.diffusion_model.transformer
-    scheduler = pipeline.diffusion_model.scheduler
-
-    assert preset.renderer_follows_session
-    assert pipeline.name == "crazy-robotaxi-original-perf"
-    assert pipeline.diffusion_model.seed is None
-    assert transformer.compile_network is True
-    assert transformer.use_cuda_graph is True
-    assert transformer.window_size_t == 6
-    assert transformer.sink_size_t == 0
-    assert transformer.skip_finalize_kv_cache is True
-    assert transformer.native_dit_acceleration == "required"
-    assert transformer.native_dit_backend == "fp8_kvcache_cudnn"
-    assert transformer.native_dit_attention_backend == "cudnn"
-    assert scheduler.num_inference_steps == 2
-    assert scheduler.denoising_timesteps == [1000, 100]
-    assert pipeline.image_encoder.use_compile is True
-    assert pipeline.encoder.use_compile is True
-    assert pipeline.decoder.use_compile is True
-    assert pipeline.image_encoder.native_vae_acceleration == "disabled"
-    assert pipeline.encoder.native_vae_acceleration == "disabled"
+    assert _MODEL_PRESETS["fast-perf"].pipeline is _FAST_PERF_PIPELINE
+    assert not _MODEL_PRESETS["standard"].renderer_follows_session
+    assert not _MODEL_PRESETS["perf"].renderer_follows_session
 
 
 def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
     preset = _MODEL_PRESETS["fast-perf"]
     pipeline = preset.pipeline
-    original = _MODEL_PRESETS["original-perf"].pipeline
-    native = _MODEL_PRESETS["native-perf"].pipeline
-
     assert preset.renderer_follows_session
     assert pipeline.name == "crazy-robotaxi-fast-perf"
-    assert pipeline.diffusion_model == original.diffusion_model
-    assert pipeline.image_encoder == native.image_encoder
-    assert pipeline.encoder == native.encoder
-    assert pipeline.decoder == original.decoder
+    assert pipeline.diffusion_model.seed is None
+    assert pipeline.decoder.use_compile is True
+    assert pipeline.decoder.use_cuda_graph is True
     assert pipeline.image_encoder.native_vae_acceleration == "required"
     assert pipeline.image_encoder.native_vae_backend == "fp8"
     assert pipeline.encoder.native_vae_acceleration == "required"
     assert pipeline.encoder.native_vae_backend == "fp8"
-    assert native.diffusion_model.transformer.native_dit_acceleration == "disabled"
     assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
     assert (
         pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
     )
+    assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
 
 
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
-@pytest.mark.parametrize("preset_name", ["original-perf", "fast-perf"])
 def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
     resolution_wh: tuple[int, int],
-    preset_name: str,
 ) -> None:
     configured: list[object] = []
     raster_sizes: list[tuple[int, int]] = []
@@ -437,7 +403,7 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
         pipeline_factory=lambda config, device: configured.append(config) or object(),
         scene_factory=load_test_scene,
     )
-    app.init(["--model-preset", preset_name])
+    app.init(["--model-preset", "fast-perf"])
     desc = replace(
         app.session_desc(),
         video_width=resolution_wh[0],
@@ -466,13 +432,13 @@ def test_app_owned_perf_presets_adapt_renderer_to_session_geometry(
     )
 
 
-def test_original_perf_honors_explicit_pipeline_overrides() -> None:
+def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
     app = CrazyRobotaxiApplication()
 
     app.init(
         [
             "--model-preset",
-            "original-perf",
+            "fast-perf",
             "--seed",
             "7",
             "--no-compile",

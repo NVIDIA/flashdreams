@@ -78,7 +78,7 @@ class WorldModelRollout:
 
     def frame_count(self, autoregressive_index: int) -> int:
         """Return the pipeline's authoritative output count for one step."""
-        count = int(self.pipeline.get_num_frames(autoregressive_index))
+        count = int(self.pipeline.get_num_output_frames(autoregressive_index))
         if count <= 0:
             raise ValueError("The pipeline returned a non-positive frame count")
         return count
@@ -119,7 +119,7 @@ class WorldModelRollout:
             video = self.pipeline.generate(
                 autoregressive_index=autoregressive_index,
                 cache=self.cache,
-                hdmap=engine_step.condition.hdmap_bvtchw,
+                input=engine_step.condition.hdmap_bvtchw,
             )
             metrics = self.pipeline.finalize(
                 autoregressive_index=autoregressive_index,
