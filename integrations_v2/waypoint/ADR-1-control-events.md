@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-1: Waypoint live control event semantics
 
-Status: accepted for the V2 integration.
+Status: accepted for Waypoint; shared V2 extraction deferred.
 
 The Waypoint model consumes a set of held IDs from a fixed 256-entry button
 vocabulary, relative mouse motion, and a ternary wheel direction. FlashDreams
@@ -49,3 +49,39 @@ File-driven mode has complete precedence over live input: keyboard and mouse
 events do not alter a controls-file rollout. Reset and close remain runtime
 lifecycle events in either mode. Live mode samples one coalesced control for
 every model-loop action.
+
+## Reuse review
+
+The review found no existing V2 user-event-to-model-action mapping contract.
+V2 currently owns typed and timestamped events, event ordering and fan-out,
+reset generation, focus events, and WebRTC/native-window transport. Each model
+loop receives the unread raw `UserInputEvents` batch and remains responsible for
+semantic interpretation.
+
+The older `flashdreams.runtime.mapping.InputMapping` protocol belongs to the
+legacy runtime's canonical/inference-input schema and is not compatible with
+the V2 loop contract. The shared `apps/cam2v` package has useful application,
+session, UI, and reset organization, but its keyboard resampler produces camera
+trajectories and does not handle Waypoint's button vocabulary, mouse motion, or
+wheel channel. Neither is a dependency for this integration.
+
+`WaypointControlEventAdapter` is intentionally named as an integration-specific
+adapter even though some of its mechanics can later be shared. A reusable
+action-to-video design should keep three boundaries:
+
+1. **Runtime event transport:** `UserInputEvents` and lifecycle events, already
+   supplied by V2.
+2. **Model-neutral action snapshot:** persistent key and mouse-button state plus
+   transient normalized mouse and wheel deltas. This stateful accumulator can
+   be shared after another integration validates its timing and focus rules.
+3. **Model mapping and encoding:** an integration maps the snapshot to its
+   domain control (`WaypointControl` here), then its model package converts that
+   object to checkpoint-specific tensors (`WaypointControlEncoder`).
+
+A future generic action-to-video app can also own seed/replay/live-mode
+selection, reset wiring, and a control-help overlay while accepting the mapper
+and model pipeline as integration-provided strategies. This PR does not add
+that public protocol: with only one direct consumer, doing so would make
+Waypoint's Windows virtual-key and pixel-delta policies accidental framework
+contracts. The extraction should be validated jointly with the next compatible
+interactive world model.

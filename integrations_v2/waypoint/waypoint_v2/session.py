@@ -20,7 +20,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from waypoint_v2.control_events import ControlEventAdapter
+from waypoint_v2.control_events import WaypointControlEventAdapter
 
 
 @dataclass(slots=True)
@@ -34,7 +34,7 @@ class WaypointModelState:
     seed_pixels: Tensor
     seed: int
     controls: tuple[WaypointControl, ...] | None
-    control_events: ControlEventAdapter
+    control_events: WaypointControlEventAdapter
     cache: Any | None
     initial_rng_state: Tensor
     rng_state: Tensor
@@ -210,7 +210,7 @@ class WaypointSession(ISession):
             seed_pixels=seed_pixels,
             seed=self._seed,
             controls=self._controls,
-            control_events=ControlEventAdapter(
+            control_events=WaypointControlEventAdapter(
                 video_width=self._session_desc.video_width,
                 video_height=self._session_desc.video_height,
                 mouse_sensitivity=self._mouse_sensitivity,

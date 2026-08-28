@@ -80,7 +80,11 @@ Support summary
 The checkpoint's pinned configuration sets prompt_conditioning to null.
 Although the generic upstream APIs accept prompts for other models, this
 checkpoint-compatible FlashDreams path has no text encoder or prompt-conditioned
-weights and deliberately exposes no prompt argument.
+weights and deliberately exposes no prompt argument. In the upstream runtime,
+this configuration leaves the prompt encoder uninitialized and calling
+``set_prompt`` raises. The pinned safetensors artifact contains 393 tensor keys,
+with no keys for prompt or cross-attention modules. Consequently, this model
+does not accept a text prompt that can influence its output.
 
 Requirements
 ------------

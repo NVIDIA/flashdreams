@@ -8,6 +8,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,10 +19,10 @@ from torch import Tensor
 from waypoint import WaypointControl
 from waypoint.pipeline import WaypointInferencePipeline
 from waypoint_v2.app import WaypointApplication, load_seed_display_frames
-from waypoint_v2.control_events import ControlEventAdapter
+from waypoint_v2.control_events import WaypointControlEventAdapter
 from waypoint_v2.session import WaypointModelLoop, WaypointSession
 
-from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -30,12 +31,11 @@ from flashdreams.runtime_v2.session_desc import (
 )
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    MouseUserInputEventData,
-    ResetUserInputEventData,
-    UserInputEvent,
+    KeyboardUserInputEvent,
+    MouseUserInputEvent,
+    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -146,12 +146,9 @@ def _session(
     )
 
 
-def _events(*data: UserInputEventData) -> UserInputEvents:
+def _events(*events: UserInputEvent) -> UserInputEvents:
     return UserInputEvents(
-        [
-            UserInputEvent(timestamp=uint64(index), event_data=event_data)
-            for index, event_data in enumerate(data)
-        ]
+        [replace(event, timestamp=uint64(index)) for index, event in enumerate(events)]
     )
 
 
@@ -272,7 +269,11 @@ def test_file_session_emits_seed_then_exactly_four_frames_per_action() -> None:
     seed = loop.step(0, _empty_events())[0]
     first = loop.step(
         1,
-        _events(KeyboardUserInputEventData(key="d", state=KeyboardInputState.PRESSED)),
+        _events(
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key="d", state=KeyboardInputState.PRESSED
+            )
+        ),
     )[0]
     second = loop.step(2, _empty_events())[0]
 
@@ -389,9 +390,11 @@ def test_live_session_coalesces_events_for_each_generated_action() -> None:
     loop.step(
         1,
         _events(
-            KeyboardUserInputEventData(key="w", state=KeyboardInputState.PRESSED),
-            MouseUserInputEventData(action="move", x=0.25, y=0.5),
-            MouseUserInputEventData(action="move", x=0.5, y=0.25),
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key="w", state=KeyboardInputState.PRESSED
+            ),
+            MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.25, y=0.5),
+            MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.5, y=0.25),
         ),
     )
     loop.step(2, _empty_events())
@@ -424,15 +427,21 @@ def test_control_adapter_uses_canonical_waypoint_keycodes(
     key: str, expected: int
 ) -> None:
     """Browser key strings map to the official Biome/Waypoint numeric IDs."""
-    adapter = ControlEventAdapter(video_width=100, video_height=50)
+    adapter = WaypointControlEventAdapter(video_width=100, video_height=50)
     pressed = adapter.consume(
-        _events(KeyboardUserInputEventData(key=key, state=KeyboardInputState.PRESSED))
+        _events(
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key=key, state=KeyboardInputState.PRESSED
+            )
+        )
     )
     held = adapter.consume(_empty_events())
     released = adapter.consume(
         _events(
-            KeyboardUserInputEventData(
-                key=key.swapcase(), state=KeyboardInputState.RELEASED
+            KeyboardUserInputEvent(
+                timestamp=uint64(0),
+                key=key.swapcase(),
+                state=KeyboardInputState.RELEASED,
             )
         )
     )
@@ -442,21 +451,30 @@ def test_control_adapter_uses_canonical_waypoint_keycodes(
 
 def test_control_adapter_maps_mouse_motion_buttons_and_wheel() -> None:
     """Absolute pointer events become accumulated deltas and canonical button IDs."""
-    adapter = ControlEventAdapter(
+    adapter = WaypointControlEventAdapter(
         video_width=100, video_height=50, mouse_sensitivity=2.0
     )
     first = adapter.consume(
-        _events(MouseUserInputEventData(action="move", x=0.25, y=0.5))
+        _events(MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.25, y=0.5))
     )
     second = adapter.consume(
         _events(
-            MouseUserInputEventData(
-                action="button", x=0.25, y=0.5, button=1, pressed=True
+            MouseUserInputEvent(
+                timestamp=uint64(0),
+                action="button",
+                x=0.25,
+                y=0.5,
+                button=1,
+                pressed=True,
             ),
-            MouseUserInputEventData(action="move", x=0.5, y=0.25),
-            MouseUserInputEventData(action="move", x=0.6, y=0.5),
-            MouseUserInputEventData(action="wheel", x=0.6, y=0.5, wheel_y=1.0),
-            MouseUserInputEventData(action="wheel", x=0.6, y=0.5, wheel_y=-0.25),
+            MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.5, y=0.25),
+            MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.6, y=0.5),
+            MouseUserInputEvent(
+                timestamp=uint64(0), action="wheel", x=0.6, y=0.5, wheel_y=1.0
+            ),
+            MouseUserInputEvent(
+                timestamp=uint64(0), action="wheel", x=0.6, y=0.5, wheel_y=-0.25
+            ),
         )
     )
     assert first == WaypointControl()
@@ -470,27 +488,33 @@ def test_control_adapter_maps_mouse_motion_buttons_and_wheel() -> None:
 
 def test_focus_loss_and_reset_clear_held_state_and_pointer_origin() -> None:
     """Lifecycle edges prevent stuck controls and discard pending pointer history."""
-    adapter = ControlEventAdapter(video_width=100, video_height=50)
+    adapter = WaypointControlEventAdapter(video_width=100, video_height=50)
     adapter.consume(
         _events(
-            KeyboardUserInputEventData(key="w", state=KeyboardInputState.PRESSED),
-            MouseUserInputEventData(action="button", button=0, pressed=True),
-            MouseUserInputEventData(action="move", x=0.2, y=0.3),
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key="w", state=KeyboardInputState.PRESSED
+            ),
+            MouseUserInputEvent(
+                timestamp=uint64(0), action="button", button=0, pressed=True
+            ),
+            MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.2, y=0.3),
         )
     )
     unfocused = adapter.consume(
         _events(
-            MouseUserInputEventData(action="move", x=0.4, y=0.5),
-            FocusUserInputEventData(focused=False),
+            MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.4, y=0.5),
+            FocusUserInputEvent(timestamp=uint64(0), focused=False),
         )
     )
     after_focus = adapter.consume(
-        _events(MouseUserInputEventData(action="move", x=0.8, y=0.9))
+        _events(MouseUserInputEvent(timestamp=uint64(0), action="move", x=0.8, y=0.9))
     )
     reset = adapter.consume(
         _events(
-            KeyboardUserInputEventData(key="d", state=KeyboardInputState.PRESSED),
-            ResetUserInputEventData(),
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key="d", state=KeyboardInputState.PRESSED
+            ),
+            ResetUserInputEvent(timestamp=uint64(0)),
         )
     )
     assert unfocused == after_focus == reset == WaypointControl()

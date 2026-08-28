@@ -57,3 +57,9 @@ mouse contract. Passing `--controls-file` selects finite deterministic mode;
 omitting it selects live input. `--example-data` uses the pinned public seed
 and bundled 118-action timeline. See [VALIDATION.md](VALIDATION.md) for CPU,
 CUDA, real-checkpoint, MP4, performance, and official-reference parity evidence.
+
+V2 supplies raw input transport, loop/reset lifecycle, WebRTC, and output
+sinks, but it has no generic action-to-video application or event-to-action
+mapping protocol today. The Waypoint-specific adapter remains local to this
+package; ADR-1 records the reviewed extraction boundary for a future shared
+action snapshot, mapper protocol, and control-help UI.

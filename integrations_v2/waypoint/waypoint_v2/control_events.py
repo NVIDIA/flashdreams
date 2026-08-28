@@ -11,11 +11,11 @@ from dataclasses import dataclass, field
 from waypoint import WaypointControl
 
 from flashdreams.runtime_v2.user_input_event import (
-    FocusUserInputEventData,
+    FocusUserInputEvent,
     KeyboardInputState,
-    KeyboardUserInputEventData,
-    MouseUserInputEventData,
-    ResetUserInputEventData,
+    KeyboardUserInputEvent,
+    MouseUserInputEvent,
+    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -39,7 +39,7 @@ _MOUSE_BUTTON_CODES = {0: 0x01, 1: 0x04, 2: 0x02}
 
 
 @dataclass(slots=True)
-class ControlEventAdapter:
+class WaypointControlEventAdapter:
     """Coalesce one ordered v2 event batch into a Waypoint action.
 
     Keyboard and mouse-button edges update held state. Mouse coordinates are
@@ -77,49 +77,48 @@ class ControlEventAdapter:
         wheel = 0.0
 
         for event in events.get_events():
-            data = event.get_event_data()
-            if isinstance(data, ResetUserInputEventData):
+            if isinstance(event, ResetUserInputEvent):
                 self.reset()
                 mouse_dx = mouse_dy = wheel = 0.0
-            elif isinstance(data, FocusUserInputEventData):
-                if not data.focused:
+            elif isinstance(event, FocusUserInputEvent):
+                if not event.focused:
                     self.reset()
                     mouse_dx = mouse_dy = wheel = 0.0
-            elif isinstance(data, KeyboardUserInputEventData):
-                button = _key_code(data.key)
+            elif isinstance(event, KeyboardUserInputEvent):
+                button = _key_code(event.key)
                 if button is None:
                     continue
-                if data.state is KeyboardInputState.PRESSED:
+                if event.state is KeyboardInputState.PRESSED:
                     self._held_buttons.add(button)
                 else:
                     self._held_buttons.discard(button)
-            elif isinstance(data, MouseUserInputEventData):
-                if data.action == "move":
+            elif isinstance(event, MouseUserInputEvent):
+                if event.action == "move":
                     if self._pointer_position is not None:
                         previous_x, previous_y = self._pointer_position
                         mouse_dx += (
-                            (data.x - previous_x)
+                            (event.x - previous_x)
                             * self.video_width
                             * self.mouse_sensitivity
                         )
                         mouse_dy += (
-                            (data.y - previous_y)
+                            (event.y - previous_y)
                             * self.video_height
                             * self.mouse_sensitivity
                         )
-                    self._pointer_position = (data.x, data.y)
-                elif data.action == "button":
-                    self._pointer_position = (data.x, data.y)
-                    button = _MOUSE_BUTTON_CODES.get(data.button)
+                    self._pointer_position = (event.x, event.y)
+                elif event.action == "button":
+                    self._pointer_position = (event.x, event.y)
+                    button = _MOUSE_BUTTON_CODES.get(event.button)
                     if button is None:
                         continue
-                    if data.pressed:
+                    if event.pressed:
                         self._held_buttons.add(button)
                     else:
                         self._held_buttons.discard(button)
-                elif data.action == "wheel":
-                    self._pointer_position = (data.x, data.y)
-                    wheel += data.wheel_y
+                elif event.action == "wheel":
+                    self._pointer_position = (event.x, event.y)
+                    wheel += event.wheel_y
 
         scroll_wheel = 1 if wheel > 0 else -1 if wheel < 0 else 0
         return WaypointControl(
@@ -147,4 +146,4 @@ def _key_code(key: str) -> int | None:
     return _NAMED_KEY_CODES.get(normalized)
 
 
-__all__ = ["ControlEventAdapter"]
+__all__ = ["WaypointControlEventAdapter"]

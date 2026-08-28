@@ -4,12 +4,12 @@
 """FlashDreams V2 application for Waypoint 1.5."""
 
 from waypoint_v2.app import WaypointApplication, create_app
-from waypoint_v2.control_events import ControlEventAdapter
+from waypoint_v2.control_events import WaypointControlEventAdapter
 from waypoint_v2.session import WaypointModelLoop, WaypointSession
 
 __all__ = [
-    "ControlEventAdapter",
     "WaypointApplication",
+    "WaypointControlEventAdapter",
     "WaypointModelLoop",
     "WaypointSession",
     "create_app",

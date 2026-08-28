@@ -32,8 +32,13 @@ hardware, parity metrics, and long-rollout evidence are recorded in
 | Concurrency | An application lock serializes shared model/RNG work; output tensors leave the model loop detached |
 
 The published config has `prompt_conditioning: null`; this integration therefore
-does not load a text encoder or expose a prompt. It also does not currently
-implement the upstream 360P checkpoint, quantization, or multi-GPU execution.
+does not load a text encoder or expose a prompt. The generic upstream
+`WorldEngine` has a `set_prompt` method for other configurations, but for this
+checkpoint it does not instantiate a prompt encoder and `set_prompt` raises.
+The pinned checkpoint also has no prompt or cross-attention tensor keys. A
+prompt argument would therefore be ignored or rejected rather than condition
+generation. The integration also does not currently implement the upstream
+360P checkpoint, quantization, or multi-GPU execution.
 
 ## Use cases and modalities
 
@@ -77,6 +82,7 @@ flowchart TB
         registry[application_registry.py<br/>slug discovery]
         runner[application_runner.py / session_runner.py]
         api[IApplication / ISession / IModelLoop]
+        input[UserInputEvents / EventBuffer<br/>transport and reset lifecycle]
         sinks[WebRTCClientWindow / Mp4ClientWindow<br/>MetricsOutputSink]
         base[StreamInferencePipeline<br/>DiffusionModel / Transformer]
         taehv[recipes/taehv<br/>Hy15TAEHVEncoder and Decoder]
@@ -85,7 +91,7 @@ flowchart TB
     subgraph adapter[integrations_v2/waypoint]
         app[app.py<br/>WaypointApplication]
         session[session.py<br/>WaypointSession and ModelLoop]
-        events[control_events.py<br/>ControlEventAdapter]
+        events[control_events.py<br/>WaypointControlEventAdapter]
     end
 
     subgraph waypoint[integrations/waypoint]
@@ -105,11 +111,14 @@ flowchart TB
     api -. implemented by .-> app
     api -. implemented by .-> session
     runner --> session
+    runner --> input
     runner --> sinks
     app --> session
     app --> pipeline
     session --> events
     session --> pipeline
+    input --> events
+    events --> controls
     pipeline --> controls
     pipeline --> transformer
     pipeline --> scheduler
@@ -128,6 +137,35 @@ The package boundary is intentional: `integrations/waypoint` is reusable model
 inference code and imports no V2 runtime classes. `integrations_v2/waypoint` is
 the thin application adapter and depends on both FlashDreams and the model
 package.
+
+## V2 reuse and action-mapping boundary
+
+The V2 runtime already provides device-neutral, timestamped input events;
+event fan-out to model and UI loops; reset/focus lifecycle; WebRTC transport;
+and generic presentation, MP4, and metrics sinks. It deliberately delivers raw
+events to each model loop. It does not currently provide an action-to-video
+application, a stateful action coalescer, or a protocol from user events to a
+model's control object.
+
+`WaypointControlEventAdapter` is therefore integration-owned. It contains two
+seams that a later shared action-to-video package can separate:
+
+1. A model-neutral accumulator can retain held key names and mouse-button
+   indices, convert absolute pointer positions to relative normalized motion,
+   collect wheel deltas, and clear state on focus loss or reset.
+2. A model-owned mapper can convert that snapshot to Waypoint's Windows
+   virtual-key vocabulary, apply canvas and sensitivity scaling, reduce the
+   wheel to a ternary value, and construct `WaypointControl`. The existing
+   `WaypointControlEncoder` remains responsible for control-to-tensor encoding.
+
+The legacy `flashdreams.runtime.mapping.InputMapping` API is not a V2
+dependency and should not be revived inside this integration. `apps/cam2v`
+demonstrates the desired shared-app organization, but its keyboard-to-camera
+trajectory resampling is a different semantic contract. A future
+`apps/action2v`-style package should be extracted when a second interactive
+world-model integration can validate the common snapshot, mapper, replay, and
+control-help UI contracts. Until then, keeping this adapter explicitly named
+and scoped to Waypoint avoids freezing its virtual-key assumptions into V2.
 
 ## Class and ownership view
 
@@ -320,8 +358,9 @@ mapping and reset/focus semantics.
 - The integration preserves upstream model behavior, including possible
   long-rollout drift, unstable geometry, inconsistent objects, and implausible
   motion. It is not a physically accurate or safety-critical simulator.
-- Consolidating this application with the shared Cam2V app is deferred until
-  Cam2V exposes Waypoint's raw mouse/button/wheel control contract.
+- A generic action-to-video application and shared control-help overlay remain
+  follow-up work. Cam2V is an organizational precedent, not a compatible
+  control contract for Waypoint.
 
 ## Validation
 
