@@ -27,6 +27,7 @@ from ._plugin import _get_plugin, get_log_level, set_log_level
 
 # Ludus rendering contexts.
 from .context import LudusCudaTimestampedContext
+from .context_vk import LudusTimestampedContext, LudusVulkanTimestampedContext
 
 # Primitive data types and packing
 from .primitives import (
@@ -127,4 +128,6 @@ __all__ = [
     "_triangulate_polygon_ear_clipping",
     # Ludus rendering contexts
     "LudusCudaTimestampedContext",
+    "LudusTimestampedContext",
+    "LudusVulkanTimestampedContext",
 ]

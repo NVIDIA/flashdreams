@@ -75,6 +75,8 @@ _LOCAL_SCENARIO_FIELDS = frozenset(
         "synthetic_initial_rgb",
         "synthetic_prompt",
         "auto_start",
+        "game_mode",
+        "disable_visual_flare",
         "preload_scenes",
         "wheel_profile",
         "wheel_profiles_dir",

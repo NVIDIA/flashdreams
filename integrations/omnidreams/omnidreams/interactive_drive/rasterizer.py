@@ -21,6 +21,7 @@ from loguru import logger
 from ludus_renderer import (
     FThetaCamera,
     LudusCudaTimestampedContext,
+    LudusVulkanTimestampedContext,
     MutableObjectSceneBuffer,
 )
 from ludus_renderer import (
@@ -114,10 +115,16 @@ class _LudusConditionRasterizerImpl:
                 "using host raster frames",
             )
 
-        logger.info("[rasterizer] ludus_backend=cuda")
-        self.ctx = LudusCudaTimestampedContext(device=self._device)
+        context_type = {
+            "cuda": LudusCudaTimestampedContext,
+            "vulkan": LudusVulkanTimestampedContext,
+        }[raster.ludus_backend]
+        logger.info(f"[rasterizer] ludus_backend={raster.ludus_backend}")
+        self.ctx = context_type(device=self._device)
         self.ctx.set_depth_scaling(True)
-        self.ctx.set_msaa_samples(4)
+        # The Vulkan color-attachment/compute-export path is single-sample;
+        # the CUDA backend retains its existing 4x path.
+        self.ctx.set_msaa_samples(1 if raster.ludus_backend == "vulkan" else 4)
         # Keep adaptive cube tessellation enabled. F-theta projection curves
         # box faces near the image boundary; forcing level zero turns each face
         # into two long screen-space triangles and visibly warps edge colliders.

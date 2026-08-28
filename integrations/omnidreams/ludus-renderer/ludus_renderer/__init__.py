@@ -60,6 +60,8 @@ from ._ops import (
     FThetaCamera,
     # Contexts
     LudusCudaTimestampedContext,
+    LudusTimestampedContext,
+    LudusVulkanTimestampedContext,
     ObstaclePool,
     Polygon,
     # Primitives
@@ -125,6 +127,8 @@ __all__ = [
     "mirror_augment_scene",
     # Rendering contexts
     "LudusCudaTimestampedContext",
+    "LudusTimestampedContext",
+    "LudusVulkanTimestampedContext",
     "MutableObjectSceneBuffer",
     # Primitives
     "Polyline",

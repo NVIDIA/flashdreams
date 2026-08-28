@@ -1,13 +1,16 @@
 # Ludus Renderer
 
 GPU-native F-theta renderer and PhysX-first object graph for autonomous
-vehicle simulation. Rendering is CUDA-only and is built on the HPG 2011
-CudaRaster triangle pipeline.
+vehicle simulation. The default CUDA backend uses the HPG 2011 CudaRaster
+triangle pipeline; an optional Windows/Linux Vulkan backend uses task, mesh,
+and fragment shaders to rasterize into native device-local attachments, then a
+compute export pass writes a CUDA-visible linear buffer.
 
 ## Features
 
 - **F-theta Camera Model**: Native support for fisheye lens distortion using polynomial projection
-- **One CUDA rendering path**: no graphics API interop or duplicate backend
+- **CUDA and Vulkan rendering paths**: matching timestamped-scene APIs, with
+  Vulkan using device-local shared buffers and GPU timeline-semaphore ordering
 - **PhysX object graph**: generic rigid bodies and invisible map barriers;
   applications own semantic vehicle design and driving policy
 - **Mutable simulation buffers**: actor add/update/remove operations preserve one
@@ -27,11 +30,20 @@ CudaRaster triangle pipeline.
 ## Requirements
 
 **Always:**
+
 - NVIDIA GPU (Turing or later)
 - CUDA 11+
 - Python 3.10+
 - A C++17 compiler (Visual Studio 2022 on Windows)
 - ffmpeg (for MP4 muxing with `--output-format mp4`)
+
+**Vulkan backend (optional, Windows and Linux):**
+
+- Vulkan 1.3 headers and loader (LunarG Vulkan SDK on Windows;
+  `libvulkan-dev` on Debian/Ubuntu)
+- `VK_EXT_mesh_shader`, `VK_KHR_fragment_shader_barycentric`,
+  timeline semaphore, and platform-native external-memory/semaphore support on
+  the CUDA-paired Vulkan device (`*_win32` on Windows, `*_fd` on Linux)
 
 ## Installation
 
@@ -57,11 +69,27 @@ uv run --package ludus-renderer python -c "from ludus_renderer import prepare_ph
 
 ## Usage
 
-The CUDA renderer is the only public rendering backend:
+CUDA remains the default backend:
 
 ```python
 from ludus_renderer import LudusCudaTimestampedContext
 ctx = LudusCudaTimestampedContext(device="cuda")
+```
+
+The Vulkan backend mirrors the timestamped context API. Fixed-function color
+and depth attachments resolve primitive/depth ordering in the native raster
+pipeline. A separate compute dispatch then packs the resolved image into
+row-major RGBA8 in a reusable exported linear SSBO. PyTorch wraps CUDA's mapping
+of that buffer, so only the post-raster handoff is zero-copy; the native image
+is never treated as tensor storage. Timeline semaphores and external
+queue-family ownership barriers order the work without a steady-state CPU wait.
+Attachments are cached per resolution; the current path is single-sample.
+Platform-native OS handles are transient and closed or transferred immediately
+after CUDA imports them.
+
+```python
+from ludus_renderer import LudusVulkanTimestampedContext
+ctx = LudusVulkanTimestampedContext(device="cuda")
 ```
 
 `PhysXWorld` consumes `PhysicsObjectGraph` and creates `PxScene`, rigid actors,

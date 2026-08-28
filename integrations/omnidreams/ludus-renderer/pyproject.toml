@@ -63,9 +63,13 @@ packages = [
 [tool.setuptools.package-data]
 "ludus_renderer" = [
     "_cpp/common/*.h",
-    "_cpp/common/common.cpp",
+    "_cpp/common/*.cpp",
     "_cpp/render/*.h",
+    "_cpp/render/*.cpp",
     "_cpp/render/*.cu",
+    "shaders/*.glsl",
+    "shaders/*.py",
+    "shaders/*.sh",
     "_cpp/cudaraster/*.hpp",
     "_cpp/cudaraster/*.cpp",
     "_cpp/cudaraster/*.cu",
