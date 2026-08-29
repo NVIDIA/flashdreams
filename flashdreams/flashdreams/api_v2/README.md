@@ -64,11 +64,7 @@ comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
 The UI thread initially selects frames from model chunks at
-`frames_per_second_for_step`. With nonblocking `DROP_OLDEST` backpressure it
-then uses the model thread's rolling two-second output rate. `BLOCK` retains the
-declared rate because its own queue waits would otherwise feed back into and
-progressively reduce the measured model rate. This paces chunked output evenly
-without tying input and UI redraws to model throughput.
+`frames_per_second_for_step`. With nonblocking `BackpressureMode.DROP_OLDEST` backpressure, the oldest chunk not-finished being processed by the ui-thread will be discarded in favor of a new chunk returned by the model-thread if presentation-manager buffer is full. With `BackpressureMode.BLOCK` backpressure, instead of discarding a chunk the model-thread will wait for an open chunk-slot to store its result in the presentation-manager before progressing to its next `step`. The goal of this backpressure model is to allow independent computation and presentation of UI (for reactivity to user inputs) separate from the backend logic of the model-thread.```
 `PresentationMode.CONTINUOUS` lets an `IUILoop` redraw every UI tick;
 `PresentationMode.ON_DEMAND` runs it only when the selected model frame changes.
 Interactive or clock-driven UIs should use continuous presentation.
