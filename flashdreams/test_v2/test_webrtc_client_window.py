@@ -115,6 +115,12 @@ async def _connect_browser(
 @pytest.mark.asyncio
 async def test_window_buffers_browser_events_until_drained() -> None:
     window = WebRTCClientWindow()
+    server_loop = window.server._loop
+    assert server_loop is not None
+    assert (
+        server_loop.get_exception_handler()
+        is webrtc_server._handle_webrtc_loop_exception
+    )
     assert window.metrics_snapshot() == {
         "webrtc_sender_queue_depth_count": 0,
         "webrtc_sender_queue_capacity_count": 2,
@@ -292,6 +298,31 @@ async def test_window_buffers_browser_events_until_drained() -> None:
         if peer is not None:
             await peer.close()
         window.close()
+
+
+def test_webrtc_loop_suppresses_only_the_aioice_completed_retry_race() -> None:
+    loop = Mock(spec=asyncio.AbstractEventLoop)
+    context: dict[str, Any] = {
+        "message": webrtc_server._AIOICE_COMPLETED_RETRY_MESSAGE,
+        "exception": asyncio.InvalidStateError("invalid state"),
+        "handle": Mock(spec=asyncio.TimerHandle),
+    }
+
+    webrtc_server._handle_webrtc_loop_exception(loop, context)
+
+    loop.default_exception_handler.assert_not_called()
+
+    near_matches = (
+        {**context, "exception": RuntimeError("invalid state")},
+        {**context, "message": "Exception in callback another retry"},
+        {**context, "handle": Mock(spec=asyncio.Handle)},
+    )
+    for near_match in near_matches:
+        loop.reset_mock()
+
+        webrtc_server._handle_webrtc_loop_exception(loop, near_match)
+
+        loop.default_exception_handler.assert_called_once_with(near_match)
 
 
 @pytest.mark.asyncio
