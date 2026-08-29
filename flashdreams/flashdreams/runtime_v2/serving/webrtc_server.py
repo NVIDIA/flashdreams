@@ -58,6 +58,24 @@ _TRANSFER_STREAM_PRIORITY = -1
 _SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 2.0
 """Bound shutdown time spent waiting for aiortc's next sender request."""
 
+_AIOICE_COMPLETED_RETRY_MESSAGE = "Exception in callback Transaction.__retry()"
+"""Asyncio callback message produced by the completed STUN retry race."""
+
+
+def _handle_webrtc_loop_exception(
+    loop: asyncio.AbstractEventLoop,
+    context: dict[str, Any],
+) -> None:
+    """Suppress the completed-transaction race in ``aioice`` STUN retries."""
+    # TODO: Remove after https://github.com/aiortc/aioice/pull/100 is released.
+    if (
+        type(context.get("exception")) is asyncio.InvalidStateError
+        and isinstance(context.get("handle"), asyncio.TimerHandle)
+        and context.get("message") == _AIOICE_COMPLETED_RETRY_MESSAGE
+    ):
+        return
+    loop.default_exception_handler(context)
+
 
 class _PinnedRGBFrameBuffer:
     """One reusable host frame for the synchronous CUDA materializer."""
@@ -581,6 +599,7 @@ class WebRTCServer:
     def _run_server(self) -> None:
         """Own the WebRTC asyncio loop for the lifetime of the server."""
         loop = asyncio.new_event_loop()
+        loop.set_exception_handler(_handle_webrtc_loop_exception)
         self._loop = loop
         asyncio.set_event_loop(loop)
         try:
