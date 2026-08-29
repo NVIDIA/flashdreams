@@ -106,6 +106,7 @@ def compose_swap_target(
             use_lora=lora_available,
             corrector_gain=style_config.corrector_gain,
         )
+    assert weather is not None
     assert weather_config is not None, "weather state requires a weather config"
     return SwapTarget(
         prompt=weather.prompt,

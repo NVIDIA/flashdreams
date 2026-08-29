@@ -7,6 +7,8 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 import torch
@@ -26,11 +28,7 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import (
-    _PresentationClock,
-    _next_ui_tick_at,
-    run_session,
-)
+from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -121,26 +119,6 @@ def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
     _observe_model_step(clock, 2.0, 120, 1.0)
 
     assert clock.frames_per_second == 60
-
-
-def test_presentation_clock_does_not_adapt_to_blocked_model_throughput() -> None:
-    clock = _PresentationClock(
-        frames_per_second=30,
-        adapt_to_model_throughput=False,
-    )
-
-    clock.observe_model_output(now=1.0, generation=0, frame_count=8)
-    clock.observe_model_output(now=2.0, generation=0, frame_count=8)
-
-    assert clock.frames_per_second == 30
-
-
-def test_next_ui_tick_does_not_sleep_after_an_overrun() -> None:
-    assert _next_ui_tick_at(1.0, 0.1, 1.25) == 1.25
-
-
-def test_next_ui_tick_preserves_deadline_without_an_overrun() -> None:
-    assert _next_ui_tick_at(1.0, 0.1, 1.05) == 1.1
 
 
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
@@ -838,22 +816,22 @@ def test_window_write_stays_in_the_presentation_context() -> None:
     session = FakeSession(_session_desc(), log)
 
     class ContextRecordingManager(PresentationManager):
-        active = False
+        active_depth = 0
 
         @contextmanager
         def presentation_context(self) -> Iterator[None]:
-            self.active = True
+            self.active_depth += 1
             try:
                 yield
             finally:
-                self.active = False
+                self.active_depth -= 1
 
     manager = ContextRecordingManager()
     session.__dict__["_presentation_manager"] = manager
 
     class ContextCheckingWindow(RecordingClientWindow):
         def write(self, result: StepResult) -> None:
-            assert manager.active
+            assert manager.active_depth > 0
             super().write(result)
 
     run_session(session, ContextCheckingWindow(log), steps=1)

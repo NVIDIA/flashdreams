@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 import torch
 from crazy_robotaxi.application import (
-    CrazyRobotaxiApplicationDefaults,
     CrazyRobotaxiApplication,
+    CrazyRobotaxiApplicationDefaults,
     _fit_bev_renderer_to_ui,
 )
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
@@ -318,6 +318,7 @@ def test_pressed_gamepad_start_requests_a_v2_game_restart() -> None:
         )
     )
 
+
 def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
     class RestartRequested(Exception):
         pass
@@ -337,6 +338,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
 
     class ProbeState:
         game_selected = True
+        config = SimpleNamespace(profile_input_latency=False)
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -367,6 +369,7 @@ def test_model_input_is_applied_before_rollout_work() -> None:
 
     class ProbeState:
         game_selected = True
+        config = SimpleNamespace(profile_input_latency=False)
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -413,9 +416,7 @@ def test_taxi_keyboard_restores_arcade_brake_reverse() -> None:
 
     command = _taxi_driver_command(driver_input.command())
 
-    assert vehicle.steer_rate_rad_per_s == pytest.approx(
-        3.5 * vehicle.max_steer_rad
-    )
+    assert vehicle.steer_rate_rad_per_s == pytest.approx(3.5 * vehicle.max_steer_rad)
     assert vehicle.steer_return_rate_rad_per_s == pytest.approx(
         5.0 * vehicle.max_steer_rad
     )
@@ -507,12 +508,10 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
     )
     app.init(arguments)
 
-    session = app.create_session(app.session_desc())
-    session.init()
-    _, model_loop = session._take_loops()
+    session = cast(CrazyRobotaxiSession, app.create_session(app.session_desc()))
 
     assert configured == []
-    model_loop.state.pipeline_factory()
+    session._pipeline_factory()
     assert configured[0].enable_sync_and_profile is expected
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
@@ -534,13 +533,11 @@ def test_model_adapters_keep_their_packaged_pipeline_configs() -> None:
 
 
 def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
-    pipeline = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    pipeline: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    perf_pipeline: Any = OMNIDREAMS_PERF_PIPELINE_CONFIG
     assert pipeline.name == "omnidreams-fast-perf"
     assert pipeline.diffusion_model.seed is None
-    assert (
-        pipeline.decoder.use_compile
-        is OMNIDREAMS_PERF_PIPELINE_CONFIG.decoder.use_compile
-    )
+    assert pipeline.decoder.use_compile is perf_pipeline.decoder.use_compile
     assert pipeline.decoder.use_cuda_graph is True
     assert pipeline.image_encoder.native_vae_acceleration == "required"
     assert pipeline.image_encoder.native_vae_backend == "fp8"
@@ -622,7 +619,7 @@ def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
         ]
     )
 
-    pipeline = app._pipeline_config
+    pipeline = cast(Any, app._pipeline_config)
     transformer = pipeline.diffusion_model.transformer
     assert pipeline.diffusion_model.seed == 7
     assert transformer.compile_network is False

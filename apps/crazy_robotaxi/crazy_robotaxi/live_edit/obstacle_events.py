@@ -428,26 +428,24 @@ class ObstacleAbility:
             templates is None or (parked_templates is None and config.static_count > 0)
         ):
             resolved_catalog = load_obstacle_template_catalog()
-        self._templates = (
-            templates
-            if templates is not None
-            else resolved_catalog.moving(  # type: ignore[union-attr]
+        if templates is None:
+            assert resolved_catalog is not None
+            self._templates = resolved_catalog.moving(
                 min_drift_m=config.min_drift_m,
                 min_coverage_s=config.min_coverage_s,
                 length_range_m=config.length_range_m,
             )
-        )
-        self._parked_templates = (
-            parked_templates
-            if parked_templates is not None
-            else (
-                ()
-                if config.static_count == 0
-                else resolved_catalog.parked(  # type: ignore[union-attr]
-                    length_range_m=config.length_range_m
-                )
+        else:
+            self._templates = templates
+        if parked_templates is not None:
+            self._parked_templates = parked_templates
+        elif config.static_count == 0:
+            self._parked_templates = ()
+        else:
+            assert resolved_catalog is not None
+            self._parked_templates = resolved_catalog.parked(
+                length_range_m=config.length_range_m
             )
-        )
         self._pending: list[tuple[int, int]] = []
         self._events: list[ObstacleEvent] = []
         self._chunk_index = 0

@@ -14,20 +14,20 @@ from omnidreams_game_engine.conditioning import LudusConditionRenderer
 from omnidreams_game_engine.config import BevConfig, RasterConfig, VehicleConfig
 from omnidreams_game_engine.engine import GameEngine
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinityResolver
+from omnidreams_game_engine.simulation.actor_controller import PhysicsActorController
 from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     EgoVehicleKinematics,
     state_from_initial_pose,
 )
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.simulation.actor_controller import PhysicsActorController
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition, VehicleState
 
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
-from crazy_robotaxi.physics import TaxiPhysicsWorld, step_taxi_physics_world
 from crazy_robotaxi.high_scores import RaceTimeStore
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.live_edit.nitro_ability import integrate_with_nitro
-from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameRules, LiveEditGameplay
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay, LiveEditGameRules
+from crazy_robotaxi.physics import TaxiPhysicsWorld, step_taxi_physics_world
 from crazy_robotaxi.race import RaceController, RaceGameRules
 from crazy_robotaxi.rules import TaxiGameConfig, TaxiGameController, TaxiGameRules
 from crazy_robotaxi.scene import load_scene_data
@@ -138,7 +138,7 @@ def build_taxi_engine(
         condition_renderer=renderer,
         frame_interval_s=frame_interval_s,
     )
-    engine.live_edit = live_edit_gameplay
+    setattr(engine, "live_edit", live_edit_gameplay)
     return engine
 
 

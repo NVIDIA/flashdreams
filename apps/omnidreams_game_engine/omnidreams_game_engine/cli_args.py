@@ -44,5 +44,6 @@ class ExplicitArgTrackingArgumentParser(argparse.ArgumentParser):
         """Parse arguments and attach their explicitly supplied destinations."""
         raw_args = sys.argv[1:] if args is None else list(args)
         parsed = super().parse_args(raw_args, namespace)
+        assert parsed is not None
         setattr(parsed, _EXPLICIT_ARG_DESTS_ATTR, explicit_arg_dests(self, raw_args))
         return parsed

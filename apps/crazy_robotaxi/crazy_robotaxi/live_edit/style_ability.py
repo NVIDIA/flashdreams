@@ -36,7 +36,7 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -392,11 +392,7 @@ class StyleAbility:
         """
         if not self._config.enabled:
             return
-        current = (
-            self._active_index
-            if self._pending_index is _NO_PENDING
-            else self._pending_index
-        )
+        current = self._skin_state()
         if current is None:
             self._pending_index = 0
         elif current + 1 < len(self._config.skins):
@@ -498,13 +494,13 @@ class StyleAbility:
         """Effective skin index once any pending request lands."""
         if self._pending_index is _NO_PENDING:
             return self._active_index
-        return self._pending_index  # type: ignore[return-value]
+        return cast(int | None, self._pending_index)
 
     def _weather_state(self) -> int | None:
         """Effective weather index once any pending request lands."""
         if self._pending_weather is _NO_PENDING:
             return self._active_weather
-        return self._pending_weather  # type: ignore[return-value]
+        return cast(int | None, self._pending_weather)
 
     def _corrector_enabled(self) -> bool:
         """Whether any drift corrector will actually attach to the session.
@@ -661,9 +657,11 @@ class StyleAbility:
 
         base_predict_flow = transformer.predict_flow
         style_gain = self._config.corrector_gain
+        checkpoint = self._config.corrector_checkpoint
+        assert checkpoint is not None
         summary = apply_drift_corrector(
             SimpleNamespace(pipeline=pipeline),
-            self._config.corrector_checkpoint,
+            checkpoint,
             style_gain,
             unfused=True,
         )
@@ -838,11 +836,15 @@ class StyleAbility:
         self._pending_index = _NO_PENDING
         self._pending_weather = _NO_PENDING
         self._pending_skin_duration = None
-        target_skin = (
-            self._active_index if pending_skin is _NO_PENDING else pending_skin
+        target_skin: int | None = (
+            self._active_index
+            if pending_skin is _NO_PENDING
+            else cast(int | None, pending_skin)
         )
-        target_weather = (
-            self._active_weather if pending_weather is _NO_PENDING else pending_weather
+        target_weather: int | None = (
+            self._active_weather
+            if pending_weather is _NO_PENDING
+            else cast(int | None, pending_weather)
         )
         changed = (
             target_skin != self._active_index or target_weather != self._active_weather
@@ -1117,74 +1119,3 @@ def attach_style_ability(session: Any, config: LiveEditStyleConfig) -> StyleAbil
     ability = StyleAbility(config)
     ability.attach(session)
     return ability
-
-
-def install_style_ability_on_backend(backend: Any, ability: StyleAbility) -> None:
-    """Prepare a ``WorldModelRenderBackend`` for the style ability.
-
-    Called at the composition root BEFORE model warmup starts:
-
-    - in ``unfused`` corrector mode only, replaces the backend's session
-      with one whose pipeline factory disables CUDA graphs (the manifest
-      has no such knob, and the unfused corrector's scale gating is not
-      graph-safe). The default ``fused`` mode keeps the accelerated
-      pipeline (compile_network + use_cuda_graph) untouched;
-    - defers :meth:`StyleAbility.attach` until the session's own
-      ``warmup_model`` has built the pipeline (attach needs the live
-      transformer), by wrapping that method.
-    """
-    session = getattr(backend, "_session", None)
-    if session is None:
-        raise ValueError(
-            "--live-edit-style requires the omnidreams world-model backend "
-            "(the raster backend has no flashdreams session)."
-        )
-    needs_graph_free = (
-        ability._config.corrector_checkpoint is not None
-        and ability._config.corrector_mode == "unfused"
-    )
-    if needs_graph_free and not getattr(session, "_live_edit_cuda_graph_free", False):
-        session = _corrector_safe_session(session)
-        backend._session = session
-    original_warmup = session.warmup_model
-
-    def warmup_and_attach() -> None:
-        original_warmup()
-        ability.attach(session)
-
-    session.warmup_model = warmup_and_attach
-
-
-def _corrector_safe_session(session: Any) -> Any:
-    """Rebuild a not-yet-warmed session with CUDA graphs disabled.
-
-    Mirrors the validated bring-up factory: same manifest / profile /
-    offload / postprocess settings, but the transformer is built with
-    ``use_cuda_graph=False`` so the unfused drift corrector's per-step LoRA
-    scale gating stays outside any captured graph.
-    """
-    from omnidreams_game_engine.world_model.flashdreams_adapter import (
-        FlashdreamsWorldModelSession,
-        _build_pipeline_config,
-        _setup_pipeline_from_config,
-    )
-
-    def cuda_graph_free_factory(manifest: Any, profile: Any) -> Any:
-        from flashdreams.infra.config import derive_config
-
-        config = _build_pipeline_config(manifest, profile)
-        config = derive_config(
-            config, diffusion_model={"transformer": {"use_cuda_graph": False}}
-        )
-        return _setup_pipeline_from_config(config, manifest)
-
-    rebuilt = FlashdreamsWorldModelSession(
-        session.manifest,
-        profile=session._profile_config,
-        offload_text_encoder=session._offload_text_encoder,
-        pipeline_factory=cuda_graph_free_factory,
-        postprocess=session._postprocess,
-    )
-    # Marker so cooperating installers (obstacle guidance) skip a re-swap.
-    rebuilt._live_edit_cuda_graph_free = True
-    return rebuilt

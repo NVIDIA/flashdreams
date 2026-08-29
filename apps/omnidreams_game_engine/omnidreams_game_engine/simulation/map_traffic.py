@@ -553,21 +553,10 @@ class MapTrafficController:
 
     def prepare_step(
         self,
-        ego_or_world: BodyState | object,
-        dt_or_ego: float | BodyState,
-        legacy_dt_s: float | None = None,
+        ego: BodyState,
+        dt_s: float,
     ) -> tuple[ActorTrackTarget, ...]:
         """Advance logical cars and return targets for active physical bodies."""
-        legacy_world = None
-        if legacy_dt_s is None:
-            ego = ego_or_world
-            dt_s = float(dt_or_ego)
-        else:
-            legacy_world = ego_or_world
-            ego = dt_or_ego
-            dt_s = float(legacy_dt_s)
-        if not isinstance(ego, BodyState):
-            raise TypeError("prepare_step requires an ego BodyState")
         for state in self._states:
             if state.phase is MapTrafficPhase.TRAVERSING:
                 if state.object_id in self._active_ids:
@@ -620,13 +609,6 @@ class MapTrafficController:
             for state in self._states
             if state.object_id in self._active_ids
         )
-        if legacy_world is not None:
-            legacy_world.apply_track_progress(
-                tuple(
-                    (target.object_id, target.timestamp_us, target.velocity_scale)
-                    for target in targets
-                )
-            )
         return targets
 
 

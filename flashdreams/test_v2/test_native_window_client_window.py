@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -53,6 +53,14 @@ def _result(value: int = 0) -> StepResult:
         frame_count=1,
         output_layout=VideoTensorLayout.tchw,
     )
+
+
+def _keyboard_edges(events: Sequence[object]) -> list[tuple[str, KeyboardInputState]]:
+    return [
+        (event.key, event.state)
+        for event in events
+        if isinstance(event, KeyboardUserInputEvent)
+    ]
 
 
 class _KeyboardEvent:
@@ -492,7 +500,7 @@ def test_native_text_input_discards_repeat_callbacks_after_release() -> None:
     assert window.get_user_input_events().get_events() == []
     window.close()
 
-    assert [(event.key, event.state) for event in (*pressed, *released)] == [
+    assert _keyboard_edges([*pressed, *released]) == [
         ("d", KeyboardInputState.PRESSED),
         ("d", KeyboardInputState.RELEASED),
     ]
@@ -513,7 +521,7 @@ def test_native_text_input_coalesces_across_event_polls(text: str) -> None:
     released = window.get_user_input_events().get_events()
     window.close()
 
-    assert [(event.key, event.state) for event in (*pressed, *released)] == [
+    assert _keyboard_edges([*pressed, *released]) == [
         (text, KeyboardInputState.PRESSED),
         (text, KeyboardInputState.RELEASED),
     ]
@@ -531,7 +539,7 @@ def test_native_printable_key_without_text_is_flushed_after_one_poll() -> None:
     released = window.get_user_input_events().get_events()
     window.close()
 
-    assert [(event.key, event.state) for event in (*pressed, *released)] == [
+    assert _keyboard_edges([*pressed, *released]) == [
         ("w", KeyboardInputState.PRESSED),
         ("w", KeyboardInputState.RELEASED),
     ]
@@ -547,7 +555,7 @@ def test_native_printable_release_flushes_pending_press() -> None:
     events = window.get_user_input_events().get_events()
     window.close()
 
-    assert [(event.key, event.state) for event in events] == [
+    assert _keyboard_edges(events) == [
         ("z", KeyboardInputState.PRESSED),
         ("z", KeyboardInputState.RELEASED),
     ]

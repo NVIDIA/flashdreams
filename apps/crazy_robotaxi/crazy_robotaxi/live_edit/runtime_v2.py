@@ -22,11 +22,11 @@ from crazy_robotaxi.live_edit.config import ITEM_TYPES, LiveEditConfig
 from crazy_robotaxi.live_edit.gpu_compositor import LiveEditFrameCompositor
 from crazy_robotaxi.live_edit.item_ability import ItemAbility, ItemEffects
 from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
-from crazy_robotaxi.live_edit.obstacle_events import ObstacleAbility
 from crazy_robotaxi.live_edit.obstacle_ability import (
     OBSTACLE_ENTITY_PREFIX,
     ObstacleGuidance,
 )
+from crazy_robotaxi.live_edit.obstacle_events import ObstacleAbility
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
 from flashdreams.runtime_v2.user_input_event import (

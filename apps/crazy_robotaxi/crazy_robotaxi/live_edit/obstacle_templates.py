@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO
 
 import numpy as np
 import numpy.typing as npt
@@ -153,7 +153,7 @@ def _require_array(
 
 
 def load_obstacle_template_catalog_from_file(
-    source: str | Path | BinaryIO,
+    source: str | Path | IO[bytes],
 ) -> ObstacleTemplateCatalog:
     """Load and validate a safe numeric obstacle-template archive."""
     with np.load(source, allow_pickle=False) as archive:

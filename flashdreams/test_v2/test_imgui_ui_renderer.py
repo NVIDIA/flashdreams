@@ -13,12 +13,12 @@ import pytest
 import torch
 from numpy import uint64
 
+from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.imgui_ui_renderer import (
     _ImGui,
     _rgba_pixels,
     _route_imgui_input_events,
 )
-from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -174,8 +174,9 @@ def test_imgui_loop_composites_over_the_presented_model_frame() -> None:
 
     result = loop.step(0, UserInputEvents([]))
 
-    assert result.output.shape == (1, 3, 3, 4)
-    assert torch.all(result.output == -0.5)
+    output = result.read_output()
+    assert output.shape == (1, 3, 3, 4)
+    assert torch.all(output == -0.5)
     loop.reset()
     loop.close()
     assert renderer.reset_count == 1

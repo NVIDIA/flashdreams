@@ -29,6 +29,7 @@ from omnidreams_game_engine.game_map import (
     GameMapRaceCourse,
     load_game_map,
 )
+from omnidreams_game_engine.game_map.types import ResolvedGameMap
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 from shapely.geometry import Polygon
@@ -68,11 +69,9 @@ def _trajectory(
     )
 
 
-def _point(game_map: object, element_id: str) -> tuple[float, float]:
+def _point(game_map: ResolvedGameMap, element_id: str) -> tuple[float, float]:
     element = next(
-        element
-        for element in game_map.elements  # type: ignore[attr-defined]
-        if element.element_id == element_id
+        element for element in game_map.elements if element.element_id == element_id
     )
     point = Polygon(element.surface_world[:, :2]).representative_point()
     return float(point.x), float(point.y)

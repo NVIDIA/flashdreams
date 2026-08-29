@@ -201,7 +201,7 @@ class _FakeImGui:
         self.click_submit = False
         self.clicked_buttons: set[str] = set()
         self.buttons: list[str] = []
-        self.button_sizes: list[tuple[str, object | None]] = []
+        self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
         self.tables: dict[str, list[list[str]]] = {}
@@ -344,7 +344,7 @@ class _FakeImGui:
         del label, value, flags
         return self.submit_input, self.input_value
 
-    def button(self, label: str, size: object | None = None) -> bool:
+    def button(self, label: str, size: tuple[float, float] | None = None) -> bool:
         self.buttons.append(label)
         self.button_sizes.append((label, size))
         submit = self.click_submit and label in {"SAVE SCORE", "SAVE TIME"}
@@ -734,7 +734,7 @@ def test_bev_compositor_draws_ego_over_transparent_center() -> None:
 
     assert composited.device == video.device
     torch.testing.assert_close(composited[:, 16, 16], torch.tensor((1.0, 0.6, -1.0)))
-    torch.testing.assert_close(composited[:, 12, 16], torch.tensor((-0.8, -0.2, 0.15)))
+    torch.testing.assert_close(composited[:, 13, 15], torch.tensor((-0.8, -0.2, 0.15)))
     assert torch.all(composited[:, 0, 0] == -0.5)
 
 
@@ -930,9 +930,9 @@ def test_selection_menus_use_arcade_card_layout() -> None:
         assert imgui.window_flags[title] & imgui.WindowFlags_.no_title_bar
     button_sizes = dict(imgui.button_sizes)
     assert button_sizes["TAXI"] == button_sizes["RACE"]
-    assert button_sizes["TAXI"][0] > 0.0
-    assert button_sizes["Test City##map-0"][0] > 0.0
-    assert button_sizes["DOWNTOWN SPRINT##course-0"][0] > 0.0
+    for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
+        size = button_sizes[label]
+        assert size is not None and size[0] > 0.0
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
@@ -1204,9 +1204,7 @@ def test_input_trace_reports_committed_state_ahead_of_presented_frame(caplog) ->
         state=KeyboardInputState.PRESSED,
     )
 
-    with caplog.at_level(
-        logging.INFO, logger="flashdreams.runtime_v2.chunk_trace"
-    ):
+    with caplog.at_level(logging.INFO, logger="flashdreams.runtime_v2.chunk_trace"):
         state.consume_input_events(UserInputEvents([pressed]))
         state.publish(
             build_hud_frames(
@@ -1254,9 +1252,7 @@ def test_input_trace_is_silent_without_opt_in(caplog) -> None:
         state=KeyboardInputState.PRESSED,
     )
 
-    with caplog.at_level(
-        logging.INFO, logger="flashdreams.runtime_v2.chunk_trace"
-    ):
+    with caplog.at_level(logging.INFO, logger="flashdreams.runtime_v2.chunk_trace"):
         state.consume_input_events(UserInputEvents([pressed]))
 
     assert "chunk-trace" not in "\n".join(

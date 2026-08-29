@@ -119,9 +119,9 @@ class NativeWindowClientWindow(IClientWindow):
         self._close_event_enqueued = False
         self._presenter: _SlangPyNativeWindowPresenter | None = None
         self._poll_input_events: list[UserInputEvent] | None = None
-        self._pending_printable_keys: deque[
-            tuple[str, KeyboardUserInputEvent]
-        ] = deque()
+        self._pending_printable_keys: deque[tuple[str, KeyboardUserInputEvent]] = (
+            deque()
+        )
         self._pressed_key_values: dict[str, str] = {}
 
     def open(self, session_desc: SessionDesc) -> None:

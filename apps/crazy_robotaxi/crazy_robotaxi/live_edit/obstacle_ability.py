@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Track-backed obstacle events and optional model-side box-axis guidance.
-
-Gameplay state, placement, rendering, and optional physics live in
-:mod:`crazy_robotaxi.live_edit.obstacle_events`. This module retains the
-established public import path and the optional OmniDreams guidance hook.
-"""
+"""Model-side guidance for track-backed obstacle events."""
 
 from __future__ import annotations
 
@@ -14,7 +9,6 @@ from typing import Any
 
 from loguru import logger
 
-from crazy_robotaxi.live_edit.config import LiveEditObstacleConfig
 from crazy_robotaxi.live_edit.obstacle_events import (
     OBSTACLE_ENTITY_PREFIX,
     ObstacleAbility,
@@ -273,33 +267,6 @@ class _eager_vae_scope:
             self._vae._use_cuda_graph = self._saved
 
 
-def install_obstacle_guidance_on_backend(
-    backend: Any, config: LiveEditObstacleConfig
-) -> None:
-    """Arm box-axis guidance before model warmup starts.
-
-    Mirrors ``install_style_ability_on_backend``'s deferred attach: the hook
-    install waits until ``warmup_model`` has built the pipeline. The session
-    keeps its accelerated pipeline — the guidance is CUDA-graph safe (see
-    :class:`ObstacleGuidance`), so no graph-free rebuild is needed.
-    """
-    if config.guide_scale <= 0.0:
-        return
-    session = getattr(backend, "_session", None)
-    if session is None:
-        raise ValueError(
-            "--live-edit-obstacle guidance requires the omnidreams world-model backend."
-        )
-    guidance = ObstacleGuidance(config.guide_scale)
-    original_warmup = session.warmup_model
-
-    def warmup_and_install() -> None:
-        original_warmup()
-        guidance.install(backend)
-
-    session.warmup_model = warmup_and_install
-
-
 __all__ = [
     "OBSTACLE_ENTITY_PREFIX",
     "ObstacleAbility",
@@ -309,7 +276,6 @@ __all__ = [
     "ObstacleTemplate",
     "ObstacleTemplateCatalog",
     "build_obstacle_event",
-    "install_obstacle_guidance_on_backend",
     "local_ground_z",
     "road_ahead_pose",
 ]

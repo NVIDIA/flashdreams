@@ -6,13 +6,11 @@
 from __future__ import annotations
 
 import math
-from types import SimpleNamespace
-from typing import cast
 from unittest.mock import patch
 
 import numpy as np
 import pytest
-from ludus_renderer import BodyState, PhysXWorld
+from ludus_renderer import BodyState
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
@@ -84,25 +82,16 @@ def test_active_traffic_walks_route_cursor_without_global_search() -> None:
         body=_body_at((12.4, 0.0), linear_velocity_xy=(10.0, 0.0)),
         dt_s=1.0 / 30.0,
     )
-    published: list[tuple[tuple[str, int, float], ...]] = []
-    world = cast(
-        PhysXWorld,
-        SimpleNamespace(
-            ego_model=SimpleNamespace(half_extents_m=(2.4, 1.0, 0.8)),
-            apply_track_progress=published.append,
-        ),
-    )
-
     with patch.object(
         controller,
         "_nearest_route_projection",
         side_effect=AssertionError("normal traversal used a global route search"),
     ):
-        controller.prepare_step(world, _body_at((-100.0, -100.0)), 1.0 / 30.0)
+        targets = controller.prepare_step(_body_at((-100.0, -100.0)), 1.0 / 30.0)
 
     assert state.route_segment_index == 12
     assert state.timestamp_us == pytest.approx(1_240_000, abs=1.0)
-    assert published[-1][0][1] == pytest.approx(1_590_000, abs=1.0)
+    assert targets[0].timestamp_us == pytest.approx(1_590_000, abs=1.0)
 
 
 def test_collision_recovery_globally_reacquires_route_and_cursor() -> None:

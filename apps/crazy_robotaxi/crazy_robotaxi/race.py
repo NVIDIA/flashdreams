@@ -28,12 +28,12 @@ from omnidreams_game_engine.game_map import GameMapRaceCourse, ResolvedGameMap
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 from shapely.geometry import LineString, Point, Polygon
 
-from crazy_robotaxi.rules import relative_target_bearing_rad
 from crazy_robotaxi.high_scores import (
     RaceTimeEntry,
     RaceTimeStore,
     format_race_time_us,
 )
+from crazy_robotaxi.rules import relative_target_bearing_rad
 
 RaceSessionState = Literal["awaiting_start", "racing", "awaiting_name", "leaderboard"]
 RaceTargetKind = Literal["start", "checkpoint"]

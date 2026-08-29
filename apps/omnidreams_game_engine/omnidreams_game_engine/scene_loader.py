@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 import yaml
-from loguru import logger
 from interactive_drive.scene_loader import (
     SCENE_FRAME_SUFFIXES,
     SCENE_FRAMES_DIRNAME,
@@ -22,6 +21,7 @@ from interactive_drive.scene_loader import (
     resolve_variant_archive,
     variant_from_stem,
 )
+from loguru import logger
 from PIL import Image
 
 from omnidreams_game_engine.colors import (

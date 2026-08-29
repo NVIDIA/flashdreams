@@ -120,7 +120,7 @@ def alpha_blend_(
 
 
 def _blend_float_(
-    canvas_hwc_f32: Tensor,
+    canvas_hwc: Tensor,
     premultiplied_rgb_hwc: Tensor | None,
     one_minus_alpha_hw1: Tensor,
     left: int,
@@ -136,7 +136,7 @@ def _blend_float_(
     small kernels. ``premultiplied_rgb_hwc=None`` darkens toward black
     (contact shadow).
     """
-    height, width = canvas_hwc_f32.shape[:2]
+    height, width = canvas_hwc.shape[:2]
     src_h, src_w = one_minus_alpha_hw1.shape[:2]
     x0, y0 = max(0, left), max(0, top)
     x1, y1 = min(width, left + src_w), min(height, top + src_h)
@@ -144,7 +144,7 @@ def _blend_float_(
         return
     sx, sy = x0 - left, y0 - top
     om = one_minus_alpha_hw1[sy : sy + (y1 - y0), sx : sx + (x1 - x0)]
-    roi = canvas_hwc_f32[y0:y1, x0:x1]
+    roi = canvas_hwc[y0:y1, x0:x1]
     # With fade f the factor on the canvas is 1 - f*(1-om) = (1-f) + f*om.
     roi.mul_(om if fade >= 1.0 else (1.0 - fade) + fade * om)
     if premultiplied_rgb_hwc is not None:
@@ -153,7 +153,7 @@ def _blend_float_(
 
 
 def _blend_uint8_(
-    canvas_hwc_uint8: Tensor,
+    canvas_hwc: Tensor,
     premultiplied_rgb_hwc: Tensor | None,
     one_minus_alpha_hw1: Tensor,
     left: int,
@@ -170,7 +170,7 @@ def _blend_uint8_(
     float path by at most 1 LSB where blends overlap (each ROI blend rounds
     independently).
     """
-    height, width = canvas_hwc_uint8.shape[:2]
+    height, width = canvas_hwc.shape[:2]
     src_h, src_w = one_minus_alpha_hw1.shape[:2]
     x0, y0 = max(0, left), max(0, top)
     x1, y1 = min(width, left + src_w), min(height, top + src_h)
@@ -180,7 +180,7 @@ def _blend_uint8_(
     om = one_minus_alpha_hw1[sy : sy + (y1 - y0), sx : sx + (x1 - x0)]
     if fade < 1.0:
         om = (1.0 - fade) + fade * om
-    roi = canvas_hwc_uint8[y0:y1, x0:x1]
+    roi = canvas_hwc[y0:y1, x0:x1]
     out = roi * om
     if premultiplied_rgb_hwc is not None:
         c = premultiplied_rgb_hwc[sy : sy + (y1 - y0), sx : sx + (x1 - x0)]
@@ -300,7 +300,11 @@ class LiveEditFrameCompositor:
             return cached
         probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
         text_box = probe.textbbox((10, 6), label)
-        image = Image.new("RGBA", (text_box[2] + 10 + 1, text_box[3] + 6 + 1), (0,) * 4)
+        image = Image.new(
+            "RGBA",
+            (round(text_box[2]) + 11, round(text_box[3]) + 7),
+            (0,) * 4,
+        )
         draw = ImageDraw.Draw(image)
         draw.rounded_rectangle(
             [0, 0, text_box[2] + 10, text_box[3] + 6],

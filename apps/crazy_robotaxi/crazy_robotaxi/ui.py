@@ -37,7 +37,12 @@ from omnidreams_game_engine.types import CameraCalibration
 from torch import Tensor
 
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
-from crazy_robotaxi.high_scores import format_race_time_us, validate_player_name
+from crazy_robotaxi.high_scores import (
+    HighScoreEntry,
+    RaceTimeEntry,
+    format_race_time_us,
+    validate_player_name,
+)
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -349,9 +354,7 @@ class TaxiHudState:
         if received_at_ns is None:
             return
         self._reported_input_timestamps_us.add(timestamp_us)
-        self._latest_input_latency_ms = (
-            presented_at_ns - received_at_ns
-        ) / 1_000_000.0
+        self._latest_input_latency_ms = (presented_at_ns - received_at_ns) / 1_000_000.0
         _TRACE_LOGGER.info(
             "[crazy-robotaxi] input-to-model-frame latency: "
             "event_us=%d ui_to_frame_ms=%.1f generation=%d step=%d epoch=%d "
@@ -838,8 +841,11 @@ class TaxiHudState:
     def _gameplay_overlay_font(self, imgui: Any) -> Any:
         """Load and cache imgui-bundle's Droid Sans face."""
         if self._gameplay_font is None:
-            resource = files("imgui_bundle").joinpath(
-                "assets", "fonts", "DroidSans.ttf"
+            resource = (
+                files("imgui_bundle")
+                .joinpath("assets")
+                .joinpath("fonts")
+                .joinpath("DroidSans.ttf")
             )
             with as_file(resource) as path:
                 self._gameplay_font = imgui.get_io().fonts.add_font_from_file_ttf(
@@ -1700,14 +1706,16 @@ class TaxiHudState:
                         imgui.TableBgTarget_.row_bg1,
                         _imgui_color(imgui, (*accent_rgb, 0.24)),
                     )
+                if race:
+                    assert isinstance(entry, RaceTimeEntry)
+                    result = format_race_time_us(entry.elapsed_time_us)
+                else:
+                    assert isinstance(entry, HighScoreEntry)
+                    result = f"{entry.score:>7}"
                 values = (
                     f"#{rank}",
                     entry.name,
-                    (
-                        format_race_time_us(entry.elapsed_time_us)
-                        if race
-                        else f"{entry.score:>7}"
-                    ),
+                    result,
                 )
                 for column, value in enumerate(values):
                     imgui.table_set_column_index(column)

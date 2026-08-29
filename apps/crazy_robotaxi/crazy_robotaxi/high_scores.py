@@ -15,8 +15,8 @@ from pathlib import Path
 
 from filelock import FileLock
 from loguru import logger
-from flashdreams.core.io.disk import default_flashdreams_cache_dir
 
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 
 _CSV_FIELDS = ("name", "score", "achieved_at_utc")
 _RACE_CSV_FIELDS = (

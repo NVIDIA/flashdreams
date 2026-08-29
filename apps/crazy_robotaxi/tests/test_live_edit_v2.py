@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
+import crazy_robotaxi.live_edit.config as live_edit_config
 import numpy as np
 import pytest
-import crazy_robotaxi.live_edit.config as live_edit_config
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
@@ -29,18 +30,21 @@ from crazy_robotaxi.live_edit.obstacle_events import (
 from crazy_robotaxi.live_edit.obstacle_templates import load_obstacle_template_catalog
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay
 from crazy_robotaxi.navigation import NavigationLane
+from ludus_renderer import SceneObject
+from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.types import (
+    CameraCalibration,
+    SceneDefinition,
+    TrajectoryChunk,
+    VehicleState,
+)
+from PIL import Image
+
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from omnidreams_game_engine.config import VehicleConfig
-from omnidreams_game_engine.types import (
-    CameraCalibration,
-    TrajectoryChunk,
-    VehicleState,
-)
-from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -74,7 +78,7 @@ class _Obstacles:
         self.spawns += 1
 
 
-def _scene() -> SimpleNamespace:
+def _scene() -> SceneDefinition:
     calibration = CameraCalibration(
         clipgt_name="camera_front_wide_120fov",
         logical_name="camera_front_wide_120fov",
@@ -87,9 +91,14 @@ def _scene() -> SimpleNamespace:
         linear_cde=np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
         sensor_to_rig_flu=np.eye(4, dtype=np.float32),
     )
-    return SimpleNamespace(
-        selected_camera=calibration,
-        initial_rgb=np.zeros((640, 1168, 3), dtype=np.uint8),
+    return cast(
+        SceneDefinition,
+        SimpleNamespace(
+            selected_camera=calibration,
+            initial_rgb=np.zeros((640, 1168, 3), dtype=np.uint8),
+            game_map=None,
+            ground_mesh_vertices=None,
+        ),
     )
 
 
@@ -109,12 +118,13 @@ def test_style_assets_download_only_when_missing(
         cache_dir=tmp_path,
     )
 
-    assert [
-        resolved.style.lora_checkpoint.name,
-        resolved.style.corrector_checkpoint.name,
-        resolved.style.gate_alpha_json.name,
-        resolved.style.base_corrector_checkpoint.name,
-    ] == [
+    paths = (
+        resolved.style.lora_checkpoint,
+        resolved.style.corrector_checkpoint,
+        resolved.style.gate_alpha_json,
+        resolved.style.base_corrector_checkpoint,
+    )
+    assert [path.name for path in paths if path is not None] == [
         "lora_style_v6_step1600.pt",
         "lora_style_corrector_v5_valpeak.pt",
         "gate_style_v5.json",
@@ -160,6 +170,8 @@ def test_weather_downloads_corrector_only_for_nonzero_gain(
 
     assert resolved.style.lora_checkpoint is None
     assert resolved.style.base_corrector_checkpoint is None
+    assert resolved.style.corrector_checkpoint is not None
+    assert resolved.style.gate_alpha_json is not None
     assert resolved.style.corrector_checkpoint.name == (
         "lora_style_corrector_v5_valpeak.pt"
     )
@@ -225,7 +237,12 @@ def test_v2_live_edit_camera_uses_generated_frame_size() -> None:
         1168,
         640,
     )
-    assert gameplay._compositor.sprite_image("coin").getpixel((15, 15))[3] == 0
+    assert gameplay._compositor.sprite_image("coin").getpixel((15, 15)) == (
+        0,
+        0,
+        0,
+        0,
+    )
 
 
 def test_v2_live_edit_loads_configured_sprites(tmp_path) -> None:
@@ -274,7 +291,9 @@ def test_physical_obstacle_lifetime_uses_relative_track_clock() -> None:
         dimensions_lwh=np.asarray([4.0, 2.0, 1.5], dtype=np.float32),
         template_index=0,
         drive_speed_mps=4.0,
-        scene_object=SimpleNamespace(timestamps_us=relative_timestamps),
+        scene_object=cast(
+            SceneObject, SimpleNamespace(timestamps_us=relative_timestamps)
+        ),
     )
     obstacle = ObstacleAbility.__new__(ObstacleAbility)
     obstacle._config = LiveEditObstacleConfig(
