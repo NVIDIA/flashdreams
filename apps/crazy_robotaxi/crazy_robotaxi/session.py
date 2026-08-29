@@ -180,6 +180,9 @@ class ModelState:
                 ui_state.activate_scene(calibration)
             ),
         )
+        # Selection messages run outside model-step timing. Finish one-time
+        # setup here so it cannot skew the first gameplay throughput sample.
+        self.ensure_rollout()
 
     def menu_result(self, step_index: int) -> list[StepResult]:
         """Return a cached black frame while the UI waits for a menu choice."""

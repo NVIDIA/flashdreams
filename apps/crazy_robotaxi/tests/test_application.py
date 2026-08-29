@@ -176,7 +176,10 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert model_loop.is_finished()
 
 
-def test_complete_cli_game_selection_starts_without_menus() -> None:
+def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
+    )
     app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -185,6 +188,8 @@ def test_complete_cli_game_selection_starts_without_menus() -> None:
         [
             "--device",
             "cpu",
+            "--prewarm-blocks",
+            "0",
             "--game-mode",
             "race",
             "--map",
@@ -554,8 +559,11 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
 
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
 def test_adapter_dimensions_configure_renderer_geometry(
-    resolution_wh: tuple[int, int],
+    resolution_wh: tuple[int, int], monkeypatch
 ) -> None:
+    monkeypatch.setattr(
+        "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
+    )
     configured: list[object] = []
     raster_sizes: list[tuple[int, int]] = []
 
@@ -574,7 +582,7 @@ def test_adapter_dimensions_configure_renderer_geometry(
         pipeline_factory=lambda config, device: configured.append(config) or object(),
         scene_factory=load_test_scene,
     )
-    app.init(["--device", "cpu"])
+    app.init(["--device", "cpu", "--prewarm-blocks", "0"])
     desc = replace(
         app.session_desc(),
         video_width=resolution_wh[0],
@@ -589,8 +597,6 @@ def test_adapter_dimensions_configure_renderer_geometry(
         GameSelection(mode="taxi", map_option=session._map_options[0])
     )
 
-    assert configured == []
-    model_loop.state.pipeline_factory()
     assert configured == [app._pipeline_config]
     assert raster_sizes == [resolution_wh]
     assert session._config.renderer.raster.resolution_wh == resolution_wh
@@ -764,7 +770,8 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
         GameSelection(mode="taxi", map_option=session._map_options[0])
     )
 
-    rollout = model_loop.state.ensure_rollout()
+    rollout = model_loop.state.rollout
+    assert rollout is not None
     ui_loop._run_message_batch()
 
     assert [index for index, _ in rollout.steps] == [0, 1, 2, 3]
