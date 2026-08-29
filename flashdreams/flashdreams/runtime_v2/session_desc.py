@@ -12,13 +12,13 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 
 class BackpressureMode(Enum):
-    """What the model thread does when its output queue is full."""
+    """What the model thread does when its presentation chunk queue is full."""
 
     BLOCK = "block"
     """Wait when the presentation queue is full."""
 
     DROP_OLDEST = "drop_oldest"
-    """Drop the oldest queued model step."""
+    """Drop the oldest queued model chunk."""
 
 
 class PresentationMode(Enum):

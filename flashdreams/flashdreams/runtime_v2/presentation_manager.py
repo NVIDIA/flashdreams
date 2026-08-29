@@ -14,6 +14,7 @@ import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
+from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -21,23 +22,137 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 _PRESENTATION_STREAM_PRIORITY = -1
 """Prefer short presentation work over queued model kernels."""
 
+_MODEL_FPS_WINDOW_SECONDS = 2.0
+"""Wall-time window used to estimate generated-frame throughput."""
+
+_PRESENTATION_DRAIN_MARGIN = 0.9
+"""Present slightly faster than recent model FPS when possible."""
+
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[runtime-v2-chunk-trace]"
+
+
+class _PresentationClock:
+    """Schedule model-frame advances at recent model-step throughput."""
+
+    def __init__(
+        self,
+        frames_per_second: int,
+        maximum_frames_per_second: int | None = None,
+    ) -> None:
+        maximum_frames_per_second = maximum_frames_per_second or frames_per_second
+        self._minimum_frame_interval = 1.0 / maximum_frames_per_second
+        self._fallback_frame_interval = max(
+            1.0 / frames_per_second,
+            self._minimum_frame_interval,
+        )
+        self._frame_interval = self._fallback_frame_interval
+        self._next_frame_at: float | None = None
+        self._generation: int | None = None
+        self._model_frame_rate = RecentFrameRateTracker(
+            window_seconds=_MODEL_FPS_WINDOW_SECONDS
+        )
+        self._has_completion_baseline = False
+        self._last_completion_at: float | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def frames_per_second(self) -> float:
+        """Return the current model-frame presentation rate."""
+        with self._lock:
+            return 1.0 / self._frame_interval
+
+    def observe_model_output(
+        self,
+        *,
+        now: float,
+        generation: int,
+        frame_count: int,
+        step_elapsed_s: float,
+    ) -> None:
+        """Add one completed model chunk to the rolling FPS estimate.
+
+        Args:
+            now: Monotonic completion time for the chunk.
+            generation: Session generation that produced the chunk.
+            frame_count: Number of generated frames in the chunk.
+            step_elapsed_s: Time spent running the model step, excluding loop
+                pacing and downstream publication backpressure.
+
+        Raises:
+            TypeError: ``frame_count`` is not an integer.
+            ValueError: An observation value is invalid or ``now`` precedes
+                the latest observation.
+        """
+        with self._lock:
+            if self._generation is None or generation > self._generation:
+                self._reset_generation(generation)
+            elif generation < self._generation:
+                return
+
+            if self._last_completion_at is not None and now < self._last_completion_at:
+                raise ValueError("now must not precede the latest observation.")
+            frames_per_second = self._model_frame_rate.observe(
+                completed_at=now,
+                frame_count=frame_count,
+                elapsed_s=step_elapsed_s,
+            )
+            self._last_completion_at = now
+            if not self._has_completion_baseline:
+                # Keep the configured cadence for the first chunk and avoid
+                # letting one-time model warmup set the steady presentation rate.
+                self._has_completion_baseline = True
+                self._model_frame_rate.reset()
+                return
+            self._frame_interval = max(
+                (1.0 / frames_per_second) * _PRESENTATION_DRAIN_MARGIN,
+                self._minimum_frame_interval,
+            )
+
+    def is_due(self, now: float, generation: int, *, backlog: bool = False) -> bool:
+        """Return whether the next model frame may be selected."""
+        with self._lock:
+            if generation != self._generation:
+                self._reset_generation(generation)
+            return backlog or self._next_frame_at is None or now >= self._next_frame_at
+
+    def mark_advanced(self, now: float, *, backlog: bool = False) -> None:
+        """Record one selected frame without catching up after a long stall."""
+        frame_interval = (
+            self._minimum_frame_interval if backlog else self._frame_interval
+        )
+        with self._lock:
+            if backlog:
+                self._next_frame_at = now + frame_interval
+                return
+            next_frame_at = self._next_frame_at
+            if next_frame_at is None or now - next_frame_at >= frame_interval:
+                self._next_frame_at = now + frame_interval
+            else:
+                self._next_frame_at = next_frame_at + frame_interval
+
+    def _reset_generation(self, generation: int) -> None:
+        self._generation = generation
+        self._frame_interval = self._fallback_frame_interval
+        self._next_frame_at = None
+        self._model_frame_rate.reset()
+        self._has_completion_baseline = False
+        self._last_completion_at = None
 
 
 class PresentationManager:
     """Buffer model output for a session's UI thread.
 
     The model thread publishes a chunk of channels per step into a bounded
-    queue; the UI thread calls :meth:`advance` once per tick to move to
-    the next frame. A chunk holding several frames is walked frame by frame
-    before another is taken, so a step that generated twelve frames is
-    presented over twelve ticks rather than eleven being skipped.
+    chunk queue; the UI thread calls :meth:`advance` once per tick to select
+    the next frame. The queue holds at most one chunk; once the UI thread takes
+    that chunk, the remaining frames stay in the active presented chunk and no
+    longer count as backlog.
 
     :class:`BackpressureMode` decides what publishing does when the queue is
     full. Chunks that could not be kept are counted in
     :attr:`dropped_for_space` and :attr:`discarded_at_reset` rather than lost
-    silently, one count per chunk however many frames it held.
+    silently.
 
     :meth:`presentation_context` keeps the complete UI presentation path on one
     high-priority CUDA stream, separate from model inference.
@@ -53,7 +168,10 @@ class PresentationManager:
         Raises:
             ValueError: ``device`` is neither a CPU nor CUDA device.
         """
-        self._buffer: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(maxsize=2)
+        self._bufferedChunks: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(
+            maxsize=1
+        )
+        self._presentation_clock = _PresentationClock(frames_per_second=30)
         self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
         self._put_timeout = 1.0 / 30.0
@@ -83,31 +201,32 @@ class PresentationManager:
     def configure(
         self,
         *,
-        max_pending: int,
         backpressure_mode: BackpressureMode,
         stop: threading.Event,
         put_timeout: float,
         trace_chunk_lifecycle: bool = False,
+        frames_per_second: int = 30,
+        maximum_frames_per_second: int | None = None,
     ) -> None:
-        """Set the queue size and backpressure mode.
+        """Set presentation timing and backpressure mode.
 
         Called by ``run_session`` before either thread uses this.
 
         Args:
-            max_pending: Model steps that may wait to be shown. Replaces the
-                queue, so anything already buffered is discarded.
             backpressure_mode: What :meth:`publish` does when the queue is full.
             stop: Session shutdown event, so a blocked publish gives up.
             put_timeout: How long a blocked publish waits before rechecking
                 ``stop``, in seconds.
             trace_chunk_lifecycle: Emit chunk lifecycle diagnostics.
-
-        Raises:
-            ValueError: ``max_pending`` is not positive.
+            frames_per_second: Initial video presentation rate.
+            maximum_frames_per_second: Upper bound for presentation cadence;
+                ``None`` uses ``frames_per_second``.
         """
-        if max_pending <= 0:
-            raise ValueError(f"max_pending must be > 0, got {max_pending}.")
-        self._buffer = queue.Queue(maxsize=max_pending)
+        self._reset_buffered_chunks()
+        self._presentation_clock = _PresentationClock(
+            frames_per_second=frames_per_second,
+            maximum_frames_per_second=maximum_frames_per_second,
+        )
         self._backpressure_mode = backpressure_mode
         self._stop = stop
         self._put_timeout = put_timeout
@@ -117,6 +236,8 @@ class PresentationManager:
         self,
         generation: int,
         chunk: list[StepResult],
+        *,
+        step_elapsed_s: float | None = None,
     ) -> None:
         """Add one completed model step to the presentation queue.
 
@@ -128,6 +249,8 @@ class PresentationManager:
             generation: Reset generation the chunk was generated in. A chunk
                 from an earlier one is discarded rather than presented.
             chunk: One :class:`StepResult` per model channel.
+            step_elapsed_s: Time spent running the model step; ``None`` leaves
+                the presentation cadence unchanged.
 
         Raises:
             ValueError: ``chunk`` is empty, or its channels disagree about
@@ -147,6 +270,13 @@ class PresentationManager:
                 None,
             )
         )
+        if step_elapsed_s is not None:
+            self._presentation_clock.observe_model_output(
+                now=time.monotonic(),
+                generation=generation,
+                frame_count=frame_count,
+                step_elapsed_s=step_elapsed_s,
+            )
         started_ns: int | None = None
         if self._trace_chunk_lifecycle:
             started_ns = time.monotonic_ns()
@@ -155,8 +285,8 @@ class PresentationManager:
                 generation=generation,
                 step=chunk[0].step_index,
                 frames=frame_count,
-                queue_depth=self._buffer.qsize(),
-                queue_capacity=self._buffer.maxsize,
+                buffered_chunks=self.buffered_chunk_count,
+                chunk_capacity=self.buffered_chunk_capacity,
             )
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
@@ -165,7 +295,7 @@ class PresentationManager:
             return
         while not self._stop.is_set():
             try:
-                self._buffer.put(pending, timeout=self._put_timeout)
+                self._bufferedChunks.put(pending, timeout=self._put_timeout)
                 self._trace_publish_completed(pending, started_ns)
                 return
             except queue.Full:
@@ -176,7 +306,8 @@ class PresentationManager:
                 generation=generation,
                 step=chunk[0].step_index,
                 wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
-                queue_depth=self._buffer.qsize(),
+                buffered_chunks=self.buffered_chunk_count,
+                chunk_capacity=self.buffered_chunk_capacity,
             )
 
     @contextmanager
@@ -204,20 +335,27 @@ class PresentationManager:
         self.clear()
         self._presentation_stream = None
 
-    def advance(self, generation: int) -> tuple[bool, list[StepResult] | None]:
+    def advance(
+        self,
+        generation: int,
+        *,
+        now: float | None = None,
+    ) -> tuple[bool, list[StepResult] | None]:
         """Move to the next model frame, if one is available.
 
-        Called on the UI thread, once per tick. A ``generation`` other than the
-        last one seen drops what is being presented, so nothing generated before
-        a reset survives it.
+        Called on the UI thread, once per tick. The manager advances only when
+        the presentation clock is due, unless the chunk queue is full and needs
+        to drain. A ``generation`` other than the last one seen drops what is
+        being presented, so nothing generated before a reset survives it.
 
         Args:
             generation: Current reset generation, from the event buffer.
+            now: Monotonic timestamp used for pacing; ``None`` reads the clock.
 
         Returns:
-            Whether the frame changed, and the chunk newly taken off the queue,
-            which is ``None`` when the change was to another frame of the chunk
-            already being presented.
+            Whether the frame changed, and the chunk for a newly selected chunk,
+            which is ``None`` when the selected frame belongs to the same chunk
+            as the previously presented frame.
         """
         if generation != self._generation:
             if self._presented_chunk is not None:
@@ -231,6 +369,11 @@ class PresentationManager:
             self._frame_index = -1
             self._presented_frame_count = 0
 
+        now = time.monotonic() if now is None else float(now)
+        backlog = self.is_backlogged
+        if not self._presentation_clock.is_due(now, generation, backlog=backlog):
+            return False, None
+
         if (
             self._presented_chunk is not None
             and self._frame_index + 1 < self._presented_chunk[0].frame_count
@@ -238,6 +381,7 @@ class PresentationManager:
             self._frame_index += 1
             self._presented_frame_count += 1
             self._trace_presented_frame(generation)
+            self._presentation_clock.mark_advanced(now, backlog=backlog)
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -250,6 +394,7 @@ class PresentationManager:
         self._frame_index = 0
         self._presented_frame_count += 1
         self._trace_presented_frame(generation)
+        self._presentation_clock.mark_advanced(now, backlog=backlog)
         return True, chunk
 
     @property
@@ -278,12 +423,17 @@ class PresentationManager:
         :meth:`queue.Queue.qsize`, the value is a thread-safe point-in-time
         snapshot and may change immediately after it is returned.
         """
-        return self._buffer.qsize()
+        return self._bufferedChunks.qsize()
 
     @property
     def buffer_capacity(self) -> int:
         """Return the maximum number of chunks that may wait to be presented."""
-        return self._buffer.maxsize
+        return self._bufferedChunks.maxsize
+
+    @property
+    def buffered_chunk_capacity(self) -> int:
+        """Return maximum chunks the publish queue is configured to hold."""
+        return self._bufferedChunks.maxsize
 
     def presented_frame(
         self,
@@ -407,7 +557,12 @@ class PresentationManager:
             and self._frame_index + 1 < self._presented_chunk[0].frame_count
         ):
             return True
-        return not self._buffer.empty()
+        return not self._bufferedChunks.empty()
+
+    @property
+    def is_backlogged(self) -> bool:
+        """Return whether a whole chunk is waiting behind the active one."""
+        return self._bufferedChunks.full()
 
     def clear(self) -> None:
         """Discard buffered and currently presented model results."""
@@ -416,18 +571,23 @@ class PresentationManager:
         self._presented_frame_count = 0
         while True:
             try:
-                self._buffer.get_nowait()
+                self._bufferedChunks.get_nowait()
             except queue.Empty:
                 return
+
+    def _reset_buffered_chunks(self) -> None:
+        self._bufferedChunks = queue.Queue(maxsize=1)
 
     def _publish_latest(self, pending: tuple[int, list[StepResult]]) -> None:
         while not self._stop.is_set():
             try:
-                self._buffer.put_nowait(pending)
+                self._bufferedChunks.put_nowait(pending)
                 return
             except queue.Full:
                 try:
-                    dropped_generation, dropped_chunk = self._buffer.get_nowait()
+                    dropped_generation, dropped_chunk = (
+                        self._bufferedChunks.get_nowait()
+                    )
                     with self._counter_lock:
                         self._dropped_for_space += 1
                     self._trace_drop(
@@ -445,7 +605,7 @@ class PresentationManager:
         selected: list[StepResult] | None = None
         while True:
             try:
-                chunk_generation, chunk = self._buffer.get_nowait()
+                chunk_generation, chunk = self._bufferedChunks.get_nowait()
             except queue.Empty:
                 return selected
             if chunk_generation != generation:
@@ -484,8 +644,8 @@ class PresentationManager:
             step=chunk[0].step_index,
             frames=chunk[0].frame_count,
             wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
-            queue_depth=self._buffer.qsize(),
-            queue_capacity=self._buffer.maxsize,
+            buffered_chunks=self.buffered_chunk_count,
+            chunk_capacity=self.buffered_chunk_capacity,
         )
 
     def _trace_presented_frame(self, generation: int) -> None:
@@ -509,7 +669,8 @@ class PresentationManager:
                 if self._frame_index + 1 == chunk[0].frame_count
                 else "middle"
             ),
-            queue_depth=self._buffer.qsize(),
+            buffered_chunks=self.buffered_chunk_count,
+            chunk_capacity=self.buffered_chunk_capacity,
         )
 
     def _trace_drop(
@@ -525,8 +686,9 @@ class PresentationManager:
         fields: dict[str, object] = {
             "generation": generation,
             "step": chunk[0].step_index,
+            "frames": chunk[0].frame_count,
             "reason": reason,
-            "queue_depth": self._buffer.qsize(),
+            "buffered_chunks": self.buffered_chunk_count,
         }
         if replacement is not None:
             replacement_generation, replacement_chunk = replacement

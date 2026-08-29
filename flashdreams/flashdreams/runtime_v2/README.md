@@ -150,10 +150,15 @@ neither thread waits on the other to notice.
 
 ## `PresentationManager`
 
-The model thread publishes a list of channels per step into a bounded queue
-(`max_pending`, two by default). The UI thread calls `advance` once per tick,
-which walks the frames within the chunk it is already showing before taking
-another off the queue.
+The model thread publishes a list of channels per step into a bounded chunk
+queue. The queue holds one pending chunk by default. Once the UI thread takes
+that chunk, its remaining frames live in the active presented chunk rather than
+the queue; an empty queue with an active chunk means presentation is keeping up.
+
+`publish` observes model-step timing for cadence, and the UI thread calls
+`advance` once per tick so the manager can decide whether the next presentable
+model frame is due. If the pending chunk queue is full, `advance` ignores the
+normal cadence and drains the active chunk so backlog does not build behind it.
 
 When CUDA is available, the default `PresentationManager` creates a stream at
 the device's highest available priority. `run_session` keeps that one stream
@@ -188,10 +193,9 @@ ready:
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ON_DEMAND`: together they keep every frame in the presentation manager
-and present each exactly once in order. Steps that could not be kept are counted
+and present each exactly once in order. Chunks that could not be kept are counted
 in `dropped_for_space` and `discarded_at_reset`, and logged when the run ends.
-Both count model steps rather than frames, so one step of twelve frames counts
-once.
+Both counters use model chunks as their unit.
 
 ## Presenting and writing
 

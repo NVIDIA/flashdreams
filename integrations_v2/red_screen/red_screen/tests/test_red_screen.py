@@ -228,11 +228,11 @@ def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
     session = app.create_session(_session_desc(frames_per_second_for_ui=100))
     window = ScriptedClientWindow([UserInputEvents([]), _key_event(pressed=True)])
 
-    # Room for one result, so a step cannot start until a tick has presented the
-    # previous one, and every tick polls input before it presents. That makes the
-    # key reach a step rather than depending on how the threads are scheduled.
+    # The single-slot pending chunk queue means a step cannot start until a tick
+    # has presented the previous one. Every tick polls input before it presents,
+    # which makes the key reach a step deterministically.
     try:
-        run_session(session, window, steps=3, max_pending=1)
+        run_session(session, window, steps=3)
     finally:
         app.close()
 

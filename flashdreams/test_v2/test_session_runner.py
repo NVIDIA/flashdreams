@@ -22,13 +22,17 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.presentation_manager import (
+    _PRESENTATION_DRAIN_MARGIN,
+    PresentationManager,
+    _PresentationClock,
+)
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import _PresentationClock, run_session
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -94,6 +98,10 @@ def _observe_model_step(
     )
 
 
+def _presentation_fps(model_fps: float) -> float:
+    return model_fps / _PRESENTATION_DRAIN_MARGIN
+
+
 def test_presentation_clock_uses_recent_model_fps() -> None:
     clock = _PresentationClock(frames_per_second=16)
 
@@ -101,12 +109,12 @@ def test_presentation_clock_uses_recent_model_fps() -> None:
     assert clock.frames_per_second == 16
 
     _observe_model_step(clock, 1.9, 12, 0.9)
-    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12 / 0.9))
 
     assert clock.is_due(now=2.0, generation=0)
     clock.mark_advanced(now=2.0)
-    assert not clock.is_due(now=2.074, generation=0)
-    assert clock.is_due(now=2.075, generation=0)
+    assert not clock.is_due(now=2.067, generation=0)
+    assert clock.is_due(now=2.068, generation=0)
 
 
 def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
@@ -121,18 +129,35 @@ def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
     assert clock.frames_per_second == 60
 
 
+def test_presentation_clock_allows_backlog_before_paced_deadline() -> None:
+    clock = _PresentationClock(
+        frames_per_second=30,
+        maximum_frames_per_second=60,
+    )
+
+    assert clock.is_due(now=1.0, generation=0)
+    clock.mark_advanced(now=1.0)
+    assert not clock.is_due(now=1.016, generation=0)
+
+    assert clock.is_due(now=1.016, generation=0, backlog=True)
+    clock.mark_advanced(now=1.016, backlog=True)
+
+    assert not clock.is_due(now=1.032, generation=0)
+    assert clock.is_due(now=1.033, generation=0)
+
+
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
     clock = _PresentationClock(frames_per_second=30)
 
     _observe_model_step(clock, 0.0, 10, 1.0)
     _observe_model_step(clock, 1.0, 10, 1.0)
-    assert clock.frames_per_second == pytest.approx(10.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(10.0))
 
     _observe_model_step(clock, 2.0, 20, 1.0)
-    assert clock.frames_per_second == pytest.approx(15.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(15.0))
 
     _observe_model_step(clock, 3.0, 20, 1.0)
-    assert clock.frames_per_second == pytest.approx(20.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(20.0))
 
 
 def test_presentation_clock_ignores_gaps_between_model_steps() -> None:
@@ -140,17 +165,17 @@ def test_presentation_clock_ignores_gaps_between_model_steps() -> None:
 
     _observe_model_step(clock, 1.0, 12, 0.9)
     _observe_model_step(clock, 1.9, 12, 0.9)
-    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12 / 0.9))
 
     _observe_model_step(clock, 6.8, 12, 0.9)
-    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12 / 0.9))
 
 
 def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
     clock = _PresentationClock(frames_per_second=16)
     _observe_model_step(clock, 1.0, 12, 1.0)
     _observe_model_step(clock, 2.0, 12, 1.0)
-    assert clock.frames_per_second == pytest.approx(12.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12.0))
 
     assert clock.is_due(now=2.1, generation=1)
     assert clock.frames_per_second == 16
@@ -652,7 +677,7 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
         presentation_manager=manager,
     )
 
-    assert manager.advance(0)[0]
+    assert manager.advance(0, now=1.0)[0]
     first = ui.step(0, UserInputEvents([]))
     assert first is not None
     assert first.read_output()[0, :, 0, 0].tolist() == [0.5, 0.25, 0.0]
@@ -663,6 +688,148 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert not manager.advance(1)[0]
     assert manager.presented_frame_count == 0
     assert ui.step(2, UserInputEvents([])) is None
+
+
+def test_presentation_manager_defaults_to_one_pending_chunk() -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+
+    assert manager.buffer_capacity == 1
+    assert manager.buffered_chunk_capacity == 1
+    assert manager.buffered_chunk_count == 0
+    assert not manager.is_backlogged
+
+
+def test_presentation_manager_reports_backlog_by_chunk_queue_capacity() -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+
+    def result(step_index: int) -> StepResult:
+        return StepResult(
+            step_index=step_index,
+            output=torch.arange(3, dtype=torch.float32)
+            .reshape(3, 1, 1, 1)
+            .expand(-1, 3, -1, -1),
+            frame_count=3,
+            output_layout=VideoTensorLayout.tchw,
+        )
+
+    manager.publish(0, [result(0)])
+
+    assert manager.buffer_capacity == 1
+    assert manager.buffered_chunk_count == 1
+    assert manager.buffered_chunk_capacity == 1
+    assert manager.is_backlogged
+
+    assert manager.advance(0, now=1.0)[0]
+
+    assert manager.buffered_chunk_count == 0
+    assert manager.has_pending_frames()
+    assert not manager.is_backlogged
+
+
+def test_presentation_manager_drains_active_chunk_frame_by_frame() -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+
+    def result(step_index: int) -> StepResult:
+        return StepResult(
+            step_index=step_index,
+            output=torch.arange(3, dtype=torch.float32)
+            .reshape(3, 1, 1, 1)
+            .expand(-1, 3, -1, -1),
+            frame_count=3,
+            output_layout=VideoTensorLayout.tchw,
+        )
+
+    manager.publish(0, [result(0)])
+
+    assert manager.buffered_chunk_count == 1
+    assert manager.buffered_chunk_capacity == 1
+    assert manager.is_backlogged
+
+    assert manager.advance(0, now=1.1)[0]
+    frame = manager.presented_frame(0)
+    assert frame is not None
+    assert frame.shape == (3, 1, 1)
+    assert frame[0, 0, 0] == 0
+    assert manager.buffered_chunk_count == 0
+    assert manager.has_pending_frames()
+    assert not manager.is_backlogged
+
+    assert manager.advance(0, now=1.2)[0]
+    frame = manager.presented_frame(0)
+    assert frame is not None
+    assert frame[0, 0, 0] == 1
+    assert manager.buffered_chunk_count == 0
+
+    assert manager.advance(0, now=1.3)[0]
+    frame = manager.presented_frame(0)
+    assert frame is not None
+    assert frame[0, 0, 0] == 2
+    assert manager.buffered_chunk_count == 0
+    assert not manager.is_backlogged
+
+
+def test_presentation_manager_advances_when_due_or_backlogged() -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+        frames_per_second=10,
+        maximum_frames_per_second=60,
+    )
+
+    def result(step_index: int, frames: int) -> StepResult:
+        return StepResult(
+            step_index=step_index,
+            output=torch.arange(frames, dtype=torch.float32)
+            .reshape(frames, 1, 1, 1)
+            .expand(-1, 3, -1, -1),
+            frame_count=frames,
+            output_layout=VideoTensorLayout.tchw,
+        )
+
+    manager.publish(0, [result(0, 2)])
+    assert manager.advance(0, now=1.0)[0]
+    assert not manager.advance(0, now=1.01)[0]
+
+    manager.publish(0, [result(1, 1)])
+    assert manager.is_backlogged
+    assert manager.advance(0, now=1.01)[0]
+
+
+def test_presentation_manager_publish_updates_presentation_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+        frames_per_second=16,
+        maximum_frames_per_second=60,
+    )
+    completions = iter((1.0, 1.9))
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.presentation_manager.time.monotonic",
+        lambda: next(completions),
+    )
+
+    def result(step_index: int) -> StepResult:
+        return StepResult(
+            step_index=step_index,
+            output=torch.zeros((12, 3, 1, 1)),
+            frame_count=12,
+            output_layout=VideoTensorLayout.tchw,
+        )
+
+    manager.publish(0, [result(0)], step_elapsed_s=0.9)
+    assert manager._presentation_clock.frames_per_second == 16
+    manager.clear()
+
+    manager.publish(0, [result(1)], step_elapsed_s=0.9)
+    assert manager._presentation_clock.frames_per_second == pytest.approx(
+        _presentation_fps(12 / 0.9)
+    )
 
 
 def test_composite_rejects_frames_with_different_dimensions() -> None:
@@ -757,7 +924,6 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
 def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
     manager = PresentationManager()
     manager.configure(
-        max_pending=1,
         backpressure_mode=BackpressureMode.DROP_OLDEST,
         stop=threading.Event(),
         put_timeout=0.01,
@@ -776,23 +942,26 @@ def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None
 
     manager.publish(0, [result(0, 3)])
     assert manager.advance(0)[0]
+    first = manager.presented_frame(0)
+    assert first is not None
+    assert first[0, 0, 0] == 0
     assert manager.presented_frame_count == 1
     manager.publish(0, [result(1, 1)])
     manager.publish(0, [result(2, 1)])
 
-    assert manager.advance(0)[0]
+    assert manager.advance(0, now=1.1)[0]
     second = manager.presented_frame(0)
     assert second is not None
     assert second[0, 0, 0] == 1
     assert manager.presented_frame_count == 2
 
-    assert manager.advance(0)[0]
+    assert manager.advance(0, now=1.2)[0]
     third = manager.presented_frame(0)
     assert third is not None
     assert third[0, 0, 0] == 2
     assert manager.presented_frame_count == 3
 
-    assert manager.advance(0)[0]
+    assert manager.advance(0, now=1.3)[0]
     newest = manager.presented_frame(0)
     assert newest is not None
     assert newest[0, 0, 0] == 20
@@ -1012,7 +1181,7 @@ def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:
     session = FakeSession(_session_desc(ui_fps=30, model_fps=10_000), log)
     window = RecordingClientWindow(log)
 
-    run_session(session, window, steps=4, max_pending=1)
+    run_session(session, window, steps=4)
 
     assert [result.step_index for result in window.results] == [0, 1, 2, 3]
     assert [
@@ -1115,11 +1284,11 @@ def test_run_session_drops_the_oldest_waiting_result() -> None:
     )
     window = RecordingClientWindow(log, hold_writes=generated)
 
-    run_session(session, window, steps=4, max_pending=1)
+    run_session(session, window, steps=4)
 
     presented = [result.step_index for result in window.results]
-    # Room for one result and four generated behind a window that cannot write
-    # until the end, so what is stale is lost and the newest always arrives.
+    # The single-slot pending chunk queue fills while the window is held, so
+    # stale chunks are lost before presentation catches up.
     assert presented == sorted(presented)
     assert len(presented) < 4
     assert window.results[-1].read_output()[0, 0, 0, 0, 0].item() == 3
@@ -1140,24 +1309,13 @@ def test_run_session_discards_results_generated_before_a_reset(
     )
 
     with caplog.at_level(logging.INFO, logger=_RUNNER_LOGGER):
-        run_session(session, window, steps=None, max_pending=2)
+        run_session(session, window, steps=None)
 
     # The client asked to start over, so what the abandoned generation produced is
     # thrown away rather than presented after the restart. The runner logs this only
     # when it discarded at least one result, and the count it reports depends on how
     # far generation got before the reset landed.
     assert any("before a reset" in record.getMessage() for record in caplog.records)
-
-
-def test_run_session_rejects_a_pending_bound_of_zero() -> None:
-    log = CallLog()
-    session = FakeSession(_session_desc(), log)
-    window = RecordingClientWindow(log)
-
-    with pytest.raises(ValueError, match="max_pending"):
-        run_session(session, window, steps=1, max_pending=0)
-
-    assert log.calls == []
 
 
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:

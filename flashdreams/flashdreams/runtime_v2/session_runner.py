@@ -15,7 +15,6 @@ from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
-from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -25,8 +24,6 @@ _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
 _UI_READER_ID = 0
 _MODEL_READER_ID = 1
-_MODEL_FPS_WINDOW_SECONDS = 2.0
-"""Wall-time window used to estimate generated-frame throughput."""
 
 _TRACE_METADATA_KEY = "trace_chunk_lifecycle"
 _TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
@@ -41,108 +38,6 @@ class _ChunkTraceLog:
     handler: logging.FileHandler
     previous_level: int
     previous_propagate: bool
-
-
-class _PresentationClock:
-    """Schedule model-frame advances at recent model-step throughput."""
-
-    def __init__(
-        self,
-        frames_per_second: int,
-        maximum_frames_per_second: int | None = None,
-    ) -> None:
-        maximum_frames_per_second = maximum_frames_per_second or frames_per_second
-        self._minimum_frame_interval = 1.0 / maximum_frames_per_second
-        self._fallback_frame_interval = max(
-            1.0 / frames_per_second,
-            self._minimum_frame_interval,
-        )
-        self._frame_interval = self._fallback_frame_interval
-        self._next_frame_at: float | None = None
-        self._generation: int | None = None
-        self._model_frame_rate = RecentFrameRateTracker(
-            window_seconds=_MODEL_FPS_WINDOW_SECONDS
-        )
-        self._has_completion_baseline = False
-        self._last_completion_at: float | None = None
-        self._lock = threading.Lock()
-
-    @property
-    def frames_per_second(self) -> float:
-        """Return the current model-frame presentation rate."""
-        with self._lock:
-            return 1.0 / self._frame_interval
-
-    def observe_model_output(
-        self,
-        *,
-        now: float,
-        generation: int,
-        frame_count: int,
-        step_elapsed_s: float,
-    ) -> None:
-        """Add one completed model chunk to the rolling FPS estimate.
-
-        Args:
-            now: Monotonic completion time for the chunk.
-            generation: Session generation that produced the chunk.
-            frame_count: Number of generated frames in the chunk.
-            step_elapsed_s: Time spent running the model step, excluding loop
-                pacing and downstream publication backpressure.
-
-        Raises:
-            TypeError: ``frame_count`` is not an integer.
-            ValueError: An observation value is invalid or ``now`` precedes
-                the latest observation.
-        """
-        with self._lock:
-            if self._generation is None or generation > self._generation:
-                self._reset_generation(generation)
-            elif generation < self._generation:
-                return
-
-            if self._last_completion_at is not None and now < self._last_completion_at:
-                raise ValueError("now must not precede the latest observation.")
-            frames_per_second = self._model_frame_rate.observe(
-                completed_at=now,
-                frame_count=frame_count,
-                elapsed_s=step_elapsed_s,
-            )
-            self._last_completion_at = now
-            if not self._has_completion_baseline:
-                # Keep the configured cadence for the first chunk and avoid
-                # letting one-time model warmup set the steady presentation rate.
-                self._has_completion_baseline = True
-                self._model_frame_rate.reset()
-                return
-            self._frame_interval = max(
-                1.0 / frames_per_second,
-                self._minimum_frame_interval,
-            )
-
-    def is_due(self, now: float, generation: int) -> bool:
-        """Return whether the next model frame may be selected."""
-        with self._lock:
-            if generation != self._generation:
-                self._reset_generation(generation)
-            return self._next_frame_at is None or now >= self._next_frame_at
-
-    def mark_advanced(self, now: float) -> None:
-        """Record one selected frame without catching up after a long stall."""
-        with self._lock:
-            next_frame_at = self._next_frame_at
-            if next_frame_at is None or now - next_frame_at >= self._frame_interval:
-                self._next_frame_at = now + self._frame_interval
-            else:
-                self._next_frame_at = next_frame_at + self._frame_interval
-
-    def _reset_generation(self, generation: int) -> None:
-        self._generation = generation
-        self._frame_interval = self._fallback_frame_interval
-        self._next_frame_at = None
-        self._model_frame_rate.reset()
-        self._has_completion_baseline = False
-        self._last_completion_at = None
 
 
 def _contains(events: UserInputEvents, event_type: type[UserInputEvent]) -> bool:
@@ -161,7 +56,6 @@ def run_session(
     *,
     metrics_output_sink: OutputSink | None = None,
     steps: int | None = None,
-    max_pending: int = 2,
 ) -> None:
     """Run a session's UI and model loops.
 
@@ -179,35 +73,29 @@ def run_session(
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
         steps: Maximum model steps; ``None`` runs until stopped.
-        max_pending: Maximum model steps waiting to be shown.
 
     Raises:
-        ValueError: ``steps`` is negative, or ``max_pending`` is not positive.
+        ValueError: ``steps`` is negative.
         BaseException: A loop's failure if one was queued, otherwise this
             function's own, otherwise the first cleanup failure. The rest are
             logged.
     """
     if steps is not None and steps < 0:
         raise ValueError(f"steps must be >= 0 or None, got {steps}.")
-    if max_pending <= 0:
-        raise ValueError(f"max_pending must be > 0, got {max_pending}.")
 
     session_desc = session.session_desc
     tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
-    presentation_clock = _PresentationClock(
-        session_desc.frames_per_second_for_step,
-        maximum_frames_per_second=session_desc.frames_per_second_for_ui,
-    )
     event_buffer = EventBuffer()
     stop = session._shutdown_event
     presentation_manager = session._presentation_manager
     trace_chunk_lifecycle = session_desc.metadata.get(_TRACE_METADATA_KEY) is True
     presentation_manager.configure(
-        max_pending=max_pending,
         backpressure_mode=session_desc.backpressure_mode,
         stop=stop,
         put_timeout=tick_seconds,
         trace_chunk_lifecycle=trace_chunk_lifecycle,
+        frames_per_second=session_desc.frames_per_second_for_step,
+        maximum_frames_per_second=session_desc.frames_per_second_for_ui,
     )
     model_thread_handle: threading.Thread | None = None
     ui_loop: IUILoop[object] | None = None
@@ -243,14 +131,11 @@ def run_session(
         results: list[StepResult],
         step_elapsed_s: float,
     ) -> None:
-        if results:
-            presentation_clock.observe_model_output(
-                now=time.monotonic(),
-                generation=generation,
-                frame_count=results[0].frame_count,
-                step_elapsed_s=step_elapsed_s,
-            )
-        presentation_manager.publish(generation, results)
+        presentation_manager.publish(
+            generation,
+            results,
+            step_elapsed_s=step_elapsed_s,
+        )
         if metrics_output_sink is not None:
             for result in results:
                 metrics_output_sink.write(result)
@@ -260,12 +145,8 @@ def run_session(
         with session._presentation_manager.presentation_context():
             assert ui_loop is not None
             generation = event_buffer.generation
-            model_advanced = False
-            now = time.monotonic()
-            if presentation_clock.is_due(now, generation):
-                model_advanced, _ = presentation_manager.advance(generation)
+            model_advanced, _ = presentation_manager.advance(generation)
             if model_advanced:
-                presentation_clock.mark_advanced(now)
                 run_ui_once()
                 return
             if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
@@ -281,13 +162,13 @@ def run_session(
         if trace_chunk_lifecycle:
             _TRACE_LOGGER.info(
                 "%s phase=session_config time_ns=%d backpressure=%s "
-                "presentation=%s max_pending=%d step_fps=%d ui_fps=%d "
+                "presentation=%s chunk_buffer_capacity=%d step_fps=%d ui_fps=%d "
                 "width=%d height=%d trace_path=%s",
                 _TRACE_PREFIX,
                 time.monotonic_ns(),
                 session_desc.backpressure_mode.value,
                 session_desc.presentation_mode.value,
-                max_pending,
+                presentation_manager.buffered_chunk_capacity,
                 session_desc.frames_per_second_for_step,
                 session_desc.frames_per_second_for_ui,
                 session_desc.video_width,
@@ -394,12 +275,12 @@ def run_session(
 
     if presentation_manager.dropped_for_space:
         _LOGGER.warning(
-            "Dropped %d model steps the window could not keep up with.",
+            "Dropped %d model chunks the window could not keep up with.",
             presentation_manager.dropped_for_space,
         )
     if presentation_manager.discarded_at_reset:
         _LOGGER.info(
-            "Discarded %d model steps generated before a reset.",
+            "Discarded %d model chunks generated before a reset.",
             presentation_manager.discarded_at_reset,
         )
     if primary_failure is not None:
