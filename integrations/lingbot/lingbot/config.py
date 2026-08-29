@@ -183,6 +183,37 @@ RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000 = LingbotWorldRunner
     pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000,
 )
 
+PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300 = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    name="lingbot-world-fast-taehv-window15-sink3-gb300",
+    diffusion_model=dict(
+        transformer=dict(
+            network=dict(
+                self_attention_backend=AttentionBackend.OPTIMIZED,
+                cross_attention_backend=AttentionBackend.TORCH,
+                self_attn_optimized_impl_config=OptimizedImplConfig(
+                    qkv_fusion_option=QKVFusionOption.NONE,
+                    sdpa_backend=SDPABackend.CUDNN,
+                    use_tma=False,
+                    quantization=QuantizationOption(
+                        projection=None,
+                        quantized_sdpa=True,
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300 = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300.name,
+    description=(
+        "LingBot-World Fast streaming camera-control I2V "
+        "(LightTAE decoder, window=15 + sink=3 streaming KV cache, "
+        "GB300 optimized self-attention)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300,
+)
+
 # LingBot-World v2 uses the same architecture and runtime as v1. The
 # transformer checkpoint is the only model-level substitution; it inherits
 # the bounded checkpoint loader from the v1 base config.
@@ -228,6 +259,7 @@ PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
         PIPELINE_LINGBOT_WORLD_FAST,
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000,
+        PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
     )
@@ -240,6 +272,7 @@ RUNNER_CONFIGS: dict[str, RunnerConfig] = {
         RUNNER_LINGBOT_WORLD_FAST,
         RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
         RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000,
+        RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300,
         RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
     )
