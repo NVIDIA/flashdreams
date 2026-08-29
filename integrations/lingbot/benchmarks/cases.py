@@ -81,18 +81,16 @@ BENCHMARK_CASES = (
             sdpa_backend=SDPABackend.FA2,
             use_tma=True,
             quantization=QuantizationOption(
-                projection=torch.float8_e4m3fn,
-                quantized_sdpa=True
-            )
+                projection=torch.float8_e4m3fn, quantized_sdpa=True
+            ),
         ),
         cross_attn_optimized_impl_config=OptimizedImplConfig(
             qkv_fusion_option=QKVFusionOption.NONE,
             sdpa_backend=SDPABackend.FA2,
             use_tma=True,
             quantization=QuantizationOption(
-                projection=torch.float8_e4m3fn,
-                quantized_sdpa=True
-            )
+                projection=torch.float8_e4m3fn, quantized_sdpa=True
+            ),
         ),
         minimum_compute_capability=(9, 0),
     ),
@@ -105,10 +103,7 @@ BENCHMARK_CASES = (
             qkv_fusion_option=QKVFusionOption.NONE,
             sdpa_backend=SDPABackend.CUDNN,
             use_tma=False,
-            quantization=QuantizationOption(
-                projection=None,
-                quantized_sdpa=True
-            )
+            quantization=QuantizationOption(projection=None, quantized_sdpa=True),
         ),
         minimum_compute_capability=(9, 0),
     ),

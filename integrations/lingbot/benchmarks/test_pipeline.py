@@ -28,7 +28,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 import torch
-from lingbot.config import PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3
+from lingbot.config import (
+    PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
+)
 from lingbot.encoder.camctrl import CamCtrlInput, I2VCamCtrlEncoder
 from lingbot.pipeline import LingbotWorldInferencePipeline
 from lingbot.transformer import LingbotWorldTransformer, LingbotWorldTransformerConfig
