@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import torch
@@ -37,6 +37,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    NewSessionUserInputEvent,
     ResetUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
@@ -139,6 +140,7 @@ class _VideoTrack(MediaStreamTrack):
         self._enqueued_count = 0
         self._handed_off_count = 0
         self._dropped_for_lag = 0
+        self._discarded_on_session_change_count = 0
         self._discarded_on_close_count = 0
         self._first_enqueued_at: float | None = None
         self._next_pts = 0
@@ -159,6 +161,9 @@ class _VideoTrack(MediaStreamTrack):
                 "webrtc_sender_enqueued_count": self._enqueued_count,
                 "webrtc_sender_handed_off_count": self._handed_off_count,
                 "webrtc_sender_dropped_for_lag_count": self._dropped_for_lag,
+                "webrtc_sender_discarded_on_session_change_count": (
+                    self._discarded_on_session_change_count
+                ),
                 "webrtc_sender_discarded_on_close_count": (
                     self._discarded_on_close_count
                 ),
@@ -205,6 +210,19 @@ class _VideoTrack(MediaStreamTrack):
     def wait_until_drained(self, timeout_s: float) -> bool:
         """Wait until aiortc requests another frame after the latest handoff."""
         return self._sender_drained.wait(timeout_s)
+
+    async def start_session(self) -> None:
+        """Discard queued frames that belong to the replaced session."""
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("Cannot start a session on a closed video track.")
+            discarded_count = len(self._frames)
+            self._frames.clear()
+            self._first_enqueued_at = None
+            self._discarded_on_session_change_count += discarded_count
+            if not self._frame_in_flight:
+                self._sender_drained.set()
+        self._frame_available.clear()
 
     async def _recv_one(self) -> VideoFrame:
         """Return the next send-ready frame immediately when aiortc requests it."""
@@ -300,7 +318,7 @@ class WebRTCServer:
         self._final_video_track_metrics: dict[str, float | int] | None = None
         self._media_connected = threading.Event()
         self._session_desc: SessionDesc | None = None
-        self._session_start_ns: int | None = None
+        self._event_origin_ns: int | None = None
         self._transfer_streams: dict[int, torch.cuda.Stream] = {}
         self._materialization_buffer = _PinnedRGBFrameBuffer()
         self._materialization_count = 0
@@ -348,6 +366,7 @@ class WebRTCServer:
                 "webrtc_sender_enqueued_count": 0,
                 "webrtc_sender_handed_off_count": 0,
                 "webrtc_sender_dropped_for_lag_count": 0,
+                "webrtc_sender_discarded_on_session_change_count": 0,
                 "webrtc_sender_discarded_on_close_count": 0,
                 "webrtc_sender_oldest_queue_age_s": 0.0,
             }
@@ -356,23 +375,61 @@ class WebRTCServer:
             "webrtc_sender_materialized_count": self._materialization_count,
         }
 
+    def event_timestamp_us(self) -> np.uint64:
+        """Return the current timestamp relative to this server's first session.
+
+        Raises:
+            RuntimeError: The server has not opened a session.
+        """
+        timestamp_us = self._timestamp_us()
+        if timestamp_us is None:
+            raise RuntimeError("Open the WebRTC server before reading its clock.")
+        return timestamp_us
+
     def open(self, session_desc: SessionDesc) -> None:
         """Configure the server for one session's generated video.
+
+        A replacement session may open an active server again when its stream
+        format is unchanged. The peer connection stays up and frames still
+        queued from the previous session are discarded.
 
         Args:
             session_desc: Resolved dimensions, frame rate, and tensor layout.
 
         Raises:
-            RuntimeError: The server is closed or already open.
+            RuntimeError: The server is closed or has no input callback.
+            TimeoutError: The active video track cannot begin the replacement
+                before the server timeout.
+            ValueError: A replacement changes the negotiated stream format.
         """
         if self._closed:
             raise RuntimeError("Cannot open a closed WebRTC server.")
-        if self._session_desc is not None:
-            raise RuntimeError("WebRTC server is already open.")
         if self._input_callback is None:
             raise RuntimeError("Register an input callback before opening WebRTC.")
+        current_session_desc = self._session_desc
+        if current_session_desc is not None and not _same_stream_format(
+            current_session_desc,
+            session_desc,
+        ):
+            raise ValueError(
+                "A replacement WebRTC session must keep the same stream format: "
+                "output layout, frame rates, width, and height."
+            )
+
+        track = self._video_track
+        loop = self._loop
+        if track is not None and loop is not None:
+            future = asyncio.run_coroutine_threadsafe(track.start_session(), loop)
+            try:
+                future.result(timeout=self._startup_timeout_seconds)
+            except BaseException:
+                future.cancel()
+                raise
         self._session_desc = session_desc
-        self._session_start_ns = time.monotonic_ns()
+        if self._event_origin_ns is None:
+            # Keep timestamps comparable across sessions so events buffered
+            # during a handoff retain their real order.
+            self._event_origin_ns = time.monotonic_ns()
 
     def register_input_callback(
         self, callback: Callable[[UserInputEvent], None]
@@ -827,6 +884,8 @@ class WebRTCServer:
             )
         elif event_type == "reset":
             event = ResetUserInputEvent(timestamp=timestamp_us)
+        elif event_type == "new_session":
+            event = NewSessionUserInputEvent(timestamp=timestamp_us)
         elif event_type == "close":
             event = CloseUserInputEvent(timestamp=timestamp_us)
         else:
@@ -852,11 +911,11 @@ class WebRTCServer:
                 self._append_event(CloseUserInputEvent(timestamp=timestamp_us))
 
     def _timestamp_us(self) -> np.uint64 | None:
-        """Return the current session-relative event timestamp."""
-        session_start_ns = self._session_start_ns
-        if session_start_ns is None:
+        """Return the current server-relative event timestamp."""
+        event_origin_ns = self._event_origin_ns
+        if event_origin_ns is None:
             return None
-        return np.uint64((time.monotonic_ns() - session_start_ns) // 1_000)
+        return np.uint64((time.monotonic_ns() - event_origin_ns) // 1_000)
 
     async def _shutdown(self) -> None:
         """Release async server resources on their owning loop."""
@@ -894,6 +953,17 @@ class WebRTCServer:
                     "Additional WebRTC cleanup failure"
                 )
             raise primary
+
+
+def _same_stream_format(first: SessionDesc, second: SessionDesc) -> bool:
+    """Return whether two sessions can share one negotiated video track."""
+    return (
+        first.output_layout == second.output_layout
+        and first.frames_per_second_for_ui == second.frames_per_second_for_ui
+        and first.frames_per_second_for_step == second.frames_per_second_for_step
+        and first.video_width == second.video_width
+        and first.video_height == second.video_height
+    )
 
 
 def _finite_number(value: object, *, label: str) -> float:

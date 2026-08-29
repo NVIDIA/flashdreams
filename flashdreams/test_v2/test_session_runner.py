@@ -9,6 +9,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 
 import pytest
 import torch
@@ -38,6 +39,7 @@ from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
+    NewSessionUserInputEvent,
     ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -1030,6 +1032,95 @@ def test_run_session_stops_when_the_window_reports_a_close() -> None:
     assert log.calls[-2:] == ["window.close", "session.close"]
 
 
+def test_run_session_returns_a_replacement_after_cleaning_the_session() -> None:
+    log = CallLog()
+    resolved = replace(_session_desc(), metadata={"application": "value"})
+    session = FakeSession(resolved, log)
+    window = RecordingClientWindow(
+        log,
+        [_lifecycle_event(NewSessionUserInputEvent)],
+    )
+
+    next_session_desc = run_session(session, window, steps=None)
+
+    assert next_session_desc is not None
+    assert next_session_desc == resolved
+    assert next_session_desc is not resolved
+    assert next_session_desc.metadata is not resolved.metadata
+    assert "session.step(0)" not in log.calls
+    assert log.calls[-1] == "session.close"
+    assert "window.close" not in log.calls
+
+
+def test_run_session_polls_for_a_replacement_after_the_final_frame() -> None:
+    log = CallLog()
+
+    class RequestingWindow(RecordingClientWindow):
+        def write(self, result: StepResult) -> None:
+            super().write(result)
+            with self._lock:
+                self._scripted.append(_lifecycle_event(NewSessionUserInputEvent))
+
+    session = FiniteSession(_session_desc(), log, length=1)
+    window = RequestingWindow(log)
+
+    next_session_desc = run_session(session, window, steps=None)
+
+    assert next_session_desc == session.session_desc
+    assert [result.step_index for result in window.results] == [0]
+    assert "window.close" not in log.calls
+
+
+@pytest.mark.parametrize(
+    ("events", "expects_replacement"),
+    [
+        (
+            [
+                CloseUserInputEvent(timestamp=uint64(0)),
+                NewSessionUserInputEvent(timestamp=uint64(1)),
+            ],
+            True,
+        ),
+        (
+            [
+                NewSessionUserInputEvent(timestamp=uint64(0)),
+                CloseUserInputEvent(timestamp=uint64(1)),
+            ],
+            False,
+        ),
+    ],
+)
+def test_latest_session_transition_in_a_batch_wins(
+    events: list[UserInputEvent],
+    expects_replacement: bool,
+) -> None:
+    log = CallLog()
+    resolved = _session_desc()
+    window = RecordingClientWindow(log, [UserInputEvents(events)])
+
+    next_session_desc = run_session(FakeSession(resolved, log), window)
+
+    assert (next_session_desc is not None) is expects_replacement
+    if next_session_desc is not None:
+        assert next_session_desc == resolved
+        assert next_session_desc is not resolved
+    assert ("window.close" not in log.calls) is expects_replacement
+
+
+def test_replacement_request_closes_the_window_when_session_cleanup_fails() -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log, fail_to_close=True)
+    window = RecordingClientWindow(
+        log,
+        [_lifecycle_event(NewSessionUserInputEvent)],
+    )
+
+    with pytest.raises(RuntimeError, match="session close failed"):
+        run_session(session, window)
+
+    assert log.calls[-2:] == ["session.close", "window.close"]
+
+
 def test_run_session_resets_the_session_and_the_step_index() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
@@ -1097,9 +1188,9 @@ def test_run_session_closes_a_session_that_failed_to_init() -> None:
     with pytest.raises(RuntimeError, match="init failed"):
         run_session(session, window, steps=1)
 
-    # A session that got halfway through starting still has to be released, and
-    # the window is never opened for a session that cannot run.
-    assert log.calls == ["session.init", "session.close"]
+    # A session that got halfway through starting still has to be released. The
+    # window may already serve a remote client even though open was not reached.
+    assert log.calls == ["session.init", "window.close", "session.close"]
 
 
 def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
