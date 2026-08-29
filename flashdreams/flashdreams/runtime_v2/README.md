@@ -230,12 +230,22 @@ focus events into input and a disconnecting browser into a close; because those
 arrive on the server's own thread, it queues them and hands them over in batches
 when the session asks.
 
+The WebRTC page also sends a new-session event. `run_session` stops and cleans
+the current session, returns its resolved `SessionDesc`, and leaves the WebRTC
+window open. `ApplicationRunner` then creates the replacement from that
+description. A normal completion or close returns no replacement and keeps the
+one-session behavior used by MP4 and native windows.
+
 The UI thread owns WebRTC cadence. Each `write` synchronously materializes one
 owned video frame and admits it to a two-frame FIFO of unsent frames. The WebRTC
 track returns queued frames to aiortc immediately: it neither sleeps to pace
 them nor repeats the latest frame. If network or encoder congestion fills the
 FIFO, the next write replaces only its oldest unsent frame; a frame already
 handed to aiortc is never overwritten.
+
+When a replacement session reopens the WebRTC window, it keeps the existing
+peer connection and discards frames still queued from the previous session. A
+replacement must keep the negotiated layout, frame rates, width, and height.
 
 What a sink expects of the pixel values it is handed is part of the result
 contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).

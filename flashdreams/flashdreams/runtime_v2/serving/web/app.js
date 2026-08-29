@@ -7,6 +7,7 @@ const pointerControls = peer.createDataChannel("pointer-controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const video = document.getElementById("video");
 const status = document.getElementById("status");
+const newSessionButton = document.getElementById("new-session");
 const pressedKeys = new Map();
 const pressedButtons = new Set();
 const gamepadSnapshots = new Map();
@@ -58,6 +59,20 @@ const sendInput = (
   }
   return send(payload, channel);
 };
+
+controls.addEventListener("open", () => {
+  newSessionButton.disabled = false;
+  newSessionButton.textContent = "New session";
+});
+
+controls.addEventListener("close", () => {
+  newSessionButton.disabled = true;
+  newSessionButton.textContent = "Disconnected";
+});
+
+newSessionButton.addEventListener("click", () => {
+  sendInput({type: "new_session"});
+});
 
 controls.addEventListener("message", event => {
   if (typeof event.data !== "string") {
@@ -441,6 +456,8 @@ async function connect() {
 }
 
 connect().catch(error => {
+  newSessionButton.disabled = true;
+  newSessionButton.textContent = "Connection failed";
   console.error("Unable to start WebRTC.", error);
   showStatus(`Unable to start WebRTC: ${error.message}`, true);
 });
