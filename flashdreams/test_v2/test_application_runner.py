@@ -5,6 +5,7 @@
 
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 
 import pytest
 import torch
@@ -19,6 +20,7 @@ from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    NewSessionUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -91,6 +93,7 @@ class _Application(IApplication):
         self._fail_to_init = fail_to_init
         self._fail_to_close = fail_to_close
         self._session_length = session_length
+        self.requested_session_descs: list[SessionDesc] = []
 
     def init(self, commandline_args: Sequence[str]) -> None:
         self._calls.append(f"application.init({list(commandline_args)!r})")
@@ -99,6 +102,7 @@ class _Application(IApplication):
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         self._calls.append("application.create_session")
+        self.requested_session_descs.append(session_desc)
         return _Session(session_desc, self._calls, length=self._session_length)
 
     def close(self) -> None:
@@ -142,6 +146,19 @@ class _SilentWindow(_Window):
 
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
+
+
+class _ReplacingWindow(_Window):
+    """Request one replacement, then close its session."""
+
+    def __init__(self, calls: list[str]) -> None:
+        super().__init__(calls)
+        self._events = [NewSessionUserInputEvent, CloseUserInputEvent]
+
+    def get_user_input_events(self) -> UserInputEvents:
+        if not self._events:
+            return UserInputEvents([])
+        return UserInputEvents([self._events.pop(0)(timestamp=uint64(0))])
 
 
 class _MetricsSink:
@@ -230,6 +247,107 @@ def test_application_runner_keeps_metrics_output_separate_from_the_window() -> N
     assert [result.step_index for result in metrics.results] == [0, 1]
     assert calls.index("metrics.open") < calls.index("metrics.write(0)")
     assert calls.index("metrics.write(1)") < calls.index("metrics.close")
+
+
+def test_application_runner_replaces_a_session_before_closing_the_window() -> None:
+    calls: list[str] = []
+    application = _Application(calls)
+    window = _ReplacingWindow(calls)
+    metrics = _MetricsSink(calls)
+    session_desc = _session_desc()
+
+    ApplicationRunner(
+        application,
+        window,
+        metrics_output_sink=metrics,
+    ).run(session_desc)
+
+    create_indexes = [
+        index
+        for index, call in enumerate(calls)
+        if call == "application.create_session"
+    ]
+    close_indexes = [
+        index for index, call in enumerate(calls) if call == "session.close"
+    ]
+    assert len(create_indexes) == 2
+    assert len(close_indexes) == 2
+    assert close_indexes[0] < create_indexes[1]
+    assert calls.count("window.open") == 2
+    assert calls.count("window.close") == 1
+    assert calls.count("metrics.open") == 2
+    assert calls.count("metrics.close") == 2
+    assert application.requested_session_descs == [session_desc, session_desc]
+    assert application.requested_session_descs[1] is not session_desc
+    assert calls.count("application.init([])") == 1
+    assert calls.count("application.close") == 1
+
+
+def test_application_runner_closes_a_preserved_window_if_replacement_fails() -> None:
+    calls: list[str] = []
+
+    class FailingReplacementApplication(_Application):
+        def create_session(self, session_desc: SessionDesc) -> ISession:
+            if calls.count("application.create_session") == 1:
+                calls.append("application.create_session")
+                raise RuntimeError("replacement failed")
+            return super().create_session(session_desc)
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        ApplicationRunner(
+            FailingReplacementApplication(calls),
+            _ReplacingWindow(calls),
+        ).run(_session_desc())
+
+    assert calls.count("application.create_session") == 2
+    assert calls.count("session.close") == 1
+    assert calls.count("window.close") == 1
+    assert calls[-1] == "application.close"
+
+
+def test_replacement_stops_if_per_session_metrics_fail_to_close() -> None:
+    calls: list[str] = []
+
+    class FailingMetricsSink(_MetricsSink):
+        def close(self) -> None:
+            super().close()
+            raise RuntimeError("metrics close failed")
+
+    with pytest.raises(RuntimeError, match="metrics close failed"):
+        ApplicationRunner(
+            _Application(calls),
+            _ReplacingWindow(calls),
+            metrics_output_sink=FailingMetricsSink(calls),
+        ).run(_session_desc())
+
+    assert calls.count("application.create_session") == 1
+    assert calls.count("session.close") == 1
+    assert calls.count("window.close") == 1
+    assert calls[-1] == "application.close"
+
+
+def test_setup_failure_closes_every_runner_owned_resource() -> None:
+    calls: list[str] = []
+    bad_trace_desc = replace(
+        _session_desc(),
+        metadata={"trace_chunk_lifecycle": True},
+    )
+
+    with pytest.raises(TypeError, match="trace_chunk_lifecycle_path"):
+        ApplicationRunner(
+            _Application(calls),
+            _Window(calls),
+            metrics_output_sink=_MetricsSink(calls),
+        ).run(bad_trace_desc)
+
+    assert calls == [
+        "application.init([])",
+        "application.create_session",
+        "metrics.close",
+        "window.close",
+        "session.close",
+        "application.close",
+    ]
 
 
 def test_application_runner_reports_the_run_rather_than_the_close(

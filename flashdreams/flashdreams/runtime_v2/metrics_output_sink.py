@@ -24,6 +24,9 @@ class MetricsOutputSink(OutputSink):
 
     Each result records its frame count and finite numeric metrics. Metric names
     ending in ``_ms`` are converted to seconds to match the v1 sink.
+
+    Reopening the sink starts a new record at the same path. Consequently, a
+    multi-session application run retains the final session's metrics.
     """
 
     def __init__(self, path: str | Path) -> None:

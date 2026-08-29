@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ApplicationRunner:
-    """Create and run one application session against one client window."""
+    """Initialize one application and run its requested sessions."""
 
     def __init__(
         self,
@@ -31,7 +31,8 @@ class ApplicationRunner:
         Args:
             application: Long-lived application that creates the session.
             client_window: Window that supplies input and presents generated output.
-            metrics_output_sink: Optional sink for model-step metrics.
+            metrics_output_sink: Optional sink for model-step metrics. It is
+                opened and closed once for each session.
         """
         self._application = application
         self._client_window = client_window
@@ -40,53 +41,63 @@ class ApplicationRunner:
     def run(
         self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
     ) -> None:
-        """Initialize the application, create one session, and run it.
+        """Initialize the application and run sessions until the window exits.
 
-        The run ends when the window reports a close or the session reports that
-        it has finished.
+        A new-session request closes the current session and creates its
+        replacement from the description returned by ``run_session``. A close
+        request or a naturally completed session returns no replacement and
+        ends the run.
 
         The application is closed before this method returns or raises.
 
-        The window is closed too when the run never starts, since ``run_session``
-        is what otherwise owns it, and a window may already be serving a client
-        before the application has loaded anything.
+        The runner closes the window when the first session never starts or a
+        replacement cannot be created. ``run_session`` otherwise owns it, and
+        may leave it open only for a successful replacement handoff.
 
         Args:
             session_desc: Output shape and timing requested for the session.
             commandline_args: Arguments owned and parsed by the application.
         """
-        run_started = False
+        session_run_started = False
+        window_needs_close = True
         try:
             self._application.init(commandline_args)
-            session = self._application.create_session(session_desc)
-            run_started = True
-            run_session(
-                session,
-                self._client_window,
-                metrics_output_sink=self._metrics_output_sink,
-            )
+            next_session_desc: SessionDesc | None = session_desc
+            while next_session_desc is not None:
+                session = self._application.create_session(next_session_desc)
+                session_run_started = True
+                try:
+                    next_session_desc = run_session(
+                        session,
+                        self._client_window,
+                        metrics_output_sink=self._metrics_output_sink,
+                    )
+                except BaseException:
+                    # ``run_session`` closes the window on every failure.
+                    window_needs_close = False
+                    raise
+                window_needs_close = next_session_desc is not None
         finally:
-            if not run_started:
+            if window_needs_close:
                 _close_client_window(self._client_window)
-                if self._metrics_output_sink is not None:
-                    _close_output_sink(self._metrics_output_sink)
+            if not session_run_started and self._metrics_output_sink is not None:
+                _close_output_sink(self._metrics_output_sink)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
 
 
 def _close_client_window(client_window: IClientWindow) -> None:
-    """Close a window the run never reached, so what it was serving goes with it.
+    """Close a window still owned by the application runner.
 
-    The run has already failed by the time this is called, so a failure here is
-    logged rather than raised over the top of it.
+    This covers initial setup and the gap between sessions. The run has already
+    failed by the time this is called, so a failure here is logged rather than
+    raised over the top of it.
     """
     try:
         client_window.close()
     except Exception:
-        _LOGGER.exception(
-            "The client window failed to close after a run that never started."
-        )
+        _LOGGER.exception("The client window failed to close while stopping.")
 
 
 def _close_output_sink(output_sink: OutputSink) -> None:
