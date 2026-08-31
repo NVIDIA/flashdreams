@@ -85,7 +85,7 @@ class _Obstacles:
         self.spawns += 1
 
 
-def _scene() -> SceneDefinition:
+def _scene(*, game_map: Any = None) -> SceneDefinition:
     calibration = CameraCalibration(
         clipgt_name="camera_front_wide_120fov",
         logical_name="camera_front_wide_120fov",
@@ -103,7 +103,7 @@ def _scene() -> SceneDefinition:
         SimpleNamespace(
             selected_camera=calibration,
             initial_rgb=np.zeros((640, 1168, 3), dtype=np.uint8),
-            game_map=None,
+            game_map=game_map,
             ground_mesh_vertices=None,
         ),
     )
@@ -343,7 +343,7 @@ def test_bundled_obstacle_catalog_matches_source_branch() -> None:
     assert len(catalog.parked(length_range_m=(3.4, 5.6))) == 236
 
 
-def _map_prompt_ability() -> tuple[StyleAbility, SimpleNamespace, list[object]]:
+def _map_prompt_ability() -> tuple[StyleAbility, SimpleNamespace, list[Any]]:
     ability = StyleAbility(
         LiveEditStyleConfig(),
         map_context_config=LiveEditMapContextConfig(enabled=True),
@@ -351,10 +351,12 @@ def _map_prompt_ability() -> tuple[StyleAbility, SimpleNamespace, list[object]]:
     session = SimpleNamespace(
         _cache=SimpleNamespace(transformer_cache=SimpleNamespace())
     )
-    targets: list[object] = []
+    targets: list[Any] = []
     ability._session = session
     ability._base_prompt = "A sunny suburb."
-    ability._replace_text = lambda active_session, target: targets.append(target)  # type: ignore[method-assign]
+    setattr(
+        ability, "_replace_text", lambda active_session, target: targets.append(target)
+    )
     return ability, session, targets
 
 
@@ -412,12 +414,14 @@ def test_visual_swap_absorbs_pending_map_change_once() -> None:
     session = SimpleNamespace(
         _cache=SimpleNamespace(transformer_cache=SimpleNamespace())
     )
-    targets: list[object] = []
+    targets: list[Any] = []
     ability._session = session
     ability._base_prompt = "A sunny suburb."
     ability._pending_index = 0
     ability._pending_map_suffix = "The taxi is driving forward."
-    ability._replace_text = lambda active_session, target: targets.append(target)  # type: ignore[method-assign]
+    setattr(
+        ability, "_replace_text", lambda active_session, target: targets.append(target)
+    )
 
     ability.before_v2_chunk()
 
@@ -443,10 +447,12 @@ def test_combined_map_prompts_are_encoded_lazily() -> None:
         _pending_finalization_index=None,
         replace_prompt=lambda *args, **kwargs: pytest.fail("expected cached swap"),
     )
-    ability._encode_prompt = (  # type: ignore[method-assign]
+    setattr(
+        ability,
+        "_encode_prompt",
         lambda active_pipeline, prompt: ability._prompt_embeddings.__setitem__(
             prompt, "cached"
-        )
+        ),
     )
     target = SimpleNamespace(
         prompt="A sunny suburb. The taxi is stationary.",
@@ -462,9 +468,10 @@ def test_combined_map_prompts_are_encoded_lazily() -> None:
 
 
 def test_map_only_postprocessing_returns_original_video() -> None:
-    scene = _scene()
-    scene.game_map = load_game_map(
-        Path(__file__).parent / "maps" / "intersection_geometry.robotaxi.yaml"
+    scene = _scene(
+        game_map=load_game_map(
+            Path(__file__).parent / "maps" / "intersection_geometry.robotaxi.yaml"
+        )
     )
     gameplay = LiveEditGameplay(
         LiveEditConfig(map_context=LiveEditMapContextConfig(enabled=True)),
