@@ -823,6 +823,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
     ]
     assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
+    assert "H  HIDE CONTROLS" in " ".join(overlay_text)
     assert "mph" in overlay_text
     assert any(
         name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
@@ -1112,6 +1113,29 @@ def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
     assert state._loading_status == "EXITING GAME"
     model_loop._run_message_batch()
     assert model_loop.state.exit_requested
+
+
+def test_h_toggles_gameplay_control_tooltips() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="h",
+        state=KeyboardInputState.RELEASED,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="H",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    state.consume_input_events(UserInputEvents([released]))
+    assert state.show_control_tooltips
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_control_tooltips
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state.show_control_tooltips
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:

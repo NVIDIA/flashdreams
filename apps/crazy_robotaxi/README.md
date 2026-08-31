@@ -79,6 +79,7 @@ model.
 | `D` or Right Arrow | Steer right |
 | `Space` | Apply the handbrake and cancel throttle |
 | `R` | Restart the current game |
+| `H` | Hide or show the HUD control tooltips |
 | `Escape` | Return to the previous menu, then exit from the mode screen |
 | `Enter` | Submit the focused leaderboard name |
 

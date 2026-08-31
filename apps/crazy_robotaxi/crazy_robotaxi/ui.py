@@ -150,6 +150,9 @@ class TaxiHudState:
     show_fps: bool = False
     """Whether to display the measured generated-video frame rate."""
 
+    show_control_tooltips: bool = True
+    """Whether to display keyboard control hints during gameplay."""
+
     map_options: tuple[GameMapOption, ...] = ()
     """Lightweight authored-map choices supplied by the application."""
 
@@ -307,6 +310,8 @@ class TaxiHudState:
         received = events.get_events()
         if any(_is_escape_press(event) for event in received):
             self._handle_escape()
+        if any(_is_control_tooltip_toggle(event) for event in received):
+            self.show_control_tooltips = not self.show_control_tooltips
         if not self.profile_input_latency:
             return
         for event in received:
@@ -631,6 +636,7 @@ class TaxiHudState:
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
             self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
 
@@ -712,10 +718,10 @@ class TaxiHudState:
         color_rgb: tuple[float, float, float],
         top: float,
         outline: bool = False,
+        font_size: float = 22.0,
     ) -> None:
         """Draw centered arcade status text without creating an ImGui window."""
         draw_list = imgui.get_background_draw_list()
-        font_size = 22.0
         text_width, text_height = _overlay_text_size(imgui, label, font_size)
         available_width = max(1.0, float(self.width) - 28.0)
         if text_width > available_width:
@@ -864,6 +870,25 @@ class TaxiHudState:
             position=(float(max(14.0, self.width - width - 14.0)), 14.0),
             size=(width, 66.0),
             lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
+        )
+
+    def _draw_control_tooltips(self, imgui: Any) -> None:
+        """Draw the dismissible keyboard controls along the bottom of the HUD."""
+        if not self.show_control_tooltips:
+            return
+        self._draw_status_strip(
+            imgui,
+            "WASD / ARROWS  DRIVE  ·  SPACE  HANDBRAKE",
+            color_rgb=(0.82, 0.82, 0.86),
+            top=max(14.0, float(self.height) - 72.0),
+            font_size=14.0,
+        )
+        self._draw_status_strip(
+            imgui,
+            "R  RESTART  ·  ESC  MAP  ·  H  HIDE CONTROLS",
+            color_rgb=(0.72, 0.72, 0.76),
+            top=max(14.0, float(self.height) - 38.0),
+            font_size=13.0,
         )
 
     def reset(self) -> None:
@@ -1913,6 +1938,15 @@ def _is_escape_press(event: object) -> bool:
         isinstance(event, KeyboardUserInputEvent)
         and event.state is KeyboardInputState.PRESSED
         and str(event.key).strip().lower() in {"esc", "escape"}
+    )
+
+
+def _is_control_tooltip_toggle(event: object) -> bool:
+    """Return whether an input event is a pressed H key."""
+    return (
+        isinstance(event, KeyboardUserInputEvent)
+        and event.state is KeyboardInputState.PRESSED
+        and str(event.key).strip().lower() == "h"
     )
 
 
