@@ -20,6 +20,23 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 Cam2VInputResolver = Callable[[Mapping[str, Any]], "Cam2VConditioning"]
 """Resolve application arguments into one session's camera conditioning."""
 
+Cam2VGenerateStep = Callable[[Any, int, Any, Any], torch.Tensor]
+"""Generate one model step from a model-neutral camera payload."""
+
+
+def generate_camera_step(
+    pipeline: Any,
+    autoregressive_index: int,
+    cache: Any,
+    camera_input: Any,
+) -> torch.Tensor:
+    """Generate one camera-controlled step through the standard pipeline API."""
+    return pipeline.generate(
+        autoregressive_index=autoregressive_index,
+        cache=cache,
+        input=camera_input,
+    )
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Cam2VConditioning:
@@ -76,6 +93,9 @@ class Cam2VApplicationDefaults:
     first_frame_interpolation: ResizeInterpolation
     """Resize interpolation required by the model's image preprocessor."""
 
+    generate_step: Cam2VGenerateStep = generate_camera_step
+    """Integration hook that adapts camera payloads and generates one step."""
+
     device: str = "cuda"
     """Device on which the application constructs the shared pipeline."""
 
@@ -123,73 +143,11 @@ class Cam2VApplicationDefaults:
             MappingProxyType(dict(self.input_defaults)),
         )
 
-    @classmethod
-    def from_runner_config(
-        cls,
-        runner_config: Any,
-        *,
-        input_resolver: Cam2VInputResolver,
-        first_frame_dtype: torch.dtype,
-        first_frame_interpolation: ResizeInterpolation,
-        total_blocks: int | None = None,
-        install_hint: str = "",
-    ) -> "Cam2VApplicationDefaults":
-        """Read shared application defaults from an integration runner config."""
-        required = ["pipeline", "pixel_height", "pixel_width"]
-        if total_blocks is None:
-            required.append("total_blocks")
-        missing = [name for name in required if not hasattr(runner_config, name)]
-        if missing:
-            raise TypeError(
-                f"Runner config {type(runner_config).__name__} is missing "
-                f"camera-to-video application defaults: {missing}."
-            )
-        input_names = (
-            "prompt",
-            "prompt_path",
-            "image_path",
-            "pose_path",
-            "intrinsic_path",
-            "world_scale",
-            "example_data",
-            "example_idx",
-        )
-        return cls(
-            pipeline_config=runner_config.pipeline,
-            input_resolver=input_resolver,
-            total_blocks=(
-                int(runner_config.total_blocks)
-                if total_blocks is None
-                else int(total_blocks)
-            ),
-            pixel_width=int(runner_config.pixel_width),
-            pixel_height=int(runner_config.pixel_height),
-            first_frame_dtype=first_frame_dtype,
-            first_frame_interpolation=first_frame_interpolation,
-            device=str(getattr(runner_config, "device", "cuda")),
-            fps=int(getattr(runner_config, "fps", 16)),
-            output_layout=_output_layout(runner_config),
-            install_hint=install_hint,
-            input_defaults={
-                name: getattr(runner_config, name)
-                for name in input_names
-                if hasattr(runner_config, name)
-            },
-        )
-
-
-def _output_layout(runner_config: Any) -> VideoTensorLayout:
-    """Return a runner's output layout using the v2 enum spelling."""
-    value = getattr(runner_config, "postprocess_output_layout", None)
-    if value is None:
-        return VideoTensorLayout.tchw
-    if isinstance(value, VideoTensorLayout):
-        return value
-    return VideoTensorLayout(str(value))
-
 
 __all__ = [
     "Cam2VApplicationDefaults",
     "Cam2VConditioning",
+    "Cam2VGenerateStep",
     "Cam2VInputResolver",
+    "generate_camera_step",
 ]

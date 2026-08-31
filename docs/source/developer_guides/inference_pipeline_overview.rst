@@ -136,7 +136,7 @@ Samples on how existing models use this structure:
 
 - `NVIDIA OmniDreams config <https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py>`_:
   An I2V video model with a VAE-based causal encoder for HDMap control.
-- `LingBot-World config <https://github.com/NVIDIA/flashdreams/blob/main/integrations/lingbot/lingbot/config.py>`_:
+- `LingBot-World config <https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py>`_:
   A camera-controlled I2V model that uses the per-step camera encoder.
 - `Self-Forcing config <https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/self_forcing/config.py>`_:
   A pure T2V model that sets ``encoder=None``, so each rollout starts from noise.

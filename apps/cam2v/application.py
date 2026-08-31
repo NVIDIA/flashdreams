@@ -27,7 +27,7 @@ class Cam2VApplication(IApplication):
 
     The shared class owns command-line parsing, pipeline lifetime, session
     validation, and model-generation-loop construction. A concrete model
-    integration contributes a runner config and an input resolver through
+    integration contributes a pipeline config and an input resolver through
     :class:`Cam2VApplicationDefaults`.
     """
 
@@ -196,6 +196,7 @@ class Cam2VApplication(IApplication):
                 device=torch.device(self._device),
                 first_frame_dtype=self.defaults.first_frame_dtype,
                 first_frame_interpolation=self.defaults.first_frame_interpolation,
+                generate_step=self.defaults.generate_step,
                 warmup_blocks=self._warmup_blocks,
                 log_model_timing=self.defaults.log_model_timing,
                 install_hint=self.defaults.install_hint,

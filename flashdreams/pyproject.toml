@@ -113,7 +113,7 @@ examples = [
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
 # (image decoding for I2V first-frames, MP4 muxing for outputs). Kept
 # off the core install so a serving deployment that uses the bare
-# pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
+# pipeline (e.g. ``integrations_v2/lingbot``) doesn't pull in ffmpeg / opencv.
 runners = [
     "mediapy>=1.1",
     "opencv-python-headless>=4.5",

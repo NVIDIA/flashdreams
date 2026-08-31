@@ -33,10 +33,11 @@ Serving building blocks
 Reference integration
 ---------------------
 
-The public WebRTC demos provide concrete examples of the shared serving stack:
+The reusable applications provide concrete examples of the shared serving stack:
 
 - shared transport code under ``flashdreams/flashdreams/serving/webrtc/``,
-- LingBot runner and runtime wiring under ``integrations/lingbot/lingbot/``,
+- camera-to-video application behavior under ``apps/cam2v/``,
+- thin model bindings under ``integrations_v2/<model>/apps/cam2v/adapter.py``,
 - OmniDreams model wiring under ``integrations_v2/omnidreams/`` and serving
   under ``apps/interactive_drive/``.
 
@@ -47,15 +48,15 @@ Single GPU:
 
 .. code-block:: bash
 
-   uv run flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
+   uv run flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc -- --example-data --total-blocks 21
 
 Multi GPU:
 
 .. code-block:: bash
 
-   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run \
-       lingbot-world-fast --example-data True --total-blocks 21
+   uv run torchrun --nproc_per_node=2 --no-python flashdreams-run-v2 \
+       cam2v-lingbot --mode webrtc -- --example-data --total-blocks 21
 
 See also
 --------

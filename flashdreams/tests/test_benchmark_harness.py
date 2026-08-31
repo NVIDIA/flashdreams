@@ -419,7 +419,7 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/lingbot",
+        "integrations_v2/lingbot",
         "flashdreams-run",
     )
     assert lingbot.command[5:7] == (
@@ -519,7 +519,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/lingbot",
+        "integrations_v2/lingbot",
         "python",
         "-m",
         "tools.benchmarks.strict_run",
@@ -557,7 +557,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/lingbot",
+        "integrations_v2/lingbot",
         "flashdreams-run",
     )
     assert lingbot_review.command[5:7] == (

@@ -26,7 +26,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 from .controls import CameraPoseIntegrator, KeyboardResampler
-from .defaults import Cam2VConditioning
+from .defaults import Cam2VConditioning, Cam2VGenerateStep, generate_camera_step
 from .ui import (
     RECENT_MODEL_FPS_WINDOW_SECONDS,
     Cam2VSlangPyUILoop,
@@ -70,6 +70,9 @@ class Cam2VSessionConfig:
 
     warmup_blocks: int
     """Leading blocks excluded from steady-state FPS."""
+
+    generate_step: Cam2VGenerateStep = generate_camera_step
+    """Integration hook that adapts camera payloads and generates one step."""
 
     log_model_timing: bool = False
     """Write one synchronized wall-time record for each AR model step."""
@@ -204,10 +207,11 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             ),
             world_scale=conditioning.world_scale,
         )
-        frames = state.pipeline.generate(
-            autoregressive_index=step_index,
-            cache=state.cache,
-            input=camera_input,
+        frames = state.config.generate_step(
+            state.pipeline,
+            step_index,
+            state.cache,
+            camera_input,
         )
         metrics = _numeric_metrics(
             state.pipeline.finalize(

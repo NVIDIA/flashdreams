@@ -18,8 +18,10 @@ follows is already done for you.
 - `red_screen` — the smallest interactive one, streaming to a browser.
 - `slangpy_ui_demo` — three applications that draw widgets over model output,
   and the reference for writing a UI loop.
-- `cam2v_lingbot` — the Lingbot World specialization of the shared interactive
-  camera-to-video application.
+- `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
+  shared interactive camera-to-video application.
+- `hy_worldplay` — the HY-WorldPlay model and its `cam2v-hy-worldplay` binding,
+  including live PRoPE/action camera-history adaptation.
 - `waypoint` — the interactive Waypoint 1.5 image-established application
   with deterministic control replay and live keyboard/mouse input.
 - `self_forcing`, `causal_forcing`, `fastvideo_causal_wan22`, `wan21`,

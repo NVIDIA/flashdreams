@@ -8,7 +8,9 @@ from .controls import CameraPoseIntegrator, KeyboardResampler, PoseSegment
 from .defaults import (
     Cam2VApplicationDefaults,
     Cam2VConditioning,
+    Cam2VGenerateStep,
     Cam2VInputResolver,
+    generate_camera_step,
 )
 from .session import (
     Cam2VModelLoop,
@@ -27,6 +29,7 @@ __all__ = [
     "Cam2VApplication",
     "Cam2VApplicationDefaults",
     "Cam2VConditioning",
+    "Cam2VGenerateStep",
     "Cam2VInputResolver",
     "Cam2VModelLoop",
     "Cam2VModelState",
@@ -39,4 +42,5 @@ __all__ = [
     "CameraPoseIntegrator",
     "KeyboardResampler",
     "PoseSegment",
+    "generate_camera_step",
 ]

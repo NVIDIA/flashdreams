@@ -100,7 +100,7 @@ PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
 
 One AR step covers the standard 81-frame / 640x1280 rollout
 (``len_t == window_size_t == 21``). Base recipe for
-``integrations/hy_worldplay``.
+``integrations_v2/hy_worldplay``.
 """
 
 WAN_CONFIGS: dict[str, WanInferencePipelineConfig] = {

@@ -67,7 +67,8 @@ Reference integration folders
 - `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams>`_
 - `self_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing>`_
 - `causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing>`_
-- `lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_
+- `lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot>`_
+- `hy_worldplay <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay>`_
 - `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21>`_
 - `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22>`_
 - `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
