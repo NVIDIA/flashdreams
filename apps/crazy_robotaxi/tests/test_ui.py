@@ -33,7 +33,7 @@ from crazy_robotaxi.rules import (
     TaxiSessionState,
     project_taxi_markers_to_camera,
 )
-from crazy_robotaxi.settings import ModelPreset, SettingsDocument
+from crazy_robotaxi.settings import SettingsDocument
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
     CrazyRobotaxiImGuiUILoop,
@@ -1576,14 +1576,9 @@ def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -
 def _settings_document(path: Path) -> SettingsDocument:
     return SettingsDocument.load(
         path,
-        presets={
-            "test-preset": ModelPreset(
-                pipeline=_SettingsPipeline(),
-                width=640,
-                height=360,
-            )
-        },
-        default_preset_name="test-preset",
+        pipeline_config=_SettingsPipeline(),
+        width=640,
+        height=360,
     )
 
 

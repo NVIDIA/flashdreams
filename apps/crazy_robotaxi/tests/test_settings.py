@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from crazy_robotaxi.settings import ModelPreset, SettingsDocument
+from crazy_robotaxi.settings import SettingsDocument
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -25,22 +25,16 @@ class _Pipeline:
     diffusion_model: _Diffusion = _Diffusion()
 
 
-def _presets() -> dict[str, ModelPreset]:
-    return {
-        "regular": ModelPreset(_Pipeline("regular"), 1280, 704),
-        "fast": ModelPreset(_Pipeline("fast"), 1168, 640),
-    }
-
-
 def _load(path: Path) -> SettingsDocument:
     return SettingsDocument.load(
         path,
-        presets=_presets(),
-        default_preset_name="regular",
+        pipeline_config=_Pipeline("regular"),
+        width=1280,
+        height=704,
     )
 
 
-def test_sparse_yaml_selects_preset_and_overrides_nested_model_config(
+def test_sparse_yaml_overrides_nested_model_config(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "config.yaml"
@@ -51,7 +45,6 @@ launch:
   mode: race
   map: maps/test.robotaxi.yaml
 model:
-  preset: fast
   pipeline:
     diffusion_model:
       seed: 42
@@ -67,9 +60,8 @@ presentation:
     assert (
         document.settings.launch.map == (tmp_path / "maps/test.robotaxi.yaml").resolve()
     )
-    assert document.settings.model.preset == "fast"
     assert document.settings.model.pipeline.diffusion_model.seed == 42
-    assert document.settings.renderer.raster.resolution_wh == (1168, 640)
+    assert document.settings.renderer.raster.resolution_wh == (1280, 704)
     assert document.settings.presentation.show_fps
 
 
@@ -98,16 +90,3 @@ presentation:
     assert "hud_enabled: false" in saved
     assert "runtime:" not in saved
     assert not tuple(tmp_path.glob(".config.yaml.*.tmp"))
-
-
-def test_non_default_preset_is_persisted_even_without_other_overrides(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "config.yaml"
-    document = _load(path)
-    draft = document.update(document.settings, ("model", "preset"), "fast")
-
-    document.save(draft)
-
-    assert _load(path).settings.model.preset == "fast"
-    assert "preset: fast" in path.read_text(encoding="utf-8")

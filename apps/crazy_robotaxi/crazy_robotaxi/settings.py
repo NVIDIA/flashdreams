@@ -113,9 +113,8 @@ class GameSettings:
 
 @dataclass(frozen=True)
 class ModelSettings:
-    """Selected integration-owned preset plus sparse pipeline overrides."""
+    """Runner-owned pipeline configuration and device placement."""
 
-    preset: str
     device: str = "cuda"
     pipeline: Any = None
 
@@ -169,15 +168,6 @@ class CrazyRobotaxiUserSettings:
     diagnostics: DiagnosticsSettings = DiagnosticsSettings()
 
 
-@dataclass(frozen=True)
-class ModelPreset:
-    """One integration-owned pipeline preset and its output geometry."""
-
-    pipeline: Any
-    width: int
-    height: int
-
-
 def default_config_path() -> Path:
     """Return the platform-style per-user configuration path."""
     config_home = os.environ.get("XDG_CONFIG_HOME")
@@ -186,20 +176,20 @@ def default_config_path() -> Path:
 
 
 def default_settings(
-    presets: Mapping[str, ModelPreset],
-    preset_name: str,
+    pipeline_config: Any,
+    *,
+    width: int,
+    height: int,
 ) -> CrazyRobotaxiUserSettings:
-    """Build defaults around one immutable integration preset."""
-    preset = presets[preset_name]
+    """Build defaults around the pipeline selected by the runner."""
     return CrazyRobotaxiUserSettings(
         launch=LaunchSettings(),
         game=GameSettings(),
         model=ModelSettings(
-            preset=preset_name,
-            pipeline=copy.deepcopy(preset.pipeline),
+            pipeline=copy.deepcopy(pipeline_config),
         ),
         renderer=RendererSettings(
-            raster=RasterConfig(width=preset.width, height=preset.height),
+            raster=RasterConfig(width=width, height=height),
             bev=BevConfig(),
         ),
     )
@@ -214,8 +204,7 @@ class SettingsDocument:
     """Round-trip YAML document and its resolved typed settings."""
 
     path: Path
-    presets: Mapping[str, ModelPreset]
-    default_preset_name: str
+    defaults: CrazyRobotaxiUserSettings
     settings: CrazyRobotaxiUserSettings
     cli_overrides: dict[SettingPath, object]
     _yaml: YAML
@@ -226,10 +215,11 @@ class SettingsDocument:
         cls,
         path: Path,
         *,
-        presets: Mapping[str, ModelPreset],
-        default_preset_name: str,
+        pipeline_config: Any,
+        width: int,
+        height: int,
     ) -> "SettingsDocument":
-        """Load a sparse YAML document over the selected preset defaults."""
+        """Load sparse YAML over the runner-selected pipeline defaults."""
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
         config_path = path.expanduser().resolve()
@@ -251,18 +241,11 @@ class SettingsDocument:
         version = document.get("schema_version", 1)
         if type(version) is not int or version != 1:
             raise SettingsError("schema_version must be 1")
-        model_values = document.get("model", {})
-        if model_values is None:
-            model_values = {}
-        if not isinstance(model_values, Mapping):
-            raise SettingsError("model must be a mapping")
-        preset_name = model_values.get("preset", default_preset_name)
-        if not isinstance(preset_name, str) or preset_name not in presets:
-            choices = ", ".join(sorted(presets))
-            raise SettingsError(
-                f"model.preset must be one of {choices}; got {preset_name!r}"
-            )
-        base = default_settings(presets, preset_name)
+        base = default_settings(
+            pipeline_config,
+            width=width,
+            height=height,
+        )
         values = {
             key: value for key, value in document.items() if key != "schema_version"
         }
@@ -271,51 +254,12 @@ class SettingsDocument:
         _validate_settings(settings)
         return cls(
             path=config_path,
-            presets=presets,
-            default_preset_name=default_preset_name,
+            defaults=base,
             settings=settings,
             cli_overrides={},
             _yaml=yaml,
             _document=document,
         )
-
-    def base_for(
-        self, settings: CrazyRobotaxiUserSettings
-    ) -> CrazyRobotaxiUserSettings:
-        """Return defaults for the draft's selected model preset."""
-        return default_settings(
-            self.presets,
-            settings.model.preset,
-        )
-
-    def resolved_for_preset(self, preset_name: str) -> CrazyRobotaxiUserSettings:
-        """Reapply authored overrides to a CLI-selected preset."""
-        if preset_name not in self.presets:
-            raise SettingsError(f"Unknown model preset {preset_name!r}")
-        values = copy.deepcopy(
-            {
-                key: value
-                for key, value in self._document.items()
-                if key != "schema_version"
-            }
-        )
-        model_values = values.setdefault("model", {})
-        if not isinstance(model_values, dict):
-            model_values = dict(model_values)
-            values["model"] = model_values
-        model_values["preset"] = preset_name
-        settings = _overlay_dataclass(
-            default_settings(
-                self.presets,
-                preset_name,
-            ),
-            values,
-            (),
-            base_dir=self.path.parent,
-        )
-        settings = _normalize_settings(settings)
-        _validate_settings(settings)
-        return settings
 
     def update(
         self,
@@ -323,29 +267,8 @@ class SettingsDocument:
         path: SettingPath,
         value: object,
     ) -> CrazyRobotaxiUserSettings:
-        """Replace one draft value, resetting the pipeline on preset changes."""
-        updated = replace_setting(settings, path, value)
-        if path == ("model", "preset"):
-            name = str(value)
-            if name not in self.presets:
-                raise SettingsError(f"Unknown model preset {name!r}")
-            updated = replace(
-                updated,
-                model=replace(
-                    updated.model,
-                    preset=name,
-                    pipeline=copy.deepcopy(self.presets[name].pipeline),
-                ),
-                renderer=replace(
-                    updated.renderer,
-                    raster=replace(
-                        updated.renderer.raster,
-                        width=self.presets[name].width,
-                        height=self.presets[name].height,
-                    ),
-                ),
-            )
-        return updated
+        """Replace one draft value in the typed settings tree."""
+        return replace_setting(settings, path, value)
 
     def save(self, settings: CrazyRobotaxiUserSettings) -> None:
         """Validate and atomically save sparse overrides while retaining comments."""
@@ -353,11 +276,7 @@ class SettingsDocument:
         _validate_settings(settings)
         desired = CommentedMap()
         desired["schema_version"] = 1
-        changes = _settings_diff(self.base_for(settings), settings)
-        if settings.model.preset != self.default_preset_name:
-            model_changes = cast(dict[str, object], changes.setdefault("model", {}))
-            model_changes["preset"] = settings.model.preset
-        desired.update(changes)
+        desired.update(_settings_diff(self.defaults, settings))
         _sync_mapping(self._document, desired)
         buffer = io.StringIO()
         self._yaml.dump(self._document, buffer)
@@ -618,14 +537,8 @@ def editable_setting(value: object, path: SettingPath) -> bool:
     )
 
 
-def setting_choices(
-    document: SettingsDocument,
-    path: SettingPath,
-    annotation: Any,
-) -> tuple[object, ...]:
-    """Return dynamic or Literal choices for one field."""
-    if path == ("model", "preset"):
-        return tuple(document.presets)
+def setting_choices(annotation: Any) -> tuple[object, ...]:
+    """Return Literal choices for one field."""
     origin = get_origin(annotation)
     if origin is Literal:
         return get_args(annotation)
@@ -791,7 +704,6 @@ def readonly_display(value: object) -> str:
 
 __all__ = [
     "CrazyRobotaxiUserSettings",
-    "ModelPreset",
     "SettingsDocument",
     "SettingsError",
     "clone_settings",

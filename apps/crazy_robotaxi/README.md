@@ -80,8 +80,8 @@ By default, settings are loaded from
 `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
 `~/.config/crazy-robotaxi/config.yaml` when `XDG_CONFIG_HOME` is unset. The file
 is created only after the first save. Use `--config PATH` to select another
-user-authored file. YAML values are sparse overrides on the selected model
-preset, and retained comments survive Options saves. Explicit application CLI
+user-authored file. YAML values are sparse overrides on the selected runner's
+defaults, and retained comments survive Options saves. Explicit application CLI
 arguments override YAML for the current run without rewriting the saved value;
 the Options screen labels affected fields.
 
@@ -99,7 +99,6 @@ game:
     rules:
       global_time_s: 90.0
 model:
-  preset: omnidreams-perf
   pipeline:
     diffusion_model:
       seed: 5678

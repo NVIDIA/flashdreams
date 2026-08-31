@@ -1202,7 +1202,7 @@ class TaxiHudState:
             imgui.text(f"{label}:")
             imgui.same_line()
             widget_id = f"##{'.'.join(item_path)}"
-            choices = setting_choices(document, item_path, annotation)
+            choices = setting_choices(annotation)
             changed = False
             edited = current
             if choices:

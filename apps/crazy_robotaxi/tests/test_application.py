@@ -222,7 +222,7 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.config.race_course_id == "grand-prix"
 
 
-def test_user_config_selects_launch_and_model_preset(tmp_path: Path) -> None:
+def test_user_config_selects_launch_and_overrides_model(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         f"""\
@@ -231,7 +231,6 @@ launch:
   map: {_DEMO_RACE_MAP}
   race_course: grand-prix
 model:
-  preset: omnidreams-fast-perf
   device: cpu
   pipeline:
     diffusion_model:
@@ -252,14 +251,14 @@ runtime:
     assert app._config.initial_game_mode == "race"
     assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
     assert app._config.initial_race_course_id == "grand-prix"
-    assert app._config.model_preset_name == "omnidreams-fast-perf"
+    assert app._config.model_preset_name == "omnidreams"
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234
     pipeline_config = app._pipeline_config
     assert pipeline_config is not None
     assert pipeline_config.diffusion_model.seed == 5678
-    assert app.session_desc().video_width == 1168
-    assert app.session_desc().video_height == 640
+    assert app.session_desc().video_width == 1280
+    assert app.session_desc().video_height == 704
 
 
 def test_explicit_cli_overrides_user_config_without_rewriting_it(
@@ -302,41 +301,6 @@ runtime:
     assert document.settings.runtime.prewarm_blocks == 7
     assert document.cli_overrides[("model", "device")] == "cpu"
     assert document.cli_overrides[("presentation", "show_fps")] is True
-
-
-def test_cli_model_preset_keeps_authored_pipeline_and_renderer_overrides(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        """\
-model:
-  pipeline:
-    diffusion_model:
-      seed: 42
-renderer:
-  raster:
-    width: 1000
-""",
-        encoding="utf-8",
-    )
-    app = _application()
-
-    app.init(
-        [
-            "--config",
-            str(config_path),
-            "--model-preset",
-            "omnidreams-fast-perf",
-        ]
-    )
-
-    assert app._config is not None
-    assert app._config.model_preset_name == "omnidreams-fast-perf"
-    pipeline_config = app._pipeline_config
-    assert pipeline_config is not None
-    assert pipeline_config.diffusion_model.seed == 42
-    assert app._config.renderer.raster.resolution_wh == (1000, 640)
 
 
 def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:

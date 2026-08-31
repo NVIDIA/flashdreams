@@ -36,7 +36,6 @@ from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
 from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
-    ModelPreset,
     SettingsDocument,
     default_config_path,
 )
@@ -75,8 +74,6 @@ class CrazyRobotaxiApplicationDefaults:
     width: int = 1280
     height: int = 704
     pipeline_config: Any | None = None
-    model_presets: dict[str, ModelPreset] | None = None
-    """All selectable integration-owned presets, keyed by stable name."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,27 +184,16 @@ class CrazyRobotaxiApplication(IApplication):
         if default_pipeline is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
         args = _parser(self._application_defaults).parse_args(list(commandline_args))
-        presets = dict(self._application_defaults.model_presets or {})
-        presets[default_pipeline.name] = ModelPreset(
-            pipeline=default_pipeline,
-            width=self._application_defaults.width,
-            height=self._application_defaults.height,
-        )
         config_path = args.config or default_config_path()
         settings_document = SettingsDocument.load(
             config_path,
-            presets=presets,
-            default_preset_name=default_pipeline.name,
-        )
-        base_settings = (
-            settings_document.resolved_for_preset(args.model_preset)
-            if arg_was_explicit(args, "model_preset")
-            else settings_document.settings
+            pipeline_config=default_pipeline,
+            width=self._application_defaults.width,
+            height=self._application_defaults.height,
         )
         settings, cli_overrides = self._apply_cli_settings(
-            base_settings,
+            settings_document.settings,
             args,
-            presets,
         )
         settings_document.cli_overrides = cli_overrides
         if (
@@ -302,7 +288,6 @@ class CrazyRobotaxiApplication(IApplication):
         self,
         base: CrazyRobotaxiUserSettings,
         args: argparse.Namespace,
-        presets: dict[str, ModelPreset],
     ) -> tuple[CrazyRobotaxiUserSettings, dict[tuple[str, ...], object]]:
         """Apply explicit CLI values over the user-authored settings tree."""
         settings = base
@@ -353,10 +338,6 @@ class CrazyRobotaxiApplication(IApplication):
             game, taxi=replace(taxi, rules=rules), race=race, effects=effects
         )
         model = settings.model
-        if explicit("model_preset", ("model", "preset"), args.model_preset):
-            if args.model_preset not in presets:
-                raise ValueError(f"Unknown model preset {args.model_preset!r}")
-            model = replace(model, preset=args.model_preset)
         if explicit("device", ("model", "device"), args.device):
             model = replace(model, device=args.device)
         pipeline = model.pipeline
@@ -625,9 +606,6 @@ def _parser(
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
     parser.add_argument("--config", type=Path)
-    parser.add_argument(
-        "--model-preset", choices=tuple((defaults.model_presets or {}).keys()) or None
-    )
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
