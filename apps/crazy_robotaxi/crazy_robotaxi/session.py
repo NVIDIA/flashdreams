@@ -341,8 +341,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
                 live_edit.process_events(events)
-                if live_edit.style is not None:
-                    live_edit.style.before_v2_chunk()
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
             input_window = state.input_timeline.next_window(

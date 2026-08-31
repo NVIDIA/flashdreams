@@ -39,16 +39,25 @@ roads:
     from: west_hairpin_exit
     to: start_finish
     profile: raceway
+    prompt_context: >-
+      The start-finish straight runs past packed grandstands, pit garages,
+      timing towers, sponsor gantries, and a black-and-white checkered line.
 
   - id: main_straight
     from: start_finish
     to: turn_one_entry
     profile: raceway
+    prompt_context: >-
+      A broad city-center racing straight is enclosed by concrete barriers,
+      tall safety fencing, colorful sponsor banners, and glass office towers.
 
   - id: turn_one
     from: turn_one_entry
     to: east_short_entry
     profile: raceway
+    prompt_context: >-
+      The circuit sweeps around a monumental civic plaza with stone steps,
+      fountains, flagpoles, dense crowds, and a skyline of modern towers.
     bezier:
       - control_points:
           - {x_m: 255, y_m: -160}
@@ -59,11 +68,17 @@ roads:
     from: east_short_entry
     to: infield_turn_entry
     profile: raceway
+    prompt_context: >-
+      The race course passes a colorful entertainment district of neon signs,
+      theater marquees, rooftop billboards, and spectator balconies.
 
   - id: infield_turn
     from: infield_turn_entry
     to: infield_straight_entry
     profile: raceway
+    prompt_context: >-
+      A technical bend threads through a landscaped city park with mature
+      trees, flower beds, sculptures, and spectators behind safety fencing.
     bezier:
       - control_points:
           - {x_m: 290, y_m: -15}
@@ -74,11 +89,17 @@ roads:
     from: infield_straight_entry
     to: hairpin_entry
     profile: raceway
+    prompt_context: >-
+      The infield straight follows a canal lined with brick warehouses,
+      iron footbridges, waterside cafes, race barriers, and fluttering flags.
 
   - id: infield_hairpin
     from: hairpin_entry
     to: hairpin_exit
     profile: raceway
+    prompt_context: >-
+      The tight hairpin circles a lively market square filled with striped
+      awnings, old masonry facades, cafe terraces, and cheering race fans.
     bezier:
       - control_points:
           - {x_m: 40, y_m: 20}
@@ -93,11 +114,17 @@ roads:
     from: hairpin_exit
     to: north_sweeper_entry
     profile: raceway
+    prompt_context: >-
+      A fast tree-lined boulevard runs beside red-brick row houses, pocket
+      parks, pedestrian bridges, and long walls of racing advertisements.
 
   - id: north_sweeper
     from: north_sweeper_entry
     to: top_straight_entry
     profile: raceway
+    prompt_context: >-
+      The broad sweeper curves along a sunny waterfront with a marina,
+      sailboats, palms, promenade crowds, and the city skyline across the bay.
     bezier:
       - control_points:
           - {x_m: 290, y_m: 140}
@@ -108,11 +135,17 @@ roads:
     from: top_straight_entry
     to: esses_entry
     profile: raceway
+    prompt_context: >-
+      The circuit charges through a museum district of bold contemporary
+      architecture, public art, reflecting pools, and elevated walkways.
 
   - id: technical_esses
     from: esses_entry
     to: esses_exit
     profile: raceway
+    prompt_context: >-
+      Rapid esses weave through a lush botanical garden with dense greenery,
+      glass conservatories, rocky landscaping, and close safety barriers.
     bezier:
       - control_points:
           - {x_m: -105, y_m: 250}
@@ -131,11 +164,17 @@ roads:
     from: esses_exit
     to: west_hairpin_entry
     profile: raceway
+    prompt_context: >-
+      The west straight crosses a gritty arts district of converted factories,
+      vivid murals, steel fire escapes, food trucks, and overhead rail lines.
 
   - id: west_hairpin
     from: west_hairpin_entry
     to: west_hairpin_exit
     profile: raceway
+    prompt_context: >-
+      The final hairpin wraps around a busy harbor quarter with cargo cranes,
+      stacked containers, dockside warehouses, and grandstands above the quay.
     bezier:
       - control_points:
           - {x_m: -330, y_m: 50}
@@ -178,3 +217,6 @@ spawns:
           road circuit in daylight, with varied-radius corners, technical
           esses, hairpins, safety barriers, grandstands, sponsor banners,
           and a clear start-finish straight.
+        prompt_context: >-
+          A forward-facing view from a taxi on a wide road racing circuit
+          through a city in daylight.

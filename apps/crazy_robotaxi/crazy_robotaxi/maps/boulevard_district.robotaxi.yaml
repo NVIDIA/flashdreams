@@ -122,6 +122,7 @@ nodes:
   # access surfaces rather than authored road edges.
   - id: southwest_parking_lot
     type: parking_lot
+    prompt_context: A small paved parking court sits among low-rise neighborhood buildings.
     connected_to: southwest_lot_driveway
     opening_vertex: 2
     vertices:
@@ -133,6 +134,7 @@ nodes:
       - {x_m: -24, y_m: -189}
   - id: south_parking_lot
     type: parking_lot
+    prompt_context: A paved commercial parking lot sits beside low-rise shops.
     connected_to: south_lot_driveway
     opening_vertex: 2
     vertices:
@@ -211,16 +213,16 @@ nodes:
 
 roads:
   # Spawn-area arterial and neighborhood grid.
-  - {id: west_arterial_approach, from: west_arterial_end, to: west_arterial_crossing, profile: arterial}
-  - {id: spawn_arterial, from: west_arterial_crossing, to: central_arterial_crossing, profile: arterial}
-  - {id: central_arterial, from: central_arterial_crossing, to: diagonal_arterial_crossing, profile: arterial}
-  - {id: west_north_lower, from: west_arterial_crossing, to: west_north_crossing, profile: street}
+  - {id: west_arterial_approach, from: west_arterial_end, to: west_arterial_crossing, profile: arterial, prompt_context: &western_boulevard_context "A broad tree-lined suburban boulevard passes detached homes and low-rise neighborhood buildings."}
+  - {id: spawn_arterial, from: west_arterial_crossing, to: central_arterial_crossing, profile: arterial, prompt_context: *western_boulevard_context}
+  - {id: central_arterial, from: central_arterial_crossing, to: diagonal_arterial_crossing, profile: arterial, prompt_context: *western_boulevard_context}
+  - {id: west_north_lower, from: west_arterial_crossing, to: west_north_crossing, profile: street, prompt_context: &residential_context "A quiet residential street has a mix of single-story and two-story homes, lawns, and mature trees."}
   - {id: west_north_upper, from: west_north_crossing, to: west_upper_crossing, profile: street}
   - {id: west_north_tail, from: west_upper_crossing, to: west_north_end, profile: street}
   - {id: central_north_lower, from: central_arterial_crossing, to: central_north_crossing, profile: street}
   - {id: central_north_upper, from: central_north_crossing, to: central_upper_crossing, profile: street}
   - {id: central_north_tail, from: central_upper_crossing, to: central_north_end, profile: local}
-  - {id: north_cross_street, from: west_north_crossing, to: central_north_crossing, profile: street}
+  - {id: north_cross_street, from: west_north_crossing, to: central_north_crossing, profile: street, prompt_context: *residential_context}
   - {id: upper_cross_street, from: west_upper_crossing, to: central_upper_crossing, profile: street}
   - {id: west_south_upper, from: west_arterial_crossing, to: west_south_crossing, profile: street}
   - {id: west_south_lower, from: west_south_crossing, to: west_lower_crossing, profile: street}
@@ -236,7 +238,7 @@ roads:
   - {id: south_local_east, from: south_lot_driveway, to: south_local_end, profile: local}
 
   # Diagonal street and the two broad arterial branches.
-  - {id: diagonal_north_lower, from: diagonal_arterial_crossing, to: diagonal_bend_lower, profile: street}
+  - {id: diagonal_north_lower, from: diagonal_arterial_crossing, to: diagonal_bend_lower, profile: street, prompt_context: &diagonal_context "A diagonal neighborhood connector passes trees, detached homes, and small roadside buildings."}
   - {id: diagonal_north_middle, from: diagonal_bend_lower, to: diagonal_north_crossing, profile: street}
   - {id: diagonal_north_upper, from: diagonal_north_crossing, to: diagonal_bend_upper, profile: street}
   - {id: diagonal_north_tail, from: diagonal_bend_upper, to: diagonal_north_end, profile: street}
@@ -245,6 +247,7 @@ roads:
     from: southwest_boulevard_end
     to: southwest_merge
     profile: arterial
+    prompt_context: *western_boulevard_context
     path:
       - {x_m: 184, y_m: -255}
       - {x_m: 205, y_m: -190}
@@ -253,6 +256,7 @@ roads:
     from: diagonal_arterial_crossing
     to: arterial_merge_crossing
     profile: arterial
+    prompt_context: *western_boulevard_context
     path:
       - {x_m: 332, y_m: -8}
       - {x_m: 370, y_m: -39}
@@ -291,15 +295,15 @@ roads:
       - {x_m: 710, y_m: 45}
 
   # Eastern arterial and large northern loop.
-  - {id: arterial_470_550, from: arterial_crossing_470, to: arterial_crossing_550, profile: arterial}
+  - {id: arterial_470_550, from: arterial_crossing_470, to: arterial_crossing_550, profile: arterial, prompt_context: &eastern_arterial_context "A long multi-lane eastern boulevard passes mixed low-rise commercial and residential blocks."}
   - {id: arterial_550_630, from: arterial_crossing_550, to: arterial_crossing_630, profile: arterial}
   - {id: arterial_630_710, from: arterial_crossing_630, to: arterial_crossing_710, profile: arterial}
-  - {id: arterial_710_800, from: arterial_crossing_710, to: arterial_crossing_800, profile: arterial}
+  - {id: arterial_710_800, from: arterial_crossing_710, to: arterial_crossing_800, profile: arterial, prompt_context: *eastern_arterial_context}
   - {id: arterial_800_860, from: arterial_crossing_800, to: arterial_crossing_860, profile: arterial}
   - {id: arterial_860_895, from: arterial_crossing_860, to: arterial_crossing_895, profile: arterial}
   - {id: arterial_895_955, from: arterial_crossing_895, to: east_corner_lot_driveway, profile: arterial}
   - {id: arterial_955_990, from: east_corner_lot_driveway, to: arterial_crossing_990, profile: arterial}
-  - {id: arterial_990_1082, from: arterial_crossing_990, to: arterial_crossing_1082, profile: arterial}
+  - {id: arterial_990_1082, from: arterial_crossing_990, to: arterial_crossing_1082, profile: arterial, prompt_context: *eastern_arterial_context}
   - {id: arterial_1082_1170, from: arterial_crossing_1082, to: arterial_crossing_1170, profile: arterial}
   - {id: arterial_1170_end, from: arterial_crossing_1170, to: east_arterial_end, profile: arterial}
   - id: east_north_loop
@@ -313,7 +317,7 @@ roads:
       - {x_m: 895, y_m: 30}
 
   # Southern commercial grid and parking courts.
-  - {id: south_spine_630, from: arterial_crossing_630, to: south_crossing_630, profile: street}
+  - {id: south_spine_630, from: arterial_crossing_630, to: south_crossing_630, profile: street, prompt_context: &commercial_context "A low-rise commercial district has storefronts, paved parking courts, and sparse street trees."}
   - {id: south_710_upper, from: arterial_crossing_710, to: south_crossing_710, profile: street}
   - {id: south_710_lower, from: south_crossing_710, to: lower_crossing_710, profile: street}
   - {id: south_710_tail, from: lower_crossing_710, to: south_end_710, profile: local}
@@ -321,14 +325,14 @@ roads:
   - {id: south_860_lower, from: south_crossing_860, to: lower_crossing_860, profile: local}
   - {id: south_990_upper, from: arterial_crossing_990, to: south_crossing_990, profile: street}
   - {id: south_990_lower, from: south_crossing_990, to: lower_crossing_990, profile: local}
-  - {id: upper_commercial_west, from: south_crossing_710, to: south_crossing_860, profile: local}
+  - {id: upper_commercial_west, from: south_crossing_710, to: south_crossing_860, profile: local, prompt_context: *commercial_context}
   - {id: upper_commercial_center_west, from: south_crossing_860, to: south_upper_lot_driveway, profile: local}
   - {id: upper_commercial_center_east, from: south_upper_lot_driveway, to: south_crossing_930, profile: local}
   - {id: upper_commercial_east, from: south_crossing_930, to: south_crossing_990, profile: local}
   - {id: commercial_930_spine, from: south_crossing_930, to: lower_crossing_930, profile: local}
   - {id: lower_commercial_west, from: lower_crossing_710, to: lower_lot_driveway, profile: local}
   - {id: lower_commercial_midwest, from: lower_lot_driveway, to: lower_crossing_860, profile: local}
-  - {id: lower_commercial_center, from: lower_crossing_860, to: lower_crossing_930, profile: local}
+  - {id: lower_commercial_center, from: lower_crossing_860, to: lower_crossing_930, profile: local, prompt_context: *commercial_context}
   - {id: lower_commercial_east, from: lower_crossing_930, to: lower_crossing_990, profile: local}
   - {id: lower_commercial_tail, from: lower_crossing_990, to: lower_crossing_1080, profile: local}
   - {id: east_south_cul_de_sac, from: lower_crossing_1080, to: south_cul_de_sac_1080, profile: local}
@@ -341,11 +345,11 @@ roads:
   - {id: bottom_east_road, from: bottom_lot_driveway, to: south_crossing_630, profile: local}
 
   # Far-east surface loop and local northern spur.
-  - {id: far_east_north_spur, from: arterial_crossing_1082, to: far_east_north_crossing, profile: local}
+  - {id: far_east_north_spur, from: arterial_crossing_1082, to: far_east_north_crossing, profile: local, prompt_context: &far_east_context "A quieter far-eastern local loop passes detached homes, small lots, and mature trees."}
   - {id: far_east_north_tail, from: far_east_north_crossing, to: far_east_north_end, profile: local}
   - {id: far_east_loop_entry, from: arterial_crossing_1170, to: far_east_bend_southeast, profile: local}
   - {id: far_east_loop_east, from: far_east_bend_southeast, to: far_east_bend_northeast, profile: local}
-  - {id: far_east_loop_north, from: far_east_bend_northeast, to: far_east_bend_northwest, profile: local}
+  - {id: far_east_loop_north, from: far_east_bend_northeast, to: far_east_bend_northwest, profile: local, prompt_context: *far_east_context}
   - {id: far_east_loop_west, from: far_east_bend_northwest, to: far_east_bend_southwest, profile: local}
   - {id: far_east_loop_exit, from: far_east_bend_southwest, to: far_east_north_crossing, profile: local}
 
@@ -421,3 +425,5 @@ spawns:
           A forward-facing view from a taxi moving through a quiet suburban
           district in daylight, with low commercial buildings, houses,
           landscaping, and parked cars.
+        prompt_context: >-
+          A forward-facing view from a taxi on a road through a city in daylight.

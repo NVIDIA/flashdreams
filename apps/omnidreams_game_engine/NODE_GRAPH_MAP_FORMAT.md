@@ -93,6 +93,28 @@ positive-area overlap or share a boundary edge; isolated point tangency is
 allowed. Roads, parking lots, and other surfaces therefore cannot be layered
 over one another to repair topology.
 
+Nodes and roads may carry an optional nonempty `prompt_context` string. A game
+can append this authored environmental description to a model prompt when the
+vehicle is on or approaching that topology element:
+
+```yaml
+nodes:
+  - id: market_junction
+    type: intersection
+    pose: {x_m: 0, y_m: 0}
+    prompt_context: A busy market plaza fills the intersection.
+
+roads:
+  - id: market_street
+    from: west_end
+    to: market_junction
+    profile: neighborhood
+    prompt_context: Small storefronts and awnings line both sides of the road.
+```
+
+Leading and trailing whitespace is removed. Empty or non-string values are
+rejected, and prompt context participates in the compiled-map cache key.
+
 ## Nodes
 
 All non-parking nodes require `id`, `type`, and `pose`. Their remaining required
@@ -418,6 +440,7 @@ spawns:
       default:
         image: seed.png
         prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
+        prompt_context: A forward-facing taxi view on a road at daylight.
 ```
 
 Every spawn requires a `default` variant. `image` is optional; when omitted (or
@@ -427,9 +450,15 @@ camera. This fallback shows aligned road surfaces, boundaries, curbs, and
 markings, but does not synthesize scenery. Use it as a robust placeholder, not
 as a photorealistic authoring result.
 
+`prompt` is the complete standalone scene description. `prompt_context` is an
+optional shorter base prompt for applications that append live road, topology,
+and motion context. When that mode is selected, `prompt_context` is used if
+present and otherwise falls back to `prompt`. An explicit runtime prompt
+override remains authoritative in either mode.
+
 Authored images may be map-relative paths or `package://package/resource`
 references. Resolved geometry, compiler and fallback-renderer code, seed
-images, and prompts participate in the compiled-map cache key.
+images, and both prompt forms participate in the compiled-map cache key.
 
 ## Validation summary
 

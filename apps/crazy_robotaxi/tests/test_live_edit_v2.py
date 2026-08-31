@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import argparse
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import crazy_robotaxi.live_edit.config as live_edit_config
 import numpy as np
@@ -16,9 +18,12 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
     LiveEditItemsConfig,
+    LiveEditMapContextConfig,
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
+    add_live_edit_args,
+    live_edit_config_from_args,
     resolve_live_edit_assets,
 )
 from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
@@ -29,9 +34,11 @@ from crazy_robotaxi.live_edit.obstacle_events import (
 )
 from crazy_robotaxi.live_edit.obstacle_templates import load_obstacle_template_catalog
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay
+from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
 from ludus_renderer import SceneObject
 from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.game_map import load_game_map
 from omnidreams_game_engine.types import (
     CameraCalibration,
     SceneDefinition,
@@ -334,3 +341,147 @@ def test_bundled_obstacle_catalog_matches_source_branch() -> None:
         == 63
     )
     assert len(catalog.parked(length_range_m=(3.4, 5.6))) == 236
+
+
+def _map_prompt_ability() -> tuple[StyleAbility, SimpleNamespace, list[object]]:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(enabled=True),
+    )
+    session = SimpleNamespace(
+        _cache=SimpleNamespace(transformer_cache=SimpleNamespace())
+    )
+    targets: list[object] = []
+    ability._session = session
+    ability._base_prompt = "A sunny suburb."
+    ability._replace_text = lambda active_session, target: targets.append(target)  # type: ignore[method-assign]
+    return ability, session, targets
+
+
+def test_map_prompt_change_is_plain_and_deferred_during_guidance() -> None:
+    ability, session, targets = _map_prompt_ability()
+    ability._pending_map_suffix = "The taxi is driving forward."
+    session._cache.transformer_cache.text_edit_guidance = SimpleNamespace(
+        chunks_remaining=1
+    )
+
+    ability.before_v2_chunk()
+    assert targets == []
+
+    session._cache.transformer_cache.text_edit_guidance.chunks_remaining = 0
+    ability.before_v2_chunk()
+
+    assert len(targets) == 1
+    target = targets[0]
+    assert target.prompt == "A sunny suburb. The taxi is driving forward."
+    assert target.guidance_scale == 1.0
+    assert target.guidance_chunks == 0
+    assert target.use_lora is False
+
+
+def test_map_state_is_applied_at_the_post_simulation_model_boundary() -> None:
+    state = VehicleState(1.0, 2.0, 0.0, 0.0, 3.0, 0.0)
+    calls: list[object] = []
+    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
+    gameplay.style = SimpleNamespace(
+        update_map_context=lambda value: calls.append(("update", value)),
+        before_v2_chunk=lambda: calls.append("apply"),
+    )
+    gameplay.coins = None
+    gameplay.items = None
+    gameplay.effects = None
+    gameplay.obstacles = None
+    gameplay.guidance = None
+
+    gameplay.advance(SimpleNamespace(boundary_state_after_chunk=state))
+    gameplay.prepare_model_step(None, None, None, 0)
+
+    assert calls == [("update", state), "apply"]
+
+
+def test_visual_swap_absorbs_pending_map_change_once() -> None:
+    style = replace(
+        LiveEditStyleConfig(),
+        enabled=True,
+        lora_checkpoint=Path("/tmp/style.pt"),
+    )
+    ability = StyleAbility(
+        style,
+        map_context_config=LiveEditMapContextConfig(enabled=True),
+    )
+    session = SimpleNamespace(
+        _cache=SimpleNamespace(transformer_cache=SimpleNamespace())
+    )
+    targets: list[object] = []
+    ability._session = session
+    ability._base_prompt = "A sunny suburb."
+    ability._pending_index = 0
+    ability._pending_map_suffix = "The taxi is driving forward."
+    ability._replace_text = lambda active_session, target: targets.append(target)  # type: ignore[method-assign]
+
+    ability.before_v2_chunk()
+
+    assert len(targets) == 1
+    assert targets[0].prompt.endswith("The taxi is driving forward.")
+    assert ability._pending_map_suffix is None
+
+
+def test_combined_map_prompts_are_encoded_lazily() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(enabled=True),
+    )
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    pipeline = SimpleNamespace(
+        replace_text_from_embeddings=lambda *args, **kwargs: calls.append(
+            (args, kwargs)
+        )
+    )
+    session = SimpleNamespace(
+        pipeline=pipeline,
+        _cache=object(),
+        _pending_finalization_index=None,
+        replace_prompt=lambda *args, **kwargs: pytest.fail("expected cached swap"),
+    )
+    ability._encode_prompt = (  # type: ignore[method-assign]
+        lambda active_pipeline, prompt: ability._prompt_embeddings.__setitem__(
+            prompt, "cached"
+        )
+    )
+    target = SimpleNamespace(
+        prompt="A sunny suburb. The taxi is stationary.",
+        guidance_scale=1.0,
+        guidance_chunks=0,
+        use_lora=False,
+    )
+
+    ability._replace_text(session, target)
+
+    assert target.prompt in ability._prompt_embeddings
+    assert calls[0][0][1] == "cached"
+
+
+def test_map_only_postprocessing_returns_original_video() -> None:
+    scene = _scene()
+    scene.game_map = load_game_map(
+        Path(__file__).parent / "maps" / "intersection_geometry.robotaxi.yaml"
+    )
+    gameplay = LiveEditGameplay(
+        LiveEditConfig(map_context=LiveEditMapContextConfig(enabled=True)),
+        scene,
+        (),
+        vehicle=VehicleConfig(),
+    )
+    video = object()
+
+    assert gameplay.postprocess_video(cast(Any, video), None) is video
+
+
+def test_map_context_cli_enables_live_edit_runtime() -> None:
+    parser = argparse.ArgumentParser()
+    add_live_edit_args(parser)
+
+    config = live_edit_config_from_args(parser.parse_args(["--live-edit-map-context"]))
+
+    assert config.map_context.enabled
+    assert config.any_enabled
