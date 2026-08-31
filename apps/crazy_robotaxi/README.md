@@ -67,6 +67,55 @@ Run the application with `-- --help` to list all game options. Restarting a
 game rebuilds its simulation and autoregressive cache without reloading the
 model.
 
+## Options and user configuration
+
+Every selection menu has an **OPTIONS** button. The Options screen is generated
+from the same typed settings tree used at startup, with pages for launch, game,
+model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
+atomically updates the user YAML and **DISCARD** (or `Escape`) abandons the
+draft. Presentation settings apply when saved; the screen displays **RESTART
+REQUIRED** when other changes need a new process.
+
+By default, settings are loaded from
+`$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
+`~/.config/crazy-robotaxi/config.yaml` when `XDG_CONFIG_HOME` is unset. The file
+is created only after the first save. Use `--config PATH` to select another
+user-authored file. YAML values are sparse overrides on the selected model
+preset, and retained comments survive Options saves. Explicit application CLI
+arguments override YAML for the current run without rewriting the saved value;
+the Options screen labels affected fields.
+
+For example:
+
+```yaml
+schema_version: 1
+launch:
+  mode: race
+  map: apps/crazy_robotaxi/crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml
+  race_course: grand-prix
+game:
+  taxi:
+    seed: 1234
+    rules:
+      global_time_s: 90.0
+model:
+  preset: omnidreams-perf
+  pipeline:
+    diffusion_model:
+      seed: 5678
+presentation:
+  show_fps: true
+live_edit:
+  weather:
+    enabled: true
+```
+
+Setting all three launch selections skips their corresponding startup menus;
+leaving any selection null keeps that menu in the normal flow. Model diffusion
+and gameplay seeds are independent. Selecting mystery items automatically
+enables style editing, while rain or snow items automatically enable weather
+editing.
+
 ## Controls
 
 ### Keyboard
@@ -129,10 +178,17 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
-and `O` spawns a crossing obstacle. Style mode downloads its additional model
-assets on first use and caches them under `artifacts/crazy_robotaxi/live_edit`.
-Text-edit and obstacle guidance require a non-native DiT configuration; the
-application rejects incompatible configurations before generation begins.
+and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
+in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
+change while a non-base style is active. Style mode downloads its additional
+model assets on first use and caches them under
+`artifacts/crazy_robotaxi/live_edit`.
+
+Style, weather, and guided obstacles need the Python transformer hooks. When
+one of those features is enabled, the application automatically disables native
+DiT acceleration and logs the reason. Native VAE acceleration and the remaining
+performance configuration stay enabled; pixel-only features such as coins,
+items, and unguided obstacles keep native DiT acceleration.
 
 ## Authored maps
 

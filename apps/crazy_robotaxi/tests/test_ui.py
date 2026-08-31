@@ -12,19 +12,28 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
 import torch
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.high_scores import HighScoreEntry, RaceTimeEntry
+from crazy_robotaxi.live_edit.config import (
+    LiveEditCoinsConfig,
+    LiveEditConfig,
+    LiveEditObstacleConfig,
+    LiveEditStyleConfig,
+    LiveEditWeatherConfig,
+)
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot, RaceSessionState
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
     TaxiSessionState,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.settings import ModelPreset, SettingsDocument
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
     CrazyRobotaxiImGuiUILoop,
@@ -46,6 +55,11 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@dataclass(frozen=True)
+class _SettingsPipeline:
+    name: str = "test-preset"
 
 
 def _calibration() -> CameraCalibration:
@@ -197,11 +211,16 @@ class _FakeImGui:
         self.next_window_size = (640.0, 360.0)
         self.cursor_x = 8.0
         self.input_value = ""
+        self.input_values: dict[str, str] = {}
+        self.checkbox_values: dict[str, bool] = {}
+        self.combo_indices: dict[str, int] = {}
         self.submit_input = False
         self.click_submit = False
         self.clicked_buttons: set[str] = set()
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
+        self.disabled_depth = 0
+        self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
         self.tables: dict[str, list[list[str]]] = {}
@@ -341,19 +360,39 @@ class _FakeImGui:
         del width
 
     def input_text(self, label: str, value: str, *, flags: int):
-        del label, value, flags
+        del flags
+        if label in self.input_values:
+            return True, self.input_values[label]
+        del label, value
         return self.submit_input, self.input_value
+
+    def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
+        if label in self.checkbox_values:
+            return True, self.checkbox_values[label]
+        return False, value
+
+    def combo(self, label: str, index: int, options: list[str]) -> tuple[bool, int]:
+        del options
+        if label in self.combo_indices:
+            return True, self.combo_indices[label]
+        return False, index
 
     def button(self, label: str, size: tuple[float, float] | None = None) -> bool:
         self.buttons.append(label)
         self.button_sizes.append((label, size))
+        if self.disabled_depth:
+            self.disabled_buttons.append(label)
+            return False
         submit = self.click_submit and label in {"SAVE SCORE", "SAVE TIME"}
         return submit or label in self.clicked_buttons
 
     def begin_disabled(self) -> None:
-        return
+        self.disabled_depth += 1
 
     def end_disabled(self) -> None:
+        self.disabled_depth -= 1
+
+    def same_line(self) -> None:
         return
 
     def begin_table(
@@ -435,6 +474,7 @@ class _SubmissionLoop(IModelLoop[_SubmissionState]):
 @dataclass
 class _SelectionState:
     selections: list[GameSelection] = field(default_factory=list)
+    live_edit_actions: list[LiveEditAction] = field(default_factory=list)
     return_to_map_count: int = 0
     restart_count: int = 0
     exit_requested: bool = False
@@ -450,6 +490,9 @@ class _SelectionState:
 
     def request_exit(self) -> None:
         self.exit_requested = True
+
+    def request_live_edit_action(self, action: LiveEditAction) -> None:
+        self.live_edit_actions.append(action)
 
 
 class _SelectionLoop(IModelLoop[_SelectionState]):
@@ -490,6 +533,102 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
     )
 
     assert [frame.transition_timestamp_us for frame in frames] == [100, 200]
+
+
+def test_hud_frames_preserve_frame_aligned_live_edit_status() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+    status = LiveEditHudStatus(skin_name="comic", coins_enabled=True)
+
+    frames = build_hud_frames(
+        video,
+        (_snapshot(), _snapshot()),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        live_edit_status=status,
+    )
+
+    assert [frame.live_edit_status for frame in frames] == [status, status]
+
+
+def test_live_edit_card_dispatches_enabled_actions() -> None:
+    live_edit = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+        coins=LiveEditCoinsConfig(enabled=True),
+        obstacle=LiveEditObstacleConfig(enabled=True),
+    )
+    state = TaxiHudState(640, 540, _calibration(), live_edit=live_edit)
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons = {"K  STYLE", "V  WEATHER", "C  COINS", "O  OBSTACLE"}
+
+    state._draw_live_edit_card(
+        imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+    model_loop._run_message_batch()
+
+    assert model_loop.state.live_edit_actions == [
+        "style",
+        "weather",
+        "coins",
+        "obstacle",
+    ]
+    assert [size for _label, size in imgui.button_sizes] == [
+        (94.0, 34.0),
+        (94.0, 34.0),
+        (94.0, 34.0),
+        (94.0, 34.0),
+    ]
+
+
+def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            style=LiveEditStyleConfig(enabled=True),
+            weather=LiveEditWeatherConfig(enabled=True),
+            coins=LiveEditCoinsConfig(enabled=True),
+            obstacle=LiveEditObstacleConfig(enabled=True),
+        ),
+    )
+    imgui = _FakeImGui()
+
+    state._draw_live_edit_card(
+        imgui,
+        LiveEditHudStatus(
+            skin_name="comic",
+            skin_seconds_remaining=1.5,
+            weather_name="rain",
+            weather_seconds_remaining=2.5,
+            coins_enabled=True,
+            coins_collected=3,
+            coin_score=30,
+            nitro_seconds_remaining=4.0,
+            item_flash="NITRO BOOST",
+            obstacle_count=2,
+            obstacle_hits=1,
+        ),
+    )
+
+    assert imgui.windows["Live Edit"] == [
+        "LIVE EDIT",
+        "STYLE  COMIC  1.5s",
+        "WEATHER  RAIN  2.5s",
+        "COINS  ON  3  +30",
+        "NITRO  4.0s",
+        "OBSTACLES  2  HITS 1",
+        "NITRO BOOST",
+    ]
+    assert imgui.disabled_buttons == ["V  WEATHER"]
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
@@ -1432,3 +1571,101 @@ def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -
     model_loop._run_message_batch()
 
     assert model_loop.state.restart_count == 1
+
+
+def _settings_document(path: Path) -> SettingsDocument:
+    return SettingsDocument.load(
+        path,
+        presets={
+            "test-preset": ModelPreset(
+                pipeline=_SettingsPipeline(),
+                width=640,
+                height=360,
+            )
+        },
+        default_preset_name="test-preset",
+    )
+
+
+@pytest.mark.parametrize("stage", ["mode", "map", "course"])
+def test_options_can_open_from_each_selection_menu(
+    tmp_path: Path,
+    stage: Literal["mode", "map", "course"],
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._menu_stage = stage
+
+    state._open_options()
+
+    assert state._menu_stage == "options"
+    assert state._options_return_stage == stage
+
+
+def test_options_save_persists_and_applies_presentation_setting(
+    tmp_path: Path,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.clicked_buttons.add("SAVE")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "mode"
+    assert state.show_fps
+    assert "show_fps: true" in document.path.read_text(encoding="utf-8")
+    assert "RESTART REQUIRED" not in state._settings_notice
+
+
+def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.clicked_buttons.add("DISCARD")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "mode"
+    assert not state.show_fps
+    assert not document.path.exists()
+
+
+def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "runtime"
+    imgui = _FakeImGui()
+    imgui.input_values["##runtime.prewarm_blocks"] = "9"
+
+    state.draw(imgui)
+
+    assert (
+        "RESTART REQUIRED TO APPLY THESE CHANGES"
+        in imgui.windows["Crazy Robotaxi — Options"]
+    )

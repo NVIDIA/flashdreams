@@ -686,6 +686,7 @@ source = { editable = "apps/crazy_robotaxi" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window"] },
     { name = "omnidreams-game-engine" },
+    { name = "ruamel-yaml" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -703,6 +704,7 @@ requires-dist = [
     { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "torch" },
 ]
 provides-extras = ["dev"]
@@ -4336,6 +4338,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ae/f9/41dc953bbeb056c17d5f7a519f50fdf010bd0553be2d630bc69d1e022703/roman_numerals-4.1.0.tar.gz", hash = "sha256:1af8b147eb1405d5839e78aeb93131690495fe9da5c91856cb33ad55a7f1e5b2", size = 9077, upload-time = "2025-12-17T18:25:34.381Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/54/6f679c435d28e0a568d8e8a7c0a93a09010818634c3c3907fc98d8983770/roman_numerals-4.1.0-py3-none-any.whl", hash = "sha256:647ba99caddc2cc1e55a51e4360689115551bf4476d90e8162cf8c345fe233c7", size = 7676, upload-time = "2025-12-17T18:25:33.098Z" },
+]
+
+[[package]]
+name = "ruamel-yaml"
+version = "0.19.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/3b/ebda527b56beb90cb7652cb1c7e4f91f48649fbcd8d2eb2fb6e77cd3329b/ruamel_yaml-0.19.1.tar.gz", hash = "sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993", size = 142709, upload-time = "2026-01-02T16:50:31.84Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/0c/51f6841f1d84f404f92463fc2b1ba0da357ca1e3db6b7fbda26956c3b82a/ruamel_yaml-0.19.1-py3-none-any.whl", hash = "sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93", size = 118102, upload-time = "2026-01-02T16:50:29.201Z" },
 ]
 
 [[package]]

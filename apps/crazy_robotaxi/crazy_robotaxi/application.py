@@ -19,18 +19,11 @@ from omnidreams_game_engine.cli_args import (
     arg_was_explicit,
 )
 from omnidreams_game_engine.config import BevConfig, RasterConfig
-from omnidreams_game_engine.engine_settings import (
-    EngineSettings,
-    MapLaunchSettings,
-    RenderingSettings,
-    WorldModelLaunchSettings,
-)
 from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
 from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
-from crazy_robotaxi.config import CrazyRobotaxiSettings
 from crazy_robotaxi.game_selection import GameMapOption, GameMode
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
@@ -41,6 +34,12 @@ from crazy_robotaxi.live_edit.config import (
 )
 from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
+from crazy_robotaxi.settings import (
+    CrazyRobotaxiUserSettings,
+    ModelPreset,
+    SettingsDocument,
+    default_config_path,
+)
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
@@ -76,6 +75,8 @@ class CrazyRobotaxiApplicationDefaults:
     width: int = 1280
     height: int = 704
     pipeline_config: Any | None = None
+    model_presets: dict[str, ModelPreset] | None = None
+    """All selectable integration-owned presets, keyed by stable name."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,14 +102,23 @@ class ApplicationConfig:
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
 
-    cli_game_mode: GameMode | None = None
-    """Game mode supplied explicitly on the command line, if any."""
+    hud_enabled: bool = True
+    """Whether gameplay HUD overlays are visible."""
 
-    cli_map_path: Path | None = None
-    """Map supplied explicitly on the command line, if any."""
+    show_control_hints: bool = True
+    """Whether gameplay control hints start visible."""
 
-    cli_race_course_id: str | None = None
-    """Race course supplied explicitly on the command line, if any."""
+    settings_document: SettingsDocument | None = None
+    """User-authored YAML document edited by the Options screen."""
+
+    initial_game_mode: GameMode | None = None
+    """Configured game mode that skips the mode menu, if any."""
+
+    initial_map_path: Path | None = None
+    """Configured map that skips the map menu, if any."""
+
+    initial_race_course_id: str | None = None
+    """Configured race course that skips the course menu, if any."""
 
     game_mode: Literal["taxi", "race"] = "taxi"
     """Rules mode selected for every session created by the application."""
@@ -173,202 +183,263 @@ class CrazyRobotaxiApplication(IApplication):
 
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse application options without starting another runtime."""
-        pipeline_config = self._pipeline_config
-        if pipeline_config is None:
+        default_pipeline = self._pipeline_config
+        if default_pipeline is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
         args = _parser(self._application_defaults).parse_args(list(commandline_args))
-        input_trace_path = args.profile_input_latency
-        args.profile_input_latency = input_trace_path is not None
-        engine_settings = self._resolve_engine_settings(args)
-        game_settings = self._resolve_game_settings(args)
+        presets = dict(self._application_defaults.model_presets or {})
+        presets[default_pipeline.name] = ModelPreset(
+            pipeline=default_pipeline,
+            width=self._application_defaults.width,
+            height=self._application_defaults.height,
+        )
+        config_path = args.config or default_config_path()
+        settings_document = SettingsDocument.load(
+            config_path,
+            presets=presets,
+            default_preset_name=default_pipeline.name,
+        )
+        base_settings = (
+            settings_document.resolved_for_preset(args.model_preset)
+            if arg_was_explicit(args, "model_preset")
+            else settings_document.settings
+        )
+        settings, cli_overrides = self._apply_cli_settings(
+            base_settings,
+            args,
+            presets,
+        )
+        settings_document.cli_overrides = cli_overrides
         if (
-            engine_settings.runtime.total_blocks is not None
-            and engine_settings.runtime.total_blocks <= 0
+            settings.runtime.total_blocks is not None
+            and settings.runtime.total_blocks <= 0
         ):
             raise ValueError("--total-blocks must be positive")
-        if args.game_time_s is not None and args.game_time_s <= 0.0:
-            raise ValueError("--game-time-s must be positive")
-        if engine_settings.runtime.prewarm_blocks < 0:
+        if settings.runtime.prewarm_blocks < 0:
             raise ValueError("--prewarm-blocks must be non-negative")
-        if game_settings.mode != "race" and (
-            arg_was_explicit(args, "race_course")
-            or arg_was_explicit(args, "race_times")
+        if settings.game.taxi.rules.global_time_s <= 0:
+            raise ValueError("--game-time-s must be positive")
+        if settings.launch.mode != "race" and (
+            settings.launch.race_course is not None
+            or settings.game.race.times_path is not None
         ):
             raise ValueError("--race-course and --race-times require --game-mode race")
-        map_path = engine_settings.map.path
-        if map_path is None:
-            raise ValueError("A map path is required (set engine.map.path or --map)")
-        if game_settings.mode == "race":
+        map_path = settings.launch.map or _DEFAULT_MAP
+        if settings.launch.mode == "race":
             header = load_game_map_header(map_path.expanduser())
             if not header.race_course_ids:
                 raise ValueError(f"Map {header.map_id!r} defines no race courses")
             if (
-                game_settings.race.course is not None
-                and game_settings.race.course not in header.race_course_ids
+                settings.launch.race_course is not None
+                and settings.launch.race_course not in header.race_course_ids
             ):
                 available = ", ".join(header.race_course_ids)
                 raise ValueError(
-                    f"Unknown race course {game_settings.race.course!r}; available: {available}"
+                    f"Unknown race course {settings.launch.race_course!r}; available: {available}"
                 )
         renderer = RendererSettings(
-            raster=engine_settings.rendering.raster,
-            bev=engine_settings.rendering.bev,
+            raster=settings.renderer.raster,
+            bev=settings.renderer.bev,
         )
-        game = game_settings.game
-        game = replace(
-            game,
-            global_time_s=(
-                game.global_time_s if args.game_time_s is None else args.game_time_s
-            ),
-            high_scores_path=(
-                default_high_scores_path()
-                if game_settings.taxi.high_scores_path is None
-                else game_settings.taxi.high_scores_path.expanduser()
-            ),
+        game = settings.game.taxi.game_config(
+            default_high_scores_path=default_high_scores_path()
         )
+        pipeline_config = settings.model.pipeline
         model_preset_name = pipeline_config.name
-        if engine_settings.world_model.compile is not None:
-            pipeline_config = derive_config(
-                pipeline_config,
-                diffusion_model={
-                    "transformer": {
-                        "compile_network": bool(engine_settings.world_model.compile)
-                    }
-                },
-            )
-        if game_settings.taxi.seed is not None:
-            pipeline_config = derive_config(
-                pipeline_config,
-                diffusion_model={"seed": int(game_settings.taxi.seed)},
-            )
-        pipeline_config = derive_config(
+        pipeline_config = _configure_live_edit_pipeline(
             pipeline_config,
-            enable_sync_and_profile=bool(engine_settings.world_model.profile_pipeline),
+            settings.live_edit,
         )
-        game_settings = replace(
-            game_settings, live_edit=resolve_live_edit_assets(game_settings.live_edit)
-        )
+        live_edit = resolve_live_edit_assets(settings.live_edit)
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
             scene_request=SceneRequest(
                 map_path=map_path.expanduser(),
-                camera_name=engine_settings.map.camera,
-                variant=engine_settings.map.variant,
-                prompt=engine_settings.map.prompt,
-                force_recompile=engine_settings.map.force_recompile,
+                camera_name=settings.launch.camera,
+                variant=settings.launch.variant,
+                prompt=settings.launch.prompt,
+                force_recompile=bool(args.force_map_recompile),
             ),
             renderer=renderer,
             game=game,
-            device=engine_settings.world_model.device,
-            total_blocks=engine_settings.runtime.total_blocks,
+            device=settings.model.device,
+            total_blocks=settings.runtime.total_blocks,
             model_preset_name=model_preset_name,
-            pipeline_profiling=bool(engine_settings.world_model.profile_pipeline),
-            prewarm_blocks=engine_settings.runtime.prewarm_blocks,
-            profile_input_latency=engine_settings.runtime.profile_input_latency,
+            pipeline_profiling=settings.diagnostics.profile_pipeline,
+            prewarm_blocks=settings.runtime.prewarm_blocks,
+            profile_input_latency=settings.diagnostics.profile_input_latency,
             input_trace_path=(
-                None
-                if input_trace_path is None
-                else input_trace_path.expanduser().resolve()
+                _DEFAULT_INPUT_TRACE_PATH
+                if settings.diagnostics.profile_input_latency
+                and settings.diagnostics.input_trace_path is None
+                else settings.diagnostics.input_trace_path
             ),
-            show_fps=engine_settings.presentation.show_fps,
-            cli_game_mode=(
-                game_settings.mode if arg_was_explicit(args, "game_mode") else None
+            show_fps=settings.presentation.show_fps,
+            hud_enabled=settings.presentation.hud_enabled,
+            show_control_hints=settings.presentation.show_control_hints,
+            settings_document=settings_document,
+            initial_game_mode=settings.launch.mode,
+            initial_map_path=(
+                None if settings.launch.map is None else map_path.expanduser().resolve()
             ),
-            cli_map_path=(
-                map_path.expanduser().resolve()
-                if arg_was_explicit(args, "map")
-                else None
-            ),
-            cli_race_course_id=(
-                game_settings.race.course
-                if arg_was_explicit(args, "race_course")
-                else None
-            ),
-            game_mode=game_settings.mode,
-            race_course_id=game_settings.race.course,
+            initial_race_course_id=settings.launch.race_course,
+            game_mode=settings.launch.mode or "taxi",
+            race_course_id=settings.launch.race_course,
             race_times_path=(
                 default_race_times_path()
-                if game_settings.race.times_path is None
-                else game_settings.race.times_path.expanduser()
+                if settings.game.race.times_path is None
+                else settings.game.race.times_path.expanduser()
             ),
-            live_edit=game_settings.live_edit,
-            visual_flare_enabled=game_settings.effects.visual_flare_enabled,
+            live_edit=live_edit,
+            visual_flare_enabled=settings.game.effects.visual_flare,
         )
         self._map_options = _discover_game_maps(
             map_path,
-            requested_variant=engine_settings.map.variant,
+            requested_variant=settings.launch.variant,
         )
 
-    def _resolve_engine_settings(self, args: argparse.Namespace) -> EngineSettings:
-        settings = EngineSettings(
-            map=MapLaunchSettings(path=_DEFAULT_MAP),
-            world_model=WorldModelLaunchSettings(),
-            rendering=RenderingSettings(
-                raster=self._defaults.raster,
-                bev=self._defaults.bev,
-            ),
-        )
-        return replace(
-            settings,
-            map=replace(
-                settings.map,
-                path=args.map,
-                camera=args.camera,
-                variant=args.variant,
-                prompt=args.prompt,
-                force_recompile=args.force_map_recompile,
-            ),
-            rendering=replace(
-                settings.rendering,
-                raster=replace(
-                    settings.rendering.raster, width=args.width, height=args.height
-                ),
-            ),
-            world_model=replace(
-                settings.world_model,
-                device=args.device,
-                compile=args.compile,
-                profile_pipeline=args.profile_pipeline,
-            ),
-            presentation=replace(
-                settings.presentation,
-                show_fps=bool(args.show_fps),
-            ),
-            runtime=replace(
-                settings.runtime,
-                total_blocks=args.total_blocks,
-                prewarm_blocks=args.prewarm_blocks,
-                profile_input_latency=args.profile_input_latency,
-            ),
-        )
+    def _apply_cli_settings(
+        self,
+        base: CrazyRobotaxiUserSettings,
+        args: argparse.Namespace,
+        presets: dict[str, ModelPreset],
+    ) -> tuple[CrazyRobotaxiUserSettings, dict[tuple[str, ...], object]]:
+        """Apply explicit CLI values over the user-authored settings tree."""
+        settings = base
+        overrides: dict[tuple[str, ...], object] = {}
 
-    def _resolve_game_settings(self, args: argparse.Namespace) -> CrazyRobotaxiSettings:
-        settings = CrazyRobotaxiSettings()
+        def explicit(name: str, path: tuple[str, ...], value: object) -> bool:
+            if not arg_was_explicit(args, name):
+                return False
+            overrides[path] = value
+            return True
+
+        launch = settings.launch
+        for name, field_name in (
+            ("map", "map"),
+            ("camera", "camera"),
+            ("variant", "variant"),
+            ("prompt", "prompt"),
+            ("game_mode", "mode"),
+            ("race_course", "race_course"),
+        ):
+            value = getattr(args, name)
+            if explicit(name, ("launch", field_name), value):
+                launch = replace(launch, **{field_name: value})
         game = settings.game
-        taxi = settings.taxi
-        race = settings.race
-        if arg_was_explicit(args, "game_mode"):
-            settings = replace(settings, mode=args.game_mode)
-        if arg_was_explicit(args, "visual_flare"):
-            settings = replace(
-                settings,
-                effects=replace(
-                    settings.effects,
-                    visual_flare_enabled=bool(args.visual_flare),
+        taxi = game.taxi
+        rules = taxi.rules
+        if explicit(
+            "game_time_s", ("game", "taxi", "rules", "global_time_s"), args.game_time_s
+        ):
+            rules = replace(rules, global_time_s=args.game_time_s)
+        if explicit("game_seed", ("game", "taxi", "seed"), args.game_seed):
+            taxi = replace(taxi, seed=args.game_seed)
+        if explicit("seed", ("game", "taxi", "seed"), args.seed):
+            taxi = replace(taxi, seed=args.seed)
+        if explicit(
+            "high_scores", ("game", "taxi", "high_scores_path"), args.high_scores
+        ):
+            taxi = replace(taxi, high_scores_path=args.high_scores)
+        race = game.race
+        if explicit("race_times", ("game", "race", "times_path"), args.race_times):
+            race = replace(race, times_path=args.race_times)
+        effects = game.effects
+        if explicit(
+            "visual_flare", ("game", "effects", "visual_flare"), args.visual_flare
+        ):
+            effects = replace(effects, visual_flare=bool(args.visual_flare))
+        game = replace(
+            game, taxi=replace(taxi, rules=rules), race=race, effects=effects
+        )
+        model = settings.model
+        if explicit("model_preset", ("model", "preset"), args.model_preset):
+            if args.model_preset not in presets:
+                raise ValueError(f"Unknown model preset {args.model_preset!r}")
+            model = replace(model, preset=args.model_preset)
+        if explicit("device", ("model", "device"), args.device):
+            model = replace(model, device=args.device)
+        pipeline = model.pipeline
+        if explicit(
+            "compile",
+            ("model", "pipeline", "diffusion_model", "transformer", "compile_network"),
+            args.compile,
+        ):
+            pipeline = derive_config(
+                pipeline,
+                diffusion_model={
+                    "transformer": {"compile_network": bool(args.compile)}
+                },
+            )
+        model_seed = (
+            args.model_seed if arg_was_explicit(args, "model_seed") else args.seed
+        )
+        model_seed_explicit = arg_was_explicit(args, "model_seed") or arg_was_explicit(
+            args, "seed"
+        )
+        if model_seed_explicit:
+            overrides[("model", "pipeline", "diffusion_model", "seed")] = model_seed
+            pipeline = derive_config(pipeline, diffusion_model={"seed": model_seed})
+        diagnostics = settings.diagnostics
+        if explicit(
+            "profile_pipeline",
+            ("diagnostics", "profile_pipeline"),
+            args.profile_pipeline,
+        ):
+            diagnostics = replace(
+                diagnostics, profile_pipeline=bool(args.profile_pipeline)
+            )
+        pipeline = derive_config(
+            pipeline,
+            enable_sync_and_profile=bool(diagnostics.profile_pipeline),
+        )
+        trace_path = args.profile_input_latency
+        if arg_was_explicit(args, "profile_input_latency"):
+            overrides[("diagnostics", "profile_input_latency")] = trace_path is not None
+            overrides[("diagnostics", "input_trace_path")] = trace_path
+            diagnostics = replace(
+                diagnostics,
+                profile_input_latency=trace_path is not None,
+                input_trace_path=(
+                    None if trace_path is None else trace_path.expanduser().resolve()
                 ),
             )
-        if arg_was_explicit(args, "seed"):
-            taxi = replace(taxi, seed=args.seed)
-            game = replace(game, seed=args.seed)
-        if arg_was_explicit(args, "high_scores"):
-            taxi = replace(taxi, high_scores_path=args.high_scores)
-        if arg_was_explicit(args, "race_course"):
-            race = replace(race, course=args.race_course)
-        if arg_was_explicit(args, "race_times"):
-            race = replace(race, times_path=args.race_times)
-        settings = replace(settings, game=game, taxi=taxi, race=race)
+        presentation = settings.presentation
+        if explicit("show_fps", ("presentation", "show_fps"), args.show_fps):
+            presentation = replace(presentation, show_fps=bool(args.show_fps))
+        runtime = settings.runtime
+        for name, field_name in (
+            ("total_blocks", "total_blocks"),
+            ("prewarm_blocks", "prewarm_blocks"),
+        ):
+            value = getattr(args, name)
+            if explicit(name, ("runtime", field_name), value):
+                runtime = replace(runtime, **{field_name: value})
         args._live_edit_settings = settings.live_edit
-        return replace(settings, live_edit=live_edit_config_from_args(args))
+        live_edit = live_edit_config_from_args(args)
+        if any(
+            destination.startswith("live_edit_")
+            for destination in getattr(args, "_explicit_arg_dests", ())
+        ):
+            overrides[("live_edit",)] = live_edit
+        renderer = settings.renderer
+        raster = renderer.raster
+        for name in ("width", "height"):
+            value = getattr(args, name)
+            if explicit(name, ("renderer", "raster", name), value):
+                raster = replace(raster, **{name: value})
+        settings = replace(
+            settings,
+            launch=launch,
+            game=game,
+            model=replace(model, pipeline=pipeline),
+            renderer=replace(renderer, raster=raster),
+            presentation=presentation,
+            live_edit=live_edit,
+            runtime=runtime,
+            diagnostics=diagnostics,
+        )
+        return settings, overrides
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one session after validating its fixed model geometry."""
@@ -454,6 +525,34 @@ def _build_pipeline(config: Any, device: str) -> Any:
     return config.setup().to(device).eval()
 
 
+def _configure_live_edit_pipeline(config: Any, live_edit: LiveEditConfig) -> Any:
+    """Disable native DiT when live-edit hooks need the Python transformer."""
+    transformer = config.diffusion_model.transformer
+    native_mode = getattr(transformer, "native_dit_acceleration", "disabled")
+    if not live_edit.requires_python_dit or native_mode in {"disabled", None, False}:
+        return config
+    reasons = [
+        name
+        for name, enabled in (
+            ("style", live_edit.style.enabled),
+            ("weather", live_edit.weather.enabled),
+            (
+                "obstacle guidance",
+                live_edit.obstacle.enabled and live_edit.obstacle.guide_scale > 0.0,
+            ),
+        )
+        if enabled
+    ]
+    _LOGGER.warning(
+        "Disabling native DiT acceleration for live-edit features: %s",
+        ", ".join(reasons),
+    )
+    return derive_config(
+        config,
+        diffusion_model={"transformer": {"native_dit_acceleration": "disabled"}},
+    )
+
+
 def _discover_game_maps(
     selected_path: Path,
     *,
@@ -525,6 +624,10 @@ def _parser(
         prog=f"flashdreams-run-v2 {defaults.slug} --",
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
+    parser.add_argument("--config", type=Path)
+    parser.add_argument(
+        "--model-preset", choices=tuple((defaults.model_presets or {}).keys()) or None
+    )
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
@@ -536,6 +639,8 @@ def _parser(
     parser.add_argument("--total-blocks", type=int)
     parser.add_argument("--game-time-s", type=float)
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--game-seed", type=int)
+    parser.add_argument("--model-seed", type=int)
     parser.add_argument("--high-scores", type=Path)
     parser.add_argument("--game-mode", choices=("taxi", "race"), default="taxi")
     parser.add_argument(

@@ -15,10 +15,18 @@ import torch
 from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
+    _configure_live_edit_pipeline,
     _fit_bev_renderer_to_ui,
 )
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
+from crazy_robotaxi.live_edit.config import (
+    LiveEditCoinsConfig,
+    LiveEditConfig,
+    LiveEditObstacleConfig,
+    LiveEditStyleConfig,
+    LiveEditWeatherConfig,
+)
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
@@ -199,9 +207,9 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
         ]
     )
     assert app._config is not None
-    assert app._config.cli_game_mode == "race"
-    assert app._config.cli_map_path == _DEMO_RACE_MAP.resolve()
-    assert app._config.cli_race_course_id == "grand-prix"
+    assert app._config.initial_game_mode == "race"
+    assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
+    assert app._config.initial_race_course_id == "grand-prix"
 
     session = app.create_session(app.session_desc())
     session.init()
@@ -212,6 +220,123 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.game_selected
     assert model_loop.state.config.game_mode == "race"
     assert model_loop.state.config.race_course_id == "grand-prix"
+
+
+def test_user_config_selects_launch_and_model_preset(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""\
+launch:
+  mode: race
+  map: {_DEMO_RACE_MAP}
+  race_course: grand-prix
+model:
+  preset: omnidreams-fast-perf
+  device: cpu
+  pipeline:
+    diffusion_model:
+      seed: 5678
+game:
+  taxi:
+    seed: 1234
+runtime:
+  prewarm_blocks: 0
+""",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(["--config", str(config_path)])
+
+    assert app._config is not None
+    assert app._config.initial_game_mode == "race"
+    assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
+    assert app._config.initial_race_course_id == "grand-prix"
+    assert app._config.model_preset_name == "omnidreams-fast-perf"
+    assert app._config.device == "cpu"
+    assert app._config.game.seed == 1234
+    pipeline_config = app._pipeline_config
+    assert pipeline_config is not None
+    assert pipeline_config.diffusion_model.seed == 5678
+    assert app.session_desc().video_width == 1168
+    assert app.session_desc().video_height == 640
+
+
+def test_explicit_cli_overrides_user_config_without_rewriting_it(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """\
+model:
+  device: cuda
+presentation:
+  show_fps: false
+runtime:
+  prewarm_blocks: 7
+""",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(
+        [
+            "--config",
+            str(config_path),
+            "--device",
+            "cpu",
+            "--show-fps",
+            "--prewarm-blocks",
+            "0",
+        ]
+    )
+
+    assert app._config is not None
+    assert app._config.device == "cpu"
+    assert app._config.show_fps
+    assert app._config.prewarm_blocks == 0
+    document = app._config.settings_document
+    assert document is not None
+    assert document.settings.model.device == "cuda"
+    assert not document.settings.presentation.show_fps
+    assert document.settings.runtime.prewarm_blocks == 7
+    assert document.cli_overrides[("model", "device")] == "cpu"
+    assert document.cli_overrides[("presentation", "show_fps")] is True
+
+
+def test_cli_model_preset_keeps_authored_pipeline_and_renderer_overrides(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """\
+model:
+  pipeline:
+    diffusion_model:
+      seed: 42
+renderer:
+  raster:
+    width: 1000
+""",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(
+        [
+            "--config",
+            str(config_path),
+            "--model-preset",
+            "omnidreams-fast-perf",
+        ]
+    )
+
+    assert app._config is not None
+    assert app._config.model_preset_name == "omnidreams-fast-perf"
+    pipeline_config = app._pipeline_config
+    assert pipeline_config is not None
+    assert pipeline_config.diffusion_model.seed == 42
+    assert app._config.renderer.raster.resolution_wh == (1000, 640)
 
 
 def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
@@ -555,6 +680,41 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
         pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
     )
     assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
+
+
+@pytest.mark.parametrize(
+    "live_edit",
+    [
+        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
+        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)),
+        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)),
+    ],
+)
+def test_prompt_live_edit_disables_only_native_dit(
+    live_edit: LiveEditConfig,
+) -> None:
+    configured: Any = _configure_live_edit_pipeline(
+        OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        live_edit,
+    )
+
+    assert configured.diffusion_model.transformer.native_dit_acceleration == "disabled"
+    assert configured.image_encoder.native_vae_acceleration == "required"
+    assert configured.encoder.native_vae_acceleration == "required"
+    assert configured.decoder.use_cuda_graph is True
+
+
+def test_pixel_live_edit_preserves_native_dit() -> None:
+    pipeline = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    live_edit = LiveEditConfig(
+        coins=LiveEditCoinsConfig(enabled=True),
+        obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0),
+    )
+
+    configured = _configure_live_edit_pipeline(pipeline, live_edit)
+
+    assert configured is pipeline
+    assert configured.diffusion_model.transformer.native_dit_acceleration == "required"
 
 
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])

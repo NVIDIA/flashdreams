@@ -53,6 +53,10 @@ class _StyleRequests:
     def __init__(self) -> None:
         self.skin_cycles = 0
         self.weather_cycles = 0
+        self.active_skin_name = "comic"
+        self.skin_seconds_remaining = 1.5
+        self.active_weather_name = "rain"
+        self.weather_seconds_remaining = 2.5
 
     def request_cycle(self) -> None:
         self.skin_cycles += 1
@@ -64,6 +68,9 @@ class _StyleRequests:
 class _Coins:
     def __init__(self) -> None:
         self.toggles = 0
+        self.enabled = True
+        self.collected_count = 3
+        self.score = 30
 
     def toggle(self) -> bool:
         self.toggles += 1
@@ -73,6 +80,8 @@ class _Coins:
 class _Obstacles:
     def __init__(self) -> None:
         self.spawns = 0
+        self.events = (object(), object())
+        self.hit_count = 1
 
     def request_spawn(self) -> None:
         self.spawns += 1
@@ -209,6 +218,72 @@ def test_v2_ability_keys_are_consumed_on_pressed_edges() -> None:
     assert gameplay.style.weather_cycles == 1
     assert gameplay.coins.toggles == 1
     assert gameplay.obstacles.spawns == 1
+
+
+def test_v2_manual_actions_share_keyboard_dispatch() -> None:
+    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
+    gameplay.style = _StyleRequests()
+    gameplay.coins = _Coins()
+    gameplay.obstacles = _Obstacles()
+
+    for action in ("style", "weather", "coins", "obstacle"):
+        gameplay.request_action(action)
+
+    assert gameplay.style.skin_cycles == 1
+    assert gameplay.style.weather_cycles == 1
+    assert gameplay.coins.toggles == 1
+    assert gameplay.obstacles.spawns == 1
+
+
+def test_v2_hud_status_snapshots_enabled_abilities() -> None:
+    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
+    gameplay.config = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+        coins=LiveEditCoinsConfig(enabled=True),
+        obstacle=LiveEditObstacleConfig(enabled=True),
+    )
+    gameplay.style = _StyleRequests()
+    gameplay.coins = _Coins()
+    gameplay.nitro = SimpleNamespace(active=True, seconds_remaining=4.0)
+    gameplay.items = SimpleNamespace(flash_label="NITRO BOOST")
+    gameplay.obstacles = _Obstacles()
+
+    status = gameplay.hud_status()
+
+    assert status.skin_name == "comic"
+    assert status.skin_seconds_remaining == 1.5
+    assert status.weather_name == "rain"
+    assert status.weather_seconds_remaining == 2.5
+    assert status.coins_enabled
+    assert (status.coins_collected, status.coin_score) == (3, 30)
+    assert status.nitro_seconds_remaining == 4.0
+    assert status.item_flash == "NITRO BOOST"
+    assert (status.obstacle_count, status.obstacle_hits) == (2, 1)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
+        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)),
+        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)),
+    ],
+)
+def test_prompt_live_edit_requires_python_dit(config: LiveEditConfig) -> None:
+    assert config.requires_python_dit
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)),
+        LiveEditConfig(items=LiveEditItemsConfig(enabled=True)),
+        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0)),
+    ],
+)
+def test_pixel_live_edit_keeps_native_dit_compatible(config: LiveEditConfig) -> None:
+    assert not config.requires_python_dit
 
 
 def test_nitro_boosts_and_expires_on_game_time() -> None:

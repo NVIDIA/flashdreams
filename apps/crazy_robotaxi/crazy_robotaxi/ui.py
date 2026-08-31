@@ -22,7 +22,7 @@ import math
 import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Literal
@@ -43,6 +43,8 @@ from crazy_robotaxi.high_scores import (
     format_race_time_us,
     validate_player_name,
 )
+from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -50,6 +52,20 @@ from crazy_robotaxi.rules import (
     project_segment_pose_to_bev,
     project_target_pose_to_bev,
     project_target_pose_to_bev_edge,
+)
+from crazy_robotaxi.settings import (
+    CrazyRobotaxiUserSettings,
+    SettingsDocument,
+    SettingsError,
+    clone_settings,
+    editable_setting,
+    format_editor_value,
+    iter_setting_fields,
+    parse_editor_value,
+    readonly_display,
+    restart_required,
+    setting_choices,
+    setting_value,
 )
 from crazy_robotaxi.world_overlay import (
     draw_waypoints as draw_waypoint_markers,
@@ -115,6 +131,9 @@ class TaxiHudFrame:
     speed_mps: float = 0.0
     """Authoritative signed vehicle speed for the corresponding simulation frame."""
 
+    live_edit_status: LiveEditHudStatus | None = None
+    """Live-edit state aligned with this generated frame."""
+
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
 
@@ -150,20 +169,29 @@ class TaxiHudState:
     show_fps: bool = False
     """Whether to display the measured generated-video frame rate."""
 
+    hud_enabled: bool = True
+    """Whether gameplay HUD overlays are visible."""
+
+    live_edit: LiveEditConfig = field(default_factory=LiveEditConfig)
+    """Enabled live-edit controls exposed by the HUD."""
+
     show_control_tooltips: bool = True
     """Whether to display keyboard control hints during gameplay."""
+
+    settings_document: SettingsDocument | None = None
+    """User-authored settings backing the reusable Options screen."""
 
     map_options: tuple[GameMapOption, ...] = ()
     """Lightweight authored-map choices supplied by the application."""
 
     initial_game_mode: GameMode | None = None
-    """Mode selected explicitly by CLI, skipping the mode screen."""
+    """Configured mode that skips the mode screen."""
 
     initial_map_path: Path | None = None
-    """Map selected explicitly by CLI, skipping the map screen."""
+    """Configured map that skips the map screen."""
 
     initial_race_course_id: str | None = None
-    """Race course selected explicitly by CLI, skipping the course screen."""
+    """Configured race course that skips the course screen."""
 
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
@@ -213,8 +241,23 @@ class TaxiHudState:
     _loading_started_at_s: float = field(default_factory=time.monotonic)
     """Monotonic timestamp used to make startup progress visibly live."""
 
-    _menu_stage: Literal["mode", "map", "course", "loading", "game"] = "mode"
+    _menu_stage: Literal["mode", "map", "course", "options", "loading", "game"] = "mode"
     """Current startup screen owned by the UI thread."""
+
+    _options_return_stage: Literal["mode", "map", "course"] = "mode"
+    """Menu restored after saving or discarding an Options draft."""
+
+    _options_category: str = "launch"
+    """Selected top-level settings page."""
+
+    _options_draft: CrazyRobotaxiUserSettings | None = None
+    """Isolated settings draft discarded unless Save succeeds."""
+
+    _options_error: str = ""
+    """Most recent field or save validation error."""
+
+    _settings_notice: str = ""
+    """Save outcome displayed after returning to the originating menu."""
 
     _selected_game_mode: GameMode | None = None
     """Mode chosen on the first screen while the map screen is visible."""
@@ -262,6 +305,7 @@ class TaxiHudState:
             "mode",
             "map",
             "course",
+            "options",
         }:
             return None
         selected = self._frames.get(int(frame.data_ptr()))
@@ -429,7 +473,7 @@ class TaxiHudState:
         self._menu_stage = "loading"
 
     def initialize_selection(self) -> None:
-        """Skip selection screens whose values were supplied explicitly by CLI."""
+        """Skip selection screens whose launch values were configured."""
         selected_path = self.initial_map_path
         if selected_path is not None:
             resolved = selected_path.expanduser().resolve()
@@ -447,7 +491,9 @@ class TaxiHudState:
 
     def _handle_escape(self) -> None:
         model_loop = self.model_loop
-        if self._menu_stage == "game":
+        if self._menu_stage == "options":
+            self._discard_options()
+        elif self._menu_stage == "game":
             self.reset()
             self._selected_map_option = None
             self._menu_stage = "map"
@@ -521,8 +567,57 @@ class TaxiHudState:
             lambda model_state, value=selection: model_state.select_game(value),
         )
 
+    def _open_options(self) -> None:
+        document = self.settings_document
+        stage = self._menu_stage
+        if document is None or stage not in {"mode", "map", "course"}:
+            return
+        if stage == "mode":
+            self._options_return_stage = "mode"
+        elif stage == "map":
+            self._options_return_stage = "map"
+        else:
+            self._options_return_stage = "course"
+        self._options_draft = clone_settings(document.settings)
+        self._options_error = ""
+        self._menu_stage = "options"
+
+    def _discard_options(self) -> None:
+        self._options_draft = None
+        self._options_error = ""
+        self._menu_stage = self._options_return_stage
+
+    def _save_options(self) -> None:
+        document = self.settings_document
+        draft = self._options_draft
+        if document is None or draft is None:
+            return
+        needs_restart = restart_required(document.settings, draft)
+        try:
+            document.save(draft)
+        except (OSError, SettingsError, ValueError) as exc:
+            self._options_error = str(exc)
+            return
+        overrides = document.cli_overrides
+        if ("presentation", "hud_enabled") not in overrides:
+            self.hud_enabled = draft.presentation.hud_enabled
+        if ("presentation", "show_fps") not in overrides:
+            self.show_fps = draft.presentation.show_fps
+        if ("presentation", "show_control_hints") not in overrides:
+            self.show_control_tooltips = draft.presentation.show_control_hints
+        self._settings_notice = (
+            f"SAVED {document.path} — RESTART REQUIRED FOR SOME CHANGES"
+            if needs_restart
+            else f"SAVED {document.path}"
+        )
+        self._options_draft = None
+        self._options_error = ""
+        self._menu_stage = self._options_return_stage
+
     def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
         """Draw cached world-marker projections aligned with ``frame``."""
+        if not self.hud_enabled:
+            return
         calibration = self.calibration
         if calibration is None:
             return
@@ -582,6 +677,9 @@ class TaxiHudState:
     ) -> None:
         """Draw one immediate Dear ImGui HUD frame."""
         self._bev_rect = None
+        if self._menu_stage == "options":
+            self._draw_options(imgui)
+            return
         self._draw_fps_counter(imgui)
         if self._menu_stage == "mode":
             self._draw_mode_selection(imgui)
@@ -603,6 +701,8 @@ class TaxiHudState:
                 size=(360.0, 104.0),
                 lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
             )
+            return
+        if not self.hud_enabled:
             return
 
         snapshot = hud_frame.snapshot
@@ -636,6 +736,7 @@ class TaxiHudState:
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
             self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_live_edit_card(imgui, hud_frame.live_edit_status)
             self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
@@ -872,6 +973,74 @@ class TaxiHudState:
             lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
         )
 
+    def _draw_live_edit_card(
+        self,
+        imgui: Any,
+        status: LiveEditHudStatus | None,
+    ) -> None:
+        """Draw frame-aligned live-edit status and action buttons."""
+        if status is None or not self.live_edit.any_enabled:
+            return
+        configured_actions: tuple[tuple[LiveEditAction, str, bool], ...] = (
+            ("style", "K  STYLE", self.live_edit.style.enabled),
+            ("weather", "V  WEATHER", self.live_edit.weather.enabled),
+            ("coins", "C  COINS", self.live_edit.coins.enabled),
+            ("obstacle", "O  OBSTACLE", self.live_edit.obstacle.enabled),
+        )
+        actions = tuple(item for item in configured_actions if item[2])
+        lines = _live_edit_status_lines(status)
+        width = min(252.0, max(1.0, float(self.width) - 28.0))
+        action_rows = (len(actions) + 1) // 2
+        height = 72.0 + 22.0 * len(lines) + 44.0 * action_rows
+        _prepare_window(
+            imgui,
+            position=(float(max(14.0, self.width - width - 14.0)), 94.0),
+            size=(width, height),
+            alpha=0.94,
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(
+            imgui,
+            "Live Edit",
+            extra_flags=("no_title_bar",),
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "LIVE EDIT",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=18.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            for line in lines:
+                imgui.text(line)
+            imgui.separator()
+            available_width = _point_xy(imgui.get_content_region_avail())[0]
+            button_width = (available_width - 8.0) / 2.0
+            for index, (action, label, _enabled) in enumerate(actions):
+                if index % 2:
+                    imgui.same_line()
+                disabled = action == "weather" and status.skin_name not in {
+                    None,
+                    "base",
+                }
+                if disabled:
+                    imgui.begin_disabled()
+                try:
+                    if imgui.button(label, imgui.ImVec2(button_width, 34.0)):
+                        self._request_live_edit_action(action)
+                finally:
+                    if disabled:
+                        imgui.end_disabled()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
     def _draw_control_tooltips(self, imgui: Any) -> None:
         """Draw the dismissible keyboard controls along the bottom of the HUD."""
         if not self.show_control_tooltips:
@@ -920,10 +1089,173 @@ class TaxiHudState:
         self._presented_frame_times_s.clear()
         self._video_fps = 0.0
 
+    def _draw_options(self, imgui: Any) -> None:
+        document = self.settings_document
+        draft = self._options_draft
+        if document is None or draft is None:
+            self._discard_options()
+            return
+        window_width = max(1.0, min(980.0, float(self.width) - 28.0))
+        window_height = max(1.0, min(680.0, float(self.height) - 28.0))
+        _draw_arcade_backdrop(imgui, self.width, self.height)
+        _prepare_window(
+            imgui,
+            position=(
+                max(14.0, (self.width - window_width) / 2.0),
+                max(14.0, (self.height - window_height) / 2.0),
+            ),
+            size=(window_width, window_height),
+            alpha=0.98,
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(
+            imgui,
+            "Crazy Robotaxi — Options",
+            extra_flags=("no_title_bar",),
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "OPTIONS",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=32.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            imgui.text(f"CONFIG  {document.path}")
+            imgui.separator()
+            categories = iter_setting_fields(draft)
+            category_visible = imgui.begin_child(
+                "##options-categories", imgui.ImVec2(170.0, -74.0)
+            )
+            try:
+                if category_visible:
+                    for item, _ in categories:
+                        label = item.name.replace("_", " ").upper()
+                        if imgui.button(
+                            f"{label}##options-category-{item.name}",
+                            imgui.ImVec2(154.0, 34.0),
+                        ):
+                            self._options_category = item.name
+            finally:
+                imgui.end_child()
+            imgui.same_line()
+            content_visible = imgui.begin_child(
+                "##options-fields", imgui.ImVec2(0.0, -74.0)
+            )
+            try:
+                if content_visible:
+                    category = getattr(draft, self._options_category, draft.launch)
+                    self._draw_settings_tree(
+                        imgui,
+                        category,
+                        (self._options_category,),
+                    )
+            finally:
+                imgui.end_child()
+            draft = self._options_draft or draft
+            imgui.separator()
+            if restart_required(document.settings, draft):
+                imgui.text("RESTART REQUIRED TO APPLY THESE CHANGES")
+            if self._options_error:
+                imgui.text(f"ERROR  {self._options_error}")
+            if imgui.button("SAVE", imgui.ImVec2(160.0, 38.0)):
+                self._save_options()
+                return
+            imgui.same_line()
+            if imgui.button("DISCARD", imgui.ImVec2(160.0, 38.0)):
+                self._discard_options()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _draw_settings_tree(
+        self,
+        imgui: Any,
+        value: object,
+        path: tuple[str, ...],
+    ) -> None:
+        document = self.settings_document
+        draft = self._options_draft
+        if document is None or draft is None:
+            return
+        for item, annotation in iter_setting_fields(value):
+            draft = self._options_draft
+            if draft is None:
+                return
+            value = setting_value(draft, path)
+            item_path = (*path, item.name)
+            current = getattr(value, item.name)
+            if is_dataclass(current) and not isinstance(current, type):
+                imgui.separator()
+                imgui.text(item.name.replace("_", " ").upper())
+                self._draw_settings_tree(imgui, current, item_path)
+                continue
+            label = item.name.replace("_", " ").title()
+            if not editable_setting(current, item_path):
+                imgui.text(f"{label}: {readonly_display(current)}  [READ ONLY]")
+                continue
+            imgui.text(f"{label}:")
+            imgui.same_line()
+            widget_id = f"##{'.'.join(item_path)}"
+            choices = setting_choices(document, item_path, annotation)
+            changed = False
+            edited = current
+            if choices:
+                index = choices.index(current) if current in choices else 0
+                choice_labels = [
+                    "<MENU>" if choice is None else str(choice) for choice in choices
+                ]
+                changed, index = imgui.combo(
+                    widget_id,
+                    index,
+                    choice_labels,
+                )
+                edited = choices[index]
+            elif type(current) is bool:
+                changed, edited = imgui.checkbox(widget_id, current)
+            else:
+                changed, text = imgui.input_text(
+                    widget_id,
+                    format_editor_value(current),
+                    flags=0,
+                )
+                if changed:
+                    try:
+                        edited = parse_editor_value(
+                            text,
+                            annotation,
+                            current,
+                            item_path,
+                            base_dir=document.path.parent,
+                        )
+                    except SettingsError as exc:
+                        self._options_error = str(exc)
+                        changed = False
+            if changed:
+                try:
+                    self._options_draft = document.update(draft, item_path, edited)
+                    self._options_error = ""
+                    draft = self._options_draft
+                    value = setting_value(draft, path)
+                except (SettingsError, TypeError, ValueError) as exc:
+                    self._options_error = str(exc)
+            if any(
+                item_path[: len(override_path)] == override_path
+                for override_path in document.cli_overrides
+            ):
+                imgui.text(
+                    "COMMAND-LINE OVERRIDE ACTIVE; SAVED VALUE APPLIES WITHOUT IT"
+                )
+
     def _draw_mode_selection(self, imgui: Any) -> None:
         window_width = max(1.0, min(500.0, float(self.width) - 28.0))
-        window_height = max(1.0, min(390.0, float(self.height) - 28.0))
-        scale = min(1.0, window_width / 500.0, window_height / 390.0)
+        window_height = max(1.0, min(445.0, float(self.height) - 28.0))
+        scale = min(1.0, window_width / 500.0, window_height / 445.0)
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
@@ -987,6 +1319,18 @@ class TaxiHudState:
                 color=(0.72, 0.72, 0.76, 1.0),
             )
             imgui.separator()
+            if self.settings_document is not None and imgui.button(
+                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._open_options()
+                return
+            if self._settings_notice:
+                _centered_imgui_text(
+                    imgui,
+                    self._settings_notice,
+                    font_size=max(10.0, 11.0 * scale),
+                    color=(0.82, 0.68, 0.34, 1.0),
+                )
             _centered_imgui_text(
                 imgui,
                 "ESC  EXIT",
@@ -1042,7 +1386,7 @@ class TaxiHudState:
             imgui.separator()
             button_height = max(36.0, 48.0 * scale)
             list_height = max(
-                60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
+                60.0, _point_xy(imgui.get_content_region_avail())[1] - 136.0
             )
             list_visible = imgui.begin_child(
                 "##map-options", imgui.ImVec2(0.0, list_height)
@@ -1071,12 +1415,24 @@ class TaxiHudState:
                 imgui.end_child()
             imgui.separator()
             button_width = _point_xy(imgui.get_content_region_avail())[0]
+            if self.settings_document is not None and imgui.button(
+                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._open_options()
+                return
             if imgui.button(
                 "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
                 return
+            if self._settings_notice:
+                _centered_imgui_text(
+                    imgui,
+                    self._settings_notice,
+                    font_size=max(10.0, 11.0 * scale),
+                    color=(0.82, 0.68, 0.34, 1.0),
+                )
             _centered_imgui_text(
                 imgui,
                 "ESC  BACK",
@@ -1136,7 +1492,7 @@ class TaxiHudState:
             imgui.separator()
             button_height = max(36.0, 48.0 * scale)
             list_height = max(
-                60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
+                60.0, _point_xy(imgui.get_content_region_avail())[1] - 136.0
             )
             list_visible = imgui.begin_child(
                 "##course-options", imgui.ImVec2(0.0, list_height)
@@ -1155,12 +1511,24 @@ class TaxiHudState:
                 imgui.end_child()
             imgui.separator()
             button_width = _point_xy(imgui.get_content_region_avail())[0]
+            if self.settings_document is not None and imgui.button(
+                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._open_options()
+                return
             if imgui.button(
                 "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_map_option = None
                 self._menu_stage = "map"
                 return
+            if self._settings_notice:
+                _centered_imgui_text(
+                    imgui,
+                    self._settings_notice,
+                    font_size=max(10.0, 11.0 * scale),
+                    color=(0.82, 0.68, 0.34, 1.0),
+                )
             _centered_imgui_text(
                 imgui,
                 "ESC  BACK",
@@ -1753,6 +2121,14 @@ class TaxiHudState:
         if self.model_loop is not None:
             invoke_async(self.model_loop, lambda state: state.restart_game())
 
+    def _request_live_edit_action(self, action: LiveEditAction) -> None:
+        """Queue one live-edit action on the model thread."""
+        if self.model_loop is not None:
+            invoke_async(
+                self.model_loop,
+                lambda state, value=action: state.request_live_edit_action(value),
+            )
+
     def _submit_name(self, value: str) -> None:
         if self._submission_pending:
             return
@@ -1885,6 +2261,7 @@ def build_hud_frames(
     autoregressive_index: int = -1,
     simulation_timestamps_us: Sequence[int | None] | None = None,
     cache_finalize_returned_ns: int | None = None,
+    live_edit_status: LiveEditHudStatus | None = None,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -1919,6 +2296,7 @@ def build_hud_frames(
                 snapshot=snapshot,
                 rig_pose_world=pose,
                 speed_mps=float(speeds_mps[index]),
+                live_edit_status=live_edit_status,
                 transition_timestamp_us=transition_timestamps_us[index],
                 runtime_generation=runtime_generation,
                 model_step_index=model_step_index,
@@ -1930,6 +2308,31 @@ def build_hud_frames(
             )
         )
     return tuple(frames)
+
+
+def _live_edit_status_lines(status: LiveEditHudStatus) -> tuple[str, ...]:
+    """Format compact status rows for the live-edit HUD card."""
+    lines: list[str] = []
+    if status.skin_name is not None:
+        suffix = _countdown_suffix(status.skin_seconds_remaining)
+        lines.append(f"STYLE  {status.skin_name.upper()}{suffix}")
+    if status.weather_name is not None:
+        suffix = _countdown_suffix(status.weather_seconds_remaining)
+        lines.append(f"WEATHER  {status.weather_name.upper()}{suffix}")
+    if status.coins_enabled is not None:
+        state = "ON" if status.coins_enabled else "OFF"
+        lines.append(f"COINS  {state}  {status.coins_collected}  +{status.coin_score}")
+    if status.nitro_seconds_remaining is not None:
+        lines.append(f"NITRO  {status.nitro_seconds_remaining:.1f}s")
+    if status.obstacle_count is not None:
+        lines.append(f"OBSTACLES  {status.obstacle_count}  HITS {status.obstacle_hits}")
+    if status.item_flash is not None:
+        lines.append(status.item_flash)
+    return tuple(lines)
+
+
+def _countdown_suffix(seconds: float | None) -> str:
+    return "" if seconds is None else f"  {seconds:.1f}s"
 
 
 def _is_escape_press(event: object) -> bool:

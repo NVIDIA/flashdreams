@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from crazy_robotaxi import CrazyRobotaxiApplication, CrazyRobotaxiApplicationDefaults
+from crazy_robotaxi.settings import ModelPreset
 from omnidreams.config import (
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
@@ -14,12 +15,31 @@ from omnidreams.config import (
 
 from flashdreams.api_v2.application import IApplication
 
+_MODEL_PRESETS = {
+    OMNIDREAMS_PIPELINE_CONFIG.name: ModelPreset(
+        pipeline=OMNIDREAMS_PIPELINE_CONFIG,
+        width=1280,
+        height=704,
+    ),
+    OMNIDREAMS_PERF_PIPELINE_CONFIG.name: ModelPreset(
+        pipeline=OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        width=1168,
+        height=640,
+    ),
+    OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG.name: ModelPreset(
+        pipeline=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        width=1168,
+        height=640,
+    ),
+}
+
 OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     title="Crazy Robotaxi",
     slug="crazy-robotaxi",
     width=1280,
     height=704,
     pipeline_config=OMNIDREAMS_PIPELINE_CONFIG,
+    model_presets=_MODEL_PRESETS,
 )
 OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     title="Crazy Robotaxi (Perf)",
@@ -27,6 +47,7 @@ OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     width=1168,
     height=640,
     pipeline_config=OMNIDREAMS_PERF_PIPELINE_CONFIG,
+    model_presets=_MODEL_PRESETS,
 )
 OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     title="Crazy Robotaxi (Fast Perf)",
@@ -34,6 +55,7 @@ OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     width=1168,
     height=640,
     pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+    model_presets=_MODEL_PRESETS,
 )
 
 
