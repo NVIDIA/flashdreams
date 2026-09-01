@@ -174,6 +174,7 @@ class ISession(ABC):
         model_loop = self._registered_model_loop
         if model_loop is None:
             raise RuntimeError("ISession.init() did not register a model loop.")
+        ui_loop._set_model_loop(model_loop)
         self._registrations_frozen = True
         return ui_loop, model_loop
 
