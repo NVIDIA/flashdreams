@@ -36,7 +36,6 @@ class LaunchSettings:
     mode: GameMode | None = None
     map: Path | None = None
     race_course: str | None = None
-    variant: str = "default"
 
 
 @dataclass(frozen=True)

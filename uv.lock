@@ -3409,7 +3409,6 @@ source = { editable = "apps/omnidreams_game_engine" }
 dependencies = [
     { name = "filelock" },
     { name = "flashdreams" },
-    { name = "flashdreams-interactive-drive-v2" },
     { name = "ludus-renderer" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -3432,7 +3431,6 @@ dev = [
 requires-dist = [
     { name = "filelock", specifier = ">=3" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
     { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "numpy" },
     { name = "pillow" },

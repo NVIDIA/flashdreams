@@ -20,8 +20,6 @@ class SceneRequest:
 
     map_path: Path
     camera_name: str = "camera_front_wide_120fov"
-    variant: str = "default"
-    prompt: str | None = None
     force_recompile: bool = False
 
 
@@ -31,7 +29,5 @@ def load_scene(request: SceneRequest, raster: RasterConfig) -> SceneDefinition:
     return load_scene_bundle(
         scene_path=compiled.archive_path,
         camera_name=request.camera_name,
-        variant=request.variant,
-        prompt_override=request.prompt,
         raster=raster,
     )

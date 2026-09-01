@@ -87,17 +87,14 @@ def _digest(game_map: ResolvedGameMap) -> str:
     resolved.pop("source_path", None)
     hasher.update(json.dumps(resolved, sort_keys=True, separators=(",", ":")).encode())
     for spawn in game_map.spawns:
-        for variant in spawn.variants:
-            hasher.update(variant.name.encode())
-            hasher.update(variant.prompt.encode())
-            if variant.image is None:
-                hasher.update(b"generated-spawn-first-frame")
-                hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
-                hasher.update(Path(spawn_render.__file__).read_bytes())
-                hasher.update(Path(camera_defaults.__file__).read_bytes())
-            else:
-                asset = resolve_seed_asset(game_map.source_path, variant.image)
-                hasher.update(asset.read_bytes())
+        if spawn.image is None:
+            hasher.update(b"generated-spawn-first-frame")
+            hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
+            hasher.update(Path(spawn_render.__file__).read_bytes())
+            hasher.update(Path(camera_defaults.__file__).read_bytes())
+        else:
+            asset = resolve_seed_asset(game_map.source_path, spawn.image)
+            hasher.update(asset.read_bytes())
     return hasher.hexdigest()
 
 
@@ -414,7 +411,6 @@ def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
 
 def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
     spawn = game_map.default_spawn
-    generated_image: np.ndarray | None = None
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "metadata.yaml", yaml.safe_dump(_metadata(game_map), sort_keys=True)
@@ -428,26 +424,19 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
             "mesh_ground.ply",
             save_mesh_vf(game_map.ground_vertices, game_map.ground_faces),
         )
-        for variant in spawn.variants:
-            suffix = "" if variant.name == "default" else f"_{variant.name}"
-            archive.writestr(f"prompt{suffix}.txt", variant.prompt)
-            image_name = f"first_image{suffix}.png"
-            if variant.image is None:
-                if generated_image is None:
-                    generated_image = spawn_render.render_spawn_first_frame(
-                        game_map, spawn
-                    )
-                _write_image_array(
-                    archive,
-                    image_name,
-                    generated_image,
-                )
-            else:
-                _write_image(
-                    archive,
-                    image_name,
-                    resolve_seed_asset(game_map.source_path, variant.image),
-                )
+        archive.writestr("prompt.txt", spawn.prompt)
+        if spawn.image is None:
+            _write_image_array(
+                archive,
+                "first_image.png",
+                spawn_render.render_spawn_first_frame(game_map, spawn),
+            )
+        else:
+            _write_image(
+                archive,
+                "first_image.png",
+                resolve_seed_asset(game_map.source_path, spawn.image),
+            )
         _write_parquet(
             archive, "clipgt/calibration_estimate.parquet", _calibration_row()
         )

@@ -403,7 +403,7 @@ compiled cyclic route and defaults to zero. Vehicles are physical, collidable,
 and maintain simple same-lane headway; traffic signals and right-of-way are not
 currently modeled.
 
-## Spawns and visual variants
+## Spawns and visual conditioning
 
 A spawn names an authored road lane and a distance along its directed
 centerline. Lane indices follow the effective `lanes` order.
@@ -414,18 +414,16 @@ spawns:
     road: oak_street
     lane: 1
     distance_m: 5
-    variants:
-      default:
-        image: seed.png
-        prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
+    image: seed.png
+    prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
 ```
 
-Every spawn requires a `default` variant. `image` is optional; when omitted (or
-set to `null`), the compiler generates a deterministic synthetic first-person
-view by projecting the semantic map from that spawn through the runtime front
-camera. This fallback shows aligned road surfaces, boundaries, curbs, and
-markings, but does not synthesize scenery. Use it as a robust placeholder, not
-as a photorealistic authoring result.
+Every spawn requires a non-empty `prompt`. `image` is optional; when omitted
+(or set to `null`), the compiler generates a deterministic synthetic
+first-person view by projecting the semantic map from that spawn through the
+runtime front camera. This fallback shows aligned road surfaces, boundaries,
+curbs, and markings, but does not synthesize scenery. Use it as a robust
+placeholder, not as a photorealistic authoring result.
 
 Authored images may be map-relative paths or `package://package/resource`
 references. Resolved geometry, compiler and fallback-renderer code, seed

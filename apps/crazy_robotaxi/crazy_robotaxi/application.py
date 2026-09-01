@@ -243,7 +243,6 @@ class CrazyRobotaxiApplication(IApplication):
             scene_request=SceneRequest(
                 map_path=map_path.expanduser(),
                 camera_name=DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
-                variant=settings.launch.variant,
                 force_recompile=bool(args.force_map_recompile),
             ),
             renderer=renderer,
@@ -279,10 +278,7 @@ class CrazyRobotaxiApplication(IApplication):
             live_edit=live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
         )
-        self._map_options = _discover_game_maps(
-            map_path,
-            requested_variant=settings.launch.variant,
-        )
+        self._map_options = _discover_game_maps(map_path)
 
     def _apply_cli_settings(
         self,
@@ -302,7 +298,6 @@ class CrazyRobotaxiApplication(IApplication):
         launch = settings.launch
         for name, field_name in (
             ("map", "map"),
-            ("variant", "variant"),
             ("game_mode", "mode"),
             ("race_course", "race_course"),
         ):
@@ -532,11 +527,7 @@ def _configure_live_edit_pipeline(config: Any, live_edit: LiveEditConfig) -> Any
     )
 
 
-def _discover_game_maps(
-    selected_path: Path,
-    *,
-    requested_variant: str,
-) -> tuple[GameMapOption, ...]:
+def _discover_game_maps(selected_path: Path) -> tuple[GameMapOption, ...]:
     """Read menu metadata for bundled maps and maps beside the CLI selection."""
     selected = selected_path.expanduser().resolve()
     paths = {selected}
@@ -549,19 +540,11 @@ def _discover_game_maps(
     options: list[GameMapOption] = []
     for path in paths:
         header = load_game_map_header(path)
-        variants = tuple(item.name for item in header.variants)
-        preferred = requested_variant if path == selected else "default"
-        variant = (
-            preferred
-            if preferred in variants
-            else ("default" if "default" in variants else variants[0])
-        )
         options.append(
             GameMapOption(
                 map_id=header.map_id,
                 name=header.name,
                 path=header.source_path,
-                variant=variant,
                 race_course_ids=header.race_course_ids,
             )
         )
@@ -607,7 +590,6 @@ def _parser(
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
-    parser.add_argument("--variant", default="default")
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)

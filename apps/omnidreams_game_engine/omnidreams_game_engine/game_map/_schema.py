@@ -14,10 +14,7 @@ from typing import Any
 import numpy as np
 import yaml
 
-from omnidreams_game_engine.game_map.types import (
-    GameMapLinearAttributes,
-    GameMapVisualVariant,
-)
+from omnidreams_game_engine.game_map.types import GameMapLinearAttributes
 
 GAME_MAP_SUFFIX = ".robotaxi.yaml"
 """Filename suffix for authored node-graph game maps."""
@@ -62,7 +59,6 @@ class GameMapHeader:
 
     map_id: str
     name: str
-    variants: tuple[GameMapVisualVariant, ...]
     source_path: Path
     race_course_ids: tuple[str, ...] = ()
 
@@ -203,34 +199,23 @@ def _parse_map_identity(doc: dict[str, Any]) -> tuple[str, str]:
     return map_id, name
 
 
-def _parse_variants(
+def _parse_spawn_conditioning(
     raw_spawn: dict[str, Any], source_path: Path
-) -> tuple[GameMapVisualVariant, ...]:
-    variants_raw = _mapping(raw_spawn.get("variants"), "spawn.variants")
-    if "default" not in variants_raw:
-        raise GameMapError("Every spawn must define a default visual variant")
-    variants: list[GameMapVisualVariant] = []
-    for name, raw_variant in variants_raw.items():
-        variant = _mapping(raw_variant, f"variant {name!r}")
-        unknown = set(variant) - {"image", "prompt"}
-        if unknown:
-            raise GameMapError(f"Variant {name!r} has unknown fields {sorted(unknown)}")
-        image_value = variant.get("image")
-        image = None if image_value is None else str(image_value).strip()
-        prompt = str(variant.get("prompt", "")).strip()
-        if not prompt:
-            raise GameMapError(f"Variant {name!r} requires a non-empty prompt")
-        if image_value is not None and not image:
-            raise GameMapError(f"Variant {name!r} image must not be empty")
-        if image is not None:
-            resolve_seed_asset(source_path, image)
-        variants.append(GameMapVisualVariant(name=name, image=image, prompt=prompt))
-    variants.sort(key=lambda item: (item.name != "default", item.name))
-    return tuple(variants)
+) -> tuple[str | None, str]:
+    image_value = raw_spawn.get("image")
+    image = None if image_value is None else str(image_value).strip()
+    prompt = str(raw_spawn.get("prompt", "")).strip()
+    if not prompt:
+        raise GameMapError("Every spawn requires a non-empty prompt")
+    if image_value is not None and not image:
+        raise GameMapError("spawn.image must not be empty")
+    if image is not None:
+        resolve_seed_asset(source_path, image)
+    return image, prompt
 
 
 def load_game_map_header(path: Path) -> GameMapHeader:
-    """Load map name and default-spawn variants without resolving geometry."""
+    """Load menu metadata and validate default-spawn conditioning."""
     source_path = Path(path).expanduser().resolve()
     doc = _read_document(source_path)
     map_id, name = _parse_map_identity(doc)
@@ -238,10 +223,10 @@ def load_game_map_header(path: Path) -> GameMapHeader:
     if not spawns:
         raise GameMapError("Map must define at least one spawn")
     first_spawn = _mapping(spawns[0], "spawns[0]")
+    _parse_spawn_conditioning(first_spawn, source_path)
     return GameMapHeader(
         map_id=map_id,
         name=name,
-        variants=_parse_variants(first_spawn, source_path),
         source_path=source_path,
         race_course_ids=_parse_race_course_ids(doc),
     )

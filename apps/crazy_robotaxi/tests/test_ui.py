@@ -1042,7 +1042,6 @@ def test_selection_menus_use_arcade_card_layout() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        variant="default",
         race_course_ids=("downtown-sprint",),
     )
     state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
@@ -1083,7 +1082,6 @@ def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        variant="default",
         race_course_ids=("downtown-sprint",),
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
@@ -1117,7 +1115,6 @@ def test_race_menu_selects_map_then_course() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        variant="default",
         race_course_ids=("downtown-sprint",),
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
@@ -1155,7 +1152,6 @@ def test_complete_cli_selection_skips_all_selection_screens() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml").resolve(),
-        variant="default",
         race_course_ids=("downtown-sprint",),
     )
     state = TaxiHudState(
@@ -1194,7 +1190,6 @@ def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml").resolve(),
-        variant="default",
         race_course_ids=("downtown-sprint",),
     )
     state = TaxiHudState(

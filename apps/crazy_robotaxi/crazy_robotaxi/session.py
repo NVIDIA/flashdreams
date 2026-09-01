@@ -154,7 +154,6 @@ class ModelState:
         request = replace(
             self.config.scene_request,
             map_path=option.path,
-            variant=option.variant,
         )
         scene = self.scene_factory(request, self.config.renderer.raster)
         self.close()

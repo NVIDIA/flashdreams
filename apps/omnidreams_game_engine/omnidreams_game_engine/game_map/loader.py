@@ -30,7 +30,7 @@ from omnidreams_game_engine.game_map._schema import (
     _parse_compiler_settings,
     _parse_map_identity,
     _parse_profiles,
-    _parse_variants,
+    _parse_spawn_conditioning,
     _positive_float,
     _Profile,
     _read_document,
@@ -2697,9 +2697,12 @@ def _spawn(
     source_path: Path,
     lane_by_id: dict[str, _LaneBuild],
 ) -> GameMapSpawn:
-    if set(raw) != {"id", "road", "lane", "distance_m", "variants"}:
+    required = {"id", "road", "lane", "distance_m", "prompt"}
+    unknown = set(raw) - (required | {"image"})
+    missing = required - set(raw)
+    if missing or unknown:
         raise GameMapError(
-            "Spawns require exactly id, road, lane, distance_m, and variants"
+            f"Spawns are missing {sorted(missing)} or have unknown fields {sorted(unknown)}"
         )
     spawn_id = str(raw["id"]).strip()
     if not spawn_id:
@@ -2726,13 +2729,15 @@ def _spawn(
     alpha = (distance - cumulative[segment]) / max(float(lengths[segment]), 1.0e-9)
     position = points[segment] + alpha * (points[segment + 1] - points[segment])
     direction = points[segment + 1] - points[segment]
+    image, prompt = _parse_spawn_conditioning(raw, source_path)
     return GameMapSpawn(
         spawn_id=spawn_id,
         lane_id=lane_id,
         distance_m=distance,
         position_world=position.astype(np.float32),
         yaw_rad=math.atan2(float(direction[1]), float(direction[0])),
-        variants=_parse_variants(raw, source_path),
+        image=image,
+        prompt=prompt,
     )
 
 

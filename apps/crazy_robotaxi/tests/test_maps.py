@@ -4,11 +4,14 @@
 """CPU validation for shipped semantic maps."""
 
 import math
+import zipfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 from omnidreams_game_engine.game_map import load_game_map
+from omnidreams_game_engine.config import RasterConfig
+from omnidreams_game_engine.scene import SceneRequest, load_scene
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -24,6 +27,26 @@ def test_shipped_map_is_valid(filename: str) -> None:
     assert game_map.map_id.startswith("crazy-robotaxi-")
     assert game_map.spawns
     assert game_map.lanes
+
+
+def test_compiled_map_uses_canonical_spawn_conditioning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
+    game_map = load_game_map(path)
+
+    scene = load_scene(
+        SceneRequest(map_path=path),
+        RasterConfig(width=64, height=32, compute_device="automatic"),
+    )
+
+    assert scene.prompt == game_map.default_spawn.prompt
+    assert scene.initial_rgb.shape == (32, 64, 3)
+    with zipfile.ZipFile(scene.scene_path) as archive:
+        names = set(archive.namelist())
+    assert {"prompt.txt", "first_image.png"} <= names
+    assert not any(name.startswith(("prompt_", "first_image_")) for name in names)
 
 
 def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None:

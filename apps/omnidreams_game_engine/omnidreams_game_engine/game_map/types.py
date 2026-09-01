@@ -167,20 +167,6 @@ class GameMapTopology:
 
 
 @dataclass(frozen=True)
-class GameMapVisualVariant:
-    """Optional seed image and prompt for one visual variant."""
-
-    name: str
-    """Variant slug used to select this visual conditioning."""
-
-    image: str | None
-    """Optional map-relative or ``package://`` seed-image reference."""
-
-    prompt: str
-    """World-model text prompt paired with the seed image."""
-
-
-@dataclass(frozen=True)
 class GameMapSpawn:
     """Vehicle spawn resolved onto a directed lane."""
 
@@ -199,8 +185,11 @@ class GameMapSpawn:
     yaw_rad: float
     """World heading following the directed lane."""
 
-    variants: tuple[GameMapVisualVariant, ...]
-    """Available visual seed variants; ``default`` is always present."""
+    image: str | None
+    """Optional map-relative or ``package://`` seed-image reference."""
+
+    prompt: str
+    """World-model text prompt paired with the spawn's seed image."""
 
 
 @dataclass(frozen=True)
@@ -459,12 +448,6 @@ class ResolvedGameMap:
         """Return the first declared spawn."""
         return self.spawns[0]
 
-    @property
-    def variants(self) -> tuple[str, ...]:
-        """Return variants available at the default spawn."""
-        names = [variant.name for variant in self.default_spawn.variants]
-        return tuple(names)
-
 
 def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
     """Serialize a resolved map into JSON-compatible values."""
@@ -593,14 +576,8 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "distance_m": spawn.distance_m,
                 "position_world": spawn.position_world.tolist(),
                 "yaw_rad": spawn.yaw_rad,
-                "variants": [
-                    {
-                        "name": variant.name,
-                        "image": variant.image,
-                        "prompt": variant.prompt,
-                    }
-                    for variant in spawn.variants
-                ],
+                "image": spawn.image,
+                "prompt": spawn.prompt,
             }
             for spawn in game_map.spawns
         ],
@@ -821,16 +798,8 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             distance_m=float(raw["distance_m"]),
             position_world=np.asarray(raw["position_world"], dtype=np.float32),
             yaw_rad=float(raw["yaw_rad"]),
-            variants=tuple(
-                GameMapVisualVariant(
-                    name=str(variant["name"]),
-                    image=(
-                        None if variant.get("image") is None else str(variant["image"])
-                    ),
-                    prompt=str(variant["prompt"]),
-                )
-                for variant in raw["variants"]
-            ),
+            image=None if raw.get("image") is None else str(raw["image"]),
+            prompt=str(raw["prompt"]),
         )
         for raw in value["spawns"]
     )
