@@ -145,7 +145,8 @@ def check_t2v_model_impl(
         )
         run_session(
             application.create_session(session_desc),
-            _InspectingClientWindow(inspector),
+            _DiscardingClientWindow(),
+            metrics_output_sink=inspector,
             steps=steps,
         )
     finally:
@@ -371,27 +372,20 @@ class _FrameInspector(OutputSink):
             self._mp4.close()
 
 
-class _InspectingClientWindow(IClientWindow):
-    """Drive a run against the inspector, reporting no input.
-
-    What ``Mp4ClientWindow`` is for a run writing a file: the input half of a
-    window nobody is on the other end of.
-    """
-
-    def __init__(self, sink: OutputSink) -> None:
-        self._sink = sink
+class _DiscardingClientWindow(IClientWindow):
+    """Drive a checked run without retaining its composed UI output."""
 
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
 
     def open(self, session_desc: SessionDesc) -> None:
-        self._sink.open(session_desc)
+        del session_desc
 
     def write(self, result: StepResult) -> None:
-        self._sink.write(result)
+        del result
 
     def close(self) -> None:
-        self._sink.close()
+        return
 
 
 def _compare(

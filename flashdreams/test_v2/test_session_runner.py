@@ -16,7 +16,12 @@ import torch
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
+from flashdreams.api_v2.loop import (
+    IModelLoop,
+    IUILoop,
+    ModelInferenceState,
+    invoke_async,
+)
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
@@ -321,6 +326,8 @@ class FakeSession(ISession):
         self._release_writes = release_writes
         self._release_writes_at = release_writes_at
         self.observed_events: list[UserInputEvents] = []
+        self.ui_steps = 0
+        self.ui_model_states: list[ModelInferenceState] = []
 
     def init(self) -> None:
         self._log.record("session.init")
@@ -544,7 +551,7 @@ def test_run_session_presents_every_step_in_order() -> None:
 
     run_session(session, window, steps=3)
 
-    assert [result.step_index for result in window.results] == [0, 1, 2]
+    assert [result.step_index for result in window.results] == [1, 2, 3]
     assert window.results[-1] is session.ui_loop.latest_result
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
@@ -560,7 +567,7 @@ def test_run_session_opens_before_writing_and_closes_after() -> None:
     calls = log.calls
     # Interleaving between the threads varies, but these orderings cannot.
     assert calls[0] == "session.init"
-    assert calls.index("window.open") < calls.index("window.write(0)")
+    assert calls.index("window.open") < calls.index("window.write(1)")
     assert calls[-2:] == ["window.close", "session.close"]
 
 
@@ -575,7 +582,7 @@ def test_run_session_touches_the_window_only_from_the_ui_thread() -> None:
     ui_thread_name = threading.current_thread().name
     for call in ("window.open", "window.get_user_input_events", "window.close"):
         assert log.threads_for(call) == {ui_thread_name}
-    assert log.threads_for("window.write(0)") == {ui_thread_name}
+    assert log.threads_for("window.write(1)") == {ui_thread_name}
 
 
 def test_run_session_calls_ui_run_on_the_ui_thread() -> None:
@@ -600,6 +607,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
             return super().step(step_index, events)
 
         def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            self.ui_model_states.append(self.ui_loop.model_inference_state)
             if events.get_events():
                 input_processed.set()
             return super().run_ui(step_index, events)
@@ -620,6 +628,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
     run_session(session, window, steps=1)
 
     assert input_processed.is_set()
+    assert ModelInferenceState.RUNNING in session.ui_model_states
     assert "ui_loop.step" in log.calls
 
 
@@ -920,7 +929,7 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
 
     run_session(session, window, steps=3)
 
-    assert [result.step_index for result in window.results] == [0, 1, 2]
+    assert [result.step_index for result in window.results] == [1, 2, 3]
 
 
 def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
@@ -1067,8 +1076,54 @@ def test_run_session_polls_for_a_replacement_after_the_final_frame() -> None:
     next_session_desc = run_session(session, window, steps=None)
 
     assert next_session_desc == session.session_desc
-    assert [result.step_index for result in window.results] == [0]
+    assert [result.step_index for result in window.results] == [1]
     assert "window.close" not in log.calls
+
+
+def test_interactive_ui_can_replace_an_already_finished_session() -> None:
+    log = CallLog()
+
+    class RequestingUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+            self.state.ui_model_states.append(self.model_inference_state)
+            self.state.ui_steps += 1
+            if self.state.ui_steps == 2:
+                self.request_new_session({"prompt": "a new prompt"})
+                return StepResult(
+                    step_index=step_index,
+                    output=torch.zeros((1, 3, 1, 2, 2)),
+                    frame_count=1,
+                    output_layout=self.state.session_desc.output_layout,
+                )
+            return super().step(step_index, events)
+
+    class RequestingSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_ui_loop(RequestingUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    resolved = replace(
+        _session_desc(presentation_mode=PresentationMode.ON_DEMAND),
+        metadata={"existing": "value"},
+    )
+    session = RequestingSession(resolved, log, length=0)
+    window = RecordingClientWindow(log)
+
+    next_session_desc = run_session(session, window)
+
+    assert next_session_desc == replace(
+        resolved,
+        metadata={"existing": "value", "prompt": "a new prompt"},
+    )
+    assert session.ui_steps == 2
+    assert session.ui_model_states == [
+        ModelInferenceState.NOT_STARTED,
+        ModelInferenceState.FINISHED,
+    ]
+    assert len(window.results) == 1
+    assert "window.close" not in log.calls
+    assert log.calls[-1] == "session.close"
 
 
 @pytest.mark.parametrize(
@@ -1135,18 +1190,26 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     assert calls == ["session.reset", "session.step(0)", "session.step(1)"]
     assert log.calls.index("session.reset") < log.calls.index("session.step(0)")
     # A reset restarts both loops without granting extra model steps.
-    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in window.results] == [1, 2]
 
 
-def test_run_session_stops_when_the_session_says_it_has_finished() -> None:
-    """A model that knows its own length ends its own run, uncounted."""
+def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None:
+    """Model completion alone does not end an interactive session."""
     log = CallLog()
     session = FiniteSession(_session_desc(), log, length=2)
-    window = RecordingClientWindow(log)
+
+    class ClosingAfterFinalFrame(RecordingClientWindow):
+        def get_user_input_events(self) -> UserInputEvents:
+            if len(self.results) == 2:
+                return _lifecycle_event(CloseUserInputEvent)
+            return super().get_user_input_events()
+
+    window = ClosingAfterFinalFrame(log)
 
     run_session(session, window, steps=None)
 
-    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in window.results] == [1, 2]
+    assert session.is_finished()
 
 
 def test_run_session_ends_at_whichever_comes_first() -> None:
@@ -1157,7 +1220,7 @@ def test_run_session_ends_at_whichever_comes_first() -> None:
 
     run_session(session, window, steps=2)
 
-    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in window.results] == [1, 2]
 
 
 def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
@@ -1170,7 +1233,7 @@ def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
 
     # Finished before the run began, so without the reset nothing would be
     # generated. It is applied before the session runs its length again.
-    assert [result.step_index for result in window.results] == [0]
+    assert [result.step_index for result in window.results] == [1]
     assert "session.reset" in log.calls
 
 
@@ -1274,7 +1337,7 @@ def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:
 
     run_session(session, window, steps=4)
 
-    assert [result.step_index for result in window.results] == [0, 1, 2, 3]
+    assert [result.step_index for result in window.results] == [1, 2, 3, 4]
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == [0, 1, 2, 3]
@@ -1327,13 +1390,13 @@ def test_ui_stall_does_not_burst_multiple_frames_per_input_tick() -> None:
     assert max(writes_per_input_tick) == 1
 
 
-def test_on_demand_runs_ui_once_per_new_frame() -> None:
+def test_on_demand_runs_ui_before_inference_and_once_per_new_frame() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(ui_fps=1_000, model_fps=20), log)
     window = RecordingClientWindow(log)
     run_session(session, window, steps=3)
 
-    assert log.calls.count("ui_loop.step") == 3
+    assert log.calls.count("ui_loop.step") == 4
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == [0, 1, 2]
@@ -1432,7 +1495,7 @@ def test_run_session_closes_both_when_a_step_raises() -> None:
     # A failed step must not leak the window or the session, and must not be
     # presented as a result.
     assert log.calls[-2:] == ["window.close", "session.close"]
-    assert [result.step_index for result in window.results] == [0]
+    assert [result.step_index for result in window.results] == [1]
 
 
 def test_run_session_reports_a_window_that_fails_to_close() -> None:
@@ -1445,7 +1508,7 @@ def test_run_session_reports_a_window_that_fails_to_close() -> None:
     with pytest.raises(RuntimeError, match="close failed"):
         run_session(session, window, steps=2)
 
-    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in window.results] == [1, 2]
     assert log.calls[-2:] == ["window.close", "session.close"]
 
 
@@ -1491,7 +1554,7 @@ def test_run_session_reports_a_session_that_fails_to_close() -> None:
     with pytest.raises(RuntimeError, match="session close failed"):
         run_session(session, window, steps=2)
 
-    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in window.results] == [1, 2]
 
 
 def test_run_session_reports_the_step_rather_than_the_session_close(

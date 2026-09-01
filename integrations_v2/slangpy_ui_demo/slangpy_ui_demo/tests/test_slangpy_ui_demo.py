@@ -80,16 +80,16 @@ def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
     ui_loop.step_ui(ui, 0, w_pressed)
     assert not model_state.blue
 
-    step_index = model_loop._begin_run(UserInputEvents([]), generation=0)
-    assert step_index == 0
-    blue_results = model_loop.step(step_index, UserInputEvents([]))
+    run = model_loop._begin_run(UserInputEvents([]), generation=0)
+    assert run.step_index == 0
+    blue_results = model_loop.step(run.step_index, UserInputEvents([]))
     blue = blue_results[0].read_output()
     model_loop._finish_run(blue_results)
 
     ui_loop.step_ui(ui, 1, w_pressed)
-    step_index = model_loop._begin_run(UserInputEvents([]), generation=0)
-    assert step_index == 1
-    red_again = model_loop.step(step_index, UserInputEvents([]))[0].read_output()
+    run = model_loop._begin_run(UserInputEvents([]), generation=0)
+    assert run.step_index == 1
+    red_again = model_loop.step(run.step_index, UserInputEvents([]))[0].read_output()
 
     assert not model_state.blue
     assert torch.equal(red[0, :, 0, 0], torch.tensor([1.0, -1.0, -1.0]))

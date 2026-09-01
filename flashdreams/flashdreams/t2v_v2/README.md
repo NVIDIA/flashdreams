@@ -4,7 +4,7 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 Text-to-video on the v2 API: one application every t2v model configures rather
-than writes. A prompt goes in, an MP4 comes out.
+than writes. A prompt can produce an MP4 or an interactive WebRTC session.
 
 Every text-to-video model takes a prompt and generates blocks of frames at a
 size and rate it was trained for, so the command line for one is the command
@@ -26,6 +26,19 @@ after it go to the model. The first run fetches the checkpoint from Hugging Face
 tens of gigabytes including the text encoder, so set a token and expect to wait.
 Writing an MP4 also needs `ffmpeg` on `PATH`.
 
+To keep the model resident and submit prompts from the browser:
+
+```bash
+uv run --project integrations_v2/t2v_causal_forcing flashdreams-run-v2 \
+    t2v-causal-forcing --mode webrtc --port 8080
+```
+
+Open `http://localhost:8080`. The application loads its model once, then shows
+an ImGui prompt field. Each submission creates a fresh session and rollout
+cache. Reaching `--total-blocks` leaves the final frame and prompt UI running;
+it does not unload the model or stop the server. Refreshing the page reconnects
+to the same process.
+
 | Slug | Model | A run |
 | --- | --- | --- |
 | `t2v-self-forcing` | Self-Forcing Wan 2.1 1.3B, 480p | streams, 9 frames then 12 a block |
@@ -44,7 +57,7 @@ After the `--`, the same for every model, and listed by
 
 | Argument | |
 | --- | --- |
-| `--prompt` | Text to generate from. Required. |
+| `--prompt` | Optional initial text to generate from. The UI supplies prompts for later sessions. |
 | `--total-blocks` | Blocks to generate, which is how long the clip is. |
 | `--device` | Device to load the model on. |
 | `--compile` / `--no-compile` | Compile the network: minutes once, milliseconds a step. |
@@ -55,7 +68,8 @@ short clip rather than paying minutes to save milliseconds a block.
 
 Before the `--` are `flashdreams-run-v2`'s own, including `--output-path`,
 `--pixel-width`, `--pixel-height`, `--fps` and `--layout`. Unasked, a model
-generates at the size and rate its checkpoint was trained for.
+generates at the size and rate its checkpoint was trained for. Text-to-video
+defaults to continuous presentation and every session uses its prompt UI.
 
 ## What a t2v run generates
 
@@ -66,8 +80,7 @@ written down in the integration.
 
 Another size can be asked for with `--pixel-width` and `--pixel-height`, as long
 as each dimension is a multiple of 8, the decoder's spatial compression ratio. A
-`--layout` the model does not emit is refused before the checkpoint loads, since
-several gigabytes is a long wait for an answer of no.
+`--layout` the model does not emit is refused before a session starts.
 
 `--fps` sets the rate the frames are meant to play at, and so the rate an MP4
 plays back at. It is not a generation speed.
@@ -78,13 +91,16 @@ plays back at. It is not a generation speed.
   `from_runner_config` reads the frame size, rate, layout and rollout length off
   the runner config the model package already ships, so nothing is written twice.
 - `application.py` - `T2VApplication`: the shared command line above, the model
-  loaded once and shared by every session, and the hooks an integration
-  overrides.
+  loaded once during application initialization and shared by every session,
+  and the hooks an integration overrides.
 - `session.py` - `T2VSession` and `T2VModelLoop`: one rollout. The session
   encodes the prompt into a per-run cache in `init` and registers the model loop;
   the loop generates one block per `step` and reports itself finished after
-  `--total-blocks`. No UI loop is registered, so the runtime's default blitter
-  presents the frames.
+  `--total-blocks`. Interactive sessions also register the shared prompt UI; an
+  initial session without a prompt has an already-finished model loop while that
+  UI waits.
+- `ui.py` - `T2VImGuiUILoop`: the prompt field and new-session button drawn over
+  the latest generated frame.
 - `testing.py` - the shared check an integration's tests call, and the stand-in
   pipeline they call it against on a CPU.
 
@@ -129,8 +145,9 @@ are on `T2VApplication`, and most integrations override none:
 There is also `session_type`, unused today, for a model whose step is not one
 autoregressive block and so needs a session other than `T2VSession`.
 
-**Write the `pyproject.toml`**, depending on `flashdreams` and the model package,
-and registering the slug:
+**Write the `pyproject.toml`**, depending on
+`flashdreams[local-window,serving]` and the model package, and registering the
+slug:
 
 ```toml
 [project.entry-points."flashdreams.applications_v2"]
