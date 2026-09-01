@@ -31,6 +31,7 @@ from crazy_robotaxi.rules import (
 )
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
+    _selection_grid_columns,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
@@ -189,6 +190,7 @@ class _FakeImGui:
         no_saved_settings=4,
         sizing_stretch_prop=8,
         scroll_y=16,
+        sizing_stretch_same=64,
     )
     TableColumnFlags_ = SimpleNamespace(width_fixed=1, width_stretch=2)
     TableBgTarget_ = SimpleNamespace(row_bg1=1)
@@ -212,6 +214,7 @@ class _FakeImGui:
         self.window_flags: dict[str, int] = {}
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
+        self.table_column_counts: dict[str, int] = {}
         self.highlighted_rows: list[int] = []
         self.current_table: str | None = None
         self.current_table_column = 0
@@ -379,10 +382,11 @@ class _FakeImGui:
         flags: int,
         outer_size: object,
     ) -> bool:
-        del columns, flags, outer_size
+        del flags, outer_size
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
+        self.table_column_counts[table_id] = columns
         return True
 
     def end_table(self) -> None:
@@ -910,6 +914,14 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     lines = imgui.windows["Crazy Robotaxi"]
     assert lines[0] == "WARMING WORLD MODEL  2/4..."
     assert lines[1].startswith("ELAPSED  ")
+
+
+@pytest.mark.parametrize(
+    ("option_count", "expected_columns"),
+    ((0, 1), (1, 1), (2, 2), (3, 2), (4, 2), (5, 3), (6, 3), (7, 3)),
+)
+def test_selection_grid_column_count(option_count: int, expected_columns: int) -> None:
+    assert _selection_grid_columns(option_count) == expected_columns
 
 
 def test_selection_menus_use_arcade_card_layout() -> None:
