@@ -13,7 +13,7 @@ Usage:
 
 Environment overrides:
   NPROC_PER_NODE=8
-  RUNNER_SLUG=lingbot-world-fast
+  RUNNER_SLUG=t2v-wan21-t2v-1.3b-480p
   POSTPROCESS_PRESET=flashvsr-v1.1-full-attn
   WARMUP_RUNS=1
   BENCHMARK_RUNS=1
@@ -163,7 +163,7 @@ if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
 fi
 
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
-RUNNER_SLUG=${RUNNER_SLUG:-lingbot-world-fast}
+RUNNER_SLUG=${RUNNER_SLUG:-t2v-wan21-t2v-1.3b-480p}
 POSTPROCESS_PRESET=${POSTPROCESS_PRESET:-flashvsr-v1.1-full-attn}
 WARMUP_RUNS=${WARMUP_RUNS:-1}
 BENCHMARK_RUNS=${BENCHMARK_RUNS:-1}
