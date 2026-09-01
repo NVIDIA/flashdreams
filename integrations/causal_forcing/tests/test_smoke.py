@@ -13,110 +13,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cheap import-time checks for the ``causal_forcing`` plugin.
-
-The full numerics / GPU tests live in the host ``flashdreams`` repo
-(they need GPU + checkpoints). These smoke tests just confirm the
-plugin is wired correctly: importable, every ``runner_name`` mirrors
-its ``pipeline.name``, descriptions are non-empty, and the
-entry-point declarations in ``pyproject.toml`` match the
-``causal_forcing.config`` ``RUNNER_*`` literals exactly.
-"""
+"""Cheap import-time checks for the ``causal_forcing`` plugin."""
 
 from __future__ import annotations
 
-import sys
+from importlib.metadata import entry_points
 from pathlib import Path
-from typing import cast
 
 import pytest
 import tomli as tomllib
-from causal_forcing import config as config_mod
-from causal_forcing.config import RUNNER_CONFIGS
-
-from flashdreams.infra.runner import RunnerConfig
+from causal_forcing.config import (
+    PIPELINE_CONFIGS,
+    PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
+)
+from causal_forcing.t2v.app import create_app
+from t2v import T2VApplication
 
 pytestmark = pytest.mark.ci_gpu
 
-ENTRY_POINT_GROUP = "flashdreams.runner_configs"
+APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications"
+APPLICATION_SLUG = "t2v-causal-forcing"
 
 
-def test_runners_dict_is_non_empty() -> None:
-    """Plugin must expose at least one runner."""
-    assert RUNNER_CONFIGS, "RUNNER_CONFIGS is empty"
+def test_pipeline_configs_are_named_consistently() -> None:
+    """Keep pipeline preset keys aligned with their public names."""
+    assert PIPELINE_CONFIGS
+    assert all(name == config.name for name, config in PIPELINE_CONFIGS.items())
 
 
-def test_runner_name_mirrors_pipeline_name() -> None:
-    """``runner_name`` must equal ``pipeline.name`` per the CLI contract."""
-    drifted = {
-        slug: (cfg.runner_name, cfg.pipeline.name)
-        for slug, cfg in RUNNER_CONFIGS.items()
-        if cfg.runner_name != cfg.pipeline.name
-    }
-    assert not drifted, f"runner_name != pipeline.name: {drifted}"
+def test_application_uses_chunkwise_pipeline_defaults() -> None:
+    """Build the application directly from the default pipeline preset."""
+    application = create_app()
 
-
-def test_runners_have_descriptions() -> None:
-    """Every shipped runner needs a non-empty CLI description."""
-    empty = [
-        slug for slug, cfg in RUNNER_CONFIGS.items() if not cfg.description.strip()
-    ]
-    assert not empty, f"runners missing description: {empty}"
-
-
-def test_entry_points_match_module_literals() -> None:
-    """The entry points in ``pyproject.toml`` must resolve to module attrs.
-
-    Catches the common drift where someone adds a runner literal but
-    forgets to wire it into the entry-point group (or vice versa);
-    discovery would silently miss the new slug at the user's terminal.
-    """
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    with pyproject.open("rb") as fh:
-        meta = tomllib.load(fh)
-    entries = meta["project"]["entry-points"][ENTRY_POINT_GROUP]
-    declared_slugs = set(entries)
-    module_slugs = set(RUNNER_CONFIGS)
-    assert declared_slugs == module_slugs, (
-        f"entry-point slugs ({sorted(declared_slugs)}) "
-        f"!= module runners ({sorted(module_slugs)})"
+    assert isinstance(application, T2VApplication)
+    assert application.defaults.pipeline_config is PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE
+    assert application.defaults.total_blocks == 60
+    assert (application.defaults.pixel_height, application.defaults.pixel_width) == (
+        480,
+        832,
     )
 
-    for slug, target in entries.items():
-        module_name, attr = target.split(":", 1)
-        # Resolve the entry-point target the same way importlib.metadata
-        # would, but skip the actual ``entry_points()`` call so the test
-        # passes even when the plugin isn't pip-installed yet.
-        assert module_name == "causal_forcing.config", (
-            f"unexpected module in entry point {slug!r}: {module_name}"
-        )
-        cfg = cast(RunnerConfig, getattr(config_mod, attr))
-        assert cfg.runner_name == slug, (
-            f"entry point {slug!r} -> {attr} resolves to "
-            f"runner_name={cfg.runner_name!r}"
-        )
+
+def test_application_entry_point_matches_factory() -> None:
+    """Keep the package manifest aligned with the application factory."""
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as file:
+        metadata = tomllib.load(file)
+
+    assert metadata["project"]["entry-points"][APPLICATION_ENTRY_POINT_GROUP] == {
+        APPLICATION_SLUG: "causal_forcing.t2v.app:create_app"
+    }
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 11),
-    reason="entry-point discovery test relies on ``importlib.metadata`` 3.10+ shape",
-)
-def test_entry_points_discoverable_when_installed() -> None:
-    """``importlib.metadata.entry_points`` finds the plugin's slugs.
-
-    Requires the package to be installed (``uv sync`` from the repo
-    root suffices since the plugin is a workspace member). Skipped
-    automatically when running from a clean checkout. This is the
-    integration check that mirrors what ``flashdreams-run``'s
-    discovery layer actually does.
-    """
-    from importlib.metadata import entry_points
-
-    eps = entry_points(group=ENTRY_POINT_GROUP)
-    discovered = {ep.name for ep in eps if ep.value.startswith("causal_forcing.")}
+def test_application_entry_point_is_discoverable_when_installed() -> None:
+    """Find the application slug when the plugin is installed."""
+    discovered = {
+        entry_point.name
+        for entry_point in entry_points(group=APPLICATION_ENTRY_POINT_GROUP)
+        if entry_point.value.startswith("causal_forcing.")
+    }
     if not discovered:
         pytest.skip("plugin not installed; run `uv sync` from the repo root first")
-    assert discovered == set(RUNNER_CONFIGS), (
-        f"discovered slugs ({sorted(discovered)}) != "
-        f"plugin runners ({sorted(RUNNER_CONFIGS)})"
-    )
+    assert discovered == {APPLICATION_SLUG}

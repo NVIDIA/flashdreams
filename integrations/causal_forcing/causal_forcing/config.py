@@ -21,14 +21,9 @@ from typing import Any, cast
 
 from torch import Tensor
 
-from causal_forcing.runner import (
-    CausalForcingI2VRunnerConfig,
-    CausalForcingT2VRunnerConfig,
-)
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.infra.runner import RunnerConfig
 from flashdreams.recipes.wan import (
     Wan21TransformerConfig,
     WanDiTNetwork1pt3BConfig,
@@ -103,12 +98,6 @@ PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
         ),
     ),
 )
-RUNNER_WAN21_T2V_1PT3B_CHUNKWISE = CausalForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE.name,
-    description="Causal-Forcing chunkwise Wan 2.1 1.3B T2V (Wan VAE decoder, 4-step).",
-    pipeline=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
-)
-
 # Framewise variant: one latent frame per AR chunk.
 PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE = cast(
     WanInferencePipelineConfig,
@@ -123,13 +112,6 @@ PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE = cast(
         ),
     ),
 )  # ty:ignore[redundant-cast]
-RUNNER_WAN21_T2V_1PT3B_FRAMEWISE = CausalForcingT2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE.name,
-    description="Causal-Forcing framewise Wan 2.1 1.3B T2V (len_t=1, Wan VAE).",
-    pipeline=PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
-)
-
-
 # I2V variant: framewise T2V model can naturally support I2V, by stamping
 # the image latent into the KV cache of the first rollout (stamp_image_latent=True)
 PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
@@ -145,18 +127,11 @@ PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
         ),
     ),
 )  # ty:ignore[redundant-cast]
-RUNNER_WAN21_I2V_1PT3B_FRAMEWISE = CausalForcingI2VRunnerConfig(
-    runner_name=PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE.name,
-    description="Causal-Forcing framewise Wan 2.1 1.3B I2V (len_t=1, Wan VAE).",
-    pipeline=PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE,
-)
-
-
-RUNNER_CONFIGS: dict[str, RunnerConfig] = {
-    cfg.runner_name: cfg
+PIPELINE_CONFIGS: dict[str, WanInferencePipelineConfig] = {
+    cfg.name: cfg
     for cfg in (
-        RUNNER_WAN21_T2V_1PT3B_CHUNKWISE,
-        RUNNER_WAN21_T2V_1PT3B_FRAMEWISE,
-        RUNNER_WAN21_I2V_1PT3B_FRAMEWISE,
+        PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
+        PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
+        PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE,
     )
 }

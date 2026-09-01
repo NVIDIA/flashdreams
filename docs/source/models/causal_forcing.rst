@@ -65,65 +65,46 @@ Installation
 Running the method
 ------------------
 
-To run Causal-Forcing, launch one of the registered runner slugs. For
-example:
+Launch the shared T2V application with a prompt:
 
 .. code-block:: bash
 
    uv run --project integrations/causal_forcing \
-       flashdreams-run \
-       causal-forcing-wan2.1-t2v-1.3b-framewise \
-       --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
-       --pixel-height 480 --pixel-width 832 \
-       --total-blocks 21
+       flashdreams-run t2v-causal-forcing \
+       --prompt "A reindeer standing in a snowy forest at sunset."
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
+The application opens a local window by default. It can also write an MP4 or
+serve a browser session:
 
 .. code-block:: bash
 
    uv run --project integrations/causal_forcing \
-       torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       causal-forcing-wan2.1-t2v-1.3b-framewise \
-       --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
-       --pixel-height 480 --pixel-width 832 \
-       --total-blocks 21
-
-For I2V, run with the following command:
+       flashdreams-run t2v-causal-forcing \
+       --output mp4 --output-path artifacts/causal-forcing.mp4 \
+       --prompt "A reindeer standing in a snowy forest at sunset."
 
 .. code-block:: bash
 
    uv run --project integrations/causal_forcing \
-       flashdreams-run \
-       causal-forcing-wan2.1-i2v-1.3b-framewise \
-       --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
-       --image-path https://raw.githubusercontent.com/thu-ml/Causal-Forcing/refs/heads/main/prompts/i2v/26-15/000001.png \
-       --pixel-height 480 --pixel-width 832 \
-       --total-blocks 21
+       flashdreams-run t2v-causal-forcing \
+       --output webrtc --host 0.0.0.0 --port 8080 \
+       --prompt "A reindeer standing in a snowy forest at sunset."
 
-We provide the following variants:
+The demo uses the chunkwise T2V preset. The package also exposes framewise T2V
+and I2V presets for direct pipeline use:
 
 .. list-table::
    :header-rows: 1
    :widths: 45 55
 
-   * - Method
+   * - Preset
      - Description
-   * - ``causal-forcing-wan2.1-t2v-1.3b-chunkwise``
+   * - ``PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE``
      - Causal-Forcing chunkwise Wan 2.1 1.3B T2V (``len_t=3``).
-   * - ``causal-forcing-wan2.1-t2v-1.3b-framewise``
+   * - ``PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE``
      - Causal-Forcing framewise Wan 2.1 1.3B T2V (``len_t=1``).
-   * - ``causal-forcing-wan2.1-i2v-1.3b-framewise``
+   * - ``PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE``
      - Causal-Forcing framewise Wan 2.1 1.3B I2V (``len_t=1``).
-
-To inspect all supported CLI arguments and their default values, run:
-
-.. code-block:: bash
-
-   uv run --project integrations/causal_forcing \
-       flashdreams-run \
-       causal-forcing-wan2.1-t2v-1.3b-framewise \
-       --help
 
 Some generated samples from the above commands:
 

@@ -15,35 +15,19 @@
 
 """Causal-Forcing text-to-video application factory."""
 
-from t2v import (
-    T2VApplication,
-    T2VApplicationDefaults,
-    T2VApplicationSession,
-)
-
-from causal_forcing.config import RUNNER_WAN21_T2V_1PT3B_CHUNKWISE
+from t2v import T2VApplication, T2VApplicationDefaults
+from causal_forcing.config import PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE
 from flashdreams.demo import IFlashDreamsApplication
-
-
-class CausalForcingT2VApplication(T2VApplication):
-    """Causal-Forcing text-to-video application."""
-
-    session_type = T2VApplicationSession
-
-    def __init__(self) -> None:
-        super().__init__(
-            defaults=T2VApplicationDefaults.from_runner_config(
-                RUNNER_WAN21_T2V_1PT3B_CHUNKWISE
-            )
-        )
-
-
 def create_app() -> IFlashDreamsApplication:
     """Create the Causal-Forcing text-to-video application."""
-    return CausalForcingT2VApplication()
-
-
-__all__ = [
-    "CausalForcingT2VApplication",
-    "create_app",
-]
+    return T2VApplication(
+        defaults=T2VApplicationDefaults(
+            pipeline_config=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
+            total_blocks=60,
+            pixel_height=480,
+            pixel_width=832,
+            fps=16,
+            output_layout="tchw",
+        )
+    )
+__all__ = ["create_app"]
