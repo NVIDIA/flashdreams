@@ -175,6 +175,9 @@ class _FakeImGui:
         no_saved_settings=8,
         no_title_bar=16,
         no_background=32,
+        always_auto_resize=64,
+        no_scrollbar=128,
+        no_scroll_with_mouse=256,
     )
     InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
     StyleVar_ = SimpleNamespace(
@@ -233,6 +236,7 @@ class _FakeImGui:
         self.current_child_size: tuple[float, float] | None = None
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
+        self.table_flags: dict[str, int] = {}
         self.highlighted_rows: list[int] = []
         self.current_table: str | None = None
         self.current_table_column = 0
@@ -295,9 +299,9 @@ class _FakeImGui:
     def get_window_draw_list(self) -> _FakeDrawList:
         return self.background_draw_list
 
-    def set_next_window_pos(self, position, condition) -> None:
+    def set_next_window_pos(self, position, condition, pivot=None) -> None:
         self.next_window_position = position
-        del condition
+        del condition, pivot
 
     def set_next_window_size(self, size, condition) -> None:
         self.next_window_size = size
@@ -429,10 +433,11 @@ class _FakeImGui:
         flags: int,
         outer_size: object,
     ) -> bool:
-        del columns, flags, outer_size
+        del columns, outer_size
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
+        self.table_flags[table_id] = flags
         return True
 
     def end_table(self) -> None:
@@ -606,12 +611,7 @@ def test_live_edit_card_dispatches_enabled_actions() -> None:
         "coins",
         "obstacle",
     ]
-    assert [size for _label, size in imgui.button_sizes] == [
-        (94.0, 34.0),
-        (94.0, 34.0),
-        (94.0, 34.0),
-        (94.0, 34.0),
-    ]
+    assert {size for _label, size in imgui.button_sizes} == {(108.0, 34.0)}
 
 
 def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
@@ -654,6 +654,10 @@ def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
         "OBSTACLES  2  HITS 1",
         "NITRO BOOST",
     ]
+    live_edit_flags = imgui.window_flags["Live Edit"]
+    assert live_edit_flags & imgui.WindowFlags_.always_auto_resize
+    assert live_edit_flags & imgui.WindowFlags_.no_scrollbar
+    assert live_edit_flags & imgui.WindowFlags_.no_scroll_with_mouse
     assert imgui.disabled_buttons == ["V  WEATHER"]
 
 
@@ -1113,7 +1117,11 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         "Crazy Robotaxi - Select Map",
         "Crazy Robotaxi - Select Race Course",
     ):
-        assert imgui.window_flags[title] & imgui.WindowFlags_.no_title_bar
+        flags = imgui.window_flags[title]
+        assert flags & imgui.WindowFlags_.no_title_bar
+        assert flags & imgui.WindowFlags_.always_auto_resize
+        assert flags & imgui.WindowFlags_.no_scrollbar
+        assert flags & imgui.WindowFlags_.no_scroll_with_mouse
     button_sizes = dict(imgui.button_sizes)
     assert button_sizes["TAXI"] == button_sizes["RACE"]
     for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
@@ -1129,6 +1137,8 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     course_button_size = button_sizes["DOWNTOWN SPRINT##course-0"]
     assert map_button_size is not None
     assert course_button_size is not None
+    assert imgui.child_sizes["##map-options"][0] == map_button_size[0]
+    assert imgui.child_sizes["##course-options"][0] == course_button_size[0]
     assert (
         map_preview_size[1] + map_button_size[1] + 10.0
         <= imgui.child_sizes["##map-options"][1]
@@ -1137,6 +1147,7 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         course_preview_size[1] + course_button_size[1] + 10.0
         <= imgui.child_sizes["##course-options"][1]
     )
+    assert imgui.buttons.count("CONTROLS") == 1
     assert imgui.buttons.count("OPTIONS") == 1
     for title in (
         "Crazy Robotaxi - Select Map",
@@ -1148,6 +1159,104 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
+
+
+def test_controls_menu_lists_bindings_and_returns_to_mode(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            style=LiveEditStyleConfig(enabled=True),
+            coins=LiveEditCoinsConfig(enabled=True),
+        ),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    menu_imgui = _FakeImGui()
+
+    state.draw(menu_imgui)
+
+    menu_buttons = [label for label, _size in menu_imgui.button_sizes]
+    assert menu_buttons.index("CONTROLS") + 1 == menu_buttons.index("OPTIONS")
+
+    open_imgui = _FakeImGui()
+    open_imgui.clicked_buttons.add("CONTROLS")
+    state.draw(open_imgui)
+    assert state._menu_stage == "controls"
+
+    controls_imgui = _FakeImGui()
+    state.draw(controls_imgui)
+
+    lines = controls_imgui.windows["Crazy Robotaxi - Controls"]
+    assert (
+        controls_imgui.window_flags["Crazy Robotaxi - Controls"]
+        & controls_imgui.WindowFlags_.no_title_bar
+    )
+    controls_flags = controls_imgui.window_flags["Crazy Robotaxi - Controls"]
+    assert controls_flags & controls_imgui.WindowFlags_.always_auto_resize
+    assert controls_flags & controls_imgui.WindowFlags_.no_scrollbar
+    assert controls_flags & controls_imgui.WindowFlags_.no_scroll_with_mouse
+    assert "KEYBOARD AND MOUSE" in lines
+    assert "CONTROLLER AND WHEEL" in lines
+    assert "LIVE EDIT" in lines
+    assert "GAMEPADS DO NOT CONTROL MENUS, THE HANDBRAKE, OR LIVE EDIT" in lines
+    assert controls_imgui.tables["##controls-0"] == [
+        ["W / UP ARROW", "DRIVE FORWARD"],
+        ["S / DOWN ARROW", "REVERSE"],
+        ["A / LEFT ARROW", "STEER LEFT"],
+        ["D / RIGHT ARROW", "STEER RIGHT"],
+        ["SPACE", "HANDBRAKE AND CANCEL THROTTLE"],
+        ["R", "RESTART THE CURRENT GAME"],
+        ["H", "HIDE OR SHOW GAMEPLAY CONTROL HINTS"],
+        ["ESC", "RETURN TO THE PREVIOUS MENU"],
+        ["ENTER", "SUBMIT THE LEADERBOARD NAME"],
+        ["MOUSE", "SELECT MENU AND HUD BUTTONS"],
+    ]
+    assert controls_imgui.tables["##controls-1"] == [
+        ["LEFT STICK", "STEER"],
+        ["RT / R2 / ZR", "THROTTLE"],
+        ["LT / L2 / ZL", "BRAKE"],
+        ["R / RB / R1 (HOLD)", "REVERSE"],
+        ["START / MENU / PLUS", "RESTART THE CURRENT GAME"],
+        ["WHEEL AND PEDALS", "STEER, THROTTLE, AND BRAKE"],
+    ]
+    assert controls_imgui.tables["##controls-2"] == [
+        ["K", "CYCLE STYLE  [ENABLED]"],
+        ["V", "CYCLE WEATHER  [NOT ENABLED]"],
+        ["C", "TOGGLE COINS  [ENABLED]"],
+        ["O", "SPAWN OBSTACLE  [NOT ENABLED]"],
+    ]
+    assert "BACK" in controls_imgui.buttons
+
+    back_imgui = _FakeImGui()
+    back_imgui.clicked_buttons.add("BACK")
+    state.draw(back_imgui)
+    assert state._menu_stage == "mode"
+
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    state._menu_stage = "controls"
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="Escape",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        )
+    )
+
+    assert state._menu_stage == "mode"
+    model_loop._run_message_batch()
+    assert not model_loop.state.exit_requested
 
 
 def test_missing_selection_thumbnail_keeps_text_button(tmp_path: Path) -> None:
@@ -1647,6 +1756,11 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
     assert imgui.highlighted_rows == [2]
     assert "PLAY AGAIN" in imgui.buttons
     assert "R  RESTART   ·   ESC  MAP" in imgui.windows["Game Over"]
+    results_flags = imgui.window_flags["Game Over"]
+    assert results_flags & imgui.WindowFlags_.always_auto_resize
+    assert results_flags & imgui.WindowFlags_.no_scrollbar
+    assert results_flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert imgui.table_flags["##leaderboard"] & imgui.TableFlags_.scroll_y
 
 
 def test_race_results_card_formats_times() -> None:
@@ -1770,6 +1884,12 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     state.draw(imgui)
 
     labels = {label for label, _size in imgui.button_sizes}
+    options_flags = imgui.window_flags["Crazy Robotaxi - Options"]
+    assert options_flags & imgui.WindowFlags_.always_auto_resize
+    assert options_flags & imgui.WindowFlags_.no_scrollbar
+    assert options_flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert "##options-categories" in imgui.child_sizes
+    assert "##options-fields" in imgui.child_sizes
     assert "GAME##options-category-game" in labels
     assert "LAUNCH##options-category-launch" not in labels
     assert "SAVE" in labels
