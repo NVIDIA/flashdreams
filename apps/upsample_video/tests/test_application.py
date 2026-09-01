@@ -21,6 +21,12 @@ from dataclasses import dataclass, field
 
 import pytest
 import torch
+from upsample_video import (
+    LoadedVideo,
+    UpsampleVideoApplication,
+    UpsampleVideoApplicationDefaults,
+)
+
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.postprocess import (
     VideoChunk,
@@ -30,11 +36,6 @@ from flashdreams.infra.postprocess import (
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from upsample_video import (
-    LoadedVideo,
-    UpsampleVideoApplication,
-    UpsampleVideoApplicationDefaults,
-)
 
 pytestmark = pytest.mark.ci_cpu
 

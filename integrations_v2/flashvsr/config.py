@@ -21,8 +21,6 @@ from collections.abc import Callable
 from typing import Literal
 
 import torch
-from flashdreams.infra.diffusion.model import DiffusionModelConfig
-from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 from flashvsr.impl.corrector import ColorCorrectorImplementation
 from flashvsr.impl.decoder import FlashVSRDecoderConfig
 from flashvsr.impl.encoder import FlashVSREncoderConfig
@@ -31,6 +29,9 @@ from flashvsr.impl.transformer import FlashVSRTransformerConfig
 from flashvsr.impl.transformer.network import (
     FlashVSRDiTNetworkConfig,
 )
+
+from flashdreams.infra.diffusion.model import DiffusionModelConfig
+from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 
 __all__ = [
     "AVAILABLE_FLASHVSR_CHECKPOINT_PATHS",

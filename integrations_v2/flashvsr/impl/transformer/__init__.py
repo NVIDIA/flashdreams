@@ -36,6 +36,14 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 import torch
+from flashvsr.impl.transformer.network import (
+    _SELF_ATTN_WINDOW,
+    _SELF_ATTN_WINDOW_TOKENS,
+    FlashVSRDiTNetwork,
+    FlashVSRDiTNetworkConfig,
+)
+from torch import Tensor
+
 from flashdreams.core.distributed.context_parallel import split_inputs_cp
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
@@ -44,13 +52,6 @@ from flashdreams.recipes.wan.transformer.wan21 import (
     Wan21TransformerCache,
     Wan21TransformerConfig,
 )
-from flashvsr.impl.transformer.network import (
-    _SELF_ATTN_WINDOW,
-    _SELF_ATTN_WINDOW_TOKENS,
-    FlashVSRDiTNetwork,
-    FlashVSRDiTNetworkConfig,
-)
-from torch import Tensor
 
 __all__ = [
     "FlashVSRTransformer",

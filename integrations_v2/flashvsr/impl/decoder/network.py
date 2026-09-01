@@ -32,6 +32,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+from flashvsr.impl.encoder.network import PixelShuffle3d
+
 from flashdreams.recipes.taehv.checkpoint import StateDictTransform
 from flashdreams.recipes.taehv.impl import (
     TAEHV as _FlashDreamsTAEHV,
@@ -42,7 +44,6 @@ from flashdreams.recipes.taehv.impl import (
 from flashdreams.recipes.taehv.impl import (
     TAEHVCache as FlashVSR_TAEHV_Cache,
 )
-from flashvsr.impl.encoder.network import PixelShuffle3d
 
 DecoderResult = namedtuple("DecoderResult", ("frame", "memory"))
 TWorkItem = namedtuple("TWorkItem", ("input_tensor", "block_index"))

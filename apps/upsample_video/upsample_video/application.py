@@ -28,6 +28,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torch import Tensor
+
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
@@ -48,7 +50,6 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from torch import Tensor
 
 _BIG_BUCK_BUNNY_FILENAME = "big_buck_bunny_480p_h264.mov"
 """Video contained by the Blender-hosted demo archive."""

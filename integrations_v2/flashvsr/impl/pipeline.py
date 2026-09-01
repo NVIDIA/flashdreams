@@ -23,16 +23,6 @@ from pathlib import Path
 from typing import TypeAlias
 
 import torch
-from flashdreams.core.distributed.context_parallel import cat_outputs_cp
-from flashdreams.core.io.download import download_to_cache
-from flashdreams.infra.diffusion.model import DiffusionModel
-from flashdreams.infra.pipeline import (
-    StreamInferencePipeline,
-    StreamInferencePipelineCache,
-    StreamInferencePipelineConfig,
-)
-from flashdreams.infra.profiler import EventProfiler, record_event
-from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerCache
 from flashvsr.impl.decoder import (
     FlashVSRDecoder,
     FlashVSRDecoderCache,
@@ -48,6 +38,17 @@ from flashvsr.impl.transformer import (
     FlashVSRTransformerConfig,
 )
 from torch import Tensor
+
+from flashdreams.core.distributed.context_parallel import cat_outputs_cp
+from flashdreams.core.io.download import download_to_cache
+from flashdreams.infra.diffusion.model import DiffusionModel
+from flashdreams.infra.pipeline import (
+    StreamInferencePipeline,
+    StreamInferencePipelineCache,
+    StreamInferencePipelineConfig,
+)
+from flashdreams.infra.profiler import EventProfiler, record_event
+from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerCache
 
 FlashVSRPipelineCache: TypeAlias = StreamInferencePipelineCache[
     FlashVSREncoderCache,

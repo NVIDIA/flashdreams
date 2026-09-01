@@ -50,12 +50,13 @@ from __future__ import annotations
 
 import pytest
 import torch
-from flashdreams.core.checkpoint.load import load_checkpoint
 from flashvsr.config import AVAILABLE_FLASHVSR_CHECKPOINT_PATHS
 from flashvsr.impl.encoder.network import (
     Causal_LQ4x_Proj,
     Causal_LQ4x_Proj_Cache,
 )
+
+from flashdreams.core.checkpoint.load import load_checkpoint
 
 pytestmark = pytest.mark.ci_gpu
 

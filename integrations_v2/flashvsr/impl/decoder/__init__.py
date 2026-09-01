@@ -32,6 +32,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+from flashvsr.impl.corrector import (
+    ColorCorrectorImplementation,
+    FlashVSRColorCorrector,
+)
+from flashvsr.impl.decoder.network import (
+    FlashVSR_TAEHV,
+    FlashVSR_TAEHV_Cache,
+)
+from torch import Tensor
+
 from flashdreams.infra.decoder import (
     DecoderConfig,
     StreamingDecoder,
@@ -42,15 +52,6 @@ from flashdreams.recipes.taehv.checkpoint import (
     StateDictTransform,
     legacy_to_blocks_keys,
 )
-from flashvsr.impl.corrector import (
-    ColorCorrectorImplementation,
-    FlashVSRColorCorrector,
-)
-from flashvsr.impl.decoder.network import (
-    FlashVSR_TAEHV,
-    FlashVSR_TAEHV_Cache,
-)
-from torch import Tensor
 
 __all__ = [
     "FlashVSRDecoder",

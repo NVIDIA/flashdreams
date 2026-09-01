@@ -1,6 +1,6 @@
 [project]
 name = "flashvsr-parity-check"
-version = "0.1.0a2"
+version = "0.1.0"
 description = "Isolated venv for the FlashVSR parity-check benchmark."
 # Match flashdreams' supported Python range exactly (it pins 3.12).
 # Upstream FlashVSR's README pins 3.11.13, but its `pip install -e .` (which
@@ -100,5 +100,5 @@ block-sparse-attn = [
 # extension just to resolve this standalone parity-check venv.
 [[tool.uv.dependency-metadata]]
 name = "block-sparse-attn"
-version = "0.1.0a2"
+version = "0.1.0"
 requires-dist = ["torch", "einops"]

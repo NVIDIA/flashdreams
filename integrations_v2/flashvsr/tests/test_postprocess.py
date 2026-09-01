@@ -23,13 +23,14 @@ from typing import Any, cast
 import flashvsr.impl.postprocess as flashvsr_postprocess
 import pytest
 import torch
+from flashvsr.impl.pipeline import FlashVSRPipeline
+from flashvsr.impl.postprocess import FlashVSRPostProcessorConfig
+
 from flashdreams.infra.postprocess import (
     VideoChunk,
     VideoSpec,
 )
 from flashdreams.infra.postprocess.base import concatenate_video_chunks
-from flashvsr.impl.pipeline import FlashVSRPipeline
-from flashvsr.impl.postprocess import FlashVSRPostProcessorConfig
 
 pytestmark = pytest.mark.ci_cpu
 

@@ -23,6 +23,10 @@ from functools import partial
 from typing import Any, Literal
 
 import torch
+from flashvsr.impl.corrector import ColorCorrectorImplementation
+from flashvsr.impl.encoder import FlashVSREncoder
+from torch import Tensor
+
 from flashdreams.infra.acceleration.prewarm import (
     cuda_graph_prewarm_steps,
     run_prewarm_sequence,
@@ -35,9 +39,6 @@ from flashdreams.infra.postprocess import (
     VideoSpec,
     to_bvtchw,
 )
-from flashvsr.impl.corrector import ColorCorrectorImplementation
-from flashvsr.impl.encoder import FlashVSREncoder
-from torch import Tensor
 
 _DTypeName = Literal["bfloat16", "float16", "float32"]
 _TailPolicy = Literal["replicate_pad", "drop"]

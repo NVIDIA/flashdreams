@@ -50,13 +50,6 @@ from typing import Any, Literal
 
 import torch
 import torch.nn.functional as F
-from flashdreams.core.checkpoint.load import load_checkpoint
-from flashdreams.infra.encoder import (
-    EncoderConfig,
-    StreamingEncoder,
-    StreamingEncoderCache,
-)
-from flashdreams.infra.profiler import EventProfiler, record_event
 from flashvsr.impl.constants import (
     FLASHVSR_CHUNK_FRAME_TARGETS,
     FLASHVSR_FRAMES_PER_DIT_ITER,
@@ -66,6 +59,14 @@ from flashvsr.impl.encoder.network import (
     Causal_LQ4x_Proj_Cache,
 )
 from torch import Tensor
+
+from flashdreams.core.checkpoint.load import load_checkpoint
+from flashdreams.infra.encoder import (
+    EncoderConfig,
+    StreamingEncoder,
+    StreamingEncoderCache,
+)
+from flashdreams.infra.profiler import EventProfiler, record_event
 
 _DEV_ASSERT = os.environ.get("FLASHVSR_DEV_ASSERT", "0") == "1"
 """Opt-in cold-start bicubic-vs-pad equivalence check. Set

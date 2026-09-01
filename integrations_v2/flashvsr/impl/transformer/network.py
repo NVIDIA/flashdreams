@@ -61,6 +61,8 @@ from typing import Any, List, Literal, Optional, Tuple
 
 import torch
 from einops import rearrange
+from torch import Tensor
+
 from flashdreams.core.attention import BlockKVCache
 from flashdreams.core.attention.rope import apply_rope_freqs
 from flashdreams.recipes.wan.transformer.impl.modules import (
@@ -75,7 +77,6 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
     WanDiTNetworkConfig,
 )
-from torch import Tensor
 
 __all__ = [
     "FlashVSRDiTNetwork",

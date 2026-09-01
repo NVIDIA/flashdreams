@@ -30,7 +30,6 @@ import builtins
 
 import pytest
 import torch
-from flashdreams.infra.config import derive_config
 from flashvsr.config import (
     AVAILABLE_FLASHVSR_CHECKPOINT_PATHS,
     PIPELINE_FLASHVSR_V1_1_FULL_ATTN,
@@ -46,6 +45,8 @@ from flashvsr.impl.transformer.network import (
     FlashVSRDiTNetworkConfig,
     SparseSelfAttention,
 )
+
+from flashdreams.infra.config import derive_config
 
 pytestmark = pytest.mark.ci_gpu
 

@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-from flashdreams.api_v2.application import IApplication
 from flashvsr.impl.postprocess import (
     POSTPROCESS_PRESET_FLASHVSR_V1_1_FULL_ATTN,
     POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_1_5,
@@ -26,6 +25,8 @@ from flashvsr.impl.postprocess import (
     _chunk_mode,
 )
 from upsample_video import UpsampleVideoApplication, UpsampleVideoApplicationDefaults
+
+from flashdreams.api_v2.application import IApplication
 
 
 def _create_application(

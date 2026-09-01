@@ -37,6 +37,7 @@ from typing import Callable, Literal
 import torch
 import torch.nn as nn
 from einops import rearrange
+
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
 from flashdreams.recipes.wan.autoencoder.vae import (
     CausalConv3d as _WanCausalConv3d,

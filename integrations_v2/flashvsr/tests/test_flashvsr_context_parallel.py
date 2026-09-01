@@ -35,11 +35,6 @@ from typing import cast
 import pytest
 import torch
 import torch.distributed as dist
-from flashdreams.core.attention.native import NativeAttention
-from flashdreams.core.distributed.context_parallel import (
-    cat_outputs_cp,
-    split_inputs_cp,
-)
 from flashvsr.impl.transformer import (
     FlashVSRTransformer,
     FlashVSRTransformerConfig,
@@ -47,6 +42,12 @@ from flashvsr.impl.transformer import (
 from flashvsr.impl.transformer.network import (
     FlashVSRBlock,
     FlashVSRDiTNetworkConfig,
+)
+
+from flashdreams.core.attention.native import NativeAttention
+from flashdreams.core.distributed.context_parallel import (
+    cat_outputs_cp,
+    split_inputs_cp,
 )
 
 pytestmark = pytest.mark.manual
