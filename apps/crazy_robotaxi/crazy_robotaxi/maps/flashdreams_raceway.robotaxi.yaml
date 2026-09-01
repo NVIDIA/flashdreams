@@ -148,6 +148,7 @@ roads:
 
 race_courses:
   - id: grand-prix
+    spawn: race_start
     start: start_finish
     checkpoints:
       - turn_one

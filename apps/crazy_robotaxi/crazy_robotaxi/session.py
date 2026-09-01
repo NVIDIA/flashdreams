@@ -141,8 +141,9 @@ class ModelState:
     def select_game(self, selection: GameSelection) -> None:
         """Load the selected map and configure its rules on the model thread."""
         option = selection.map_option
+        course = option.race_course(selection.race_course_id)
         if selection.mode == "race":
-            if selection.race_course_id not in option.race_course_ids:
+            if course is None:
                 raise ValueError(
                     f"Unknown race course {selection.race_course_id!r} "
                     f"for map {option.map_id!r}"
@@ -154,6 +155,7 @@ class ModelState:
         request = replace(
             self.config.scene_request,
             map_path=option.path,
+            spawn_id=None if course is None else course.spawn_id,
         )
         scene = self.scene_factory(request, self.config.renderer.raster)
         self.close()

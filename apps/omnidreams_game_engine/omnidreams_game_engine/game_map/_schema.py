@@ -32,7 +32,7 @@ _REQUIRED_ROOT_FIELDS = frozenset(
     }
 )
 _OPTIONAL_ROOT_FIELDS = frozenset(
-    {"profiles", "race_courses", "traffic", "traffic_count"}
+    {"menu_thumbnail", "profiles", "race_courses", "traffic", "traffic_count"}
 )
 
 _PROFILE_ATTRIBUTE_FIELDS = frozenset(
@@ -54,30 +54,36 @@ class GameMapError(ValueError):
 
 
 @dataclass(frozen=True)
+class GameMapRaceCourseHeader:
+    """Race-course metadata read without compiling geometry."""
+
+    course_id: str
+    """Stable course identifier scoped to its map."""
+
+    spawn_id: str
+    """Required authored spawn used to initialize the course."""
+
+    spawn_image_path: Path | None = None
+    """Resolved image for the required course spawn, when authored."""
+
+
+@dataclass(frozen=True)
 class GameMapHeader:
     """Game-map metadata read without compiling geometry."""
 
     map_id: str
     name: str
     source_path: Path
-    race_course_ids: tuple[str, ...] = ()
+    race_courses: tuple[GameMapRaceCourseHeader, ...] = ()
+    """Ordered race-course menu metadata."""
 
+    menu_thumbnail_path: Path | None = None
+    """Explicit menu thumbnail or the first authored spawn image."""
 
-def _parse_race_course_ids(doc: dict[str, Any]) -> tuple[str, ...]:
-    """Read stable course identifiers without compiling map geometry."""
-    if "race_courses" not in doc:
-        return ()
-    raw_courses = _sequence(doc["race_courses"], "race_courses")
-    if not raw_courses:
-        raise GameMapError("race_courses must contain at least one course")
-    course_ids: list[str] = []
-    for index, value in enumerate(raw_courses):
-        raw = _mapping(value, f"race_courses[{index}]")
-        course_id = str(raw.get("id", "")).strip()
-        if not course_id or course_id in course_ids:
-            raise GameMapError(f"Race course id {course_id!r} is empty or duplicated")
-        course_ids.append(course_id)
-    return tuple(course_ids)
+    @property
+    def race_course_ids(self) -> tuple[str, ...]:
+        """Return ordered stable course identifiers."""
+        return tuple(course.course_id for course in self.race_courses)
 
 
 @dataclass(frozen=True)
@@ -214,21 +220,89 @@ def _parse_spawn_conditioning(
     return image, prompt
 
 
+def _parse_spawn_image_paths(
+    doc: dict[str, Any], source_path: Path
+) -> tuple[tuple[str, Path | None], ...]:
+    """Read ordered spawn identifiers and optional authored images."""
+    values = _sequence(doc.get("spawns"), "spawns")
+    if not values:
+        raise GameMapError("Map must define at least one spawn")
+    result: list[tuple[str, Path | None]] = []
+    spawn_ids: set[str] = set()
+    for index, value in enumerate(values):
+        raw = _mapping(value, f"spawns[{index}]")
+        spawn_id = str(raw.get("id", "")).strip()
+        if not spawn_id or spawn_id in spawn_ids:
+            raise GameMapError(f"Spawn id {spawn_id!r} is empty or duplicated")
+        spawn_ids.add(spawn_id)
+        image, _ = _parse_spawn_conditioning(raw, source_path)
+        result.append(
+            (
+                spawn_id,
+                None if image is None else resolve_seed_asset(source_path, image),
+            )
+        )
+    return tuple(result)
+
+
+def _parse_race_course_headers(
+    doc: dict[str, Any], spawn_images: dict[str, Path | None]
+) -> tuple[GameMapRaceCourseHeader, ...]:
+    """Read course-to-spawn menu metadata without compiling geometry."""
+    if "race_courses" not in doc:
+        return ()
+    raw_courses = _sequence(doc["race_courses"], "race_courses")
+    if not raw_courses:
+        raise GameMapError("race_courses must contain at least one course")
+    result: list[GameMapRaceCourseHeader] = []
+    course_ids: set[str] = set()
+    for index, value in enumerate(raw_courses):
+        raw = _mapping(value, f"race_courses[{index}]")
+        course_id = str(raw.get("id", "")).strip()
+        if not course_id or course_id in course_ids:
+            raise GameMapError(f"Race course id {course_id!r} is empty or duplicated")
+        course_ids.add(course_id)
+        spawn_id = str(raw.get("spawn", "")).strip()
+        if not spawn_id:
+            raise GameMapError(f"Race course {course_id!r} requires a spawn")
+        if spawn_id not in spawn_images:
+            raise GameMapError(
+                f"Race course {course_id!r} references unknown spawn {spawn_id!r}"
+            )
+        result.append(
+            GameMapRaceCourseHeader(
+                course_id=course_id,
+                spawn_id=spawn_id,
+                spawn_image_path=spawn_images[spawn_id],
+            )
+        )
+    return tuple(result)
+
+
 def load_game_map_header(path: Path) -> GameMapHeader:
-    """Load menu metadata and validate default-spawn conditioning."""
+    """Load menu metadata and validate spawn conditioning."""
     source_path = Path(path).expanduser().resolve()
     doc = _read_document(source_path)
     map_id, name = _parse_map_identity(doc)
-    spawns = _sequence(doc.get("spawns"), "spawns")
-    if not spawns:
-        raise GameMapError("Map must define at least one spawn")
-    first_spawn = _mapping(spawns[0], "spawns[0]")
-    _parse_spawn_conditioning(first_spawn, source_path)
+    spawn_image_items = _parse_spawn_image_paths(doc, source_path)
+    spawn_images = dict(spawn_image_items)
+    thumbnail_value = doc.get("menu_thumbnail")
+    if thumbnail_value is None:
+        menu_thumbnail_path = next(
+            (image for _spawn_id, image in spawn_image_items if image is not None),
+            None,
+        )
+    else:
+        thumbnail = str(thumbnail_value).strip()
+        if not thumbnail:
+            raise GameMapError("menu_thumbnail must not be empty")
+        menu_thumbnail_path = resolve_seed_asset(source_path, thumbnail)
     return GameMapHeader(
         map_id=map_id,
         name=name,
         source_path=source_path,
-        race_course_ids=_parse_race_course_ids(doc),
+        race_courses=_parse_race_course_headers(doc, spawn_images),
+        menu_thumbnail_path=menu_thumbnail_path,
     )
 
 

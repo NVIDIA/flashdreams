@@ -240,6 +240,9 @@ class GameMapRaceCourse:
     course_id: str
     """Stable course identifier scoped to the containing map."""
 
+    spawn_id: str
+    """Required map spawn used to initialize this course."""
+
     start_element_id: str
     """Node or road surface that starts the timer and closes each lap."""
 
@@ -584,6 +587,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
         "race_courses": [
             {
                 "course_id": course.course_id,
+                "spawn_id": course.spawn_id,
                 "start_element_id": course.start_element_id,
                 "checkpoint_element_ids": list(course.checkpoint_element_ids),
                 "lap_count": course.lap_count,
@@ -823,6 +827,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
     race_courses = tuple(
         GameMapRaceCourse(
             course_id=str(raw["course_id"]),
+            spawn_id=str(raw["spawn_id"]),
             start_element_id=str(raw["start_element_id"]),
             checkpoint_element_ids=tuple(
                 str(item) for item in raw["checkpoint_element_ids"]

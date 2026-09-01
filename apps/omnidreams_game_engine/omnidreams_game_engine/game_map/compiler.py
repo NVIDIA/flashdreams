@@ -28,9 +28,10 @@ from shapely.ops import substring, unary_union
 from omnidreams_game_engine import camera_defaults
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.game_map import spawn_render
-from omnidreams_game_engine.game_map._schema import resolve_seed_asset
+from omnidreams_game_engine.game_map._schema import GameMapError, resolve_seed_asset
 from omnidreams_game_engine.game_map.loader import load_game_map
 from omnidreams_game_engine.game_map.types import (
+    GameMapSpawn,
     ResolvedGameMap,
     game_map_to_dict,
 )
@@ -388,8 +389,7 @@ def _metadata(game_map: ResolvedGameMap) -> dict[str, object]:
     }
 
 
-def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
-    spawn = game_map.default_spawn
+def _trajectory(spawn: GameMapSpawn) -> dict[str, object]:
     pose = rig_pose_from_state(
         float(spawn.position_world[0]),
         float(spawn.position_world[1]),
@@ -409,13 +409,12 @@ def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
     }
 
 
-def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
-    spawn = game_map.default_spawn
+def _write_archive(path: Path, game_map: ResolvedGameMap, spawn: GameMapSpawn) -> None:
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "metadata.yaml", yaml.safe_dump(_metadata(game_map), sort_keys=True)
         )
-        archive.writestr("rig_trajectories.json", json.dumps(_trajectory(game_map)))
+        archive.writestr("rig_trajectories.json", json.dumps(_trajectory(spawn)))
         archive.writestr(
             "game_map.json",
             json.dumps(game_map_to_dict(game_map), separators=(",", ":")),
@@ -456,15 +455,32 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
 def compile_game_map(
     path: Path,
     *,
+    spawn_id: str | None = None,
     cache_root: Path | None = None,
     force: bool = False,
 ) -> CompiledGameMap:
-    """Compile a map, optionally replacing its valid cached archive."""
+    """Compile one map spawn, optionally replacing its valid cached archive."""
     game_map = load_game_map(path)
+    spawn = (
+        game_map.default_spawn
+        if spawn_id is None
+        else next(
+            (item for item in game_map.spawns if item.spawn_id == spawn_id),
+            None,
+        )
+    )
+    if spawn is None:
+        available = ", ".join(item.spawn_id for item in game_map.spawns)
+        raise GameMapError(f"Unknown spawn {spawn_id!r}; available spawns: {available}")
     digest = _digest(game_map)
     root = _cache_root() if cache_root is None else Path(cache_root)
     output_dir = root / digest
-    archive_path = output_dir / f"{game_map.map_id}.usdz"
+    spawn_suffix = (
+        ""
+        if spawn is game_map.default_spawn
+        else "-" + hashlib.sha256(spawn.spawn_id.encode()).hexdigest()
+    )
+    archive_path = output_dir / f"{game_map.map_id}{spawn_suffix}.usdz"
     lock = FileLock(str(root / f"{digest}.lock"))
     root.mkdir(parents=True, exist_ok=True)
     with lock:
@@ -484,7 +500,7 @@ def compile_game_map(
         os.close(file_descriptor)
         temporary = Path(temporary_name)
         try:
-            _write_archive(temporary, game_map)
+            _write_archive(temporary, game_map, spawn)
             temporary.replace(archive_path)
         finally:
             temporary.unlink(missing_ok=True)

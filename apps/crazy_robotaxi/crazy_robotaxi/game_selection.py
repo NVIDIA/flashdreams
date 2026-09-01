@@ -25,6 +25,20 @@ GameMode = Literal["taxi", "race"]
 
 
 @dataclass(frozen=True, slots=True)
+class GameRaceCourseOption:
+    """Lightweight authored race-course metadata displayed by the UI thread."""
+
+    course_id: str
+    """Stable course identifier scoped to its map."""
+
+    spawn_id: str
+    """Required authored spawn used to initialize the course."""
+
+    preview_image_path: Path | None = None
+    """Resolved course-spawn image, when authored."""
+
+
+@dataclass(frozen=True, slots=True)
 class GameMapOption:
     """Lightweight authored-map metadata displayed by the UI thread."""
 
@@ -37,8 +51,23 @@ class GameMapOption:
     path: Path
     """Resolved authored-map path loaded after selection."""
 
-    race_course_ids: tuple[str, ...] = ()
+    race_courses: tuple[GameRaceCourseOption, ...] = ()
     """Ordered race courses available on this map."""
+
+    preview_image_path: Path | None = None
+    """Resolved map menu thumbnail after applying authored fallback rules."""
+
+    @property
+    def race_course_ids(self) -> tuple[str, ...]:
+        """Return ordered stable course identifiers."""
+        return tuple(course.course_id for course in self.race_courses)
+
+    def race_course(self, course_id: str | None) -> GameRaceCourseOption | None:
+        """Return the matching course menu metadata, when available."""
+        return next(
+            (course for course in self.race_courses if course.course_id == course_id),
+            None,
+        )
 
 
 @dataclass(frozen=True, slots=True)

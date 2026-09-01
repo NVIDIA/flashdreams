@@ -351,6 +351,7 @@ roads:
 
 race_courses:
   - id: eastbound-boulevard-sprint
+    spawn: original_area_start
     start: spawn_arterial
     checkpoints:
       - central_arterial_crossing

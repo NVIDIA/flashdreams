@@ -1000,7 +1000,7 @@ def _validate_topology(topology: GameMapTopology) -> None:
 
 
 def _parse_race_courses(
-    doc: dict[str, Any], topology: GameMapTopology
+    doc: dict[str, Any], topology: GameMapTopology, spawn_ids: set[str]
 ) -> tuple[GameMapRaceCourse, ...]:
     """Validate ordered race courses against authored nodes and roads."""
     if "race_courses" not in doc:
@@ -1016,7 +1016,7 @@ def _parse_race_courses(
     course_ids: set[str] = set()
     for index, value in enumerate(values):
         raw = _mapping(value, f"race_courses[{index}]")
-        required = {"id", "start", "checkpoints", "lap_count"}
+        required = {"id", "spawn", "start", "checkpoints", "lap_count"}
         allowed = required | {"checkpoint_markers"}
         if not required <= set(raw) or not set(raw) <= allowed:
             raise GameMapError(
@@ -1027,6 +1027,11 @@ def _parse_race_courses(
         if not course_id or course_id in course_ids:
             raise GameMapError(f"Race course id {course_id!r} is empty or duplicated")
         course_ids.add(course_id)
+        spawn_id = str(raw["spawn"]).strip()
+        if spawn_id not in spawn_ids:
+            raise GameMapError(
+                f"Race course {course_id!r} references unknown spawn {spawn_id!r}"
+            )
         start = str(raw["start"]).strip()
         if start not in valid_elements:
             raise GameMapError(
@@ -1072,6 +1077,7 @@ def _parse_race_courses(
         courses.append(
             GameMapRaceCourse(
                 course_id=course_id,
+                spawn_id=spawn_id,
                 start_element_id=start,
                 checkpoint_element_ids=checkpoints,
                 lap_count=lap_count,
@@ -2772,8 +2778,6 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         ),
     )
     _validate_topology(topology)
-    race_courses = _parse_race_courses(doc, topology)
-
     raw_roads: dict[str, np.ndarray] = {}
     for spec in road_specs:
         if spec.spans_xy:
@@ -3027,6 +3031,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     spawn_ids = [spawn.spawn_id for spawn in spawns]
     if len(set(spawn_ids)) != len(spawn_ids):
         raise GameMapError("Spawn ids must be non-empty and unique")
+    race_courses = _parse_race_courses(doc, topology, set(spawn_ids))
     runtime_lanes = tuple(
         GameMapLane(
             lane_id=lane.lane_id,

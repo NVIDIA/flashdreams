@@ -34,6 +34,7 @@ import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.types import CameraCalibration
+from PIL import Image
 from torch import Tensor
 
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
@@ -125,6 +126,7 @@ _PROFILE_DRIVE_KEYS = frozenset(
 )
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
+_LOGGER = logging.getLogger(__name__)
 
 
 def bev_display_extent(video_width: int, video_height: int) -> tuple[int, int]:
@@ -279,6 +281,11 @@ class TaxiHudState:
 
     _options_error: str = ""
     """Most recent field or save validation error."""
+
+    _selection_preview_pixels: dict[Path, npt.NDArray[np.uint8] | None] = field(
+        default_factory=dict
+    )
+    """Decoded menu thumbnails cached by resolved authored-image path."""
 
     _settings_notice: str = ""
     """Most recent save outcome displayed temporarily in Options."""
@@ -602,6 +609,48 @@ class TaxiHudState:
             model_loop,
             lambda model_state, value=selection: model_state.select_game(value),
         )
+
+    def _draw_selection_preview(
+        self,
+        imgui: Any,
+        image_path: Path | None,
+        available_width: float,
+        scale: float,
+        max_height: float | None = None,
+    ) -> None:
+        if image_path is None:
+            return
+        if image_path not in self._selection_preview_pixels:
+            try:
+                with Image.open(image_path) as image:
+                    pixels = np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
+            except OSError as exc:
+                _LOGGER.warning("Could not load menu thumbnail %s: %s", image_path, exc)
+                pixels = None
+            self._selection_preview_pixels[image_path] = pixels
+        pixels = self._selection_preview_pixels[image_path]
+        if pixels is None:
+            return
+        image_height, image_width = pixels.shape[:2]
+        preview_width = min(available_width, 260.0 * scale, float(image_width))
+        if preview_width <= 0.0 or image_width <= 0 or image_height <= 0:
+            return
+        preview_height = preview_width * image_height / image_width
+        if max_height is not None and preview_height > max_height:
+            preview_height = max_height
+            preview_width = preview_height * image_width / image_height
+        if preview_height <= 0.0:
+            return
+        cursor_x = float(imgui.get_cursor_pos_x())
+        imgui.set_cursor_pos_x(
+            cursor_x + max(0.0, (available_width - preview_width) * 0.5)
+        )
+        imgui.image(
+            f"selection-preview:{image_path}",
+            pixels,
+            size=(preview_width, preview_height),
+        )
+        imgui.set_cursor_pos_x(cursor_x)
 
     def _open_options(self) -> None:
         document = self.settings_document
@@ -1476,18 +1525,28 @@ class TaxiHudState:
             )
             try:
                 if list_visible:
-                    button_width = _point_xy(imgui.get_content_region_avail())[0]
-                    available = False
-                    for index, option in enumerate(self.map_options):
-                        if mode == "race" and not option.race_course_ids:
-                            continue
-                        available = True
+                    button_width, available_height = _point_xy(
+                        imgui.get_content_region_avail()
+                    )
+                    visible_options = tuple(
+                        (index, option)
+                        for index, option in enumerate(self.map_options)
+                        if mode != "race" or option.race_course_ids
+                    )
+                    for index, option in visible_options:
+                        self._draw_selection_preview(
+                            imgui,
+                            option.preview_image_path,
+                            button_width,
+                            scale,
+                            max(0.0, available_height - button_height - 10.0),
+                        )
                         if imgui.button(
                             f"{option.name}##map-{index}",
                             imgui.ImVec2(button_width, button_height),
                         ):
                             self._select_map(option)
-                    if not available:
+                    if not visible_options:
                         _centered_imgui_text(
                             imgui,
                             "NO COMPATIBLE MAPS FOUND",
@@ -1570,14 +1629,28 @@ class TaxiHudState:
             )
             try:
                 if list_visible:
-                    button_width = _point_xy(imgui.get_content_region_avail())[0]
-                    for course_index, course_id in enumerate(option.race_course_ids):
-                        label = course_id.replace("-", " ").replace("_", " ").upper()
+                    button_width, available_height = _point_xy(
+                        imgui.get_content_region_avail()
+                    )
+                    for course_index, course in enumerate(option.race_courses):
+                        self._draw_selection_preview(
+                            imgui,
+                            course.preview_image_path,
+                            button_width,
+                            scale,
+                            max(0.0, available_height - button_height - 10.0),
+                        )
+                        label = (
+                            course.course_id.replace("-", " ").replace("_", " ").upper()
+                        )
                         if imgui.button(
                             f"{label}##course-{course_index}",
                             imgui.ImVec2(button_width, button_height),
                         ):
-                            self._start_game(option, race_course_id=course_id)
+                            self._start_game(
+                                option,
+                                race_course_id=course.course_id,
+                            )
             finally:
                 imgui.end_child()
             imgui.separator()

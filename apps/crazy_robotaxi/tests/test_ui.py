@@ -17,7 +17,11 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 import torch
-from crazy_robotaxi.game_selection import GameMapOption, GameSelection
+from crazy_robotaxi.game_selection import (
+    GameMapOption,
+    GameRaceCourseOption,
+    GameSelection,
+)
 from crazy_robotaxi.high_scores import HighScoreEntry, RaceTimeEntry
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
@@ -220,10 +224,13 @@ class _FakeImGui:
         self.clicked_buttons: set[str] = set()
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
+        self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
         self.disabled_depth = 0
         self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.child_sizes: dict[str, tuple[float, float]] = {}
+        self.current_child_size: tuple[float, float] | None = None
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
         self.highlighted_rows: list[int] = []
@@ -308,12 +315,13 @@ class _FakeImGui:
     def end(self) -> None:
         self.current_window = None
 
-    def begin_child(self, child_id: str, size: object) -> bool:
-        del child_id, size
+    def begin_child(self, child_id: str, size: tuple[float, float]) -> bool:
+        self.child_sizes[child_id] = size
+        self.current_child_size = size
         return True
 
     def end_child(self) -> None:
-        return
+        self.current_child_size = None
 
     def text(self, value: str) -> None:
         assert self.current_window is not None
@@ -338,6 +346,14 @@ class _FakeImGui:
         self.cursor_x = value
 
     def get_content_region_avail(self) -> tuple[float, float]:
+        if self.current_child_size is not None:
+            child_width, child_height = self.current_child_size
+            return (
+                child_width
+                if child_width > 0.0
+                else max(1.0, float(self.next_window_size[0]) - 56.0),
+                child_height,
+            )
         return (
             max(1.0, float(self.next_window_size[0]) - 56.0),
             max(1.0, float(self.next_window_size[1]) - 48.0),
@@ -386,6 +402,15 @@ class _FakeImGui:
             return False
         submit = self.click_submit and label in {"SAVE SCORE", "SAVE TIME"}
         return submit or label in self.clicked_buttons
+
+    def image(
+        self,
+        key: str,
+        pixels: np.ndarray,
+        *,
+        size: tuple[float, float],
+    ) -> None:
+        self.images.append((key, pixels, size))
 
     def begin_disabled(self) -> None:
         self.disabled_depth += 1
@@ -1039,11 +1064,20 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
 
 
 def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
+    map_preview_path = Path("map-preview.jpg")
+    course_preview_path = Path("course-preview.jpg")
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        race_course_ids=("downtown-sprint",),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+                preview_image_path=course_preview_path,
+            ),
+        ),
+        preview_image_path=map_preview_path,
     )
     state = TaxiHudState(
         640,
@@ -1053,6 +1087,10 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         settings_document=_settings_document(tmp_path / "config.yaml"),
         map_options=(option,),
     )
+    state._selection_preview_pixels = {
+        map_preview_path: np.zeros((90, 160, 3), dtype=np.uint8),
+        course_preview_path: np.zeros((100, 200, 3), dtype=np.uint8),
+    }
     state._settings_restart_notice = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
     imgui = _FakeImGui()
 
@@ -1081,6 +1119,24 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
         size = button_sizes[label]
         assert size is not None and size[0] > 0.0
+    assert [key for key, _pixels, _size in imgui.images] == [
+        "selection-preview:map-preview.jpg",
+        "selection-preview:course-preview.jpg",
+    ]
+    map_preview_size = imgui.images[0][2]
+    course_preview_size = imgui.images[1][2]
+    map_button_size = button_sizes["Test City##map-0"]
+    course_button_size = button_sizes["DOWNTOWN SPRINT##course-0"]
+    assert map_button_size is not None
+    assert course_button_size is not None
+    assert (
+        map_preview_size[1] + map_button_size[1] + 10.0
+        <= imgui.child_sizes["##map-options"][1]
+    )
+    assert (
+        course_preview_size[1] + course_button_size[1] + 10.0
+        <= imgui.child_sizes["##course-options"][1]
+    )
     assert imgui.buttons.count("OPTIONS") == 1
     for title in (
         "Crazy Robotaxi - Select Map",
@@ -1094,12 +1150,71 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     ) == 3
 
 
+def test_missing_selection_thumbnail_keeps_text_button(tmp_path: Path) -> None:
+    missing_thumbnail = tmp_path / "missing.png"
+    option = GameMapOption(
+        map_id="text-only",
+        name="Text Only",
+        path=Path("text-only.robotaxi.yaml"),
+        preview_image_path=missing_thumbnail,
+    )
+    state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert "Text Only##map-0" in imgui.buttons
+    assert not imgui.images
+    assert state._selection_preview_pixels[missing_thumbnail] is None
+
+
+def test_selection_thumbnail_size_does_not_depend_on_choice_count() -> None:
+    first_path = Path("first-preview.jpg")
+    second_path = Path("second-preview.jpg")
+    first = GameMapOption(
+        map_id="first",
+        name="First",
+        path=Path("first.robotaxi.yaml"),
+        preview_image_path=first_path,
+    )
+    second = GameMapOption(
+        map_id="second",
+        name="Second",
+        path=Path("second.robotaxi.yaml"),
+        preview_image_path=second_path,
+    )
+    state = TaxiHudState(640, 360, _calibration(), map_options=(first,))
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    preview = np.zeros((600, 300, 3), dtype=np.uint8)
+    state._selection_preview_pixels = {
+        first_path: preview,
+        second_path: preview,
+    }
+
+    one_choice = _FakeImGui()
+    state.draw(one_choice)
+    state.map_options = (first, second)
+    two_choices = _FakeImGui()
+    state.draw(two_choices)
+
+    assert one_choice.images[0][2] == two_choices.images[0][2]
+    assert two_choices.images[0][2] == two_choices.images[1][2]
+
+
 def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        race_course_ids=("downtown-sprint",),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
     model_loop = _SelectionLoop()
@@ -1132,7 +1247,12 @@ def test_race_menu_selects_map_then_course() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        race_course_ids=("downtown-sprint",),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
     model_loop = _SelectionLoop()
@@ -1169,7 +1289,12 @@ def test_complete_cli_selection_skips_all_selection_screens() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml").resolve(),
-        race_course_ids=("downtown-sprint",),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(
         640,
@@ -1207,7 +1332,12 @@ def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml").resolve(),
-        race_course_ids=("downtown-sprint",),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(
         640,
