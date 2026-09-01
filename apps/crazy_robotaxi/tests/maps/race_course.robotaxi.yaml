@@ -39,6 +39,7 @@ roads:
 
 race_courses:
   - id: test-loop
+    spawn: start
     start: south_west
     checkpoints: [southeast, east_north, north, west_south]
     lap_count: 3

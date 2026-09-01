@@ -190,6 +190,16 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert ui_loop.state.model_loop is model_loop
     assert len(ui_loop.state.map_options) == 2
     assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
+    assert all(
+        option.preview_image_path is not None for option in ui_loop.state.map_options
+    )
+    raceway = next(
+        option
+        for option in ui_loop.state.map_options
+        if option.path.name == "flashdreams_raceway.robotaxi.yaml"
+    )
+    assert raceway.race_courses[0].spawn_id == "race_start"
+    assert raceway.race_courses[0].preview_image_path is not None
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
     assert session._config.renderer.bev.width == 234
@@ -251,6 +261,7 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.game_selected
     assert model_loop.state.config.game_mode == "race"
     assert model_loop.state.config.race_course_id == "grand-prix"
+    assert model_loop.state.config.scene_request.spawn_id == "race_start"
 
 
 def test_pressed_r_requests_a_v2_game_restart() -> None:

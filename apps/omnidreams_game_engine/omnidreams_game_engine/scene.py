@@ -22,12 +22,15 @@ class SceneRequest:
     camera_name: str = "camera_front_wide_120fov"
     use_prompt_context: bool = False
     force_recompile: bool = False
+    spawn_id: str | None = None
+    """Authored spawn to load; ``None`` selects the map's first spawn."""
 
 
 def load_scene(request: SceneRequest, raster: RasterConfig) -> SceneDefinition:
     """Compile an authored map if necessary and load its runtime scene."""
     compiled = compile_game_map(
         request.map_path,
+        spawn_id=request.spawn_id,
         use_prompt_context=request.use_prompt_context,
         force=request.force_recompile,
     )
