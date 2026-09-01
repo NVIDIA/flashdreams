@@ -6,8 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 # Upsample Video
 
 Reusable v2 application infrastructure for playing an upscaled excerpt of
-Blender's public Big Buck Bunny video. Model integrations provide the video
-post-processor and expose runnable entry-point slugs.
+Blender's public 480p Big Buck Bunny video. Model integrations provide the
+video post-processor and expose runnable entry-point slugs.
 
 ## Controls
 
@@ -40,8 +40,8 @@ documented by <code>flashdreams-run-v2 --help</code>.
 
 [Big Buck Bunny](https://peach.blender.org/) is licensed under
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The demo downloads
-and processes an excerpt at runtime; the source video is not redistributed in
-this repository.
+and processes an excerpt from the 854x480 H.264 encode at runtime; the source
+video is not redistributed in this repository.
 
 > (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
 

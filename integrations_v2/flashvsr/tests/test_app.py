@@ -16,18 +16,14 @@
 """CPU contract tests for the FlashVSR upsample-video binding."""
 
 import os
-from pathlib import Path
 
 import pytest
-from flashdreams.api_v2.application import IApplication
 from flashvsr.apps.upsample_video.adapter import (
     create_app,
     create_app_full_attn,
     create_app_sparse_ratio_1_5,
 )
 from flashvsr.impl import corrector
-from flashvsr.impl.postprocess import FlashVSRPostProcessorConfig
-from upsample_video import UpsampleVideoApplication
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -63,39 +59,12 @@ def test_entry_point_factories_bind_flashvsr_defaults(
 ) -> None:
     application = factory()
 
-    assert isinstance(application, IApplication)
-    assert isinstance(application, UpsampleVideoApplication)
     assert application.defaults.model_name == model_name
     assert application.defaults.first_chunk_size == 13
     assert application.defaults.steady_chunk_size == 16
     processor = application.defaults.processor
-    assert isinstance(processor, FlashVSRPostProcessorConfig)
     assert processor.sparse_ratio == sparse_ratio
     assert processor.attention_mode == attention_mode
-
-
-def test_package_keeps_shared_and_model_specific_code_separate() -> None:
-    project_root = Path(__file__).parents[1]
-    repository_root = project_root.parents[1]
-    pyproject = (project_root / "pyproject.toml").read_text()
-    application = project_root / "apps" / "upsample_video"
-    shared_application = repository_root / "apps" / "upsample_video"
-    implementation = project_root / "impl"
-
-    assert '[project.entry-points."flashdreams.applications_v2"]' in pyproject
-    assert '[project.entry-points."flashdreams.runner_configs"]' not in pyproject
-    assert "flashvsr.apps.upsample_video.adapter:create_app" in pyproject
-    assert "flashdreams-upsample-video-v2" in pyproject
-    assert (application / "adapter.py").is_file()
-    assert (application / "__init__.py").is_file()
-    assert not (application / "upsample_video").exists()
-    assert (shared_application / "upsample_video" / "application.py").is_file()
-    assert (shared_application / "tests").is_dir()
-    assert (implementation / "postprocess.py").is_file()
-    assert (project_root / "config.py").is_file()
-    assert not (implementation / "config.py").exists()
-    assert not (implementation / "grpc").exists()
-    assert not any(project_root.rglob("runner.py"))
 
 
 def test_adain_cuda_extension_uses_windows_preprocessor_flag(

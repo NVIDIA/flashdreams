@@ -50,7 +50,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from torch import Tensor
 
-_BIG_BUCK_BUNNY_FILENAME = "BigBuckBunny_320x180.mp4"
+_BIG_BUCK_BUNNY_FILENAME = "big_buck_bunny_480p_h264.mov"
 """Video contained by the Blender-hosted demo archive."""
 
 _BIG_BUCK_BUNNY_URL = (
@@ -59,7 +59,7 @@ _BIG_BUCK_BUNNY_URL = (
 )
 """Public Blender archive used by the uninteractive upsampling demo."""
 
-_BIG_BUCK_BUNNY_SPEC = VideoSpec(height=180, width=320, fps=24.0)
+_BIG_BUCK_BUNNY_SPEC = VideoSpec(height=480, width=853, fps=24.0)
 """Source dimensions and frame rate of the bundled Big Buck Bunny encode."""
 
 _DEFAULT_MAX_CHUNKS = 4

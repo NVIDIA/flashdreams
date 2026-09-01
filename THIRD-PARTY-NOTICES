@@ -61,8 +61,8 @@ Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
     (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
 
     The upsample-video application downloads the Blender Foundation's
-    BigBuckBunny_320x180.mp4 encode at runtime and processes an excerpt as demo
-    input. The source video is licensed under the Creative Commons Attribution
+    big_buck_bunny_480p_h264.mov encode at runtime and processes an excerpt
+    as demo input. The source video is licensed under the Creative Commons Attribution
     3.0 license (https://creativecommons.org/licenses/by/3.0/) and is not
     redistributed in this repository.
 
