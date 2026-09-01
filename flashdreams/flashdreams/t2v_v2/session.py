@@ -11,6 +11,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.t2v_v2.ui import T2VImGuiUILoop, T2VUIState
 
 
 @dataclass(slots=True)
@@ -18,7 +19,7 @@ class T2VModelState:
     """Mutable rollout state owned by the model loop."""
 
     pipeline: Any
-    prompt: str
+    prompt: str | None
     session_desc: SessionDesc
     total_blocks: int
     blocks_generated: int = 0
@@ -52,11 +53,14 @@ class T2VModelLoop(IModelLoop[T2VModelState]):
         ]
 
     def is_finished(self) -> bool:
-        return self.state.blocks_generated >= self.state.total_blocks
+        return (
+            self.state.prompt is None
+            or self.state.blocks_generated >= self.state.total_blocks
+        )
 
     def reset(self) -> None:
         self.state.blocks_generated = 0
-        self.state.cache = _new_cache(self.state)
+        self.state.cache = None if self.state.prompt is None else _new_cache(self.state)
 
     def close(self) -> None:
         self.state.cache = None
@@ -70,22 +74,24 @@ class T2VSession(ISession):
     frames than the rest.
 
     A rollout is ``total_blocks`` long and then reports itself finished, so
-    nothing above it counts steps. What belongs to a run is the cache this
-    initializes, holding the encoded prompt and the attention state; the
+    nothing above it counts steps. An interactive session with no prompt starts
+    with an already-finished model loop while its UI waits for one. What belongs
+    to a run is the cache holding the encoded prompt and attention state; the
     pipeline belongs to the application.
     """
 
     def __init__(
         self,
         pipeline: Any,
-        prompt: str,
+        prompt: str | None,
         session_desc: SessionDesc,
         total_blocks: int,
     ) -> None:
         """
         Args:
             pipeline: Loaded pipeline, owned by the application.
-            prompt: Text to generate from.
+            prompt: Text to generate from, or ``None`` for a continuous idle
+                session waiting for its first prompt.
             session_desc: Session the application accepted, already checked
                 against what the model can produce.
             total_blocks: Blocks this rollout generates before it is finished.
@@ -106,7 +112,14 @@ class T2VSession(ISession):
             session_desc=self._session_desc,
             total_blocks=self._total_blocks,
         )
-        state.cache = _new_cache(state)
+        if state.prompt is not None:
+            state.cache = _new_cache(state)
+        self.register_ui_loop(
+            T2VImGuiUILoop,
+            state=T2VUIState(prompt=self._prompt or ""),
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+        )
         self.register_model_loop(T2VModelLoop, state=state)
 
     @property
@@ -116,6 +129,8 @@ class T2VSession(ISession):
 
 def _new_cache(state: T2VModelState) -> Any:
     """Encode the prompt into a cache for one rollout."""
+    if state.prompt is None:
+        raise RuntimeError("Cannot initialize a text-to-video cache without a prompt.")
     ratio = state.pipeline.decoder.spatial_compression_ratio
     return state.pipeline.initialize_cache(
         text=[state.prompt],

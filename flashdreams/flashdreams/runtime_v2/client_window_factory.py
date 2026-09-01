@@ -4,9 +4,9 @@
 """Create v2 client windows from runtime arguments.
 
 A mode is one way to watch a run: an MP4 file, a browser, whatever comes after
-them. Each mode owns the arguments it takes and what to tell the user about
-where its output went, so a command line offering the modes never has to know
-what any of them are, and adding one is adding it here.
+them. Each mode owns its arguments and user-facing messages, so a command line
+offering the modes never has to know what any of them are, and adding one is
+adding it here.
 """
 
 import argparse

@@ -18,6 +18,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 from flashdreams.t2v_v2.session import T2VSession
+from flashdreams.t2v_v2.ui import T2VImGuiUILoop
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -144,12 +145,13 @@ def _rollout_length(app: T2VApplication) -> int:
 def _session_desc(
     layout: VideoTensorLayout = VideoTensorLayout.tchw,
     *,
+    presentation_mode: PresentationMode = PresentationMode.CONTINUOUS,
     width: int = _WIDTH,
     height: int = _HEIGHT,
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
-        presentation_mode=PresentationMode.ON_DEMAND,
+        presentation_mode=presentation_mode,
         frames_per_second_for_ui=60,
         frames_per_second_for_step=_FPS,
         video_width=width,
@@ -241,13 +243,26 @@ def test_the_rollout_length_can_be_overridden() -> None:
     assert _rollout_length(app) == 3
 
 
-def test_a_run_needs_something_to_generate_from() -> None:
-    app = T2VApplication(defaults=_defaults())
+@pytest.mark.parametrize("presentation_mode", tuple(PresentationMode))
+def test_an_interactive_application_can_wait_for_its_first_prompt(
+    presentation_mode: PresentationMode,
+) -> None:
+    defaults = _defaults()
+    app = T2VApplication(defaults=defaults)
 
-    with pytest.raises(ValueError, match="--prompt is required"):
-        app.init([])
-    with pytest.raises(ValueError, match="--prompt is required"):
-        app.init(["--prompt", "   "])
+    app.init([])
+    session = app.create_session(_session_desc(presentation_mode=presentation_mode))
+    session.init()
+
+    assert defaults.pipeline_config.setup_count == 1
+    assert session.session_desc.presentation_mode is presentation_mode
+    assert isinstance(session.ui_loop, T2VImGuiUILoop)
+    assert session.model_loop.is_finished()
+
+
+def test_an_explicit_prompt_cannot_be_empty() -> None:
+    with pytest.raises(ValueError, match="--prompt cannot be empty"):
+        T2VApplication(defaults=_defaults()).init(["--prompt", "   "])
 
 
 def test_a_run_that_would_generate_no_video_is_refused() -> None:
@@ -291,15 +306,14 @@ def test_closing_the_application_releases_the_model() -> None:
 ## What a model will not generate
 
 
-def test_a_layout_the_model_does_not_emit_is_refused_before_it_loads() -> None:
-    """A checkpoint of several gigabytes is a long wait for a certain refusal."""
+def test_a_layout_the_model_does_not_emit_is_refused_before_a_session_starts() -> None:
     app = _application()
     config = _pipeline_config(app)
 
     with pytest.raises(ValueError, match="only produces tchw output"):
         app.create_session(_session_desc(VideoTensorLayout.bcthw))
 
-    assert config.setup_count == 0
+    assert config.setup_count == 1
 
 
 @pytest.mark.parametrize("width,height", [(130, 64), (128, 60)])
@@ -410,7 +424,10 @@ def test_a_seed_reaches_the_model_where_a_model_keeps_one() -> None:
     draws its own noise draws the same noise twice."""
     diffusion_model = SimpleNamespace(seed=42)
     defaults = _defaults(
-        pipeline_config=SimpleNamespace(diffusion_model=diffusion_model)
+        pipeline_config=SimpleNamespace(
+            diffusion_model=diffusion_model,
+            setup=lambda: FakePipeline(),
+        )
     )
 
     app = T2VApplication(defaults=defaults)

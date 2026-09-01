@@ -45,8 +45,7 @@ class ApplicationRunner:
 
         A new-session request closes the current session and creates its
         replacement from the description returned by ``run_session``. A close
-        request or a naturally completed session returns no replacement and
-        ends the run.
+        request or a completed session returns no replacement and ends the run.
 
         The application is closed before this method returns or raises.
 

@@ -51,11 +51,14 @@ def test_the_model_says_what_it_generates_without_being_told() -> None:
     assert app.defaults.total_blocks == RUNNER_WAN21_T2V_1PT3B.total_blocks
 
 
-def test_compilation_can_be_turned_off_for_a_run() -> None:
+def test_compilation_can_be_turned_off_for_a_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Run against the real config rather than a stand-in, since what this
-    covers is the override landing where this model keeps the setting. No model
-    is loaded to answer it."""
+    covers is the override landing where this model keeps the setting. Only its
+    setup call is replaced, so answering does not load the checkpoint."""
     app = SelfForcingT2VApplication()
+    monkeypatch.setattr(type(app.pipeline_config), "setup", lambda _: FakeT2VPipeline())
 
     app.init(["--prompt", _PROMPT, "--no-compile"])
 
@@ -98,5 +101,8 @@ def test_a_run_writes_every_generated_frame_to_an_mp4(tmp_path: Path) -> None:
     )
 
     assert result.passed, result.failures
-    assert result.frames_per_step == (1,) * expected_frame_count
+    assert result.frames_per_step == (
+        pipeline.first_block_frames,
+        *((pipeline.block_frames,) * (steps - 1)),
+    )
     assert path.stat().st_size > 0

@@ -25,13 +25,14 @@ class WebRTCClientWindow(IClientWindow):
     server's own thread, so they are queued here and handed over in batches when
     the session asks, as the protocol requires.
 
-    The server timestamps arrivals against one stable clock so events buffered
-    during a session handoff cannot be reordered. This window rebases them when
-    they are drained, preserving the public session-relative timestamp contract.
-    Events that arrived during the handoff become time zero for the new session.
+    The server timestamps arrivals against one stable clock. This window clears
+    input buffered during a session handoff, then rebases later events to the
+    new session's clock. Input aimed at a completed UI cannot accidentally act
+    on its replacement.
 
-    A browser that disconnects becomes a close event, so a run through this
-    window ends on its own even when the session would generate forever.
+    Disconnecting releases only that browser's peer connection. The server and
+    current session stay available for a refreshed or replacement client until
+    the application is explicitly stopped.
     """
 
     def __init__(
@@ -78,6 +79,7 @@ class WebRTCClientWindow(IClientWindow):
         self.server.open(session_desc)
         session_event_offset_us = self.server.event_timestamp_us()
         with self._input_lock:
+            self._input_events.clear()
             self._session_event_offset_us = session_event_offset_us
 
     def get_user_input_events(self) -> UserInputEvents:

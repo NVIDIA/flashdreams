@@ -9,15 +9,20 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar, final
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    NewSessionUserInputEvent,
+    UserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -25,6 +30,33 @@ if TYPE_CHECKING:
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
 
 StateT = TypeVar("StateT")
+
+
+class ModelInferenceState(Enum):
+    """Lifecycle state of model inference observed by the UI loop."""
+
+    NOT_STARTED = "not_started"
+    """Model inference has not started."""
+
+    RUNNING = "running"
+    """The model loop is running."""
+
+    FINISHED = "finished"
+    """The model loop has returned or failed."""
+
+
+@dataclass(frozen=True, slots=True)
+class _LoopRunResult:
+    """Describe whether a loop should step or yield lifecycle control."""
+
+    step_index: int | None = None
+    """Index to step, or ``None`` when no step should run."""
+
+    stop_requested: bool = False
+    """Whether the session should stop without a replacement."""
+
+    new_session_request: dict[str, Any] | None = None
+    """Metadata for a replacement session, or ``None`` when none was requested."""
 
 
 @dataclass(slots=True)
@@ -71,6 +103,7 @@ class ILoop(ABC, Generic[StateT]):
         self.frequency = frequency
         self._message_queue: queue.Queue[_Message[StateT]] = queue.Queue()
         self.user_events = UserInputEvents([])
+        self._pending_user_events: list[UserInputEvent] = []
         self.latest_result: StepResult | list[StepResult] | None = None
         self._step_index = 0
         self._generation = 0
@@ -79,6 +112,7 @@ class ILoop(ABC, Generic[StateT]):
         self._lifecycle_lock = threading.Lock()
         self._shutdown_event = shutdown_event
         self._failure_queue = failure_queue
+        self._new_session_request: dict[str, Any] | None = None
 
     @abstractmethod
     def step(
@@ -141,27 +175,36 @@ class ILoop(ABC, Generic[StateT]):
         self,
         events: UserInputEvents,
         generation: int,
-    ) -> int | None:
-        """Prepare one call to :meth:`step`."""
+    ) -> _LoopRunResult:
+        """Prepare one step or return a lifecycle request to the caller."""
         self._run_message_batch()
-        self.user_events = events
-        if _contains_close(events):
-            self._shutdown_event.set()
-            return None
+        self._pending_user_events.extend(events.get_events())
+        transition = _lifecycle_transition(
+            self._pending_user_events,
+            self._new_session_request,
+        )
+        if transition is not None:
+            self._pending_user_events.clear()
+            self._new_session_request = None
+            return transition
+        if self._shutdown_event.is_set():
+            return _LoopRunResult(stop_requested=True)
+        self.user_events = UserInputEvents(list(self._pending_user_events))
         if generation != self._generation:
             self.reset()
             self.latest_result = None
             self._step_index = 0
             self._generation = generation
         if self.is_finished():
-            return None
-        return self._step_index
+            return _LoopRunResult()
+        return _LoopRunResult(step_index=self._step_index)
 
     @final
     def _finish_run(self, result: StepResult | list[StepResult] | None) -> None:
         """Save one completed step."""
         self.latest_result = result
         self._step_index += 1
+        self._pending_user_events.clear()
 
     @final
     def _shutdown(self) -> None:
@@ -189,6 +232,7 @@ class ILoop(ABC, Generic[StateT]):
             if result is not None:
                 raise TypeError("Message operations must return None.")
 
+    # TODO: We should do pace here. Remove this func
     def _pace(self, last_run_started: float | None) -> float:
         if self.frequency == 0 or last_run_started is None:
             return time.monotonic()
@@ -237,14 +281,14 @@ class IModelLoop(ILoop[StateT], ABC):
                 max_steps is None or steps_run < max_steps
             ):
                 events, generation = event_buffer.read(reader_id)
-                step_index = self._begin_run(events, generation)
-                if step_index is None:
+                run = self._begin_run(events, generation)
+                if run.step_index is None:
                     break
                 last_run_started = self._pace(last_run_started)
                 if self._shutdown_event.is_set():
                     break
                 step_started_at = time.monotonic()
-                raw_result = self.step(step_index, events)
+                raw_result = self.step(run.step_index, self.user_events)
                 step_elapsed_s = time.monotonic() - step_started_at
                 result = _model_results(raw_result)
                 self._finish_run(result)
@@ -252,13 +296,11 @@ class IModelLoop(ILoop[StateT], ABC):
                 steps_run += 1
         except BaseException as error:
             self._failure_queue.put(error)
-            self._shutdown_event.set()
         finally:
             try:
                 self._shutdown()
             except BaseException as error:
                 self._failure_queue.put(error)
-                self._shutdown_event.set()
 
 
 class IUILoop(ILoop[StateT], ABC):
@@ -284,6 +326,31 @@ class IUILoop(ILoop[StateT], ABC):
         """
         self.output_layout = output_layout
         self._presentation_manager = presentation_manager
+        self._model_inference_state = ModelInferenceState.NOT_STARTED
+        self._model_inference_state_lock = threading.Lock()
+
+    @property
+    @final
+    def model_inference_state(self) -> ModelInferenceState:
+        """Return whether model inference has started, is running, or finished."""
+        with self._model_inference_state_lock:
+            return self._model_inference_state
+
+    @final
+    def _set_model_inference_state(self, state: ModelInferenceState) -> None:
+        """Set the model-inference state visible to this UI loop."""
+        with self._model_inference_state_lock:
+            self._model_inference_state = state
+
+    @final
+    def request_new_session(self, metadata: Mapping[str, Any]) -> None:
+        """Ask the runtime to replace this session after the current UI step.
+
+        Args:
+            metadata: Application-specific values for the replacement session.
+                The runtime merges a copy into the current session description.
+        """
+        self._new_session_request = dict(metadata)
 
     @final
     def presented_model_frame(
@@ -322,8 +389,22 @@ class IUILoop(ILoop[StateT], ABC):
         return self._presentation_manager.presented_frames()
 
 
-def _contains_close(events: UserInputEvents) -> bool:
-    return any(isinstance(event, CloseUserInputEvent) for event in events.get_events())
+def _lifecycle_transition(
+    events: list[UserInputEvent],
+    new_session_request: Mapping[str, Any] | None,
+) -> _LoopRunResult | None:
+    """Return the latest terminal lifecycle request, if any."""
+    transition = (
+        None
+        if new_session_request is None
+        else _LoopRunResult(new_session_request=dict(new_session_request))
+    )
+    for event in events:
+        if isinstance(event, CloseUserInputEvent):
+            transition = _LoopRunResult(stop_requested=True)
+        elif isinstance(event, NewSessionUserInputEvent):
+            transition = _LoopRunResult(new_session_request={})
+    return transition
 
 
 def _model_results(
@@ -356,5 +437,6 @@ __all__ = [
     "ILoop",
     "IModelLoop",
     "IUILoop",
+    "ModelInferenceState",
     "invoke_async",
 ]

@@ -48,35 +48,10 @@ SPDX-License-Identifier: Apache-2.0
         color: #ff8a8a;
       }
 
-      #session-controls {
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
-        z-index: 1;
-      }
-
-      #new-session {
-        border: 1px solid #777;
-        border-radius: 0.4rem;
-        padding: 0.65rem 1rem;
-        background: #f5f5f5;
-        color: #111;
-        font: inherit;
-        cursor: pointer;
-      }
-
-      #new-session:disabled {
-        background: #666;
-        color: #ddd;
-        cursor: wait;
-      }
     </style>
   </head>
   <body>
     <video id="video" autoplay muted playsinline></video>
-    <div id="session-controls">
-      <button id="new-session" type="button" disabled>Opening…</button>
-    </div>
     <div id="status" role="status" aria-live="polite">Waiting for the server…</div>
     <script src="/app.js"></script>
   </body>

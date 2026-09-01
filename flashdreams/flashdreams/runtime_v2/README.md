@@ -83,8 +83,8 @@ declare arguments this command also has.
 
 | Mode | Takes | Input | Ends when |
 | --- | --- | --- | --- |
-| `mp4` (default) | `--output-path` | none | the session reports itself finished |
-| `webrtc` | `--host`, `--port` | keyboard, mouse, focus, reset, close | the browser disconnects, or the session finishes |
+| `mp4` (default) | `--output-path` | none | the application UI finishes |
+| `webrtc` | `--host`, `--port` | keyboard, mouse, focus, reset, close | the application UI finishes or the client closes it |
 
 These override whatever session the application asked for:
 
@@ -187,9 +187,14 @@ full:
 `SessionDesc.presentation_mode` decides what the UI does when no new frame is
 ready:
 
-- `CONTINUOUS` runs the UI loop every tick, re-presenting the newest
-  model frame with UI redrawing.
+- `CONTINUOUS` runs the UI loop every tick while inference is active,
+  re-presenting the newest model frame when necessary.
 - `ON_DEMAND` runs the UI loop only when `advance` moves to a new model frame.
+
+While inference has not started or has finished, an unfinished UI runs every
+tick in either mode. It can read `model_inference_state`, remains active after
+model output drains, and may use `is_finished` to declare its own terminal
+condition.
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ON_DEMAND`: together they keep every frame in the presentation manager
@@ -223,18 +228,17 @@ delegates over the thing that does the work — `Mp4ClientWindow` over
 `Mp4OutputSink`, `WebRTCClientWindow` over `WebRTCServer` — and neither describes
 the output shape, because the session already did.
 
-They differ in what they can do rather than in how they are driven. The MP4
-window reports no input and never sends a close, so a session written to a file
-has to finish on its own. The WebRTC window turns browser keyboard, mouse and
-focus events into input and a disconnecting browser into a close; because those
-arrive on the server's own thread, it queues them and hands them over in batches
-when the session asks.
+They differ in what they can do rather than in how they are driven. A session
+chooses its UI independently of the client window. Browser keyboard, mouse and
+focus events arrive on the server's own thread, so it queues them and hands them
+over in batches when the session asks.
 
-The WebRTC page also sends a new-session event. `run_session` stops and cleans
-the current session, returns its resolved `SessionDesc`, and leaves the WebRTC
-window open. `ApplicationRunner` then creates the replacement from that
-description. A normal completion or close returns no replacement and keeps the
-one-session behavior used by MP4 and native windows.
+A UI loop may call `request_new_session(metadata)` during its step. `run_session`
+merges those application-specific values into the resolved `SessionDesc`, stops
+and cleans the current session, and leaves the interactive window open.
+`ApplicationRunner` creates the replacement from that description. A WebRTC
+browser disconnect releases only its peer connection, so refreshing the page
+does not stop the session, server, or application.
 
 The UI thread owns WebRTC cadence. Each `write` synchronously materializes one
 owned video frame and admits it to a two-frame FIFO of unsent frames. The WebRTC

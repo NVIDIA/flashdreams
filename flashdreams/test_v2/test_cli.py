@@ -16,10 +16,11 @@ from pathlib import Path
 
 import pytest
 import torch
+from numpy import uint64
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.loop import IModelLoop, ModelInferenceState
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli
 from flashdreams.runtime_v2.application_registry import (
@@ -34,11 +35,13 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.t2v_v2.application import T2VApplication
 from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
 from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
+from flashdreams.t2v_v2.ui import T2VImGuiUILoop
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -160,6 +163,13 @@ class RecordingWindow(IClientWindow):
 
     def close(self) -> None:
         return
+
+
+class ClosingWindow(RecordingWindow):
+    """Close the run on its first input poll."""
+
+    def get_user_input_events(self) -> UserInputEvents:
+        return UserInputEvents([CloseUserInputEvent(timestamp=uint64(0))])
 
 
 ## Splitting the command line
@@ -290,9 +300,41 @@ def _install(
     window from the arguments like any other.
     """
     monkeypatch.setattr(cli, "create_application", lambda slug: application)
+    if isinstance(application, T2VApplication):
+        # These command-wiring tests have no interactive client to end the
+        # always-present T2V UI after its stand-in model finishes.
+        original_step_ui = T2VImGuiUILoop.step_ui
+        finished_ui_loops: set[int] = set()
+
+        def finish_after_final_frame(
+            self: T2VImGuiUILoop,
+            imgui: object,
+            step_index: int,
+            events: UserInputEvents,
+        ) -> torch.Tensor | None:
+            result = original_step_ui(self, imgui, step_index, events)
+            if (
+                self.model_inference_state is ModelInferenceState.FINISHED
+                and not self._presentation_manager.has_pending_frames()
+            ):
+                finished_ui_loops.add(id(self))
+            return result
+
+        monkeypatch.setattr(
+            T2VImGuiUILoop,
+            "step_ui",
+            finish_after_final_frame,
+        )
+        monkeypatch.setattr(
+            T2VImGuiUILoop,
+            "is_finished",
+            lambda self: id(self) in finished_ui_loops,
+        )
     if window is not None:
         monkeypatch.setattr(
-            cli, "client_window_mode", lambda name: StubMode(name, window)
+            cli,
+            "client_window_mode",
+            lambda name: StubMode(name, window),
         )
 
 
@@ -331,7 +373,18 @@ def test_the_model_is_released_when_a_run_fails(
     _install(monkeypatch, StubT2VApplication(pipeline), RecordingWindow())
 
     with pytest.raises(RuntimeError, match="generate failed"):
-        cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])
+        cli.entrypoint(
+            [
+                "stub",
+                "--mode",
+                "webrtc",
+                "--presentation-mode",
+                "on_demand",
+                "--",
+                "--prompt",
+                _PROMPT,
+            ]
+        )
 
     assert pipeline.closed
 
@@ -393,13 +446,17 @@ def test_nothing_is_measured_unless_a_run_asks(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_an_application_that_will_not_start_reports_why(
+def test_a_continuous_application_can_wait_for_its_first_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install(monkeypatch, StubT2VApplication(_stand_in()), RecordingWindow())
+    pipeline = _stand_in()
+    window = ClosingWindow()
+    _install(monkeypatch, StubT2VApplication(pipeline), window)
 
-    with pytest.raises(ValueError, match="--prompt is required"):
-        cli.entrypoint(["stub", "--mode", "webrtc"])
+    cli.entrypoint(["stub", "--mode", "webrtc"])
+
+    assert window.session_desc.presentation_mode is PresentationMode.CONTINUOUS
+    assert pipeline.caches == []
 
 
 ## Describing the session to run
@@ -410,7 +467,7 @@ def test_an_application_with_no_session_of_its_own_is_described_by_the_arguments
 ) -> None:
     """Which is what lets this command run something that is not a model."""
     application = UndescribedApplication()
-    _install(monkeypatch, application, RecordingWindow())
+    _install(monkeypatch, application, ClosingWindow())
 
     cli.entrypoint(
         [
@@ -450,7 +507,18 @@ def test_a_model_generates_what_it_was_trained_for_unless_asked_otherwise(
     _install(monkeypatch, StubT2VApplication(pipeline), window)
 
     cli.entrypoint(
-        ["stub", "--mode", "webrtc", "--pixel-width", "64", "--", "--prompt", _PROMPT]
+        [
+            "stub",
+            "--mode",
+            "webrtc",
+            "--pixel-width",
+            "64",
+            "--presentation-mode",
+            "on_demand",
+            "--",
+            "--prompt",
+            _PROMPT,
+        ]
     )
 
     assert window.session_desc.video_width == 64
@@ -474,7 +542,18 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
         lambda name: (asked_for.append(name), StubMode(name, window))[1],
     )
 
-    cli.entrypoint(["stub", "--mode", "webrtc", "--", "--prompt", _PROMPT])
+    cli.entrypoint(
+        [
+            "stub",
+            "--mode",
+            "webrtc",
+            "--presentation-mode",
+            "on_demand",
+            "--",
+            "--prompt",
+            _PROMPT,
+        ]
+    )
 
     assert asked_for == ["webrtc"]
     # Realtime output may repeat frames but must not skip them.
