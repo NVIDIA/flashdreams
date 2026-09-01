@@ -595,6 +595,9 @@ class CrazyRobotaxiSession(ISession):
             show_fps=self._config.show_fps,
             hud_enabled=self._config.hud_enabled,
             live_edit=self._config.live_edit,
+            native_dit_disabled_for_live_edit=(
+                self._config.native_dit_disabled_for_live_edit
+            ),
             show_control_tooltips=self._config.show_control_hints,
             settings_document=self._config.settings_document,
             map_options=self._map_options,

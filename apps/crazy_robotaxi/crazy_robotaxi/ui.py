@@ -63,7 +63,7 @@ from crazy_robotaxi.settings import (
     iter_setting_fields,
     parse_editor_value,
     readonly_display,
-    restart_required_categories,
+    restart_required_settings,
     setting_choices,
     setting_value,
 )
@@ -89,6 +89,24 @@ _MAX_BUFFERED_HUD_FRAMES = 64
 
 _MAX_BUFFERED_INPUT_EVENTS = 64
 """Maximum diagnostic event receipts retained before model-frame correlation."""
+
+_SHOW_RESTART_REQUIRED_SETTINGS = False
+"""Whether to show the code-only restart diagnostics in the Options UI."""
+
+_SETTINGS_NOTICE_DURATION_S = 5.0
+"""Number of seconds to show an Options save confirmation."""
+
+_RESTART_REQUIRED_NOTICE = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+_NATIVE_DIT_DISABLED_NOTICE = "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+
+
+def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
+    if not settings.live_edit.requires_python_dit:
+        return False
+    transformer = settings.model.pipeline.diffusion_model.transformer
+    native_mode = getattr(transformer, "native_dit_acceleration", "disabled")
+    return native_mode not in {"disabled", None, False}
+
 
 _VIDEO_FPS_WINDOW_SECONDS = 2.0
 """Rolling window used to smooth the generated-video frame-rate estimate."""
@@ -175,6 +193,9 @@ class TaxiHudState:
     live_edit: LiveEditConfig = field(default_factory=LiveEditConfig)
     """Enabled live-edit controls exposed by the HUD."""
 
+    native_dit_disabled_for_live_edit: bool = False
+    """Whether this launch forced native DiT acceleration off."""
+
     show_control_tooltips: bool = True
     """Whether to display keyboard control hints during gameplay."""
 
@@ -253,14 +274,26 @@ class TaxiHudState:
     _options_draft: CrazyRobotaxiUserSettings | None = None
     """Isolated settings draft discarded unless Save succeeds."""
 
+    _restart_baseline_settings: CrazyRobotaxiUserSettings | None = None
+    """Saved settings active when this application session began."""
+
     _options_error: str = ""
     """Most recent field or save validation error."""
 
     _settings_notice: str = ""
-    """Save outcome displayed after returning to the originating menu."""
+    """Most recent save outcome displayed temporarily in Options."""
+
+    _settings_notice_expires_at_s: float = 0.0
+    """Monotonic deadline for the Options save confirmation."""
 
     _settings_restart_notice: str = ""
     """Restart warning displayed separately when saved settings need it."""
+
+    _settings_requiring_restart: tuple[str, ...] = ()
+    """Developer-only detail supporting the future session-policy audit."""
+
+    _saved_native_dit_disabled_for_live_edit: bool = False
+    """Whether the most recently saved settings will force native DiT off."""
 
     _selected_game_mode: GameMode | None = None
     """Mode chosen on the first screen while the map screen is visible."""
@@ -573,14 +606,11 @@ class TaxiHudState:
     def _open_options(self) -> None:
         document = self.settings_document
         stage = self._menu_stage
-        if document is None or stage not in {"mode", "map", "course"}:
+        if document is None or stage != "mode":
             return
-        if stage == "mode":
-            self._options_return_stage = "mode"
-        elif stage == "map":
-            self._options_return_stage = "map"
-        else:
-            self._options_return_stage = "course"
+        self._options_return_stage = "mode"
+        if self._restart_baseline_settings is None:
+            self._restart_baseline_settings = clone_settings(document.settings)
         self._options_draft = clone_settings(document.settings)
         self._options_error = ""
         self._menu_stage = "options"
@@ -595,7 +625,9 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
-        restart_categories = restart_required_categories(document.settings, draft)
+        baseline = self._restart_baseline_settings or document.settings
+        restart_settings = restart_required_settings(baseline, draft)
+        saved_native_dit_disabled = _settings_disable_native_dit(draft)
         try:
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
@@ -609,30 +641,44 @@ class TaxiHudState:
         if ("presentation", "show_control_hints") not in overrides:
             self.show_control_tooltips = draft.presentation.show_control_hints
         self._settings_notice = f"SAVED {document.path}"
-        self._settings_restart_notice = (
-            "RESTART REQUIRED: "
-            + ", ".join(
-                category.replace("_", " ").upper() for category in restart_categories
-            )
-            if restart_categories
-            else ""
+        self._settings_notice_expires_at_s = (
+            time.monotonic() + _SETTINGS_NOTICE_DURATION_S
         )
-        self._options_draft = None
+        self._settings_restart_notice = (
+            _RESTART_REQUIRED_NOTICE if restart_settings else ""
+        )
+        self._settings_requiring_restart = restart_settings
+        self._saved_native_dit_disabled_for_live_edit = saved_native_dit_disabled
+        self._options_draft = clone_settings(document.settings)
         self._options_error = ""
-        self._menu_stage = self._options_return_stage
 
     def _draw_settings_notices(self, imgui: Any, scale: float) -> None:
-        if self._settings_notice:
-            _centered_imgui_text(
-                imgui,
-                self._settings_notice,
-                font_size=max(10.0, 11.0 * scale),
-                color=(0.82, 0.68, 0.34, 1.0),
-            )
         if self._settings_restart_notice:
             _centered_imgui_text(
                 imgui,
                 self._settings_restart_notice,
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
+        if (
+            self.native_dit_disabled_for_live_edit
+            or self._saved_native_dit_disabled_for_live_edit
+        ):
+            _centered_imgui_text(
+                imgui,
+                _NATIVE_DIT_DISABLED_NOTICE,
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
+        if (
+            self._settings_restart_notice
+            and _SHOW_RESTART_REQUIRED_SETTINGS
+            and self._settings_requiring_restart
+        ):
+            _centered_imgui_text(
+                imgui,
+                "SETTINGS REQUIRING RESTART: "
+                + ", ".join(self._settings_requiring_restart),
                 font_size=max(10.0, 11.0 * scale),
                 color=(0.82, 0.68, 0.34, 1.0),
             )
@@ -1152,7 +1198,7 @@ class TaxiHudState:
             imgui.separator()
             categories = iter_setting_fields(draft)
             category_visible = imgui.begin_child(
-                "##options-categories", imgui.ImVec2(170.0, -74.0)
+                "##options-categories", imgui.ImVec2(170.0, -150.0)
             )
             try:
                 if category_visible:
@@ -1167,7 +1213,7 @@ class TaxiHudState:
                 imgui.end_child()
             imgui.same_line()
             content_visible = imgui.begin_child(
-                "##options-fields", imgui.ImVec2(0.0, -74.0)
+                "##options-fields", imgui.ImVec2(0.0, -150.0)
             )
             try:
                 if content_visible:
@@ -1181,21 +1227,36 @@ class TaxiHudState:
                 imgui.end_child()
             draft = self._options_draft or draft
             imgui.separator()
-            restart_categories = restart_required_categories(document.settings, draft)
-            if restart_categories:
-                labels = ", ".join(
-                    category.replace("_", " ").upper()
-                    for category in restart_categories
-                )
-                imgui.text(f"RESTART REQUIRED TO APPLY: {labels}")
-            if self._options_error:
-                imgui.text(f"ERROR  {self._options_error}")
+            baseline = self._restart_baseline_settings or document.settings
+            restart_settings = restart_required_settings(baseline, draft)
+            has_unsaved_changes = draft != document.settings
             if imgui.button("SAVE", imgui.ImVec2(160.0, 38.0)):
                 self._save_options()
                 return
             imgui.same_line()
-            if imgui.button("DISCARD", imgui.ImVec2(160.0, 38.0)):
+            exit_label = "EXIT WITHOUT SAVING" if has_unsaved_changes else "EXIT"
+            if imgui.button(exit_label, imgui.ImVec2(160.0, 38.0)):
                 self._discard_options()
+                return
+            if (
+                self._settings_notice
+                and time.monotonic() >= self._settings_notice_expires_at_s
+            ):
+                self._settings_notice = ""
+            if self._settings_notice:
+                imgui.text(self._settings_notice)
+            if restart_settings:
+                imgui.text(_RESTART_REQUIRED_NOTICE)
+                if _SHOW_RESTART_REQUIRED_SETTINGS:
+                    imgui.text(
+                        "SETTINGS REQUIRING RESTART: " + ", ".join(restart_settings)
+                    )
+            if self.native_dit_disabled_for_live_edit or _settings_disable_native_dit(
+                draft
+            ):
+                imgui.text(_NATIVE_DIT_DISABLED_NOTICE)
+            if self._options_error:
+                imgui.text(f"ERROR  {self._options_error}")
         finally:
             imgui.end()
             imgui.pop_style_color(style_color_count)
@@ -1408,7 +1469,7 @@ class TaxiHudState:
             imgui.separator()
             button_height = max(36.0, 48.0 * scale)
             list_height = max(
-                60.0, _point_xy(imgui.get_content_region_avail())[1] - 136.0
+                60.0, _point_xy(imgui.get_content_region_avail())[1] - 86.0
             )
             list_visible = imgui.begin_child(
                 "##map-options", imgui.ImVec2(0.0, list_height)
@@ -1437,18 +1498,12 @@ class TaxiHudState:
                 imgui.end_child()
             imgui.separator()
             button_width = _point_xy(imgui.get_content_region_avail())[0]
-            if self.settings_document is not None and imgui.button(
-                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
-            ):
-                self._open_options()
-                return
             if imgui.button(
                 "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
                 return
-            self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
                 "ESC  BACK",
@@ -1508,7 +1563,7 @@ class TaxiHudState:
             imgui.separator()
             button_height = max(36.0, 48.0 * scale)
             list_height = max(
-                60.0, _point_xy(imgui.get_content_region_avail())[1] - 136.0
+                60.0, _point_xy(imgui.get_content_region_avail())[1] - 86.0
             )
             list_visible = imgui.begin_child(
                 "##course-options", imgui.ImVec2(0.0, list_height)
@@ -1527,18 +1582,12 @@ class TaxiHudState:
                 imgui.end_child()
             imgui.separator()
             button_width = _point_xy(imgui.get_content_region_avail())[0]
-            if self.settings_document is not None and imgui.button(
-                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
-            ):
-                self._open_options()
-                return
             if imgui.button(
                 "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_map_option = None
                 self._menu_stage = "map"
                 return
-            self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
                 "ESC  BACK",

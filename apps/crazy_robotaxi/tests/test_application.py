@@ -161,6 +161,10 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
+    assert (
+        ui_loop.state.native_dit_disabled_for_live_edit
+        is session._config.native_dit_disabled_for_live_edit
+    )
     assert session._config.renderer.bev.width == 234
     assert session._config.renderer.bev.height == 234
 

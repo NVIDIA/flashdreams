@@ -130,6 +130,9 @@ class ApplicationConfig:
     live_edit: LiveEditConfig = LiveEditConfig()
     """Flag-gated style, weather, pickup, nitro, and obstacle abilities."""
 
+    native_dit_disabled_for_live_edit: bool = False
+    """Whether live editing forced native DiT acceleration off."""
+
     visual_flare_enabled: bool = False
     """Whether collision feedback may darken the presented game frame."""
 
@@ -239,10 +242,12 @@ class CrazyRobotaxiApplication(IApplication):
         )
         pipeline_config = settings.model.pipeline
         model_preset_name = pipeline_config.name
-        pipeline_config = _configure_live_edit_pipeline(
+        configured_pipeline = _configure_live_edit_pipeline(
             pipeline_config,
             settings.live_edit,
         )
+        native_dit_disabled_for_live_edit = configured_pipeline is not pipeline_config
+        pipeline_config = configured_pipeline
         live_edit = resolve_live_edit_assets(settings.live_edit)
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
@@ -282,6 +287,7 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.game.race.times_path.expanduser()
             ),
             live_edit=live_edit,
+            native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
         )
         self._map_options = _discover_game_maps(map_path)
@@ -501,22 +507,7 @@ def _configure_live_edit_pipeline(config: Any, live_edit: LiveEditConfig) -> Any
     native_mode = getattr(transformer, "native_dit_acceleration", "disabled")
     if not live_edit.requires_python_dit or native_mode in {"disabled", None, False}:
         return config
-    reasons = [
-        name
-        for name, enabled in (
-            ("style", live_edit.style.enabled),
-            ("weather", live_edit.weather.enabled),
-            (
-                "obstacle guidance",
-                live_edit.obstacle.enabled and live_edit.obstacle.guide_scale > 0.0,
-            ),
-        )
-        if enabled
-    ]
-    _LOGGER.warning(
-        "Disabling native DiT acceleration for live-edit features: %s",
-        ", ".join(reasons),
-    )
+    _LOGGER.warning("Disabling native DiT acceleration for live-edit features")
     return derive_config(
         config,
         diffusion_model={"transformer": {"native_dit_acceleration": "disabled"}},

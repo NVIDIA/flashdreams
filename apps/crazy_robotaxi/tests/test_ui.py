@@ -42,6 +42,7 @@ from crazy_robotaxi.ui import (
 )
 from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
 from omnidreams_game_engine.types import CameraCalibration
+from omnidreams.config import OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
@@ -1037,14 +1038,22 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     assert lines[1].startswith("ELAPSED  ")
 
 
-def test_selection_menus_use_arcade_card_layout() -> None:
+def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
         race_course_ids=("downtown-sprint",),
     )
-    state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        native_dit_disabled_for_live_edit=True,
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+        map_options=(option,),
+    )
+    state._settings_restart_notice = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
     imgui = _FakeImGui()
 
     state.draw(imgui)
@@ -1072,6 +1081,14 @@ def test_selection_menus_use_arcade_card_layout() -> None:
     for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
         size = button_sizes[label]
         assert size is not None and size[0] > 0.0
+    assert imgui.buttons.count("OPTIONS") == 1
+    for title in (
+        "Crazy Robotaxi - Select Map",
+        "Crazy Robotaxi - Select Race Course",
+    ):
+        lines = imgui.windows[title]
+        assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" not in lines
+        assert "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" not in lines
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
@@ -1577,10 +1594,23 @@ def _settings_document(path: Path) -> SettingsDocument:
     )
 
 
-@pytest.mark.parametrize("stage", ["mode", "map", "course"])
-def test_options_can_open_from_each_selection_menu(
+def _perf_settings_document(path: Path) -> SettingsDocument:
+    return SettingsDocument.load(
+        path,
+        pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        width=640,
+        height=360,
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_stage"),
+    [("mode", "options"), ("map", "map"), ("course", "course")],
+)
+def test_options_can_only_open_from_mode_selection(
     tmp_path: Path,
     stage: Literal["mode", "map", "course"],
+    expected_stage: Literal["options", "map", "course"],
 ) -> None:
     state = TaxiHudState(
         640,
@@ -1592,8 +1622,9 @@ def test_options_can_open_from_each_selection_menu(
 
     state._open_options()
 
-    assert state._menu_stage == "options"
-    assert state._options_return_stage == stage
+    assert state._menu_stage == expected_stage
+    if stage == "mode":
+        assert state._options_return_stage == "mode"
 
 
 def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
@@ -1611,6 +1642,9 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     labels = {label for label, _size in imgui.button_sizes}
     assert "GAME##options-category-game" in labels
     assert "LAUNCH##options-category-launch" not in labels
+    assert "SAVE" in labels
+    assert "EXIT" in labels
+    assert "EXIT WITHOUT SAVING" not in labels
 
 
 def test_options_save_persists_and_applies_presentation_setting(
@@ -1631,7 +1665,7 @@ def test_options_save_persists_and_applies_presentation_setting(
 
     state.draw(imgui)
 
-    assert state._menu_stage == "mode"
+    assert state._menu_stage == "options"
     assert state.show_fps
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
     assert state._settings_notice == f"SAVED {document.path}"
@@ -1640,10 +1674,22 @@ def test_options_save_persists_and_applies_presentation_setting(
     assert "Show Fps:" in options_lines
     assert not any("RESTART REQUIRED" in line for line in options_lines)
 
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    saved_labels = {label for label, _size in saved_imgui.button_sizes}
+    assert state._settings_notice in saved_imgui.windows["Crazy Robotaxi - Options"]
+    assert "EXIT" in saved_labels
+    assert "EXIT WITHOUT SAVING" not in saved_labels
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
+    assert state._menu_stage == "mode"
+
     menu_imgui = _FakeImGui()
     state.draw(menu_imgui)
     menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
-    assert state._settings_notice in menu_lines
+    assert state._settings_notice not in menu_lines
     assert not any("RESTART REQUIRED" in line for line in menu_lines)
 
 
@@ -1659,13 +1705,54 @@ def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None
     state._options_category = "presentation"
     imgui = _FakeImGui()
     imgui.checkbox_values["##presentation.show_fps"] = True
-    imgui.clicked_buttons.add("DISCARD")
+    imgui.clicked_buttons.add("EXIT WITHOUT SAVING")
 
     state.draw(imgui)
 
     assert state._menu_stage == "mode"
     assert not state.show_fps
     assert not document.path.exists()
+    labels = {label for label, _size in imgui.button_sizes}
+    assert "EXIT WITHOUT SAVING" in labels
+    assert "EXIT" not in labels
+
+
+def test_options_save_notice_expires_five_seconds_after_latest_save(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr("crazy_robotaxi.ui.time.monotonic", lambda: now[0])
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+
+    first_save = _FakeImGui()
+    first_save.clicked_buttons.add("SAVE")
+    state.draw(first_save)
+
+    now[0] = 104.0
+    second_save = _FakeImGui()
+    second_save.clicked_buttons.add("SAVE")
+    state.draw(second_save)
+
+    now[0] = 105.0
+    visible_imgui = _FakeImGui()
+    state.draw(visible_imgui)
+    assert state._settings_notice in visible_imgui.windows["Crazy Robotaxi - Options"]
+
+    now[0] = 109.0
+    expired_imgui = _FakeImGui()
+    state.draw(expired_imgui)
+    assert not state._settings_notice
+    assert not any(
+        line.startswith("SAVED ")
+        for line in expired_imgui.windows["Crazy Robotaxi - Options"]
+    )
 
 
 def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
@@ -1684,18 +1771,139 @@ def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
     state.draw(imgui)
 
     assert (
-        "RESTART REQUIRED TO APPLY: RUNTIME"
+        "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
         in imgui.windows["Crazy Robotaxi - Options"]
+    )
+    assert not any(
+        line.startswith("SETTINGS REQUIRING RESTART:")
+        for line in imgui.windows["Crazy Robotaxi - Options"]
     )
     assert "Prewarm Blocks:" in imgui.windows["Crazy Robotaxi - Options"]
 
     imgui.clicked_buttons.add("SAVE")
     state.draw(imgui)
 
+    assert state._menu_stage == "options"
     assert state._settings_notice == f"SAVED {document.path}"
-    assert state._settings_restart_notice == "RESTART REQUIRED: RUNTIME"
+    assert (
+        state._settings_restart_notice == "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+    )
+    assert state._settings_requiring_restart == ("runtime.prewarm_blocks",)
+
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    assert state._settings_notice in saved_imgui.windows["Crazy Robotaxi - Options"]
+    assert (
+        state._settings_restart_notice
+        in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+    saved_labels = {label for label, _size in saved_imgui.button_sizes}
+    assert "EXIT" in saved_labels
+    assert "EXIT WITHOUT SAVING" not in saved_labels
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
     menu_imgui = _FakeImGui()
     state.draw(menu_imgui)
     menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
-    assert state._settings_notice in menu_lines
+    assert state._settings_notice not in menu_lines
     assert state._settings_restart_notice in menu_lines
+    assert not any(
+        line.startswith("SETTINGS REQUIRING RESTART:") for line in menu_lines
+    )
+
+
+def test_options_can_show_code_only_restart_setting_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "crazy_robotaxi.ui._SHOW_RESTART_REQUIRED_SETTINGS",
+        True,
+    )
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "runtime"
+    imgui = _FakeImGui()
+    imgui.input_values["##runtime.prewarm_blocks"] = "9"
+
+    state.draw(imgui)
+
+    assert (
+        "SETTINGS REQUIRING RESTART: runtime.prewarm_blocks"
+        in imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+
+def test_native_dit_override_notice_does_not_require_a_settings_change(
+    tmp_path: Path,
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        native_dit_disabled_for_live_edit=True,
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    notice = "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    assert notice in menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+
+    state._open_options()
+    options_imgui = _FakeImGui()
+    state.draw(options_imgui)
+    options_lines = options_imgui.windows["Crazy Robotaxi - Options"]
+    assert notice in options_lines
+
+
+def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
+    tmp_path: Path,
+) -> None:
+    document = _perf_settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "live_edit"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##live_edit.weather.enabled"] = True
+
+    state.draw(imgui)
+
+    pending_lines = imgui.windows["Crazy Robotaxi - Options"]
+    assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" in pending_lines
+    assert "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" in pending_lines
+
+    reverted_imgui = _FakeImGui()
+    reverted_imgui.checkbox_values["##live_edit.weather.enabled"] = False
+    state.draw(reverted_imgui)
+    reverted_lines = reverted_imgui.windows["Crazy Robotaxi - Options"]
+    assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" not in reverted_lines
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" not in reverted_lines
+    )
+
+    save_imgui = _FakeImGui()
+    save_imgui.checkbox_values["##live_edit.weather.enabled"] = True
+    save_imgui.clicked_buttons.add("SAVE")
+    state.draw(save_imgui)
+
+    assert state._menu_stage == "options"
+    assert state._saved_native_dit_disabled_for_live_edit
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )

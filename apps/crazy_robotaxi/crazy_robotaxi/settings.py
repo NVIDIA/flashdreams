@@ -657,19 +657,35 @@ def clone_settings(settings: CrazyRobotaxiUserSettings) -> CrazyRobotaxiUserSett
     return copy.deepcopy(settings)
 
 
-def restart_required_categories(
+def restart_required_settings(
     original: CrazyRobotaxiUserSettings,
     draft: CrazyRobotaxiUserSettings,
 ) -> tuple[str, ...]:
-    """Return changed top-level settings groups that apply after restart."""
+    """Return changed setting paths that apply after restart."""
+
     # ponytail: The current V2 host keeps menus and gameplay in one session.
     # Remove this policy when separate menu and gameplay sessions let saved
     # settings configure the next gameplay session directly.
+    def changed_paths(
+        before: object,
+        after: object,
+        prefix: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        changed: list[str] = []
+        for item in fields(cast(Any, before)):
+            old_value = getattr(before, item.name)
+            new_value = getattr(after, item.name)
+            path = (*prefix, item.name)
+            if is_dataclass(old_value) and not isinstance(old_value, type):
+                changed.extend(changed_paths(old_value, new_value, path))
+            elif old_value != new_value:
+                changed.append(".".join(path))
+        return tuple(changed)
+
     return tuple(
-        item.name
-        for item in fields(original)
-        if item.name != "presentation"
-        and getattr(original, item.name) != getattr(draft, item.name)
+        path
+        for path in changed_paths(original, draft, ())
+        if not path.startswith("presentation.")
     )
 
 
@@ -706,7 +722,7 @@ __all__ = [
     "iter_setting_fields",
     "parse_editor_value",
     "readonly_display",
-    "restart_required_categories",
+    "restart_required_settings",
     "setting_choices",
     "setting_value",
 ]
