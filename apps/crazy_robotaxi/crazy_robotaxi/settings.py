@@ -36,7 +36,6 @@ class LaunchSettings:
     mode: GameMode | None = None
     map: Path | None = None
     race_course: str | None = None
-    camera: str = "camera_front_wide_120fov"
     variant: str = "default"
     prompt: str | None = None
 

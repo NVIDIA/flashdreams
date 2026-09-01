@@ -18,6 +18,7 @@ from omnidreams_game_engine.cli_args import (
     ExplicitArgTrackingArgumentParser,
     arg_was_explicit,
 )
+from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
 from omnidreams_game_engine.renderer_settings import RendererSettings
@@ -241,7 +242,7 @@ class CrazyRobotaxiApplication(IApplication):
         self._config = ApplicationConfig(
             scene_request=SceneRequest(
                 map_path=map_path.expanduser(),
-                camera_name=settings.launch.camera,
+                camera_name=DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
                 variant=settings.launch.variant,
                 prompt=settings.launch.prompt,
                 force_recompile=bool(args.force_map_recompile),
@@ -302,7 +303,6 @@ class CrazyRobotaxiApplication(IApplication):
         launch = settings.launch
         for name, field_name in (
             ("map", "map"),
-            ("camera", "camera"),
             ("variant", "variant"),
             ("prompt", "prompt"),
             ("game_mode", "mode"),
@@ -609,7 +609,6 @@ def _parser(
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
-    parser.add_argument("--camera", default="camera_front_wide_120fov")
     parser.add_argument("--variant", default="default")
     parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
