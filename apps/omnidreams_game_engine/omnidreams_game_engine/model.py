@@ -228,6 +228,11 @@ class WorldModelRollout:
         self.cache = self._new_cache()
         self._attach_live_edit(previous_live_edit)
 
+    def reseed(self, scene: SceneDefinition) -> None:
+        """Reset the rollout with a replacement initial image and prompt."""
+        self.scene = scene
+        self.reset()
+
     def close(self) -> None:
         """Release all session-local resources."""
         if self._closed:

@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "flashdreams[local-window]",
+    "flashdreams-qwen-image-edit-v2",
     "omnidreams-game-engine",
     "torch",
 ]
@@ -20,6 +21,7 @@ crazy-robotaxi-map = "crazy_robotaxi.map_tool:main"
 [tool.uv.sources]
 flashdreams = { workspace = true }
 omnidreams-game-engine = { workspace = true }
+flashdreams-qwen-image-edit-v2 = { workspace = true }
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-manual-marker>=2.0"]
@@ -31,6 +33,7 @@ include = ["crazy_robotaxi*"]
 crazy_robotaxi = [
     "assets/*.npz",
     "maps/*.robotaxi.yaml",
+    "maps/*.spawn-images/*.png",
 ]
 
 [tool.uv]

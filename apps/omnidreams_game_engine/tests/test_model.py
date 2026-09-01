@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -158,8 +159,18 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
     assert len(engines) == 2
     assert [call[0] for call in pipeline.calls].count("initialize_cache") == 2
 
-    rollout.close()
+    settled = replace(_scene(), initial_rgb=np.full((4, 8, 3), 255, dtype=np.uint8))
+    rollout.reseed(settled)
     assert engines[1].closed
+    assert len(engines) == 3
+    assert [call[0] for call in pipeline.calls].count("initialize_cache") == 3
+    cache_args = cast(dict[str, object], pipeline.calls[-1][1])
+    image = cache_args["image"]
+    assert isinstance(image, torch.Tensor)
+    assert torch.all(image == 1.0)
+
+    rollout.close()
+    assert engines[2].closed
 
 
 def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:

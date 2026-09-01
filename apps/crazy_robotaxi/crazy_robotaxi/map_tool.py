@@ -16,6 +16,8 @@ from omnidreams_game_engine.game_map import (
     write_spawn_first_frame_preview,
 )
 
+from crazy_robotaxi.spawn_images import generate_spawn_images
+
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Run one map-authoring command without constructing a model."""
@@ -41,6 +43,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         print(args.output)
         return
+    if args.command == "generate-spawns":
+        from qwen_image_edit_v2 import QwenImageEditor
+
+        output = generate_spawn_images(
+            args.map,
+            QwenImageEditor(device=args.device),
+            output_map=args.output_map,
+            resolution_wh=(args.width, args.height),
+            force=args.force,
+            num_inference_steps=args.steps,
+            progress=lambda index, total, spawn, variant: print(
+                f"generating {index}/{total}: {spawn}/{variant}", flush=True
+            ),
+        )
+        print(output)
+        return
     parser.error(f"Unknown command: {args.command}")
 
 
@@ -59,6 +77,17 @@ def _parser() -> argparse.ArgumentParser:
     spawn.add_argument("map", type=Path)
     spawn.add_argument("--spawn", required=True)
     spawn.add_argument("--output", type=Path, required=True)
+    generate = subparsers.add_parser(
+        "generate-spawns",
+        help="generate Qwen-only spawn drafts without world-model settlement",
+    )
+    generate.add_argument("map", type=Path)
+    generate.add_argument("--output-map", type=Path)
+    generate.add_argument("--width", type=int, default=1280)
+    generate.add_argument("--height", type=int, default=704)
+    generate.add_argument("--steps", type=int)
+    generate.add_argument("--device", default="cuda")
+    generate.add_argument("--force", action="store_true")
     return parser
 
 

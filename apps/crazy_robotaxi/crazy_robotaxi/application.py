@@ -92,6 +92,12 @@ class ApplicationConfig:
     prewarm_blocks: int
     """Hidden neutral blocks generated before the first presented game frame."""
 
+    spawn_image_settle_blocks: int
+    """Neutral world-model chunks used to finish a newly authored spawn image."""
+
+    spawn_image_settle_map_path: Path | None
+    """Generated map whose managed spawn image still needs model settlement."""
+
     profile_input_latency: bool
     """Whether the UI displays and logs input-to-model-frame diagnostics."""
 
@@ -177,6 +183,7 @@ class CrazyRobotaxiApplication(IApplication):
         if pipeline_config is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
         args = _parser(self._application_defaults).parse_args(list(commandline_args))
+        generated_spawn_count = 0
         input_trace_path = args.profile_input_latency
         args.profile_input_latency = input_trace_path is not None
         engine_settings = self._resolve_engine_settings(args)
@@ -190,6 +197,14 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError("--game-time-s must be positive")
         if engine_settings.runtime.prewarm_blocks < 0:
             raise ValueError("--prewarm-blocks must be non-negative")
+        if args.spawn_image_settle_blocks <= 0:
+            raise ValueError("--spawn-image-settle-blocks must be positive")
+        if arg_was_explicit(args, "spawn_image_settle_blocks") and not (
+            args.generate_spawn_images
+        ):
+            raise ValueError(
+                "--spawn-image-settle-blocks requires --generate-spawn-images"
+            )
         if game_settings.mode != "race" and (
             arg_was_explicit(args, "race_course")
             or arg_was_explicit(args, "race_times")
@@ -198,6 +213,30 @@ class CrazyRobotaxiApplication(IApplication):
         map_path = engine_settings.map.path
         if map_path is None:
             raise ValueError("A map path is required (set engine.map.path or --map)")
+        if args.generate_spawn_images:
+            from qwen_image_edit_v2 import QwenImageEditor
+
+            from crazy_robotaxi.spawn_images import generate_spawn_images
+
+            def generated(index: int, total: int, spawn: str, variant: str) -> None:
+                nonlocal generated_spawn_count
+                generated_spawn_count += 1
+                _LOGGER.info(
+                    "[crazy-robotaxi] generating spawn image %d/%d: %s/%s",
+                    index,
+                    total,
+                    spawn,
+                    variant,
+                )
+
+            generate_spawn_images(
+                map_path,
+                QwenImageEditor(device=engine_settings.world_model.device),
+                resolution_wh=engine_settings.rendering.raster.resolution_wh,
+                force=args.force_spawn_images,
+                num_inference_steps=args.spawn_image_steps,
+                progress=generated,
+            )
         if game_settings.mode == "race":
             header = load_game_map_header(map_path.expanduser())
             if not header.race_course_ids:
@@ -264,6 +303,12 @@ class CrazyRobotaxiApplication(IApplication):
             model_preset_name=model_preset_name,
             pipeline_profiling=bool(engine_settings.world_model.profile_pipeline),
             prewarm_blocks=engine_settings.runtime.prewarm_blocks,
+            spawn_image_settle_blocks=(
+                args.spawn_image_settle_blocks if generated_spawn_count else 0
+            ),
+            spawn_image_settle_map_path=(
+                map_path.expanduser().resolve() if generated_spawn_count else None
+            ),
             profile_input_latency=engine_settings.runtime.profile_input_latency,
             input_trace_path=(
                 None
@@ -532,6 +577,22 @@ def _parser(
     parser.add_argument("--variant", default="default")
     parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
+    parser.add_argument(
+        "--generate-spawn-images",
+        action="store_true",
+        help="generate managed Qwen spawn images before launching the game",
+    )
+    parser.add_argument("--force-spawn-images", action="store_true")
+    parser.add_argument("--spawn-image-steps", type=int)
+    parser.add_argument(
+        "--spawn-image-settle-blocks",
+        type=int,
+        default=8,
+        help=(
+            "neutral world-model chunks applied after Qwen generation before "
+            "saving the final spawn image (default: 8)"
+        ),
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
     parser.add_argument("--game-time-s", type=float)

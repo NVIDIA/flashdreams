@@ -417,6 +417,7 @@ spawns:
     variants:
       default:
         image: seed.png
+        time_of_day: day
         prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
 ```
 
@@ -430,6 +431,11 @@ as a photorealistic authoring result.
 Authored images may be map-relative paths or `package://package/resource`
 references. Resolved geometry, compiler and fallback-renderer code, seed
 images, and prompts participate in the compiled-map cache key.
+
+`time_of_day` is optional and accepts `dawn`, `day`, `dusk`, or `night`
+(default `day`). Image-authoring tools may include it as scene-lighting context
+when turning the semantic spawn render into a photographic first frame. It has
+no runtime effect when an authored `image` is present.
 
 ## Validation summary
 

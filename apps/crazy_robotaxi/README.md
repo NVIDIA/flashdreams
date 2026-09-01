@@ -146,3 +146,40 @@ uv run --package crazy-robotaxi crazy-robotaxi-map preview \
 uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
   path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
 ```
+
+The complete spawn-image authoring path needs both Qwen Image Edit 2511 and the
+OmniDreams world model. Run it through the application integration:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams --mode native-window -- \
+  --map path/to/city.robotaxi.yaml --generate-spawn-images
+```
+
+Crazy Robotaxi first renders the semantic road into Qwen's source image and
+uses `prompt` plus `time_of_day` (`dawn`, `day`, `dusk`, or `night`) as the
+scenery instruction. It restores the exact semantic road, boundaries, curbs,
+and markings through a road-only mask, adds deterministic luminance grain only
+to the dark asphalt pixels, then sends that result through eight stationary
+OmniDreams chunks. The grain brightness follows `time_of_day`; markings and
+Qwen-generated scenery remain unchanged. The last generated frame becomes the
+managed spawn PNG and the new gameplay seed, which lets the world model add
+asphalt texture without moving the camera or vehicle. The game cache and
+simulation are reset afterward, so gameplay still begins at AR index zero.
+
+Managed images are written under `<map-id>.spawn-images/`; the YAML is updated
+and the map is recompiled after both the Qwen and OmniDreams stages. Existing
+authored images outside that folder are never overwritten. Add
+`--force-spawn-images` to regenerate an existing managed image. The default is
+eight settling chunks (about two seconds of generated video); override it with
+`--spawn-image-settle-blocks N`.
+Generation is never triggered by ordinary map compilation or game startup.
+
+The offline command below remains available when only a Qwen draft is wanted.
+It cannot perform the final world-model settlement because it deliberately
+does not construct a model pipeline:
+
+```bash
+uv run --package crazy-robotaxi crazy-robotaxi-map generate-spawns \
+  path/to/city.robotaxi.yaml
+```
