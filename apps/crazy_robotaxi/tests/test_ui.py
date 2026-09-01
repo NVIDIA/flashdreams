@@ -1687,9 +1687,7 @@ def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
         "RESTART REQUIRED TO APPLY: RUNTIME"
         in imgui.windows["Crazy Robotaxi - Options"]
     )
-    assert (
-        "Prewarm Blocks:  RESTART REQUIRED" in imgui.windows["Crazy Robotaxi - Options"]
-    )
+    assert "Prewarm Blocks:" in imgui.windows["Crazy Robotaxi - Options"]
 
     imgui.clicked_buttons.add("SAVE")
     state.draw(imgui)

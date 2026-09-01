@@ -1227,10 +1227,7 @@ class TaxiHudState:
             if not editable_setting(current, item_path):
                 imgui.text(f"{label}: {readonly_display(current)}  [READ ONLY]")
                 continue
-            restart_label = (
-                "  RESTART REQUIRED" if item_path[0] != "presentation" else ""
-            )
-            imgui.text(f"{label}:{restart_label}")
+            imgui.text(f"{label}:")
             imgui.same_line()
             widget_id = f"##{'.'.join(item_path)}"
             choices = setting_choices(annotation)

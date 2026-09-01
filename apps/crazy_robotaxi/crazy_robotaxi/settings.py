@@ -662,6 +662,9 @@ def restart_required_categories(
     draft: CrazyRobotaxiUserSettings,
 ) -> tuple[str, ...]:
     """Return changed top-level settings groups that apply after restart."""
+    # ponytail: The current V2 host keeps menus and gameplay in one session.
+    # Remove this policy when separate menu and gameplay sessions let saved
+    # settings configure the next gameplay session directly.
     return tuple(
         item.name
         for item in fields(original)
