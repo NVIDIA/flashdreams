@@ -120,7 +120,7 @@ class ApplicationConfig:
     """Persistent map- and course-scoped race leaderboard."""
 
     live_edit: LiveEditConfig = LiveEditConfig()
-    """Flag-gated style, weather, pickup, nitro, and obstacle abilities."""
+    """Flag-gated prompt, style, weather, pickup, nitro, and obstacle abilities."""
 
     visual_flare_enabled: bool = False
     """Whether collision feedback may darken the presented game frame."""
@@ -227,6 +227,21 @@ class CrazyRobotaxiApplication(IApplication):
             ),
         )
         model_preset_name = pipeline_config.name
+        if game_settings.live_edit.map_context.enabled:
+            native_dit = (
+                pipeline_config.diffusion_model.transformer.native_dit_acceleration
+            )
+            if native_dit not in ("disabled", None, False):
+                _LOGGER.info(
+                    "Map-aware prompts disable native DiT while preserving preset %s",
+                    model_preset_name,
+                )
+            pipeline_config = derive_config(
+                pipeline_config,
+                diffusion_model={
+                    "transformer": {"native_dit_acceleration": "disabled"}
+                },
+            )
         if engine_settings.world_model.compile is not None:
             pipeline_config = derive_config(
                 pipeline_config,
@@ -255,6 +270,7 @@ class CrazyRobotaxiApplication(IApplication):
                 camera_name=engine_settings.map.camera,
                 variant=engine_settings.map.variant,
                 prompt=engine_settings.map.prompt,
+                use_prompt_context=game_settings.live_edit.map_context.enabled,
                 force_recompile=engine_settings.map.force_recompile,
             ),
             renderer=renderer,

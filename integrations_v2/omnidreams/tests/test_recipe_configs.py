@@ -12,6 +12,8 @@ from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfi
 from omnidreams.apps.interactive_drive.adapter import (
     OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
 )
 from omnidreams.apps.interactive_drive.adapter import (
@@ -21,18 +23,28 @@ from omnidreams.apps.interactive_drive.adapter import (
     create_fast_perf_app as create_interactive_drive_fast_perf_app,
 )
 from omnidreams.apps.interactive_drive.adapter import (
+    create_optimized_gb300_app as create_interactive_drive_gb300_app,
+)
+from omnidreams.apps.interactive_drive.adapter import (
+    create_optimized_rtx_pro_6000_app as create_interactive_drive_rtx_pro_6000_app,
+)
+from omnidreams.apps.interactive_drive.adapter import (
     create_perf_app as create_interactive_drive_perf_app,
 )
 from omnidreams.config import (
     OMNIDREAMS_CONFIGS,
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
+from omnidreams.impl.pipeline import OmnidreamsPipelineConfig
 from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 
 from flashdreams.api_v2.application import IApplication
+from integrations_v2.omnidreams.benchmarks.cases import BENCHMARK_CASES
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -41,6 +53,10 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
     """Expose every model-owned OmniDreams pipeline config."""
     assert OMNIDREAMS_CONFIGS == {
         "omnidreams": OMNIDREAMS_PIPELINE_CONFIG,
+        "omnidreams-optimized-gb300": OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        "omnidreams-optimized-rtx-pro-6000": (
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG
+        ),
         "omnidreams-perf": OMNIDREAMS_PERF_PIPELINE_CONFIG,
         "omnidreams-fast-perf": OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     }
@@ -74,10 +90,26 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
         OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS.slug
         == "interactive-drive-fast-perf"
     )
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS.slug
+        == "interactive-drive-optimized-gb300"
+    )
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS.slug
+        == "interactive-drive-optimized-rtx-pro-6000"
+    )
     assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width == 1280
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.width == 1168
     for defaults, pipeline_config in (
         (OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        ),
         (
             OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
             OMNIDREAMS_PERF_PIPELINE_CONFIG,
@@ -94,6 +126,8 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
     ("factory", "resolution_wh"),
     [
         (create_interactive_drive_app, (1280, 704)),
+        (create_interactive_drive_gb300_app, (1280, 704)),
+        (create_interactive_drive_rtx_pro_6000_app, (1280, 704)),
         (create_interactive_drive_perf_app, (1168, 640)),
         (create_interactive_drive_fast_perf_app, (1168, 640)),
     ],
@@ -125,6 +159,13 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
     assert entry_points["flashdreams.applications_v2"] == {
         "interactive-drive-omnidreams": (
             "omnidreams.apps.interactive_drive.adapter:create_app"
+        ),
+        "interactive-drive-omnidreams-optimized-gb300": (
+            "omnidreams.apps.interactive_drive.adapter:create_optimized_gb300_app"
+        ),
+        "interactive-drive-omnidreams-optimized-rtx-pro-6000": (
+            "omnidreams.apps.interactive_drive.adapter:"
+            "create_optimized_rtx_pro_6000_app"
         ),
         "interactive-drive-omnidreams-perf": (
             "omnidreams.apps.interactive_drive.adapter:create_perf_app"

@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TeahvVAEDecoder, TeahvVAEDecoderConfig
 from integrations_v2.omnidreams.benchmarks.cases import (
     BENCHMARK_CASES,
     AttentionBenchmarkCase,
@@ -136,7 +136,8 @@ def _run_full_pipeline_benchmark(
     assert isinstance(pipeline, OmnidreamsPipeline)
     pipeline.eval()
     assert pipeline.encoder is not None
-    assert pipeline.decoder is not None
+    decoder = pipeline.decoder
+    assert isinstance(decoder, TeahvVAEDecoder)
 
     diffusion_config = pipeline_config.diffusion_model
     transformer_config = diffusion_config.transformer
@@ -167,7 +168,7 @@ def _run_full_pipeline_benchmark(
     assert transformer_config.native_dit_attention_backend == native_attention
     assert transformer_config.skip_finalize_kv_cache is False
     dtype = transformer_config.dtype
-    spatial_compression = int(pipeline.decoder.spatial_compression_ratio)
+    spatial_compression = int(decoder.spatial_compression_ratio)
     latent_height = _PIXEL_HEIGHT // spatial_compression
     latent_width = _PIXEL_WIDTH // spatial_compression
     latent_channels = int(network_config.in_channels)
@@ -200,8 +201,8 @@ def _run_full_pipeline_benchmark(
     )
     del text_embeddings, image_embeddings
 
-    first_chunk_frames = pipeline.get_num_frames(0)
-    steady_chunk_frames = pipeline.get_num_frames(1)
+    first_chunk_frames = pipeline.get_num_output_frames(0)
+    steady_chunk_frames = pipeline.get_num_output_frames(1)
     input_generator = torch.Generator(device=device).manual_seed(_SEED)
     hdmap_first = (
         torch.rand(

@@ -8,9 +8,20 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from omnidreams_game_engine.game_map import load_game_map
+import yaml
+from omnidreams_game_engine.game_map import (
+    GameMapError,
+    compile_game_map,
+    load_game_map,
+)
+from omnidreams_game_engine.game_map.types import (
+    game_map_from_dict,
+    game_map_to_dict,
+)
 
 pytestmark = pytest.mark.ci_cpu
+
+_MAP_FIXTURES = Path(__file__).parent / "maps"
 
 
 @pytest.mark.parametrize(
@@ -24,6 +35,82 @@ def test_shipped_map_is_valid(filename: str) -> None:
     assert game_map.map_id.startswith("crazy-robotaxi-")
     assert game_map.spawns
     assert game_map.lanes
+    variant = game_map.default_spawn.variants[0]
+    assert variant.prompt_context
+    assert variant.prompt_context != variant.prompt
+
+
+def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    source["nodes"][0]["prompt_context"] = "  A neighborhood landmark.  "
+    source["roads"][0]["prompt_context"] = "  Detached homes line the road.  "
+    source["spawns"][0]["variants"]["default"]["prompt_context"] = (
+        "  A forward-facing road view.  "
+    )
+    path = tmp_path / "prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+
+    original = load_game_map(path)
+    restored = game_map_from_dict(game_map_to_dict(original))
+
+    assert original.topology.nodes[0].prompt_context == "A neighborhood landmark."
+    assert original.topology.roads[0].prompt_context == (
+        "Detached homes line the road."
+    )
+    assert original.default_spawn.variants[0].prompt_context == (
+        "A forward-facing road view."
+    )
+    assert restored.default_spawn.variants == original.default_spawn.variants
+    assert restored.topology == original.topology
+
+
+@pytest.mark.parametrize("value", ["", "   ", 42, ["not", "text"]])
+def test_prompt_context_requires_nonempty_text(tmp_path: Path, value: object) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    source["roads"][0]["prompt_context"] = value
+    path = tmp_path / "invalid-prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+
+    with pytest.raises(GameMapError, match="prompt_context must be a nonempty string"):
+        load_game_map(path)
+
+
+@pytest.mark.parametrize("value", ["", "   ", 42, ["not", "text"]])
+def test_spawn_prompt_context_requires_nonempty_text(
+    tmp_path: Path, value: object
+) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    source["spawns"][0]["variants"]["default"]["prompt_context"] = value
+    path = tmp_path / "invalid-spawn-prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+
+    with pytest.raises(GameMapError, match="prompt_context must be a nonempty string"):
+        load_game_map(path)
+
+
+def test_prompt_context_change_invalidates_compiler_cache(tmp_path: Path) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    path = tmp_path / "cached-prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+    cache_root = tmp_path / "cache"
+
+    first = compile_game_map(path, cache_root=cache_root)
+    assert compile_game_map(path, cache_root=cache_root).cache_hit
+    source["roads"][0]["prompt_context"] = "A changed roadside setting."
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+    changed = compile_game_map(path, cache_root=cache_root)
+
+    assert first.cache_hit is False
+    assert changed.cache_hit is False
+    assert changed.archive_path != first.archive_path
 
 
 def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None:

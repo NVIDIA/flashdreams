@@ -89,6 +89,16 @@ _NODE_ATTRIBUTE_FIELDS = {
 }
 
 
+def _prompt_context(raw: dict[str, Any], context: str) -> str | None:
+    """Return a validated optional authored prompt-context sentence."""
+    value = raw.get("prompt_context")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise GameMapError(f"{context}.prompt_context must be a nonempty string")
+    return value.strip()
+
+
 @dataclass(frozen=True)
 class _RoadSpec:
     road: GameMapRoad
@@ -267,6 +277,7 @@ def _parse_nodes(
             raise GameMapError(f"Node id {node_id!r} is empty or duplicated")
         ids.add(node_id)
         context = f"node {node_id!r}"
+        prompt_context = _prompt_context(raw, context)
         if node_type == "parking_lot":
             expected = {
                 "id",
@@ -274,11 +285,13 @@ def _parse_nodes(
                 "vertices",
                 "connected_to",
                 "opening_vertex",
+                "prompt_context",
             }
-            if set(raw) != expected:
+            required = expected - {"prompt_context"}
+            if not required <= set(raw) or set(raw) - expected:
                 raise GameMapError(
                     f"{context} requires exactly id, type, vertices, "
-                    "connected_to, and opening_vertex"
+                    "connected_to, opening_vertex, and optional prompt_context"
                 )
             vertices = tuple(
                 tuple(
@@ -318,6 +331,7 @@ def _parse_nodes(
                     attributes=GameMapBoundaryAttributes(curb=True),
                     geometry={},
                     polygon_vertices_xy=vertices,
+                    prompt_context=prompt_context,
                 )
             )
             continue
@@ -329,6 +343,7 @@ def _parse_nodes(
         if node_type in {"road_joint", "driveway"}:
             expected = {"id", "type", "pose"}
             allowed = set(expected)
+            allowed.add("prompt_context")
             if node_type == "road_joint":
                 allowed.add("lane_transition_length_m")
             missing = expected - set(raw)
@@ -361,7 +376,7 @@ def _parse_nodes(
             profile_id, values = _resolve_attribute_values(
                 raw,
                 profiles,
-                structural_fields={"id", "type", "pose"}
+                structural_fields={"id", "type", "pose", "prompt_context"}
                 | (
                     {"lane_transition_length_m"}
                     if node_type == "intersection"
@@ -391,6 +406,7 @@ def _parse_nodes(
                 profile_id=profile_id,
                 attributes=attributes,
                 geometry=geometry,
+                prompt_context=prompt_context,
             )
         )
     if not nodes:
@@ -538,10 +554,18 @@ def _parse_roads(
                     "driveways, and cul-de-sacs"
                 )
         context = f"road {road_id!r}"
+        prompt_context = _prompt_context(raw, context)
         profile_id, values = _resolve_attribute_values(
             raw,
             profiles,
-            structural_fields={"id", "from", "to", "path", "bezier"},
+            structural_fields={
+                "id",
+                "from",
+                "to",
+                "path",
+                "bezier",
+                "prompt_context",
+            },
             allowed_fields=_LINEAR_ATTRIBUTE_FIELDS,
             required_fields=_REQUIRED_LINEAR_ATTRIBUTE_FIELDS,
             context=context,
@@ -577,6 +601,7 @@ def _parse_roads(
                     profile_id=profile_id,
                     attributes=attributes,
                     bezier_spans_world=runtime_spans,
+                    prompt_context=prompt_context,
                 ),
                 tuple(spans),
             )

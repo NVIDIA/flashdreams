@@ -11,6 +11,8 @@ from interactive_drive import (
 )
 from omnidreams.config import (
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
@@ -25,6 +27,28 @@ OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = InteractiveDriveApplicationDefaults(
     width=1280,
     height=704,
     pipeline_config=OMNIDREAMS_PIPELINE_CONFIG,
+)
+OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS = (
+    InteractiveDriveApplicationDefaults(
+        title="Interactive Drive (Optimized GB300)",
+        slug="interactive-drive-optimized-gb300",
+        total_blocks=0,
+        fps=30,
+        width=1280,
+        height=704,
+        pipeline_config=OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+    )
+)
+OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS = (
+    InteractiveDriveApplicationDefaults(
+        title="Interactive Drive (Optimized RTX PRO 6000)",
+        slug="interactive-drive-optimized-rtx-pro-6000",
+        total_blocks=0,
+        fps=30,
+        width=1280,
+        height=704,
+        pipeline_config=OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+    )
 )
 OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = InteractiveDriveApplicationDefaults(
     title="Interactive Drive (Perf)",
@@ -54,6 +78,20 @@ def create_app() -> IApplication:
     )
 
 
+def create_optimized_gb300_app() -> IApplication:
+    """Create Interactive Drive with the GB300-optimized OmniDreams config."""
+    return InteractiveDriveApplication(
+        defaults=OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
+    )
+
+
+def create_optimized_rtx_pro_6000_app() -> IApplication:
+    """Create Interactive Drive with the RTX PRO 6000 OmniDreams config."""
+    return InteractiveDriveApplication(
+        defaults=OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+    )
+
+
 def create_perf_app() -> IApplication:
     """Create Interactive Drive with the performance OmniDreams config."""
     return InteractiveDriveApplication(
@@ -68,4 +106,10 @@ def create_fast_perf_app() -> IApplication:
     )
 
 
-__all__ = ["create_app", "create_perf_app", "create_fast_perf_app"]
+__all__ = [
+    "create_app",
+    "create_fast_perf_app",
+    "create_optimized_gb300_app",
+    "create_optimized_rtx_pro_6000_app",
+    "create_perf_app",
+]
