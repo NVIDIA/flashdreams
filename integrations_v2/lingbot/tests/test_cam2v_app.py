@@ -6,14 +6,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 import tomli as tomllib
 import torch
 from cam2v import Cam2VApplication, Cam2VConditioning
+from lingbot.apps.cam2v import adapter
 from lingbot.apps.cam2v.adapter import LingbotCam2VApplication, create_app
-from lingbot.config import PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3
+from lingbot.config import (
+    PIPELINE_LINGBOT_WORLD_FAST,
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
+    PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
+)
 from lingbot.impl import conditioning
 
 pytestmark = pytest.mark.ci_cpu
@@ -27,12 +34,21 @@ def test_package_registers_the_shared_cam2v_application() -> None:
 
     dependencies = manifest["project"]["dependencies"]
     assert "flashdreams-cam2v" in dependencies
-    assert (
-        manifest["project"]["entry-points"]["flashdreams.applications_v2"][
-            "cam2v-lingbot"
-        ]
-        == "lingbot.apps.cam2v.adapter:create_app"
-    )
+    entry_points = manifest["project"]["entry-points"]["flashdreams.applications_v2"]
+    target = "lingbot.apps.cam2v.adapter:"
+    assert entry_points == {
+        "cam2v-lingbot": f"{target}create_app",
+        "cam2v-lingbot-world-fast": f"{target}create_app_fast",
+        "cam2v-lingbot-world-fast-taehv-window15-sink3": (
+            f"{target}create_app_fast_taehv_window15_sink3"
+        ),
+        "cam2v-lingbot-world-v2-14b-causal-fast": (
+            f"{target}create_app_v2_14b_causal_fast"
+        ),
+        "cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3": (
+            f"{target}create_app_v2_14b_causal_fast_taehv_window15_sink3"
+        ),
+    }
     assert "flashdreams.runner_configs" not in manifest["project"].get(
         "entry-points", {}
     )
@@ -67,6 +83,40 @@ def test_application_uses_lingbot_pipeline_config() -> None:
     assert application.defaults.first_frame_dtype is torch.bfloat16
     assert application.defaults.first_frame_interpolation == "cubic"
     assert isinstance(create_app(), LingbotCam2VApplication)
+
+
+@pytest.mark.parametrize(
+    ("factory", "pipeline_config"),
+    [
+        (adapter.create_app_fast, PIPELINE_LINGBOT_WORLD_FAST),
+        (
+            adapter.create_app_fast_taehv_window15_sink3,
+            PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+        ),
+        (
+            adapter.create_app_v2_14b_causal_fast,
+            PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
+        ),
+        (
+            adapter.create_app_v2_14b_causal_fast_taehv_window15_sink3,
+            PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
+        ),
+    ],
+)
+def test_variant_factories_select_their_pipeline_config(
+    factory: Any,
+    pipeline_config: Any,
+) -> None:
+    """Bind each named factory to its advertised pipeline config."""
+    application = factory()
+
+    assert isinstance(application, LingbotCam2VApplication)
+    assert application.pipeline_config is not pipeline_config
+    assert application.pipeline_config.name == pipeline_config.name
+    assert application.pipeline_config.enable_sync_and_profile is False
+    assert (
+        application.pipeline_config.diffusion_model == pipeline_config.diffusion_model
+    )
 
 
 def test_resolver_builds_conditioning_without_legacy_runtime(tmp_path: Path) -> None:

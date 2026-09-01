@@ -40,6 +40,10 @@ dev = [
 
 [project.entry-points."flashdreams.applications_v2"]
 "cam2v-lingbot" = "lingbot.apps.cam2v.adapter:create_app"
+"cam2v-lingbot-world-fast" = "lingbot.apps.cam2v.adapter:create_app_fast"
+"cam2v-lingbot-world-fast-taehv-window15-sink3" = "lingbot.apps.cam2v.adapter:create_app_fast_taehv_window15_sink3"
+"cam2v-lingbot-world-v2-14b-causal-fast" = "lingbot.apps.cam2v.adapter:create_app_v2_14b_causal_fast"
+"cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3" = "lingbot.apps.cam2v.adapter:create_app_v2_14b_causal_fast_taehv_window15_sink3"
 
 [tool.setuptools]
 packages = [

@@ -64,6 +64,30 @@ Cam2V application arguments, after `--`:
 | `--compile`, `--no-compile` | Enable or disable model compilation |
 | `--seed INT` | Override the diffusion seed |
 
+### Defaults
+
+Defaults supplied by each registered Cam2V application:
+
+| Setting | `cam2v-lingbot` | `cam2v-hy-worldplay` | `cam2v-dummy` |
+| --- | --- | --- | --- |
+| Output size | 832 x 464 | 1280 x 704 | 640 x 360 |
+| Model FPS | 16 | 16 | 16 |
+| UI FPS | 60 | 60 | 60 |
+| `--device` | `cuda` | `cuda` | `cuda` |
+| `--total-blocks` | 20 | 20 | 10,000 |
+| `--warmup-blocks` | 5 | 5 | 1 |
+| `--world-scale` | Unset; inferred from `--pose-path` | 2.5 | Fixed at 1.0 |
+| Output layout | `tchw` | `tchw` | `tchw` |
+| Backpressure | `block` | `block` | `block` |
+| Presentation | `continuous` | `continuous` | `continuous` |
+
+For all three applications, the controls/status UI is enabled,
+`--example-data` is disabled, and `--example-idx` is 0. Prompt and input paths
+default to unset. HY-WorldPlay falls back to its built-in prompt and computed
+intrinsics; Lingbot requires an image and intrinsics, and also a pose trace when
+`--world-scale` is not given. `--compile` and `--seed` default to no override,
+leaving the selected pipeline configuration unchanged.
+
 For UI development without loading a model:
 
 ```bash
@@ -72,8 +96,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-dummy --mode webrtc \
   --step-wait-seconds 0.9 --frames-per-chunk 12
 ```
 
-The dummy-only arguments are `--step-wait-seconds FLOAT` and
-`--frames-per-chunk INT`.
+The dummy-only arguments are `--step-wait-seconds FLOAT` (default 0.9) and
+`--frames-per-chunk INT` (default 12).
 
 ## Tests
 

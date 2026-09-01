@@ -27,8 +27,13 @@ selected repository requires authentication.
 
 ## Cam2V application
 
-See [`apps/cam2v/README.md`](apps/cam2v/README.md) for the launch command. The
-shared [`apps/cam2v`](../../apps/cam2v/README.md) documentation lists controls,
+```bash
+uv sync --package flashdreams-lingbot --inexact
+uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
+```
+
+Shared [`apps/cam2v`](../../apps/cam2v/README.md) documentation lists controls,
 application arguments, and development commands.
 
 ## Programmatic pipeline access

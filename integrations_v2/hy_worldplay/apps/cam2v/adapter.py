@@ -175,7 +175,7 @@ def generate_hy_worldplay_step(
 HY_WORLDPLAY_CAM2V_DEFAULTS = Cam2VApplicationDefaults(
     pipeline_config=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,
     input_resolver=resolve_hy_worldplay_conditioning,
-    total_blocks=4,
+    total_blocks=20,
     pixel_width=1280,
     pixel_height=704,
     first_frame_dtype=torch.bfloat16,

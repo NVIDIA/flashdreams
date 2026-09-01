@@ -61,7 +61,7 @@ def test_application_uses_hy_worldplay_pipeline_config() -> None:
     assert isinstance(application, Cam2VApplication)
     assert isinstance(application.pipeline_config, HyWorldPlayPipelineConfig)
     assert application.pipeline_config is PIPELINE_HY_WORLDPLAY_WAN_I2V_5B
-    assert application.defaults.total_blocks == 4
+    assert application.defaults.total_blocks == 20
     assert application.session_desc().video_width == 1280
     assert application.session_desc().video_height == 704
     assert application.session_desc().frames_per_second_for_step == 16
