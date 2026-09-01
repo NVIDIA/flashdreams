@@ -1593,7 +1593,7 @@ name = "flashdreams-t2v"
 version = "0.1.0"
 source = { editable = "apps/t2v" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["local-window", "serving"] },
 ]
 
 [package.optional-dependencies]
@@ -1604,7 +1604,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
 ]
