@@ -49,6 +49,11 @@ _INTRINSICS_REFERENCE_WIDTH = 832
 _CLEAR_STATES = frozenset({"clear", "release", "off", "none"})
 _TRIGGER_STATES = frozenset({"trigger", "hold", "on"})
 
+_USER_PROMPT_EVENT_ID = "user_prompt"
+"""Reserved event id for a free-form custom prompt, not a catalog entry --
+must match the literal in ``lingbot/webrtc/session.py``,
+``lingbot/input_mapping.py``, and ``lingbot/webrtc/web/adapter.js``."""
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class LingbotCameraTrace:
@@ -228,6 +233,7 @@ class LingbotInputProvider:
             CameraPoseIntegrator() if provider_inputs.live_camera else None
         )
         self._active_text_event_id: str | None = None
+        self._active_text_event_prompt: str | None = None
         self._applied_text_event_id: str | None = None
         self._closed = False
 
@@ -401,8 +407,10 @@ class LingbotInputProvider:
             )
         if event_id is None or state in _CLEAR_STATES:
             self._active_text_event_id = None
+            self._active_text_event_prompt = None
             return
         self._active_text_event_id = str(event_id)
+        self._active_text_event_prompt = payload.get("prompt")
 
     def _text_event_update(self) -> Mapping[str, Any]:
         if not self._inputs.text_event_prompts:
@@ -410,17 +418,27 @@ class LingbotInputProvider:
         event_id = self._active_text_event_id
         if event_id == self._applied_text_event_id:
             return {}
-        if event_id is not None and event_id not in self._inputs.text_event_prompts:
+        is_user_prompt = event_id == _USER_PROMPT_EVENT_ID
+        if (
+            event_id is not None
+            and not is_user_prompt
+            and event_id not in self._inputs.text_event_prompts
+        ):
             supported = ", ".join(sorted(self._inputs.text_event_prompts))
             raise ValueError(
                 f"Unknown Lingbot text event_id={event_id!r}. Supported: {supported}"
             )
         self._applied_text_event_id = event_id
-        prompt = (
-            self._inputs.prompt
-            if event_id is None
-            else self._inputs.text_event_prompts[event_id]
-        )
+        if is_user_prompt:
+            # Free-form prompt supplied dynamically in the payload, not a
+            # precomputed catalog entry.
+            prompt = self._active_text_event_prompt or self._inputs.prompt
+        else:
+            prompt = (
+                self._inputs.prompt
+                if event_id is None
+                else self._inputs.text_event_prompts[event_id]
+            )
         return {} if prompt is None else {FIELD_PROMPT: prompt}
 
     def _reset_state(self) -> None:
@@ -428,6 +446,7 @@ class LingbotInputProvider:
         if self._integrator is not None:
             self._integrator.reset()
         self._active_text_event_id = None
+        self._active_text_event_prompt = None
         self._applied_text_event_id = None
         self._next_frame_start = 0
 

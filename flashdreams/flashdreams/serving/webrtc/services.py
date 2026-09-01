@@ -686,10 +686,15 @@ class WebRTCInputSource:
                 ),
             )
         active_event_id = None if clears else event_id
+        raw_prompt = payload.get("prompt")
         self.record_user_event(
             timestamp_s=timestamp_s,
             event_type="text_event",
-            payload={"event_id": active_event_id, "state": state},
+            payload={
+                "event_id": active_event_id,
+                "state": state,
+                **({"prompt": raw_prompt} if raw_prompt is not None else {}),
+            },
             source_event_id=active_event_id,
         )
         return WebRTCMessageResult(kind="event", activated=True)

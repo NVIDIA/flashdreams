@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from contextlib import AbstractContextManager, ExitStack
 from importlib.resources import as_file

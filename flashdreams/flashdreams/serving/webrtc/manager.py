@@ -1096,6 +1096,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             # the mapping turns it into a session-global conditioning update
             # applied by the next step, so there is no separate runtime call.
             clears = state in clear_states
+            raw_prompt = payload.get("prompt")
             try:
                 event_payload = self._validate_user_event_payload(
                     managed_session=managed_session,
@@ -1103,6 +1104,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                     payload={
                         "event_id": None if clears else event_id,
                         "state": state,
+                        **({"prompt": raw_prompt} if raw_prompt is not None else {}),
                     },
                 )
                 self._record_user_event(
@@ -1138,7 +1140,13 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             return False
 
         try:
-            result = trigger_event(event_id=event_id, state=state)
+            raw_prompt = payload.get("prompt")
+            try:
+                result = trigger_event(event_id=event_id, state=state, prompt=raw_prompt)
+            except TypeError:
+                # This runtime's trigger_event() doesn't accept a prompt kwarg
+                # (older signature, or a different integration entirely).
+                result = trigger_event(event_id=event_id, state=state)
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:
@@ -1779,7 +1787,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             payload = json.loads(raw_message)
         except json.JSONDecodeError:
             self._send_json(channel, make_error_payload("Invalid JSON payload."))
-            return
+            return 1
 
         if not isinstance(payload, dict):
             self._send_json(
@@ -1950,6 +1958,25 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             )
             return False
         clears = state in clear_states
+        raw_prompt = payload.get("prompt")
+        if raw_prompt is not None:
+            logger.opt(colors=True).info(
+                "<magenta>Shared datachannel text_event received: event_id={!r} "
+                "state={!r} prompt={!r}</magenta>",
+                event_id,
+                state,
+                raw_prompt,
+            )
+            self._send_json(
+                channel,
+                {
+                    "type": "server_log",
+                    "message": (
+                        f"shared datachannel text_event received: "
+                        f"event_id={event_id!r} state={state!r} prompt={raw_prompt!r}"
+                    ),
+                },
+            )
         try:
             event_payload = self._validate_user_event_payload(
                 managed_session=managed_session,
@@ -1957,6 +1984,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 payload={
                     "event_id": None if clears else event_id,
                     "state": state,
+                    **({"prompt": raw_prompt} if raw_prompt is not None else {}),
                 },
             )
             active_event_id = event_payload.get("event_id")

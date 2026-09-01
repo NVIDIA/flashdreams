@@ -152,6 +152,11 @@ DEFAULT_TEXT_EVENTS: tuple[TextEventSpec, ...] = (
 )
 """Default text events advertised by the interactive viewer."""
 
+_USER_PROMPT_EVENT_ID = "user_prompt"
+"""Reserved event id the client sends for a free-form custom prompt (not a
+precomputed catalog entry from :data:`DEFAULT_TEXT_EVENTS`); must match the
+literal used in ``lingbot/webrtc/web/adapter.js``."""
+
 
 def _content_type_for_image_path(path: Path) -> str:
     suffix = path.suffix.lower()
@@ -609,14 +614,27 @@ class LingbotInferenceRuntime(
         self._world_scale = 1.0
 
     async def trigger_event(
-        self, *, event_id: str, state: str = "trigger"
+        self, *, event_id: str, state: str = "trigger", prompt: str | None = None
     ) -> dict[str, str | None]:
-        """Activate or clear a precomputed text event for subsequent chunks."""
+        """Activate or clear a precomputed text event for subsequent chunks.
+
+        ``prompt`` is only honored when ``event_id`` is the reserved
+        ``_USER_PROMPT_EVENT_ID`` sentinel -- a free-form prompt supplied at
+        request time rather than one of the precomputed catalog entries.
+        """
         if self._closed:
             raise LingbotRuntimeError("Runtime is closed.")
         if self._pipeline is None or self._model_session is None:
             raise LingbotRuntimeError("Runtime is not initialized.")
-        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        normalized_prompt = normalize_prompt_text(prompt) if prompt is not None else ""
+        is_user_prompt = event_id == _USER_PROMPT_EVENT_ID and bool(normalized_prompt)
+        if is_user_prompt:
+            state = state.strip().lower() or "trigger"
+            if state not in {"trigger", "hold", "on"}:
+                state = "trigger"
+            event_id = event_id.strip()
+        else:
+            event_id, state = self._validate_event_request(event_id=event_id, state=state)
         async with self._step_lock:
             if self._closed:
                 raise LingbotRuntimeError("Runtime is closed.")
@@ -626,6 +644,7 @@ class LingbotInferenceRuntime(
                 self._trigger_event_sync_all_ranks,
                 event_id,
                 state,
+                normalized_prompt if is_user_prompt else None,
             )
 
     async def start_inference_session(self) -> LingbotWebRTCInferenceSession:
@@ -667,9 +686,20 @@ class LingbotInferenceRuntime(
         event_id_value = payload.get("event_id")
         event_id = "" if event_id_value is None else str(event_id_value)
         state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
+        prompt_value = payload.get("prompt")
+        prompt = normalize_prompt_text(str(prompt_value)) if prompt_value is not None else ""
+        if event_id == _USER_PROMPT_EVENT_ID and prompt:
+            # Free-form custom prompt: not a precomputed catalog event, so it
+            # doesn't go through the catalog membership check in
+            # _validate_event_request. Still normalize state the same way.
+            state = state if state in {"trigger", "hold", "on"} else "trigger"
+            return {"event_id": event_id, "state": state, "prompt": prompt}
         event_id, state = self._validate_event_request(event_id=event_id, state=state)
         clears = state in {"clear", "release", "off", "none"}
-        return {"event_id": None if clears else event_id, "state": state}
+        result: dict[str, Any] = {"event_id": None if clears else event_id, "state": state}
+        if prompt:
+            result["prompt"] = prompt
+        return result
 
     def _build_input_layers_sync(self, text_events: tuple[TextEventSpec, ...]) -> None:
         """Build the canonicalizer and mapping for the current rollout."""
@@ -761,8 +791,9 @@ class LingbotInferenceRuntime(
         self,
         event_id: str,
         state: str = "trigger",
+        prompt: str | None = None,
     ) -> dict[str, str | None]:
-        return self._trigger_event_sync(event_id=event_id, state=state)
+        return self._trigger_event_sync(event_id=event_id, state=state, prompt=prompt)
 
     def _initialize_sync(self) -> None:
         if self._pipeline is not None:
@@ -1060,14 +1091,28 @@ class LingbotInferenceRuntime(
         *,
         event_id: str,
         state: str = "trigger",
+        prompt: str | None = None,
     ) -> dict[str, str | None]:
-        event_id, state = self._validate_event_request(event_id=event_id, state=state)
+        is_user_prompt = event_id == _USER_PROMPT_EVENT_ID and bool(prompt)
+        if not is_user_prompt:
+            event_id, state = self._validate_event_request(event_id=event_id, state=state)
         if state in {"clear", "release", "off", "none"}:
             if self._base_text_embeddings is None:
                 raise LingbotRuntimeError("Base prompt embeddings are not ready.")
             self._replace_rollout_text_embeddings(self._base_text_embeddings)
             self._active_event_id = None
             return {"active_event_id": None}
+        if is_user_prompt:
+            # Free-form prompt supplied dynamically, not a precomputed
+            # catalog entry -- encode it live (or reuse the cache if this
+            # exact text was already used earlier in the rollout).
+            embeddings = self._prompt_embeddings.get(prompt)
+            if embeddings is None:
+                embeddings = self._encode_text_embeddings_sync([prompt])
+                self._prompt_embeddings[prompt] = embeddings
+            self._replace_rollout_text_embeddings(embeddings)
+            self._active_event_id = event_id
+            return {"active_event_id": event_id}
         self._replace_rollout_text_embeddings(self._event_embeddings[event_id])
         self._active_event_id = event_id
         return {"active_event_id": event_id}
@@ -1183,6 +1228,9 @@ class LingbotInferenceRuntime(
         embeddings = self._prompt_embeddings.get(prompt)
         if embeddings is None:
             embeddings = self._encode_text_embeddings_sync([prompt])
+            # Cache it so a repeat of this exact custom prompt within the
+            # same rollout is a cache hit too, same as a catalog event.
+            self._prompt_embeddings[prompt] = embeddings
         self._replace_rollout_text_embeddings(embeddings)
         self._prompt = prompt
         self._active_event_id = next(

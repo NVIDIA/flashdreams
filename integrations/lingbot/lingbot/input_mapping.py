@@ -64,6 +64,11 @@ _PASSTHROUGH_GLOBAL_FIELDS: tuple[InputField, ...] = (
 _CLEAR_STATES = frozenset({"clear", "release", "off", "none"})
 _TRIGGER_STATES = frozenset({"trigger", "hold", "on"})
 
+_USER_PROMPT_EVENT_ID = "user_prompt"
+"""Reserved event id for a free-form custom prompt, not a catalog entry --
+must match the literal in ``lingbot/webrtc/session.py`` and
+``lingbot/webrtc/web/adapter.js``."""
+
 _AXIS_KEYS = DEFAULT_CAMERA_BINDINGS
 """Axis bindings in :class:`CameraPoseIntegrator`'s key vocabulary."""
 
@@ -131,6 +136,7 @@ class TextEventSelection:
         window: TimeWindow,
     ) -> Mapping[str, Any] | None:
         del window
+        result_payload = {"event_id": None, "prompt": None}
         for event in user_inputs.events:
             if event.event_type != "text_event":
                 continue
@@ -145,7 +151,11 @@ class TextEventSelection:
                 self._active_event_id = None
                 continue
             self._active_event_id = str(event_id)
-        return TEXT_EVENT.value({"event_id": self._active_event_id})
+            result_payload["event_id"] = self._active_event_id
+            # Pass through dynamic prompt if present (text field input)
+            if "prompt" in event.payload:
+                result_payload["prompt"] = event.payload.get("prompt")
+        return TEXT_EVENT.value(result_payload)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -492,17 +502,27 @@ class LingbotInputMapping:
         event_id = value.get("event_id")
         if event_id == self._applied_event_id:
             return {}
-        if event_id is not None and event_id not in self._text_event_prompts:
+        is_user_prompt = event_id == _USER_PROMPT_EVENT_ID
+        if (
+            event_id is not None
+            and not is_user_prompt
+            and event_id not in self._text_event_prompts
+        ):
             supported = ", ".join(sorted(self._text_event_prompts))
             raise ValueError(
                 f"Unknown Lingbot text event_id={event_id!r}. Supported: {supported}"
             )
         self._applied_event_id = event_id
-        prompt = (
-            self._base_prompt
-            if event_id is None
-            else self._text_event_prompts[event_id]
-        )
+        if is_user_prompt:
+            # Free-form prompt supplied dynamically in the payload, not a
+            # precomputed catalog entry.
+            prompt = value.get("prompt") or self._base_prompt
+        else:
+            prompt = (
+                self._base_prompt
+                if event_id is None
+                else self._text_event_prompts[event_id]
+            )
         return {} if prompt is None else {FIELD_PROMPT: prompt}
 
     def set_base_prompt(self, prompt: str) -> None:
