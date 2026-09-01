@@ -60,9 +60,9 @@ select {
 .captionOverlay {
   position: absolute;
   right: clamp(18px, 3vw, 42px);
-  top: clamp(230px, 38vh, 410px);
-  width: 200px;
-  height: 122px;
+  top: clamp(220px, 35vh, 390px);
+  width: 214px;
+  height: 176px;
   z-index: 4;
   padding: 14px 16px;
   display: flex;
@@ -88,6 +88,41 @@ select {
   line-height: 1.32;
   overflow-wrap: anywhere;
   overflow: hidden;
+}
+.captionFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.captionDot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--muted);
+}
+.captionOverlay[data-state="waiting"] .captionDot {
+  background: var(--warning);
+  box-shadow: 0 0 12px rgba(255, 191, 79, 0.5);
+}
+.captionOverlay[data-state="generating"] .captionDot {
+  background: #47d65a;
+  box-shadow: 0 0 14px rgba(71, 214, 90, 0.6);
+}
+.captionModel {
+  margin-top: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .captionOverlay[hidden] {
   display: none;

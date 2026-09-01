@@ -21,6 +21,8 @@ const postprocessSelect = document.getElementById("postprocessSelect")
 const streamModeSelect = document.getElementById("streamModeSelect")
 const captionOverlay = document.getElementById("captionOverlay")
 const captionText = document.getElementById("captionText")
+const captionState = document.getElementById("captionState")
+const captionModel = document.getElementById("captionModel")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -712,6 +714,25 @@ function setCaption(text) {
   captionOverlay.hidden = false
 }
 
+// Waiting/Generating dot state.
+function setCaptionState(state) {
+  if (!captionOverlay) {
+    return
+  }
+  captionOverlay.dataset.state = state
+  if (captionState) {
+    captionState.textContent = state === "generating" ? "Generating" : "Waiting"
+  }
+  captionOverlay.hidden = false
+}
+
+// The caption model in use (a model version, or "stub").
+function setCaptionModel(label) {
+  if (captionModel) {
+    captionModel.textContent = label
+  }
+}
+
 function stopTokenStream() {
   if (tokenStreamSession) {
     tokenStreamSession.stop()
@@ -719,9 +740,16 @@ function stopTokenStream() {
   }
   if (captionOverlay) {
     captionOverlay.hidden = true
+    captionOverlay.dataset.state = "waiting"
   }
   if (captionText) {
     captionText.textContent = ""
+  }
+  if (captionState) {
+    captionState.textContent = "Waiting"
+  }
+  if (captionModel) {
+    captionModel.textContent = ""
   }
   if (tokenRenderActive) {
     tokenRenderActive = false
@@ -757,6 +785,8 @@ async function maybeStartTokenStream(webgpu) {
     controlChannel,
     log: logEvent,
     onCaption: setCaption,
+    onCaptionState: setCaptionState,
+    onCaptionModel: setCaptionModel,
   })
   tokenStreamSession.start()
   tokenRenderActive = true

@@ -18,6 +18,7 @@
 
 import { applyDisplayTransform } from "./display_transform.js"
 import { loadOrt } from "./ort_loader.js"
+import { runExclusive } from "./ort_lock.js"
 
 export class VaeDecoder {
   constructor() {
@@ -145,7 +146,7 @@ export class VaeDecoder {
     this._cacheInNames.forEach((name, i) => {
       feeds[name] = this._cache[i]
     })
-    const results = await this._session.run(feeds)
+    const results = await runExclusive(() => this._session.run(feeds))
     // Thread the temporal cache forward for the next chunk.
     this._cache = this._cacheOutNames.map((name) => results[name])
     return results[this._rgbName]

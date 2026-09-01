@@ -36,6 +36,8 @@ export class TokenStreamSession {
     controlChannel = null,
     log = noop,
     onCaption = noop,
+    onCaptionState = noop,
+    onCaptionModel = noop,
   }) {
     this._url = url
     this._device = device
@@ -43,6 +45,8 @@ export class TokenStreamSession {
     this._controlChannel = controlChannel
     this._log = log
     this._onCaption = onCaption
+    this._onCaptionState = onCaptionState
+    this._onCaptionModel = onCaptionModel
 
     this._socket = null
     this._decoder = null
@@ -131,6 +135,8 @@ export class TokenStreamSession {
     // same assembled latents (never pixels) and emits short scene captions.
     this._captionEngine = new CaptionEngine({
       onCaption: this._onCaption,
+      onState: this._onCaptionState,
+      onModel: this._onCaptionModel,
       log: this._log,
       descriptor: header?.caption_model ?? null,
       device: this._device,
