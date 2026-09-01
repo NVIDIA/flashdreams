@@ -244,7 +244,6 @@ class CrazyRobotaxiApplication(IApplication):
                 map_path=map_path.expanduser(),
                 camera_name=DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
                 variant=settings.launch.variant,
-                prompt=settings.launch.prompt,
                 force_recompile=bool(args.force_map_recompile),
             ),
             renderer=renderer,
@@ -304,7 +303,6 @@ class CrazyRobotaxiApplication(IApplication):
         for name, field_name in (
             ("map", "map"),
             ("variant", "variant"),
-            ("prompt", "prompt"),
             ("game_mode", "mode"),
             ("race_course", "race_course"),
         ):
@@ -610,7 +608,6 @@ def _parser(
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
     parser.add_argument("--variant", default="default")
-    parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
