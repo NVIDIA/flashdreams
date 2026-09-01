@@ -192,7 +192,7 @@ def test_wheel_state_uses_direct_pedal_and_steering_values() -> None:
     assert command.manual_control
 
 
-def test_timestamped_tap_is_preserved_across_physics_frames() -> None:
+def test_latest_input_state_applies_from_first_physics_frame() -> None:
     state = DriverInput()
     timeline = RealtimeInputTimeline(samples_per_second=30.0)
     input_times_s = state.apply(
@@ -206,6 +206,10 @@ def test_timestamped_tap_is_preserved_across_physics_frames() -> None:
                     _key("a", KeyboardInputState.RELEASED),
                     timestamp=np.uint64(1_100_000),
                 ),
+                replace(
+                    _key("d", KeyboardInputState.PRESSED),
+                    timestamp=np.uint64(1_200_000),
+                ),
             ]
         )
     )
@@ -214,11 +218,11 @@ def test_timestamped_tap_is_preserved_across_physics_frames() -> None:
         timeline.next_window(5, input_times_s=input_times_s)
     )
 
-    assert [command.steer for command in commands] == [1.0, 1.0, 1.0, 0.0, 0.0]
-    assert timestamps == (1_000_000, None, None, 1_100_000, None)
+    assert [command.steer for command in commands] == [-1.0] * 5
+    assert timestamps == (1_200_000, None, None, None, None)
 
 
-def test_completed_tap_behind_model_clock_gets_one_physics_frame() -> None:
+def test_completed_tap_between_model_steps_gets_one_physics_frame() -> None:
     state = DriverInput()
     timeline = RealtimeInputTimeline(samples_per_second=30.0)
     state.sample(timeline.next_window(8))

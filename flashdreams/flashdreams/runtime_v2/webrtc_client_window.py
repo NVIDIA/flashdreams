@@ -4,13 +4,14 @@
 """WebRTC client window for the v2 runtime."""
 
 import threading
+import time
 from collections import deque
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import MouseUserInputEvent, UserInputEvent
+from flashdreams.runtime_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -43,7 +44,7 @@ class WebRTCClientWindow(IClientWindow):
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
         """
-        self._input_events: deque[UserInputEvent] = deque()
+        self._input_events: deque[tuple[UserInputEvent, int]] = deque()
         self._input_lock = threading.Lock()
         self.server = WebRTCServer(
             host=host,
@@ -53,8 +54,9 @@ class WebRTCClientWindow(IClientWindow):
 
         def handle_input(event: UserInputEvent) -> None:
             """Buffer one backend event for the ``InputSource`` protocol."""
-            # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
-            self._input_events.append(event)
+            received_at_ns = time.monotonic_ns()
+            with self._input_lock:
+                self._input_events.append((event, received_at_ns))
 
         self.server.register_input_callback(handle_input)
 
@@ -73,9 +75,15 @@ class WebRTCClientWindow(IClientWindow):
             Buffered browser events in timestamp order, each returned once.
         """
         with self._input_lock:
-            events = list(self._input_events)
+            received = list(self._input_events)
             self._input_events.clear()
-        return UserInputEvents(events)
+        events = [event for event, _ in received]
+        return UserInputEvents(
+            events,
+            received_at_ns={
+                id(event): received_at_ns for event, received_at_ns in received
+            },
+        )
 
     def write(self, result: StepResult) -> None:
         """Materialize and queue one UI-composited frame for the browser.

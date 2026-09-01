@@ -72,62 +72,39 @@ class DriverInput:
         self,
         window: InputWindow,
     ) -> tuple[tuple[DriverCommand, ...], tuple[int | None, ...]]:
-        """Quantize retained transitions to frame starts in ``window``."""
+        """Apply the latest retained command from the first frame in ``window``."""
         transitions = sorted(
             self._pending_transitions,
             key=lambda transition: transition.timestamp_s,
         )
         self._pending_transitions.clear()
         command = self._sampled_command
-        transition_index = 0
-        while (
-            transition_index < len(transitions)
-            and transitions[transition_index].timestamp_s <= window.start_s
-        ):
-            transition_index += 1
-        stale_transitions = transitions[:transition_index]
         replayed_transition: _DriverTransition | None = None
-        if stale_transitions:
-            current_command = stale_transitions[-1].command
+        latest_transition = transitions[-1] if transitions else None
+        if latest_transition is not None:
+            current_command = latest_transition.command
             if current_command == command:
                 replayed_transition = next(
                     (
                         transition
-                        for transition in reversed(stale_transitions[:-1])
+                        for transition in reversed(transitions[:-1])
                         if transition.command != current_command
                     ),
                     None,
                 )
             command = current_command
-        commands: list[DriverCommand] = []
-        transition_timestamps_us: list[int | None] = []
-        # ponytail: A completed tap that arrives behind the model clock gets one
-        # physics frame. Interruptible generation is the upgrade for true
-        # mid-step timing.
-        frame_starts_s = (window.start_s, *window.sample_times_s[:-1])
-        for frame_index, frame_start_s in enumerate(frame_starts_s):
-            if frame_index == 0 and replayed_transition is not None:
-                commands.append(replayed_transition.command)
-                transition_timestamps_us.append(replayed_transition.timestamp_us)
-                continue
-            latest_timestamp_us = (
-                stale_transitions[-1].timestamp_us
-                if stale_transitions
-                and frame_index == (1 if replayed_transition is not None else 0)
-                else None
-            )
-            while (
-                transition_index < len(transitions)
-                and transitions[transition_index].timestamp_s <= frame_start_s
-            ):
-                transition = transitions[transition_index]
-                command = transition.command
-                latest_timestamp_us = transition.timestamp_us
-                transition_index += 1
-            commands.append(command)
-            transition_timestamps_us.append(latest_timestamp_us)
-
-        self._pending_transitions.extend(transitions[transition_index:])
+        sample_count = len(window.sample_times_s)
+        commands = [command] * sample_count
+        transition_timestamps_us: list[int | None] = [None] * sample_count
+        if replayed_transition is not None:
+            # ponytail: A completed tap between chunks gets one physics frame.
+            # Interruptible generation is the upgrade for true mid-step timing.
+            commands[0] = replayed_transition.command
+            transition_timestamps_us[0] = replayed_transition.timestamp_us
+            if sample_count > 1 and latest_transition is not None:
+                transition_timestamps_us[1] = latest_transition.timestamp_us
+        elif latest_transition is not None:
+            transition_timestamps_us[0] = latest_transition.timestamp_us
         self._sampled_command = command
         return tuple(commands), tuple(transition_timestamps_us)
 

@@ -28,6 +28,7 @@ class EventBuffer:
 
     def __init__(self) -> None:
         self._events: list[UserInputEvent] = []
+        self._received_at_ns: dict[int, int] = {}
         self._base_index = 0
         self._reader_indexes: dict[int, int] = {}
         self._generation = 0
@@ -49,6 +50,13 @@ class EventBuffer:
         received = events.get_events()
         with self._lock:
             self._events.extend(received)
+            self._received_at_ns.update(
+                {
+                    id(event): received_at_ns
+                    for event in received
+                    if (received_at_ns := events.received_at_ns(event)) is not None
+                }
+            )
             self._generation += sum(
                 isinstance(event, ResetUserInputEvent) for event in received
             )
@@ -60,7 +68,10 @@ class EventBuffer:
             relative_index = event_index - self._base_index
             events = list(self._events[relative_index:])
             self._reader_indexes[reader_id] = self._base_index + len(self._events)
-            return UserInputEvents(events), self._generation
+            return (
+                UserInputEvents(events, received_at_ns=self._received_at_ns),
+                self._generation,
+            )
 
     def unregister(self, reader_id: int) -> None:
         """Stop retaining events for ``reader_id``."""
@@ -76,6 +87,8 @@ class EventBuffer:
                 removed = min(self._reader_indexes.values()) - self._base_index
             if removed <= 0:
                 return 0
+            for event in self._events[:removed]:
+                self._received_at_ns.pop(id(event), None)
             del self._events[:removed]
             self._base_index += removed
             return removed
@@ -84,6 +97,7 @@ class EventBuffer:
         """Remove all retained events and readers."""
         with self._lock:
             self._events.clear()
+            self._received_at_ns.clear()
             self._reader_indexes.clear()
             self._base_index = 0
 

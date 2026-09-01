@@ -1,0 +1,1 @@
+uv run flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf --mode native-window --backpressure-mode block -- --map apps/crazy_robotaxi/crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml --game-mode race --race-course grand-prix --show-fps --profile-input-latency
