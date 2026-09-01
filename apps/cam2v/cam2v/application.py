@@ -117,6 +117,12 @@ class Cam2VApplication(IApplication):
             action=argparse.BooleanOptionalAction,
             default=None,
         )
+        parser.add_argument(
+            "--sync-and-profile",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Synchronize CUDA and log per-stage pipeline timings.",
+        )
         parser.add_argument("--seed", type=int, default=None)
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
@@ -128,6 +134,11 @@ class Cam2VApplication(IApplication):
             self._pipeline_config = derive_config(
                 self._pipeline_config,
                 diffusion_model={"transformer": {"compile_network": args.compile}},
+            )
+        if args.sync_and_profile is not None:
+            self._pipeline_config = derive_config(
+                self._pipeline_config,
+                enable_sync_and_profile=args.sync_and_profile,
             )
         if args.seed is not None:
             self._pipeline_config = derive_config(

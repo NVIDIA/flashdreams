@@ -62,6 +62,7 @@ Cam2V application arguments, after `--`:
 | `--warmup-blocks INT` | Set chunks excluded from steady-state FPS |
 | `--ui`, `--no-ui` | Enable or disable the controls/status overlay |
 | `--compile`, `--no-compile` | Enable or disable model compilation |
+| `--sync-and-profile`, `--no-sync-and-profile` | Enable or disable synchronized per-stage pipeline timings |
 | `--seed INT` | Override the diffusion seed |
 
 ### Defaults
@@ -85,8 +86,8 @@ For all three applications, the controls/status UI is enabled,
 `--example-data` is disabled, and `--example-idx` is 0. Prompt and input paths
 default to unset. HY-WorldPlay falls back to its built-in prompt and computed
 intrinsics; Lingbot requires an image and intrinsics, and also a pose trace when
-`--world-scale` is not given. `--compile` and `--seed` default to no override,
-leaving the selected pipeline configuration unchanged.
+`--world-scale` is not given. `--compile`, `--sync-and-profile`, and `--seed`
+default to the selected pipeline configuration values.
 
 For UI development without loading a model:
 

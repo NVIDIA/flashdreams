@@ -157,6 +157,7 @@ jobs:
               --example-idx 0 \
               --total-blocks "${BLOCKS}" \
               --warmup-blocks 0 \
+              --sync-and-profile \
               --no-ui
 
       - name: Validate LingBot demo artifacts
