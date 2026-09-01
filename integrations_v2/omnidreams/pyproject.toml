@@ -101,6 +101,8 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 
 [project.entry-points."flashdreams.applications_v2"]
 "interactive-drive-omnidreams" = "omnidreams.apps.interactive_drive.adapter:create_app"
+"interactive-drive-omnidreams-optimized-gb300" = "omnidreams.apps.interactive_drive.adapter:create_optimized_gb300_app"
+"interactive-drive-omnidreams-optimized-rtx-pro-6000" = "omnidreams.apps.interactive_drive.adapter:create_optimized_rtx_pro_6000_app"
 "interactive-drive-omnidreams-perf" = "omnidreams.apps.interactive_drive.adapter:create_perf_app"
 "interactive-drive-omnidreams-fast-perf" = "omnidreams.apps.interactive_drive.adapter:create_fast_perf_app"
 "crazy-robotaxi-omnidreams" = "omnidreams.apps.crazy_robotaxi.adapter:create_app"

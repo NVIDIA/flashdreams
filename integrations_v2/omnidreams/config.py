@@ -10,11 +10,18 @@ from typing import cast
 import torch
 from omnidreams.impl.pipeline import OmnidreamsPipelineConfig
 from omnidreams.impl.transformer import CosmosTransformerConfig
+from omnidreams.impl.transformer.modules import AttentionBackend
 from omnidreams.impl.transformer.network import CosmosDiTNetworkConfig
 from omnidreams.impl.vae_native import (
     OmnidreamsWanVAEEncoderConfig as WanVAEEncoderConfig,
 )
 
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig,
+    QKVFusionOption,
+    QuantizationOption,
+    SDPABackend,
+)
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
@@ -91,6 +98,71 @@ OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
 """Regular OmniDreams world-model pipeline configuration."""
 
 
+OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PIPELINE_CONFIG,
+        name="omnidreams-optimized-gb300",
+        diffusion_model=dict(
+            transformer=dict(
+                skip_finalize_kv_cache=True,
+                network=dict(
+                    self_attention_backend=AttentionBackend.OPTIMIZED,
+                    cross_attention_backend=AttentionBackend.OPTIMIZED,
+                    self_attn_optimized_impl_config=OptimizedImplConfig(
+                        qkv_fusion_option=QKVFusionOption.FULL,
+                        sdpa_backend=SDPABackend.CUDNN,
+                        use_tma=False,
+                        quantization=QuantizationOption(
+                            projection=None,
+                            quantized_sdpa=True,
+                        ),
+                    ),
+                    cross_attn_optimized_impl_config=OptimizedImplConfig(
+                        qkv_fusion_option=QKVFusionOption.FUSE_KV,
+                        sdpa_backend=SDPABackend.FA2,
+                        use_tma=False,
+                        quantization=QuantizationOption(
+                            projection=None,
+                            quantized_sdpa=False,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""GB300 config using the benchmark-selected optimized DiT attention policy."""
+
+
+OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PIPELINE_CONFIG,
+        name="omnidreams-optimized-rtx-pro-6000",
+        diffusion_model=dict(
+            transformer=dict(
+                skip_finalize_kv_cache=True,
+                network=dict(
+                    self_attention_backend=AttentionBackend.OPTIMIZED,
+                    cross_attention_backend=AttentionBackend.OMNIDREAMS,
+                    self_attn_optimized_impl_config=OptimizedImplConfig(
+                        qkv_fusion_option=QKVFusionOption.FULL,
+                        sdpa_backend=SDPABackend.FA2,
+                        use_tma=True,
+                        quantization=QuantizationOption(
+                            projection=torch.float8_e4m3fn,
+                            quantized_sdpa=True,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""RTX PRO 6000 config using the benchmark-selected optimized DiT policy."""
+
+
 OMNIDREAMS_PERF_PIPELINE_CONFIG = cast(
     OmnidreamsPipelineConfig,
     derive_config(
@@ -142,6 +214,8 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
     config.name: config
     for config in (
         OMNIDREAMS_PIPELINE_CONFIG,
+        OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
         OMNIDREAMS_PERF_PIPELINE_CONFIG,
         OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     )
