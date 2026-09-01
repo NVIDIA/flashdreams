@@ -129,6 +129,7 @@ OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG = cast(
                     ),
                 ),
             ),
+            scheduler=dict(denoising_timesteps=[1000, 100]),
         ),
     ),
 )  # ty:ignore[redundant-cast]
@@ -157,6 +158,7 @@ OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG = cast(
                     ),
                 ),
             ),
+            scheduler=dict(denoising_timesteps=[1000, 100]),
         ),
     ),
 )  # ty:ignore[redundant-cast]
