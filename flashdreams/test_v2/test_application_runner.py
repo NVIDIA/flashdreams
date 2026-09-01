@@ -148,6 +148,19 @@ class _SilentWindow(_Window):
         return UserInputEvents([])
 
 
+class _ClosingAfterWritesWindow(_SilentWindow):
+    """Close after receiving the expected model output."""
+
+    def __init__(self, calls: list[str], expected_writes: int) -> None:
+        super().__init__(calls)
+        self._expected_writes = expected_writes
+
+    def get_user_input_events(self) -> UserInputEvents:
+        if len(self.results) == self._expected_writes:
+            return _Window.get_user_input_events(self)
+        return UserInputEvents([])
+
+
 class _ReplacingWindow(_Window):
     """Request one replacement, then close its session."""
 
@@ -219,22 +232,24 @@ def test_application_runner_closes_both_when_the_run_never_starts() -> None:
     assert calls == ["application.init([])", "window.close", "application.close"]
 
 
-def test_application_runner_ends_a_run_a_window_cannot_end() -> None:
-    """A window with no client never reports a close, so the session ends it."""
+def test_application_runner_keeps_running_until_the_window_closes() -> None:
+    """Completing model inference does not bypass the client lifecycle."""
     calls: list[str] = []
-    window = _SilentWindow(calls)
+    window = _ClosingAfterWritesWindow(calls, 3)
 
     ApplicationRunner(_Application(calls, session_length=3), window).run(
         _session_desc()
     )
 
-    assert [result.step_index for result in window.results] == [0, 1, 2]
+    # The UI ticks once while inference is NOT_STARTED, then presents the three
+    # model frames on its following ticks.
+    assert [result.step_index for result in window.results] == [1, 2, 3]
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:
     calls: list[str] = []
-    window = _SilentWindow(calls)
+    window = _ClosingAfterWritesWindow(calls, 2)
     metrics = _MetricsSink(calls)
 
     ApplicationRunner(
@@ -243,7 +258,7 @@ def test_application_runner_keeps_metrics_output_separate_from_the_window() -> N
         metrics_output_sink=metrics,
     ).run(_session_desc())
 
-    assert [result.step_index for result in window.results] == [0, 1]
+    assert [result.step_index for result in window.results] == [1, 2]
     assert [result.step_index for result in metrics.results] == [0, 1]
     assert calls.index("metrics.open") < calls.index("metrics.write(0)")
     assert calls.index("metrics.write(1)") < calls.index("metrics.close")

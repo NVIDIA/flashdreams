@@ -75,8 +75,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     session_desc = _session_desc(application, parsed)
     window = mode.create(parsed)
     _report(mode.starting(window))
-    # Nothing here says how long the run is: a session reports itself finished,
-    # and a window ends the run when its client goes away.
+    # The session's UI and client input decide when the run ends.
     metrics_output_sink = (
         None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )

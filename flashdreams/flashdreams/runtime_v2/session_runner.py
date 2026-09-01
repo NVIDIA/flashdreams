@@ -10,17 +10,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.loop import IModelLoop, IUILoop
+from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEvent,
-    NewSessionUserInputEvent,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
@@ -42,39 +37,6 @@ class _ChunkTraceLog:
     previous_propagate: bool
 
 
-def _session_transition(
-    events: UserInputEvents,
-    current_session_desc: SessionDesc,
-) -> tuple[bool, SessionDesc | None]:
-    """Return the last session transition in an ordered input batch.
-
-    A new-session request copies the current session's resolved description,
-    including a fresh metadata dictionary. If close and replacement arrive
-    together, the event with the later timestamp wins.
-
-    Args:
-        events: Input events sorted from oldest to newest.
-        current_session_desc: Resolved description to use for a replacement.
-
-    Returns:
-        Whether the batch contains a transition and its replacement
-        description. The description is ``None`` when close is last.
-    """
-    transition_found = False
-    next_session_desc: SessionDesc | None = None
-    for event in events.get_events():
-        if isinstance(event, CloseUserInputEvent):
-            transition_found = True
-            next_session_desc = None
-        elif isinstance(event, NewSessionUserInputEvent):
-            transition_found = True
-            next_session_desc = replace(
-                current_session_desc,
-                metadata=dict(current_session_desc.metadata),
-            )
-    return transition_found, next_session_desc
-
-
 def _log_secondary_failure(message: str, error: BaseException) -> None:
     """Log a cleanup failure that cannot replace an earlier exception."""
     _LOGGER.error(message, exc_info=error)
@@ -91,8 +53,9 @@ def run_session(
 
     The calling UI thread handles the window and UI. A model thread runs the
     model loop. Returns when the client closes the window, requests a new
-    session, when the model loop has finished and no generated frames are still
-    waiting, or when either loop fails.
+    session, when the UI finishes, or when either loop fails. While the model
+    is not running, an unfinished UI ticks regardless of presentation mode so
+    it can request another session.
 
     Both loops, the metrics sink, and the session are closed before this returns
     or raises. The client window stays open only when a clean replacement was
@@ -103,7 +66,8 @@ def run_session(
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
-        steps: Maximum model steps; ``None`` runs until stopped.
+        steps: Maximum model steps before ending the session; ``None`` leaves
+            session completion to the UI or client window.
 
     Returns:
         The resolved description for a requested replacement session, or
@@ -144,26 +108,32 @@ def run_session(
         )
 
         def collect_input() -> None:
-            nonlocal next_session_desc
-            events = window.get_user_input_events()
-            event_buffer.append(events)
-            transition_found, next_session_desc = _session_transition(
-                events,
-                session_desc,
-            )
-            if transition_found:
-                stop.set()
+            event_buffer.append(window.get_user_input_events())
 
-        def run_ui_once() -> None:
-            """Run one UI step and write every result it produces."""
+        def run_ui_once(*, step_requested: bool = True) -> None:
+            """Process UI lifecycle control and run a requested UI step."""
+            nonlocal next_session_desc
             if ui_loop is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
 
-            step_index = ui_loop._begin_run(events, generation)
-            if step_index is None or stop.is_set():
+            loopResult = ui_loop._begin_run(events, generation)
+            if loopResult.stop_requested:
+                stop.set()
                 return
-            result = ui_loop.step(step_index, events)
+            if loopResult.new_session_request is not None:
+                next_session_desc = replace(
+                    session_desc,
+                    metadata={
+                        **session_desc.metadata,
+                        **loopResult.new_session_request,
+                    },
+                )
+                stop.set()
+                return
+            if loopResult.step_index is None or not step_requested:
+                return
+            result = ui_loop.step(loopResult.step_index, ui_loop.user_events)
             if result is not None and not isinstance(result, StepResult):
                 raise TypeError("A UI loop must return StepResult or None.")
             ui_loop._finish_run(result)
@@ -184,18 +154,41 @@ def run_session(
                 for result in results:
                     metrics_output_sink.write(result)
 
+        def run_model() -> None:
+            assert ui_loop is not None
+            assert model_loop is not None
+            ui_loop._set_model_inference_state(ModelInferenceState.RUNNING)
+            try:
+                model_loop._run_model_loop(
+                    event_buffer=event_buffer,
+                    reader_id=_MODEL_READER_ID,
+                    publish=publish_model_results,
+                    max_steps=steps,
+                )
+            finally:
+                ui_loop._set_model_inference_state(ModelInferenceState.FINISHED)
+
         def tick_ui() -> None:
             # ensure that the HIGH PRIORITY presentation context is default for UI loop
             with presentation_manager.presentation_context():
                 assert ui_loop is not None
                 generation = event_buffer.generation
                 model_advanced, _ = presentation_manager.advance(generation)
+                inference_state = ui_loop.model_inference_state
                 if model_advanced:
-                    run_ui_once()
-                    return
-                if session_desc.presentation_mode is PresentationMode.ON_DEMAND:
-                    return
-                run_ui_once()
+                    step_requested = True
+                elif inference_state is ModelInferenceState.RUNNING:
+                    step_requested = (
+                        session_desc.presentation_mode is PresentationMode.CONTINUOUS
+                    )
+                elif inference_state is ModelInferenceState.NOT_STARTED:
+                    step_requested = True
+                else:
+                    step_requested = (
+                        not presentation_manager.has_pending_frames()
+                        and session._failure_queue.empty()
+                    )
+                run_ui_once(step_requested=step_requested)
 
         trace_log = (
             _open_chunk_trace(session_desc.metadata.get(_TRACE_PATH_METADATA_KEY))
@@ -233,37 +226,32 @@ def run_session(
 
         if not stop.is_set():
             model_thread_handle = threading.Thread(
-                target=model_loop._run_model_loop,
-                kwargs={
-                    "event_buffer": event_buffer,
-                    "reader_id": _MODEL_READER_ID,
-                    "publish": publish_model_results,
-                    "max_steps": steps,
-                },
+                target=run_model,
                 name=_MODEL_THREAD_NAME,
             )
             model_thread_handle.start()
             next_tick_at = time.monotonic() + tick_seconds
 
-            # Keep servicing input and presenting queued frames until shutdown,
-            # or until the model finishes and no generated frames remain.
-            # A finished UI loop produces no further window output.
             while not stop.is_set():
                 if (
                     not model_thread_handle.is_alive()
                     and not presentation_manager.has_pending_frames()
+                    and (
+                        not session._failure_queue.empty()
+                        or steps is not None
+                        or ui_loop.is_finished()
+                    )
                 ):
                     # Input may have arrived with the final presented frame.
                     # Establish the terminal boundary before deciding that a
                     # naturally completed session has no replacement.
                     collect_input()
+                    run_ui_once(step_requested=False)
                     break
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
                 if stop.wait(wait_seconds):
                     break
                 collect_input()
-                if stop.is_set():
-                    break
                 tick_ui()
                 event_buffer.collect_garbage()
                 next_tick_at += tick_seconds

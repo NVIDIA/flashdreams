@@ -437,7 +437,9 @@ class WebRTCServer:
         track = self._video_track
         loop = self._loop
         if track is not None and loop is not None:
-            future = asyncio.run_coroutine_threadsafe(track.start_session(), loop)
+            future = asyncio.run_coroutine_threadsafe(
+                self._start_session_if_active(track), loop
+            )
             try:
                 future.result(timeout=self._startup_timeout_seconds)
             except BaseException:
@@ -664,8 +666,11 @@ class WebRTCServer:
         session_desc = self._session_desc
         if session_desc is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
-        if self._peer_connection is not None:
-            raise web.HTTPConflict(reason="A WebRTC client is already connected.")
+        existing_peer = self._peer_connection
+        if existing_peer is not None:
+            # This server has one client slot. A new offer is a page refresh or
+            # replacement browser and therefore takes ownership of that slot.
+            await self._release_peer_connection(existing_peer)
 
         try:
             payload = await request.json()
@@ -704,9 +709,9 @@ class WebRTCServer:
                     channel.send(json.dumps({"type": "error", "message": str(error)}))
 
             @channel.on("close")
-            def on_close() -> None:
+            async def on_close() -> None:
                 if is_reliable_control:
-                    self._record_client_disconnect()
+                    await self._release_peer_connection(peer_connection)
 
         @peer_connection.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
@@ -715,8 +720,7 @@ class WebRTCServer:
             elif peer_connection.connectionState == "disconnected":
                 self._media_connected.clear()
             elif peer_connection.connectionState in {"failed", "closed"}:
-                self._media_connected.clear()
-                self._record_client_disconnect()
+                await self._release_peer_connection(peer_connection)
 
         try:
             await peer_connection.setRemoteDescription(
@@ -725,12 +729,8 @@ class WebRTCServer:
             await peer_connection.setLocalDescription(
                 await peer_connection.createAnswer()
             )
-        except Exception:
-            self._peer_connection = None
-            self._video_track = None
-            self._media_connected.clear()
-            await video_track.close()
-            await peer_connection.close()
+        except BaseException:
+            await self._release_peer_connection(peer_connection)
             raise
 
         local_description = peer_connection.localDescription
@@ -918,16 +918,45 @@ class WebRTCServer:
             raise RuntimeError("WebRTC input callback is not registered.")
         callback(event)
 
-    def _record_client_disconnect(self) -> None:
-        """Buffer one close event when the active browser disconnects."""
-        self._media_connected.clear()
-        if not self._client_connected:
+    async def _release_peer_connection(
+        self,
+        peer_connection: RTCPeerConnection,
+    ) -> None:
+        """Release one disconnected peer while leaving the server open."""
+        if self._peer_connection is not peer_connection:
             return
+        self._peer_connection = None
+        self._media_connected.clear()
         self._client_connected = False
-        if not self._closed:
-            timestamp_us = self._timestamp_us()
-            if timestamp_us is not None:
-                self._append_event(CloseUserInputEvent(timestamp=timestamp_us))
+        track = self._video_track
+        self._video_track = None
+        failures: list[BaseException] = []
+        if track is not None:
+            try:
+                await track.close()
+            except BaseException as error:
+                failures.append(error)
+            try:
+                self._final_video_track_metrics = track.metrics_snapshot()
+            except BaseException as error:
+                failures.append(error)
+        if peer_connection.connectionState != "closed":
+            try:
+                await peer_connection.close()
+            except BaseException as error:
+                failures.append(error)
+        if failures:
+            primary = failures[0]
+            for secondary in failures[1:]:
+                logger.opt(exception=secondary).warning(
+                    "Additional WebRTC peer cleanup failure"
+                )
+            raise primary
+
+    async def _start_session_if_active(self, track: _VideoTrack) -> None:
+        """Reset ``track`` only if it still belongs to the active peer."""
+        if self._video_track is track:
+            await track.start_session()
 
     def _timestamp_us(self) -> np.uint64 | None:
         """Return the current server-relative event timestamp."""
@@ -940,8 +969,13 @@ class WebRTCServer:
         """Release async server resources on their owning loop."""
         failures: list[BaseException] = []
         peer_connection = self._peer_connection
-        self._peer_connection = None
+        if peer_connection is not None:
+            try:
+                await self._release_peer_connection(peer_connection)
+            except BaseException as error:
+                failures.append(error)
         self._media_connected.clear()
+        self._client_connected = False
         track = self._video_track
         self._video_track = None
         if track is not None:
@@ -951,11 +985,6 @@ class WebRTCServer:
                 failures.append(error)
             try:
                 self._final_video_track_metrics = track.metrics_snapshot()
-            except BaseException as error:
-                failures.append(error)
-        if peer_connection is not None:
-            try:
-                await peer_connection.close()
             except BaseException as error:
                 failures.append(error)
         runner = self._runner
