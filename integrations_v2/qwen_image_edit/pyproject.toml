@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-qwen-image-edit-v2"
+version = "0.1.0"
+description = "Native Qwen Image Edit integration for the FlashDreams V2 API."
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "flashdreams",
+    "huggingface-hub>=0.34",
+    "Pillow>=10",
+    "safetensors>=0.4",
+    "torch",
+    "transformers>=4.57",
+]
+
+[project.scripts]
+qwen-image-edit-v2 = "qwen_image_edit_v2.app:main"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["diffusers==0.38.0", "pytest>=8.0", "pytest-manual-marker>=2.0"]
+
+[tool.setuptools.packages.find]
+include = ["qwen_image_edit_v2*"]
+
+[tool.uv]
+managed = true
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+markers = [
+    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
+    "ci_gpu: requires GPU or libGL, runs on the GPU CI runner",
+    "manual: heavy or environment-specific test, opt-in only",
+]

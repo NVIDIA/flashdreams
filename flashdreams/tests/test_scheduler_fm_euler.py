@@ -213,3 +213,50 @@ def test_to_bf16_preserves_fp32_schedule() -> None:
     assert scheduler.timesteps.dtype == torch.float32
     assert scheduler.sigmas.dtype == torch.float32
     assert float(scheduler.timesteps[0]) == 1000.0
+
+
+def test_dynamic_schedule_matches_qwen_resolution_warp() -> None:
+    """Qwen's token-count shift and terminal stretch remain exact."""
+    config = FlowMatchEulerDiscreteSchedulerConfig(
+        num_inference_steps=4,
+        use_dynamic_shifting=True,
+        base_image_seq_len=256,
+        max_image_seq_len=8192,
+        base_shift=0.5,
+        max_shift=0.9,
+        shift_terminal=0.02,
+    )
+    scheduler = config.setup()
+    token_count = 3520
+    mu = 0.5 + (0.9 - 0.5) * (token_count - 256) / (8192 - 256)
+    raw = np.linspace(1.0, 0.25, 4, dtype=np.float32)
+    weight = np.exp(mu)
+    expected = weight / (weight + (1.0 / raw - 1.0))
+    expected = 1.0 - (1.0 - expected) * (1.0 - 0.02) / (1.0 - expected[-1])
+    expected = np.concatenate([expected, [0.0]]).astype(np.float32)
+
+    actual, timesteps = scheduler._dynamic_schedule(token_count)
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(timesteps, expected * 1000, rtol=1e-6, atol=1e-5)
+
+
+def test_dynamic_sample_uses_requested_token_count() -> None:
+    """Per-rollout sampling does not reuse the config's placeholder schedule."""
+    scheduler = FlowMatchEulerDiscreteSchedulerConfig(
+        num_inference_steps=2,
+        use_dynamic_shifting=True,
+        max_image_seq_len=8192,
+        max_shift=0.9,
+        shift_terminal=0.02,
+    ).setup()
+    seen: list[float] = []
+
+    def flow(noisy: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+        seen.append(float(timestep))
+        return torch.zeros_like(noisy)
+
+    scheduler.sample_for_sequence_length(torch.ones(1), flow, 4096)
+
+    _, expected = scheduler._dynamic_schedule(4096)
+    np.testing.assert_allclose(seen, expected[:-1], rtol=1e-6, atol=1e-5)
