@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from crazy_robotaxi.settings import SettingsDocument
+from crazy_robotaxi.settings import SettingsDocument, SettingsError
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -41,9 +41,6 @@ def test_sparse_yaml_overrides_nested_model_config(
     path.write_text(
         """\
 schema_version: 1
-launch:
-  mode: race
-  map: maps/test.robotaxi.yaml
 model:
   pipeline:
     diffusion_model:
@@ -56,13 +53,17 @@ presentation:
 
     document = _load(path)
 
-    assert document.settings.launch.mode == "race"
-    assert (
-        document.settings.launch.map == (tmp_path / "maps/test.robotaxi.yaml").resolve()
-    )
     assert document.settings.model.pipeline.diffusion_model.seed == 42
     assert document.settings.renderer.raster.resolution_wh == (1280, 704)
     assert document.settings.presentation.show_fps
+
+
+def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("launch:\n  mode: race\n", encoding="utf-8")
+
+    with pytest.raises(SettingsError, match="unknown keys: launch"):
+        _load(path)
 
 
 def test_save_is_sparse_atomic_and_preserves_retained_comments(tmp_path: Path) -> None:

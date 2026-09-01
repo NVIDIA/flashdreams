@@ -70,8 +70,8 @@ model.
 ## Options and user configuration
 
 Every selection menu has an **OPTIONS** button. The Options screen is generated
-from the same typed settings tree used at startup, with pages for launch, game,
-model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
+from the same typed settings tree used at startup, with pages for game, model,
+renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
 atomically updates the user YAML and **DISCARD** (or `Escape`) abandons the
 draft. Presentation settings apply when saved; the screen displays **RESTART
 REQUIRED** when other changes need a new process.
@@ -89,10 +89,6 @@ For example:
 
 ```yaml
 schema_version: 1
-launch:
-  mode: race
-  map: apps/crazy_robotaxi/crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml
-  race_course: grand-prix
 game:
   taxi:
     seed: 1234
@@ -109,11 +105,12 @@ live_edit:
     enabled: true
 ```
 
-Setting all three launch selections skips their corresponding startup menus;
-leaving any selection null keeps that menu in the normal flow. Model diffusion
-and gameplay seeds are independent. Selecting mystery items automatically
-enables style editing, while rain or snow items automatically enable weather
-editing.
+Mode, map, and race-course selections are intentionally CLI-only and do not
+appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
+`--race-course` skips their corresponding startup menus; omitted selections
+remain in the normal menu flow. Model diffusion and gameplay seeds are
+independent. Selecting mystery items automatically enables style editing, while
+rain or snow items automatically enable weather editing.
 
 ## Controls
 

@@ -247,7 +247,7 @@ class TaxiHudState:
     _options_return_stage: Literal["mode", "map", "course"] = "mode"
     """Menu restored after saving or discarding an Options draft."""
 
-    _options_category: str = "launch"
+    _options_category: str = "game"
     """Selected top-level settings page."""
 
     _options_draft: CrazyRobotaxiUserSettings | None = None
@@ -1148,7 +1148,7 @@ class TaxiHudState:
             )
             try:
                 if content_visible:
-                    category = getattr(draft, self._options_category, draft.launch)
+                    category = getattr(draft, self._options_category, draft.game)
                     self._draw_settings_tree(
                         imgui,
                         category,

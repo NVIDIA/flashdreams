@@ -25,17 +25,7 @@ from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.rules import TaxiGameConfig
 
-GameMode = Literal["taxi", "race"]
 SettingPath = tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class LaunchSettings:
-    """Deterministic launch directives; missing selections leave menus visible."""
-
-    mode: GameMode | None = None
-    map: Path | None = None
-    race_course: str | None = None
 
 
 @dataclass(frozen=True)
@@ -155,7 +145,6 @@ class DiagnosticsSettings:
 class CrazyRobotaxiUserSettings:
     """The settings tree represented by both YAML and the Options UI."""
 
-    launch: LaunchSettings
     game: GameSettings
     model: ModelSettings
     renderer: RendererSettings
@@ -180,7 +169,6 @@ def default_settings(
 ) -> CrazyRobotaxiUserSettings:
     """Build defaults around the pipeline selected by the runner."""
     return CrazyRobotaxiUserSettings(
-        launch=LaunchSettings(),
         game=GameSettings(),
         model=ModelSettings(
             pipeline=copy.deepcopy(pipeline_config),

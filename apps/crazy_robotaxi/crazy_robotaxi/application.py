@@ -197,6 +197,15 @@ class CrazyRobotaxiApplication(IApplication):
             args,
         )
         settings_document.cli_overrides = cli_overrides
+        initial_game_mode: GameMode | None = (
+            args.game_mode if arg_was_explicit(args, "game_mode") else None
+        )
+        initial_map_path: Path | None = (
+            args.map if arg_was_explicit(args, "map") else None
+        )
+        initial_race_course_id: str | None = (
+            args.race_course if arg_was_explicit(args, "race_course") else None
+        )
         if (
             settings.runtime.total_blocks is not None
             and settings.runtime.total_blocks <= 0
@@ -206,23 +215,20 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError("--prewarm-blocks must be non-negative")
         if settings.game.taxi.rules.global_time_s <= 0:
             raise ValueError("--game-time-s must be positive")
-        if settings.launch.mode != "race" and (
-            settings.launch.race_course is not None
-            or settings.game.race.times_path is not None
-        ):
-            raise ValueError("--race-course and --race-times require --game-mode race")
-        map_path = settings.launch.map or _DEFAULT_MAP
-        if settings.launch.mode == "race":
+        if initial_game_mode != "race" and initial_race_course_id is not None:
+            raise ValueError("--race-course requires --game-mode race")
+        map_path: Path = args.map
+        if initial_game_mode == "race":
             header = load_game_map_header(map_path.expanduser())
             if not header.race_course_ids:
                 raise ValueError(f"Map {header.map_id!r} defines no race courses")
             if (
-                settings.launch.race_course is not None
-                and settings.launch.race_course not in header.race_course_ids
+                initial_race_course_id is not None
+                and initial_race_course_id not in header.race_course_ids
             ):
                 available = ", ".join(header.race_course_ids)
                 raise ValueError(
-                    f"Unknown race course {settings.launch.race_course!r}; available: {available}"
+                    f"Unknown race course {initial_race_course_id!r}; available: {available}"
                 )
         renderer = RendererSettings(
             raster=settings.renderer.raster,
@@ -263,13 +269,13 @@ class CrazyRobotaxiApplication(IApplication):
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
             settings_document=settings_document,
-            initial_game_mode=settings.launch.mode,
+            initial_game_mode=initial_game_mode,
             initial_map_path=(
-                None if settings.launch.map is None else map_path.expanduser().resolve()
+                None if initial_map_path is None else map_path.expanduser().resolve()
             ),
-            initial_race_course_id=settings.launch.race_course,
-            game_mode=settings.launch.mode or "taxi",
-            race_course_id=settings.launch.race_course,
+            initial_race_course_id=initial_race_course_id,
+            game_mode=initial_game_mode or "taxi",
+            race_course_id=initial_race_course_id,
             race_times_path=(
                 default_race_times_path()
                 if settings.game.race.times_path is None
@@ -295,15 +301,6 @@ class CrazyRobotaxiApplication(IApplication):
             overrides[path] = value
             return True
 
-        launch = settings.launch
-        for name, field_name in (
-            ("map", "map"),
-            ("game_mode", "mode"),
-            ("race_course", "race_course"),
-        ):
-            value = getattr(args, name)
-            if explicit(name, ("launch", field_name), value):
-                launch = replace(launch, **{field_name: value})
         game = settings.game
         taxi = game.taxi
         rules = taxi.rules
@@ -404,7 +401,6 @@ class CrazyRobotaxiApplication(IApplication):
                 raster = replace(raster, **{name: value})
         settings = replace(
             settings,
-            launch=launch,
             game=game,
             model=replace(model, pipeline=pipeline),
             renderer=replace(renderer, raster=raster),

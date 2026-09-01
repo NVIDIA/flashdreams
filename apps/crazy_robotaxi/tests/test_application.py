@@ -222,14 +222,12 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.config.race_course_id == "grand-prix"
 
 
-def test_user_config_selects_launch_and_overrides_model(tmp_path: Path) -> None:
+def test_user_config_overrides_model_and_game_without_selecting_menus(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        f"""\
-launch:
-  mode: race
-  map: {_DEMO_RACE_MAP}
-  race_course: grand-prix
+        """\
 model:
   device: cpu
   pipeline:
@@ -248,9 +246,9 @@ runtime:
     app.init(["--config", str(config_path)])
 
     assert app._config is not None
-    assert app._config.initial_game_mode == "race"
-    assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
-    assert app._config.initial_race_course_id == "grand-prix"
+    assert app._config.initial_game_mode is None
+    assert app._config.initial_map_path is None
+    assert app._config.initial_race_course_id is None
     assert app._config.model_preset_name == "omnidreams"
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234

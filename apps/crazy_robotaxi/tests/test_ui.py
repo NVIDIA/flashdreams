@@ -1596,6 +1596,23 @@ def test_options_can_open_from_each_selection_menu(
     assert state._options_return_stage == stage
 
 
+def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    labels = {label for label, _size in imgui.button_sizes}
+    assert "GAME##options-category-game" in labels
+    assert "LAUNCH##options-category-launch" not in labels
+
+
 def test_options_save_persists_and_applies_presentation_setting(
     tmp_path: Path,
 ) -> None:
