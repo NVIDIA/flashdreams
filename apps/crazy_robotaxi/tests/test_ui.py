@@ -40,6 +40,7 @@ from crazy_robotaxi.rules import (
 from crazy_robotaxi.settings import SettingsDocument
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
+    _selection_grid_columns,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
@@ -206,6 +207,8 @@ class _FakeImGui:
         no_saved_settings=4,
         sizing_stretch_prop=8,
         scroll_y=16,
+        sizing_fixed_same=32,
+        sizing_stretch_same=64,
     )
     TableColumnFlags_ = SimpleNamespace(width_fixed=1, width_stretch=2)
     TableBgTarget_ = SimpleNamespace(row_bg1=1)
@@ -236,6 +239,7 @@ class _FakeImGui:
         self.current_child_size: tuple[float, float] | None = None
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
+        self.table_column_counts: dict[str, int] = {}
         self.table_flags: dict[str, int] = {}
         self.highlighted_rows: list[int] = []
         self.current_table: str | None = None
@@ -352,10 +356,15 @@ class _FakeImGui:
     def get_content_region_avail(self) -> tuple[float, float]:
         if self.current_child_size is not None:
             child_width, child_height = self.current_child_size
-            return (
+            available_width = (
                 child_width
                 if child_width > 0.0
-                else max(1.0, float(self.next_window_size[0]) - 56.0),
+                else max(1.0, float(self.next_window_size[0]) - 56.0)
+            )
+            if self.current_table is not None:
+                available_width /= self.table_column_counts[self.current_table]
+            return (
+                available_width,
                 child_height,
             )
         return (
@@ -433,10 +442,11 @@ class _FakeImGui:
         flags: int,
         outer_size: object,
     ) -> bool:
-        del columns, outer_size
+        del outer_size
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
+        self.table_column_counts[table_id] = columns
         self.table_flags[table_id] = flags
         return True
 
@@ -1067,6 +1077,14 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     assert lines[1].startswith("ELAPSED  ")
 
 
+@pytest.mark.parametrize(
+    ("option_count", "expected_columns"),
+    ((0, 1), (1, 1), (2, 2), (3, 2), (4, 2), (5, 3), (6, 3), (7, 3)),
+)
+def test_selection_grid_column_count(option_count: int, expected_columns: int) -> None:
+    assert _selection_grid_columns(option_count) == expected_columns
+
+
 def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     map_preview_path = Path("map-preview.jpg")
     course_preview_path = Path("course-preview.jpg")
@@ -1159,6 +1177,82 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
+
+
+def test_map_and_course_selections_use_three_column_grids() -> None:
+    map_preview_path = Path("map-preview.jpg")
+    maps = tuple(
+        GameMapOption(
+            map_id=f"map-{index}",
+            name=f"Map {index}",
+            path=Path(f"map-{index}.robotaxi.yaml"),
+            race_courses=(
+                GameRaceCourseOption(
+                    course_id="course-0",
+                    spawn_id="race-start",
+                ),
+            ),
+            preview_image_path=map_preview_path,
+        )
+        for index in range(6)
+    )
+    state = TaxiHudState(1280, 720, _calibration(), map_options=maps)
+    state._selection_preview_pixels[map_preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
+    state._selected_game_mode = "race"
+    state._menu_stage = "map"
+    map_imgui = _FakeImGui()
+
+    state.draw(map_imgui)
+
+    assert map_imgui.table_column_counts["##map-grid"] == 3
+    assert (
+        map_imgui.table_flags["##map-grid"] & map_imgui.TableFlags_.sizing_stretch_same
+    )
+    assert len(map_imgui.tables["##map-grid"]) == 2
+    map_button_sizes = dict(map_imgui.button_sizes)
+    map_button_size = map_button_sizes["Map 0##map-0"]
+    assert map_button_size is not None
+    map_cell_width = map_button_size[0]
+    assert map_imgui.child_sizes["##map-options"][0] == map_cell_width * 3
+    assert len(map_imgui.images) == 6
+
+    course_preview_path = Path("course-preview.jpg")
+    course_option = GameMapOption(
+        map_id="course-map",
+        name="Course Map",
+        path=Path("course-map.robotaxi.yaml"),
+        race_courses=tuple(
+            GameRaceCourseOption(
+                course_id=f"course-{index}",
+                spawn_id=f"race-start-{index}",
+                preview_image_path=course_preview_path,
+            )
+            for index in range(7)
+        ),
+    )
+    state._selection_preview_pixels[course_preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
+    state._selected_map_option = course_option
+    state._menu_stage = "course"
+    course_imgui = _FakeImGui()
+
+    state.draw(course_imgui)
+
+    assert course_imgui.table_column_counts["##course-grid"] == 3
+    assert (
+        course_imgui.table_flags["##course-grid"]
+        & course_imgui.TableFlags_.sizing_stretch_same
+    )
+    assert len(course_imgui.tables["##course-grid"]) == 3
+    course_button_sizes = dict(course_imgui.button_sizes)
+    course_button_size = course_button_sizes["COURSE 0##course-0"]
+    assert course_button_size is not None
+    course_cell_width = course_button_size[0]
+    assert course_imgui.child_sizes["##course-options"][0] == course_cell_width * 3
+    assert len(course_imgui.images) == 7
 
 
 def test_controls_menu_lists_bindings_and_returns_to_mode(tmp_path: Path) -> None:

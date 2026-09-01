@@ -115,6 +115,13 @@ def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
     return native_mode not in {"disabled", None, False}
 
 
+def _selection_grid_columns(option_count: int) -> int:
+    """Return the requested map/course grid column count."""
+    if option_count <= 1:
+        return 1
+    return 2 if option_count <= 4 else 3
+
+
 _VIDEO_FPS_WINDOW_SECONDS = 2.0
 """Rolling window used to smooth the generated-video frame-rate estimate."""
 
@@ -1701,7 +1708,7 @@ class TaxiHudState:
                 for index, option in enumerate(self.map_options)
                 if mode != "race" or option.race_course_ids
             )
-            list_width = max(
+            cell_width = max(
                 1.0,
                 *(
                     _point_xy(imgui.calc_text_size(option.name))[0] + 20.0
@@ -1718,26 +1725,50 @@ class TaxiHudState:
                     else ()
                 ),
             )
+            column_count = _selection_grid_columns(len(visible_options))
+            list_width = cell_width * column_count
             list_visible = imgui.begin_child(
                 "##map-options", imgui.ImVec2(list_width, list_height)
             )
             try:
                 if list_visible:
                     available_height = _point_xy(imgui.get_content_region_avail())[1]
-                    for index, option in visible_options:
-                        self._draw_selection_preview(
-                            imgui,
-                            option.preview_image_path,
-                            list_width,
-                            scale,
-                            max(0.0, available_height - button_height - 10.0),
-                        )
-                        if imgui.button(
-                            f"{option.name}##map-{index}",
-                            imgui.ImVec2(list_width, button_height),
-                        ):
-                            self._select_map(option)
-                    if not visible_options:
+                    if visible_options and imgui.begin_table(
+                        "##map-grid",
+                        column_count,
+                        flags=(
+                            imgui.TableFlags_.no_saved_settings
+                            | imgui.TableFlags_.sizing_stretch_same
+                        ),
+                        outer_size=imgui.ImVec2(list_width, 0.0),
+                    ):
+                        try:
+                            for index, option in visible_options:
+                                column = index % column_count
+                                if column == 0:
+                                    imgui.table_next_row(min_row_height=0.0)
+                                imgui.table_set_column_index(column)
+                                item_width = _point_xy(
+                                    imgui.get_content_region_avail()
+                                )[0]
+                                self._draw_selection_preview(
+                                    imgui,
+                                    option.preview_image_path,
+                                    item_width,
+                                    scale,
+                                    max(
+                                        0.0,
+                                        available_height - button_height - 10.0,
+                                    ),
+                                )
+                                if imgui.button(
+                                    f"{option.name}##map-{index}",
+                                    imgui.ImVec2(item_width, button_height),
+                                ):
+                                    self._select_map(option)
+                        finally:
+                            imgui.end_table()
+                    elif not visible_options:
                         _centered_imgui_text(
                             imgui,
                             "NO COMPATIBLE MAPS FOUND",
@@ -1810,7 +1841,7 @@ class TaxiHudState:
             )
             imgui.separator()
             button_height = max(36.0, 48.0 * scale)
-            list_width = max(
+            cell_width = max(
                 1.0,
                 *(
                     _point_xy(
@@ -1827,31 +1858,57 @@ class TaxiHudState:
                     if course.preview_image_path is not None
                 ),
             )
+            column_count = _selection_grid_columns(len(option.race_courses))
+            list_width = cell_width * column_count
             list_visible = imgui.begin_child(
                 "##course-options", imgui.ImVec2(list_width, list_height)
             )
             try:
                 if list_visible:
                     available_height = _point_xy(imgui.get_content_region_avail())[1]
-                    for course_index, course in enumerate(option.race_courses):
-                        self._draw_selection_preview(
-                            imgui,
-                            course.preview_image_path,
-                            list_width,
-                            scale,
-                            max(0.0, available_height - button_height - 10.0),
-                        )
-                        label = (
-                            course.course_id.replace("-", " ").replace("_", " ").upper()
-                        )
-                        if imgui.button(
-                            f"{label}##course-{course_index}",
-                            imgui.ImVec2(list_width, button_height),
-                        ):
-                            self._start_game(
-                                option,
-                                race_course_id=course.course_id,
-                            )
+                    if imgui.begin_table(
+                        "##course-grid",
+                        column_count,
+                        flags=(
+                            imgui.TableFlags_.no_saved_settings
+                            | imgui.TableFlags_.sizing_stretch_same
+                        ),
+                        outer_size=imgui.ImVec2(list_width, 0.0),
+                    ):
+                        try:
+                            for course_index, course in enumerate(option.race_courses):
+                                column = course_index % column_count
+                                if column == 0:
+                                    imgui.table_next_row(min_row_height=0.0)
+                                imgui.table_set_column_index(column)
+                                item_width = _point_xy(
+                                    imgui.get_content_region_avail()
+                                )[0]
+                                self._draw_selection_preview(
+                                    imgui,
+                                    course.preview_image_path,
+                                    item_width,
+                                    scale,
+                                    max(
+                                        0.0,
+                                        available_height - button_height - 10.0,
+                                    ),
+                                )
+                                label = (
+                                    course.course_id.replace("-", " ")
+                                    .replace("_", " ")
+                                    .upper()
+                                )
+                                if imgui.button(
+                                    f"{label}##course-{course_index}",
+                                    imgui.ImVec2(item_width, button_height),
+                                ):
+                                    self._start_game(
+                                        option,
+                                        race_course_id=course.course_id,
+                                    )
+                        finally:
+                            imgui.end_table()
             finally:
                 imgui.end_child()
             imgui.separator()
