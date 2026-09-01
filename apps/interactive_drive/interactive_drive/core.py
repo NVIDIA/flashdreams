@@ -93,6 +93,12 @@ class InteractiveDriveApplicationDefaults:
     pipeline_config: StreamInferencePipelineConfig | None = None
     """Model-owned streaming inference pipeline configuration."""
 
+    postprocess_preset: str = ""
+    """Post-processing preset offered by the application UI."""
+
+    postprocess_enabled: bool = True
+    """Whether that preset starts enabled for the first rollout."""
+
 
 @dataclass(frozen=True, slots=True)
 class InteractiveDriveConfig:
@@ -224,14 +230,18 @@ class InteractiveDriveModelState:
         self.select_scene(self.config.app.scene_path, variant)
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
-        """Toggle generated-video post-processing without rebuilding the model."""
-        self.postprocess_enabled = bool(enabled)
+        """Apply generated-video post-processing to a fresh rollout."""
+        enabled = bool(enabled)
+        if enabled == self.postprocess_enabled:
+            return
+        self.postprocess_enabled = enabled
         if self.backend is not None:
             self.backend.set_postprocess_enabled(self.postprocess_enabled)
+        self.reset_pending = True
         self._notify(
-            "Post-processing enabled."
+            "Post-processing enabled; restarting rollout."
             if self.postprocess_enabled
-            else "Post-processing disabled."
+            else "Post-processing disabled; restarting rollout."
         )
 
     def _notify(self, status: str) -> None:
@@ -445,6 +455,8 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._default_fps = defaults.fps
         self._default_width = defaults.width
         self._default_height = defaults.height
+        self._default_postprocess_preset = defaults.postprocess_preset
+        self._default_postprocess_enabled = defaults.postprocess_enabled
         self._backend_factory = partial(
             _build_backend,
             pipeline_config=defaults.pipeline_config,
@@ -492,11 +504,20 @@ class _InteractiveDriveApplicationBase(IApplication):
         )
         parser.add_argument(
             "--postprocess-preset",
-            default="",
+            default=self._default_postprocess_preset,
             choices=tuple(sorted(discover_postprocess_presets())),
             help=(
                 "Video post-processing preset for generated world-model frames. "
-                "A configured preset starts enabled and can be toggled in the HUD."
+                "A configured preset can be toggled in the HUD."
+            ),
+        )
+        parser.add_argument(
+            "--postprocess-enabled",
+            action=argparse.BooleanOptionalAction,
+            default=self._default_postprocess_enabled,
+            help=(
+                "Start the configured video post-processing preset enabled. "
+                "Use --no-postprocess-enabled to leave it off before rollout."
             ),
         )
         parser.add_argument(
@@ -541,6 +562,7 @@ class _InteractiveDriveApplicationBase(IApplication):
             postprocess=VideoPostprocessChainConfig(
                 preset=args.postprocess_preset,
             ),
+            postprocess_enabled=args.postprocess_enabled,
             bev=BevConfig(enabled=False),
             vehicle=VehicleConfig(),
         )

@@ -25,6 +25,8 @@ OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = InteractiveDriveApplicationDefaults(
     width=1280,
     height=704,
     pipeline_config=OMNIDREAMS_PIPELINE_CONFIG,
+    postprocess_preset="rtx-super-resolution",
+    postprocess_enabled=False,
 )
 OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = InteractiveDriveApplicationDefaults(
     title="Interactive Drive (Perf)",

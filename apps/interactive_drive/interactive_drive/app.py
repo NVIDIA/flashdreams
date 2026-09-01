@@ -159,11 +159,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
             )
             imgui.separator()
             if state.show_postprocess_toggle:
-                postprocess = (
-                    telemetry.postprocess_enabled
-                    if telemetry is not None
-                    else state.postprocess_enabled
-                )
+                postprocess = state.postprocess_enabled
                 changed, postprocess = imgui.checkbox("Post-processing", postprocess)
                 if changed:
                     state.postprocess_enabled = bool(postprocess)
@@ -333,7 +329,10 @@ class InteractiveDriveSession(ISession):
             desc=self._desc,
             scene_loader=self._scene_loader,
             view_mode=self._config.view_mode,
-            postprocess_enabled=self._config.app.postprocess.is_enabled(),
+            postprocess_enabled=(
+                self._config.app.postprocess.is_enabled()
+                and self._config.app.postprocess_enabled
+            ),
         )
         model_loop = self.register_model_loop(
             InteractiveDriveModelLoop, state=model_state
@@ -369,7 +368,10 @@ class InteractiveDriveSession(ISession):
                 view_mode=self._config.view_mode,
                 viewport_width=self._desc.video_width,
                 viewport_height=self._desc.video_height,
-                postprocess_enabled=self._config.app.postprocess.is_enabled(),
+                postprocess_enabled=(
+                    self._config.app.postprocess.is_enabled()
+                    and self._config.app.postprocess_enabled
+                ),
                 show_postprocess_toggle=bool(self._config.app.postprocess.preset),
             ),
             width=self._desc.video_width,

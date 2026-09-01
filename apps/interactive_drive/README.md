@@ -55,6 +55,13 @@ uv sync --package flashdreams-omnidreams --extra interactive-drive
 uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
 ```
 
+On a supported Linux x86_64 host, include the optional RTX VSR binding:
+
+```bash
+uv sync --package flashdreams-omnidreams \
+    --extra interactive-drive --extra rtx-postprocess
+```
+
 Use `interactive-drive-omnidreams-perf`/`interactive-drive-omnidreams-fast-perf` instead for the native-accelerated, performance-tuned configurations.
 
 Forward so that you may connect via `<ip>:8089` by adding `--host 0.0.0.0`
@@ -76,7 +83,8 @@ optional and follow the `--` separator:
 | `--view {rgb,hdmap,physx}` | Select the initial RGB, HD-map conditioning, or PhysX collider view. Default: `rgb`. |
 | `--no-ui` | Present model output directly without creating the HUD or rendering its BEV minimap. |
 | `--game-mode` | Enable the speed limit and collisions with scene actors and static map geometry. |
-| `--postprocess-preset NAME` | Start with a registered video post-processing preset enabled. Default: none. |
+| `--postprocess-preset NAME` | Select a registered video post-processing preset. The regular OmniDreams demo offers `rtx-super-resolution`. |
+| `--[no-]postprocess-enabled` | Start the selected preset on or off before the first rollout. RTX VSR defaults to off. |
 | `--world-model-profile` | Enable synchronized world-model profiling. |
 | `--world-model-device DEVICE` | Select the model device. Default: `cuda:0`. |
 | `--world-model-seed N` | Pin the seed used for each rollout. |
@@ -88,7 +96,8 @@ and enable RTX super resolution:
 ```bash
 uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc -- \
     --scene scene.usdz --variant rain --prompt "A rainy night drive" \
-    --game-mode --postprocess-preset rtx-super-resolution
+    --game-mode --postprocess-preset rtx-super-resolution \
+    --postprocess-enabled
 ```
 
 For example, render every generated frame once, in order, with the HUD disabled (for quality evaluation):
@@ -112,13 +121,16 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native-window
 
 The HUD's view button cycles through **RGB → HDMAP → PHYSX**.
 
-When `--postprocess-preset` is set, the preset starts enabled and the HUD's
-**Post-processing** checkbox can toggle it between generated chunks. Without a
-preset, the checkbox is hidden. Run
+The regular OmniDreams demo offers RTX VSR through the HUD's
+**Post-processing** checkbox and leaves it off before the first rollout. A
+change restarts the rollout at the next model-thread boundary so no rollout
+mixes processed and unprocessed chunks. Applications without a configured
+preset hide the checkbox. Run
 `uv run flashdreams-run-v2 interactive-drive-omnidreams -- --help` to see the presets
 registered in the current environment. The built-in `rtx-*` presets require
-the optional NVIDIA VFX dependency, installable with
-`uv pip install 'flashdreams[rtx-postprocess]'`, and supported RTX hardware.
+the optional NVIDIA VFX dependency and supported NVIDIA hardware. NVIDIA's
+`nvidia-vfx==0.1.0.1` Python package does not publish a Linux ARM64 wheel, so
+the RTX controls cannot run on Grace/GB300 hosts through this binding.
 
 The downloaded default scene is
 `scenes/clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz`. Pass

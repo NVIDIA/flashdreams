@@ -137,6 +137,8 @@ class AppConfig:
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
+    postprocess_enabled: bool = True
+    """Whether the configured post-processing chain starts enabled."""
     bev: BevConfig = BevConfig()
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).
     # Match alpasim's driver-side proximity: warn > 0.6, respawn >= 2.0

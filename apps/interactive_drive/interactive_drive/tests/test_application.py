@@ -29,7 +29,7 @@ from interactive_drive import (
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.types import ControlSnapshot
 
-from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
+from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -43,11 +43,12 @@ pytestmark = pytest.mark.ci_cpu
 class _FakeUI:
     Cond_ = SimpleNamespace(once="once")
 
-    def __init__(self) -> None:
+    def __init__(self, *, toggle_checkbox: bool = False) -> None:
         self.text_lines: list[str] = []
         self.images: list[str] = []
         self.progress: list[float] = []
         self.checkbox_labels: list[str] = []
+        self.toggle_checkbox = toggle_checkbox
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
@@ -74,6 +75,9 @@ class _FakeUI:
 
     def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
         self.checkbox_labels.append(label)
+        if self.toggle_checkbox:
+            self.toggle_checkbox = False
+            return True, not value
         return False, value
 
     def button(self, label: str) -> bool:
@@ -371,6 +375,87 @@ def test_world_model_accepts_postprocess_preset(
     session.init()
     assert isinstance(session.ui_loop, InteractiveDriveUILoop)
     assert session.ui_loop.state.show_postprocess_toggle
+
+
+def test_world_model_offers_rtx_vsr_disabled_before_rollout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene = tmp_path / "default.usdz"
+    scene.touch()
+    monkeypatch.setattr(
+        core_module,
+        "discover_postprocess_presets",
+        lambda: {"rtx-super-resolution": object()},
+    )
+    app = InteractiveDriveApplication(
+        defaults=InteractiveDriveApplicationDefaults(
+            pipeline_config=cast(Any, object()),
+            postprocess_preset="rtx-super-resolution",
+            postprocess_enabled=False,
+        ),
+    )
+
+    app.init(["--scene", str(scene)])
+
+    assert app._config is not None
+    assert app._config.app.postprocess.preset == "rtx-super-resolution"
+    assert not app._config.app.postprocess_enabled
+    session = app.create_session(app.session_desc())
+    session.init()
+    assert isinstance(session.model_loop, InteractiveDriveModelLoop)
+    assert not session.model_loop.state.postprocess_enabled
+    assert isinstance(session.ui_loop, InteractiveDriveUILoop)
+    assert session.ui_loop.state.show_postprocess_toggle
+    assert not session.ui_loop.state.postprocess_enabled
+
+
+def test_hud_enables_rtx_vsr_for_a_fresh_rollout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene = tmp_path / "default.usdz"
+    scene.touch()
+    app = InteractiveDriveApplication(
+        defaults=InteractiveDriveApplicationDefaults(
+            pipeline_config=cast(Any, object()),
+            postprocess_preset="rtx-super-resolution",
+            postprocess_enabled=False,
+        ),
+    )
+    app.init(["--scene", str(scene)])
+    session = app.create_session(app.session_desc())
+    session.init()
+    loop = session.ui_loop
+    model_loop = session.model_loop
+    assert isinstance(loop, InteractiveDriveUILoop)
+    assert isinstance(model_loop, InteractiveDriveModelLoop)
+    pixel = np.zeros((4, 4, 4), dtype=np.uint8)
+    loop.state.sprites = {
+        "steering_wheel": pixel,
+        "throttle_pressed": pixel,
+        "throttle_unpressed": pixel,
+        "brake_pressed": pixel,
+        "brake_unpressed": pixel,
+    }
+    monkeypatch.setattr(
+        loop._presentation_manager,
+        "presented_frame",
+        lambda _channel_index=0: None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "invoke_async",
+        lambda _loop, callback: callback(model_loop.state),
+    )
+
+    ui = _FakeUI(toggle_checkbox=True)
+    loop.step_ui(ui, 0, UserInputEvents([]))
+
+    assert ui.checkbox_labels == ["Post-processing"]
+    assert loop.state.postprocess_enabled
+    assert model_loop.state.postprocess_enabled
+    assert model_loop.state.reset_pending
 
 
 def test_default_scene_uses_original_hugging_face_location(tmp_path: Path) -> None:
