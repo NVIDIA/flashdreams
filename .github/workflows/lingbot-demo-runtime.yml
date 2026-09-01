@@ -151,6 +151,8 @@ jobs:
               --pixel-height "${HEIGHT}" \
               --pixel-width "${WIDTH}" \
               --fps "${FPS}" \
+              --backpressure-mode block \
+              --presentation-mode on_demand \
               -- \
               --device cuda:0 \
               --example-data \
