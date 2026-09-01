@@ -192,9 +192,9 @@ ready:
 - `ON_DEMAND` runs the UI loop only when `advance` moves to a new model frame.
 
 While inference has not started or has finished, an unfinished UI runs every
-tick in either mode. It can read `model_inference_state`, remains active after
-model output drains, and may use `is_finished` to declare its own terminal
-condition.
+tick in either mode. The model loop owns `inference_state`; the UI can query it
+through `model_inference_state`. The UI remains active after model output drains
+and may use `is_finished` to declare its own terminal condition.
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ON_DEMAND`: together they keep every frame in the presentation manager

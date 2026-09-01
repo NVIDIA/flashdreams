@@ -154,27 +154,14 @@ def run_session(
                 for result in results:
                     metrics_output_sink.write(result)
 
-        def run_model() -> None:
-            assert ui_loop is not None
-            assert model_loop is not None
-            ui_loop._set_model_inference_state(ModelInferenceState.RUNNING)
-            try:
-                model_loop._run_model_loop(
-                    event_buffer=event_buffer,
-                    reader_id=_MODEL_READER_ID,
-                    publish=publish_model_results,
-                    max_steps=steps,
-                )
-            finally:
-                ui_loop._set_model_inference_state(ModelInferenceState.FINISHED)
-
         def tick_ui() -> None:
             # ensure that the HIGH PRIORITY presentation context is default for UI loop
             with presentation_manager.presentation_context():
                 assert ui_loop is not None
+                assert model_loop is not None
                 generation = event_buffer.generation
                 model_advanced, _ = presentation_manager.advance(generation)
-                inference_state = ui_loop.model_inference_state
+                inference_state = model_loop.inference_state
                 if model_advanced:
                     step_requested = True
                 elif inference_state is ModelInferenceState.RUNNING:
@@ -226,7 +213,13 @@ def run_session(
 
         if not stop.is_set():
             model_thread_handle = threading.Thread(
-                target=run_model,
+                target=model_loop._run_model_loop,
+                kwargs={
+                    "event_buffer": event_buffer,
+                    "reader_id": _MODEL_READER_ID,
+                    "publish": publish_model_results,
+                    "max_steps": steps,
+                },
                 name=_MODEL_THREAD_NAME,
             )
             model_thread_handle.start()

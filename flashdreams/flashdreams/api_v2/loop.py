@@ -113,6 +113,11 @@ class ILoop(ABC, Generic[StateT]):
         self._shutdown_event = shutdown_event
         self._failure_queue = failure_queue
         self._new_session_request: dict[str, Any] | None = None
+        self._initialize_loop_state()
+
+    def _initialize_loop_state(self) -> None:
+        """Initialize state specific to this kind of loop."""
+        return
 
     @abstractmethod
     def step(
@@ -257,6 +262,24 @@ class IModelLoop(ILoop[StateT], ABC):
     """
 
     @final
+    def _initialize_loop_state(self) -> None:
+        """Initialize model-inference state."""
+        self._inference_state = ModelInferenceState.NOT_STARTED
+        self._inference_state_lock = threading.Lock()
+
+    @property
+    @final
+    def inference_state(self) -> ModelInferenceState:
+        """Return whether this model loop has started, is running, or finished."""
+        with self._inference_state_lock:
+            return self._inference_state
+
+    def _set_inference_state(self, state: ModelInferenceState) -> None:
+        """Set this model loop's inference state."""
+        with self._inference_state_lock:
+            self._inference_state = state
+
+    @final
     def _run_model_loop(
         self,
         *,
@@ -276,6 +299,7 @@ class IModelLoop(ILoop[StateT], ABC):
         """
         steps_run = 0
         last_run_started: float | None = None
+        self._set_inference_state(ModelInferenceState.RUNNING)
         try:
             while not self._shutdown_event.is_set() and (
                 max_steps is None or steps_run < max_steps
@@ -297,6 +321,7 @@ class IModelLoop(ILoop[StateT], ABC):
         except BaseException as error:
             self._failure_queue.put(error)
         finally:
+            self._set_inference_state(ModelInferenceState.FINISHED)
             try:
                 self._shutdown()
             except BaseException as error:
@@ -326,21 +351,17 @@ class IUILoop(ILoop[StateT], ABC):
         """
         self.output_layout = output_layout
         self._presentation_manager = presentation_manager
-        self._model_inference_state = ModelInferenceState.NOT_STARTED
-        self._model_inference_state_lock = threading.Lock()
+
+    @final
+    def _set_model_loop(self, model_loop: IModelLoop[Any]) -> None:
+        """Store the model loop whose inference lifecycle this UI observes."""
+        self._model_loop = model_loop
 
     @property
     @final
     def model_inference_state(self) -> ModelInferenceState:
         """Return whether model inference has started, is running, or finished."""
-        with self._model_inference_state_lock:
-            return self._model_inference_state
-
-    @final
-    def _set_model_inference_state(self, state: ModelInferenceState) -> None:
-        """Set the model-inference state visible to this UI loop."""
-        with self._model_inference_state_lock:
-            self._model_inference_state = state
+        return self._model_loop.inference_state
 
     @final
     def request_new_session(self, metadata: Mapping[str, Any]) -> None:
