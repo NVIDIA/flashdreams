@@ -1775,6 +1775,62 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     assert "SAVE" in labels
     assert "EXIT" in labels
     assert "EXIT WITHOUT SAVING" not in labels
+    assert "RESET TO DEFAULTS" in labels
+
+
+def test_options_reset_to_defaults_remains_unsaved_until_save(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "schema_version: 1\n"
+        "presentation:\n"
+        "  show_fps: true\n"
+        "live_edit:\n"
+        "  weather:\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
+    document = _perf_settings_document(config_path)
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        show_fps=True,
+        native_dit_disabled_for_live_edit=True,
+        settings_document=document,
+    )
+    state._open_options()
+    reset_imgui = _FakeImGui()
+    reset_imgui.clicked_buttons.add("RESET TO DEFAULTS")
+
+    state.draw(reset_imgui)
+
+    assert state._options_draft == document.defaults
+    assert document.settings.presentation.show_fps
+    assert state.show_fps
+    assert "show_fps: true" in config_path.read_text(encoding="utf-8")
+
+    unsaved_imgui = _FakeImGui()
+    state.draw(unsaved_imgui)
+    unsaved_labels = {label for label, _size in unsaved_imgui.button_sizes}
+    assert "EXIT WITHOUT SAVING" in unsaved_labels
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        not in unsaved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+    save_imgui = _FakeImGui()
+    save_imgui.clicked_buttons.add("SAVE")
+    state.draw(save_imgui)
+
+    assert document.settings == document.defaults
+    assert not state.show_fps
+    assert "presentation:" not in config_path.read_text(encoding="utf-8")
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        not in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
 
 
 def test_options_save_persists_and_applies_presentation_setting(
@@ -1971,7 +2027,7 @@ def test_options_can_show_code_only_restart_setting_details(
     )
 
 
-def test_native_dit_override_notice_does_not_require_a_settings_change(
+def test_native_dit_notices_reflect_menu_context(
     tmp_path: Path,
 ) -> None:
     state = TaxiHudState(
@@ -1991,7 +2047,7 @@ def test_native_dit_override_notice_does_not_require_a_settings_change(
     options_imgui = _FakeImGui()
     state.draw(options_imgui)
     options_lines = options_imgui.windows["Crazy Robotaxi - Options"]
-    assert notice in options_lines
+    assert notice not in options_lines
 
 
 def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
@@ -2030,10 +2086,19 @@ def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
     state.draw(save_imgui)
 
     assert state._menu_stage == "options"
-    assert state._saved_native_dit_disabled_for_live_edit
     saved_imgui = _FakeImGui()
     state.draw(saved_imgui)
     assert (
         "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
         in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        not in menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
     )

@@ -299,9 +299,6 @@ class TaxiHudState:
     _settings_requiring_restart: tuple[str, ...] = ()
     """Developer-only detail supporting the future session-policy audit."""
 
-    _saved_native_dit_disabled_for_live_edit: bool = False
-    """Whether the most recently saved settings will force native DiT off."""
-
     _selected_game_mode: GameMode | None = None
     """Mode chosen on the first screen while the map screen is visible."""
 
@@ -676,7 +673,6 @@ class TaxiHudState:
             return
         baseline = self._restart_baseline_settings or document.settings
         restart_settings = restart_required_settings(baseline, draft)
-        saved_native_dit_disabled = _settings_disable_native_dit(draft)
         try:
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
@@ -697,7 +693,6 @@ class TaxiHudState:
             _RESTART_REQUIRED_NOTICE if restart_settings else ""
         )
         self._settings_requiring_restart = restart_settings
-        self._saved_native_dit_disabled_for_live_edit = saved_native_dit_disabled
         self._options_draft = clone_settings(document.settings)
         self._options_error = ""
 
@@ -709,10 +704,7 @@ class TaxiHudState:
                 font_size=max(10.0, 11.0 * scale),
                 color=(0.82, 0.68, 0.34, 1.0),
             )
-        if (
-            self.native_dit_disabled_for_live_edit
-            or self._saved_native_dit_disabled_for_live_edit
-        ):
+        if self.native_dit_disabled_for_live_edit:
             _centered_imgui_text(
                 imgui,
                 _NATIVE_DIT_DISABLED_NOTICE,
@@ -1287,6 +1279,11 @@ class TaxiHudState:
             if imgui.button(exit_label, imgui.ImVec2(160.0, 38.0)):
                 self._discard_options()
                 return
+            imgui.same_line()
+            if imgui.button("RESET TO DEFAULTS", imgui.ImVec2(180.0, 38.0)):
+                self._options_draft = clone_settings(document.defaults)
+                self._options_error = ""
+                return
             if (
                 self._settings_notice
                 and time.monotonic() >= self._settings_notice_expires_at_s
@@ -1300,9 +1297,7 @@ class TaxiHudState:
                     imgui.text(
                         "SETTINGS REQUIRING RESTART: " + ", ".join(restart_settings)
                     )
-            if self.native_dit_disabled_for_live_edit or _settings_disable_native_dit(
-                draft
-            ):
+            if _settings_disable_native_dit(draft):
                 imgui.text(_NATIVE_DIT_DISABLED_NOTICE)
             if self._options_error:
                 imgui.text(f"ERROR  {self._options_error}")
