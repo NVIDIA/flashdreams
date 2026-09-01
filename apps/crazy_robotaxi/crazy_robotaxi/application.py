@@ -264,7 +264,6 @@ class CrazyRobotaxiApplication(IApplication):
             scene_request=SceneRequest(
                 map_path=map_path.expanduser(),
                 camera_name=engine_settings.map.camera,
-                prompt=engine_settings.map.prompt,
                 use_prompt_context=game_settings.live_edit.map_context.enabled,
                 force_recompile=engine_settings.map.force_recompile,
             ),
@@ -322,7 +321,6 @@ class CrazyRobotaxiApplication(IApplication):
                 settings.map,
                 path=args.map,
                 camera=args.camera,
-                prompt=args.prompt,
                 force_recompile=args.force_map_recompile,
             ),
             rendering=replace(
@@ -524,7 +522,6 @@ def _parser(
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
     parser.add_argument("--camera", default="camera_front_wide_120fov")
-    parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
