@@ -188,10 +188,11 @@ model-generation-loop produces frames:
 - `PresentationMode.ON_DEMAND` runs the UI after the presentation manager
   advances to a new model frame.
 
-An `IUILoop` can read `model_inference_state` to distinguish `NOT_STARTED`,
-`RUNNING`, and `FINISHED`. An unfinished UI continues ticking after inference
-so it can remain responsive and request another session. Override `is_finished`
-when the UI has its own terminal condition.
+An `IModelLoop` owns its `inference_state`. An `IUILoop` can query that state
+through `model_inference_state` to distinguish `NOT_STARTED`, `RUNNING`, and
+`FINISHED`; it does not store a second copy. An unfinished UI continues ticking
+after inference so it can remain responsive and request another session.
+Override `is_finished` when the UI has its own terminal condition.
 
 Use `PresentationMode.ON_DEMAND` with `BackpressureMode.BLOCK` when every
 generated model frame must be selected and written exactly once in order.

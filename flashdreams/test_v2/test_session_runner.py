@@ -223,6 +223,7 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
         shutdown_event=threading.Event(),
         failure_queue=failure_queue,
     )
+    assert model_loop.inference_state is ModelInferenceState.NOT_STARTED
     event_buffer = EventBuffer()
     event_buffer.register(0)
     step_timings: list[float] = []
@@ -246,6 +247,7 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
 
     assert failure_queue.empty()
     assert step_timings == pytest.approx([0.9, 0.9])
+    assert model_loop.inference_state is ModelInferenceState.FINISHED
 
 
 class CallLog:
