@@ -23,7 +23,6 @@ from typing import Callable, Dict, Optional, cast
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.compile import compile_module
 from flashdreams.infra.cuda_graph import CUDAGraphWrapper, set_or_copy
@@ -376,7 +375,8 @@ class TAEHV(nn.Module):
     pass ``checkpoint_path=None`` to ``super().__init__`` -- which stops
     after the meta construction -- and then call
     :meth:`load_from_checkpoint` once the mutation is done. See
-    ``integrations/flashvsr/flashvsr/decoder/network.py`` for the live
+    ``integrations_v2/flashvsr/impl/decoder/network.py``
+    for the live
     example.
 
     Per-checkpoint key remaps and shape patches live in

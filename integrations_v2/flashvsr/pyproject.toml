@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-flashvsr"
+version = "0.1.0"
+description = "FlashVSR streaming video super-resolution and FlashDreams v2 upsampling application."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-upsample-video-v2",
+    "ninja>=1.13.0",
+]
+
+[tool.uv]
+managed = true
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-upsample-video-v2 = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# V2 application entry points follow ``<demo-slug>-<model-config-name>``.
+[project.entry-points."flashdreams.applications_v2"]
+"upsample-video-flashvsr-v1.1-sparse-ratio-2.0" = "flashvsr.apps.upsample_video.adapter:create_app"
+"upsample-video-flashvsr-v1.1-sparse-ratio-1.5" = "flashvsr.apps.upsample_video.adapter:create_app_sparse_ratio_1_5"
+"upsample-video-flashvsr-v1.1-full-attn" = "flashvsr.apps.upsample_video.adapter:create_app_full_attn"
+
+# Each entry registers one post-processor preset slug selectable via
+# ``--postprocess.preset``. ``flashdreams.plugins.registry.discover_postprocess_presets``
+# scans this group at runtime.
+[project.entry-points."flashdreams.postprocess_presets"]
+"flashvsr-v1.1-sparse-2.0" = "flashvsr.impl.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_2_0"
+"flashvsr-v1.1-sparse-1.5" = "flashvsr.impl.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_1_5"
+"flashvsr-v1.1-full-attn" = "flashvsr.impl.postprocess:POSTPROCESS_PRESET_FLASHVSR_V1_1_FULL_ATTN"
+
+[tool.setuptools]
+packages = [
+    "flashvsr",
+    "flashvsr.apps",
+    "flashvsr.apps.upsample_video",
+    "flashvsr.impl",
+    "flashvsr.impl.csrc",
+    "flashvsr.impl.decoder",
+    "flashvsr.impl.encoder",
+    "flashvsr.impl.transformer",
+]
+
+[tool.setuptools.package-dir]
+flashvsr = "."
+
+[tool.setuptools.package-data]
+"flashvsr.impl.csrc" = ["*.cu"]
+
+# Pytest's ``configfile`` resolution picks the nearest ``pyproject.toml`` to
+# the test files, so when running ``pytest integrations_v2/flashvsr/tests``
+# this file shadows the root ``flashdreams`` config -- mirror its addopts
+# (import mode + marker enforcement plugin) and marker registrations here.
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+markers = [
+    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
+    "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
+    "manual: heavy or environment-specific test, opt-in only",
+]

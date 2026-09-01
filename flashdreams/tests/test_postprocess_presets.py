@@ -20,8 +20,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pytest
-from flashvsr.postprocess import FlashVSRPostProcessorConfig
-
 from flashdreams.infra.postprocess import (
     RTXVideoSuperResolutionPostProcessorConfig,
     VideoPostprocessChainConfig,
@@ -31,6 +29,7 @@ from flashdreams.plugins.registry import (
     discover_postprocess_presets,
     resolve_postprocess_preset,
 )
+from flashvsr.impl.postprocess import FlashVSRPostProcessorConfig
 
 pytestmark = pytest.mark.ci_cpu
 
