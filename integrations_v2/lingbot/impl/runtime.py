@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -754,78 +754,6 @@ def replay_inputs_from_mapping(
     return replay_inputs
 
 
-def build_lingbot_webrtc_runtime_config(
-    *,
-    preset_id: str,
-    pipeline_config: Any,
-    device: str,
-    seed: int,
-    compile_network: bool,
-    context_parallel_size: int,
-    video_height: int,
-    video_width: int,
-    fps: int,
-    warmup_chunks: int,
-    warmup_timeout_s: float,
-    example_idx: int,
-    prefer_sw_encoder: bool,
-    runtime_options: Mapping[str, Any] | None = None,
-) -> Any:
-    """Build the Lingbot WebRTC runtime config from shared runtime inputs."""
-    from lingbot.impl.webrtc.session import (  # noqa: PLC0415
-        LingbotRuntimeConfig,
-    )
-
-    example_dirname = example_data_dirname(example_idx)
-    example_dir = EXAMPLE_DATA_DIR_LOCAL / example_dirname
-    if (
-        example_idx == 0
-        and not example_dir.exists()
-        and (EXAMPLE_DATA_DIR_LOCAL / "image.jpg").exists()
-    ):
-        example_dir = EXAMPLE_DATA_DIR_LOCAL
-    urls = example_asset_urls(example_idx)
-    runtime_config = LingbotRuntimeConfig(
-        config_name=preset_id,
-        pipeline_config=pipeline_config,
-        compile_network=compile_network,
-        seed=seed,
-        context_parallel_size=context_parallel_size,
-        device=device,
-        video_height=video_height,
-        video_width=video_width,
-        fps=fps,
-        warmup_chunks=warmup_chunks,
-        warmup_timeout_s=warmup_timeout_s,
-        encoder_backend="default" if prefer_sw_encoder else "auto",
-        example_data_dir=example_dir,
-        default_image_url=urls["image"],
-        default_intrinsics_url=urls["intrinsics"],
-        default_poses_url=urls["poses"],
-    )
-    return _apply_webrtc_runtime_options(runtime_config, runtime_options or {})
-
-
-def _apply_webrtc_runtime_options(
-    runtime_config: Any, options: Mapping[str, Any]
-) -> Any:
-    overrides: dict[str, Any] = {}
-    for name in (
-        "world_scale",
-        "default_intrinsics",
-        "default_prompt",
-        "default_image_url",
-        "default_intrinsics_url",
-        "default_poses_url",
-        "encoder_bitrate_bps",
-        "encoder_gop",
-        "text_events",
-    ):
-        if name in options:
-            overrides[name] = options[name]
-    return replace(runtime_config, **overrides) if overrides else runtime_config
-
-
 def _default_pipeline_factory(pipeline_config: Any, device: str) -> Any:
     pipeline_config = derive_config(
         base_config=pipeline_config,
@@ -944,7 +872,6 @@ __all__ = [
     "LingbotReplayRuntimeOptions",
     "LingbotReplaySession",
     "PipelineFactory",
-    "build_lingbot_webrtc_runtime_config",
     "inference_input_from_replay_inputs",
     "replay_inputs_from_mapping",
 ]

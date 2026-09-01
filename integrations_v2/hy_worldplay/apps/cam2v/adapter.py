@@ -18,6 +18,7 @@ from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from hy_worldplay.config import PIPELINE_HY_WORLDPLAY_WAN_I2V_5B
 from hy_worldplay.impl._action import HyWorldPlayWanCtrlEncoder
 from hy_worldplay.impl._memory import generate_points_in_sphere
 from hy_worldplay.impl._pose import parse_pose_data
@@ -25,7 +26,6 @@ from hy_worldplay.impl.conditioning import (
     resolve_hy_worldplay_conditioning,
 )
 from hy_worldplay.impl.pipeline import HyWorldPlayPipelineConfig
-from hy_worldplay.config import PIPELINE_HY_WORLDPLAY_WAN_I2V_5B
 
 _CACHE_STATE_ATTRIBUTE = "_hy_worldplay_cam2v_state"
 _INSTALL_HINT = (
@@ -116,6 +116,7 @@ def _configure_memory(
         device=device,
     )
 
+
 def generate_hy_worldplay_step(
     pipeline: Any,
     autoregressive_index: int,
@@ -171,6 +172,7 @@ def generate_hy_worldplay_step(
         )
         history.memory_configured = True
     return pipeline.generate(autoregressive_index, cache)
+
 
 HY_WORLDPLAY_CAM2V_DEFAULTS = Cam2VApplicationDefaults(
     pipeline_config=PIPELINE_HY_WORLDPLAY_WAN_I2V_5B,

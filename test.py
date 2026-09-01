@@ -31,6 +31,7 @@ import platform
 import re
 import subprocess
 import sys
+from typing import cast
 
 # Library families whose loaded-vs-installed identity we disambiguate.
 # Keys are display names, values are regexes matched against .so basenames.
@@ -112,13 +113,13 @@ def _guard(fn, default="<probe failed>"):
         return f"{default}: {type(e).__name__}: {e}"
 
 
-def _installed_distributions():
+def _installed_distributions() -> dict[str, str]:
     """{normalized_name: version} for every installed distribution."""
     import importlib.metadata
 
-    dists = {}
+    dists: dict[str, str] = {}
     for dist in importlib.metadata.distributions():
-        name = (dist.metadata.get("Name") or "").strip()
+        name = (dist.metadata["Name"] or "").strip()
         if name:
             dists[name.lower()] = dist.version
     return dists
@@ -141,7 +142,9 @@ def _fe_backend_search():
             if os.path.exists(library_path):
                 return f"{os.path.realpath(library_path)} (via LD_LIBRARY_PATH)"
     for sub in ("nvidia/cudnn/lib", "nvidia/cudnn_jit/lib"):
-        hits = glob.glob(os.path.join(sysconfig.get_path("purelib"), sub, "libcudnn.so.*[0-9]"))
+        hits = glob.glob(
+            os.path.join(sysconfig.get_path("purelib"), sub, "libcudnn.so.*[0-9]")
+        )
         if hits:
             return f"{os.path.realpath(hits[0])} (via site-packages {sub})"
     return "dynamic-linker soname fallback (ldconfig / RPATH)"
@@ -155,7 +158,9 @@ def _get_cudnn_frontend_info():
     except Exception as e:
         info["cudnn-frontend"] = f"<import failed: {type(e).__name__}: {e}>"
         if isinstance(dists, dict):
-            info["nvidia-cudnn-frontend (pip)"] = dists.get("nvidia-cudnn-frontend", "not installed")
+            info["nvidia-cudnn-frontend (pip)"] = dists.get(
+                "nvidia-cudnn-frontend", "not installed"
+            )
         info["backend search order would pick"] = _guard(_fe_backend_search)
         return info
 
@@ -164,15 +169,21 @@ def _get_cudnn_frontend_info():
     if isinstance(dists, dict):
         pip_version = dists.get("nvidia-cudnn-frontend")
         if pip_version is None:
-            info["nvidia-cudnn-frontend (pip)"] = "not installed (source checkout on sys.path?)"
+            info["nvidia-cudnn-frontend (pip)"] = (
+                "not installed (source checkout on sys.path?)"
+            )
         elif pip_version != fe_version:
             # Stale build, or a source checkout shadowing the installed wheel.
-            info["nvidia-cudnn-frontend (pip)"] = f"{pip_version}  ⚠ MISMATCH vs imported cudnn.__version__ == {fe_version}"
+            info["nvidia-cudnn-frontend (pip)"] = (
+                f"{pip_version}  ⚠ MISMATCH vs imported cudnn.__version__ == {fe_version}"
+            )
         else:
             info["nvidia-cudnn-frontend (pip)"] = pip_version
     info["cudnn-frontend file"] = _guard(lambda: cudnn.__file__, "?")
     info["compiled module"] = _guard(lambda: cudnn._pybind_module.__file__, "?")
-    info["cudnn backend (loaded)"] = _guard(lambda: f"{cudnn.backend_version_string()} ({cudnn.backend_version()})", "?")
+    info["cudnn backend (loaded)"] = _guard(
+        lambda: f"{cudnn.backend_version_string()} ({cudnn.backend_version()})", "?"
+    )
     info["backend search order picks"] = _guard(_fe_backend_search)
     return info
 
@@ -189,7 +200,9 @@ def _get_platform_info():
     os_release = _run("grep PRETTY_NAME /etc/os-release")
     if os_release:
         info["OS"] = os_release.split("=", 1)[-1].strip('"')
-    in_container = os.path.exists("/.dockerenv") or bool(_run("grep -sq -e docker -e containerd -e kubepods /proc/1/cgroup && echo 1"))
+    in_container = os.path.exists("/.dockerenv") or bool(
+        _run("grep -sq -e docker -e containerd -e kubepods /proc/1/cgroup && echo 1")
+    )
     info["Container"] = "yes" if in_container else "no / not detected"
     return info
 
@@ -199,7 +212,9 @@ def _get_gpu_info():
     (CUDA order != nvidia-smi order); nvidia-smi is the no-torch fallback and
     supplies the driver version."""
     info = {}
-    smi = _run("nvidia-smi --query-gpu=index,name,compute_cap,memory.total,driver_version --format=csv,noheader")
+    smi = _run(
+        "nvidia-smi --query-gpu=index,name,compute_cap,memory.total,driver_version --format=csv,noheader"
+    )
     driver = None
     if smi:
         driver = smi.splitlines()[0].rsplit(",", 1)[-1].strip()
@@ -221,7 +236,9 @@ def _get_gpu_info():
             return info
         for i in range(torch.cuda.device_count()):
             p = torch.cuda.get_device_properties(i)
-            info[f"GPU {i} (CUDA order)"] = f"{p.name} | SM{p.major}{p.minor} | {p.multi_processor_count} SMs | {p.total_memory / (1 << 30):.1f} GiB"
+            info[f"GPU {i} (CUDA order)"] = (
+                f"{p.name} | SM{p.major}{p.minor} | {p.multi_processor_count} SMs | {p.total_memory / (1 << 30):.1f} GiB"
+            )
     except Exception as e:
         info["GPUs (torch)"] = f"<torch probe failed: {type(e).__name__}: {e}>"
         if smi:
@@ -478,8 +495,13 @@ def _get_relevant_packages():
     dists = _guard(_installed_distributions, None)
     if not isinstance(dists, dict):
         return {"packages": str(dists)}
-    pats = [re.compile(p) for p in _PACKAGE_PATTERNS]
-    pkgs = {name: ver for name, ver in sorted(dists.items()) if any(p.search(name) for p in pats)}
+    dists = cast(dict[str, str], dists)
+    pats: list[re.Pattern[str]] = [re.compile(p) for p in _PACKAGE_PATTERNS]
+    pkgs = {
+        name: ver
+        for name, ver in sorted(dists.items())
+        if any(p.search(name) for p in pats)
+    }
     for name in _HOST_FRAMEWORKS:
         if name in pkgs:
             pkgs[name] += _framework_pin_note(name, dists)
@@ -543,7 +565,9 @@ def format_report(report):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Collect environment information for cuDNN frontend bug reports.")
+    parser = argparse.ArgumentParser(
+        description="Collect environment information for cuDNN frontend bug reports."
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     args = parser.parse_args()
     report = collect_env_info()
