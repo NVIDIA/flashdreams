@@ -11,7 +11,7 @@ provides the pre-rolled `WanInferencePipelineConfig` literal, the diffusers
 the `t2v-wan22-ti2v-5b` application entry point.
 
 Wan 2.2 TI2V-5B is **bidirectional**: the application accepts a prompt and
-first-frame image, then generates the complete 81-frame, 640x1280 clip in one
+first-frame image, then generates the complete 81-frame, 1280x640 clip in one
 rollout instead of advancing through multiple causal blocks. It therefore
 requires exactly one block (`--total-blocks 1`, which is the default);
 multi-block generation is not supported. The application runs through the
@@ -22,7 +22,7 @@ pipeline config as its base recipe.
 
 | application slug | pipeline config | description |
 | --- | --- | --- |
-| `t2v-wan22-ti2v-5b` | `wan22-ti2v-5b` | Bidirectional, single-block Wan 2.2 TI2V-5B at 640x1280, conditioned on a prompt and first frame. |
+| `t2v-wan22-ti2v-5b` | `wan22-ti2v-5b` | Bidirectional, single-block Wan 2.2 TI2V-5B at 1280x640, conditioned on a prompt and first frame. |
 
 ## Install
 
@@ -56,13 +56,15 @@ export HF_TOKEN=<your-hf-token>
 
 ## Run
 
-Generate the single-block MP4 with the v2 application:
+Generate the single-block MP4 with the v2 application. Because this is TI2V,
+`--image-path` is required and must point to an existing image:
 
 ```bash
 uv run --package flashdreams-wan22 flashdreams-run-v2 \
   t2v-wan22-ti2v-5b --output-path artifacts/t2v-wan22-ti2v-5b.mp4 -- \
   --prompt "A cinematic ocean wave at sunset." \
-  --image-path /path/to/first-frame.png --no-compile
+  --image-path /absolute/path/to/first-frame.png \
+  --no-compile
 ```
 
 See the [application README](apps/t2v/README.md) for the launch command and the
