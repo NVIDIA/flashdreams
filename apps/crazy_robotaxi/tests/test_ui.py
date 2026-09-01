@@ -1062,9 +1062,9 @@ def test_selection_menus_use_arcade_card_layout() -> None:
     assert text_fonts["SELECT MAP"] is droid_sans
     assert text_fonts["SELECT RACE COURSE"] is droid_sans
     for title in (
-        "Crazy Robotaxi — Select Game Mode",
-        "Crazy Robotaxi — Select Map",
-        "Crazy Robotaxi — Select Race Course",
+        "Crazy Robotaxi - Select Game Mode",
+        "Crazy Robotaxi - Select Map",
+        "Crazy Robotaxi - Select Race Course",
     ):
         assert imgui.window_flags[title] & imgui.WindowFlags_.no_title_bar
     button_sizes = dict(imgui.button_sizes)
@@ -1099,7 +1099,7 @@ def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
     state.draw(imgui)
 
     assert state._menu_stage == "map"
-    assert "Crazy Robotaxi — Select Game Mode" in imgui.windows
+    assert "Crazy Robotaxi - Select Game Mode" in imgui.windows
     imgui.clicked_buttons = {"Test City##map-0"}
     state.draw(imgui)
 
@@ -1634,7 +1634,17 @@ def test_options_save_persists_and_applies_presentation_setting(
     assert state._menu_stage == "mode"
     assert state.show_fps
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
-    assert "RESTART REQUIRED" not in state._settings_notice
+    assert state._settings_notice == f"SAVED {document.path}"
+    assert not state._settings_restart_notice
+    options_lines = imgui.windows["Crazy Robotaxi - Options"]
+    assert "Show Fps:" in options_lines
+    assert not any("RESTART REQUIRED" in line for line in options_lines)
+
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    assert state._settings_notice in menu_lines
+    assert not any("RESTART REQUIRED" in line for line in menu_lines)
 
 
 def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:
@@ -1659,11 +1669,12 @@ def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None
 
 
 def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
     state = TaxiHudState(
         640,
         360,
         _calibration(),
-        settings_document=_settings_document(tmp_path / "config.yaml"),
+        settings_document=document,
     )
     state._open_options()
     state._options_category = "runtime"
@@ -1673,6 +1684,20 @@ def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
     state.draw(imgui)
 
     assert (
-        "RESTART REQUIRED TO APPLY THESE CHANGES"
-        in imgui.windows["Crazy Robotaxi — Options"]
+        "RESTART REQUIRED TO APPLY: RUNTIME"
+        in imgui.windows["Crazy Robotaxi - Options"]
     )
+    assert (
+        "Prewarm Blocks:  RESTART REQUIRED" in imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+    imgui.clicked_buttons.add("SAVE")
+    state.draw(imgui)
+
+    assert state._settings_notice == f"SAVED {document.path}"
+    assert state._settings_restart_notice == "RESTART REQUIRED: RUNTIME"
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    assert state._settings_notice in menu_lines
+    assert state._settings_restart_notice in menu_lines

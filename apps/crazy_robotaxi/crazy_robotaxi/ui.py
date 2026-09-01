@@ -63,7 +63,7 @@ from crazy_robotaxi.settings import (
     iter_setting_fields,
     parse_editor_value,
     readonly_display,
-    restart_required,
+    restart_required_categories,
     setting_choices,
     setting_value,
 )
@@ -258,6 +258,9 @@ class TaxiHudState:
 
     _settings_notice: str = ""
     """Save outcome displayed after returning to the originating menu."""
+
+    _settings_restart_notice: str = ""
+    """Restart warning displayed separately when saved settings need it."""
 
     _selected_game_mode: GameMode | None = None
     """Mode chosen on the first screen while the map screen is visible."""
@@ -592,7 +595,7 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
-        needs_restart = restart_required(document.settings, draft)
+        restart_categories = restart_required_categories(document.settings, draft)
         try:
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
@@ -605,14 +608,34 @@ class TaxiHudState:
             self.show_fps = draft.presentation.show_fps
         if ("presentation", "show_control_hints") not in overrides:
             self.show_control_tooltips = draft.presentation.show_control_hints
-        self._settings_notice = (
-            f"SAVED {document.path} — RESTART REQUIRED FOR SOME CHANGES"
-            if needs_restart
-            else f"SAVED {document.path}"
+        self._settings_notice = f"SAVED {document.path}"
+        self._settings_restart_notice = (
+            "RESTART REQUIRED: "
+            + ", ".join(
+                category.replace("_", " ").upper() for category in restart_categories
+            )
+            if restart_categories
+            else ""
         )
         self._options_draft = None
         self._options_error = ""
         self._menu_stage = self._options_return_stage
+
+    def _draw_settings_notices(self, imgui: Any, scale: float) -> None:
+        if self._settings_notice:
+            _centered_imgui_text(
+                imgui,
+                self._settings_notice,
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
+        if self._settings_restart_notice:
+            _centered_imgui_text(
+                imgui,
+                self._settings_restart_notice,
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
 
     def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
         """Draw cached world-marker projections aligned with ``frame``."""
@@ -1112,7 +1135,7 @@ class TaxiHudState:
         )
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Options",
+            "Crazy Robotaxi - Options",
             extra_flags=("no_title_bar",),
         )
         try:
@@ -1158,8 +1181,13 @@ class TaxiHudState:
                 imgui.end_child()
             draft = self._options_draft or draft
             imgui.separator()
-            if restart_required(document.settings, draft):
-                imgui.text("RESTART REQUIRED TO APPLY THESE CHANGES")
+            restart_categories = restart_required_categories(document.settings, draft)
+            if restart_categories:
+                labels = ", ".join(
+                    category.replace("_", " ").upper()
+                    for category in restart_categories
+                )
+                imgui.text(f"RESTART REQUIRED TO APPLY: {labels}")
             if self._options_error:
                 imgui.text(f"ERROR  {self._options_error}")
             if imgui.button("SAVE", imgui.ImVec2(160.0, 38.0)):
@@ -1199,7 +1227,10 @@ class TaxiHudState:
             if not editable_setting(current, item_path):
                 imgui.text(f"{label}: {readonly_display(current)}  [READ ONLY]")
                 continue
-            imgui.text(f"{label}:")
+            restart_label = (
+                "  RESTART REQUIRED" if item_path[0] != "presentation" else ""
+            )
+            imgui.text(f"{label}:{restart_label}")
             imgui.same_line()
             widget_id = f"##{'.'.join(item_path)}"
             choices = setting_choices(annotation)
@@ -1271,7 +1302,7 @@ class TaxiHudState:
         )
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Select Game Mode",
+            "Crazy Robotaxi - Select Game Mode",
             extra_flags=("no_title_bar",),
         )
         try:
@@ -1324,13 +1355,7 @@ class TaxiHudState:
             ):
                 self._open_options()
                 return
-            if self._settings_notice:
-                _centered_imgui_text(
-                    imgui,
-                    self._settings_notice,
-                    font_size=max(10.0, 11.0 * scale),
-                    color=(0.82, 0.68, 0.34, 1.0),
-                )
+            self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
                 "ESC  EXIT",
@@ -1364,7 +1389,7 @@ class TaxiHudState:
         style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Select Map",
+            "Crazy Robotaxi - Select Map",
             extra_flags=("no_title_bar",),
         )
         try:
@@ -1426,13 +1451,7 @@ class TaxiHudState:
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
                 return
-            if self._settings_notice:
-                _centered_imgui_text(
-                    imgui,
-                    self._settings_notice,
-                    font_size=max(10.0, 11.0 * scale),
-                    color=(0.82, 0.68, 0.34, 1.0),
-                )
+            self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
                 "ESC  BACK",
@@ -1470,7 +1489,7 @@ class TaxiHudState:
         )
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Select Race Course",
+            "Crazy Robotaxi - Select Race Course",
             extra_flags=("no_title_bar",),
         )
         try:
@@ -1522,13 +1541,7 @@ class TaxiHudState:
                 self._selected_map_option = None
                 self._menu_stage = "map"
                 return
-            if self._settings_notice:
-                _centered_imgui_text(
-                    imgui,
-                    self._settings_notice,
-                    font_size=max(10.0, 11.0 * scale),
-                    color=(0.82, 0.68, 0.34, 1.0),
-                )
+            self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
                 "ESC  BACK",

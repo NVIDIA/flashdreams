@@ -657,12 +657,17 @@ def clone_settings(settings: CrazyRobotaxiUserSettings) -> CrazyRobotaxiUserSett
     return copy.deepcopy(settings)
 
 
-def restart_required(
+def restart_required_categories(
     original: CrazyRobotaxiUserSettings,
     draft: CrazyRobotaxiUserSettings,
-) -> bool:
-    """Presentation-only changes apply immediately; all others need restart."""
-    return replace(original, presentation=draft.presentation) != draft
+) -> tuple[str, ...]:
+    """Return changed top-level settings groups that apply after restart."""
+    return tuple(
+        item.name
+        for item in fields(original)
+        if item.name != "presentation"
+        and getattr(original, item.name) != getattr(draft, item.name)
+    )
 
 
 def iter_setting_fields(value: object) -> tuple[tuple[Field[Any], Any], ...]:
@@ -698,7 +703,7 @@ __all__ = [
     "iter_setting_fields",
     "parse_editor_value",
     "readonly_display",
-    "restart_required",
+    "restart_required_categories",
     "setting_choices",
     "setting_value",
 ]
