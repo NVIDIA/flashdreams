@@ -16,7 +16,7 @@ are where they are.
 - [`flashdreams.runtime_v2`](flashdreams/flashdreams/runtime_v2/README.md) - the
   machinery that runs one.
 - [`integrations_v2`](integrations_v2/README.md) - how to write an application.
-- [`flashdreams.t2v_v2`](flashdreams/flashdreams/t2v_v2/README.md) - the
+- [`apps/t2v`](apps/t2v/README.md) - the
   text-to-video layer built on all of it.
 
 The model side has a mental model of its own, warmup, CUDA-graph capture, the
@@ -31,7 +31,7 @@ Four layers, each of which only knows about the one below.
 
 ```mermaid
 flowchart TB
-  subgraph integration [An integration, under integrations_v2 or flashdreams.t2v_v2]
+  subgraph integration [Application code under apps and integrations_v2]
     App["IApplication, arguments and whatever is expensive to load"]
     Session["ISession, one run"]
     Model["IModelLoop, generates"]

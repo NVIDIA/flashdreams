@@ -86,12 +86,13 @@ deactivates the default `cuda13` group automatically when `--group cuda12`
 is passed.
 
 Then launch your first model by following [the Get Started guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#run-your-first-model).
-For example, the offline Self-Forcing T2V quickstart command is:
+For example, the Self-Forcing T2V v2 application is:
 
 ```bash
-uv run --project integrations/self_forcing \
-    flashdreams-run self-forcing-wan2.1-t2v-1.3b \
-    --total-blocks 7
+uv run --project integrations_v2/self_forcing \
+    flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b \
+    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+    --prompt "A cat surfing." --total-blocks 7
 ```
 
 You can also install FlashDreams as a library from PyPI:

@@ -341,16 +341,16 @@ Available integration packages:
 
 | Path | `uv --package` name |
 |------|---------------------|
-| `integrations/causal_forcing` | `flashdreams-causal-forcing` |
-| `integrations/cosmos_predict2` | `flashdreams-cosmos-predict2` |
-| `integrations/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
+| `integrations_v2/causal_forcing` | `flashdreams-causal-forcing` |
+| `integrations_v2/cosmos_predict2` | `flashdreams-cosmos-predict2` |
+| `integrations_v2/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
 | `integrations/flashvsr` | `flashdreams-flashvsr` |
 | `integrations/hy_worldplay` | `flashdreams-hy-worldplay` |
 | `integrations/lingbot` | `flashdreams-lingbot` |
 | `integrations_v2/omnidreams` | `flashdreams-omnidreams` |
-| `integrations/self_forcing` | `flashdreams-self-forcing` |
-| `integrations/wan21` | `flashdreams-wan21` |
-| `integrations/wan22` | `flashdreams-wan22` |
+| `integrations_v2/self_forcing` | `flashdreams-self-forcing` |
+| `integrations_v2/wan21` | `flashdreams-wan21` |
+| `integrations_v2/wan22` | `flashdreams-wan22` |
 
 The nested `integrations_v2/omnidreams/impl/ludus-renderer` workspace package is
 named `ludus-renderer` and is installed as part of Omnidreams workflows

@@ -32,13 +32,13 @@ Inspect one runner's full options:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --help
+   uv run flashdreams-run lingbot-world-fast --help
 
 Run a single-GPU inference (``run`` is the default mode):
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
+   uv run flashdreams-run lingbot-world-fast --total-blocks 7
 
 Launch a WebRTC demo from a versioned manifest:
 
@@ -57,13 +57,13 @@ Run a multi-GPU inference:
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
+       lingbot-world-fast --total-blocks 7
 
 Resolve config only (no model instantiation):
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --no-instantiate
+   uv run flashdreams-run lingbot-world-fast --no-instantiate
 
 Post-processing presets
 -----------------------
@@ -73,7 +73,7 @@ one with ``--postprocess.preset``:
 
 .. code-block:: bash
 
-   uv run flashdreams-run wan21-t2v-1.3b-480p \
+   uv run flashdreams-run lingbot-world-fast \
        --postprocess.preset rtx-super-resolution
 
 The ``rtx-super-resolution`` preset wraps NVIDIA VFX Python bindings for RTX

@@ -100,7 +100,7 @@ def test_distilled_state_dict_transform_remaps_base_keys() -> None:
     """Base diffusers -> WanDiTNetwork rewrites must still fire.
 
     The HY transform layers on top of
-    :data:`wan22.config.wan22_ti2v_5b_dit_state_dict_transform`,
+    :data:`wan22.impl.checkpoint.wan22_ti2v_5b_dit_state_dict_transform`,
     so every base 5B rewrite (text/time embedders, attn projections,
     norm tables, head, FFN) must continue to work.
     """

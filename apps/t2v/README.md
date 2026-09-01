@@ -1,71 +1,57 @@
-# FlashDreams T2V applications
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
 
-The shared T2V package provides the application/session protocol; each model
-integration owns its small `t2v/app.py` factory. A non-empty `--prompt` is
-required.
+# FlashDreams T2V application
 
-For a targeted workspace environment, select the integration distribution in
-the `uv run` command. This syncs the integration, `flashdreams-t2v`, and the
-local-window/serving dependencies without installing unrelated integrations:
+`flashdreams-t2v` provides the reusable v2 application, session, model loop,
+command-line arguments, and CPU test helpers for text-conditioned video models. Its importable source package lives in `apps/t2v/t2v`. Concrete model
+packages own one root `config.py`; their entry points and adapters live under
+`integrations_v2/<model>/apps/t2v`, with non-config model implementation under
+`integrations_v2/<model>/impl`.
 
-- `t2v-causal-forcing` → `--package flashdreams-causal-forcing`
-- `t2v-cosmos-predict2` → `--package flashdreams-cosmos-predict2`
-- `t2v-fastvideo-causal-wan22` → `--package flashdreams-fastvideo-causal-wan22`
-- `t2v-self-forcing` → `--package flashdreams-self-forcing`
-- `t2v-wan21` → `--package flashdreams-wan21`
-- `ti2v-wan22` → `--package flashdreams-wan22`
+## Controls
 
-The applications use one of two rollout modes:
+T2V has no live controls. Inputs are fixed for a session: `--prompt` is always
+required, and model adapters may add startup inputs such as a first-frame image.
+Use `--seed` to make sampling repeatable when the model supports it.
 
-- `t2v-cosmos-predict2`, `t2v-wan21`, and `ti2v-wan22` are
-  **bidirectional**. They generate the complete clip in one rollout and require
-  exactly one block (`--total-blocks 1`, which is the default).
-- `t2v-causal-forcing`, `t2v-fastvideo-causal-wan22`, and
-  `t2v-self-forcing` are causal, streaming applications that can generate
-  multiple blocks.
+## Usage
 
-Native SlangPy window (default):
+Install one model package, then launch its application. Application arguments
+follow `--`:
 
 ```bash
-uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
-  --prompt "A robot walking through a forest."
+uv run --package flashdreams-self-forcing flashdreams-run-v2 \
+  t2v-self-forcing-wan2.1-t2v-1.3b --output-path clip.mp4 -- \
+  --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
 
-The same demo can be launched from Python with the application runner used by
-`flashdreams-run t2v-causal-forcing`:
+Shared application arguments are:
 
-```python
-from flashdreams.demo import run_application
+- `--prompt TEXT` — required; its empty default is rejected.
+- `--total-blocks N` — autoregressive blocks to generate; defaults to the model
+  adapter value (one for bidirectional models).
+- `--device DEVICE` — model device; defaults to `cuda`.
+- `--compile` / `--no-compile` — override model compilation; defaults to the
+  selected pipeline config.
+- `--seed N` — override the diffusion seed; defaults to the selected pipeline
+  config.
 
-run_application(
-    "t2v-causal-forcing",
-    ["--prompt", "A robot walking through a forest."],
-)
-```
+Run `flashdreams-run-v2 <slug> -- --help` for model-specific additions.
 
-WebRTC browser backend:
+The default application name is `<demo-slug>-<model-slug>`. Additional model
+configurations may append a suffix such as `-fast` and use a matching
+`create_app_fast` factory. Current examples include
+`t2v-causal-forcing-wan2.1-t2v-1.3b-framewise`,
+`t2v-self-forcing-wan2.1-t2v-1.3b-taehv`, and `t2v-wan22-ti2v-5b`.
+
+## Tests
 
 ```bash
-uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
-  --output webrtc --host 0.0.0.0 --port 8080 \
-  --prompt "A robot walking through a forest."
+uv sync --package flashdreams-t2v --extra dev --no-default-groups --inexact
+uv run --no-sync pytest apps/t2v/tests -m ci_cpu
 ```
 
-Then open `http://localhost:8080/request_session`.
-
-MP4 artifact:
-
-```bash
-uv run --package flashdreams-causal-forcing flashdreams-run t2v-causal-forcing \
-  --output mp4 --output-path artifacts/output.mp4 \
-  --prompt "A robot walking through a forest."
-```
-
-Available slugs are `t2v-cosmos-predict2`, `t2v-causal-forcing`,
-`t2v-fastvideo-causal-wan22`, `t2v-self-forcing`, `t2v-wan21`, and
-`ti2v-wan22`. Wan 2.2 is first-frame conditioned and additionally requires
-`--image-path`; see its [integration README](../../integrations/wan22/README.md).
-All backends receive the same transport-neutral `InputHandler` and
-`OutputSink` API. Input handlers publish named, time-windowed
-`CanonicalInputWindow` values matching each application's
-`CanonicalInputSchema`.
+Model-specific tests live under `integrations_v2/<model>/tests`.

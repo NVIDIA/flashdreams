@@ -36,9 +36,9 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from flashdreams.t2v_v2.application import T2VApplication
-from flashdreams.t2v_v2.defaults import T2VApplicationDefaults
-from flashdreams.t2v_v2.testing import FakeT2VPipeline, FakeT2VPipelineConfig
+from t2v.application import T2VApplication
+from t2v.defaults import T2VApplicationDefaults
+from t2v.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 

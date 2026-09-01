@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-from wan22.config import wan22_ti2v_5b_dit_state_dict_transform
+from wan22.impl.checkpoint import wan22_ti2v_5b_dit_state_dict_transform
 
 from flashdreams.core.checkpoint.remap import remap_checkpoint_keys
 

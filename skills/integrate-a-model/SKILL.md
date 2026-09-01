@@ -10,13 +10,13 @@ framework. Read the **`flashdreams-integrations`** skill first for the architect
 (layers, contracts, the cache tree) — this skill is the *route*, that one is the *map*.
 
 **Worked example throughout:** `integrations/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
-which reuses the `integrations/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
+which reuses the `integrations_v2/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
 reference integration; read it side-by-side. Match `python-docstring-style`.
 
 ## The core bet: reuse, don't re-implement
 
 Most modern video models are DiT-family. Before writing anything, find the closest
-existing flashdreams recipe (`integrations/wan22`, `wan21`, `self_forcing`, …) and
+existing flashdreams recipe (`integrations_v2/wan22`, `wan21`, `self_forcing`, …) and
 **subclass it**. HY-WorldPlay is a Wan 2.2 TI2V-5B with three conditioner deltas — it
 adds ~3 small subclasses, not a from-scratch network. If your model maps onto an
 existing backbone, the job is *config + checkpoint remap + deltas + verify*, which is
@@ -34,7 +34,7 @@ pattern:
 | Lane | What it is | Examples | Effort |
 |---|---|---|---|
 | **Config-only recipe** | just `config.py` literals over an existing backbone; no new runner | `wan22` | smallest |
-| **Runner plugin** | recipe + a `flashdreams-run` runner (+ light model deltas) | `self_forcing`, `causal_forcing` (light Wan variants), `hy_worldplay` (heavier: conditioner deltas) | small–medium |
+| **Runner plugin** | recipe + a `flashdreams-run` runner (+ model deltas) | `hy_worldplay` | small–medium |
 | **Serving adapter** | adds serving/runtime surfaces on top of a runner | `lingbot` | medium |
 | **Full native port / builder variants** | real builder helpers, dynamic-resolution variants, a network ported from scratch | `flashvsr` | largest |
 
@@ -75,7 +75,7 @@ tests/
 ```
 
 **Lane A — in-tree (`integrations/<name>/`)**, for upstreaming into flashdreams (mirror
-`integrations/self_forcing/` / `integrations/hy_worldplay/`):
+`integrations/hy_worldplay/`):
 - The repo-root `integrations/*` glob auto-adds it to the uv workspace.
 - `pyproject.toml` `version` must match `flashdreams._version.__version__`; the
   `sync-version` pre-commit hook enforces it (CI fails otherwise).
@@ -273,7 +273,7 @@ In order of cost:
 
 To test the skill, point a fresh agent (no prior context) at the repo state **before**
 an integration landed — a branch that **removes the integration plugins but keeps this
-skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations/wan22
+skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations_v2/wan22
 integrations/hy_worldplay` off a branch that already has this skill). Have it reproduce
 the integration following this skill; score against the merged result (the integration
 PR + its follow-ups) — key set / shapes, parity `|Δ|`, test coverage, and how many

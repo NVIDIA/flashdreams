@@ -38,7 +38,7 @@ def create_application(slug: str) -> IApplication:
     reachable by the name of the package it ships.
 
     Args:
-        slug: Registered application name, such as ``t2v-self-forcing``, or an
+        slug: Registered application name, such as ``t2v-self-forcing-wan2.1-t2v-1.3b``, or an
             importable module exposing ``create_app``.
 
     Raises:

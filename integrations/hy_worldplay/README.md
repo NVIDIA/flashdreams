@@ -13,7 +13,7 @@ memory.
 
 This is the **standalone "mini-repo" plugin**, packaged as a `uv`
 workspace member, following the
-[`integrations/self_forcing`](../self_forcing/README.md) pattern.
+[`integrations_v2/self_forcing`](../../integrations_v2/self_forcing/README.md) pattern.
 
 ## Runners
 

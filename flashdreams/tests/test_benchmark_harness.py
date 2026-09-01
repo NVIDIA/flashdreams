@@ -57,11 +57,11 @@ pytestmark = pytest.mark.ci_cpu
 def test_built_in_scenarios_are_selectable() -> None:
     scenarios = built_in_scenarios()
 
-    scenario = scenarios["self-forcing-taehv-smoke"]
+    scenario = scenarios["self-forcing-v2-smoke"]
 
-    assert scenario.command[:2] == (
-        "flashdreams-run",
-        "self-forcing-wan2.1-t2v-1.3b-taehv",
+    assert scenario.command[4:6] == (
+        "flashdreams-run-v2",
+        "t2v-self-forcing-wan2.1-t2v-1.3b",
     )
     assert scenario.warmup_steps == 1
 
@@ -620,7 +620,7 @@ def test_shipped_v2_model_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations_v2/t2v_self_forcing",
+        "integrations_v2/self_forcing",
         "python",
         "-m",
         "tools.benchmarks.strict_run",
@@ -645,7 +645,7 @@ def test_shipped_v2_model_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations_v2/t2v_self_forcing",
+        "integrations_v2/self_forcing",
         "flashdreams-run-v2",
     )
     assert _command_value(one_minute.command, "--total-blocks") == "81"
@@ -701,7 +701,7 @@ def test_strict_run_can_launch_either_api() -> None:
             "--entrypoint",
             "flashdreams-run-v2",
             "--",
-            "t2v-self-forcing",
+            "t2v-self-forcing-wan2.1-t2v-1.3b",
             "--output-path",
             "clip.mp4",
             "--",
@@ -712,7 +712,7 @@ def test_strict_run_can_launch_either_api() -> None:
 
     assert args.entrypoint == "flashdreams-run-v2"
     assert args.runner_args == [
-        "t2v-self-forcing",
+        "t2v-self-forcing-wan2.1-t2v-1.3b",
         "--output-path",
         "clip.mp4",
         "--",
