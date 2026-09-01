@@ -264,7 +264,6 @@ class CrazyRobotaxiApplication(IApplication):
             scene_request=SceneRequest(
                 map_path=map_path.expanduser(),
                 camera_name=engine_settings.map.camera,
-                variant=engine_settings.map.variant,
                 prompt=engine_settings.map.prompt,
                 use_prompt_context=game_settings.live_edit.map_context.enabled,
                 force_recompile=engine_settings.map.force_recompile,
@@ -306,10 +305,7 @@ class CrazyRobotaxiApplication(IApplication):
             live_edit=game_settings.live_edit,
             visual_flare_enabled=game_settings.effects.visual_flare_enabled,
         )
-        self._map_options = _discover_game_maps(
-            map_path,
-            requested_variant=engine_settings.map.variant,
-        )
+        self._map_options = _discover_game_maps(map_path)
 
     def _resolve_engine_settings(self, args: argparse.Namespace) -> EngineSettings:
         settings = EngineSettings(
@@ -326,7 +322,6 @@ class CrazyRobotaxiApplication(IApplication):
                 settings.map,
                 path=args.map,
                 camera=args.camera,
-                variant=args.variant,
                 prompt=args.prompt,
                 force_recompile=args.force_map_recompile,
             ),
@@ -466,11 +461,7 @@ def _build_pipeline(config: Any, device: str) -> Any:
     return config.setup().to(device).eval()
 
 
-def _discover_game_maps(
-    selected_path: Path,
-    *,
-    requested_variant: str,
-) -> tuple[GameMapOption, ...]:
+def _discover_game_maps(selected_path: Path) -> tuple[GameMapOption, ...]:
     """Read menu metadata for bundled maps and maps beside the CLI selection."""
     selected = selected_path.expanduser().resolve()
     paths = {selected}
@@ -483,19 +474,11 @@ def _discover_game_maps(
     options: list[GameMapOption] = []
     for path in paths:
         header = load_game_map_header(path)
-        variants = tuple(item.name for item in header.variants)
-        preferred = requested_variant if path == selected else "default"
-        variant = (
-            preferred
-            if preferred in variants
-            else ("default" if "default" in variants else variants[0])
-        )
         options.append(
             GameMapOption(
                 map_id=header.map_id,
                 name=header.name,
                 path=header.source_path,
-                variant=variant,
                 race_course_ids=header.race_course_ids,
             )
         )
@@ -541,7 +524,6 @@ def _parser(
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
     parser.add_argument("--camera", default="camera_front_wide_120fov")
-    parser.add_argument("--variant", default="default")
     parser.add_argument("--prompt")
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument("--device", default="cuda")

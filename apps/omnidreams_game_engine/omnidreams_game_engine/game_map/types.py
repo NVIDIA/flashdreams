@@ -87,9 +87,6 @@ class GameMapNode:
     polygon_vertices_xy: tuple[tuple[float, float], ...] = ()
     """Authored map-space polygon vertices for a parking-lot node."""
 
-    prompt_context: str | None = None
-    """Optional authored environmental context appended to model prompts."""
-
 
 @dataclass(frozen=True, eq=False)
 class GameMapRoad:
@@ -113,9 +110,6 @@ class GameMapRoad:
     bezier_spans_world: tuple[FloatArray, ...]
     """Compiler-generated map-space cubic spans shaped ``[4, 3]``; empty is straight."""
 
-    prompt_context: str | None = None
-    """Optional authored environmental context appended to model prompts."""
-
     def __eq__(self, other: object) -> bool:
         """Compare road metadata and cubic span values."""
         if not isinstance(other, GameMapRoad):
@@ -126,7 +120,6 @@ class GameMapRoad:
             and self.to_node_id == other.to_node_id
             and self.profile_id == other.profile_id
             and self.attributes == other.attributes
-            and self.prompt_context == other.prompt_context
             and len(self.bezier_spans_world) == len(other.bezier_spans_world)
             and all(
                 np.array_equal(first, second)
@@ -174,23 +167,6 @@ class GameMapTopology:
 
 
 @dataclass(frozen=True)
-class GameMapVisualVariant:
-    """Optional seed image and prompt for one visual variant."""
-
-    name: str
-    """Variant slug used to select this visual conditioning."""
-
-    image: str | None
-    """Optional map-relative or ``package://`` seed-image reference."""
-
-    prompt: str
-    """World-model text prompt paired with the seed image."""
-
-    prompt_context: str | None = None
-    """Optional shorter base prompt used with dynamic map context."""
-
-
-@dataclass(frozen=True)
 class GameMapSpawn:
     """Vehicle spawn resolved onto a directed lane."""
 
@@ -209,8 +185,11 @@ class GameMapSpawn:
     yaw_rad: float
     """World heading following the directed lane."""
 
-    variants: tuple[GameMapVisualVariant, ...]
-    """Available visual seed variants; ``default`` is always present."""
+    image: str | None
+    """Optional map-relative or ``package://`` seed-image reference."""
+
+    prompt: str
+    """World-model text prompt paired with the spawn's seed image."""
 
 
 @dataclass(frozen=True)
@@ -469,12 +448,6 @@ class ResolvedGameMap:
         """Return the first declared spawn."""
         return self.spawns[0]
 
-    @property
-    def variants(self) -> tuple[str, ...]:
-        """Return variants available at the default spawn."""
-        names = [variant.name for variant in self.default_spawn.variants]
-        return tuple(names)
-
 
 def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
     """Serialize a resolved map into JSON-compatible values."""
@@ -497,7 +470,6 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "polygon_vertices_xy": [
                         list(point) for point in node.polygon_vertices_xy
                     ],
-                    "prompt_context": node.prompt_context,
                 }
                 for node in game_map.topology.nodes
             ],
@@ -511,7 +483,6 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "bezier_spans_world": [
                         span.tolist() for span in road.bezier_spans_world
                     ],
-                    "prompt_context": road.prompt_context,
                 }
                 for road in game_map.topology.roads
             ],
@@ -605,15 +576,8 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "distance_m": spawn.distance_m,
                 "position_world": spawn.position_world.tolist(),
                 "yaw_rad": spawn.yaw_rad,
-                "variants": [
-                    {
-                        "name": variant.name,
-                        "image": variant.image,
-                        "prompt": variant.prompt,
-                        "prompt_context": variant.prompt_context,
-                    }
-                    for variant in spawn.variants
-                ],
+                "image": spawn.image,
+                "prompt": spawn.prompt,
             }
             for spawn in game_map.spawns
         ],
@@ -727,11 +691,6 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                     (float(point[0]), float(point[1]))
                     for point in raw.get("polygon_vertices_xy", ())
                 ),
-                prompt_context=(
-                    None
-                    if raw.get("prompt_context") is None
-                    else str(raw["prompt_context"])
-                ),
             )
             for raw in raw_topology["nodes"]
         ),
@@ -747,11 +706,6 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 bezier_spans_world=tuple(
                     np.asarray(span, dtype=np.float32)
                     for span in raw["bezier_spans_world"]
-                ),
-                prompt_context=(
-                    None
-                    if raw.get("prompt_context") is None
-                    else str(raw["prompt_context"])
                 ),
             )
             for raw in raw_topology["roads"]
@@ -844,21 +798,8 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             distance_m=float(raw["distance_m"]),
             position_world=np.asarray(raw["position_world"], dtype=np.float32),
             yaw_rad=float(raw["yaw_rad"]),
-            variants=tuple(
-                GameMapVisualVariant(
-                    name=str(variant["name"]),
-                    image=(
-                        None if variant.get("image") is None else str(variant["image"])
-                    ),
-                    prompt=str(variant["prompt"]),
-                    prompt_context=(
-                        None
-                        if variant.get("prompt_context") is None
-                        else str(variant["prompt_context"])
-                    ),
-                )
-                for variant in raw["variants"]
-            ),
+            image=None if raw.get("image") is None else str(raw["image"]),
+            prompt=str(raw["prompt"]),
         )
         for raw in value["spawns"]
     )
