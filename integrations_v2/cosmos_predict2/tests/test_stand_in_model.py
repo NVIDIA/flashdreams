@@ -13,9 +13,9 @@ from cosmos_predict2.apps.t2v.adapter import (
     COSMOS_PREDICT2_T2V_DEFAULTS,
     CosmosPredict2T2VApplication,
 )
+from t2v.testing import FakeT2VPipelineConfig
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from t2v.testing import FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 

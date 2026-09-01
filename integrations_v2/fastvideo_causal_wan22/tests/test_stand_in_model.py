@@ -13,9 +13,9 @@ from fastvideo_causal_wan22.apps.t2v.adapter import (
     FASTVIDEO_CAUSAL_WAN22_T2V_DEFAULTS,
     FastvideoCausalWan22T2VApplication,
 )
+from t2v.testing import FakeT2VPipelineConfig
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from t2v.testing import FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 

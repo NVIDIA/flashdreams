@@ -20,7 +20,6 @@ from __future__ import annotations
 from typing import cast
 
 from causal_forcing.impl.checkpoint import state_dict_transform
-
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig

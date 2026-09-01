@@ -14,12 +14,11 @@ temporary directory you can reach, then play the file::
 from pathlib import Path
 
 import pytest
-from wan21.apps.t2v.adapter import Wan21T2VApplication
-
 from t2v.testing import (
     check_real_model_generates_a_clip,
     real_model_run_skip_reason,
 )
+from wan21.apps.t2v.adapter import Wan21T2VApplication
 
 pytestmark = pytest.mark.ci_gpu
 

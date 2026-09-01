@@ -12,12 +12,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from t2v.application import T2VApplication
 from t2v.defaults import T2VApplicationDefaults
 from t2v.session import T2VSession
+
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 

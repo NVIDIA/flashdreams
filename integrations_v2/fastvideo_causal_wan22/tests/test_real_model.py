@@ -18,7 +18,6 @@ import pytest
 from fastvideo_causal_wan22.apps.t2v.adapter import (
     FastvideoCausalWan22T2VApplication,
 )
-
 from t2v.testing import (
     check_real_model_generates_a_clip,
     real_model_run_skip_reason,

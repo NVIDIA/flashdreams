@@ -17,6 +17,12 @@ from self_forcing.apps.t2v.adapter import (
     SELF_FORCING_T2V_DEFAULTS,
     SelfForcingT2VApplication,
 )
+from t2v.testing import (
+    ExpectedFrameStats,
+    FakeT2VPipeline,
+    FakeT2VPipelineConfig,
+    check_t2v_model_impl,
+)
 
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -24,12 +30,6 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from t2v.testing import (
-    ExpectedFrameStats,
-    FakeT2VPipeline,
-    FakeT2VPipelineConfig,
-    check_t2v_model_impl,
-)
 
 pytestmark = pytest.mark.ci_cpu
 

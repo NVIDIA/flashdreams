@@ -6,14 +6,14 @@
 import dataclasses
 from typing import Any
 
+from t2v import T2VApplication, T2VApplicationDefaults
+
+from flashdreams.api_v2.application import IApplication
 from self_forcing.config import (
     PIPELINE_WAN21_T2V_1PT3B,
     PIPELINE_WAN21_T2V_1PT3B_SINK5_WINDOW7_REROPE,
     PIPELINE_WAN21_T2V_1PT3B_TAEHV,
 )
-
-from flashdreams.api_v2.application import IApplication
-from t2v import T2VApplication, T2VApplicationDefaults
 
 SELF_FORCING_T2V_DEFAULTS = T2VApplicationDefaults(
     pipeline_config=PIPELINE_WAN21_T2V_1PT3B,

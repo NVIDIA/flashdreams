@@ -9,16 +9,16 @@ model, so it is covered here once against the shared stand-in pipeline.
 """
 
 import pytest
+from t2v.application import T2VApplication
+from t2v.defaults import T2VApplicationDefaults
+from t2v.session import T2VModelLoop
+from t2v.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from t2v.application import T2VApplication
-from t2v.defaults import T2VApplicationDefaults
-from t2v.session import T2VModelLoop
-from t2v.testing import FakeT2VPipeline, FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 

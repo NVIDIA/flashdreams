@@ -9,10 +9,10 @@ model generates its clip in one block. The checkpoint itself is
 """
 
 import pytest
+from t2v.testing import FakeT2VPipelineConfig
 from wan21.apps.t2v.adapter import WAN21_T2V_DEFAULTS, Wan21T2VApplication
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from t2v.testing import FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 

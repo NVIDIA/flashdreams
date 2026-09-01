@@ -6,11 +6,11 @@
 import dataclasses
 from typing import Any
 
-from fastvideo_causal_wan22.config import PIPELINE_WAN22_T2V_14B
+from t2v import T2VApplication, T2VApplicationDefaults
 
+from fastvideo_causal_wan22.config import PIPELINE_WAN22_T2V_14B
 from flashdreams.api_v2.application import IApplication
 from flashdreams.infra.config import derive_config
-from t2v import T2VApplication, T2VApplicationDefaults
 
 FASTVIDEO_CAUSAL_WAN22_T2V_DEFAULTS = T2VApplicationDefaults(
     pipeline_config=PIPELINE_WAN22_T2V_14B,

@@ -12,9 +12,9 @@ from causal_forcing.apps.t2v.adapter import (
     CAUSAL_FORCING_T2V_DEFAULTS,
     CausalForcingT2VApplication,
 )
+from t2v.testing import FakeT2VPipelineConfig
 
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from t2v.testing import FakeT2VPipelineConfig
 
 pytestmark = pytest.mark.ci_cpu
 

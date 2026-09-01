@@ -27,7 +27,6 @@ VAE remap transforms. The package's application and downstream consumers
 
 from __future__ import annotations
 
-from wan22.impl.checkpoint import wan22_ti2v_5b_dit_state_dict_transform
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler import (
     FlowMatchUniPCSchedulerConfig,
@@ -42,6 +41,7 @@ from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetworkTI2V5BConfig,
 )
 from flashdreams.recipes.wan.transformer.wan21 import Wan21TransformerConfig
+from wan22.impl.checkpoint import wan22_ti2v_5b_dit_state_dict_transform
 
 DEFAULT_VIDEO_HEIGHT = 640
 """Default output height for the standard Wan 2.2 TI2V-5B rollout."""

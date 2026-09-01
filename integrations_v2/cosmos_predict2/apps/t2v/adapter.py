@@ -6,10 +6,10 @@
 import dataclasses
 from typing import Any
 
-from cosmos_predict2.config import PIPELINE_COSMOS2_T2V_2B_720P
-
-from flashdreams.api_v2.application import IApplication
 from t2v import T2VApplication, T2VApplicationDefaults
+
+from cosmos_predict2.config import PIPELINE_COSMOS2_T2V_2B_720P
+from flashdreams.api_v2.application import IApplication
 
 COSMOS_PREDICT2_T2V_DEFAULTS = T2VApplicationDefaults(
     pipeline_config=PIPELINE_COSMOS2_T2V_2B_720P,

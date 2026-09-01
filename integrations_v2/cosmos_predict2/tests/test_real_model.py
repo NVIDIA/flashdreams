@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 from cosmos_predict2.apps.t2v.adapter import CosmosPredict2T2VApplication
-
 from t2v.testing import (
     check_real_model_generates_a_clip,
     real_model_run_skip_reason,

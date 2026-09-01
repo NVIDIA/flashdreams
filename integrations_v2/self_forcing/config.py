@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from self_forcing.impl.checkpoint import state_dict_transform
-
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
@@ -31,6 +29,7 @@ from flashdreams.recipes.wan import (
     WanInferencePipelineConfig,
     WanVAEDecoderConfig,
 )
+from self_forcing.impl.checkpoint import state_dict_transform
 
 CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoints/self_forcing_dmd.pt"
 

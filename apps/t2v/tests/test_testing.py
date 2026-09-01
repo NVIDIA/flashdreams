@@ -9,9 +9,6 @@ that says nothing useful about a run that fell short is worse than no check.
 """
 
 import pytest
-
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from t2v.application import T2VApplication
 from t2v.defaults import T2VApplicationDefaults
 from t2v.testing import (
@@ -20,6 +17,9 @@ from t2v.testing import (
     FakeT2VPipelineConfig,
     check_t2v_model_impl,
 )
+
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 

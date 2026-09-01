@@ -6,13 +6,13 @@
 import dataclasses
 from typing import Any
 
+from t2v import T2VApplication, T2VApplicationDefaults
+
 from causal_forcing.config import (
     PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
     PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
 )
-
 from flashdreams.api_v2.application import IApplication
-from t2v import T2VApplication, T2VApplicationDefaults
 
 CAUSAL_FORCING_T2V_DEFAULTS = T2VApplicationDefaults(
     pipeline_config=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
