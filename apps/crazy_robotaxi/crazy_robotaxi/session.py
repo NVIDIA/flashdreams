@@ -99,6 +99,9 @@ class ModelState:
     prewarm_wall_ms: float = 0.0
     """Wall time spent in hidden startup generation, excluding rollout creation."""
 
+    spawn_image_settle_pending: bool = True
+    """Whether this process still owes its generated map a settlement pass."""
+
     def __post_init__(self) -> None:
         self.input_timeline = RealtimeInputTimeline(
             samples_per_second=self.session_desc.frames_per_second_for_step,
@@ -224,7 +227,8 @@ class ModelState:
         rollout = self.rollout
         assert rollout is not None
         block_count = self.config.prewarm_blocks
-        if block_count == 0:
+        settle_blocks = self._pending_spawn_image_settle_blocks()
+        if block_count == 0 and settle_blocks == 0:
             self.prewarm_complete = True
             return
 
@@ -245,10 +249,12 @@ class ModelState:
             )
             del generated
 
-        # Retain process-lifetime compiled kernels and autotune results, but
-        # discard every gameplay, conditioning, and AR-cache mutation. Cache-
-        # bound CUDA graphs re-arm safely against the new storage.
-        rollout.reset()
+        if block_count:
+            # Retain compiled kernels and autotune results, but discard every
+            # gameplay, conditioning, and AR-cache mutation before authoring.
+            rollout.reset()
+        if settle_blocks:
+            self._settle_spawn_image(rollout, settle_blocks)
         self.prewarm_wall_ms = (time.perf_counter() - started) * 1000.0
         self.prewarm_complete = True
         self._set_loading_status("STARTING GAME")
@@ -256,6 +262,43 @@ class ModelState:
             "[crazy-robotaxi] prewarm complete in %.1f s; rollout reset for gameplay",
             self.prewarm_wall_ms / 1000.0,
         )
+
+    def _pending_spawn_image_settle_blocks(self) -> int:
+        target = self.config.spawn_image_settle_map_path
+        if target is None or not self.spawn_image_settle_pending:
+            return 0
+        if self.config.scene_request.map_path.expanduser().resolve() != target:
+            return 0
+        return self.config.spawn_image_settle_blocks
+
+    def _settle_spawn_image(self, rollout: WorldModelRollout, block_count: int) -> None:
+        generated = None
+        for autoregressive_index in range(block_count):
+            current_block = autoregressive_index + 1
+            self._set_loading_status(
+                f"SETTLING SPAWN IMAGE  {current_block}/{block_count}"
+            )
+            frame_count = rollout.frame_count(autoregressive_index)
+            generated = rollout.step(
+                autoregressive_index=autoregressive_index,
+                commands=tuple(DriverCommand() for _ in range(frame_count)),
+            )
+        assert generated is not None
+        image_rgb = _terminal_rgb_u8(generated.video_bvtchw)
+        scene = self.scene
+        if scene is None:
+            raise RuntimeError("Cannot settle a spawn image without a scene")
+        from crazy_robotaxi.spawn_images import save_settled_spawn_image
+
+        save_settled_spawn_image(
+            self.config.scene_request.map_path,
+            self.config.scene_request.variant,
+            image_rgb,
+        )
+        settled_scene = replace(scene, initial_rgb=image_rgb)
+        self.scene = settled_scene
+        rollout.reseed(settled_scene)
+        self.spawn_image_settle_pending = False
 
     def _set_loading_status(self, status: str) -> None:
         invoke_async(
@@ -621,6 +664,33 @@ def _log_chunk_trace(phase: str, *, time_ns: int, **fields: object) -> None:
         phase,
         time_ns,
         details,
+    )
+
+
+def _terminal_rgb_u8(video_bvtchw: torch.Tensor) -> np.ndarray:
+    """Convert the last generated model frame into an owned RGB image."""
+    if video_bvtchw.ndim != 6 or tuple(video_bvtchw.shape[:2]) != (1, 1):
+        raise ValueError(
+            "Spawn settlement requires single-batch, single-view BVTCHW video; "
+            f"got {tuple(video_bvtchw.shape)}"
+        )
+    frame = video_bvtchw[0, 0, -1]
+    if frame.ndim != 3 or int(frame.shape[0]) != 3:
+        raise ValueError(
+            f"Spawn settlement requires a three-channel frame; got {tuple(frame.shape)}"
+        )
+    return (
+        frame.detach()
+        .float()
+        .clamp(-1.0, 1.0)
+        .add(1.0)
+        .mul(127.5)
+        .round()
+        .to(torch.uint8)
+        .permute(1, 2, 0)
+        .cpu()
+        .numpy()
+        .copy()
     )
 
 

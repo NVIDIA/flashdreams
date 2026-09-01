@@ -179,6 +179,9 @@ class GameMapVisualVariant:
     prompt: str
     """World-model text prompt paired with the seed image."""
 
+    time_of_day: str = "day"
+    """Scene lighting context: ``dawn``, ``day``, ``dusk``, or ``night``."""
+
 
 @dataclass(frozen=True)
 class GameMapSpawn:
@@ -598,6 +601,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                         "name": variant.name,
                         "image": variant.image,
                         "prompt": variant.prompt,
+                        "time_of_day": variant.time_of_day,
                     }
                     for variant in spawn.variants
                 ],
@@ -828,6 +832,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                         None if variant.get("image") is None else str(variant["image"])
                     ),
                     prompt=str(variant["prompt"]),
+                    time_of_day=str(variant.get("time_of_day", "day")),
                 )
                 for variant in raw["variants"]
             ),

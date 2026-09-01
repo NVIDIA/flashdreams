@@ -24,7 +24,7 @@ import shapely
 from PIL import Image
 from shapely.geometry import LineString, Polygon
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import unary_union
+from shapely.ops import substring, unary_union
 
 from omnidreams_game_engine.camera_defaults import (
     DEFAULT_FIRST_FRAME_RESOLUTION_WH,
@@ -43,6 +43,8 @@ _MAX_GROUND_DISTANCE_M = 600.0
 _PAINT_WIDTH_M = 0.12
 _BOUNDARY_WIDTH_M = 0.10
 _CURB_WIDTH_M = 0.28
+_DASH_LENGTH_M = 3.0
+_DASH_GAP_M = 6.0
 
 _SKY_TOP_RGB = np.asarray([104, 154, 202], dtype=np.float32)
 _SKY_HORIZON_RGB = np.asarray([208, 222, 226], dtype=np.float32)
@@ -158,6 +160,29 @@ def _line_geometry(polylines: list[np.ndarray], width_m: float) -> BaseGeometry:
     return unary_union(geometries) if geometries else Polygon()
 
 
+def _styled_line_geometry(
+    polylines: list[tuple[np.ndarray, str]], width_m: float
+) -> BaseGeometry:
+    geometries: list[BaseGeometry] = []
+    for points, style in polylines:
+        if len(points) < 2:
+            continue
+        line = LineString(np.asarray(points, dtype=np.float64)[:, :2])
+        if style == "DASHED_SINGLE":
+            line = unary_union(
+                [
+                    substring(line, start, min(start + _DASH_LENGTH_M, line.length))
+                    for start in np.arange(
+                        0.0, line.length, _DASH_LENGTH_M + _DASH_GAP_M
+                    )
+                ]
+            )
+        geometries.append(
+            line.buffer(width_m * 0.5, cap_style="flat", join_style="round")
+        )
+    return unary_union(geometries) if geometries else Polygon()
+
+
 def _paint(
     image_flat: np.ndarray,
     ground_indices: np.ndarray,
@@ -165,11 +190,15 @@ def _paint(
     ground_y: np.ndarray,
     geometry: BaseGeometry,
     color: np.ndarray,
+    *,
+    mask_flat: np.ndarray | None = None,
 ) -> None:
     if geometry.is_empty:
         return
     covered = shapely.intersects_xy(geometry, ground_x, ground_y)
     image_flat[ground_indices[covered]] = color
+    if mask_flat is not None:
+        mask_flat[ground_indices[covered]] = True
 
 
 def render_spawn_first_frame(
@@ -188,6 +217,23 @@ def render_spawn_first_frame(
     Returns:
         RGB image with shape ``[height, width, 3]`` and dtype ``uint8``.
     """
+    image, _ = render_spawn_first_frame_with_road_mask(
+        game_map, spawn, resolution_wh=resolution_wh
+    )
+    return image
+
+
+def render_spawn_first_frame_with_road_mask(
+    game_map: ResolvedGameMap,
+    spawn: GameMapSpawn,
+    *,
+    resolution_wh: tuple[int, int] = DEFAULT_FIRST_FRAME_RESOLUTION_WH,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Render a spawn frame and identify every map-authored paved pixel.
+
+    The mask contains road and parking surfaces plus their boundaries, curbs,
+    and markings. It deliberately has no horizon or scenery boundary.
+    """
     width, height = (int(resolution_wh[0]), int(resolution_wh[1]))
     if width <= 0 or height <= 0:
         raise ValueError(f"resolution_wh must be positive, got {resolution_wh!r}")
@@ -203,6 +249,7 @@ def render_spawn_first_frame(
         _camera_ground_intersections(spawn, width, height)
     )
     flat = image.reshape(-1, 3)
+    road_mask_flat = np.zeros(width * height, dtype=np.bool_)
     ground_indices = np.flatnonzero(valid_ground)
     ground_x = ground_x_all[valid_ground]
     ground_y = ground_y_all[valid_ground]
@@ -230,6 +277,7 @@ def render_spawn_first_frame(
         ground_y,
         _polygon_geometry(road_surfaces),
         _ROAD_RGB,
+        mask_flat=road_mask_flat,
     )
     _paint(
         flat,
@@ -238,6 +286,7 @@ def render_spawn_first_frame(
         ground_y,
         _polygon_geometry(parking_surfaces),
         _PARKING_RGB,
+        mask_flat=road_mask_flat,
     )
 
     boundaries = [
@@ -255,6 +304,7 @@ def render_spawn_first_frame(
         ground_y,
         _line_geometry(boundaries, _BOUNDARY_WIDTH_M),
         _BOUNDARY_RGB,
+        mask_flat=road_mask_flat,
     )
     _paint(
         flat,
@@ -263,6 +313,7 @@ def render_spawn_first_frame(
         ground_y,
         _line_geometry(curbs, _CURB_WIDTH_M),
         _CURB_RGB,
+        mask_flat=road_mask_flat,
     )
 
     _paint(
@@ -272,17 +323,18 @@ def render_spawn_first_frame(
         ground_y,
         _polygon_geometry(list(game_map.road_marking_polygons_world)),
         _WHITE_PAINT_RGB,
+        mask_flat=road_mask_flat,
     )
     for color_name, color in (
         ("WHITE", _WHITE_PAINT_RGB),
         ("YELLOW", _YELLOW_PAINT_RGB),
     ):
         polylines = [
-            divider.polyline_world
+            (divider.polyline_world, divider.style)
             for divider in game_map.lane_dividers
             if divider.color == color_name
         ] + [
-            marking.polyline_world
+            (marking.polyline_world, marking.style)
             for marking in game_map.line_markings
             if marking.color == color_name
         ]
@@ -291,10 +343,14 @@ def render_spawn_first_frame(
             ground_indices,
             ground_x,
             ground_y,
-            _line_geometry(polylines, _PAINT_WIDTH_M),
+            _styled_line_geometry(polylines, _PAINT_WIDTH_M),
             color,
+            mask_flat=road_mask_flat,
         )
-    return np.clip(image, 0.0, 255.0).astype(np.uint8)
+    return (
+        np.clip(image, 0.0, 255.0).astype(np.uint8),
+        road_mask_flat.reshape(height, width),
+    )
 
 
 def write_spawn_first_frame_preview(

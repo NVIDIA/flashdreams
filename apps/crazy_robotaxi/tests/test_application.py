@@ -27,6 +27,7 @@ from crazy_robotaxi.session import (
     ModelState,
     _restart_requested,
     _taxi_driver_command,
+    _terminal_rgb_u8,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
 from omnidreams.apps.crazy_robotaxi.adapter import (
@@ -736,6 +737,49 @@ def test_application_rejects_negative_prewarm_blocks() -> None:
         app.init(["--prewarm-blocks", "-1"])
 
 
+def test_spawn_settle_blocks_require_generation() -> None:
+    app = _application()
+
+    with pytest.raises(ValueError, match="requires --generate-spawn-images"):
+        app.init(["--spawn-image-settle-blocks", "1"])
+
+
+def test_spawn_settle_blocks_must_be_positive() -> None:
+    app = _application()
+
+    with pytest.raises(ValueError, match="must be positive"):
+        app.init(["--generate-spawn-images", "--spawn-image-settle-blocks", "0"])
+
+
+@pytest.mark.parametrize(("generated", "expected_blocks"), [(False, 0), (True, 8)])
+def test_only_fresh_qwen_output_requests_world_model_settlement(
+    monkeypatch,
+    generated: bool,
+    expected_blocks: int,
+) -> None:
+    monkeypatch.setattr("qwen_image_edit_v2.QwenImageEditor", lambda **kwargs: object())
+
+    def generate(*args, progress, **kwargs):
+        del args, kwargs
+        if generated:
+            progress(1, 1, "spawn", "default")
+
+    monkeypatch.setattr("crazy_robotaxi.spawn_images.generate_spawn_images", generate)
+    app = _application()
+
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--generate-spawn-images",
+        ]
+    )
+
+    assert app._config is not None
+    assert app._config.spawn_image_settle_blocks == expected_blocks
+    assert (app._config.spawn_image_settle_map_path is not None) is generated
+
+
 def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> None:
     class FakeRollout:
         def __init__(self, **kwargs) -> None:
@@ -794,6 +838,87 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
     assert rollout.reset_count == 2
     assert ui_loop.state._name_input == ""
     assert len(rollout.steps) == 4
+
+
+def test_new_spawn_image_is_settled_and_reseeded_before_gameplay(
+    monkeypatch,
+) -> None:
+    saved: list[tuple[Path, str, np.ndarray]] = []
+
+    class FakeRollout:
+        def __init__(self, **kwargs) -> None:
+            self.scene = kwargs["scene"]
+            self.steps: list[int] = []
+            self.reseeded: list[SceneDefinition] = []
+
+        def frame_count(self, autoregressive_index: int) -> int:
+            return 2
+
+        def step(self, *, autoregressive_index: int, commands):
+            assert commands == (DriverCommand(), DriverCommand())
+            self.steps.append(autoregressive_index)
+            value = 0.0 if autoregressive_index == 0 else 1.0
+            return SimpleNamespace(video_bvtchw=torch.full((1, 1, 2, 3, 4, 8), value))
+
+        def reset(self) -> None:
+            return
+
+        def reseed(self, scene: SceneDefinition) -> None:
+            self.scene = scene
+            self.reseeded.append(scene)
+
+        def close(self) -> None:
+            return
+
+    def save(path: Path, variant: str, image: np.ndarray) -> Path:
+        saved.append((path, variant, image.copy()))
+        return path
+
+    monkeypatch.setattr("crazy_robotaxi.session.WorldModelRollout", FakeRollout)
+    monkeypatch.setattr("crazy_robotaxi.spawn_images.save_settled_spawn_image", save)
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(width=8, height=4),
+    )
+    app.init(["--device", "cpu", "--prewarm-blocks", "0"])
+    assert app._config is not None
+    target = app._config.scene_request.map_path.expanduser().resolve()
+    app._config = replace(
+        app._config,
+        spawn_image_settle_blocks=2,
+        spawn_image_settle_map_path=target,
+    )
+    session = cast(CrazyRobotaxiSession, app.create_session(app.session_desc()))
+    session.init()
+    _, model_loop = session._take_loops()
+
+    model_loop.state.select_game(
+        GameSelection(mode="taxi", map_option=session._map_options[0])
+    )
+
+    rollout = model_loop.state.rollout
+    assert rollout is not None
+    assert rollout.steps == [0, 1]
+    assert len(saved) == 1
+    assert saved[0][0].expanduser().resolve() == target
+    assert saved[0][1] == "default"
+    assert np.all(saved[0][2] == 255)
+    assert len(rollout.reseeded) == 1
+    assert np.all(rollout.reseeded[0].initial_rgb == 255)
+    assert model_loop.state.blocks_generated == 0
+    assert not model_loop.state.spawn_image_settle_pending
+
+
+def test_terminal_rgb_uses_last_model_frame() -> None:
+    video = torch.zeros((1, 1, 2, 3, 1, 3))
+    video[0, 0, -1, :, 0, :] = torch.tensor(
+        [[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]]
+    )
+
+    image = _terminal_rgb_u8(video)
+
+    assert image.shape == (1, 3, 3)
+    assert image[0, :, 0].tolist() == [0, 128, 255]
 
 
 def test_taxi_physics_uses_spatial_and_traffic_topology_refreshes_only() -> None:

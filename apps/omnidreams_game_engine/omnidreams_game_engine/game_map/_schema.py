@@ -50,6 +50,7 @@ _PROFILE_ATTRIBUTE_FIELDS = frozenset(
         "culdesac_radius_m",
     }
 )
+_TIME_OF_DAY_VALUES = frozenset({"dawn", "day", "dusk", "night"})
 
 
 class GameMapError(ValueError):
@@ -212,19 +213,30 @@ def _parse_variants(
     variants: list[GameMapVisualVariant] = []
     for name, raw_variant in variants_raw.items():
         variant = _mapping(raw_variant, f"variant {name!r}")
-        unknown = set(variant) - {"image", "prompt"}
+        unknown = set(variant) - {"image", "prompt", "time_of_day"}
         if unknown:
             raise GameMapError(f"Variant {name!r} has unknown fields {sorted(unknown)}")
         image_value = variant.get("image")
         image = None if image_value is None else str(image_value).strip()
         prompt = str(variant.get("prompt", "")).strip()
+        time_of_day = str(variant.get("time_of_day", "day")).strip().lower()
         if not prompt:
             raise GameMapError(f"Variant {name!r} requires a non-empty prompt")
         if image_value is not None and not image:
             raise GameMapError(f"Variant {name!r} image must not be empty")
         if image is not None:
             resolve_seed_asset(source_path, image)
-        variants.append(GameMapVisualVariant(name=name, image=image, prompt=prompt))
+        if time_of_day not in _TIME_OF_DAY_VALUES:
+            values = ", ".join(sorted(_TIME_OF_DAY_VALUES))
+            raise GameMapError(f"Variant {name!r} time_of_day must be one of: {values}")
+        variants.append(
+            GameMapVisualVariant(
+                name=name,
+                image=image,
+                prompt=prompt,
+                time_of_day=time_of_day,
+            )
+        )
     variants.sort(key=lambda item: (item.name != "default", item.name))
     return tuple(variants)
 

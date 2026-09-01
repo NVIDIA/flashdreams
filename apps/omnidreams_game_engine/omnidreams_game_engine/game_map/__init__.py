@@ -19,6 +19,7 @@ from omnidreams_game_engine.game_map.preview import write_game_map_preview
 from omnidreams_game_engine.game_map.spawn_render import (
     SPAWN_RENDERER_VERSION,
     render_spawn_first_frame,
+    render_spawn_first_frame_with_road_mask,
     write_spawn_first_frame_preview,
 )
 from omnidreams_game_engine.game_map.types import (
@@ -73,6 +74,7 @@ __all__ = [
     "load_game_map_header",
     "resolve_seed_asset",
     "render_spawn_first_frame",
+    "render_spawn_first_frame_with_road_mask",
     "write_game_map_preview",
     "write_spawn_first_frame_preview",
 ]
