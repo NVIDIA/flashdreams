@@ -5,6 +5,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 import tomli as tomllib
@@ -103,8 +104,11 @@ def test_responsive_configs_preserve_their_base_presets(
     config: OmnidreamsPipelineConfig,
     base: OmnidreamsPipelineConfig,
 ) -> None:
-    transformer = config.diffusion_model.transformer
-    base_transformer = base.diffusion_model.transformer
+    transformer = cast(CosmosTransformerConfig, config.diffusion_model.transformer)
+    base_transformer = cast(
+        CosmosTransformerConfig,
+        base.diffusion_model.transformer,
+    )
 
     assert config.name == f"{base.name}-responsive"
     assert transformer.window_size_t == 4
