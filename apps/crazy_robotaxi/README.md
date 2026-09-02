@@ -92,6 +92,7 @@ For example:
 ```yaml
 schema_version: 1
 game:
+  gamepad_button_style: PlayStation
   taxi:
     seed: 1234
     rules:
@@ -135,7 +136,7 @@ effect after restarting the current application process.
 | Control | Action |
 | --- | --- |
 | `W` or Up Arrow | Drive forward |
-| `S` or Down Arrow | Reverse |
+| `S` or Down Arrow | Brake, then reverse after stopping |
 | `A` or Left Arrow | Steer left |
 | `D` or Right Arrow | Steer right |
 | `Space` | Apply the handbrake and cancel throttle |
@@ -148,13 +149,16 @@ Menu choices and leaderboard buttons can also be clicked with the mouse.
 
 ### Controller
 
+The Gamepad Controls screen uses one button-label convention at a time. Set
+`game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
+the Options screen or user-authored settings YAML. Xbox labels are the default.
+
 | Control | Action |
 | --- | --- |
 | Left stick | Steer |
-| Right trigger (`RT` / `R2` / `ZR`) | Throttle |
-| Left trigger (`LT` / `L2` / `ZL`) | Brake |
-| `R` / `RB` / `R1` (hold) | Select reverse gear |
-| Start / Menu / Plus | Restart the current game |
+| Right trigger (`RT` by default) | Throttle |
+| Left trigger (`LT` by default) | Brake, then reverse after stopping |
+| Menu button | Restart the current game |
 | Steering wheel and pedals | Use normalized steering, throttle, and brake input |
 
 A connected gamepad or wheel takes precedence over keyboard driving input.

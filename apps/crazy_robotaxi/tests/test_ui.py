@@ -1512,6 +1512,33 @@ def test_controls_menu_edits_and_saves_one_device(tmp_path: Path) -> None:
     assert not model_loop.state.exit_requested
 
 
+def test_gamepad_controls_show_only_the_configured_button_style(
+    tmp_path: Path,
+) -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        gamepad_button_style="PlayStation",
+        control_documents=load_controls_documents(tmp_path / "controls"),
+    )
+    state._open_controls()
+    state._open_controls_device("gamepad")
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert "R2##gamepad-throttle-0" in imgui.buttons
+    assert "L2##gamepad-brake-0" in imgui.buttons
+    assert "OPTIONS##gamepad-restart-0" in imgui.buttons
+    assert not any("##gamepad-reverse-" in label for label in imgui.buttons)
+    assert not any(
+        "/" in label.split("##", 1)[0]
+        for label in imgui.buttons
+        if "##gamepad-" in label
+    )
+
+
 def test_missing_selection_thumbnail_keeps_text_button(tmp_path: Path) -> None:
     missing_thumbnail = tmp_path / "missing.png"
     option = GameMapOption(

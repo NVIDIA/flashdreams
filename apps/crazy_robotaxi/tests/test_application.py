@@ -170,6 +170,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert raceway.race_courses[0].preview_image_path is not None
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
+    assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
     assert (
         ui_loop.state.native_dit_disabled_for_live_edit
         is session._config.native_dit_disabled_for_live_edit
@@ -248,6 +249,7 @@ model:
     diffusion_model:
       seed: 5678
 game:
+  gamepad_button_style: PlayStation
   taxi:
     seed: 1234
 runtime:
@@ -266,6 +268,7 @@ runtime:
     assert app._config.model_preset_name == "omnidreams"
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234
+    assert app._config.gamepad_button_style == "PlayStation"
     pipeline_config = app._pipeline_config
     assert pipeline_config is not None
     assert pipeline_config.diffusion_model.seed == 5678

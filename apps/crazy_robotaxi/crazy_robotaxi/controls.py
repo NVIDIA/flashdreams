@@ -40,6 +40,66 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 ControlDevice = Literal["keyboard", "gamepad", "wheel"]
 ControlDirection = Literal["negative", "positive", "bidirectional"]
+GamepadButtonStyle = Literal["Xbox", "PlayStation", "Nintendo Switch"]
+_GAMEPAD_BUTTON_NAMES: dict[GamepadButtonStyle, tuple[str, ...]] = {
+    "Xbox": (
+        "A",
+        "B",
+        "X",
+        "Y",
+        "LB",
+        "RB",
+        "LT",
+        "RT",
+        "VIEW",
+        "MENU",
+        "LEFT STICK BUTTON",
+        "RIGHT STICK BUTTON",
+        "D-PAD UP",
+        "D-PAD DOWN",
+        "D-PAD LEFT",
+        "D-PAD RIGHT",
+        "XBOX",
+    ),
+    "PlayStation": (
+        "CROSS",
+        "CIRCLE",
+        "SQUARE",
+        "TRIANGLE",
+        "L1",
+        "R1",
+        "L2",
+        "R2",
+        "SHARE",
+        "OPTIONS",
+        "L3",
+        "R3",
+        "D-PAD UP",
+        "D-PAD DOWN",
+        "D-PAD LEFT",
+        "D-PAD RIGHT",
+        "PS",
+    ),
+    "Nintendo Switch": (
+        "B",
+        "A",
+        "Y",
+        "X",
+        "L",
+        "R",
+        "ZL",
+        "ZR",
+        "MINUS",
+        "PLUS",
+        "LEFT STICK BUTTON",
+        "RIGHT STICK BUTTON",
+        "D-PAD UP",
+        "D-PAD DOWN",
+        "D-PAD LEFT",
+        "D-PAD RIGHT",
+        "HOME",
+    ),
+}
 ControlAction = Literal[
     "restart", "toggle_hints", "style", "weather", "coins", "obstacle"
 ]
@@ -123,7 +183,9 @@ class KeyboardControls:
     )
     """Keys that drive forward."""
 
-    reverse: BindingSlots = _bindings_field((_key("s"), _key("down")), "REVERSE")
+    reverse: BindingSlots = _bindings_field(
+        (_key("s"), _key("down")), "BRAKE / REVERSE"
+    )
     """Keys that brake or drive in reverse."""
 
     steer_left: BindingSlots = _bindings_field((_key("a"), _key("left")), "STEER LEFT")
@@ -180,11 +242,8 @@ class GamepadControls:
     throttle: BindingSlots = _bindings_field((_button(7), None), "THROTTLE")
     """Controls that apply forward throttle."""
 
-    brake: BindingSlots = _bindings_field((_button(6), None), "BRAKE")
+    brake: BindingSlots = _bindings_field((_button(6), None), "BRAKE / REVERSE")
     """Controls that apply the service brake."""
-
-    reverse: BindingSlots = _bindings_field((_button(5), None), "REVERSE (HOLD)")
-    """Controls that select reverse while held."""
 
     handbrake: BindingSlots = _bindings_field((None, None), "HANDBRAKE")
     """Controls that apply the handbrake."""
@@ -232,11 +291,8 @@ class WheelControls:
     throttle: BindingSlots = _bindings_field((_axis("throttle"), None), "THROTTLE")
     """Controls that apply forward throttle."""
 
-    brake: BindingSlots = _bindings_field((_axis("brake"), None), "BRAKE")
+    brake: BindingSlots = _bindings_field((_axis("brake"), None), "BRAKE / REVERSE")
     """Controls that apply the service brake."""
-
-    reverse: BindingSlots = _bindings_field((None, None), "REVERSE (HOLD)")
-    """Controls that select reverse while held."""
 
     handbrake: BindingSlots = _bindings_field((None, None), "HANDBRAKE")
     """Controls that apply the handbrake."""
@@ -352,7 +408,7 @@ class ControlsDocument:
                 f"Crazy Robotaxi {device} controls. Omitted actions use defaults."
             )
         version = document.get("schema_version", 1)
-        if type(version) is not int or version != 1:
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise ControlsError(f"{resolved}: schema_version must be 1")
         defaults = ControlsConfig().for_device(device)
         values = {
@@ -487,7 +543,6 @@ def gamepad_driver_command(
         throttle=_event_action_value(settings.throttle, event),
         brake=_event_action_value(settings.brake, event),
         steer=_steering_value(settings.steer, event),
-        reverse=_event_action_value(settings.reverse, event) > 0.5,
         handbrake=_event_action_value(settings.handbrake, event) > 0.5,
         steer_is_direct=True,
         manual_control=True,
@@ -506,7 +561,6 @@ def wheel_driver_command(
         throttle=_event_action_value(settings.throttle, event),
         brake=_event_action_value(settings.brake, event),
         steer=_steering_value(settings.steer, event),
-        reverse=_event_action_value(settings.reverse, event) > 0.5,
         handbrake=_event_action_value(settings.handbrake, event) > 0.5,
         steer_is_direct=True,
         manual_control=True,
@@ -616,7 +670,11 @@ def update_binding(
     )
 
 
-def binding_display(device: ControlDevice, binding: InputBinding | None) -> str:
+def binding_display(
+    device: ControlDevice,
+    binding: InputBinding | None,
+    gamepad_button_style: GamepadButtonStyle = "Xbox",
+) -> str:
     """Return a compact player-facing binding label."""
     if binding is None:
         return "UNBOUND"
@@ -632,7 +690,7 @@ def binding_display(device: ControlDevice, binding: InputBinding | None) -> str:
     if binding.kind == "button":
         index = int(binding.code)
         if device == "gamepad":
-            return _gamepad_button_name(index)
+            return _gamepad_button_name(index, gamepad_button_style)
         return f"BUTTON {index + 1}"
     suffix = ""
     if binding.direction != "bidirectional":
@@ -780,16 +838,17 @@ def _binding_from_yaml(
         if action_kind == "steering" or set(mapping) != {"button"}:
             raise ControlsError(f"{context} is not a valid button binding")
         button = mapping["button"]
-        if type(button) is not int or button < 0:
+        if not isinstance(button, int) or isinstance(button, bool) or button < 0:
             raise ControlsError(f"{context}.button must be a non-negative integer")
-        return _button(button)
+        return _button(int(button))
     allowed = {"axis", "invert"} if action_kind == "steering" else {"axis", "direction"}
     if "axis" not in mapping or set(mapping) - allowed:
         raise ControlsError(f"{context} is not a valid axis binding")
     axis = mapping["axis"]
     if device == "gamepad":
-        if type(axis) is not int or axis < 0:
+        if not isinstance(axis, int) or isinstance(axis, bool) or axis < 0:
             raise ControlsError(f"{context}.axis must be a non-negative integer")
+        axis = int(axis)
     elif not isinstance(axis, str) or axis not in _WHEEL_AXES:
         raise ControlsError(f"{context}.axis must name a semantic wheel axis")
     if action_kind == "steering":
@@ -956,26 +1015,9 @@ def _gamepad_button_values(event: GamepadUserInputEvent) -> tuple[float, ...]:
     )
 
 
-def _gamepad_button_name(index: int) -> str:
-    return {
-        0: "A / CROSS / B",
-        1: "B / CIRCLE / A",
-        2: "X / SQUARE / Y",
-        3: "Y / TRIANGLE / X",
-        4: "L / LB / L1",
-        5: "R / RB / R1",
-        6: "LT / L2 / ZL",
-        7: "RT / R2 / ZR",
-        8: "BACK / SHARE / MINUS",
-        9: "START / MENU / PLUS",
-        10: "LEFT STICK BUTTON",
-        11: "RIGHT STICK BUTTON",
-        12: "D-PAD UP",
-        13: "D-PAD DOWN",
-        14: "D-PAD LEFT",
-        15: "D-PAD RIGHT",
-        16: "GUIDE",
-    }.get(index, f"BUTTON {index + 1}")
+def _gamepad_button_name(index: int, style: GamepadButtonStyle) -> str:
+    names = _GAMEPAD_BUTTON_NAMES[style]
+    return names[index] if 0 <= index < len(names) else f"BUTTON {index + 1}"
 
 
 def _sync_mapping(target: CommentedMap, desired: Mapping[str, object]) -> None:
@@ -997,6 +1039,7 @@ __all__ = [
     "ControlsError",
     "DeviceControls",
     "GamepadControls",
+    "GamepadButtonStyle",
     "InputBinding",
     "KeyboardControls",
     "WheelControls",

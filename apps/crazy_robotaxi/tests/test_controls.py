@@ -14,7 +14,9 @@ from crazy_robotaxi.controls import (
     ControlsConfig,
     ControlsDocument,
     ControlsError,
+    GamepadButtonStyle,
     InputBinding,
+    binding_display,
     capture_binding,
     gamepad_driver_command,
     keyboard_drive_key,
@@ -83,6 +85,16 @@ def test_gamepad_restart_uses_digital_or_analog_button_state() -> None:
     assert gamepad_driver_command(settings, analog) is not None
 
 
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    (("Xbox", "A"), ("PlayStation", "CROSS"), ("Nintendo Switch", "B")),
+)
+def test_gamepad_button_display_uses_one_configured_style(
+    style: GamepadButtonStyle, expected: str
+) -> None:
+    assert binding_display("gamepad", InputBinding("button", 0), style) == expected
+
+
 def test_duplicate_capture_swaps_the_previous_binding() -> None:
     original = ControlsConfig().keyboard
 
@@ -132,6 +144,20 @@ def test_controls_document_round_trips_sparse_yaml_and_comments(tmp_path: Path) 
         InputBinding("key", "j"),
         None,
     )
+
+
+def test_controls_document_loads_round_trip_yaml_button_indices(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "gamepad.yaml"
+    path.write_text(
+        "schema_version: 1\nhandbrake:\n- button: 0\n-\n",
+        encoding="utf-8",
+    )
+
+    document = ControlsDocument.load(path, "gamepad")
+
+    assert document.settings.handbrake == (InputBinding("button", 0), None)
 
 
 @pytest.mark.parametrize(

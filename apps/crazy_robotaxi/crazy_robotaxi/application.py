@@ -29,6 +29,7 @@ from crazy_robotaxi.controls import (
     ControlDevice,
     ControlsConfig,
     ControlsDocument,
+    GamepadButtonStyle,
     controls_config,
     default_controls_dir,
     load_controls_documents,
@@ -116,6 +117,9 @@ class ApplicationConfig:
 
     controls: ControlsConfig = ControlsConfig()
     """Process-start gameplay bindings."""
+
+    gamepad_button_style: GamepadButtonStyle = "Xbox"
+    """Gamepad button names displayed to the player."""
 
     control_documents: dict[ControlDevice, ControlsDocument] = field(
         default_factory=dict
@@ -294,6 +298,7 @@ class CrazyRobotaxiApplication(IApplication):
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
             controls=controls,
+            gamepad_button_style=settings.game.gamepad_button_style,
             control_documents=control_documents,
             settings_document=settings_document,
             initial_game_mode=initial_game_mode,

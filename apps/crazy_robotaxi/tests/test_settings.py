@@ -45,6 +45,8 @@ model:
   pipeline:
     diffusion_model:
       seed: 42
+game:
+  gamepad_button_style: PlayStation
 presentation:
   show_fps: true
 """,
@@ -55,6 +57,7 @@ presentation:
 
     assert document.settings.model.pipeline.diffusion_model.seed == 42
     assert document.settings.renderer.raster.resolution_wh == (1280, 704)
+    assert document.settings.game.gamepad_button_style == "PlayStation"
     assert document.settings.presentation.show_fps
 
 

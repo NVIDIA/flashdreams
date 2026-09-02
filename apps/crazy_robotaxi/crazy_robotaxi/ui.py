@@ -45,6 +45,7 @@ from crazy_robotaxi.controls import (
     ControlsDocument,
     ControlsError,
     DeviceControls,
+    GamepadButtonStyle,
     InputBinding,
     binding_display,
     canonical_key,
@@ -246,6 +247,9 @@ class TaxiHudState:
 
     controls: ControlsConfig = ControlsConfig()
     """Process-start bindings used by gameplay and active HUD labels."""
+
+    gamepad_button_style: GamepadButtonStyle = "Xbox"
+    """Gamepad button names displayed on the Controls screen."""
 
     control_documents: dict[ControlDevice, ControlsDocument] = field(
         default_factory=dict
@@ -1553,7 +1557,8 @@ class TaxiHudState:
             "  |  ".join(
                 (
                     f"{_binding_slots_display('keyboard', keyboard.drive_forward)} FORWARD",
-                    f"{_binding_slots_display('keyboard', keyboard.reverse)} REVERSE",
+                    f"{_binding_slots_display('keyboard', keyboard.reverse)} "
+                    "BRAKE / REVERSE",
                     f"{_binding_slots_display('keyboard', keyboard.steer_left)} LEFT",
                     f"{_binding_slots_display('keyboard', keyboard.steer_right)} RIGHT",
                     f"{_binding_slots_display('keyboard', keyboard.handbrake)} HANDBRAKE",
@@ -2057,7 +2062,7 @@ class TaxiHudState:
             for label in ("ACTION", *action_labels)
         )
         binding_labels = tuple(
-            binding_display(device, binding)
+            binding_display(device, binding, self.gamepad_button_style)
             for item in items
             for binding in getattr(draft, item.name)
         )
@@ -2152,7 +2157,9 @@ class TaxiHudState:
                                 slots = getattr(draft, item.name)
                                 for slot, binding in enumerate(slots):
                                     imgui.table_set_column_index(slot + 1)
-                                    label = binding_display(device, binding)
+                                    label = binding_display(
+                                        device, binding, self.gamepad_button_style
+                                    )
                                     if imgui.button(
                                         f"{label}##{device}-{item.name}-{slot}",
                                         imgui.ImVec2(binding_width, 34.0),

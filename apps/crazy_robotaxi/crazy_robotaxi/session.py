@@ -610,6 +610,7 @@ class CrazyRobotaxiSession(ISession):
             show_control_tooltips=self._config.show_control_hints,
             settings_document=self._config.settings_document,
             controls=self._config.controls,
+            gamepad_button_style=self._config.gamepad_button_style,
             control_documents=self._config.control_documents,
             map_options=self._map_options,
             initial_game_mode=self._config.initial_game_mode,

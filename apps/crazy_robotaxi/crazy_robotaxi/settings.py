@@ -21,6 +21,7 @@ from omnidreams_game_engine.config import BevConfig, RasterConfig
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
+from crazy_robotaxi.controls import GamepadButtonStyle
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.rules import TaxiGameConfig
@@ -93,6 +94,7 @@ class GameEffectsSettings:
 class GameSettings:
     """Complete gameplay configuration."""
 
+    gamepad_button_style: GamepadButtonStyle = "Xbox"
     taxi: TaxiSettings = TaxiSettings()
     race: RaceSettings = RaceSettings()
     effects: GameEffectsSettings = GameEffectsSettings()
@@ -224,7 +226,7 @@ class SettingsDocument:
                 "Crazy Robotaxi user settings. Omitted values inherit preset defaults."
             )
         version = document.get("schema_version", 1)
-        if type(version) is not int or version != 1:
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise SettingsError("schema_version must be 1")
         base = default_settings(
             pipeline_config,
