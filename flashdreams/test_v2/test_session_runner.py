@@ -553,7 +553,12 @@ def test_run_session_presents_every_step_in_order() -> None:
 
     run_session(session, window, steps=3)
 
-    assert [result.step_index for result in window.results] == [1, 2, 3]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1, 2]
+    assert [result.step_index for result in window.results] == sorted(
+        result.step_index for result in window.results
+    )
     assert window.results[-1] is session.ui_loop.latest_result
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
@@ -931,7 +936,9 @@ def test_default_ui_does_not_redraw_an_unchanged_model_frame() -> None:
 
     run_session(session, window, steps=3)
 
-    assert [result.step_index for result in window.results] == [1, 2, 3]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1, 2]
 
 
 def test_drop_oldest_finishes_active_chunk_before_newest_waiting_chunk() -> None:
@@ -1031,14 +1038,30 @@ def test_run_session_gives_the_first_step_input_already_collected() -> None:
     assert len(session.observed_events[0].get_events()) == 1
 
 
-def test_run_session_stops_when_the_window_reports_a_close() -> None:
+def test_run_session_stops_when_the_window_reports_a_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log, [_lifecycle_event(CloseUserInputEvent)])
+    completed: list[bool] = []
+    original_finish = FakeUILoop._finish_run
+
+    def record_finish(
+        self: FakeUILoop,
+        result: StepResult | list[StepResult] | None,
+        *,
+        step_completed: bool,
+    ) -> None:
+        completed.append(step_completed)
+        original_finish(self, result, step_completed=step_completed)
+
+    monkeypatch.setattr(FakeUILoop, "_finish_run", record_finish)
 
     # No step count at all: the close is the only thing that ends this run.
     run_session(session, window, steps=None)
 
+    assert completed == [False]
     assert "session.step(0)" not in log.calls
     assert log.calls[-2:] == ["window.close", "session.close"]
 
@@ -1201,7 +1224,9 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     assert calls == ["session.reset", "session.step(0)", "session.step(1)"]
     assert log.calls.index("session.reset") < log.calls.index("session.step(0)")
     # A reset restarts both loops without granting extra model steps.
-    assert [result.step_index for result in window.results] == [1, 2]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
 
 
 def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None:
@@ -1219,7 +1244,9 @@ def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None
 
     run_session(session, window, steps=None)
 
-    assert [result.step_index for result in window.results] == [1, 2]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
     assert session.is_finished()
 
 
@@ -1231,7 +1258,9 @@ def test_run_session_ends_at_whichever_comes_first() -> None:
 
     run_session(session, window, steps=2)
 
-    assert [result.step_index for result in window.results] == [1, 2]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
 
 
 def test_run_session_lets_a_reset_restart_a_finished_session() -> None:
@@ -1338,7 +1367,9 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
     # what it produced belongs to a generation nobody is watching any more. Only
     # the step from after the reset reaches the window.
     assert log.calls.count("session.step(0)") == 2
-    assert [result.step_index for result in window.results] == [0]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0]
 
 
 def test_equality_eval_preserves_every_frame_when_model_is_faster() -> None:
@@ -1495,16 +1526,32 @@ def test_run_session_with_no_steps_still_opens_and_closes() -> None:
     assert window.results == []
 
 
-def test_run_session_closes_both_when_a_step_raises() -> None:
+def test_run_session_closes_both_when_a_step_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log, fail_at=1)
     window = RecordingClientWindow(log)
+    completed: list[bool] = []
+    original_finish = FakeModelLoop._finish_run
+
+    def record_finish(
+        self: FakeModelLoop,
+        result: StepResult | list[StepResult] | None,
+        *,
+        step_completed: bool,
+    ) -> None:
+        completed.append(step_completed)
+        original_finish(self, result, step_completed=step_completed)
+
+    monkeypatch.setattr(FakeModelLoop, "_finish_run", record_finish)
 
     with pytest.raises(RuntimeError, match="step failed"):
         run_session(session, window, steps=4)
 
     # A failed step must not leak the window or the session, and must not be
     # presented as a result.
+    assert completed == [True, False]
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert [result.step_index for result in window.results] == [1]
 
@@ -1519,7 +1566,9 @@ def test_run_session_reports_a_window_that_fails_to_close() -> None:
     with pytest.raises(RuntimeError, match="close failed"):
         run_session(session, window, steps=2)
 
-    assert [result.step_index for result in window.results] == [1, 2]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
     assert log.calls[-2:] == ["window.close", "session.close"]
 
 
@@ -1565,7 +1614,9 @@ def test_run_session_reports_a_session_that_fails_to_close() -> None:
     with pytest.raises(RuntimeError, match="session close failed"):
         run_session(session, window, steps=2)
 
-    assert [result.step_index for result in window.results] == [1, 2]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
 
 
 def test_run_session_reports_the_step_rather_than_the_session_close(
