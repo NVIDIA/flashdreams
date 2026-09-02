@@ -162,6 +162,27 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
     assert engines[1].closed
 
 
+def test_rollout_attaches_live_edit_style_without_removed_timing_argument() -> None:
+    pipeline = _Pipeline()
+    engine = _Engine()
+    attached: list[tuple[object, object, str]] = []
+
+    class Style:
+        def attach_v2(self, pipeline, cache, prompt):
+            attached.append((pipeline, cache, prompt))
+
+    engine.live_edit = type("LiveEdit", (), {"style": Style()})()
+
+    rollout = WorldModelRollout(
+        pipeline=pipeline,
+        scene=_scene(),
+        engine_factory=lambda: engine,
+    )
+
+    assert attached == [(pipeline, rollout.cache, "a yellow taxi")]
+    rollout.close()
+
+
 def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:
     source = np.zeros((4, 8, 4), dtype=np.uint8)
     source.setflags(write=False)
