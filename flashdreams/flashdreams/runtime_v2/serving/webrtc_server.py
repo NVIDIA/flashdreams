@@ -331,6 +331,7 @@ class WebRTCServer:
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._runner: web.AppRunner | None = None
+        self._offer_lock: asyncio.Lock | None = None
         self._peer_connection: RTCPeerConnection | None = None
         self._video_track: _VideoTrack | None = None
         self._final_video_track_metrics: dict[str, float | int] | None = None
@@ -619,6 +620,7 @@ class WebRTCServer:
 
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
+        self._offer_lock = asyncio.Lock()
         app = web.Application()
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
@@ -663,14 +665,8 @@ class WebRTCServer:
         """Negotiate one browser peer connection."""
         if self._closed:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
-        session_desc = self._session_desc
-        if session_desc is None:
+        if self._session_desc is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
-        existing_peer = self._peer_connection
-        if existing_peer is not None:
-            # This server has one client slot. A new offer is a page refresh or
-            # replacement browser and therefore takes ownership of that slot.
-            await self._release_peer_connection(existing_peer)
 
         try:
             payload = await request.json()
@@ -685,62 +681,110 @@ class WebRTCServer:
                 reason="WebRTC offer requires string sdp and type."
             )
 
-        peer_connection = RTCPeerConnection()
-        self._media_connected.clear()
-        video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
-        self._final_video_track_metrics = None
-        peer_connection.addTrack(video_track)
-        self._peer_connection = peer_connection
-        self._video_track = video_track
+        offer_lock = self._offer_lock
+        if offer_lock is None:
+            raise web.HTTPServiceUnavailable(reason="WebRTC server is not ready.")
+        async with offer_lock:
+            if self._closed:
+                raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
+            session_desc = self._session_desc
+            if session_desc is None:
+                raise web.HTTPConflict(reason="WebRTC server is not open.")
 
-        @peer_connection.on("datachannel")
-        def on_datachannel(channel: Any) -> None:
-            is_reliable_control = channel.label == "controls"
-            if is_reliable_control:
-                self._client_connected = True
+            peer_connection = RTCPeerConnection()
+            video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
+            peer_connection.addTrack(video_track)
+            has_reliable_control = False
 
-            @channel.on("message")
-            def on_message(message: Any) -> None:
-                try:
-                    self._buffer_browser_message(
-                        message,
-                    )
-                except ValueError as error:
-                    channel.send(json.dumps({"type": "error", "message": str(error)}))
-
-            @channel.on("close")
-            async def on_close() -> None:
+            @peer_connection.on("datachannel")
+            def on_datachannel(channel: Any) -> None:
+                nonlocal has_reliable_control
+                is_reliable_control = channel.label == "controls"
                 if is_reliable_control:
+                    has_reliable_control = True
+                    if self._peer_connection is peer_connection:
+                        self._client_connected = True
+
+                @channel.on("message")
+                def on_message(message: Any) -> None:
+                    if self._peer_connection is not peer_connection:
+                        return
+                    try:
+                        self._buffer_browser_message(message)
+                    except ValueError as error:
+                        channel.send(
+                            json.dumps({"type": "error", "message": str(error)})
+                        )
+
+                @channel.on("close")
+                async def on_close() -> None:
+                    if is_reliable_control:
+                        await self._release_peer_connection(peer_connection)
+
+            @peer_connection.on("connectionstatechange")
+            async def on_connectionstatechange() -> None:
+                if self._peer_connection is not peer_connection:
+                    return
+                if peer_connection.connectionState == "connected":
+                    self._media_connected.set()
+                elif peer_connection.connectionState == "disconnected":
+                    self._media_connected.clear()
+                elif peer_connection.connectionState in {"failed", "closed"}:
                     await self._release_peer_connection(peer_connection)
 
-        @peer_connection.on("connectionstatechange")
-        async def on_connectionstatechange() -> None:
+            try:
+                await peer_connection.setRemoteDescription(
+                    RTCSessionDescription(sdp=sdp, type=offer_type)
+                )
+                await peer_connection.setLocalDescription(
+                    await peer_connection.createAnswer()
+                )
+            except ValueError as error:
+                await self._release_peer_connection(
+                    peer_connection,
+                    detached_video_track=video_track,
+                )
+                raise web.HTTPBadRequest(reason="Invalid WebRTC offer.") from error
+            except BaseException:
+                await self._release_peer_connection(
+                    peer_connection,
+                    detached_video_track=video_track,
+                )
+                raise
+
+            local_description = peer_connection.localDescription
+            if local_description is None:
+                await self._release_peer_connection(
+                    peer_connection,
+                    detached_video_track=video_track,
+                )
+                raise web.HTTPInternalServerError(
+                    reason="WebRTC peer did not create an answer."
+                )
+
+            existing_peer = self._peer_connection
+            if existing_peer is not None:
+                # This server has one client slot. A valid new offer is a page
+                # refresh or replacement browser and takes ownership of it.
+                try:
+                    await self._release_peer_connection(existing_peer)
+                except BaseException:
+                    await self._release_peer_connection(
+                        peer_connection,
+                        detached_video_track=video_track,
+                    )
+                    raise
+
+            self._media_connected.clear()
+            self._final_video_track_metrics = None
+            self._peer_connection = peer_connection
+            self._video_track = video_track
+            self._client_connected = has_reliable_control
             if peer_connection.connectionState == "connected":
                 self._media_connected.set()
-            elif peer_connection.connectionState == "disconnected":
-                self._media_connected.clear()
-            elif peer_connection.connectionState in {"failed", "closed"}:
-                await self._release_peer_connection(peer_connection)
-
-        try:
-            await peer_connection.setRemoteDescription(
-                RTCSessionDescription(sdp=sdp, type=offer_type)
+            return web.json_response(
+                {"sdp": local_description.sdp, "type": local_description.type}
             )
-            await peer_connection.setLocalDescription(
-                await peer_connection.createAnswer()
-            )
-        except BaseException:
-            await self._release_peer_connection(peer_connection)
-            raise
-
-        local_description = peer_connection.localDescription
-        if local_description is None:
-            raise web.HTTPInternalServerError(
-                reason="WebRTC peer did not create an answer."
-            )
-        return web.json_response(
-            {"sdp": local_description.sdp, "type": local_description.type}
-        )
 
     def _buffer_browser_message(
         self,
@@ -921,25 +965,32 @@ class WebRTCServer:
     async def _release_peer_connection(
         self,
         peer_connection: RTCPeerConnection,
+        *,
+        detached_video_track: _VideoTrack | None = None,
     ) -> None:
         """Release one disconnected peer while leaving the server open."""
-        if self._peer_connection is not peer_connection:
+        is_active = self._peer_connection is peer_connection
+        if not is_active and detached_video_track is None:
             return
-        self._peer_connection = None
-        self._media_connected.clear()
-        self._client_connected = False
-        track = self._video_track
-        self._video_track = None
+        if is_active:
+            self._peer_connection = None
+            self._media_connected.clear()
+            self._client_connected = False
+            track = self._video_track
+            self._video_track = None
+        else:
+            track = detached_video_track
         failures: list[BaseException] = []
         if track is not None:
             try:
                 await track.close()
             except BaseException as error:
                 failures.append(error)
-            try:
-                self._final_video_track_metrics = track.metrics_snapshot()
-            except BaseException as error:
-                failures.append(error)
+            if is_active:
+                try:
+                    self._final_video_track_metrics = track.metrics_snapshot()
+                except BaseException as error:
+                    failures.append(error)
         if peer_connection.connectionState != "closed":
             try:
                 await peer_connection.close()
