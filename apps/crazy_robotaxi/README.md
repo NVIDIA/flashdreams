@@ -39,20 +39,29 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-Three OmniDreams runner configurations are registered:
+Eight OmniDreams runner configurations are registered:
 
 | Runner | Configuration |
 | --- | --- |
 | `crazy-robotaxi-omnidreams` | Standard |
 | `crazy-robotaxi-omnidreams-perf` | Performance optimized |
 | `crazy-robotaxi-omnidreams-fast-perf` | Fast performance optimized |
+| `crazy-robotaxi-omnidreams-responsive` | Standard with responsive model history |
+| `crazy-robotaxi-omnidreams-perf-responsive` | Performance schedule with responsive model history |
+| `crazy-robotaxi-omnidreams-fast-perf-responsive` | Native FP8 VAE with responsive model history |
+| `crazy-robotaxi-omnidreams-optimized-gb300-responsive` | GB300-optimized attention with responsive model history |
+| `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive` | RTX PRO 6000-optimized attention with responsive model history |
 
-The performance configurations require the native DiT sources to be prepared
-once:
+The `crazy-robotaxi-omnidreams-perf` and
+`crazy-robotaxi-omnidreams-fast-perf` presets use native DiT acceleration and
+require its CUDA sources to be prepared once:
 
 ```bash
 uv run --package flashdreams-omnidreams omnidreams-prepare --perf
 ```
+
+The five presets whose names end in `-responsive` disable native DiT and do
+not require that setup.
 
 Application arguments follow `--`. For example:
 

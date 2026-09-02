@@ -108,6 +108,11 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 "crazy-robotaxi-omnidreams" = "omnidreams.apps.crazy_robotaxi.adapter:create_app"
 "crazy-robotaxi-omnidreams-perf" = "omnidreams.apps.crazy_robotaxi.adapter:create_perf_app"
 "crazy-robotaxi-omnidreams-fast-perf" = "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
+"crazy-robotaxi-omnidreams-responsive" = "omnidreams.apps.crazy_robotaxi.adapter:create_responsive_app"
+"crazy-robotaxi-omnidreams-perf-responsive" = "omnidreams.apps.crazy_robotaxi.adapter:create_perf_responsive_app"
+"crazy-robotaxi-omnidreams-fast-perf-responsive" = "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_responsive_app"
+"crazy-robotaxi-omnidreams-optimized-gb300-responsive" = "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_gb300_responsive_app"
+"crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive" = "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_rtx_pro_6000_responsive_app"
 
 [tool.setuptools]
 packages = [

@@ -271,6 +271,7 @@ class MultiHeadAttention(nn.Module):
         n_heads: int = 8,
         head_dim: int = 64,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        apply_rope_before_kvcache: bool = True,
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -280,6 +281,8 @@ class MultiHeadAttention(nn.Module):
             n_heads: Number of attention heads.
             head_dim: Per-head feature dimension. Inner dimension is ``n_heads * head_dim``.
             cp_method: Context-parallel attention method.
+            apply_rope_before_kvcache: Rotate keys before caching. ``False``
+                stores unrotated keys and applies cache-relative RoPE on read.
         """
         super().__init__()
         context_dim = query_dim if context_dim is None else context_dim
@@ -289,6 +292,7 @@ class MultiHeadAttention(nn.Module):
         self.head_dim = head_dim
         self.query_dim = query_dim
         self.context_dim = context_dim
+        self.apply_rope_before_kvcache = apply_rope_before_kvcache
 
         self.q_proj = nn.Linear(query_dim, inner_dim, bias=False)
         self.k_proj = nn.Linear(context_dim, inner_dim, bias=False)
@@ -337,7 +341,7 @@ class MultiHeadAttention(nn.Module):
 
         k = self.k_norm(self.k_proj(context).reshape(batch_size, L, n, d))
         v = self.v_proj(context).reshape(batch_size, L, n, d)
-        if rope_freqs is not None:
+        if rope_freqs is not None and self.apply_rope_before_kvcache:
             k = apply_rope_freqs(k, rope_freqs)
 
         if kv_cache is None:
@@ -367,14 +371,17 @@ class MultiHeadAttention(nn.Module):
         self,
         x: Tensor,
         kv_cache: BlockKVCache,
-        rope_freqs: Tensor | None = None,
+        rope_freqs_q: Tensor | None = None,
+        rope_freqs_k: Tensor | None = None,
     ) -> Tensor:
         """Run attention using ``x`` as queries and ``kv_cache`` as K/V source.
 
         Args:
             x: Query tensor of shape [..., L, n * d].
             kv_cache: KV cache for inference.
-            rope_freqs: RoPE frequencies, shape [L, 1, 1, d // 2].
+            rope_freqs_q: Query RoPE frequencies, shape ``[L, 1, 1, d]``.
+            rope_freqs_k: Visible-cache RoPE frequencies, shape
+                ``[S, 1, 1, d]``. Required in cache-relative mode.
 
         Returns:
             Output tensor of shape [..., L, n * d] after projection.
@@ -386,15 +393,35 @@ class MultiHeadAttention(nn.Module):
         assert n * d == D, "n * d must be equal to D"
 
         q = self.q_norm(self.q_proj(x).reshape(batch_size, L, n, d))
-        if rope_freqs is not None:
-            q = apply_rope_freqs(q, rope_freqs)
+        if rope_freqs_q is not None:
+            q = apply_rope_freqs(q, rope_freqs_q)
 
         cached_k = kv_cache.cached_k()
+        if not self.apply_rope_before_kvcache:
+            assert rope_freqs_k is not None, (
+                "KV-cache-relative RoPE requires frequencies for cached keys"
+            )
+            cached_k = apply_rope_freqs(cached_k.clone(), rope_freqs_k)
         cached_v = kv_cache.cached_v()
 
         out = self.attn_op(q, cached_k, cached_v)
         out = out.reshape(batch_shape + (L, n * d))
         return self.output_proj(out)
+
+    def _slice_rope_freqs(
+        self,
+        rope_freqs: Tensor | None,
+        kv_cache: BlockKVCache,
+    ) -> tuple[Tensor | None, Tensor | None]:
+        """Select current-query and visible-key RoPE frequencies."""
+        if rope_freqs is None:
+            return None, None
+        if self.apply_rope_before_kvcache:
+            return rope_freqs, rope_freqs
+
+        write_end = kv_cache.write_end
+        write_start = write_end - kv_cache.chunk_size
+        return rope_freqs[write_start:write_end], rope_freqs[: kv_cache.size]
 
     def forward(
         self,
@@ -414,9 +441,10 @@ class MultiHeadAttention(nn.Module):
         Returns:
             Projected output tensor of shape [..., L, query_dim].
         """
+        rope_freqs_q, rope_freqs_k = self._slice_rope_freqs(rope_freqs, kv_cache)
         if update_kv_cache:
-            kv_cache = self.update_kv(x, kv_cache, rope_freqs)
-        return self.query_kv(x, kv_cache, rope_freqs)
+            kv_cache = self.update_kv(x, kv_cache, rope_freqs_k)
+        return self.query_kv(x, kv_cache, rope_freqs_q, rope_freqs_k)
 
 
 class SelfAttention(MultiHeadAttention):
@@ -640,6 +668,7 @@ class OptimizedSelfAttention(OptimizedMultiHeadAttention):
         n_heads: int = 8,
         head_dim: int = 64,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        apply_rope_before_kvcache: bool = True,
         optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
             qkv_fusion_option=QKVFusionOption.FULL,
             sdpa_backend=SDPABackend.FA2,
@@ -655,6 +684,8 @@ class OptimizedSelfAttention(OptimizedMultiHeadAttention):
             head_dim: Per-head feature dimension.
             cp_method: Ignored context-parallel method retained for constructor
                 compatibility with Omnidreams attention.
+            apply_rope_before_kvcache: Rotate keys before caching. ``False``
+                applies cache-relative RoPE after reading the cache.
             optimized_impl_config: optimized backend and projection-fusion policies.
 
         Raises:
@@ -678,7 +709,11 @@ class OptimizedSelfAttention(OptimizedMultiHeadAttention):
                 qk_norm_scope=QKNormScope.HEAD,
                 rope_config=RoPEConfig(
                     style=RoPEStyle.SPLIT,
-                    scope=RoPEScope.BEFORE_KV_CACHE,
+                    scope=(
+                        RoPEScope.BEFORE_KV_CACHE
+                        if apply_rope_before_kvcache
+                        else RoPEScope.AFTER_KV_CACHE
+                    ),
                 ),
             ),
             optimized_impl_config=optimized_impl_config,
@@ -772,6 +807,7 @@ class Block(nn.Module):
             qkv_fusion_option=QKVFusionOption.FUSE_KV,
             sdpa_backend=SDPABackend.FA2,
         ),
+        apply_rope_before_kvcache: bool = True,
     ) -> None:
         super().__init__()
         self.x_dim = x_dim
@@ -797,6 +833,7 @@ class Block(nn.Module):
                 n_heads=num_heads,
                 head_dim=x_dim // num_heads,
                 cp_method=cp_method,
+                apply_rope_before_kvcache=apply_rope_before_kvcache,
             )
         else:
             self.self_attn = OptimizedSelfAttention(
@@ -805,6 +842,7 @@ class Block(nn.Module):
                 n_heads=num_heads,
                 head_dim=x_dim // num_heads,
                 cp_method=cp_method,
+                apply_rope_before_kvcache=apply_rope_before_kvcache,
                 optimized_impl_config=self.self_attn_optimized_impl_config,
             )
 

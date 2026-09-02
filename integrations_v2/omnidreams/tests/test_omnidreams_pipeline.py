@@ -32,9 +32,11 @@ from omnidreams.impl.transformer import (
 from omnidreams.impl.transformer.context_parallel import (
     HierarchicalCPGroups,
 )
+from omnidreams.impl.transformer.network import CosmosDiTNetworkConfig
 
 # Mixed markers: most tests are ci_cpu; streaming_inference is manual.
 # Per-function markers used below.
+from flashdreams.core.attention import KVCacheRelativeRotaryPositionEmbedding3D
 from flashdreams.infra.pipeline import StreamInferencePipeline
 
 
@@ -225,10 +227,12 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
             model_channels=fake_network.model_channels,
             num_heads=fake_network.num_heads,
             enable_cross_view_attn=fake_network.enable_cross_view_attn,
+            apply_rope_before_kvcache=True,
         ),
         len_t=1,
         window_size_t=1,
         sink_size_t=0,
+        early_short_history_block_count=None,
         h_extrapolation_ratio=1.0,
         w_extrapolation_ratio=1.0,
         dtype=torch.float32,
@@ -349,6 +353,114 @@ def test_cosmos_transformer_checkpoint_path_none_keeps_random_init(
 
     assert isinstance(transformer.network, FakeNetwork)
     assert transformer.network.updated_after_load is True
+
+
+@pytest.mark.ci_cpu
+def test_cosmos_transformer_builds_cache_relative_rope() -> None:
+    transformer = CosmosTransformer(
+        CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(
+                in_channels=1,
+                out_channels=1,
+                patch_spatial=1,
+                patch_temporal=1,
+                model_channels=12,
+                num_blocks=0,
+                num_heads=1,
+                use_crossattn_projection=False,
+                apply_rope_before_kvcache=False,
+            ),
+            checkpoint_path=None,
+            len_t=2,
+            window_size_t=4,
+            sink_size_t=0,
+            compile_network=False,
+            use_cuda_graph=False,
+            native_dit_acceleration="disabled",
+            dtype=torch.float32,
+        )
+    )
+
+    cache = transformer.initialize_autoregressive_cache(
+        height=1,
+        width=1,
+        text_embeddings=torch.zeros(1, 1, 1, 1),
+        image_embeddings=torch.zeros(1, 1, 1, 1, 1, 1),
+    )
+
+    assert isinstance(cache.rope_adapter, KVCacheRelativeRotaryPositionEmbedding3D)
+    assert cache.rope_adapter.kvcache_total_size_t == 4
+
+
+@pytest.mark.ci_cpu
+def test_cache_relative_rope_rejects_native_dit() -> None:
+    with pytest.raises(ValueError, match="not supported by native DiT"):
+        CosmosTransformer(
+            CosmosTransformerConfig(
+                network=CosmosDiTNetworkConfig(
+                    apply_rope_before_kvcache=False,
+                ),
+                checkpoint_path=None,
+                compile_network=False,
+                use_cuda_graph=False,
+                native_dit_acceleration="required",
+            )
+        )
+
+
+@pytest.mark.ci_cpu
+def test_cosmos_transformer_builds_early_short_history_caches() -> None:
+    transformer = CosmosTransformer(
+        CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(
+                in_channels=1,
+                out_channels=1,
+                patch_spatial=1,
+                patch_temporal=1,
+                model_channels=12,
+                num_blocks=4,
+                num_heads=1,
+                use_crossattn_projection=False,
+                crossattn_emb_channels=12,
+                apply_rope_before_kvcache=False,
+            ),
+            checkpoint_path=None,
+            len_t=2,
+            window_size_t=4,
+            sink_size_t=0,
+            early_short_history_block_count=2,
+            compile_network=False,
+            use_cuda_graph=False,
+            native_dit_acceleration="disabled",
+            dtype=torch.float32,
+        )
+    )
+
+    cache = transformer.initialize_autoregressive_cache(
+        height=1,
+        width=1,
+        text_embeddings=torch.zeros(1, 1, 1, 12),
+        image_embeddings=torch.zeros(1, 1, 1, 1, 1, 1),
+    )
+
+    assert [
+        block.self_attn.window_size for block in cache.network_cache.block_caches
+    ] == [2, 2, 4, 4]
+
+    for chunk_index in range(3):
+        cache.network_cache.before_update(chunk_index)
+        chunk = torch.full((1, 2, 1, 12), float(chunk_index))
+        for block in cache.network_cache.block_caches:
+            block.self_attn.update(chunk, chunk)
+        cache.network_cache.after_update(chunk_index)
+
+    short_keys, _ = cache.network_cache.block_caches[0].self_attn.clone_kv()
+    long_keys, _ = cache.network_cache.block_caches[2].self_attn.clone_kv()
+    torch.testing.assert_close(short_keys, torch.full_like(short_keys, 2.0))
+    torch.testing.assert_close(
+        long_keys,
+        torch.tensor([1.0, 1.0, 2.0, 2.0]).reshape(1, 4, 1, 1).expand_as(long_keys),
+    )
 
 
 @pytest.mark.ci_cpu

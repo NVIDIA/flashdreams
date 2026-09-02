@@ -212,6 +212,96 @@ OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG = cast(
 """Fast config that uses native FP8 LightVAE with cached calibration."""
 
 
+OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PIPELINE_CONFIG,
+        name="omnidreams-responsive",
+        diffusion_model=dict(
+            transformer=dict(
+                window_size_t=4,
+                native_dit_acceleration="disabled",
+                early_short_history_block_count=9,
+                network=dict(apply_rope_before_kvcache=False),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Regular config with responsive early-block visual history."""
+
+
+OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        name="omnidreams-perf-responsive",
+        diffusion_model=dict(
+            transformer=dict(
+                window_size_t=4,
+                native_dit_acceleration="disabled",
+                early_short_history_block_count=9,
+                network=dict(apply_rope_before_kvcache=False),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Performance schedule with responsive early-block visual history."""
+
+
+OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        name="omnidreams-fast-perf-responsive",
+        diffusion_model=dict(
+            transformer=dict(
+                window_size_t=4,
+                native_dit_acceleration="disabled",
+                early_short_history_block_count=9,
+                network=dict(apply_rope_before_kvcache=False),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Native-VAE fast config with responsive early-block visual history."""
+
+
+OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        name="omnidreams-optimized-gb300-responsive",
+        diffusion_model=dict(
+            transformer=dict(
+                window_size_t=4,
+                native_dit_acceleration="disabled",
+                early_short_history_block_count=9,
+                network=dict(apply_rope_before_kvcache=False),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""GB300-optimized attention with responsive early-block visual history."""
+
+
+OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        name="omnidreams-optimized-rtx-pro-6000-responsive",
+        diffusion_model=dict(
+            transformer=dict(
+                window_size_t=4,
+                native_dit_acceleration="disabled",
+                early_short_history_block_count=9,
+                network=dict(apply_rope_before_kvcache=False),
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""RTX PRO 6000 attention with responsive early-block visual history."""
+
+
 OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
     config.name: config
     for config in (
@@ -220,6 +310,11 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
         OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
         OMNIDREAMS_PERF_PIPELINE_CONFIG,
         OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+        OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
+        OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+        OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
+        OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
     )
 }
 """The public OmniDreams pipeline configurations, keyed by slug."""

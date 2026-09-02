@@ -17,13 +17,13 @@
 
 import pytest
 import torch
-from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.transformer import modules as transformer_modules
 from omnidreams.impl.transformer.modules import AttentionBackend, Block
 from omnidreams.impl.transformer.network import CosmosDiTNetwork, CosmosDiTNetworkConfig
 
 from flashdreams.accelerated.multi_head_attention import (
     AttentionType,
+    RoPEScope,
 )
 from flashdreams.accelerated.multi_head_attention import (
     optimized as optimized_attention,
@@ -64,6 +64,7 @@ def test_dit_attention_backend_defaults_to_omnidreams() -> None:
     assert default_block.cross_attention_backend is AttentionBackend.OMNIDREAMS
     assert transformer_modules.MultiHeadAttention.__base__ is torch.nn.Module
     assert isinstance(default_block.self_attn, transformer_modules.SelfAttention)
+    assert default_block.self_attn.apply_rope_before_kvcache
     assert isinstance(default_block.cross_attn, transformer_modules.CrossAttention)
 
 
@@ -166,6 +167,76 @@ def test_omnidreams_attention_preserves_cache_lifecycles(
     torch.testing.assert_close(cross_cache.cached_v(), cached_value)
 
 
+def test_omnidreams_cache_relative_rope_keeps_unrotated_rolling_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reapply RoPE on cache reads without mutating the stored keys."""
+
+    def cpu_sdpa(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.nn.functional.scaled_dot_product_attention(query, key, value)
+
+    attention = transformer_modules.SelfAttention(
+        query_dim=16,
+        n_heads=1,
+        head_dim=16,
+        apply_rope_before_kvcache=False,
+    )
+    monkeypatch.setattr(
+        transformer_modules,
+        "apply_rope_freqs",
+        lambda tensor, _freqs: tensor + 10.0,
+    )
+    monkeypatch.setattr(attention.attn_op, "_impl", cpu_sdpa)
+    cache = attention.allocate_kv_cache(
+        batch_size=1,
+        chunk_size=2,
+        window_size=4,
+        sink_size=0,
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+    )
+    chunks = [torch.randn(1, 2, 16) for _ in range(3)]
+    rope_freqs = torch.zeros(4, 1, 1, 16)
+
+    for chunk_idx, chunk in enumerate(chunks):
+        cache.before_update(chunk_idx)
+        output = attention(chunk, cache, rope_freqs=rope_freqs)
+        cache.after_update(chunk_idx)
+        assert output.shape == chunk.shape
+
+    expected = torch.cat(
+        [
+            attention.k_norm(attention.k_proj(chunk).reshape(1, 2, 1, 16))
+            for chunk in chunks[-2:]
+        ],
+        dim=1,
+    )
+    cached_key, _ = cache.clone_kv()
+    torch.testing.assert_close(cached_key, expected)
+
+
+def test_optimized_attention_selects_after_cache_rope() -> None:
+    config = CosmosDiTNetworkConfig(
+        model_channels=32,
+        num_blocks=1,
+        num_heads=2,
+        crossattn_emb_channels=16,
+        use_crossattn_projection=False,
+        self_attention_backend=AttentionBackend.OPTIMIZED,
+        apply_rope_before_kvcache=False,
+    )
+
+    attention = CosmosDiTNetwork(config).blocks[0].self_attn
+
+    assert isinstance(attention, transformer_modules.OptimizedSelfAttention)
+    assert attention.attention_config.rope_config is not None
+    assert attention.attention_config.rope_config.scope is RoPEScope.AFTER_KV_CACHE
+
+
 def test_optimized_attention_caches_cuda_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -224,6 +295,10 @@ def test_network_config_selects_optimized_attention(
     self_attention = block.self_attn
     assert isinstance(self_attention, OptimizedMultiHeadAttention)
     assert self_attention.attention_type is AttentionType.SELF_ATTENTION
+    assert self_attention.attention_config.rope_config is not None
+    assert (
+        self_attention.attention_config.rope_config.scope is RoPEScope.BEFORE_KV_CACHE
+    )
     assert self_attention.optimized_impl_config is optimized_impl_config
     assert self_attention.qkv_fusion_option is QKVFusionOption.FULL
     assert self_attention.sdpa_backend is sdpa_backend
