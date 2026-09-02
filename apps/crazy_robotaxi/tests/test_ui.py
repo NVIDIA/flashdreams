@@ -1963,7 +1963,7 @@ def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
         640,
         540,
         _calibration(),
-        gamepad_button_style="Nintendo Switch",
+        gamepad_button_style="Xbox",
     )
     state.consume_input_events(
         UserInputEvents(
@@ -1982,20 +1982,27 @@ def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
     state._draw_control_tooltips(imgui)
 
     hints = [value for row in imgui.tables["##gameplay-control-hints"] for value in row]
-    assert "ZR" in hints
-    assert "ZL" in hints
+    assert "RT" in hints
+    assert "LT" in hints
     assert "LEFT STICK X" in hints
     assert "LEFT STICK X (INVERTED)" not in hints
-    assert "PLUS" in hints
-    assert "MINUS" in hints
+    assert "START / MENU" in hints
+    assert "BACK / VIEW" in hints
     assert "W / UP ARROW" not in hints
+    column_widths = imgui.table_column_widths["##gameplay-control-hints"]
+    assert column_widths[1::2] == [
+        max(imgui.calc_text_size(value).x for value in hints[1::2])
+    ] * (len(column_widths) // 2)
 
     terminal_imgui = _FakeImGui()
     state._draw_terminal(
         terminal_imgui,
         _snapshot(session_state="leaderboard"),
     )
-    assert "PLUS RESTART   |   MINUS MENU" in terminal_imgui.windows["Game Over"]
+    assert (
+        "START / MENU RESTART   |   BACK / VIEW MENU"
+        in terminal_imgui.windows["Game Over"]
+    )
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:

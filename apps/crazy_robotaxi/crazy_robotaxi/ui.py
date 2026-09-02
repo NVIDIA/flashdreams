@@ -1647,13 +1647,21 @@ class TaxiHudState:
             if imgui.begin_table(
                 "##gameplay-control-hints",
                 pair_count * 2,
-                flags=(
-                    imgui.TableFlags_.no_saved_settings
-                    | imgui.TableFlags_.sizing_fixed_same
-                ),
+                flags=imgui.TableFlags_.no_saved_settings,
                 outer_size=imgui.ImVec2(content_width, 0.0),
             ):
                 try:
+                    for pair in range(pair_count):
+                        imgui.table_setup_column(
+                            f"ACTION##{pair}",
+                            imgui.TableColumnFlags_.width_fixed,
+                            action_width,
+                        )
+                        imgui.table_setup_column(
+                            f"BINDING##{pair}",
+                            imgui.TableColumnFlags_.width_fixed,
+                            binding_width,
+                        )
                     for index, (action, binding) in enumerate(entries):
                         pair = index % pair_count
                         if pair == 0:
