@@ -19,6 +19,12 @@ from __future__ import annotations
 
 import torch
 
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig,
+    QKVFusionOption,
+    QuantizationOption,
+    SDPABackend,
+)
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
@@ -28,6 +34,7 @@ from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
 )
+from flashdreams.recipes.wan.transformer.impl.modules import AttentionBackend
 from lingbot.encoder.camctrl import (
     I2VCamCtrlEncoderConfig,
     LingbotI2VCtrlEncoderConfig,
@@ -136,6 +143,77 @@ RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = LingbotWorldRunnerConfig(
     pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
 )
 
+PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000 = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    name="lingbot-world-fast-taehv-window15-sink3-rtx-pro-6000",
+    diffusion_model=dict(
+        transformer=dict(
+            network=dict(
+                self_attention_backend=AttentionBackend.OPTIMIZED,
+                cross_attention_backend=AttentionBackend.OPTIMIZED,
+                self_attn_optimized_impl_config=OptimizedImplConfig(
+                    qkv_fusion_option=QKVFusionOption.NONE,
+                    sdpa_backend=SDPABackend.FA2,
+                    use_tma=True,
+                    quantization=QuantizationOption(
+                        projection=torch.float8_e4m3fn,
+                        quantized_sdpa=True,
+                    ),
+                ),
+                cross_attn_optimized_impl_config=OptimizedImplConfig(
+                    qkv_fusion_option=QKVFusionOption.NONE,
+                    sdpa_backend=SDPABackend.FA2,
+                    use_tma=True,
+                    quantization=QuantizationOption(
+                        projection=torch.float8_e4m3fn,
+                        quantized_sdpa=True,
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000 = LingbotWorldRunnerConfig(
+    runner_name=(PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000.name),
+    description=(
+        "LingBot-World Fast streaming camera-control I2V "
+        "(LightTAE decoder, window=15 + sink=3 streaming KV cache, "
+        "RTX PRO 6000 optimized MHA)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000,
+)
+
+PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300 = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    name="lingbot-world-fast-taehv-window15-sink3-gb300",
+    diffusion_model=dict(
+        transformer=dict(
+            network=dict(
+                self_attention_backend=AttentionBackend.OPTIMIZED,
+                cross_attention_backend=AttentionBackend.TORCH,
+                self_attn_optimized_impl_config=OptimizedImplConfig(
+                    qkv_fusion_option=QKVFusionOption.NONE,
+                    sdpa_backend=SDPABackend.CUDNN,
+                    use_tma=False,
+                    quantization=QuantizationOption(
+                        projection=None,
+                        quantized_sdpa=True,
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300 = LingbotWorldRunnerConfig(
+    runner_name=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300.name,
+    description=(
+        "LingBot-World Fast streaming camera-control I2V "
+        "(LightTAE decoder, window=15 + sink=3 streaming KV cache, "
+        "GB300 optimized self-attention)."
+    ),
+    pipeline=PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300,
+)
+
 # LingBot-World v2 uses the same architecture and runtime as v1. The
 # transformer checkpoint is the only model-level substitution; it inherits
 # the bounded checkpoint loader from the v1 base config.
@@ -180,6 +258,8 @@ PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
     for cfg in (
         PIPELINE_LINGBOT_WORLD_FAST,
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+        PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000,
+        PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
     )
@@ -191,6 +271,8 @@ RUNNER_CONFIGS: dict[str, RunnerConfig] = {
     for cfg in (
         RUNNER_LINGBOT_WORLD_FAST,
         RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+        RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_RTX_PRO_6000,
+        RUNNER_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3_GB300,
         RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         RUNNER_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
     )

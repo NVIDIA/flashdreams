@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal
 
 import torch
@@ -26,12 +27,43 @@ import torch.nn as nn
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
+from flashdreams.accelerated.common.non_persistent_linear import (
+    NonPersistentLinear,
+)
+from flashdreams.accelerated.multi_head_attention import (
+    AttentionConfig,
+    AttentionType,
+    QKNormScope,
+    RoPEConfig,
+    RoPEScope,
+    RoPEStyle,
+)
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig,
+    OptimizedMultiHeadAttention,
+    QKVFusionOption,
+    SDPABackend,
+)
+from flashdreams.accelerated.quantization.linear import (
+    QuantizedNonPersistentLinear,
+)
+from flashdreams.accelerated.quantization.quantizer import Granularity
 from flashdreams.core.attention import (
     BlockKVCache,
     ContextParallelAttention,
     NativeAttention,
 )
 from flashdreams.core.attention.rope import apply_rope_freqs
+
+
+class AttentionBackend(str, Enum):
+    """Attention implementation used by a Wan DiT block."""
+
+    TORCH = "torch"
+    """Use the PyTorch attention implementation."""
+
+    OPTIMIZED = "optimized"
+    """Use accelerated multi-head attention."""
 
 
 def sinusoidal_embedding_1d(dim: int, position: Tensor) -> Tensor:
@@ -386,6 +418,134 @@ class SelfAttention(MultiHeadAttention):
         return super().forward(x, kv_cache, rope_freqs=rope_freqs, update_kv_cache=True)
 
 
+class OptimizedSelfAttention(OptimizedMultiHeadAttention):
+    """Accelerated self-attention adapted to the Wan checkpoint layout."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the checkpoint-native query projection."""
+        return self.q
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the checkpoint-native key projection."""
+        return self.k
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the checkpoint-native value projection."""
+        return self.v
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the checkpoint-native output projection."""
+        return self.o
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return the checkpoint-native query normalization."""
+        return self.norm_q
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return the checkpoint-native key normalization."""
+        return self.norm_k
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+        eps: float = 1e-6,
+        apply_rope_before_kvcache: bool = True,
+        cp_method: Literal["ring", "ulysses"] = "ring",
+        optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FULL,
+            sdpa_backend=SDPABackend.FA2,
+        ),
+    ) -> None:
+        """Initialize optimized Wan self-attention.
+
+        Args:
+            query_dim: Feature dimension of input and output tokens.
+            context_dim: Self-attention context width; ``None`` uses
+                ``query_dim``.
+            n_heads: Number of attention heads.
+            head_dim: Per-head feature dimension.
+            eps: Epsilon for inner-width Q/K RMS normalization.
+            apply_rope_before_kvcache: Apply interleaved RoPE before cache
+                storage when ``True`` and to visible cached keys otherwise.
+            cp_method: Ignored context-parallel method retained for constructor
+                compatibility with Wan attention.
+            optimized_impl_config: Projection and attention implementation policy.
+        """
+        del cp_method
+        context_dim = query_dim if context_dim is None else context_dim
+        super().__init__(
+            attention_type=AttentionType.SELF_ATTENTION,
+            attention_config=AttentionConfig(
+                query_dim=query_dim,
+                context_dim=context_dim,
+                n_heads=n_heads,
+                head_dim=head_dim,
+                qk_norm_scope=QKNormScope.INNER,
+                qk_norm_eps=eps,
+                rope_config=RoPEConfig(
+                    style=RoPEStyle.INTERLEAVED,
+                    scope=(
+                        RoPEScope.BEFORE_KV_CACHE
+                        if apply_rope_before_kvcache
+                        else RoPEScope.AFTER_KV_CACHE
+                    ),
+                ),
+            ),
+            optimized_impl_config=optimized_impl_config,
+        )
+        inner_dim = self.attention_config.inner_dim
+        self.q = nn.Linear(query_dim, inner_dim)
+        self.k = nn.Linear(context_dim, inner_dim)
+        self.v = nn.Linear(context_dim, inner_dim)
+        self.o = nn.Linear(inner_dim, query_dim)
+        self.norm_q = nn.RMSNorm(inner_dim, eps=eps)
+        self.norm_k = nn.RMSNorm(inner_dim, eps=eps)
+        self._initialize_derived_weights()
+
+    def initialize_cache(
+        self,
+        batch_size: int,
+        chunk_size: int,
+        window_size: int,
+        sink_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> BlockKVCache:
+        """Allocate a rolling K/V cache for streaming self-attention."""
+        return self.allocate_kv_cache(
+            batch_size,
+            chunk_size,
+            window_size,
+            sink_size,
+            device,
+            dtype,
+        )
+
+    def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
+        """Reject context parallelism unsupported by optimized attention."""
+        if cp_group is not None:
+            raise NotImplementedError(
+                "Optimized attention does not support context parallelism"
+            )
+
+    def is_context_parallel_enabled(self) -> bool:
+        """Return whether context parallelism is enabled."""
+        return False
+
+    def context_parallel_size(self) -> int:
+        """Return the singleton context-parallel world size."""
+        return 1
+
+
 @dataclass
 class CrossAttnCache:
     """Cache container for cross-attention."""
@@ -482,6 +642,249 @@ class CrossAttention(MultiHeadAttention):
         return self.o(out)
 
 
+class OptimizedCrossAttention(OptimizedMultiHeadAttention):
+    """Accelerated static-context attention with optional Wan I2V context."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the checkpoint-native query projection."""
+        return self.q
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the checkpoint-native text-key projection."""
+        return self.k
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the checkpoint-native text-value projection."""
+        return self.v
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the checkpoint-native output projection."""
+        return self.o
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return the checkpoint-native query normalization."""
+        return self.norm_q
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return the checkpoint-native text-key normalization."""
+        return self.norm_k
+
+    def __init__(
+        self,
+        query_dim: int,
+        context_dim: int | None = None,
+        n_heads: int = 8,
+        head_dim: int = 64,
+        eps: float = 1e-6,
+        i2v: bool = False,
+        cp_method: Literal["ring", "ulysses"] = "ring",
+        optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FUSE_KV,
+            sdpa_backend=SDPABackend.FA2,
+        ),
+    ) -> None:
+        """Initialize optimized Wan cross-attention.
+
+        Args:
+            query_dim: Feature dimension of query and output tokens.
+            context_dim: Context token width; ``None`` uses ``query_dim``.
+            n_heads: Number of attention heads.
+            head_dim: Per-head feature dimension.
+            eps: Epsilon for inner-width Q/K RMS normalization.
+            i2v: Build the additional image-context K/V projections.
+            cp_method: Ignored context-parallel method retained for constructor
+                compatibility with Wan attention.
+            optimized_impl_config: Projection and attention implementation policy.
+        """
+        del cp_method
+        context_dim = query_dim if context_dim is None else context_dim
+        super().__init__(
+            attention_type=AttentionType.CROSS_ATTENTION,
+            attention_config=AttentionConfig(
+                query_dim=query_dim,
+                context_dim=context_dim,
+                n_heads=n_heads,
+                head_dim=head_dim,
+                qk_norm_scope=QKNormScope.INNER,
+                qk_norm_eps=eps,
+            ),
+            optimized_impl_config=optimized_impl_config,
+        )
+        inner_dim = self.attention_config.inner_dim
+        self.i2v = i2v
+        self.q = nn.Linear(query_dim, inner_dim)
+        self.k = nn.Linear(context_dim, inner_dim)
+        self.v = nn.Linear(context_dim, inner_dim)
+        self.o = nn.Linear(inner_dim, query_dim)
+        self.norm_q = nn.RMSNorm(inner_dim, eps=eps)
+        self.norm_k = nn.RMSNorm(inner_dim, eps=eps)
+        if i2v:
+            self.k_img = nn.Linear(context_dim, inner_dim)
+            self.v_img = nn.Linear(context_dim, inner_dim)
+            self.norm_k_img = nn.RMSNorm(inner_dim, eps=eps)
+        self._initialize_derived_weights()
+
+    @torch.no_grad()
+    def _refresh_derived_weights(self, *args: object) -> None:
+        super()._refresh_derived_weights(*args)
+        self.fused_kv_img: NonPersistentLinear | None = None
+        self.quantized_key_projection_img: QuantizedNonPersistentLinear | None = None
+        self.quantized_value_projection_img: QuantizedNonPersistentLinear | None = None
+        if not getattr(self, "i2v", False):
+            return
+
+        projection_dtype = self.optimized_impl_config.quantization.projection
+        image_biases = (self.k_img.bias, self.v_img.bias)
+        present_biases = tuple(bias for bias in image_biases if bias is not None)
+        if present_biases and len(present_biases) != len(image_biases):
+            raise ValueError(
+                "image key and value projections must either both have biases "
+                "or both omit biases"
+            )
+
+        if self.qkv_fusion_option is QKVFusionOption.NONE:
+            if projection_dtype is not None:
+                self.quantized_key_projection_img = self._new_quantized_projection(
+                    self.k_img.weight, self.k_img.bias, projection_dtype
+                )
+                self.quantized_value_projection_img = self._new_quantized_projection(
+                    self.v_img.weight, self.v_img.bias, projection_dtype
+                )
+            return
+
+        fused_weight = torch.cat((self.k_img.weight, self.v_img.weight), dim=0)
+        fused_bias = torch.cat(present_biases, dim=0) if present_biases else None
+        if projection_dtype is None:
+            self.fused_kv_img = NonPersistentLinear(
+                fused_weight.detach().contiguous(),
+                None if fused_bias is None else fused_bias.detach(),
+            )
+        else:
+            self.fused_kv_img = self._new_quantized_projection(
+                fused_weight.detach().contiguous(),
+                None if fused_bias is None else fused_bias.detach(),
+                projection_dtype,
+            )
+
+    def _project_image_kv(self, context: Tensor) -> tuple[Tensor, Tensor]:
+        assert self.attention_config.context_dim is not None
+        self._validate_tokens(context, self.attention_config.context_dim, "context")
+        sequence_length = context.shape[-2]
+        head_shape = (
+            -1,
+            sequence_length,
+            self.attention_config.n_heads,
+            self.attention_config.head_dim,
+        )
+        projection_dtype = self.optimized_impl_config.quantization.projection
+        if self.qkv_fusion_option is QKVFusionOption.NONE:
+            if projection_dtype is None:
+                projected_key = self.k_img(context)
+                projected_value = self.v_img(context)
+            else:
+                if (
+                    self.quantized_key_projection_img is None
+                    or self.quantized_value_projection_img is None
+                ):
+                    raise RuntimeError(
+                        "quantized image K/V projections are not initialized"
+                    )
+                quantized_context, context_scale = self._prequantize_projection_input(
+                    context
+                )
+                projected_key = self.quantized_key_projection_img(
+                    quantized_context, context_scale, out_dtype=context.dtype
+                )
+                projected_value = self.quantized_value_projection_img(
+                    quantized_context, context_scale, out_dtype=context.dtype
+                )
+            key = projected_key.reshape(head_shape)
+            value = projected_value.reshape(head_shape)
+        else:
+            if self.fused_kv_img is None:
+                raise RuntimeError("fused image K/V projection is not initialized")
+            if projection_dtype is None:
+                projected_kv = self.fused_kv_img(context)
+            else:
+                assert isinstance(self.fused_kv_img, QuantizedNonPersistentLinear)
+                projected_kv = self.fused_kv_img(
+                    context, Granularity.SLICE, out_dtype=context.dtype
+                )
+            projected_kv = projected_kv.reshape(
+                -1,
+                sequence_length,
+                2,
+                self.attention_config.n_heads,
+                self.attention_config.head_dim,
+            )
+            key, value = projected_kv.unbind(dim=2)
+        return self._apply_qk_norm(key, self.norm_k_img), value
+
+    @torch.no_grad()
+    def compute_kv_image(self, context: Tensor) -> BlockKVCache:
+        """Project image context into a reusable static K/V cache."""
+        key, value = self._project_image_kv(context)
+        if self.optimized_impl_config.quantization.quantized_sdpa:
+            key = key.to(torch.float8_e4m3fn)
+            value = value.to(torch.float8_e4m3fn)
+        return BlockKVCache.from_tensor(key, value, seq_dim=1)
+
+    def initialize_cache(
+        self,
+        context_text: Tensor,
+        context_img: Tensor | None = None,
+    ) -> CrossAttnCache:
+        """Initialize text and optional image cross-attention caches."""
+        text_cache = self.compute_kv(context_text)
+        if self.i2v:
+            assert context_img is not None, (
+                "context_img must be provided when i2v is enabled"
+            )
+            img_cache = self.compute_kv_image(context_img)
+        else:
+            img_cache = None
+        return CrossAttnCache(text=text_cache, img=img_cache)
+
+    @torch.no_grad()
+    def forward(self, x: Tensor, kv_cache: CrossAttnCache) -> Tensor:
+        """Attend to static text and optional image context."""
+        query = self._compute_query(x, rope_freqs=None)
+        if self.optimized_impl_config.quantization.quantized_sdpa:
+            query = query.to(torch.float8_e4m3fn)
+
+        self._validate_cache(kv_cache.text, x)
+        output = self._attention(
+            query,
+            kv_cache.text.cached_k(),
+            kv_cache.text.cached_v(),
+            output_dtype=x.dtype,
+        )
+        if self.i2v:
+            assert kv_cache.img is not None, (
+                "image K/V cache must be provided when i2v is enabled"
+            )
+            self._validate_cache(kv_cache.img, x)
+            output = output + self._attention(
+                query,
+                kv_cache.img.cached_k(),
+                kv_cache.img.cached_v(),
+                output_dtype=x.dtype,
+            )
+
+        sequence_length = x.shape[-2]
+        output = output.reshape(-1, sequence_length, self.attention_config.inner_dim)
+        output = self._project_output(output)
+        return output.reshape(
+            x.shape[:-2] + (sequence_length, self.attention_config.query_dim)
+        )
+
+
 @dataclass
 class BlockCache:
     """Per-block cache container for self-attention and cross-attention."""
@@ -513,6 +916,16 @@ class Block(nn.Module):
         i2v: bool = False,
         apply_rope_before_kvcache: bool = True,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        self_attention_backend: AttentionBackend = AttentionBackend.TORCH,
+        cross_attention_backend: AttentionBackend = AttentionBackend.TORCH,
+        self_attn_optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FULL,
+            sdpa_backend=SDPABackend.FA2,
+        ),
+        cross_attn_optimized_impl_config: OptimizedImplConfig = OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.FUSE_KV,
+            sdpa_backend=SDPABackend.FA2,
+        ),
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -520,30 +933,56 @@ class Block(nn.Module):
         self.num_heads = num_heads
         self.cross_attn_norm = cross_attn_norm
         self.eps = eps
+        self.self_attention_backend = AttentionBackend(self_attention_backend)
+        self.cross_attention_backend = AttentionBackend(cross_attention_backend)
+        self.self_attn_optimized_impl_config = self_attn_optimized_impl_config
+        self.cross_attn_optimized_impl_config = cross_attn_optimized_impl_config
 
         # Core submodules
         self.norm1 = nn.LayerNorm(dim, eps=eps, elementwise_affine=False)
-        self.self_attn = SelfAttention(
-            query_dim=dim,
-            n_heads=num_heads,
-            head_dim=dim // num_heads,
-            eps=eps,
-            apply_rope_before_kvcache=apply_rope_before_kvcache,
-            cp_method=cp_method,
-        )
+        if self.self_attention_backend is AttentionBackend.TORCH:
+            self.self_attn = SelfAttention(
+                query_dim=dim,
+                n_heads=num_heads,
+                head_dim=dim // num_heads,
+                eps=eps,
+                apply_rope_before_kvcache=apply_rope_before_kvcache,
+                cp_method=cp_method,
+            )
+        else:
+            self.self_attn = OptimizedSelfAttention(
+                query_dim=dim,
+                n_heads=num_heads,
+                head_dim=dim // num_heads,
+                eps=eps,
+                apply_rope_before_kvcache=apply_rope_before_kvcache,
+                cp_method=cp_method,
+                optimized_impl_config=self_attn_optimized_impl_config,
+            )
         self.norm3 = (
             nn.LayerNorm(dim, eps, elementwise_affine=True)
             if cross_attn_norm
             else nn.Identity()
         )
-        self.cross_attn = CrossAttention(
-            query_dim=dim,
-            n_heads=num_heads,
-            head_dim=dim // num_heads,
-            i2v=i2v,
-            eps=eps,
-            cp_method=cp_method,
-        )
+        if self.cross_attention_backend is AttentionBackend.TORCH:
+            self.cross_attn = CrossAttention(
+                query_dim=dim,
+                n_heads=num_heads,
+                head_dim=dim // num_heads,
+                i2v=i2v,
+                eps=eps,
+                cp_method=cp_method,
+            )
+        else:
+            self.cross_attn = OptimizedCrossAttention(
+                query_dim=dim,
+                n_heads=num_heads,
+                head_dim=dim // num_heads,
+                i2v=i2v,
+                eps=eps,
+                cp_method=cp_method,
+                optimized_impl_config=cross_attn_optimized_impl_config,
+            )
         self.norm2 = nn.LayerNorm(dim, eps=eps, elementwise_affine=False)
         self.ffn = nn.Sequential(
             nn.Linear(dim, ffn_dim),
