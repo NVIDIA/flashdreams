@@ -3172,26 +3172,21 @@ class TaxiHudState:
             f"{_binding_slots_display('keyboard', self.controls.keyboard.restart)} "
             "RESTART   |   ESC  MAP"
         )
+        leaderboard_column_widths = _leaderboard_column_widths(imgui, snapshot, race)
+        leaderboard_width = (
+            max(
+                sum(leaderboard_column_widths)
+                + float(imgui.get_style().scrollbar_size),
+                float(self.width) * 0.5,
+            )
+            if leaderboard
+            else 0.0
+        )
         content_width = max(
             _point_xy(imgui.calc_text_size(headline))[0],
             _point_xy(imgui.calc_text_size(terminal_controls))[0],
             _point_xy(imgui.calc_text_size("ENTER DRIVER NAME"))[0],
-            *(
-                sum(
-                    _point_xy(imgui.calc_text_size(value))[0]
-                    for value in (
-                        f"#{rank}",
-                        entry.name,
-                        (
-                            format_race_time_us(entry.elapsed_time_us)
-                            if isinstance(entry, RaceTimeEntry)
-                            else f"{entry.score}"
-                        ),
-                    )
-                )
-                + 96.0
-                for rank, entry in enumerate(snapshot.leaderboard, start=1)
-            ),
+            leaderboard_width,
         )
         scale = min(
             1.0,
@@ -3250,7 +3245,12 @@ class TaxiHudState:
                 )
             else:
                 self._draw_terminal_leaderboard(
-                    imgui, snapshot, race, accent_rgb, content_width
+                    imgui,
+                    snapshot,
+                    race,
+                    accent_rgb,
+                    content_width,
+                    leaderboard_column_widths,
                 )
             imgui.separator()
             if imgui.button(
@@ -3322,6 +3322,7 @@ class TaxiHudState:
         race: bool,
         accent_rgb: tuple[float, float, float],
         content_width: float,
+        column_widths: tuple[float, float, float],
     ) -> None:
         """Draw the ranked terminal results table."""
         _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
@@ -3350,15 +3351,13 @@ class TaxiHudState:
         ):
             return
         try:
-            imgui.table_setup_column("RANK", imgui.TableColumnFlags_.width_fixed, 64.0)
-            imgui.table_setup_column(
-                "DRIVER", imgui.TableColumnFlags_.width_stretch, 1.0
-            )
-            imgui.table_setup_column(
-                "TIME" if race else "SCORE",
-                imgui.TableColumnFlags_.width_fixed,
-                128.0,
-            )
+            for label, width in zip(
+                ("RANK", "DRIVER", "TIME" if race else "SCORE"),
+                column_widths,
+            ):
+                imgui.table_setup_column(
+                    label, imgui.TableColumnFlags_.width_fixed, width
+                )
             imgui.table_headers_row()
             for rank, entry in enumerate(entries, start=1):
                 imgui.table_next_row(min_row_height=26.0)
@@ -3894,6 +3893,33 @@ def _table_content_width(imgui: Any, *column_widths: float) -> float:
     """Return table width including padding between adjacent columns."""
     cell_padding_x = _point_xy(imgui.get_style().cell_padding)[0]
     return sum(column_widths) + 2.0 * cell_padding_x * max(0, len(column_widths) - 1)
+
+
+def _leaderboard_column_widths(
+    imgui: Any,
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+    race: bool,
+) -> tuple[float, float, float]:
+    """Measure complete leaderboard columns, including their cell padding."""
+    ranks = ["RANK"]
+    drivers = ["DRIVER"]
+    results = ["TIME" if race else "SCORE"]
+    for rank, entry in enumerate(snapshot.leaderboard, start=1):
+        ranks.append(f"#{rank}")
+        drivers.append(entry.name)
+        if race:
+            assert isinstance(entry, RaceTimeEntry)
+            results.append(format_race_time_us(entry.elapsed_time_us))
+        else:
+            assert isinstance(entry, HighScoreEntry)
+            results.append(f"{entry.score:>7}")
+    cell_padding = 2.0 * _point_xy(imgui.get_style().cell_padding)[0]
+
+    def width(values: Sequence[str]) -> float:
+        text_width = max(_point_xy(imgui.calc_text_size(value))[0] for value in values)
+        return text_width + cell_padding
+
+    return width(ranks), width(drivers), width(results)
 
 
 def _current_window_content_height(imgui: Any) -> float:

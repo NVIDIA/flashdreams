@@ -253,8 +253,10 @@ class _FakeImGui:
         self.last_item_rect_size = (0.0, 0.0)
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
+        self.table_column_widths: dict[str, list[float]] = {}
         self.table_column_counts: dict[str, int] = {}
         self.table_flags: dict[str, int] = {}
+        self.table_outer_sizes: dict[str, tuple[float, float]] = {}
         self.highlighted_rows: list[int] = []
         self.current_table: str | None = None
         self.current_table_column = 0
@@ -530,23 +532,25 @@ class _FakeImGui:
         columns: int,
         *,
         flags: int,
-        outer_size: object,
+        outer_size: tuple[float, float],
     ) -> bool:
-        del outer_size
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
+        self.table_column_widths[table_id] = []
         self.table_column_counts[table_id] = columns
         self.table_flags[table_id] = flags
+        self.table_outer_sizes[table_id] = outer_size
         return True
 
     def end_table(self) -> None:
         self.current_table = None
 
     def table_setup_column(self, label: str, flags: int, width: float) -> None:
-        del flags, width
+        del flags
         assert self.current_table is not None
         self.table_columns[self.current_table].append(label)
+        self.table_column_widths[self.current_table].append(width)
 
     def table_headers_row(self) -> None:
         return
@@ -2080,6 +2084,15 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
         ["#2", "DRIVER 7", "   1200"],
     ]
     assert imgui.highlighted_rows == [2]
+    rank_width, driver_width, score_width = imgui.table_column_widths["##leaderboard"]
+    cell_padding = 2.0 * imgui.get_style().cell_padding[0]
+    assert rank_width >= imgui.calc_text_size("RANK").x + cell_padding
+    assert driver_width >= imgui.calc_text_size("DRIVER 7").x + cell_padding
+    assert score_width >= imgui.calc_text_size("   2400").x + cell_padding
+    assert imgui.table_outer_sizes["##leaderboard"][0] >= (
+        rank_width + driver_width + score_width + imgui.get_style().scrollbar_size
+    )
+    assert imgui.table_outer_sizes["##leaderboard"][0] >= state.width * 0.5
     assert "PLAY AGAIN" in imgui.buttons
     assert "R RESTART   |   ESC  MAP" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
@@ -2123,6 +2136,10 @@ def test_race_results_card_formats_times() -> None:
     assert "0:42.345" in imgui.windows["Game Over"]
     assert imgui.table_columns["##leaderboard"] == ["RANK", "DRIVER", "TIME"]
     assert imgui.tables["##leaderboard"] == [["#1", "RACER", "0:42.345"]]
+    time_width = imgui.table_column_widths["##leaderboard"][2]
+    assert time_width >= (
+        imgui.calc_text_size("0:42.345").x + 2.0 * imgui.get_style().cell_padding[0]
+    )
 
 
 @pytest.mark.parametrize("session_state", ["awaiting_name", "leaderboard"])
