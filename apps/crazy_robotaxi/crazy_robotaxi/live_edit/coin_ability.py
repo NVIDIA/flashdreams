@@ -209,11 +209,6 @@ class CoinAbility:
         return int(self._collected.sum())
 
     @property
-    def score(self) -> int:
-        """Return the coin score contribution."""
-        return self.collected_count * self._config.points_per_coin
-
-    @property
     def remaining_count(self) -> int:
         """Return the number of uncollected coins."""
         return int((~self._collected).sum())

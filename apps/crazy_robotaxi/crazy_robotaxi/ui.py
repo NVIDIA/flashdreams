@@ -1270,6 +1270,7 @@ class TaxiHudState:
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
             self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_coin_counter(imgui, hud_frame.live_edit_status)
             self._draw_live_edit_card(imgui, hud_frame.live_edit_status)
             self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
@@ -1578,6 +1579,37 @@ class TaxiHudState:
                 finally:
                     if disabled:
                         imgui.end_disabled()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _draw_coin_counter(
+        self,
+        imgui: Any,
+        status: LiveEditHudStatus | None,
+    ) -> None:
+        """Draw collected coins in the upper-left while coins are available."""
+        if status is None or not status.coins_enabled:
+            return
+        _prepare_window(
+            imgui,
+            position=(14.0, 14.0),
+            size=None,
+            alpha=0.94,
+            pivot=(0.0, 0.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(imgui, "Coin Counter", extra_flags=_AUTO_CARD_FLAGS)
+        try:
+            if visible:
+                _colored_imgui_text(
+                    imgui,
+                    f"COINS  {status.coins_collected}",
+                    (*_TAXI_ACCENT_RGB, 1.0),
+                )
         finally:
             imgui.end()
             imgui.pop_style_color(style_color_count)
@@ -3689,25 +3721,19 @@ def _live_edit_status_lines(status: LiveEditHudStatus) -> tuple[str, ...]:
     """Format compact status rows for the live-edit HUD card."""
     lines: list[str] = []
     if status.skin_name is not None:
-        suffix = _countdown_suffix(status.skin_seconds_remaining)
-        lines.append(f"STYLE  {status.skin_name.upper()}{suffix}")
+        lines.append(f"STYLE  {status.skin_name.upper()}")
     if status.weather_name is not None:
-        suffix = _countdown_suffix(status.weather_seconds_remaining)
-        lines.append(f"WEATHER  {status.weather_name.upper()}{suffix}")
+        lines.append(f"WEATHER  {status.weather_name.upper()}")
     if status.coins_enabled is not None:
         state = "ON" if status.coins_enabled else "OFF"
-        lines.append(f"COINS  {state}  {status.coins_collected}  +{status.coin_score}")
+        lines.append(f"COINS  {state}")
     if status.nitro_seconds_remaining is not None:
         lines.append(f"NITRO  {status.nitro_seconds_remaining:.1f}s")
     if status.obstacle_count is not None:
-        lines.append(f"OBSTACLES  {status.obstacle_count}  HITS {status.obstacle_hits}")
+        lines.append(f"OBSTACLES  {status.obstacle_count}")
     if status.item_flash is not None:
         lines.append(status.item_flash)
     return tuple(lines)
-
-
-def _countdown_suffix(seconds: float | None) -> str:
-    return "" if seconds is None else f"  {seconds:.1f}s"
 
 
 def _binding_slots_display(

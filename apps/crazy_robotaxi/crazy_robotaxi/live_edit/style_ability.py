@@ -112,13 +112,6 @@ class StyleAbility:
         self._active_weather: int | None = None
         self._pending_weather: int | None | object = _NO_PENDING
         self._chunks_since_swap = 0
-        self._skin_hold_chunks = 0
-        self._weather_hold_chunks = 0
-        # Per-activation timed-skin duration: item pickups (mystery box)
-        # override the global skin_duration_chunks for one activation.
-        self._active_skin_duration = config.skin_duration_chunks
-        self._pending_skin_duration: int | None = None
-        self._seconds_per_chunk = 8.0 / 30.0  # attach() reads the manifest
         self._set_corrector_gain: Callable[[float], None] = lambda _: None
         self._dispatch: Any | None = None
         self._corrector_states: set[str] = set()
@@ -154,50 +147,11 @@ class StyleAbility:
         return self._config.skins[self._active_index].name
 
     @property
-    def skin_chunks_remaining(self) -> int | None:
-        """Chunks left on the active timed skin (``None`` when untimed/off)."""
-        duration = self._active_skin_duration
-        if duration <= 0 or self._active_index is None:
-            return None
-        return max(duration - self._skin_hold_chunks, 0)
-
-    @property
-    def skin_seconds_remaining(self) -> float | None:
-        """Seconds left on the active timed skin (``None`` when untimed/off).
-
-        Derived from the manifest's chunk length at attach time; ticks at
-        chunk granularity (~0.27 s for the shipped 8-frame recipe), which is
-        plenty for a HUD countdown chip.
-        """
-        remaining = self.skin_chunks_remaining
-        if remaining is None:
-            return None
-        return remaining * self._seconds_per_chunk
-
-    @property
     def active_weather_name(self) -> str:
         """Return the HUD label of the active weather (``clear`` when off)."""
         if self._active_weather is None or self._weather_config is None:
             return "clear"
         return self._weather_config.weathers[self._active_weather].name
-
-    @property
-    def weather_chunks_remaining(self) -> int | None:
-        """Chunks left on the active timed weather (``None`` when untimed/off)."""
-        if self._weather_config is None or self._active_weather is None:
-            return None
-        duration = self._weather_config.duration_chunks
-        if duration <= 0:
-            return None
-        return max(duration - self._weather_hold_chunks, 0)
-
-    @property
-    def weather_seconds_remaining(self) -> float | None:
-        """Seconds left on the active timed weather (chunk granularity)."""
-        remaining = self.weather_chunks_remaining
-        if remaining is None:
-            return None
-        return remaining * self._seconds_per_chunk
 
     @property
     def skin_names(self) -> tuple[str, ...]:
@@ -226,9 +180,6 @@ class StyleAbility:
                 ride; the message names the flags to drop.
         """
         self._guard_manifest(session.manifest)
-        frames_per_chunk = getattr(session.manifest, "num_frames_per_block", 8)
-        fps = getattr(session.manifest, "fps", 30) or 30
-        self._seconds_per_chunk = float(frames_per_chunk) / float(fps)
         pipeline = session.pipeline
         transformer = pipeline.diffusion_model.transformer
         self._guard_transformer(transformer)
@@ -283,8 +234,6 @@ class StyleAbility:
         pipeline: Any,
         cache: Any,
         base_prompt: str,
-        *,
-        seconds_per_chunk: float,
     ) -> None:
         """Attach prompt editing to a direct API-v2 rollout cache.
 
@@ -292,7 +241,6 @@ class StyleAbility:
             pipeline: Session-shared OmniDreams pipeline.
             cache: Session-local autoregressive cache.
             base_prompt: Prompt used to initialize the rollout.
-            seconds_per_chunk: Generated duration of one steady-state chunk.
         """
         transformer = pipeline.diffusion_model.transformer
         if getattr(transformer, "_optimized_dit_executor", None) is not None:
@@ -303,7 +251,6 @@ class StyleAbility:
         self._guard_transformer(transformer)
         self._transformer = transformer
         self._base_prompt = base_prompt
-        self._seconds_per_chunk = seconds_per_chunk
         edit_lora = None
         if self._config.enabled and self._config.lora_checkpoint is not None:
             from omnidreams.impl._edit_lora import TextEditLoRA
@@ -330,19 +277,11 @@ class StyleAbility:
         self._active_weather = None
         self._pending_weather = _NO_PENDING
         self._chunks_since_swap = 0
-        self._skin_hold_chunks = 0
-        self._weather_hold_chunks = 0
-        self._active_skin_duration = self._config.skin_duration_chunks
-        self._pending_skin_duration = None
         self.reset_map_context()
         self._update_corrector(None, None, 0.0)
 
     def before_v2_chunk(self) -> None:
         """Apply queued edits at the model-thread chunk boundary."""
-        if self._timed_skin_expired():
-            self._pending_index = None
-        if self._timed_weather_expired():
-            self._pending_weather = None
         refresh_due = self._reswap_due()
         if (
             self._pending_index is not _NO_PENDING
@@ -354,13 +293,9 @@ class StyleAbility:
             self._apply_pending_map_context()
 
     def after_v2_chunk(self) -> None:
-        """Advance timed ability counters after one generated chunk."""
+        """Advance the active edit's refresh counter after one chunk."""
         if self._active_index is not None or self._active_weather is not None:
             self._chunks_since_swap += 1
-        if self._active_index is not None:
-            self._skin_hold_chunks += 1
-        if self._active_weather is not None:
-            self._weather_hold_chunks += 1
 
     def _precompute_prompt_embeddings(self, pipeline: Any) -> None:
         """Encode every configured swap prompt once at session start.
@@ -419,14 +354,6 @@ class StyleAbility:
         weather back to clear (documented state-machine rule: K wins over an
         active weather; V is rejected while a skin is active).
 
-        Timed power-up mode (``skin_duration_chunks > 0``) keeps these exact
-        K semantics: pressing K during an active timed skin cycles to the
-        NEXT skin with a fresh timer (the last skin cycles to base early).
-        Chosen over extend/reset-in-place because it keeps K meaning one
-        thing in both modes, every skin stays reachable mid-power-up, and a
-        cycle re-lands the swap anyway — so the new skin's timer is
-        naturally fresh; a dedicated "extend" would add a second behavior
-        for the same key with no gameplay the cycle doesn't already give.
         """
         if not self._config.enabled:
             return
@@ -437,29 +364,21 @@ class StyleAbility:
             self._pending_index = current + 1
         else:
             self._pending_index = None
-        # A K press always uses the global duration, even when it races a
-        # queued mystery-box burst at the same boundary (last request wins).
-        self._pending_skin_duration = None
         if self._pending_index is not None and self._weather_state() is not None:
             self._pending_weather = None
             logger.info(
                 "[live-edit] skin activation clears weather (base-only ability)"
             )
 
-    def request_skin_burst(self, name: str, duration_chunks: int) -> str | None:
-        """Queue a specific skin with a per-activation duration override.
+    def request_skin(self, name: str) -> str | None:
+        """Queue a persistent named skin from an item pickup.
 
-        The mystery-box pickup path: lands at the next chunk boundary
-        through the exact machinery :meth:`request_cycle` uses, so it
-        composes with the K key — a burst during a key-held skin behaves
-        like a K cycle (switch, fresh timer), and rolling the skin that is
-        already active re-lands the swap with a fresh burst timer.
+        The request lands at the next chunk boundary through the same
+        machinery as :meth:`request_cycle`. The skin remains selected until
+        another pickup or manual cycle changes it.
 
         Args:
             name: Skin name from :attr:`skin_names`.
-            duration_chunks: Auto-revert after this many chunks (0 = the
-                granted skin is untimed).
-
         Returns:
             The queued skin name, or ``None`` when the style ability is off
             or the name is unknown (logged, never raises: pickups must not
@@ -469,13 +388,14 @@ class StyleAbility:
             return None
         names = [skin.name for skin in self._config.skins]
         if name not in names:
-            logger.warning(f"[live-edit] unknown skin burst {name!r}; ignoring")
+            logger.warning(f"[live-edit] unknown skin {name!r}; ignoring")
             return None
         self._pending_index = names.index(name)
-        self._pending_skin_duration = max(0, int(duration_chunks))
         if self._weather_state() is not None:
             self._pending_weather = None
-            logger.info("[live-edit] skin burst clears weather (base-only ability)")
+            logger.info(
+                "[live-edit] skin activation clears weather (base-only ability)"
+            )
         return name
 
     def request_weather(self, name: str) -> bool:
@@ -483,12 +403,10 @@ class StyleAbility:
 
         Same base-world-only rule as the V key: rejected while a skin is
         active or queued (the caller shows the HUD hint). Re-requesting the
-        active weather refreshes its timed-weather timer without re-landing
-        the swap (a same-prompt guided re-swap has a zero guidance
-        direction — pure 2x cost).
+        active weather keeps it selected without re-landing the same prompt.
 
         Returns:
-            ``True`` when the weather was queued (or its timer refreshed);
+            ``True`` when the weather was queued;
             ``False`` when rejected (skin active, ability off, unknown name).
         """
         if self._weather_config is None:
@@ -756,36 +674,10 @@ class StyleAbility:
             self._active_weather = None
             self._pending_weather = _NO_PENDING
             self._chunks_since_swap = 0
-            self._skin_hold_chunks = 0
-            self._weather_hold_chunks = 0
-            self._active_skin_duration = self._config.skin_duration_chunks
-            self._pending_skin_duration = None
             self._update_corrector(None, None, 0.0)
             return original_start(initial_rgb, condition_frames, prompt)
 
         def continue_generation(condition_frames: Any) -> Any:
-            if self._timed_skin_expired():
-                # Auto-revert rides the exact K-cycle revert path: a queued
-                # None lands as the plain base swap (guidance 1.0/0) and
-                # moves the corrector dispatch back to the base state. A
-                # user K press queued this boundary wins (it re-lands a
-                # fresh swap with a fresh timer).
-                self._pending_index = None
-                logger.info(
-                    f"[live-edit] timed skin {self.active_skin_name} expired "
-                    f"after {self._skin_hold_chunks} chunks; reverting to base"
-                )
-            if self._timed_weather_expired():
-                # Rides the V-cycle wrap-to-clear path; the landing is
-                # GUIDED (see _apply_pending) because clear is itself a
-                # weather transition. A user request queued this boundary
-                # wins.
-                self._pending_weather = None
-                logger.info(
-                    f"[live-edit] timed weather {self.active_weather_name} "
-                    f"expired after {self._weather_hold_chunks} chunks; "
-                    "landing clear"
-                )
             refresh_due = self._reswap_due()
             if (
                 self._pending_index is not _NO_PENDING
@@ -801,46 +693,10 @@ class StyleAbility:
             result = original_continue(condition_frames)
             if self._active_index is not None or self._active_weather is not None:
                 self._chunks_since_swap += 1
-            if self._active_index is not None:
-                self._skin_hold_chunks += 1
-            if self._active_weather is not None:
-                self._weather_hold_chunks += 1
             return result
 
         session.start = start
         session.continue_generation = continue_generation
-
-    def _timed_skin_expired(self) -> bool:
-        """Whether the active timed skin is due its auto-revert to base.
-
-        False when the mode is off (duration 0), no skin is active, or the
-        user already queued a request this boundary (their cycle wins).
-        """
-        duration = self._active_skin_duration
-        return (
-            duration > 0
-            and self._active_index is not None
-            and self._pending_index is _NO_PENDING
-            and self._skin_hold_chunks >= duration
-        )
-
-    def _timed_weather_expired(self) -> bool:
-        """Whether the active timed weather is due its guided clear landing.
-
-        False when the mode is off (duration 0), no weather is active, or a
-        user request already queued this boundary (their request wins; a
-        queued skin also clears weather through its own path).
-        """
-        if self._weather_config is None:
-            return False
-        duration = self._weather_config.duration_chunks
-        return (
-            duration > 0
-            and self._active_weather is not None
-            and self._pending_weather is _NO_PENDING
-            and self._pending_index is _NO_PENDING
-            and self._weather_hold_chunks >= duration
-        )
 
     def _reswap_due(self) -> bool:
         """Whether the active edit window is due a duty-cycle refresh.
@@ -854,12 +710,6 @@ class StyleAbility:
         """
         if self._active_index is not None:
             interval = self._config.reswap_interval_chunks
-            duration = self._active_skin_duration
-            if 0 < duration <= interval:
-                # Timed skin expires at or before the first refresh would
-                # fire — the re-swap would only ever land on the revert
-                # boundary, so skip the duty cycle entirely.
-                return False
         elif self._active_weather is not None and self._weather_config is not None:
             interval = self._weather_config.maintain_interval_chunks
         else:
@@ -931,10 +781,8 @@ class StyleAbility:
         """Swap the prompt between chunks when a request or refresh is due."""
         pending_skin = self._pending_index
         pending_weather = self._pending_weather
-        pending_duration = self._pending_skin_duration
         self._pending_index = _NO_PENDING
         self._pending_weather = _NO_PENDING
-        self._pending_skin_duration = None
         target_skin: int | None = (
             self._active_index
             if pending_skin is _NO_PENDING
@@ -948,21 +796,14 @@ class StyleAbility:
         changed = (
             target_skin != self._active_index or target_weather != self._active_weather
         )
-        # An explicit request for the already-active skin (mystery box
-        # rolling it again) re-lands the swap with a fresh timer; the same
-        # request for the active weather only refreshes the timer (a
-        # same-prompt guided re-swap has a zero guidance direction).
+        # A mystery box rolling the already-active skin re-lands the swap.
+        # Re-requesting active weather is a no-op because same-prompt guidance
+        # has a zero direction.
         explicit_same_skin = (
             pending_skin is not _NO_PENDING
             and pending_skin is not None
             and pending_skin == self._active_index
         )
-        if (
-            pending_weather is not _NO_PENDING
-            and pending_weather is not None
-            and pending_weather == self._active_weather
-        ):
-            self._weather_hold_chunks = 0
         if (
             not changed
             and not explicit_same_skin
@@ -999,9 +840,8 @@ class StyleAbility:
         ):
             # Weather -> clear is itself a weather transition: a plain swap
             # leaves the precipitation running on KV-history momentum, so
-            # the clear lands GUIDED (both the timed auto-revert and the
-            # V-cycle wrap). Accumulated scene change (wet roads, settled
-            # snow) is NOT undone — it decays naturally, by design.
+            # the cycle's clear landing is guided. Accumulated scene change
+            # (wet roads, settled snow) decays naturally.
             target = replace(
                 target,
                 guidance_scale=self._weather_config.guidance_scale,
@@ -1035,19 +875,6 @@ class StyleAbility:
             self._pending_map_suffix = None
         self._active_map_suffix = map_suffix
         verb = "re-swap" if not (changed or explicit_same_skin) else "state ->"
-        if target_skin != self._active_index or explicit_same_skin:
-            # Fresh activation (or skin->skin cycle, or an explicit re-roll
-            # of the active skin): a timed skin starts a fresh timer with
-            # its per-activation duration. A duty-cycle re-swap keeps the
-            # timer running.
-            self._skin_hold_chunks = 0
-            self._active_skin_duration = (
-                self._config.skin_duration_chunks
-                if pending_duration is None
-                else pending_duration
-            )
-        if target_weather != self._active_weather:
-            self._weather_hold_chunks = 0
         self._active_index = target_skin
         self._active_weather = target_weather
         self._chunks_since_swap = 0

@@ -27,17 +27,19 @@ from crazy_robotaxi.live_edit.config import (
     resolve_live_edit_assets,
 )
 from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
+from crazy_robotaxi.live_edit.item_ability import ItemEffects
 from crazy_robotaxi.live_edit.obstacle_events import (
     ObstacleAbility,
     ObstacleEvent,
     ObstaclePhase,
 )
 from crazy_robotaxi.live_edit.obstacle_templates import load_obstacle_template_catalog
-from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay, LiveEditGameRules
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
 from ludus_renderer import SceneObject
 from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.game_map import load_game_map
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -55,9 +57,7 @@ class _StyleRequests:
         self.skin_cycles = 0
         self.weather_cycles = 0
         self.active_skin_name = "comic"
-        self.skin_seconds_remaining = 1.5
         self.active_weather_name = "rain"
-        self.weather_seconds_remaining = 2.5
 
     def request_cycle(self) -> None:
         self.skin_cycles += 1
@@ -71,7 +71,6 @@ class _Coins:
         self.toggles = 0
         self.enabled = True
         self.collected_count = 3
-        self.score = 30
 
     def toggle(self) -> bool:
         self.toggles += 1
@@ -82,7 +81,6 @@ class _Obstacles:
     def __init__(self) -> None:
         self.spawns = 0
         self.events = (object(), object())
-        self.hit_count = 1
 
     def request_spawn(self) -> None:
         self.spawns += 1
@@ -221,14 +219,47 @@ def test_v2_hud_status_snapshots_enabled_abilities() -> None:
     status = gameplay.hud_status()
 
     assert status.skin_name == "comic"
-    assert status.skin_seconds_remaining == 1.5
     assert status.weather_name == "rain"
-    assert status.weather_seconds_remaining == 2.5
     assert status.coins_enabled
-    assert (status.coins_collected, status.coin_score) == (3, 30)
+    assert status.coins_collected == 3
     assert status.nitro_seconds_remaining == 4.0
     assert status.item_flash == "NITRO BOOST"
-    assert (status.obstacle_count, status.obstacle_hits) == (2, 1)
+    assert status.obstacle_count == 2
+
+
+def test_style_and_weather_items_request_persistent_selections() -> None:
+    requests: list[tuple[str, str]] = []
+    style = SimpleNamespace(
+        skin_names=("comic",),
+        weather_names=("rain", "snow"),
+        request_skin=lambda name: requests.append(("style", name)) or name,
+        request_weather=lambda name: requests.append(("weather", name)) or True,
+    )
+    effects = ItemEffects(style, LiveEditItemsConfig(mystery_seed=0))
+
+    assert effects.apply("mystery") == "? COMIC!"
+    assert effects.apply("rain") == "RAIN!"
+    assert requests == [("style", "comic"), ("weather", "rain")]
+
+
+def test_live_edit_rules_award_coins_before_taxi_snapshots() -> None:
+    awarded: list[int] = []
+
+    def advance_inner(_trajectory: object, _frame_interval_s: float) -> GameUpdate:
+        return GameUpdate(frames=(sum(awarded),))
+
+    inner = SimpleNamespace(is_running=True, advance_frames=advance_inner)
+    gameplay = SimpleNamespace(advance=lambda _trajectory: (("actor",), 2))
+    rules = LiveEditGameRules(
+        inner,
+        gameplay,
+        coin_collected=lambda count: awarded.append(count * 100),
+    )
+
+    update = rules.advance_frames(cast(Any, object()), 0.1)
+
+    assert update.frames == (200,)
+    assert update.dynamic_actors == ("actor",)
 
 
 @pytest.mark.parametrize(
@@ -270,7 +301,10 @@ def test_nitro_boosts_and_expires_on_game_time() -> None:
     nitro.vehicle_for_tick(vehicle, 0.1)
 
     assert boosted.max_speed_mps == 16.0
-    assert boosted.max_accel_mps2 == 6.0
+    assert boosted.max_accel_mps2 == 3.0
+    assert (
+        nitro.boosted_vehicle(VehicleConfig(max_speed_mps=20.0)).max_speed_mps == 20.0
+    )
     assert not nitro.active
 
 

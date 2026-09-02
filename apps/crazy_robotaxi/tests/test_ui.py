@@ -777,26 +777,22 @@ def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
         imgui,
         LiveEditHudStatus(
             skin_name="comic",
-            skin_seconds_remaining=1.5,
             weather_name="rain",
-            weather_seconds_remaining=2.5,
             coins_enabled=True,
             coins_collected=3,
-            coin_score=30,
             nitro_seconds_remaining=4.0,
             item_flash="NITRO BOOST",
             obstacle_count=2,
-            obstacle_hits=1,
         ),
     )
 
     assert imgui.windows["Live Edit"] == [
         "LIVE EDIT",
-        "STYLE  COMIC  1.5s",
-        "WEATHER  RAIN  2.5s",
-        "COINS  ON  3  +30",
+        "STYLE  COMIC",
+        "WEATHER  RAIN",
+        "COINS  ON",
         "NITRO  4.0s",
-        "OBSTACLES  2  HITS 1",
+        "OBSTACLES  2",
         "NITRO BOOST",
     ]
     live_edit_flags = imgui.window_flags["Live Edit"]
@@ -804,6 +800,22 @@ def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
     assert live_edit_flags & imgui.WindowFlags_.no_scrollbar
     assert live_edit_flags & imgui.WindowFlags_.no_scroll_with_mouse
     assert imgui.disabled_buttons == ["CYCLE WEATHER (V)"]
+
+
+def test_coin_counter_uses_upper_left_auto_sized_card() -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    imgui = _FakeImGui()
+
+    state._draw_coin_counter(
+        imgui,
+        LiveEditHudStatus(coins_enabled=True, coins_collected=3),
+    )
+
+    assert imgui.next_window_position == (14.0, 14.0)
+    assert imgui.windows["Coin Counter"] == ["COINS  3"]
+    flags = imgui.window_flags["Coin Counter"]
+    assert flags & imgui.WindowFlags_.always_auto_resize
+    assert flags & imgui.WindowFlags_.no_scrollbar
 
 
 def test_live_edit_mapping_location_and_button_visibility() -> None:

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -41,23 +42,14 @@ class LiveEditHudStatus:
     skin_name: str | None = None
     """Active skin, or ``None`` when style switching is unavailable."""
 
-    skin_seconds_remaining: float | None = None
-    """Seconds left on a timed skin, or ``None`` when untimed or unavailable."""
-
     weather_name: str | None = None
     """Active weather, or ``None`` when weather switching is unavailable."""
-
-    weather_seconds_remaining: float | None = None
-    """Seconds left on timed weather, or ``None`` when clear or unavailable."""
 
     coins_enabled: bool | None = None
     """Runtime coin visibility, or ``None`` when the ability is unavailable."""
 
     coins_collected: int = 0
     """Collected coin count."""
-
-    coin_score: int = 0
-    """Score contributed by collected coins."""
 
     nitro_seconds_remaining: float | None = None
     """Remaining nitro boost time, or ``None`` when inactive or unavailable."""
@@ -67,9 +59,6 @@ class LiveEditHudStatus:
 
     obstacle_count: int | None = None
     """Active obstacle count, or ``None`` when the ability is unavailable."""
-
-    obstacle_hits: int = 0
-    """Recorded obstacle hit count."""
 
 
 def _procedural_coin_sprite() -> Image.Image:
@@ -294,44 +283,36 @@ class LiveEditGameplay:
                 if style is not None and self.config.style.enabled
                 else None
             ),
-            skin_seconds_remaining=(
-                style.skin_seconds_remaining
-                if style is not None and self.config.style.enabled
-                else None
-            ),
             weather_name=(
                 style.active_weather_name
                 if style is not None and self.config.weather.enabled
                 else None
             ),
-            weather_seconds_remaining=(
-                style.weather_seconds_remaining
-                if style is not None and self.config.weather.enabled
-                else None
-            ),
             coins_enabled=None if coins is None else coins.enabled,
             coins_collected=0 if coins is None else coins.collected_count,
-            coin_score=0 if coins is None else coins.score,
             nitro_seconds_remaining=(
                 nitro.seconds_remaining if nitro is not None and nitro.active else None
             ),
             item_flash=None if items is None else items.flash_label,
             obstacle_count=None if obstacles is None else len(obstacles.events),
-            obstacle_hits=0 if obstacles is None else obstacles.hit_count,
         )
 
-    def advance(self, trajectory: TrajectoryChunk) -> tuple[Any, ...]:
+    def advance(self, trajectory: TrajectoryChunk) -> tuple[tuple[Any, ...], int]:
         """Advance pickups and obstacles after one physics trajectory."""
         if self.style is not None:
             self.style.update_map_context(trajectory.boundary_state_after_chunk)
-        if self.coins is not None:
-            self.coins.advance_frames(trajectory.vehicle_states)
+        coins_collected = (
+            0
+            if self.coins is None
+            else self.coins.advance_frames(trajectory.vehicle_states)
+        )
         if self.items is not None and self.effects is not None:
             for item_type in self.items.advance_frames(trajectory.vehicle_states):
                 self.items.flash(self.effects.apply(item_type))
-        if self.obstacles is None:
-            return ()
-        return self.obstacles.advance_frames(trajectory)
+        actors = (
+            () if self.obstacles is None else self.obstacles.advance_frames(trajectory)
+        )
+        return actors, coins_collected
 
     def postprocess_video(self, video: Tensor, step: Any) -> Tensor:
         """Composite frame-aligned collectibles on device."""
@@ -444,9 +425,16 @@ class LiveEditGameplay:
 class LiveEditGameRules:
     """Add live-edit dynamic actors while preserving the selected game rules."""
 
-    def __init__(self, inner: GameRules, gameplay: LiveEditGameplay) -> None:
+    def __init__(
+        self,
+        inner: GameRules,
+        gameplay: LiveEditGameplay,
+        *,
+        coin_collected: Callable[[int], None] | None = None,
+    ) -> None:
         self.inner = inner
         self.gameplay = gameplay
+        self._coin_collected = coin_collected
 
     @property
     def is_running(self) -> bool:
@@ -458,10 +446,13 @@ class LiveEditGameRules:
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> GameUpdate:
+        dynamic_actors, coins_collected = self.gameplay.advance(trajectory)
+        if coins_collected and self._coin_collected is not None:
+            self._coin_collected(coins_collected)
         update = self.inner.advance_frames(trajectory, frame_interval_s)
         return GameUpdate(
             frames=update.frames,
-            dynamic_actors=(*update.dynamic_actors, *self.gameplay.advance(trajectory)),
+            dynamic_actors=(*update.dynamic_actors, *dynamic_actors),
         )
 
     def submit_text(self, value: str, vehicle_state: VehicleState) -> object:

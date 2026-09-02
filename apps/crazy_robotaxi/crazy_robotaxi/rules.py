@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 TaxiPhase = Literal["seeking_pickup", "to_dropoff"]
 TaxiEvent = Literal["pickup_complete", "fare_complete", "time_expired"]
 TaxiSessionState = Literal["playing", "awaiting_name", "leaderboard"]
+_COIN_POINTS = 100
 
 
 @dataclass(frozen=True)
@@ -687,6 +688,12 @@ class TaxiGameController:
             else None
         )
         self._session_state = "leaderboard"
+
+    def collect_coins(self, count: int) -> None:
+        """Add collected coins to the overall Taxi score."""
+        if count < 0:
+            raise ValueError("Collected coin count must be non-negative.")
+        self._score += count * _COIN_POINTS
 
     def advance(self, trajectory: TrajectoryChunk, frame_interval_s: float) -> None:
         """Advance game state over every simulated pose in a chunk.
