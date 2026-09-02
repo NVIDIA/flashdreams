@@ -6,7 +6,7 @@
 import logging
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
@@ -117,23 +117,17 @@ def run_session(
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
 
-            loopResult = ui_loop._begin_run(events, generation)
-            if loopResult.stop_requested:
+            loop_result = ui_loop._begin_run(events, generation)
+            if loop_result.stop_requested:
                 stop.set()
                 return
-            if loopResult.new_session_request is not None:
-                next_session_desc = replace(
-                    session_desc,
-                    metadata={
-                        **session_desc.metadata,
-                        **loopResult.new_session_request,
-                    },
-                )
+            if loop_result.new_session_request is not None:
+                next_session_desc = loop_result.new_session_request
                 stop.set()
                 return
-            if loopResult.step_index is None or not step_requested:
+            if loop_result.step_index is None or not step_requested:
                 return
-            result = ui_loop.step(loopResult.step_index, ui_loop.user_events)
+            result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
             if result is not None and not isinstance(result, StepResult):
                 raise TypeError("A UI loop must return StepResult or None.")
             ui_loop._finish_run(result)
@@ -225,21 +219,26 @@ def run_session(
             model_thread_handle.start()
             next_tick_at = time.monotonic() + tick_seconds
 
-            while not stop.is_set():
+            def should_end_ui() -> bool:
+                if model_thread_handle.is_alive():
+                    return False
+                if presentation_manager.has_pending_frames():
+                    return False
+
                 if (
-                    not model_thread_handle.is_alive()
-                    and not presentation_manager.has_pending_frames()
-                    and (
-                        not session._failure_queue.empty()
-                        or steps is not None
-                        or ui_loop.is_finished()
-                    )
+                    session._failure_queue.empty()
+                    and steps is None
+                    and not ui_loop.is_finished()
                 ):
-                    # Input may have arrived with the final presented frame.
-                    # Establish the terminal boundary before deciding that a
-                    # naturally completed session has no replacement.
-                    collect_input()
-                    run_ui_once(step_requested=False)
+                    # If there are no failures, no steps limit, and the UI is not finished,
+                    # the run should continue.
+                    return False
+                collect_input()
+                run_ui_once(step_requested=False)
+                return True
+
+            while not stop.is_set():
+                if should_end_ui():
                     break
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
                 if stop.wait(wait_seconds):

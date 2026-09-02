@@ -686,7 +686,7 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     )
     ui = BlitModelOutputToScreenLoop()
     ui.register_session_ui_loop_objects(
-        output_layout=VideoTensorLayout.tchw,
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=manager,
     )
 
@@ -1056,8 +1056,7 @@ def test_run_session_returns_a_replacement_after_cleaning_the_session() -> None:
 
     assert next_session_desc is not None
     assert next_session_desc == resolved
-    assert next_session_desc is not resolved
-    assert next_session_desc.metadata is not resolved.metadata
+    assert next_session_desc is resolved
     assert "session.step(0)" not in log.calls
     assert log.calls[-1] == "session.close"
     assert "window.close" not in log.calls
@@ -1090,7 +1089,16 @@ def test_interactive_ui_can_replace_an_already_finished_session() -> None:
             self.state.ui_model_states.append(self.model_inference_state)
             self.state.ui_steps += 1
             if self.state.ui_steps == 2:
-                self.request_new_session({"prompt": "a new prompt"})
+                self.request_new_session(
+                    replace(
+                        self.session_desc,
+                        video_width=4,
+                        metadata={
+                            **self.session_desc.metadata,
+                            "prompt": "a new prompt",
+                        },
+                    )
+                )
                 return StepResult(
                     step_index=step_index,
                     output=torch.zeros((1, 3, 1, 2, 2)),
@@ -1116,6 +1124,7 @@ def test_interactive_ui_can_replace_an_already_finished_session() -> None:
 
     assert next_session_desc == replace(
         resolved,
+        video_width=4,
         metadata={"existing": "value", "prompt": "a new prompt"},
     )
     assert session.ui_steps == 2
@@ -1160,7 +1169,7 @@ def test_latest_session_transition_in_a_batch_wins(
     assert (next_session_desc is not None) is expects_replacement
     if next_session_desc is not None:
         assert next_session_desc == resolved
-        assert next_session_desc is not resolved
+        assert next_session_desc is resolved
     assert ("window.close" not in log.calls) is expects_replacement
 
 
