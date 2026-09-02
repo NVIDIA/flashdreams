@@ -2429,6 +2429,15 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
         ["#2", "DRIVER 7", "   1200"],
     ]
     assert imgui.highlighted_rows == [2]
+    rank_width, driver_width, score_width = imgui.table_column_widths["##leaderboard"]
+    cell_padding = 2.0 * imgui.get_style().cell_padding[0]
+    assert rank_width >= imgui.calc_text_size("RANK").x + cell_padding
+    assert driver_width >= imgui.calc_text_size("DRIVER 7").x + cell_padding
+    assert score_width >= imgui.calc_text_size("   2400").x + cell_padding
+    assert imgui.table_outer_sizes["##leaderboard"][0] >= (
+        rank_width + driver_width + score_width + imgui.get_style().scrollbar_size
+    )
+    assert imgui.table_outer_sizes["##leaderboard"][0] >= state.width * 0.5
     assert "PLAY AGAIN" in imgui.buttons
     assert "P - RESTART   |   M - MENU" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
@@ -2490,6 +2499,10 @@ def test_race_results_card_formats_times() -> None:
     assert "0:42.345" in imgui.windows["Game Over"]
     assert imgui.table_columns["##leaderboard"] == ["RANK", "DRIVER", "TIME"]
     assert imgui.tables["##leaderboard"] == [["#1", "RACER", "0:42.345"]]
+    time_width = imgui.table_column_widths["##leaderboard"][2]
+    assert time_width >= (
+        imgui.calc_text_size("0:42.345").x + 2.0 * imgui.get_style().cell_padding[0]
+    )
 
 
 @pytest.mark.parametrize("session_state", ["awaiting_name", "leaderboard"])
