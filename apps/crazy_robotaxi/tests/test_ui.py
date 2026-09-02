@@ -201,6 +201,7 @@ class _FakeImGui:
         button=8,
         button_hovered=9,
         button_active=10,
+        check_mark=11,
     )
     TableFlags_ = SimpleNamespace(
         row_bg=1,
@@ -217,14 +218,17 @@ class _FakeImGui:
     def __init__(self) -> None:
         self.windows: dict[str, list[str]] = {}
         self.text_fonts: list[tuple[str, object, float]] = []
+        self.text_positions: list[tuple[str, float]] = []
         self.dummies: list[tuple[float, float]] = []
         self.current_window: str | None = None
         self.next_window_position = (0.0, 0.0)
         self.next_window_size = (640.0, 360.0)
         self.cursor_x = 8.0
+        self.cursor_y = 8.0
         self.input_value = ""
         self.input_values: dict[str, str] = {}
         self.multiline_inputs: list[tuple[str, str, tuple[float, float], int]] = []
+        self.multiline_input_positions: dict[str, float] = {}
         self.checkbox_values: dict[str, bool] = {}
         self.combo_indices: dict[str, int] = {}
         self.submit_input = False
@@ -253,6 +257,8 @@ class _FakeImGui:
         self.current_font = self.default_font
         self.current_font_size = 14.0
         self.font_stack: list[tuple[object, float]] = []
+        self.pushed_style_vars: list[tuple[int, object]] = []
+        self.pushed_style_colors: list[tuple[int, object]] = []
         self.fonts = _FakeFontAtlas()
         self.io = SimpleNamespace(fonts=self.fonts)
 
@@ -291,13 +297,13 @@ class _FakeImGui:
         self.current_font, self.current_font_size = self.font_stack.pop()
 
     def push_style_var(self, style_var: int, value: object) -> None:
-        del style_var, value
+        self.pushed_style_vars.append((style_var, value))
 
     def pop_style_var(self, count: int = 1) -> None:
         del count
 
     def push_style_color(self, color: int, value: object) -> None:
-        del color, value
+        self.pushed_style_colors.append((color, value))
 
     def pop_style_color(self, count: int = 1) -> None:
         del count
@@ -390,6 +396,7 @@ class _FakeImGui:
         assert self.current_window is not None
         self.windows[self.current_window].append(value)
         self.text_fonts.append((value, self.current_font, self.current_font_size))
+        self.text_positions.append((value, self.cursor_y))
         if self.current_table is not None:
             rows = self.tables[self.current_table]
             while len(rows[-1]) <= self.current_table_column:
@@ -407,6 +414,12 @@ class _FakeImGui:
 
     def set_cursor_pos_x(self, value: float) -> None:
         self.cursor_x = value
+
+    def get_cursor_pos_y(self) -> float:
+        return self.cursor_y
+
+    def set_cursor_pos_y(self, value: float) -> None:
+        self.cursor_y = value
 
     def get_content_region_avail(self) -> tuple[float, float]:
         if self.current_child_size is not None:
@@ -460,6 +473,7 @@ class _FakeImGui:
         flags: int,
     ) -> tuple[bool, str]:
         self.multiline_inputs.append((label, value, size, flags))
+        self.multiline_input_positions[label] = self.cursor_y
         if label in self.input_values:
             return True, self.input_values[label]
         return False, value
@@ -2082,6 +2096,35 @@ def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
     assert "Device:" in model_imgui.windows["Crazy Robotaxi - Options"]
 
 
+def test_options_booleans_use_compact_native_green_checkboxes(
+    tmp_path: Path,
+) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    native_check_colors = [
+        color
+        for style, color in imgui.pushed_style_colors
+        if style == imgui.Col_.check_mark
+    ]
+    assert native_check_colors and set(native_check_colors) == {(0.25, 0.85, 0.25, 1.0)}
+    compact_padding = [
+        value
+        for style, value in imgui.pushed_style_vars
+        if style == imgui.StyleVar_.frame_padding and value == (10.0, 4.0)
+    ]
+    assert len(compact_padding) == 3
+
+
 def test_options_text_fields_wrap_without_resizing_the_submenu(
     tmp_path: Path,
 ) -> None:
@@ -2125,6 +2168,11 @@ def test_options_text_fields_wrap_without_resizing_the_submenu(
         item for item in unbreakable.multiline_inputs if item[0] == "##model.device"
     )
     assert wrapped_field[2][1] > short_field[2][1]
+    wrapped_label_y = next(y for text, y in wrapped.text_positions if text == "Device:")
+    assert wrapped_label_y == pytest.approx(
+        wrapped.multiline_input_positions["##model.device"]
+        + (wrapped_field[2][1] - wrapped.calc_text_size("Device:").y) / 2.0
+    )
     scroll_id = "##model.device-horizontal-scroll"
     assert scroll_id not in wrapped.child_sizes
     assert unbreakable.child_sizes[scroll_id][0] < path_field[2][0]

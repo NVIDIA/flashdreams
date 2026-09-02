@@ -134,6 +134,7 @@ _MPS_TO_MPH = 2.2369362920544
 
 _TAXI_ACCENT_RGB = (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
 _RACE_ACCENT_RGB = (118.0 / 255.0, 185.0 / 255.0, 0.0)
+_OPTION_ENABLED_RGB = (0.25, 0.85, 0.25)
 
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
@@ -1472,15 +1473,39 @@ class TaxiHudState:
             if not editable_setting(current, item_path):
                 imgui.text(f"{label}: {readonly_display(current)}  [READ ONLY]")
                 continue
-            imgui.text(f"{label}:")
-            imgui.same_line()
-            label_width = _point_xy(imgui.calc_text_size(f"{label}:"))[0]
+            label_text = f"{label}:"
+            label_width, label_height = _point_xy(imgui.calc_text_size(label_text))
             item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
-            imgui.set_next_item_width(
-                max(1.0, content_width - label_width - item_spacing_x)
-            )
-            widget_id = f"##{'.'.join(item_path)}"
+            editor_width = max(1.0, content_width - label_width - item_spacing_x)
             choices = setting_choices(annotation)
+            editor_layout = (
+                _wrapped_editor_layout(
+                    imgui,
+                    format_editor_value(current),
+                    editor_width,
+                )
+                if not choices and type(current) is not bool
+                else None
+            )
+            field_height = (
+                editor_layout[3]
+                if editor_layout is not None
+                else (
+                    float(imgui.get_font_size())
+                    + _point_xy(imgui.get_style().frame_padding)[1]
+                    if type(current) is bool
+                    else float(imgui.get_frame_height())
+                )
+            )
+            row_y = float(imgui.get_cursor_pos_y())
+            imgui.set_cursor_pos_y(
+                row_y + max(0.0, (field_height - label_height) / 2.0)
+            )
+            imgui.text(label_text)
+            imgui.same_line()
+            imgui.set_cursor_pos_y(row_y)
+            imgui.set_next_item_width(editor_width)
+            widget_id = f"##{'.'.join(item_path)}"
             changed = False
             edited = current
             if choices:
@@ -1495,13 +1520,29 @@ class TaxiHudState:
                 )
                 edited = choices[index]
             elif type(current) is bool:
-                changed, edited = imgui.checkbox(widget_id, current)
+                frame_padding_x, frame_padding_y = _point_xy(
+                    imgui.get_style().frame_padding
+                )
+                imgui.push_style_var(
+                    imgui.StyleVar_.frame_padding,
+                    imgui.ImVec2(frame_padding_x, frame_padding_y / 2.0),
+                )
+                imgui.push_style_color(
+                    imgui.Col_.check_mark,
+                    imgui.ImVec4(*_OPTION_ENABLED_RGB, 1.0),
+                )
+                try:
+                    changed, edited = imgui.checkbox(widget_id, current)
+                finally:
+                    imgui.pop_style_color()
+                    imgui.pop_style_var()
             else:
                 changed, text = _wrapped_input_text(
                     imgui,
                     widget_id,
                     format_editor_value(current),
-                    max(1.0, content_width - label_width - item_spacing_x),
+                    editor_width,
+                    editor_layout,
                 )
                 if changed:
                     try:
@@ -3215,23 +3256,18 @@ def _wrapped_input_text(
     widget_id: str,
     value: str,
     display_width: float,
+    layout: tuple[str, float, float, float] | None = None,
 ) -> tuple[bool, str]:
     """Draw a height-fitting text editor without letting it resize its menu."""
-    display_value, line_count, underlying_width = _wrapped_editor_layout(
-        imgui,
-        value,
-        display_width,
-    )
-    frame_padding_y = _point_xy(imgui.get_style().frame_padding)[1]
-    editor_height = max(
-        float(imgui.get_frame_height()),
-        line_count * float(imgui.get_font_size()) + 2.0 * frame_padding_y,
+    display_value, underlying_width, editor_height, field_height = (
+        layout
+        if layout is not None
+        else _wrapped_editor_layout(imgui, value, display_width)
     )
     if underlying_width > display_width:
-        scroll_height = editor_height + float(imgui.get_style().scrollbar_size)
         visible = imgui.begin_child(
             f"{widget_id}-horizontal-scroll",
-            imgui.ImVec2(display_width, scroll_height),
+            imgui.ImVec2(display_width, field_height),
             window_flags=imgui.WindowFlags_.horizontal_scrollbar,
         )
         try:
@@ -3259,7 +3295,7 @@ def _wrapped_editor_layout(
     imgui: Any,
     value: str,
     display_width: float,
-) -> tuple[str, int, float]:
+) -> tuple[str, float, float, float]:
     """Wrap at whitespace and retain over-wide tokens for horizontal scrolling."""
     frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
     wrap_width = max(1.0, display_width - 2.0 * frame_padding_x)
@@ -3293,7 +3329,17 @@ def _wrapped_editor_layout(
             wrapped.append(token)
             line_width += token_width
             line_has_word = line_has_word or not token.isspace()
-    return "".join(wrapped), line_count, underlying_width
+    frame_padding_y = _point_xy(imgui.get_style().frame_padding)[1]
+    editor_height = max(
+        float(imgui.get_frame_height()),
+        line_count * float(imgui.get_font_size()) + 2.0 * frame_padding_y,
+    )
+    field_height = editor_height + (
+        float(imgui.get_style().scrollbar_size)
+        if underlying_width > display_width
+        else 0.0
+    )
+    return "".join(wrapped), underlying_width, editor_height, field_height
 
 
 def _table_content_width(imgui: Any, *column_widths: float) -> float:
