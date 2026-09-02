@@ -1548,39 +1548,88 @@ class TaxiHudState:
             imgui.pop_style_var(style_var_count)
 
     def _draw_control_tooltips(self, imgui: Any) -> None:
-        """Draw the dismissible keyboard controls along the bottom of the HUD."""
+        """Draw dismissible keyboard controls in an auto-sized HUD card."""
         if not self.show_control_tooltips:
             return
         keyboard = self.controls.keyboard
-        self._draw_status_strip(
-            imgui,
-            "  |  ".join(
-                (
-                    f"{_binding_slots_display('keyboard', keyboard.drive_forward)} FORWARD",
-                    f"{_binding_slots_display('keyboard', keyboard.reverse)} "
-                    "BRAKE / REVERSE",
-                    f"{_binding_slots_display('keyboard', keyboard.steer_left)} LEFT",
-                    f"{_binding_slots_display('keyboard', keyboard.steer_right)} RIGHT",
-                    f"{_binding_slots_display('keyboard', keyboard.handbrake)} HANDBRAKE",
-                )
+        entries = (
+            ("FORWARD", _binding_slots_display("keyboard", keyboard.drive_forward)),
+            (
+                "BRAKE / REVERSE",
+                _binding_slots_display("keyboard", keyboard.reverse),
             ),
-            color_rgb=(0.82, 0.82, 0.86),
-            top=max(14.0, float(self.height) - 72.0),
-            font_size=14.0,
-        )
-        self._draw_status_strip(
-            imgui,
-            "  |  ".join(
-                (
-                    f"{_binding_slots_display('keyboard', keyboard.restart)} RESTART",
-                    "ESC MAP",
-                    f"{_binding_slots_display('keyboard', keyboard.toggle_hints)} HIDE CONTROLS",
-                )
+            ("STEER LEFT", _binding_slots_display("keyboard", keyboard.steer_left)),
+            (
+                "STEER RIGHT",
+                _binding_slots_display("keyboard", keyboard.steer_right),
             ),
-            color_rgb=(0.72, 0.72, 0.76),
-            top=max(14.0, float(self.height) - 38.0),
-            font_size=13.0,
+            ("HANDBRAKE", _binding_slots_display("keyboard", keyboard.handbrake)),
+            ("RESTART", _binding_slots_display("keyboard", keyboard.restart)),
+            ("RETURN TO MAP", "ESC"),
+            (
+                "HIDE CONTROLS",
+                _binding_slots_display("keyboard", keyboard.toggle_hints),
+            ),
         )
+        action_width = max(
+            _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries
+        )
+        binding_width = max(
+            _point_xy(imgui.calc_text_size(binding))[0] for _action, binding in entries
+        )
+        wide_width = _table_content_width(
+            imgui, action_width, binding_width, action_width, binding_width
+        )
+        pair_count = 2 if wide_width <= max(1.0, float(self.width) - 28.0) else 1
+        content_width = _table_content_width(
+            imgui, *((action_width, binding_width) * pair_count)
+        )
+        _prepare_window(
+            imgui,
+            position=(float(self.width) / 2.0, float(self.height) - 14.0),
+            size=None,
+            alpha=0.94,
+            pivot=(0.5, 1.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(imgui, "Controls", extra_flags=_AUTO_CARD_FLAGS)
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "CONTROLS",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=18.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            imgui.separator()
+            if imgui.begin_table(
+                "##gameplay-control-hints",
+                pair_count * 2,
+                flags=(
+                    imgui.TableFlags_.no_saved_settings
+                    | imgui.TableFlags_.sizing_fixed_same
+                ),
+                outer_size=imgui.ImVec2(content_width, 0.0),
+            ):
+                try:
+                    for index, (action, binding) in enumerate(entries):
+                        pair = index % pair_count
+                        if pair == 0:
+                            imgui.table_next_row(min_row_height=0.0)
+                        imgui.table_set_column_index(pair * 2)
+                        imgui.text(action)
+                        imgui.table_set_column_index(pair * 2 + 1)
+                        _colored_imgui_text(imgui, binding, (*_TAXI_ACCENT_RGB, 1.0))
+                finally:
+                    imgui.end_table()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
 
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
@@ -2288,9 +2337,9 @@ class TaxiHudState:
         )
         description_font_size = max(12.0, 13.0 * scale)
         button_labels = (
-            ("TAXI", "RACE", "CONTROLS", "OPTIONS")
+            ("TAXI", "RACE", "CONTROLS", "OPTIONS", "EXIT")
             if self.settings_document is not None
-            else ("TAXI", "RACE", "CONTROLS")
+            else ("TAXI", "RACE", "CONTROLS", "EXIT")
         )
         button_width = max(
             _overlay_text_size(
@@ -2369,6 +2418,11 @@ class TaxiHudState:
                 imgui.ImVec2(button_width, max(34.0, 42.0 * scale)),
             ):
                 self._open_options()
+                return
+            if _centered_imgui_button(
+                imgui, "EXIT", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._handle_escape()
                 return
             self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(

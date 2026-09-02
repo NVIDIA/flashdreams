@@ -1112,12 +1112,24 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
 
     state.draw(imgui)
 
-    assert not imgui.windows
+    assert set(imgui.windows) == {"Controls"}
+    assert imgui.windows["Controls"][0] == "CONTROLS"
+    assert imgui.table_column_counts["##gameplay-control-hints"] == 4
+    assert imgui.tables["##gameplay-control-hints"] == [
+        ["FORWARD", "W / UP ARROW", "BRAKE / REVERSE", "S / DOWN ARROW"],
+        ["STEER LEFT", "A / LEFT ARROW", "STEER RIGHT", "D / RIGHT ARROW"],
+        ["HANDBRAKE", "SPACE", "RESTART", "R"],
+        ["RETURN TO MAP", "ESC", "HIDE CONTROLS", "H"],
+    ]
+    controls_flags = imgui.window_flags["Controls"]
+    assert controls_flags & imgui.WindowFlags_.always_auto_resize
+    assert controls_flags & imgui.WindowFlags_.no_scrollbar
+    assert controls_flags & imgui.WindowFlags_.no_scroll_with_mouse
     overlay_text = [
         args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
     ]
     assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
-    assert "H HIDE CONTROLS" in " ".join(overlay_text)
+    assert "HIDE CONTROLS" not in overlay_text
     assert "mph" in overlay_text
     assert any(
         name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
@@ -1290,11 +1302,13 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert imgui.child_sizes["##course-options"][0] == course_button_size[0]
     assert imgui.buttons.count("CONTROLS") == 1
     assert imgui.buttons.count("OPTIONS") == 1
+    assert imgui.buttons.count("EXIT") == 1
     for label in (
         "TAXI",
         "RACE",
         "CONTROLS",
         "OPTIONS",
+        "EXIT",
         "Test City##map-0",
         "DOWNTOWN SPRINT##course-0",
     ):
@@ -1785,6 +1799,27 @@ def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
     assert model_loop.state.exit_requested
 
 
+def test_mode_exit_button_requests_exit() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("EXIT")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "loading"
+    assert state._loading_status == "EXITING GAME"
+    model_loop._run_message_batch()
+    assert model_loop.state.exit_requested
+
+
 def test_h_toggles_gameplay_control_tooltips() -> None:
     state = TaxiHudState(640, 360, _calibration())
     released = KeyboardUserInputEvent(
@@ -1807,6 +1842,16 @@ def test_h_toggles_gameplay_control_tooltips() -> None:
     state.consume_input_events(UserInputEvents([released]))
     state.consume_input_events(UserInputEvents([pressed]))
     assert state.show_control_tooltips
+
+
+def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
+    state = TaxiHudState(160, 96, _calibration())
+    imgui = _FakeImGui()
+
+    state._draw_control_tooltips(imgui)
+
+    assert imgui.table_column_counts["##gameplay-control-hints"] == 2
+    assert len(imgui.tables["##gameplay-control-hints"]) == 8
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
