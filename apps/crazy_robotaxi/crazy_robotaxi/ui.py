@@ -1535,18 +1535,12 @@ class TaxiHudState:
             ),
             default=1.0,
         )
-        button_columns = (
-            2
-            if 2.0 * button_width + _point_xy(imgui.get_style().item_spacing)[0]
-            <= max(1.0, float(self.width) - 28.0)
-            else 1
-        )
         _prepare_window(
             imgui,
-            position=(float(self.width) - 14.0, 94.0),
+            position=(14.0, 94.0),
             size=None,
             alpha=0.94,
-            pivot=(1.0, 0.0),
+            pivot=(0.0, 0.0),
         )
         style_var_count, style_color_count = _push_arcade_card_style(
             imgui, _TAXI_ACCENT_RGB
@@ -1570,9 +1564,7 @@ class TaxiHudState:
                 imgui.text(line)
             if actions:
                 imgui.separator()
-            for index, (action, label) in enumerate(actions):
-                if index % button_columns:
-                    imgui.same_line()
+            for action, label in actions:
                 disabled = action == "weather" and status.skin_name not in {
                     None,
                     "base",

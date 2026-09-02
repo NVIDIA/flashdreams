@@ -245,6 +245,7 @@ class _FakeImGui:
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
         self.button_positions: list[tuple[str, float]] = []
+        self.same_line_count = 0
         self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
         self.disabled_depth = 0
         self.disabled_buttons: list[str] = []
@@ -528,7 +529,7 @@ class _FakeImGui:
         self.disabled_depth -= 1
 
     def same_line(self) -> None:
-        return
+        self.same_line_count += 1
 
     def begin_table(
         self,
@@ -754,6 +755,8 @@ def test_live_edit_card_dispatches_enabled_actions() -> None:
         size is not None and size[0] >= imgui.calc_text_size(label).x + 20.0
         for label, size in imgui.button_sizes
     )
+    assert imgui.next_window_position == (14.0, 94.0)
+    assert imgui.same_line_count == 0
 
 
 def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
