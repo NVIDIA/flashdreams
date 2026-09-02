@@ -40,7 +40,6 @@ from crazy_robotaxi.rules import (
 from crazy_robotaxi.settings import SettingsDocument
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
-    _selection_grid_columns,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
@@ -169,6 +168,7 @@ class _FakeFontAtlas:
 
 class _FakeImGui:
     Cond_ = SimpleNamespace(always=1)
+    ChildFlags_ = SimpleNamespace(auto_resize_y=1, always_auto_resize=2)
     WindowFlags_ = SimpleNamespace(
         no_move=1,
         no_resize=2,
@@ -179,6 +179,7 @@ class _FakeImGui:
         always_auto_resize=64,
         no_scrollbar=128,
         no_scroll_with_mouse=256,
+        horizontal_scrollbar=512,
     )
     InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
     StyleVar_ = SimpleNamespace(
@@ -223,6 +224,7 @@ class _FakeImGui:
         self.cursor_x = 8.0
         self.input_value = ""
         self.input_values: dict[str, str] = {}
+        self.multiline_inputs: list[tuple[str, str, tuple[float, float], int]] = []
         self.checkbox_values: dict[str, bool] = {}
         self.combo_indices: dict[str, int] = {}
         self.submit_input = False
@@ -236,7 +238,10 @@ class _FakeImGui:
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
         self.child_sizes: dict[str, tuple[float, float]] = {}
+        self.child_window_flags: dict[str, int] = {}
+        self._child_size_stack: list[tuple[float, float]] = []
         self.current_child_size: tuple[float, float] | None = None
+        self.last_item_rect_size = (0.0, 0.0)
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
         self.table_column_counts: dict[str, int] = {}
@@ -311,6 +316,9 @@ class _FakeImGui:
         self.next_window_size = size
         del condition
 
+    def set_next_window_size_constraints(self, size_min, size_max) -> None:
+        del size_min, size_max
+
     def set_next_window_bg_alpha(self, alpha) -> None:
         del alpha
 
@@ -323,13 +331,60 @@ class _FakeImGui:
     def end(self) -> None:
         self.current_window = None
 
-    def begin_child(self, child_id: str, size: tuple[float, float]) -> bool:
+    def begin_child(
+        self,
+        child_id: str,
+        size: tuple[float, float],
+        *,
+        child_flags: int = 0,
+        window_flags: int = 0,
+    ) -> bool:
+        del child_flags
         self.child_sizes[child_id] = size
+        self.child_window_flags[child_id] = window_flags
+        self._child_size_stack.append(size)
         self.current_child_size = size
         return True
 
     def end_child(self) -> None:
-        self.current_child_size = None
+        assert self._child_size_stack
+        width, height = self._child_size_stack.pop()
+        if height <= 0.0:
+            height = 100.0
+        self.last_item_rect_size = (width, height)
+        self.current_child_size = (
+            self._child_size_stack[-1] if self._child_size_stack else None
+        )
+
+    def get_item_rect_size(self) -> tuple[float, float]:
+        return self.last_item_rect_size
+
+    def get_item_rect_max(self) -> tuple[float, float]:
+        window_x, window_y = self.get_window_pos()
+        content_bottom = 100.0 if self.current_child_size is not None else 300.0
+        return (window_x, window_y + content_bottom)
+
+    @staticmethod
+    def get_style() -> SimpleNamespace:
+        return SimpleNamespace(
+            window_padding=(28.0, 24.0),
+            item_spacing=(10.0, 10.0),
+            frame_padding=(10.0, 8.0),
+            cell_padding=(4.0, 2.0),
+            scrollbar_size=14.0,
+            display_safe_area_padding=(3.0, 3.0),
+        )
+
+    def get_frame_height(self) -> float:
+        return self.current_font_size + 16.0
+
+    @staticmethod
+    def get_scroll_max_y() -> float:
+        return 0.0
+
+    @staticmethod
+    def get_scroll_y() -> float:
+        return 0.0
 
     def text(self, value: str) -> None:
         assert self.current_window is not None
@@ -395,6 +450,19 @@ class _FakeImGui:
             return True, self.input_values[label]
         del label, value
         return self.submit_input, self.input_value
+
+    def input_text_multiline(
+        self,
+        label: str,
+        value: str,
+        size: tuple[float, float],
+        *,
+        flags: int,
+    ) -> tuple[bool, str]:
+        self.multiline_inputs.append((label, value, size, flags))
+        if label in self.input_values:
+            return True, self.input_values[label]
+        return False, value
 
     def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
         if label in self.checkbox_values:
@@ -1077,12 +1145,29 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     assert lines[1].startswith("ELAPSED  ")
 
 
-@pytest.mark.parametrize(
-    ("option_count", "expected_columns"),
-    ((0, 1), (1, 1), (2, 2), (3, 2), (4, 2), (5, 3), (6, 3), (7, 3)),
-)
-def test_selection_grid_column_count(option_count: int, expected_columns: int) -> None:
-    assert _selection_grid_columns(option_count) == expected_columns
+def test_two_map_selections_render_in_one_grid_row() -> None:
+    preview_path = Path("map-preview.jpg")
+    maps = tuple(
+        GameMapOption(
+            map_id=f"map-{index}",
+            name=f"Map {index}",
+            path=Path(f"map-{index}.robotaxi.yaml"),
+            preview_image_path=preview_path,
+        )
+        for index in range(2)
+    )
+    state = TaxiHudState(1280, 720, _calibration(), map_options=maps)
+    state._selection_preview_pixels[preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert imgui.table_column_counts["##map-grid"] == 2
+    assert len(imgui.tables["##map-grid"]) == 1
 
 
 def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
@@ -1149,22 +1234,12 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         "selection-preview:map-preview.jpg",
         "selection-preview:course-preview.jpg",
     ]
-    map_preview_size = imgui.images[0][2]
-    course_preview_size = imgui.images[1][2]
     map_button_size = button_sizes["Test City##map-0"]
     course_button_size = button_sizes["DOWNTOWN SPRINT##course-0"]
     assert map_button_size is not None
     assert course_button_size is not None
     assert imgui.child_sizes["##map-options"][0] == map_button_size[0]
     assert imgui.child_sizes["##course-options"][0] == course_button_size[0]
-    assert (
-        map_preview_size[1] + map_button_size[1] + 10.0
-        <= imgui.child_sizes["##map-options"][1]
-    )
-    assert (
-        course_preview_size[1] + course_button_size[1] + 10.0
-        <= imgui.child_sizes["##course-options"][1]
-    )
     assert imgui.buttons.count("CONTROLS") == 1
     assert imgui.buttons.count("OPTIONS") == 1
     for title in (
@@ -1214,8 +1289,6 @@ def test_map_and_course_selections_use_three_column_grids() -> None:
     map_button_sizes = dict(map_imgui.button_sizes)
     map_button_size = map_button_sizes["Map 0##map-0"]
     assert map_button_size is not None
-    map_cell_width = map_button_size[0]
-    assert map_imgui.child_sizes["##map-options"][0] == map_cell_width * 3
     assert len(map_imgui.images) == 6
 
     course_preview_path = Path("course-preview.jpg")
@@ -1250,8 +1323,6 @@ def test_map_and_course_selections_use_three_column_grids() -> None:
     course_button_sizes = dict(course_imgui.button_sizes)
     course_button_size = course_button_sizes["COURSE 0##course-0"]
     assert course_button_size is not None
-    course_cell_width = course_button_size[0]
-    assert course_imgui.child_sizes["##course-options"][0] == course_cell_width * 3
     assert len(course_imgui.images) == 7
 
 
@@ -1990,6 +2061,77 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     assert "EXIT" in labels
     assert "EXIT WITHOUT SAVING" not in labels
     assert "RESET TO DEFAULTS" in labels
+
+
+def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_perf_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    click_imgui = _FakeImGui()
+    click_imgui.clicked_buttons.add("MODEL##options-category-model")
+
+    state.draw(click_imgui)
+
+    assert state._options_category == "model"
+    model_imgui = _FakeImGui()
+    state.draw(model_imgui)
+    assert "Device:" in model_imgui.windows["Crazy Robotaxi - Options"]
+
+
+def test_options_text_fields_wrap_without_resizing_the_submenu(
+    tmp_path: Path,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+
+    def draw_device(value: str) -> _FakeImGui:
+        state = TaxiHudState(
+            1280,
+            720,
+            _calibration(),
+            settings_document=document,
+        )
+        state._open_options()
+        state._options_category = "model"
+        assert state._options_draft is not None
+        state._options_draft = document.update(
+            state._options_draft,
+            ("model", "device"),
+            value,
+        )
+        imgui = _FakeImGui()
+        state.draw(imgui)
+        return imgui
+
+    short = draw_device("cuda")
+    wrapped = draw_device("wrapped words " * 20)
+    unbreakable = draw_device("/" + "long-path-segment" * 20)
+
+    assert {
+        short.child_sizes["##options-fields"][0],
+        wrapped.child_sizes["##options-fields"][0],
+        unbreakable.child_sizes["##options-fields"][0],
+    } == {short.child_sizes["##options-fields"][0]}
+    short_field = next(
+        item for item in short.multiline_inputs if item[0] == "##model.device"
+    )
+    wrapped_field = next(
+        item for item in wrapped.multiline_inputs if item[0] == "##model.device"
+    )
+    path_field = next(
+        item for item in unbreakable.multiline_inputs if item[0] == "##model.device"
+    )
+    assert wrapped_field[2][1] > short_field[2][1]
+    scroll_id = "##model.device-horizontal-scroll"
+    assert scroll_id not in wrapped.child_sizes
+    assert unbreakable.child_sizes[scroll_id][0] < path_field[2][0]
+    assert (
+        unbreakable.child_window_flags[scroll_id]
+        & unbreakable.WindowFlags_.horizontal_scrollbar
+    )
 
 
 def test_options_reset_to_defaults_remains_unsaved_until_save(tmp_path: Path) -> None:
