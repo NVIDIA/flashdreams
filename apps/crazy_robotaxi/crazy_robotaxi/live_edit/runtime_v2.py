@@ -126,11 +126,19 @@ class LiveEditGameplay:
         vehicle: Any,
     ) -> None:
         self.config = config
+        self._game_map = scene.game_map
         self.style = (
-            StyleAbility(config.style, config.weather)
-            if config.style.enabled or config.weather.enabled
+            StyleAbility(config.style, config.weather, config.map_context)
+            if config.style.enabled
+            or config.weather.enabled
+            or config.map_context.enabled
             else None
         )
+        if config.map_context.enabled:
+            if scene.game_map is None:
+                raise ValueError("live-edit map context requires a resolved game map")
+            assert self.style is not None
+            self.style.configure_map(scene.game_map)
         self.coins = (
             CoinAbility.from_lanes(lanes, config.coins)
             if config.coins.enabled
@@ -182,6 +190,15 @@ class LiveEditGameplay:
             output_height=scene.initial_rgb.shape[0],
         )
         self._frame_index = 0
+        self._presentation_enabled = any(
+            (
+                config.style.enabled,
+                config.weather.enabled,
+                config.coins.enabled,
+                config.items.enabled,
+                config.obstacle.enabled,
+            )
+        )
 
     def attach_model(self, pipeline: Any) -> None:
         """Install optional model-side obstacle guidance."""
@@ -198,6 +215,12 @@ class LiveEditGameplay:
         """Reuse installed model hooks while resetting per-rollout gameplay."""
         if self.style is not None and previous.style is not None:
             self.style = previous.style
+            if self.config.map_context.enabled:
+                if self._game_map is None:
+                    raise ValueError(
+                        "live-edit map context requires a resolved game map"
+                    )
+                self.style.configure_map(self._game_map)
             self.style.reset_v2(cache)
             if self.items is not None:
                 self.effects = ItemEffects(
@@ -212,7 +235,9 @@ class LiveEditGameplay:
     def prepare_model_step(
         self, pipeline: Any, engine: Any, step: Any, autoregressive_index: int
     ) -> None:
-        """Prepare the obstacle-free shadow conditioning branch."""
+        """Apply prompt edits and prepare the obstacle guidance branch."""
+        if self.style is not None:
+            self.style.before_v2_chunk()
         if self.guidance is None:
             return
         actors = step.trajectory.dynamic_actors
@@ -297,6 +322,8 @@ class LiveEditGameplay:
 
     def advance(self, trajectory: TrajectoryChunk) -> tuple[Any, ...]:
         """Advance pickups and obstacles after one physics trajectory."""
+        if self.style is not None:
+            self.style.update_map_context(trajectory.boundary_state_after_chunk)
         if self.coins is not None:
             self.coins.advance_frames(trajectory.vehicle_states)
         if self.items is not None and self.effects is not None:
@@ -308,12 +335,7 @@ class LiveEditGameplay:
 
     def postprocess_video(self, video: Tensor, step: Any) -> Tensor:
         """Composite frame-aligned collectibles on device."""
-        if (
-            self.coins is None
-            and self.items is None
-            and self.style is None
-            and self.obstacles is None
-        ):
+        if not self._presentation_enabled:
             return video
         result = video.clone()
         _, _, frame_count = result.shape[:3]

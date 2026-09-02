@@ -1,6 +1,6 @@
 schema_version: 1
-id: race-course-test
-name: Race Course Test
+id: traffic-loop-test
+name: Traffic Loop Test
 
 compiler:
   sample_spacing_m: 1
@@ -37,19 +37,10 @@ roads:
   - {id: west_north, from: northwest, to: west, profile: street}
   - {id: west_south, from: west, to: southwest, profile: street}
 
-race_courses:
-  - id: test-loop
-    spawn: start
-    start: south_west
-    checkpoints: [southeast, east_north, north, west_south]
-    lap_count: 3
-    checkpoint_markers: true
-
 spawns:
   - id: start
     road: south_west
     lane: 1
     distance_m: 30
     image: package://omnidreams_game_engine/screenshot.jpg
-    prompt: A car racing on a rectangular city loop.
-    prompt_context: A forward-facing view from a car on a city road.
+    prompt: A car on a rectangular city loop.

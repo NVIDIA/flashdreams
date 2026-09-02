@@ -1,0 +1,54 @@
+schema_version: 1
+id: parking-driveway-test
+name: Parking Driveway Test
+
+compiler:
+  sample_spacing_m: 1
+  ground_margin_m: 10
+  intersection_connector_samples: 8
+
+profiles:
+  street:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, forward]
+    speed_limit_mps: 10
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - id: west_end
+    type: cul_de_sac
+    pose: {x_m: -100, y_m: 0}
+    culdesac_radius_m: 10
+  - id: lot_driveway
+    type: driveway
+    pose: {x_m: 0, y_m: 0}
+  - id: east_end
+    type: cul_de_sac
+    pose: {x_m: 100, y_m: 0}
+    culdesac_radius_m: 10
+  - id: parking_lot
+    type: parking_lot
+    connected_to: lot_driveway
+    opening_vertex: 2
+    vertices:
+      - {x_m: -30, y_m: -20}
+      - {x_m: -6, y_m: -20}
+      - {x_m: 6, y_m: -20}
+      - {x_m: 30, y_m: -20}
+      - {x_m: 30, y_m: -60}
+      - {x_m: -30, y_m: -60}
+
+roads:
+  - {id: west_road, from: west_end, to: lot_driveway, profile: street}
+  - {id: east_road, from: lot_driveway, to: east_end, profile: street}
+
+spawns:
+  - id: start
+    road: west_road
+    lane: 1
+    distance_m: 30
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A street beside a small parking lot.

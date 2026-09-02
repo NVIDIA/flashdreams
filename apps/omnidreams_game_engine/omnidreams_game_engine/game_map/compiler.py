@@ -409,7 +409,13 @@ def _trajectory(spawn: GameMapSpawn) -> dict[str, object]:
     }
 
 
-def _write_archive(path: Path, game_map: ResolvedGameMap, spawn: GameMapSpawn) -> None:
+def _write_archive(
+    path: Path,
+    game_map: ResolvedGameMap,
+    spawn: GameMapSpawn,
+    *,
+    use_prompt_context: bool,
+) -> None:
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "metadata.yaml", yaml.safe_dump(_metadata(game_map), sort_keys=True)
@@ -423,7 +429,12 @@ def _write_archive(path: Path, game_map: ResolvedGameMap, spawn: GameMapSpawn) -
             "mesh_ground.ply",
             save_mesh_vf(game_map.ground_vertices, game_map.ground_faces),
         )
-        archive.writestr("prompt.txt", spawn.prompt)
+        archive.writestr(
+            "prompt.txt",
+            spawn.prompt_context or spawn.prompt
+            if use_prompt_context
+            else spawn.prompt,
+        )
         if spawn.image is None:
             _write_image_array(
                 archive,
@@ -456,6 +467,7 @@ def compile_game_map(
     path: Path,
     *,
     spawn_id: str | None = None,
+    use_prompt_context: bool = False,
     cache_root: Path | None = None,
     force: bool = False,
 ) -> CompiledGameMap:
@@ -480,7 +492,8 @@ def compile_game_map(
         if spawn is game_map.default_spawn
         else "-" + hashlib.sha256(spawn.spawn_id.encode()).hexdigest()
     )
-    archive_path = output_dir / f"{game_map.map_id}{spawn_suffix}.usdz"
+    context_suffix = "-context" if use_prompt_context else ""
+    archive_path = output_dir / f"{game_map.map_id}{spawn_suffix}{context_suffix}.usdz"
     lock = FileLock(str(root / f"{digest}.lock"))
     root.mkdir(parents=True, exist_ok=True)
     with lock:
@@ -500,7 +513,12 @@ def compile_game_map(
         os.close(file_descriptor)
         temporary = Path(temporary_name)
         try:
-            _write_archive(temporary, game_map, spawn)
+            _write_archive(
+                temporary,
+                game_map,
+                spawn,
+                use_prompt_context=use_prompt_context,
+            )
             temporary.replace(archive_path)
         finally:
             temporary.unlink(missing_ok=True)

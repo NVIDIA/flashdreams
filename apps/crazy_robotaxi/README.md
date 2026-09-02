@@ -194,7 +194,8 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   --live-edit-coins \
   --live-edit-items \
   --live-edit-weather \
-  --live-edit-style
+  --live-edit-style \
+  --live-edit-map-context
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
@@ -204,11 +205,16 @@ change while a non-base style is active. Style mode downloads its additional
 model assets on first use and caches them under
 `artifacts/crazy_robotaxi/live_edit`.
 
-Style, weather, and guided obstacles need the Python transformer hooks. When
-one of those features is enabled, the application automatically disables native
-DiT acceleration and logs the reason. Native VAE acceleration and the remaining
-performance configuration stay enabled; pixel-only features such as coins,
-items, and unguided obstacles keep native DiT acceleration.
+Map context appends authored road and landmark descriptions plus topology,
+curve, and vehicle-motion clauses to the active prompt. Complete combined
+prompts are encoded and retained lazily, so the first visit to a new context
+may pause briefly and maps with many unique contexts retain more GPU memory.
+
+Style, weather, map context, and guided obstacles need the Python transformer
+hooks. When one of those features is enabled, the application automatically
+disables native DiT acceleration while preserving the selected preset's other
+settings. Native VAE acceleration stays enabled; pixel-only features such as
+coins, items, and unguided obstacles keep native DiT acceleration.
 
 ## Authored maps
 
@@ -223,3 +229,7 @@ uv run --package crazy-robotaxi crazy-robotaxi-map preview \
 uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
   path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
 ```
+
+Spawns can define both a full `prompt` for normal play and a shorter
+`prompt_context` base for `--live-edit-map-context`; dynamic road and motion
+clauses are appended only to the latter.

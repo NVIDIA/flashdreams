@@ -117,10 +117,6 @@ def _allocate_tma_workspace(
     return torch.empty(size, device="cuda", dtype=torch.int8)
 
 
-# In-kernel tensor descriptors need a small device allocation at launch time.
-triton.set_allocator(_allocate_tma_workspace)
-
-
 _TMA_ATTENTION_CONFIGS = [
     triton.Config(
         {"BLOCK_M": block_m, "BLOCK_N": block_n},
@@ -477,6 +473,8 @@ def flash_attention_2_tma(
             batch_size * num_heads,
         )
 
+    # Triton stores its allocator in thread-local context, so register at launch.
+    triton.set_allocator(_allocate_tma_workspace)
     _flash_attention_2_tma_kernel[grid](
         query,
         key,

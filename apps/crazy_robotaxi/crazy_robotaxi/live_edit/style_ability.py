@@ -41,9 +41,11 @@ from typing import Any, cast
 from loguru import logger
 
 from crazy_robotaxi.live_edit.config import (
+    LiveEditMapContextConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
 )
+from crazy_robotaxi.live_edit.map_context import MapContextTracker
 from crazy_robotaxi.live_edit.weather_ability import compose_swap_target
 
 _NO_PENDING = object()
@@ -89,14 +91,18 @@ class StyleAbility:
         self,
         config: LiveEditStyleConfig,
         weather_config: LiveEditWeatherConfig | None = None,
+        map_context_config: LiveEditMapContextConfig | None = None,
     ) -> None:
         weather_enabled = weather_config is not None and weather_config.enabled
-        if not config.enabled and not weather_enabled:
-            raise ValueError(
-                "StyleAbility requires live_edit.style or live_edit.weather"
-            )
+        map_enabled = map_context_config is not None and map_context_config.enabled
+        if not config.enabled and not weather_enabled and not map_enabled:
+            raise ValueError("StyleAbility requires style, weather, or map context")
         self._config = config
         self._weather_config = weather_config if weather_enabled else None
+        self._map_context_config = map_context_config if map_enabled else None
+        self._map_tracker: MapContextTracker | None = None
+        self._pending_map_suffix: str | None = None
+        self._active_map_suffix = ""
         self._session: Any | None = None
         self._transformer: Any | None = None
         self._lora_attached = False
@@ -117,6 +123,28 @@ class StyleAbility:
         self._dispatch: Any | None = None
         self._corrector_states: set[str] = set()
         self._prompt_embeddings: dict[str, Any] = {}
+
+    def configure_map(self, game_map: Any) -> None:
+        """Bind the selected resolved map before a rollout starts."""
+        if self._map_context_config is None:
+            return
+        self._map_tracker = MapContextTracker(game_map)
+        self.reset_map_context()
+
+    def reset_map_context(self) -> None:
+        """Reset rollout-local map hysteresis and prompt state."""
+        if self._map_tracker is not None:
+            self._map_tracker.reset()
+        self._pending_map_suffix = None
+        self._active_map_suffix = ""
+
+    def update_map_context(self, state: Any) -> None:
+        """Queue the newest authoritative map and motion suffix."""
+        if self._map_tracker is None:
+            return
+        suffix = self._map_tracker.update(state).suffix
+        if suffix != self._active_map_suffix:
+            self._pending_map_suffix = suffix
 
     @property
     def active_skin_name(self) -> str:
@@ -268,7 +296,10 @@ class StyleAbility:
         """
         transformer = pipeline.diffusion_model.transformer
         if getattr(transformer, "_optimized_dit_executor", None) is not None:
-            raise RuntimeError("Live text editing requires a non-native model preset")
+            raise RuntimeError(
+                "Live text editing requires native_dit_acceleration='disabled'; "
+                "the application normally derives this automatically"
+            )
         self._guard_transformer(transformer)
         self._transformer = transformer
         self._base_prompt = base_prompt
@@ -303,6 +334,7 @@ class StyleAbility:
         self._weather_hold_chunks = 0
         self._active_skin_duration = self._config.skin_duration_chunks
         self._pending_skin_duration = None
+        self.reset_map_context()
         self._update_corrector(None, None, 0.0)
 
     def before_v2_chunk(self) -> None:
@@ -318,6 +350,8 @@ class StyleAbility:
             or refresh_due
         ):
             self._apply_pending(refresh=refresh_due)
+        if not self._edit_window_active():
+            self._apply_pending_map_context()
 
     def after_v2_chunk(self) -> None:
         """Advance timed ability counters after one generated chunk."""
@@ -353,6 +387,10 @@ class StyleAbility:
             prompts.extend(skin.prompt for skin in self._config.skins)
         if self._weather_config is not None:
             prompts.extend(weather.prompt for weather in self._weather_config.weathers)
+        if self._map_context_config is not None:
+            # Bare visual prompts are never issued while map context is active;
+            # complete combinations are encoded lazily at the chunk boundary.
+            prompts.clear()
         start = time.perf_counter()
         for prompt in prompts:
             self._encode_prompt(pipeline, prompt)
@@ -828,6 +866,67 @@ class StyleAbility:
             return False
         return interval > 0 and self._chunks_since_swap >= interval
 
+    @staticmethod
+    def _with_map_suffix(prompt: str, suffix: str) -> str:
+        """Append a normalized map suffix to one complete visual prompt."""
+        return " ".join(part.strip() for part in (prompt, suffix) if part.strip())
+
+    def _edit_window_active(self) -> bool:
+        """Return whether a guided style or weather landing is still active."""
+        session = self._session
+        cache = None if session is None else getattr(session, "_cache", None)
+        transformer_cache = (
+            None if cache is None else getattr(cache, "transformer_cache", None)
+        )
+        guidance = (
+            None
+            if transformer_cache is None
+            else getattr(transformer_cache, "text_edit_guidance", None)
+        )
+        return guidance is not None and guidance.chunks_remaining > 0
+
+    def _visual_target(self) -> Any:
+        """Compose the active visual state without changing it."""
+        assert self._base_prompt is not None
+        return compose_swap_target(
+            base_prompt=self._base_prompt,
+            skin=(
+                None
+                if self._active_index is None
+                else self._config.skins[self._active_index]
+            ),
+            weather=(
+                None
+                if self._active_weather is None or self._weather_config is None
+                else self._weather_config.weathers[self._active_weather]
+            ),
+            style_config=self._config,
+            weather_config=self._weather_config,
+            lora_available=self._lora_attached,
+        )
+
+    def _apply_pending_map_context(self) -> None:
+        """Land the newest deferred map suffix as a plain prompt swap."""
+        suffix = self._pending_map_suffix
+        self._pending_map_suffix = None
+        if suffix is None or suffix == self._active_map_suffix:
+            return
+        session = self._session
+        if session is None or session._cache is None or self._base_prompt is None:
+            self._pending_map_suffix = suffix
+            return
+        visual_target = self._visual_target()
+        target = replace(
+            visual_target,
+            prompt=self._with_map_suffix(visual_target.prompt, suffix),
+            guidance_scale=1.0,
+            guidance_chunks=0,
+            use_lora=False,
+        )
+        self._replace_text(session, target)
+        self._active_map_suffix = suffix
+        logger.info(f"[map-context] prompt state -> {suffix}")
+
     def _apply_pending(self, *, refresh: bool = False) -> None:
         """Swap the prompt between chunks when a request or refresh is due."""
         pending_skin = self._pending_index
@@ -874,6 +973,7 @@ class StyleAbility:
         if session is None or session._cache is None or self._base_prompt is None:
             logger.warning("[live-edit] prompt swap requested before first chunk")
             return
+        map_suffix = self._pending_map_suffix or self._active_map_suffix
 
         target = compose_swap_target(
             base_prompt=self._base_prompt,
@@ -886,6 +986,10 @@ class StyleAbility:
             style_config=self._config,
             weather_config=self._weather_config,
             lora_available=self._lora_attached,
+        )
+        target = replace(
+            target,
+            prompt=self._with_map_suffix(target.prompt, map_suffix),
         )
         if (
             self._active_weather is not None
@@ -918,11 +1022,18 @@ class StyleAbility:
                 weather_config=self._weather_config,
                 lora_available=self._lora_attached,
             )
+            rebase = replace(
+                rebase,
+                prompt=self._with_map_suffix(rebase.prompt, map_suffix),
+            )
             self._replace_text(session, rebase)
             target = replace(
                 target, guidance_chunks=self._weather_config.maintain_chunks
             )
         self._replace_text(session, target)
+        if self._pending_map_suffix == map_suffix:
+            self._pending_map_suffix = None
+        self._active_map_suffix = map_suffix
         verb = "re-swap" if not (changed or explicit_same_skin) else "state ->"
         if target_skin != self._active_index or explicit_same_skin:
             # Fresh activation (or skin->skin cycle, or an explicit re-roll
@@ -978,6 +1089,11 @@ class StyleAbility:
             edit_lora = transformer._text_edit_lora
             transformer.set_text_edit_lora(None)
         embeddings = self._prompt_embeddings.get(target.prompt)
+        if embeddings is None:
+            # ponytail: raw GPU embeddings grow with unique combined prompts;
+            # switch to compact projected CPU contexts if large maps make it material.
+            self._encode_prompt(session.pipeline, target.prompt)
+            embeddings = self._prompt_embeddings.get(target.prompt)
         replace_from_embeddings = getattr(
             session.pipeline, "replace_text_from_embeddings", None
         )

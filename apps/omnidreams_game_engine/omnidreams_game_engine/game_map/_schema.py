@@ -207,7 +207,7 @@ def _parse_map_identity(doc: dict[str, Any]) -> tuple[str, str]:
 
 def _parse_spawn_conditioning(
     raw_spawn: dict[str, Any], source_path: Path
-) -> tuple[str | None, str]:
+) -> tuple[str | None, str, str | None]:
     image_value = raw_spawn.get("image")
     image = None if image_value is None else str(image_value).strip()
     prompt = str(raw_spawn.get("prompt", "")).strip()
@@ -215,9 +215,17 @@ def _parse_spawn_conditioning(
         raise GameMapError("Every spawn requires a non-empty prompt")
     if image_value is not None and not image:
         raise GameMapError("spawn.image must not be empty")
+    prompt_context_value = raw_spawn.get("prompt_context")
+    if prompt_context_value is not None and (
+        not isinstance(prompt_context_value, str) or not prompt_context_value.strip()
+    ):
+        raise GameMapError("spawn.prompt_context must be a nonempty string")
+    prompt_context = (
+        None if prompt_context_value is None else prompt_context_value.strip()
+    )
     if image is not None:
         resolve_seed_asset(source_path, image)
-    return image, prompt
+    return image, prompt, prompt_context
 
 
 def _parse_spawn_image_paths(
@@ -235,7 +243,7 @@ def _parse_spawn_image_paths(
         if not spawn_id or spawn_id in spawn_ids:
             raise GameMapError(f"Spawn id {spawn_id!r} is empty or duplicated")
         spawn_ids.add(spawn_id)
-        image, _ = _parse_spawn_conditioning(raw, source_path)
+        image, _, _ = _parse_spawn_conditioning(raw, source_path)
         result.append(
             (
                 spawn_id,

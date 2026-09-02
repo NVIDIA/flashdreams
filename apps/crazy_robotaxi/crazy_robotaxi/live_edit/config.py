@@ -742,6 +742,14 @@ class LiveEditItemsConfig:
 
 
 @dataclass(frozen=True)
+class LiveEditMapContextConfig:
+    """Map-aware prompt suffixes derived from authoritative vehicle state."""
+
+    enabled: bool = False
+    """Whether road, topology, and motion clauses update the model prompt."""
+
+
+@dataclass(frozen=True)
 class LiveEditConfig:
     """Top-level live-edit ability switchboard."""
 
@@ -760,6 +768,11 @@ class LiveEditConfig:
     obstacle: LiveEditObstacleConfig = field(default_factory=LiveEditObstacleConfig)
     """Obstacle-event ability."""
 
+    map_context: LiveEditMapContextConfig = field(
+        default_factory=LiveEditMapContextConfig
+    )
+    """Map-aware prompt-direction ability."""
+
     sharpen_amount: float = 0.8
     """Unsharp-mask strength applied to styled frames (0 disables)."""
 
@@ -774,13 +787,14 @@ class LiveEditConfig:
 
     @property
     def any_enabled(self) -> bool:
-        """Return whether any ability needs the presenter wrapper."""
+        """Return whether any ability needs the live-edit runtime."""
         return (
             self.style.enabled
             or self.coins.enabled
             or self.items.enabled
             or self.weather.enabled
             or self.obstacle.enabled
+            or self.map_context.enabled
         )
 
     @property
@@ -790,6 +804,7 @@ class LiveEditConfig:
             self.style.enabled
             or self.weather.enabled
             or (self.obstacle.enabled and self.obstacle.guide_scale > 0.0)
+            or self.map_context.enabled
         )
 
     def __post_init__(self) -> None:
@@ -862,6 +877,12 @@ def resolve_live_edit_assets(
 def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
     """Register the ``--live-edit-*`` flags next to the ``--taxi-*`` flags."""
     group = parser.add_argument_group("live edit")
+    group.add_argument(
+        "--live-edit-map-context",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Describe the current road, topology, and vehicle motion in the prompt.",
+    )
     group.add_argument(
         "--live-edit-style",
         action=argparse.BooleanOptionalAction,
@@ -1268,6 +1289,9 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
     if base is not None:
         return apply_live_edit_cli(base, args, explicit_only=True)
     return LiveEditConfig(
+        map_context=LiveEditMapContextConfig(
+            enabled=bool(args.live_edit_map_context),
+        ),
         style=LiveEditStyleConfig(
             enabled=bool(args.live_edit_style),
             lora_checkpoint=args.live_edit_style_lora,
@@ -1505,6 +1529,10 @@ def apply_live_edit_cli(
             }
         ),
     )
+    map_context = replace(
+        base.map_context,
+        **updates({"live_edit_map_context": ("enabled", bool)}),
+    )
     config = replace(
         base,
         style=style,
@@ -1512,6 +1540,7 @@ def apply_live_edit_cli(
         obstacle=obstacle,
         coins=coins,
         items=items,
+        map_context=map_context,
     )
     if selected("live_edit_perf_log"):
         config = replace(config, perf_log_every_frames=int(args.live_edit_perf_log))

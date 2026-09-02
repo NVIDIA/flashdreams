@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 import torch
 import torch.nn.functional as F
@@ -85,13 +87,13 @@ def test_tma_support_rejects_misaligned_base_pointer(
         pytest.param(129, 128, 128, id="production-head-divisible-key"),
     ],
 )
-def test_tma_flash_attention_matches_sdpa(
+def test_tma_flash_attention_from_worker_thread_matches_sdpa(
     tma_device: torch.device,
     query_length: int,
     key_length: int,
     head_dim: int,
 ) -> None:
-    """Match TMA FlashAttention2 with PyTorch non-causal SDPA.
+    """Match worker-thread TMA FlashAttention2 with PyTorch non-causal SDPA.
 
     Exercise ragged sequence tiles and a production-sized head dimension while
     preserving the public token-major ``[B, L, H, D]`` layout.
@@ -129,7 +131,9 @@ def test_tma_flash_attention_matches_sdpa(
         dtype=torch.bfloat16,
     )
 
-    actual = flash_attention_2_tma(query, key, value)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        actual = executor.submit(flash_attention_2_tma, query, key, value).result()
+    torch.cuda.synchronize(tma_device)
     # PyTorch SDPA consumes head-major ``[B, H, L/S, D]`` views, so transpose
     # around the reference call without changing the public comparison layout.
     expected = F.scaled_dot_product_attention(

@@ -87,6 +87,9 @@ class GameMapNode:
     polygon_vertices_xy: tuple[tuple[float, float], ...] = ()
     """Authored map-space polygon vertices for a parking-lot node."""
 
+    prompt_context: str | None = None
+    """Optional authored environmental context appended to model prompts."""
+
 
 @dataclass(frozen=True, eq=False)
 class GameMapRoad:
@@ -110,6 +113,9 @@ class GameMapRoad:
     bezier_spans_world: tuple[FloatArray, ...]
     """Compiler-generated map-space cubic spans shaped ``[4, 3]``; empty is straight."""
 
+    prompt_context: str | None = None
+    """Optional authored environmental context appended to model prompts."""
+
     def __eq__(self, other: object) -> bool:
         """Compare road metadata and cubic span values."""
         if not isinstance(other, GameMapRoad):
@@ -120,6 +126,7 @@ class GameMapRoad:
             and self.to_node_id == other.to_node_id
             and self.profile_id == other.profile_id
             and self.attributes == other.attributes
+            and self.prompt_context == other.prompt_context
             and len(self.bezier_spans_world) == len(other.bezier_spans_world)
             and all(
                 np.array_equal(first, second)
@@ -190,6 +197,9 @@ class GameMapSpawn:
 
     prompt: str
     """World-model text prompt paired with the spawn's seed image."""
+
+    prompt_context: str | None = None
+    """Optional shorter base prompt used with dynamic map context."""
 
 
 @dataclass(frozen=True)
@@ -473,6 +483,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "polygon_vertices_xy": [
                         list(point) for point in node.polygon_vertices_xy
                     ],
+                    "prompt_context": node.prompt_context,
                 }
                 for node in game_map.topology.nodes
             ],
@@ -486,6 +497,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "bezier_spans_world": [
                         span.tolist() for span in road.bezier_spans_world
                     ],
+                    "prompt_context": road.prompt_context,
                 }
                 for road in game_map.topology.roads
             ],
@@ -581,6 +593,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "yaw_rad": spawn.yaw_rad,
                 "image": spawn.image,
                 "prompt": spawn.prompt,
+                "prompt_context": spawn.prompt_context,
             }
             for spawn in game_map.spawns
         ],
@@ -695,6 +708,11 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                     (float(point[0]), float(point[1]))
                     for point in raw.get("polygon_vertices_xy", ())
                 ),
+                prompt_context=(
+                    None
+                    if raw.get("prompt_context") is None
+                    else str(raw["prompt_context"])
+                ),
             )
             for raw in raw_topology["nodes"]
         ),
@@ -710,6 +728,11 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 bezier_spans_world=tuple(
                     np.asarray(span, dtype=np.float32)
                     for span in raw["bezier_spans_world"]
+                ),
+                prompt_context=(
+                    None
+                    if raw.get("prompt_context") is None
+                    else str(raw["prompt_context"])
                 ),
             )
             for raw in raw_topology["roads"]
@@ -804,6 +827,11 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             yaw_rad=float(raw["yaw_rad"]),
             image=None if raw.get("image") is None else str(raw["image"]),
             prompt=str(raw["prompt"]),
+            prompt_context=(
+                None
+                if raw.get("prompt_context") is None
+                else str(raw["prompt_context"])
+            ),
         )
         for raw in value["spawns"]
     )

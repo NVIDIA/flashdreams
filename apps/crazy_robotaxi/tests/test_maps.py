@@ -10,12 +10,23 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
-from omnidreams_game_engine.game_map import load_game_map, load_game_map_header
 from omnidreams_game_engine.config import RasterConfig
+from omnidreams_game_engine.game_map import (
+    GameMapError,
+    compile_game_map,
+    load_game_map,
+    load_game_map_header,
+)
+from omnidreams_game_engine.game_map.types import (
+    game_map_from_dict,
+    game_map_to_dict,
+)
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
+
+_MAP_FIXTURES = Path(__file__).parent / "maps"
 
 
 @pytest.mark.parametrize(
@@ -29,6 +40,76 @@ def test_shipped_map_is_valid(filename: str) -> None:
     assert game_map.map_id.startswith("crazy-robotaxi-")
     assert game_map.spawns
     assert game_map.lanes
+    assert game_map.default_spawn.prompt_context
+    assert game_map.default_spawn.prompt_context != game_map.default_spawn.prompt
+
+
+def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    source["nodes"][0]["prompt_context"] = "  A neighborhood landmark.  "
+    source["roads"][0]["prompt_context"] = "  Detached homes line the road.  "
+    source["spawns"][0]["prompt_context"] = "  A forward-facing road view.  "
+    path = tmp_path / "prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+
+    original = load_game_map(path)
+    restored = game_map_from_dict(game_map_to_dict(original))
+
+    assert original.topology.nodes[0].prompt_context == "A neighborhood landmark."
+    assert original.topology.roads[0].prompt_context == (
+        "Detached homes line the road."
+    )
+    assert original.default_spawn.prompt_context == "A forward-facing road view."
+    assert game_map_to_dict(restored) == game_map_to_dict(original)
+
+
+@pytest.mark.parametrize("value", ["", "   ", 42, ["not", "text"]])
+def test_prompt_context_requires_nonempty_text(tmp_path: Path, value: object) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    source["roads"][0]["prompt_context"] = value
+    path = tmp_path / "invalid-prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+
+    with pytest.raises(GameMapError, match="prompt_context must be a nonempty string"):
+        load_game_map(path)
+
+
+@pytest.mark.parametrize("value", ["", "   ", 42, ["not", "text"]])
+def test_spawn_prompt_context_requires_nonempty_text(
+    tmp_path: Path, value: object
+) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    source["spawns"][0]["prompt_context"] = value
+    path = tmp_path / "invalid-spawn-prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+
+    with pytest.raises(GameMapError, match="prompt_context must be a nonempty string"):
+        load_game_map(path)
+
+
+def test_prompt_context_change_invalidates_compiler_cache(tmp_path: Path) -> None:
+    source = yaml.safe_load(
+        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+    )
+    path = tmp_path / "cached-prompt-context.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+    cache_root = tmp_path / "cache"
+
+    first = compile_game_map(path, cache_root=cache_root)
+    assert compile_game_map(path, cache_root=cache_root).cache_hit
+    source["roads"][0]["prompt_context"] = "A changed roadside setting."
+    path.write_text(yaml.safe_dump(source, sort_keys=False))
+    changed = compile_game_map(path, cache_root=cache_root)
+
+    assert first.cache_hit is False
+    assert changed.cache_hit is False
+    assert changed.archive_path != first.archive_path
 
 
 def test_compiled_map_uses_canonical_spawn_conditioning(
@@ -42,8 +123,14 @@ def test_compiled_map_uses_canonical_spawn_conditioning(
         SceneRequest(map_path=path),
         RasterConfig(width=64, height=32, compute_device="automatic"),
     )
+    context_scene = load_scene(
+        SceneRequest(map_path=path, use_prompt_context=True),
+        RasterConfig(width=64, height=32, compute_device="automatic"),
+    )
 
     assert scene.prompt == game_map.default_spawn.prompt
+    assert context_scene.prompt == game_map.default_spawn.prompt_context
+    assert context_scene.scene_path != scene.scene_path
     assert scene.initial_rgb.shape == (32, 64, 3)
     with zipfile.ZipFile(scene.scene_path) as archive:
         names = set(archive.namelist())

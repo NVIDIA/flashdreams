@@ -754,6 +754,27 @@ def test_fast_perf_honors_explicit_pipeline_overrides(tmp_path: Path) -> None:
     assert pipeline.enable_sync_and_profile is True
 
 
+def test_map_context_disables_only_native_dit_on_selected_preset() -> None:
+    app = _application(defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS)
+
+    app.init(["--live-edit-map-context"])
+
+    pipeline = cast(Any, app._pipeline_config)
+    original: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    transformer = pipeline.diffusion_model.transformer
+    assert app._config is not None
+    assert app._config.scene_request.use_prompt_context
+    assert pipeline.name == original.name
+    assert transformer.native_dit_acceleration == "disabled"
+    assert transformer.native_dit_backend == (
+        original.diffusion_model.transformer.native_dit_backend
+    )
+    assert transformer.skip_finalize_kv_cache is True
+    assert pipeline.diffusion_model.scheduler == original.diffusion_model.scheduler
+    assert pipeline.image_encoder.native_vae_acceleration == "required"
+    assert pipeline.encoder.native_vae_acceleration == "required"
+
+
 def test_bev_render_fit_preserves_authored_aspect_ratio_and_smaller_sources() -> None:
     raster = RasterConfig()
     wide = RendererSettings(raster=raster, bev=BevConfig(width=800, height=400))
