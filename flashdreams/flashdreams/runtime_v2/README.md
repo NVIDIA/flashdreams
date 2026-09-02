@@ -101,6 +101,12 @@ the application generates. There is no argument for the UI tick rate, and none
 for `run_session`'s `steps` limit — a caller that needs to bound a run by steps
 drives the runtime from Python.
 
+`--timeout SECONDS` bounds the whole application run, including initialization
+and replacement sessions. At the deadline the UI thread signals the session's
+loops to stop and performs their normal cleanup. An in-flight model step must
+return before the process can finish cleaning up. Synchronous application or
+session initialization likewise cannot be interrupted mid-call.
+
 `--stats-path` adds a `MetricsOutputSink`. It receives the **model** loop's
 results as they are published, not the UI loop's output, so a benchmark measures
 what the model generated while the window still sees one composited frame per

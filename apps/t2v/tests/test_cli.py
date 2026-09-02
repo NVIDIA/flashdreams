@@ -559,6 +559,35 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
     assert len(window.results) >= _TOTAL_BLOCKS * _BLOCK_FRAMES
 
 
+def test_the_command_passes_its_timeout_to_the_application_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[float | None] = []
+
+    def record_run(
+        self: object,
+        session_desc: SessionDesc,
+        commandline_args: Sequence[str],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        del self, session_desc, commandline_args
+        received.append(timeout_seconds)
+
+    _install(monkeypatch, UndescribedApplication(), ClosingWindow())
+    monkeypatch.setattr(cli.ApplicationRunner, "run", record_run)
+
+    cli.entrypoint(["stub", "--mode", "webrtc", "--timeout", "2.5"])
+
+    assert received == [2.5]
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1", "nan", "inf"])
+def test_the_command_rejects_an_invalid_timeout(timeout: str) -> None:
+    with pytest.raises(SystemExit):
+        cli.entrypoint(["stub", "--mode", "webrtc", "--timeout", timeout])
+
+
 def test_the_command_needs_somewhere_to_write() -> None:
     with pytest.raises(SystemExit):
         cli.entrypoint(["stub"])
