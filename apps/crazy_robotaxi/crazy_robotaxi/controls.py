@@ -51,8 +51,8 @@ _GAMEPAD_BUTTON_NAMES: dict[GamepadButtonStyle, tuple[str, ...]] = {
         "RB",
         "LT",
         "RT",
-        "VIEW",
-        "MENU",
+        "BACK / VIEW",
+        "START / MENU",
         "LEFT STICK BUTTON",
         "RIGHT STICK BUTTON",
         "D-PAD UP",
@@ -101,17 +101,24 @@ _GAMEPAD_BUTTON_NAMES: dict[GamepadButtonStyle, tuple[str, ...]] = {
     ),
 }
 ControlAction = Literal[
-    "restart", "toggle_hints", "style", "weather", "coins", "obstacle"
+    "restart",
+    "return_to_menu",
+    "toggle_hints",
+    "style",
+    "weather",
+    "coins",
+    "obstacle",
 ]
 
-_RESERVED_KEYS = frozenset({"escape", "backspace", "delete"})
-"""Keys reserved for cancelling or clearing a binding capture."""
+_RESERVED_KEYS = frozenset({"backspace", "delete"})
+"""Keys reserved for clearing a binding capture."""
 
 _WHEEL_AXES = frozenset({"steering", "throttle", "brake", "clutch"})
 """Semantic axes carried by :class:`GameWheelUserInputEvent`."""
 
 _DISCRETE_ACTIONS: dict[str, ControlAction] = {
     "restart": "restart",
+    "return_to_menu": "return_to_menu",
     "toggle_hints": "toggle_hints",
     "cycle_style": "style",
     "cycle_weather": "weather",
@@ -202,6 +209,11 @@ class KeyboardControls:
     restart: BindingSlots = _bindings_field((_key("r"), None), "RESTART GAME")
     """Keys that restart the current game."""
 
+    return_to_menu: BindingSlots = _bindings_field(
+        (_key("escape"), None), "RETURN TO MENU"
+    )
+    """Keys that leave the current game for the map menu."""
+
     toggle_hints: BindingSlots = _bindings_field(
         (_key("h"), None), "SHOW OR HIDE CONTROL HINTS"
     )
@@ -245,34 +257,37 @@ class GamepadControls:
     brake: BindingSlots = _bindings_field((_button(6), None), "BRAKE / REVERSE")
     """Controls that apply the service brake."""
 
-    handbrake: BindingSlots = _bindings_field((None, None), "HANDBRAKE")
+    handbrake: BindingSlots = _bindings_field((_button(0), _button(4)), "HANDBRAKE")
     """Controls that apply the handbrake."""
 
     restart: BindingSlots = _bindings_field((_button(9), None), "RESTART GAME")
     """Controls that restart the current game."""
 
+    return_to_menu: BindingSlots = _bindings_field((_button(8), None), "RETURN TO MENU")
+    """Controls that leave the current game for the map menu."""
+
     toggle_hints: BindingSlots = _bindings_field(
-        (None, None), "SHOW OR HIDE CONTROL HINTS"
+        (_button(5), None), "SHOW OR HIDE CONTROL HINTS"
     )
     """Controls that toggle gameplay control hints."""
 
     cycle_style: BindingSlots = _bindings_field(
-        (None, None), "CYCLE STYLE", feature="style"
+        (_button(14), None), "CYCLE STYLE", feature="style"
     )
     """Controls that request the next live-edit style."""
 
     cycle_weather: BindingSlots = _bindings_field(
-        (None, None), "CYCLE WEATHER", feature="weather"
+        (_button(15), None), "CYCLE WEATHER", feature="weather"
     )
     """Controls that request the next live-edit weather state."""
 
     toggle_coins: BindingSlots = _bindings_field(
-        (None, None), "TOGGLE COINS", feature="coins"
+        (_button(12), None), "TOGGLE COINS", feature="coins"
     )
     """Controls that toggle live-edit coins."""
 
     spawn_obstacle: BindingSlots = _bindings_field(
-        (None, None), "SPAWN OBSTACLE", feature="obstacle"
+        (_button(13), None), "SPAWN OBSTACLE", feature="obstacle"
     )
     """Controls that spawn a live-edit obstacle."""
 
@@ -299,6 +314,9 @@ class WheelControls:
 
     restart: BindingSlots = _bindings_field((None, None), "RESTART GAME")
     """Controls that restart the current game."""
+
+    return_to_menu: BindingSlots = _bindings_field((None, None), "RETURN TO MENU")
+    """Controls that leave the current game for the map menu."""
 
     toggle_hints: BindingSlots = _bindings_field(
         (None, None), "SHOW OR HIDE CONTROL HINTS"
@@ -682,6 +700,7 @@ def binding_display(
         key = str(binding.code)
         return {
             "space": "SPACE",
+            "escape": "ESC",
             "up": "UP ARROW",
             "down": "DOWN ARROW",
             "left": "LEFT ARROW",
@@ -695,7 +714,7 @@ def binding_display(
     suffix = ""
     if binding.direction != "bidirectional":
         suffix = " +" if binding.direction == "positive" else " -"
-    elif binding.invert:
+    elif not binding.invert:
         suffix = " (INVERTED)"
     if device == "gamepad":
         name = {
@@ -813,6 +832,29 @@ def _overlay_controls(
         ]
         parsed.extend([None] * (2 - len(parsed)))
         updates[name] = cast(BindingSlots, tuple(parsed))
+    authored_bindings: dict[InputBinding, str] = {}
+    for name, slots in updates.items():
+        for binding in slots:
+            if binding is None:
+                continue
+            previous = authored_bindings.get(binding)
+            if previous is not None:
+                raise ControlsError(
+                    f"{device}.{name} duplicates binding from {device}.{previous}"
+                )
+            authored_bindings[binding] = name
+    for item in controls_fields(defaults):
+        if item.name in updates:
+            continue
+        slots = cast(BindingSlots, getattr(defaults, item.name))
+        if any(binding in authored_bindings for binding in slots):
+            updates[item.name] = cast(
+                BindingSlots,
+                tuple(
+                    None if binding in authored_bindings else binding
+                    for binding in slots
+                ),
+            )
     settings = replace(defaults, **updates)
     _validate_controls(settings, device)
     return settings

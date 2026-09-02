@@ -23,7 +23,7 @@ import re
 import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field, is_dataclass, replace
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Literal
@@ -123,6 +123,15 @@ _AUTO_CARD_FLAGS = (
     "no_scrollbar",
     "no_scroll_with_mouse",
 )
+
+_MENU_BACK_CONTROLS = replace(
+    ControlsConfig(),
+    gamepad=replace(
+        ControlsConfig().gamepad,
+        return_to_menu=(InputBinding("button", 1), None),
+    ),
+)
+"""Fixed menu navigation bindings, separate from gameplay controls."""
 
 
 def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
@@ -360,11 +369,17 @@ class TaxiHudState:
     _latest_wheel_event: GameWheelUserInputEvent | None = None
     """Latest wheel snapshot used as a neutral capture baseline."""
 
+    _active_control_device: ControlDevice = "keyboard"
+    """Input device currently taking precedence for driving and HUD hints."""
+
     _pressed_keys: set[str] = field(default_factory=set)
     """Keyboard keys currently held for safe binding capture."""
 
     _control_action_state: BoundActionState = field(init=False)
     """UI-thread rising-edge detector using process-start bindings."""
+
+    _menu_back_action_state: BoundActionState = field(init=False)
+    """UI-thread rising-edge detector for fixed menu navigation bindings."""
 
     _selection_preview_pixels: dict[Path, npt.NDArray[np.uint8] | None] = field(
         default_factory=dict
@@ -422,6 +437,7 @@ class TaxiHudState:
     def __post_init__(self) -> None:
         """Initialize input state from the process-start bindings."""
         self._control_action_state = BoundActionState(self.controls)
+        self._menu_back_action_state = BoundActionState(_MENU_BACK_CONTROLS)
 
     def publish(self, frames: Sequence[TaxiHudFrame]) -> None:
         """Publish immutable model-frame state to the UI-owned lookup."""
@@ -501,7 +517,10 @@ class TaxiHudState:
             self._consume_binding_capture(received)
         else:
             actions = self._control_action_state.apply(events)
-            if any(_is_escape_press(event) for event in received):
+            menu_actions = self._menu_back_action_state.apply(events)
+            if (self._menu_stage == "game" and "return_to_menu" in actions) or (
+                self._menu_stage != "game" and "return_to_menu" in menu_actions
+            ):
                 self._handle_escape()
             if "toggle_hints" in actions:
                 self.show_control_tooltips = not self.show_control_tooltips
@@ -509,13 +528,17 @@ class TaxiHudState:
             if isinstance(event, GamepadUserInputEvent):
                 if event.action == "state":
                     self._latest_gamepad_event = event
-                elif event.action == "disconnected":
+                    self._active_control_device = "gamepad"
+                else:
                     self._latest_gamepad_event = None
+                    self._active_control_device = "keyboard"
             elif isinstance(event, GameWheelUserInputEvent):
                 if event.action == "state":
                     self._latest_wheel_event = event
-                elif event.action == "disconnected":
+                    self._active_control_device = "wheel"
+                else:
                     self._latest_wheel_event = None
+                    self._active_control_device = "keyboard"
         if not self.profile_input_latency:
             return
         profile_keys = {
@@ -660,6 +683,13 @@ class TaxiHudState:
             self._menu_stage = "mode"
             return
         self._continue_after_mode_selection()
+
+    def _menu_back_display(self) -> str:
+        """Return the fixed keyboard and styled gamepad menu-back hint."""
+        gamepad = binding_display(
+            "gamepad", InputBinding("button", 1), self.gamepad_button_style
+        )
+        return f"ESC / {gamepad}"
 
     def _handle_escape(self) -> None:
         model_loop = self.model_loop
@@ -913,9 +943,6 @@ class TaxiHudState:
                         )
                         self._controls_capture = capture
                     continue
-                if key == "escape":
-                    self._controls_capture = None
-                    return
                 if key in {"backspace", "delete"}:
                     self._controls_draft = update_binding(
                         draft, capture.action, capture.slot, None
@@ -1467,26 +1494,27 @@ class TaxiHudState:
         """Draw frame-aligned live-edit status and action buttons."""
         if status is None or not self.live_edit.any_enabled:
             return
-        keyboard = self.controls.keyboard
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
         configured_actions: tuple[tuple[LiveEditAction, str, bool], ...] = (
             (
                 "style",
-                f"{_binding_slots_display('keyboard', keyboard.cycle_style)}  STYLE",
+                f"{_binding_slots_display(device, controls.cycle_style, self.gamepad_button_style)}  STYLE",
                 self.live_edit.style.enabled,
             ),
             (
                 "weather",
-                f"{_binding_slots_display('keyboard', keyboard.cycle_weather)}  WEATHER",
+                f"{_binding_slots_display(device, controls.cycle_weather, self.gamepad_button_style)}  WEATHER",
                 self.live_edit.weather.enabled,
             ),
             (
                 "coins",
-                f"{_binding_slots_display('keyboard', keyboard.toggle_coins)}  COINS",
+                f"{_binding_slots_display(device, controls.toggle_coins, self.gamepad_button_style)}  COINS",
                 self.live_edit.coins.enabled,
             ),
             (
                 "obstacle",
-                f"{_binding_slots_display('keyboard', keyboard.spawn_obstacle)}  OBSTACLE",
+                f"{_binding_slots_display(device, controls.spawn_obstacle, self.gamepad_button_style)}  OBSTACLE",
                 self.live_edit.obstacle.enabled,
             ),
         )
@@ -1548,28 +1576,38 @@ class TaxiHudState:
             imgui.pop_style_var(style_var_count)
 
     def _draw_control_tooltips(self, imgui: Any) -> None:
-        """Draw dismissible keyboard controls in an auto-sized HUD card."""
+        """Draw controls for the device currently driving the game."""
         if not self.show_control_tooltips:
             return
-        keyboard = self.controls.keyboard
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
+
+        def display(slots: tuple[InputBinding | None, InputBinding | None]) -> str:
+            return _binding_slots_display(device, slots, self.gamepad_button_style)
+
+        if device == "keyboard":
+            keyboard = self.controls.keyboard
+            driving_entries = (
+                ("FORWARD", display(keyboard.drive_forward)),
+                ("BRAKE / REVERSE", display(keyboard.reverse)),
+                ("STEER LEFT", display(keyboard.steer_left)),
+                ("STEER RIGHT", display(keyboard.steer_right)),
+            )
+        else:
+            controller = (
+                self.controls.gamepad if device == "gamepad" else self.controls.wheel
+            )
+            driving_entries = (
+                ("THROTTLE", display(controller.throttle)),
+                ("BRAKE / REVERSE", display(controller.brake)),
+                ("STEER", display(controller.steer)),
+            )
         entries = (
-            ("FORWARD", _binding_slots_display("keyboard", keyboard.drive_forward)),
-            (
-                "BRAKE / REVERSE",
-                _binding_slots_display("keyboard", keyboard.reverse),
-            ),
-            ("STEER LEFT", _binding_slots_display("keyboard", keyboard.steer_left)),
-            (
-                "STEER RIGHT",
-                _binding_slots_display("keyboard", keyboard.steer_right),
-            ),
-            ("HANDBRAKE", _binding_slots_display("keyboard", keyboard.handbrake)),
-            ("RESTART", _binding_slots_display("keyboard", keyboard.restart)),
-            ("RETURN TO MAP", "ESC"),
-            (
-                "HIDE CONTROLS",
-                _binding_slots_display("keyboard", keyboard.toggle_hints),
-            ),
+            *driving_entries,
+            ("HANDBRAKE", display(controls.handbrake)),
+            ("RESTART", display(controls.restart)),
+            ("RETURN TO MENU", display(controls.return_to_menu)),
+            ("HIDE CONTROLS", display(controls.toggle_hints)),
         )
         action_width = max(
             _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries
@@ -1644,6 +1682,7 @@ class TaxiHudState:
         self._latest_input_latency_ms = None
         self._latest_committed_frame = None
         self._name_input = ""
+        self._active_control_device = "keyboard"
 
     def _clear_presented_game(self) -> None:
         """Discard frame-aligned HUD and BEV resources from the previous game."""
@@ -2075,7 +2114,7 @@ class TaxiHudState:
                 return
             _centered_imgui_text(
                 imgui,
-                "ESC  BACK",
+                f"{self._menu_back_display()}  BACK",
                 font_size=13.0,
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2427,7 +2466,7 @@ class TaxiHudState:
             self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
-                "ESC  EXIT",
+                f"{self._menu_back_display()}  EXIT",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2584,7 +2623,7 @@ class TaxiHudState:
                 return
             _centered_imgui_text(
                 imgui,
-                "ESC  BACK",
+                f"{self._menu_back_display()}  BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2762,7 +2801,7 @@ class TaxiHudState:
                 return
             _centered_imgui_text(
                 imgui,
-                "ESC  BACK",
+                f"{self._menu_back_display()}  BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -3168,9 +3207,13 @@ class TaxiHudState:
             if awaiting_name
             else ("RACE COMPLETE" if race else "GAME OVER")
         )
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
         terminal_controls = (
-            f"{_binding_slots_display('keyboard', self.controls.keyboard.restart)} "
-            "RESTART   |   ESC  MAP"
+            f"{_binding_slots_display(device, controls.restart, self.gamepad_button_style)} "
+            "RESTART   |   "
+            f"{_binding_slots_display(device, controls.return_to_menu, self.gamepad_button_style)} "
+            "MENU"
         )
         leaderboard_column_widths = _leaderboard_column_widths(imgui, snapshot, race)
         leaderboard_width = (
@@ -3602,22 +3645,16 @@ def _countdown_suffix(seconds: float | None) -> str:
     return "" if seconds is None else f"  {seconds:.1f}s"
 
 
-def _is_escape_press(event: object) -> bool:
-    """Return whether an input event is a pressed Escape key."""
-    return (
-        isinstance(event, KeyboardUserInputEvent)
-        and event.state is KeyboardInputState.PRESSED
-        and str(event.key).strip().lower() in {"esc", "escape"}
-    )
-
-
 def _binding_slots_display(
     device: ControlDevice,
     slots: tuple[InputBinding | None, InputBinding | None],
+    gamepad_button_style: GamepadButtonStyle = "Xbox",
 ) -> str:
     """Join configured slots for compact gameplay labels."""
     labels = tuple(
-        binding_display(device, binding) for binding in slots if binding is not None
+        binding_display(device, binding, gamepad_button_style)
+        for binding in slots
+        if binding is not None
     )
     return " / ".join(labels) if labels else "UNBOUND"
 

@@ -17,7 +17,11 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 import torch
-from crazy_robotaxi.controls import InputBinding, load_controls_documents
+from crazy_robotaxi.controls import (
+    ControlsConfig,
+    InputBinding,
+    load_controls_documents,
+)
 from crazy_robotaxi.game_selection import (
     GameMapOption,
     GameRaceCourseOption,
@@ -1102,7 +1106,21 @@ def test_bev_draws_visible_waypoints_at_half_opacity() -> None:
 
 
 def test_live_hud_draws_directly_over_the_game_frame() -> None:
-    state = TaxiHudState(640, 360, _calibration())
+    defaults = ControlsConfig()
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        controls=replace(
+            defaults,
+            keyboard=replace(
+                defaults.keyboard,
+                restart=(InputBinding("key", "p"), None),
+                return_to_menu=(InputBinding("key", "m"), None),
+                toggle_hints=(InputBinding("key", "j"), None),
+            ),
+        ),
+    )
     state.publish(
         build_hud_frames(
             torch.zeros(1, 3, 360, 640),
@@ -1122,8 +1140,8 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
     assert imgui.tables["##gameplay-control-hints"] == [
         ["FORWARD", "W / UP ARROW", "BRAKE / REVERSE", "S / DOWN ARROW"],
         ["STEER LEFT", "A / LEFT ARROW", "STEER RIGHT", "D / RIGHT ARROW"],
-        ["HANDBRAKE", "SPACE", "RESTART", "R"],
-        ["RETURN TO MAP", "ESC", "HIDE CONTROLS", "H"],
+        ["HANDBRAKE", "SPACE", "RESTART", "P"],
+        ["RETURN TO MENU", "M", "HIDE CONTROLS", "J"],
     ]
     controls_flags = imgui.window_flags["Controls"]
     assert controls_flags & imgui.WindowFlags_.always_auto_resize
@@ -1549,6 +1567,7 @@ def test_gamepad_controls_show_only_the_configured_button_style(
     assert "R2##gamepad-throttle-0" in imgui.buttons
     assert "L2##gamepad-brake-0" in imgui.buttons
     assert "OPTIONS##gamepad-restart-0" in imgui.buttons
+    assert "SHARE##gamepad-return_to_menu-0" in imgui.buttons
     assert not any("##gamepad-reverse-" in label for label in imgui.buttons)
     assert not any(
         "/" in label.split("##", 1)[0]
@@ -1792,15 +1811,96 @@ def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
     model_loop._run_message_batch()
     assert model_loop.state.return_to_map_count == 1
 
+    state.consume_input_events(UserInputEvents([released]))
     state.consume_input_events(UserInputEvents([pressed]))
     assert state._menu_stage == "mode"
     assert state._selected_game_mode is None
 
+    state.consume_input_events(UserInputEvents([released]))
     state.consume_input_events(UserInputEvents([pressed]))
     assert state._menu_stage == "loading"
     assert state._loading_status == "EXITING GAME"
     model_loop._run_message_batch()
     assert model_loop.state.exit_requested
+
+
+def test_menu_back_uses_styled_gamepad_cancel_button() -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        gamepad_button_style="Xbox",
+    )
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(1),
+                    action="state",
+                    pressed=(False, True),
+                )
+            ]
+        )
+    )
+
+    assert state._menu_stage == "mode"
+    imgui = _FakeImGui()
+    state.draw(imgui)
+    assert "ESC / B  EXIT" in imgui.windows["Crazy Robotaxi - Select Game Mode"]
+
+
+def test_gameplay_return_to_map_uses_rebindable_controls() -> None:
+    defaults = ControlsConfig()
+    controls = replace(
+        defaults,
+        keyboard=replace(
+            defaults.keyboard,
+            return_to_menu=(InputBinding("key", "m"), None),
+        ),
+    )
+    state = TaxiHudState(640, 360, _calibration(), controls=controls)
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "game"
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="Escape",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        )
+    )
+    assert state._menu_stage == "game"
+
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(2),
+                    key="m",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        )
+    )
+
+    assert state._menu_stage == "map"
+    model_loop._run_message_batch()
+    assert model_loop.state.return_to_map_count == 1
 
 
 def test_mode_exit_button_requests_exit() -> None:
@@ -1856,6 +1956,46 @@ def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
 
     assert imgui.table_column_counts["##gameplay-control-hints"] == 2
     assert len(imgui.tables["##gameplay-control-hints"]) == 8
+
+
+def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        gamepad_button_style="Nintendo Switch",
+    )
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(1),
+                    action="state",
+                    axes=(0.0,),
+                    buttons=(0.0,) * 10,
+                )
+            ]
+        )
+    )
+    imgui = _FakeImGui()
+
+    state._draw_control_tooltips(imgui)
+
+    hints = [value for row in imgui.tables["##gameplay-control-hints"] for value in row]
+    assert "ZR" in hints
+    assert "ZL" in hints
+    assert "LEFT STICK X" in hints
+    assert "LEFT STICK X (INVERTED)" not in hints
+    assert "PLUS" in hints
+    assert "MINUS" in hints
+    assert "W / UP ARROW" not in hints
+
+    terminal_imgui = _FakeImGui()
+    state._draw_terminal(
+        terminal_imgui,
+        _snapshot(session_state="leaderboard"),
+    )
+    assert "PLUS RESTART   |   MINUS MENU" in terminal_imgui.windows["Game Over"]
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
@@ -2048,7 +2188,20 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
 
 
 def test_taxi_results_card_draws_ranked_leaderboard() -> None:
-    state = TaxiHudState(640, 540, _calibration())
+    defaults = ControlsConfig()
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        controls=replace(
+            defaults,
+            keyboard=replace(
+                defaults.keyboard,
+                restart=(InputBinding("key", "p"), None),
+                return_to_menu=(InputBinding("key", "m"), None),
+            ),
+        ),
+    )
     video = torch.zeros(1, 3, 540, 640)
     entries = (
         HighScoreEntry("ACE", 2400, "2026-01-01T00:00:00Z"),
@@ -2094,7 +2247,7 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
     )
     assert imgui.table_outer_sizes["##leaderboard"][0] >= state.width * 0.5
     assert "PLAY AGAIN" in imgui.buttons
-    assert "R RESTART   |   ESC  MAP" in imgui.windows["Game Over"]
+    assert "P RESTART   |   M MENU" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
     assert results_flags & imgui.WindowFlags_.always_auto_resize
     assert results_flags & imgui.WindowFlags_.no_scrollbar

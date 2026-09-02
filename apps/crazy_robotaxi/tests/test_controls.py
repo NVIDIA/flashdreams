@@ -63,26 +63,61 @@ def test_keyboard_bindings_drive_and_dispatch_actions() -> None:
     assert driver_input.command().throttle == 1.0
 
 
-def test_gamepad_restart_uses_digital_or_analog_button_state() -> None:
+def test_gamepad_return_to_menu_uses_digital_or_analog_button_state() -> None:
     settings = ControlsConfig().gamepad
     digital = GamepadUserInputEvent(
         timestamp=np.uint64(1),
         action="state",
-        pressed=(*((False,) * 9), True),
+        pressed=(*((False,) * 8), True),
     )
     analog = GamepadUserInputEvent(
         timestamp=np.uint64(2),
         action="state",
-        buttons=(*((0.0,) * 9), 1.0),
+        buttons=(*((0.0,) * 8), 1.0),
     )
 
     assert BoundActionState(ControlsConfig()).apply(UserInputEvents([digital])) == {
-        "restart"
+        "return_to_menu"
     }
     assert BoundActionState(ControlsConfig()).apply(UserInputEvents([analog])) == {
-        "restart"
+        "return_to_menu"
     }
     assert gamepad_driver_command(settings, analog) is not None
+
+
+def test_gamepad_defaults_use_standard_button_indices() -> None:
+    controls = ControlsConfig()
+    gamepad = controls.gamepad
+
+    assert binding_display("keyboard", controls.keyboard.return_to_menu[0]) == "ESC"
+    assert gamepad.handbrake == (
+        InputBinding("button", 0),
+        InputBinding("button", 4),
+    )
+    assert gamepad.restart == (InputBinding("button", 9), None)
+    assert gamepad.return_to_menu == (InputBinding("button", 8), None)
+    assert gamepad.toggle_hints == (InputBinding("button", 5), None)
+    assert gamepad.cycle_style == (InputBinding("button", 14), None)
+    assert gamepad.cycle_weather == (InputBinding("button", 15), None)
+    assert gamepad.toggle_coins == (InputBinding("button", 12), None)
+    assert gamepad.spawn_obstacle == (InputBinding("button", 13), None)
+    assert binding_display("gamepad", gamepad.restart[0]) == "START / MENU"
+    assert binding_display("gamepad", gamepad.return_to_menu[0]) == "BACK / VIEW"
+
+    pressed = GamepadUserInputEvent(
+        timestamp=np.uint64(1),
+        action="state",
+        pressed=tuple(index in {5, 8, 9, 12, 13, 14, 15} for index in range(16)),
+    )
+    assert BoundActionState(controls).apply(UserInputEvents([pressed])) == {
+        "restart",
+        "return_to_menu",
+        "toggle_hints",
+        "style",
+        "weather",
+        "coins",
+        "obstacle",
+    }
 
 
 @pytest.mark.parametrize(
@@ -93,6 +128,14 @@ def test_gamepad_button_display_uses_one_configured_style(
     style: GamepadButtonStyle, expected: str
 ) -> None:
     assert binding_display("gamepad", InputBinding("button", 0), style) == expected
+
+
+def test_steering_display_describes_physical_inversion() -> None:
+    normal = InputBinding("axis", 0, direction="bidirectional", invert=True)
+    inverted = InputBinding("axis", 0, direction="bidirectional", invert=False)
+
+    assert binding_display("gamepad", normal) == "LEFT STICK X"
+    assert binding_display("gamepad", inverted) == "LEFT STICK X (INVERTED)"
 
 
 def test_duplicate_capture_swaps_the_previous_binding() -> None:
@@ -158,6 +201,38 @@ def test_controls_document_loads_round_trip_yaml_button_indices(
     document = ControlsDocument.load(path, "gamepad")
 
     assert document.settings.handbrake == (InputBinding("button", 0), None)
+
+
+def test_authored_binding_overrides_a_conflicting_new_default(tmp_path: Path) -> None:
+    path = tmp_path / "gamepad.yaml"
+    path.write_text(
+        "schema_version: 1\n"
+        "handbrake: [{button: 0}, null]\n"
+        "toggle_hints: [{button: 14}, null]\n",
+        encoding="utf-8",
+    )
+
+    document = ControlsDocument.load(path, "gamepad")
+
+    assert document.settings.handbrake == (InputBinding("button", 0), None)
+    assert document.settings.toggle_hints == (InputBinding("button", 14), None)
+    assert document.settings.cycle_style == (None, None)
+    assert document.settings.cycle_weather == (InputBinding("button", 15), None)
+
+
+def test_controls_document_rejects_duplicate_authored_gamepad_bindings(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "gamepad.yaml"
+    path.write_text(
+        "schema_version: 1\n"
+        "toggle_hints: [{button: 14}]\n"
+        "cycle_style: [{button: 14}]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ControlsError, match="duplicates binding"):
+        ControlsDocument.load(path, "gamepad")
 
 
 @pytest.mark.parametrize(
