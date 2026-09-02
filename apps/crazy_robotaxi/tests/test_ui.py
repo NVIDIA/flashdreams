@@ -36,6 +36,7 @@ from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
@@ -646,7 +647,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
         failure_queue=queue.Queue(),
     )
     loop.register_session_ui_loop_objects(
-        output_layout=VideoTensorLayout.tchw,
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=presentation,
     )
 

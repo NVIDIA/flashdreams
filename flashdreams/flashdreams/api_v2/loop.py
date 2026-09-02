@@ -302,7 +302,12 @@ class IModelLoop(ILoop[StateT], ABC):
                 run = self._begin_run(events, generation)
                 if run.step_index is None:
                     break
-                last_run_started = self._pace(last_run_started)
+                if self.frequency != 0 and last_run_started is not None:
+                    earliest_start = last_run_started + 1.0 / self.frequency
+                    self._shutdown_event.wait(
+                        max(0.0, earliest_start - time.monotonic())
+                    )
+                last_run_started = time.monotonic()
                 if self._shutdown_event.is_set():
                     break
                 step_started_at = time.monotonic()
