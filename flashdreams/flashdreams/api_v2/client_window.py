@@ -14,9 +14,8 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     The runtime opens the window with a session's description, then reads input
     and writes results until the run ends. A window stays open across a session
-    reset. A reusable window may also stay open when the client asks to replace
-    the session; the runtime opens it again for the replacement and closes it
-    when the application run ends.
+    reset/replacement. A window may be opened/closed by the runtime during a session
+    reset/replacement.
 
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.

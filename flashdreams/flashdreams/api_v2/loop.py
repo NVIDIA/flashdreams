@@ -239,14 +239,6 @@ class ILoop(ABC, Generic[StateT]):
             if result is not None:
                 raise TypeError("Message operations must return None.")
 
-    # TODO: We should do pace here. Remove this func
-    def _pace(self, last_run_started: float | None) -> float:
-        if self.frequency == 0 or last_run_started is None:
-            return time.monotonic()
-        earliest_start = last_run_started + 1.0 / self.frequency
-        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
-        return time.monotonic()
-
     def _empty_message_queue(self) -> None:
         while True:
             try:
