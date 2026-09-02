@@ -593,6 +593,16 @@ class OmnidreamsInferenceRuntime:
         finally:
             self._executor.shutdown(wait=False, cancel_futures=True)
 
+    def set_speed_multiplier(self, multiplier: float) -> None:
+        """Live drive-speed knob: scale ego forward + turn velocity from the config
+        base (1.0 = default). integrate_chunk reads these fields each chunk, so the
+        change takes effect on the next generated chunk."""
+        m = max(0.25, min(float(multiplier), 8.0))
+        self.pose_integrator.move_speed_per_s = self.config.move_speed_per_s * m
+        self.pose_integrator.rotate_speed_rad_per_s = (
+            self.config.rotate_speed_rad_per_s * m
+        )
+
     async def generate_chunk(
         self,
         *,

@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from typing import Any
 
 MESSAGE_TYPE_ACTION = "action"
+MESSAGE_TYPE_SET_SPEED = "set_speed"
 MESSAGE_TYPE_CHUNK_DONE = "chunk_done"
 MESSAGE_TYPE_DISCONNECT = "disconnect"
 MESSAGE_TYPE_ERROR = "error"

@@ -34,6 +34,7 @@ from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
 from flashdreams.serving.webrtc.messages import (
     MESSAGE_TYPE_ACTION,
     MESSAGE_TYPE_DISCONNECT,
+    MESSAGE_TYPE_SET_SPEED,
     MESSAGE_TYPE_EVENT,
     MESSAGE_TYPE_HEARTBEAT,
     MESSAGE_TYPE_TOKEN_FRAME_ACK,
@@ -740,6 +741,16 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if message_type == MESSAGE_TYPE_DISCONNECT:
             logger.info("Client requested disconnect; closing active session.")
             await self.close_active_session()
+            return
+        if message_type == MESSAGE_TYPE_SET_SPEED:
+            # Live drive-speed knob: scale ego velocity. No-op if the runtime does
+            # not expose the hook (keeps this generic manager decoupled).
+            setter = getattr(self._runtime, "set_speed_multiplier", None)
+            if callable(setter):
+                try:
+                    setter(float(payload.get("value", 1.0)))
+                except (TypeError, ValueError):
+                    pass
             return
         if message_type == MESSAGE_TYPE_EVENT:
             handled = await self._handle_event_message(

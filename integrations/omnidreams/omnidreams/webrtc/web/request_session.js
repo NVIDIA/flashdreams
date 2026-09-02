@@ -24,6 +24,7 @@ const modelValue = document.getElementById("modelValue")
 const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const streamModeSelect = document.getElementById("streamModeSelect")
+const driveSpeedSelect = document.getElementById("driveSpeedSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -468,6 +469,20 @@ function actionLabel(action) {
   return `${action.event}${action.key ? `:${action.key}` : ""}`
 }
 
+// Drive-speed knob: ask the server to scale the ego velocity (1 = default).
+// Sent on change and on (re)connect so the selected speed applies to the session.
+function sendDriveSpeed() {
+  if (!controlChannel || controlChannel.readyState !== "open") {
+    return
+  }
+  const value = Number(driveSpeedSelect?.value) || 1
+  controlChannel.send(JSON.stringify({ type: "set_speed", value }))
+  logEvent(`drive speed ${value}x`, { source: "client" })
+}
+if (driveSpeedSelect) {
+  driveSpeedSelect.addEventListener("change", sendDriveSpeed)
+}
+
 function sendControlAction(action) {
   if (!connected || !controlChannel || controlChannel.readyState !== "open") {
     return false
@@ -907,6 +922,7 @@ async function connectSession() {
       setFlow("connected; waiting for input")
       logEvent("control data channel open")
       startHeartbeat()
+      sendDriveSpeed()
     }
     channel.onclose = () => {
       connected = false
