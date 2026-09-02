@@ -11,7 +11,7 @@ was written alongside the v2 protocols as the pipeline they were developed again
 something whole that could be driven end to end while they were still changing,
 which is why it sits here rather than under `integrations/`.
 
-`flashdreams/test_v2/test_client_window.py` still drives it that way, through
+`flashdreams/test_v2/runtime/test_client_window.py` still drives it that way, through
 `IClientWindow`, `InputSource` and `OutputSink`. It implements none of those
 itself and registers no entry point, so `flashdreams-run-v2` cannot reach it. For
 a v2 application to copy, use [`color_fade`](../color_fade/README.md) for the

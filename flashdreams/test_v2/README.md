@@ -5,7 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # V2 framework tests
 
-CPU-only tests for the v2 protocols themselves:
+CPU-only tests for the v2 protocols themselves. Layout matches the
+packages under test: `runtime/` for `flashdreams.runtime_v2`, `t2v/` for
+`flashdreams.t2v_v2`. Docs-link checks stay at the root of this directory.
 
 - `test_client_window.py` drives the I/O protocols against the deterministic NULL
   model integration.
@@ -76,7 +78,7 @@ uv run --no-sync pytest flashdreams/test_v2 -m ci_cpu -v
 A single test:
 
 ```bash
-uv run --no-sync pytest flashdreams/test_v2/test_session_runner.py -v
+uv run --no-sync pytest flashdreams/test_v2/runtime/test_session_runner.py -v
 ```
 
 `--no-sync` keeps the run from re-resolving the environment.
