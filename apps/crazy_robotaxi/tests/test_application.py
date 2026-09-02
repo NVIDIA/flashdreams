@@ -18,6 +18,7 @@ from crazy_robotaxi.application import (
     _configure_live_edit_pipeline,
     _fit_bev_renderer_to_ui,
 )
+from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
 from crazy_robotaxi.live_edit.config import (
@@ -33,7 +34,6 @@ from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
     CrazyRobotaxiSession,
     ModelState,
-    _restart_requested,
     _taxi_driver_command,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
@@ -63,7 +63,6 @@ from flashdreams.runtime_v2.native_window_client_window import (
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -386,46 +385,6 @@ def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
     assert presenter.closed
 
 
-def test_pressed_r_requests_a_v2_game_restart() -> None:
-    pressed = KeyboardUserInputEvent(
-        timestamp=np.uint64(1),
-        key="R",
-        state=KeyboardInputState.PRESSED,
-    )
-    released = KeyboardUserInputEvent(
-        timestamp=np.uint64(2),
-        key="r",
-        state=KeyboardInputState.RELEASED,
-    )
-
-    assert _restart_requested(UserInputEvents([pressed]))
-    assert not _restart_requested(UserInputEvents([released]))
-
-
-def test_pressed_gamepad_start_requests_a_v2_game_restart() -> None:
-    released = (False,) * 10
-    pressed = (*released[:9], True)
-
-    assert _restart_requested(
-        UserInputEvents(
-            [
-                GamepadUserInputEvent(
-                    timestamp=np.uint64(1), action="state", pressed=pressed
-                )
-            ]
-        )
-    )
-    assert not _restart_requested(
-        UserInputEvents(
-            [
-                GamepadUserInputEvent(
-                    timestamp=np.uint64(2), action="state", pressed=released
-                )
-            ]
-        )
-    )
-
-
 def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
     class RestartRequested(Exception):
         pass
@@ -449,6 +408,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
+            self.control_actions = BoundActionState(ControlsConfig())
 
         @staticmethod
         def ensure_rollout() -> object:
@@ -480,6 +440,7 @@ def test_model_input_is_applied_before_rollout_work() -> None:
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
+            self.control_actions = BoundActionState(ControlsConfig())
 
         def ensure_rollout(self) -> None:
             assert self.driver_input.command().throttle == 1.0
@@ -568,7 +529,11 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         scene=cast(Any, object()),
         config=cast(
             Any,
-            SimpleNamespace(total_blocks=None, pipeline_profiling=False),
+            SimpleNamespace(
+                total_blocks=None,
+                pipeline_profiling=False,
+                controls=ControlsConfig(),
+            ),
         ),
         session_desc=cast(
             Any,
@@ -748,13 +713,15 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
 
-def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
+def test_fast_perf_honors_explicit_pipeline_overrides(tmp_path: Path) -> None:
     app = _application(
         defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
     )
 
     app.init(
         [
+            "--config",
+            str(tmp_path / "config.yaml"),
             "--seed",
             "7",
             "--no-compile",
@@ -843,15 +810,43 @@ def test_input_latency_trace_accepts_an_explicit_path(tmp_path) -> None:
     ],
 )
 def test_fps_counter_is_an_app_local_option(
+    tmp_path: Path,
     arguments: list[str],
     expected: bool,
 ) -> None:
     app = _application()
 
-    app.init(arguments)
+    app.init(["--config", str(tmp_path / "config.yaml"), *arguments])
 
     assert app._config is not None
     assert app._config.show_fps is expected
+
+
+def test_controls_directory_is_a_separate_cli_only_config(tmp_path: Path) -> None:
+    controls_dir = tmp_path / "controls"
+    controls_dir.mkdir()
+    (controls_dir / "keyboard.yaml").write_text(
+        "schema_version: 1\nrestart: [p]\n",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(
+        [
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--controls-dir",
+            str(controls_dir),
+        ]
+    )
+
+    assert app._config is not None
+    assert app._config.controls.keyboard.restart[0] is not None
+    assert app._config.controls.keyboard.restart[0].code == "p"
+    assert (
+        app._config.control_documents["keyboard"].path
+        == (controls_dir / "keyboard.yaml").resolve()
+    )
 
 
 @pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])

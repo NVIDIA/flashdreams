@@ -17,6 +17,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 import torch
+from crazy_robotaxi.controls import InputBinding, load_controls_documents
 from crazy_robotaxi.game_selection import (
     GameMapOption,
     GameRaceCourseOption,
@@ -40,13 +41,16 @@ from crazy_robotaxi.rules import (
 from crazy_robotaxi.settings import SettingsDocument
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
+    _NATIVE_DIT_NOTICE_RGBA,
+    _RESTART_NOTICE_RGBA,
+    _SAVED_NOTICE_RGBA,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
-from omnidreams_game_engine.types import CameraCalibration
 from omnidreams.config import OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
@@ -236,6 +240,7 @@ class _FakeImGui:
         self.clicked_buttons: set[str] = set()
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
+        self.button_positions: list[tuple[str, float]] = []
         self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
         self.disabled_depth = 0
         self.disabled_buttons: list[str] = []
@@ -402,6 +407,7 @@ class _FakeImGui:
             while len(rows[-1]) <= self.current_table_column:
                 rows[-1].append("")
             rows[-1][self.current_table_column] = value
+        self.cursor_x = 8.0
 
     def get_window_pos(self) -> tuple[float, float]:
         return self.next_window_position
@@ -492,6 +498,8 @@ class _FakeImGui:
     def button(self, label: str, size: tuple[float, float] | None = None) -> bool:
         self.buttons.append(label)
         self.button_sizes.append((label, size))
+        self.button_positions.append((label, self.cursor_x))
+        self.cursor_x = 8.0
         if self.disabled_depth:
             self.disabled_buttons.append(label)
             return False
@@ -556,6 +564,31 @@ class _FakeImGui:
         del target, color
         assert self.current_table is not None
         self.highlighted_rows.append(len(self.tables[self.current_table]))
+
+
+class _CursorBoundaryImGui(_FakeImGui):
+    """Model ImGui's requirement that cursor positioning precede an item."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor_position_needs_item = False
+
+    def set_cursor_pos_x(self, value: float) -> None:
+        super().set_cursor_pos_x(value)
+        self._cursor_position_needs_item = True
+
+    def text(self, value: str) -> None:
+        super().text(value)
+        self._cursor_position_needs_item = False
+
+    def button(self, label: str, size: tuple[float, float] | None = None) -> bool:
+        clicked = super().button(label, size)
+        self._cursor_position_needs_item = False
+        return clicked
+
+    def end(self) -> None:
+        assert not self._cursor_position_needs_item
+        super().end()
 
 
 class _Renderer:
@@ -1084,7 +1117,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
     ]
     assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
-    assert "H  HIDE CONTROLS" in " ".join(overlay_text)
+    assert "H HIDE CONTROLS" in " ".join(overlay_text)
     assert "mph" in overlay_text
     assert any(
         name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
@@ -1213,7 +1246,7 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         course_preview_path: np.zeros((100, 200, 3), dtype=np.uint8),
     }
     state._settings_restart_notice = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
-    imgui = _FakeImGui()
+    imgui = _CursorBoundaryImGui()
 
     state.draw(imgui)
     state._selected_game_mode = "race"
@@ -1240,6 +1273,7 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         assert flags & imgui.WindowFlags_.no_scrollbar
         assert flags & imgui.WindowFlags_.no_scroll_with_mouse
     button_sizes = dict(imgui.button_sizes)
+    button_positions = dict(imgui.button_positions)
     assert button_sizes["TAXI"] == button_sizes["RACE"]
     for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
         size = button_sizes[label]
@@ -1256,6 +1290,15 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert imgui.child_sizes["##course-options"][0] == course_button_size[0]
     assert imgui.buttons.count("CONTROLS") == 1
     assert imgui.buttons.count("OPTIONS") == 1
+    for label in (
+        "TAXI",
+        "RACE",
+        "CONTROLS",
+        "OPTIONS",
+        "Test City##map-0",
+        "DOWNTOWN SPRINT##course-0",
+    ):
+        assert button_positions[label] > 8.0
     for title in (
         "Crazy Robotaxi - Select Map",
         "Crazy Robotaxi - Select Race Course",
@@ -1263,6 +1306,8 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         lines = imgui.windows[title]
         assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" not in lines
         assert "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" not in lines
+    assert (imgui.Col_.text, _RESTART_NOTICE_RGBA) in imgui.pushed_style_colors
+    assert (imgui.Col_.text, _NATIVE_DIT_NOTICE_RGBA) in imgui.pushed_style_colors
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
@@ -1340,7 +1385,8 @@ def test_map_and_course_selections_use_three_column_grids() -> None:
     assert len(course_imgui.images) == 7
 
 
-def test_controls_menu_lists_bindings_and_returns_to_mode(tmp_path: Path) -> None:
+def test_controls_menu_edits_and_saves_one_device(tmp_path: Path) -> None:
+    documents = load_controls_documents(tmp_path / "controls")
     state = TaxiHudState(
         640,
         540,
@@ -1350,6 +1396,7 @@ def test_controls_menu_lists_bindings_and_returns_to_mode(tmp_path: Path) -> Non
             coins=LiveEditCoinsConfig(enabled=True),
         ),
         settings_document=_settings_document(tmp_path / "config.yaml"),
+        control_documents=documents,
     )
     menu_imgui = _FakeImGui()
 
@@ -1366,51 +1413,78 @@ def test_controls_menu_lists_bindings_and_returns_to_mode(tmp_path: Path) -> Non
     controls_imgui = _FakeImGui()
     state.draw(controls_imgui)
 
-    lines = controls_imgui.windows["Crazy Robotaxi - Controls"]
+    assert {"KEYBOARD", "GAMEPAD", "WHEEL", "BACK"} <= set(controls_imgui.buttons)
+    landing_positions = dict(controls_imgui.button_positions)
     assert (
-        controls_imgui.window_flags["Crazy Robotaxi - Controls"]
-        & controls_imgui.WindowFlags_.no_title_bar
+        len(
+            {
+                landing_positions[label]
+                for label in ("KEYBOARD", "GAMEPAD", "WHEEL", "BACK")
+            }
+        )
+        == 1
     )
-    controls_flags = controls_imgui.window_flags["Crazy Robotaxi - Controls"]
-    assert controls_flags & controls_imgui.WindowFlags_.always_auto_resize
-    assert controls_flags & controls_imgui.WindowFlags_.no_scrollbar
-    assert controls_flags & controls_imgui.WindowFlags_.no_scroll_with_mouse
-    assert "KEYBOARD AND MOUSE" in lines
-    assert "CONTROLLER AND WHEEL" in lines
-    assert "LIVE EDIT" in lines
-    assert "GAMEPADS DO NOT CONTROL MENUS, THE HANDBRAKE, OR LIVE EDIT" in lines
-    assert controls_imgui.tables["##controls-0"] == [
-        ["W / UP ARROW", "DRIVE FORWARD"],
-        ["S / DOWN ARROW", "REVERSE"],
-        ["A / LEFT ARROW", "STEER LEFT"],
-        ["D / RIGHT ARROW", "STEER RIGHT"],
-        ["SPACE", "HANDBRAKE AND CANCEL THROTTLE"],
-        ["R", "RESTART THE CURRENT GAME"],
-        ["H", "HIDE OR SHOW GAMEPLAY CONTROL HINTS"],
-        ["ESC", "RETURN TO THE PREVIOUS MENU"],
-        ["ENTER", "SUBMIT THE LEADERBOARD NAME"],
-        ["MOUSE", "SELECT MENU AND HUD BUTTONS"],
-    ]
-    assert controls_imgui.tables["##controls-1"] == [
-        ["LEFT STICK", "STEER"],
-        ["RT / R2 / ZR", "THROTTLE"],
-        ["LT / L2 / ZL", "BRAKE"],
-        ["R / RB / R1 (HOLD)", "REVERSE"],
-        ["START / MENU / PLUS", "RESTART THE CURRENT GAME"],
-        ["WHEEL AND PEDALS", "STEER, THROTTLE, AND BRAKE"],
-    ]
-    assert controls_imgui.tables["##controls-2"] == [
-        ["K", "CYCLE STYLE  [ENABLED]"],
-        ["V", "CYCLE WEATHER  [NOT ENABLED]"],
-        ["C", "TOGGLE COINS  [ENABLED]"],
-        ["O", "SPAWN OBSTACLE  [NOT ENABLED]"],
-    ]
-    assert "BACK" in controls_imgui.buttons
+    assert landing_positions["KEYBOARD"] > 8.0
 
-    back_imgui = _FakeImGui()
-    back_imgui.clicked_buttons.add("BACK")
-    state.draw(back_imgui)
-    assert state._menu_stage == "mode"
+    keyboard_imgui = _FakeImGui()
+    keyboard_imgui.clicked_buttons.add("KEYBOARD")
+    state.draw(keyboard_imgui)
+    assert state._controls_device == "keyboard"
+
+    capture_imgui = _FakeImGui()
+    capture_imgui.clicked_buttons.add("R##keyboard-restart-0")
+    state.draw(capture_imgui)
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="p",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        )
+    )
+    assert state._controls_draft is not None
+    assert state._controls_draft.restart == (InputBinding("key", "p"), None)
+
+    save_imgui = _FakeImGui()
+    save_imgui.clicked_buttons.add("SAVE")
+    state.draw(save_imgui)
+    assert "EXIT WITHOUT SAVING" in save_imgui.buttons
+    assert save_imgui.table_columns["##controls-keyboard-table"] == [
+        "ACTION",
+        "PRIMARY",
+        "SECONDARY",
+    ]
+    assert documents["keyboard"].settings.restart == (
+        InputBinding("key", "p"),
+        None,
+    )
+    assert (tmp_path / "controls" / "keyboard.yaml").exists()
+    assert state._settings_restart_notice
+    assert (save_imgui.Col_.text, _SAVED_NOTICE_RGBA) in save_imgui.pushed_style_colors
+    assert (save_imgui.Col_.text, _RESTART_NOTICE_RGBA) in (
+        save_imgui.pushed_style_colors
+    )
+
+    reset_imgui = _FakeImGui()
+    reset_imgui.clicked_buttons.add("RESET TO DEFAULTS")
+    state.draw(reset_imgui)
+    assert (
+        "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+        not in reset_imgui.windows["Crazy Robotaxi - Keyboard Controls"]
+    )
+
+    save_defaults_imgui = _FakeImGui()
+    save_defaults_imgui.clicked_buttons.add("SAVE")
+    state.draw(save_defaults_imgui)
+    assert not state._settings_restart_notice
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
+    assert state._controls_device is None
 
     model_loop = _SelectionLoop()
     model_loop.register_session_loop_objects(
@@ -1703,6 +1777,7 @@ def test_h_toggles_gameplay_control_tooltips() -> None:
     state.consume_input_events(UserInputEvents([pressed]))
     assert not state.show_control_tooltips
 
+    state.consume_input_events(UserInputEvents([released]))
     state.consume_input_events(UserInputEvents([pressed]))
     assert state.show_control_tooltips
 
@@ -1741,7 +1816,7 @@ def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
 
     assert state._latest_input_latency_ms is not None
     diagnostics = imgui.windows["Input Latency"]
-    assert "A [X]" in diagnostics[0]
+    assert "A / LEFT ARROW [X]" in diagnostics[0]
     assert "UI TO MODEL FRAME" in diagnostics[1]
 
     state.reset()
@@ -1934,7 +2009,7 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
     ]
     assert imgui.highlighted_rows == [2]
     assert "PLAY AGAIN" in imgui.buttons
-    assert "R  RESTART   ·   ESC  MAP" in imgui.windows["Game Over"]
+    assert "R RESTART   |   ESC  MAP" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
     assert results_flags & imgui.WindowFlags_.always_auto_resize
     assert results_flags & imgui.WindowFlags_.no_scrollbar
@@ -2502,6 +2577,15 @@ def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
     assert (
         "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
         in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+    assert (saved_imgui.Col_.text, _SAVED_NOTICE_RGBA) in (
+        saved_imgui.pushed_style_colors
+    )
+    assert (saved_imgui.Col_.text, _RESTART_NOTICE_RGBA) in (
+        saved_imgui.pushed_style_colors
+    )
+    assert (saved_imgui.Col_.text, _NATIVE_DIT_NOTICE_RGBA) in (
+        saved_imgui.pushed_style_colors
     )
 
     exit_imgui = _FakeImGui()

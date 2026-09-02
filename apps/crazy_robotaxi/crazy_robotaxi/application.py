@@ -9,22 +9,30 @@ import argparse
 import logging
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
+from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.cli_args import (
     ExplicitArgTrackingArgumentParser,
     arg_was_explicit,
 )
-from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
 from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
+from crazy_robotaxi.controls import (
+    ControlDevice,
+    ControlsConfig,
+    ControlsDocument,
+    controls_config,
+    default_controls_dir,
+    load_controls_documents,
+)
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameRaceCourseOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
@@ -105,6 +113,14 @@ class ApplicationConfig:
 
     show_control_hints: bool = True
     """Whether gameplay control hints start visible."""
+
+    controls: ControlsConfig = ControlsConfig()
+    """Process-start gameplay bindings."""
+
+    control_documents: dict[ControlDevice, ControlsDocument] = field(
+        default_factory=dict
+    )
+    """Per-device YAML documents edited by the Controls screens."""
 
     settings_document: SettingsDocument | None = None
     """User-authored YAML document edited by the Options screen."""
@@ -188,6 +204,10 @@ class CrazyRobotaxiApplication(IApplication):
         if default_pipeline is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
         args = _parser(self._application_defaults).parse_args(list(commandline_args))
+        control_documents = load_controls_documents(
+            args.controls_dir or default_controls_dir()
+        )
+        controls = controls_config(control_documents)
         config_path = args.config or default_config_path()
         settings_document = SettingsDocument.load(
             config_path,
@@ -273,6 +293,8 @@ class CrazyRobotaxiApplication(IApplication):
             show_fps=settings.presentation.show_fps,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
+            controls=controls,
+            control_documents=control_documents,
             settings_document=settings_document,
             initial_game_mode=initial_game_mode,
             initial_map_path=(
@@ -582,6 +604,7 @@ def _parser(
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--controls-dir", type=Path)
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)

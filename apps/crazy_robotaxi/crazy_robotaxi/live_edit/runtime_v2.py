@@ -29,11 +29,6 @@ from crazy_robotaxi.live_edit.obstacle_ability import (
 from crazy_robotaxi.live_edit.obstacle_events import ObstacleAbility
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
-from flashdreams.runtime_v2.user_input_event import (
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 LiveEditAction = Literal["style", "weather", "coins", "obstacle"]
 """Manual live-edit actions shared by keyboard and UI controls."""
@@ -243,23 +238,6 @@ class LiveEditGameplay:
         if self.obstacles is None or not self.config.obstacle.physics:
             return ()
         return (self.obstacles,)
-
-    def process_events(self, events: UserInputEvents) -> None:
-        """Consume rising-edge ability keys on the V2 model thread."""
-        actions: dict[str, LiveEditAction] = {
-            "k": "style",
-            "v": "weather",
-            "c": "coins",
-            "o": "obstacle",
-        }
-        for event in events.get_events():
-            if not isinstance(event, KeyboardUserInputEvent):
-                continue
-            if event.state is not KeyboardInputState.PRESSED:
-                continue
-            action = actions.get(str(event.key).strip().lower())
-            if action is not None:
-                self.request_action(action)
 
     def request_action(self, action: LiveEditAction) -> None:
         """Apply one manual live-edit action on the model thread."""

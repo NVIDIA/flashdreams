@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from flashdreams.runtime.keyboard import normalize_key
@@ -38,6 +39,26 @@ class DriverInput:
 
     controller_command: DriverCommand | None = None
     """Latest wheel or gamepad command; ``None`` enables keyboard input."""
+
+    keyboard_command: Callable[[set[str]], DriverCommand] = field(
+        default=lambda keys: _keyboard_command(keys)
+    )
+    """Mapping from retained keyboard keys to a driving command."""
+
+    gamepad_command: Callable[[GamepadUserInputEvent], DriverCommand | None] = field(
+        default=lambda event: _gamepad_command(event)
+    )
+    """Mapping from one standard-gamepad event to a driving command."""
+
+    wheel_command: Callable[[GameWheelUserInputEvent], DriverCommand | None] = field(
+        default=lambda event: _wheel_command(event)
+    )
+    """Mapping from one semantic wheel event to a driving command."""
+
+    key_normalizer: Callable[[str], str | None] = field(
+        default=lambda key: _normalize_drive_key(key)
+    )
+    """Normalizer and filter for retained keyboard driving keys."""
 
     _sampled_command: DriverCommand = field(
         default_factory=DriverCommand,
@@ -135,7 +156,7 @@ class DriverInput:
         """Return the command represented by the current retained input state."""
         if self.controller_command is not None:
             return self.controller_command
-        return _keyboard_command(self.pressed_keys)
+        return self.keyboard_command(self.pressed_keys)
 
     def source(self) -> str:
         """Return the currently active input source."""
@@ -157,7 +178,7 @@ class DriverInput:
             self.pressed_keys.clear()
             return True
         if isinstance(event, KeyboardUserInputEvent):
-            key = _normalize_drive_key(event.key)
+            key = self.key_normalizer(event.key)
             if key is None:
                 return False
             if event.state is KeyboardInputState.PRESSED:
@@ -166,20 +187,10 @@ class DriverInput:
                 self.pressed_keys.discard(key)
             return True
         if isinstance(event, GameWheelUserInputEvent):
-            self.controller_command = (
-                None
-                if event.action == "disconnected"
-                else DriverCommand(
-                    throttle=event.throttle,
-                    brake=event.brake,
-                    steer=-event.steering,
-                    steer_is_direct=True,
-                    manual_control=True,
-                )
-            )
+            self.controller_command = self.wheel_command(event)
             return True
         if isinstance(event, GamepadUserInputEvent):
-            self.controller_command = _gamepad_command(event)
+            self.controller_command = self.gamepad_command(event)
             return True
         return False
 
@@ -226,6 +237,18 @@ def _gamepad_command(event: GamepadUserInputEvent) -> DriverCommand | None:
         brake=brake,
         steer=steer,
         reverse=reverse,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+
+def _wheel_command(event: GameWheelUserInputEvent) -> DriverCommand | None:
+    if event.action == "disconnected":
+        return None
+    return DriverCommand(
+        throttle=event.throttle,
+        brake=event.brake,
+        steer=-event.steering,
         steer_is_direct=True,
         manual_control=True,
     )
