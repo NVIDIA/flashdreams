@@ -233,12 +233,12 @@ chooses its UI independently of the client window. Browser keyboard, mouse and
 focus events arrive on the server's own thread, so it queues them and hands them
 over in batches when the session asks.
 
-A UI loop may call `request_new_session(metadata)` during its step. `run_session`
-merges those application-specific values into the resolved `SessionDesc`, stops
-and cleans the current session, and leaves the interactive window open.
-`ApplicationRunner` creates the replacement from that description. A WebRTC
-browser disconnect releases only its peer connection, so refreshing the page
-does not stop the session, server, or application.
+A UI loop may call `request_new_session(session_desc)` during its step with a
+fully resolved replacement description. `run_session` stops and cleans the
+current session, leaves the interactive window open, and returns that
+description unchanged. `ApplicationRunner` creates the replacement from it. A
+WebRTC browser disconnect releases only its peer connection, so refreshing the
+page does not stop the session, server, or application.
 
 The UI thread owns WebRTC cadence. Each `write` synchronously materializes one
 owned video frame and admits it to a two-frame FIFO of unsent frames. The WebRTC

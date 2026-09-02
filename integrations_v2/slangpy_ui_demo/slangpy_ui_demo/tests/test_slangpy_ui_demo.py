@@ -58,7 +58,7 @@ def test_invoke_async_toggles_model_owned_color_on_w_press() -> None:
         failure_queue=failure_queue,
     )
     ui_loop.register_session_ui_loop_objects(
-        output_layout=desc.output_layout,
+        session_desc=desc,
         presentation_manager=PresentationManager(),
     )
     ui = SimpleNamespace(
@@ -109,7 +109,7 @@ def test_text_input_updates_ui_owned_state() -> None:
         failure_queue=queue.Queue(),
     )
     loop.register_session_ui_loop_objects(
-        output_layout=SessionDesc().output_layout,
+        session_desc=SessionDesc(),
         presentation_manager=PresentationManager(),
     )
     ui = SimpleNamespace(

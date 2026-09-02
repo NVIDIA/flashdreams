@@ -293,7 +293,7 @@ def test_application_runner_replaces_a_session_before_closing_the_window() -> No
     assert calls.count("metrics.open") == 2
     assert calls.count("metrics.close") == 2
     assert application.requested_session_descs == [session_desc, session_desc]
-    assert application.requested_session_descs[1] is not session_desc
+    assert application.requested_session_descs[1] is session_desc
     assert calls.count("application.init([])") == 1
     assert calls.count("application.close") == 1
 

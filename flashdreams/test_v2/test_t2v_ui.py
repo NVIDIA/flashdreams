@@ -5,6 +5,7 @@
 
 import queue
 import threading
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -24,6 +25,7 @@ pytestmark = pytest.mark.ci_cpu
 
 
 def _loop(state: T2VUIState) -> T2VImGuiUILoop:
+    session_desc = SessionDesc(metadata={"existing": "value"})
     loop = T2VImGuiUILoop(renderer=Mock())
     loop.register_session_loop_objects(
         state=state,
@@ -32,7 +34,7 @@ def _loop(state: T2VUIState) -> T2VImGuiUILoop:
         failure_queue=queue.Queue(),
     )
     loop.register_session_ui_loop_objects(
-        output_layout=SessionDesc().output_layout,
+        session_desc=session_desc,
         presentation_manager=PresentationManager(),
     )
     return loop
@@ -62,7 +64,10 @@ def test_new_session_button_submits_the_trimmed_prompt() -> None:
 
     assert state.prompt == "a cat surfing"
     assert state.message == "Starting new session…"
-    assert run.new_session_request == {"prompt": "a cat surfing"}
+    assert run.new_session_request == replace(
+        loop.session_desc,
+        metadata={"existing": "value", "prompt": "a cat surfing"},
+    )
     assert (
         loop._begin_run(UserInputEvents([]), generation=0).new_session_request is None
     )

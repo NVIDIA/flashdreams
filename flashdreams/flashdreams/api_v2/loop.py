@@ -9,7 +9,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
@@ -24,10 +24,10 @@ from flashdreams.runtime_v2.user_input_event import (
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
+    from flashdreams.runtime_v2.session_desc import SessionDesc
 
 StateT = TypeVar("StateT")
 
@@ -55,8 +55,8 @@ class _LoopRunResult:
     stop_requested: bool = False
     """Whether the session should stop without a replacement."""
 
-    new_session_request: dict[str, Any] | None = None
-    """Metadata for a replacement session, or ``None`` when none was requested."""
+    new_session_request: SessionDesc | None = None
+    """Replacement session description, or ``None`` when none was requested."""
 
 
 @dataclass(slots=True)
@@ -112,7 +112,8 @@ class ILoop(ABC, Generic[StateT]):
         self._lifecycle_lock = threading.Lock()
         self._shutdown_event = shutdown_event
         self._failure_queue = failure_queue
-        self._new_session_request: dict[str, Any] | None = None
+        self._new_session_request: SessionDesc | None = None
+        self._new_session_event_desc: SessionDesc | None = None
         self._initialize_loop_state()
 
     def _initialize_loop_state(self) -> None:
@@ -187,6 +188,7 @@ class ILoop(ABC, Generic[StateT]):
         transition = _lifecycle_transition(
             self._pending_user_events,
             self._new_session_request,
+            self._new_session_event_desc,
         )
         if transition is not None:
             self._pending_user_events.clear()
@@ -340,17 +342,19 @@ class IUILoop(ILoop[StateT], ABC):
     def register_session_ui_loop_objects(
         self,
         *,
-        output_layout: VideoTensorLayout,
+        session_desc: SessionDesc,
         presentation_manager: PresentationManager,
     ) -> None:
         """Store UI objects supplied when this loop is registered with a session.
 
         Args:
-            output_layout: Layout used for the compositing result.
+            session_desc: Description of the session this UI presents.
             presentation_manager: Buffer containing model frames.
         """
-        self.output_layout = output_layout
+        self.session_desc = session_desc
+        self.output_layout = session_desc.output_layout
         self._presentation_manager = presentation_manager
+        self._new_session_event_desc = session_desc
 
     @final
     def _set_model_loop(self, model_loop: IModelLoop[Any]) -> None:
@@ -364,14 +368,13 @@ class IUILoop(ILoop[StateT], ABC):
         return self._model_loop.inference_state
 
     @final
-    def request_new_session(self, metadata: Mapping[str, Any]) -> None:
+    def request_new_session(self, session_desc: SessionDesc) -> None:
         """Ask the runtime to replace this session after the current UI step.
 
         Args:
-            metadata: Application-specific values for the replacement session.
-                The runtime merges a copy into the current session description.
+            session_desc: Fully resolved description for the replacement session.
         """
-        self._new_session_request = dict(metadata)
+        self._new_session_request = session_desc
 
     @final
     def presented_model_frame(
@@ -412,19 +415,20 @@ class IUILoop(ILoop[StateT], ABC):
 
 def _lifecycle_transition(
     events: list[UserInputEvent],
-    new_session_request: Mapping[str, Any] | None,
+    new_session_request: SessionDesc | None,
+    new_session_event_desc: SessionDesc | None,
 ) -> _LoopRunResult | None:
     """Return the latest terminal lifecycle request, if any."""
     transition = (
         None
         if new_session_request is None
-        else _LoopRunResult(new_session_request=dict(new_session_request))
+        else _LoopRunResult(new_session_request=new_session_request)
     )
     for event in events:
         if isinstance(event, CloseUserInputEvent):
             transition = _LoopRunResult(stop_requested=True)
         elif isinstance(event, NewSessionUserInputEvent):
-            transition = _LoopRunResult(new_session_request={})
+            transition = _LoopRunResult(new_session_request=new_session_event_desc)
     return transition
 
 

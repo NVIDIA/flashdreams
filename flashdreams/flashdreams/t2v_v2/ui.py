@@ -3,7 +3,7 @@
 
 """Immediate-mode prompt controls for interactive text-to-video sessions."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from torch import Tensor
@@ -45,7 +45,12 @@ class T2VImGuiUILoop(ImGuiUILoop[T2VUIState]):
                 if prompt:
                     self.state.prompt = prompt
                     self.state.message = "Starting new session…"
-                    self.request_new_session({"prompt": prompt})
+                    self.request_new_session(
+                        replace(
+                            self.session_desc,
+                            metadata={**self.session_desc.metadata, "prompt": prompt},
+                        )
+                    )
                 else:
                     self.state.message = "Enter a prompt before starting a session."
             if self.state.message:

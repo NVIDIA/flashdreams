@@ -100,7 +100,7 @@ class ISession(ABC):
             failure_queue=self._failure_queue,
         )
         loop.register_session_ui_loop_objects(
-            output_layout=self.session_desc.output_layout,
+            session_desc=self.session_desc,
             presentation_manager=self._presentation_manager,
         )
         self._registered_ui_loop = loop
