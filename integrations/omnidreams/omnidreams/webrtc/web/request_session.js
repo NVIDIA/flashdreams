@@ -11,8 +11,13 @@ const eventLog = document.getElementById("eventLog")
 const logState = document.getElementById("logState")
 const remoteVideo = document.getElementById("remoteVideo")
 const idleCanvas = document.getElementById("idleCanvas")
-const fpsValue = document.getElementById("fpsValue")
-const latencyValue = document.getElementById("latencyValue")
+const serverFpsValue = document.getElementById("serverFpsValue")
+const clientFpsValue = document.getElementById("clientFpsValue")
+const serverLatencyValue = document.getElementById("serverLatencyValue")
+const clientLatencyValue = document.getElementById("clientLatencyValue")
+const payloadValue = document.getElementById("payloadValue")
+const metricsInfoBtn = document.getElementById("metricsInfoBtn")
+const metricsNote = document.getElementById("metricsNote")
 const resolutionValue = document.getElementById("resolutionValue")
 const stepValue = document.getElementById("stepValue")
 const modelValue = document.getElementById("modelValue")
@@ -50,9 +55,16 @@ let tokenStreamSession = null
 // True while the token render loop owns idleCanvas, so the idle animation
 // yields the canvas instead of overdrawing decoded frames.
 let tokenRenderActive = false
+// Previous inbound-rtp sample for pixel-mode client-load deltas (frames decoded,
+// cumulative decode time, bytes received). Reset when stats polling (re)starts.
+let statsPrev = null
 
 const metrics = {
-  fps: null,
+  serverFps: null, // server GPU load: frames / (gen_ms+enqueue_ms) from chunk_done
+  clientFps: null, // client GPU load: token = VAE decode; pixel = browser H.264
+  serverLatencyMs: null, // server processing time per chunk (ms)
+  clientLatencyMs: null, // client processing time per chunk (ms)
+  payloadBits: null, // wire bits per chunk (SAS/token exact; pixel from getStats)
   targetFps: null,
   latencyMs: null,
   rttMs: null,
@@ -88,6 +100,23 @@ function formatMs(value) {
     return `${(value / 1000).toFixed(1)} s`
   }
   return `${Math.round(value)} ms`
+}
+
+function formatFps(value) {
+  return Number.isFinite(value) && value > 0 ? String(Math.round(value)) : "--"
+}
+
+function formatBits(bits) {
+  if (!Number.isFinite(bits) || bits <= 0) {
+    return "--"
+  }
+  if (bits >= 1e6) {
+    return `${(bits / 1e6).toFixed(2)} Mb`
+  }
+  if (bits >= 1e3) {
+    return `${(bits / 1e3).toFixed(1)} Kb`
+  }
+  return `${Math.round(bits)} b`
 }
 
 function logEvent(message, { source = "server", level = "info" } = {}) {
@@ -184,10 +213,11 @@ async function configureSessionInput() {
 }
 
 function renderMetrics() {
-  const fps = firstFinite(metrics.fps, metrics.targetFps)
-  const latency = firstFinite(metrics.latencyMs, metrics.rttMs)
-  fpsValue.textContent = Number.isFinite(fps) ? String(Math.round(fps)) : "--"
-  latencyValue.textContent = formatMs(latency)
+  serverFpsValue.textContent = formatFps(metrics.serverFps)
+  clientFpsValue.textContent = formatFps(metrics.clientFps)
+  serverLatencyValue.textContent = formatMs(metrics.serverLatencyMs)
+  clientLatencyValue.textContent = formatMs(metrics.clientLatencyMs)
+  payloadValue.textContent = formatBits(metrics.payloadBits)
   resolutionValue.textContent = metrics.resolution || "--"
   stepValue.textContent = metrics.step === null ? "--" : String(metrics.step)
   modelValue.textContent = metrics.model || "Omnidreams"
@@ -223,6 +253,18 @@ function updateMetricsFromChunk(payload) {
     payload.gen_ms,
     metrics.latencyMs
   )
+  // Server GPU load: pixel frames produced per second of server compute, and the
+  // server processing time per chunk. gen_ms = model generation (+ VAE decode +
+  // H.264 encode in pixel mode), enqueue_ms = hand-off (deliver / latent emit).
+  // Same chunk_done hook for pixel, token, and SAS.
+  const numFrames = Number(payload.num_frames)
+  const serverMs = (Number(payload.gen_ms) || 0) + (Number(payload.enqueue_ms) || 0)
+  if (serverMs > 0) {
+    metrics.serverLatencyMs = serverMs
+    if (Number.isFinite(numFrames) && numFrames > 0) {
+      metrics.serverFps = (numFrames * 1000) / serverMs
+    }
+  }
   metrics.step = Number.isFinite(Number(payload.chunk_index))
     ? Number(payload.chunk_index)
     : metrics.step
@@ -585,12 +627,20 @@ async function waitForIceGatheringComplete(pc) {
   })
 }
 
+const FRAMES_PER_CHUNK = 8 // pixel frames per chunk (latent T=2 -> x4 VAE upsample)
+
 async function pollWebRtcStats() {
   if (!peerConnection) {
     return
   }
+  // Pixel mode only: the client GPU load is the browser's H.264 decode and the
+  // payload is the RTP video bytes. In token/SAS mode there is no inbound video
+  // (latents arrive on the WebSocket), so the token session measures those
+  // instead -- gate on mode so empty video stats never overwrite them.
+  const pixelMode = !isTokenMode(streamModeSelect.value)
   try {
     const stats = await peerConnection.getStats()
+    let video = null
     for (const report of stats.values()) {
       if (
         report.type === "candidate-pair" &&
@@ -601,11 +651,34 @@ async function pollWebRtcStats() {
       }
       if (
         report.type === "inbound-rtp" &&
-        (report.kind === "video" || report.mediaType === "video") &&
-        Number.isFinite(report.framesPerSecond)
+        (report.kind === "video" || report.mediaType === "video")
       ) {
-        metrics.fps = report.framesPerSecond
+        video = report
       }
+    }
+    if (pixelMode && video) {
+      const now = {
+        framesDecoded: Number(video.framesDecoded),
+        totalDecodeTime: Number(video.totalDecodeTime), // cumulative seconds
+        bytesReceived: Number(video.bytesReceived),
+      }
+      if (statsPrev && Number.isFinite(now.framesDecoded)) {
+        const dFrames = now.framesDecoded - statsPrev.framesDecoded
+        const dDecode = now.totalDecodeTime - statsPrev.totalDecodeTime
+        const dBytes = now.bytesReceived - statsPrev.bytesReceived
+        if (dFrames > 0) {
+          // client GPU load = frames decoded per second of decode time
+          if (dDecode > 0) {
+            metrics.clientFps = dFrames / dDecode
+            metrics.clientLatencyMs = (dDecode * 1000 * FRAMES_PER_CHUNK) / dFrames
+          }
+          // wire bits per chunk = bytes*8 scaled from frames to one chunk
+          if (dBytes > 0) {
+            metrics.payloadBits = (dBytes * 8 * FRAMES_PER_CHUNK) / dFrames
+          }
+        }
+      }
+      statsPrev = now
     }
     renderMetrics()
   } catch (error) {
@@ -617,6 +690,7 @@ function startStatsPolling() {
   if (statsTimer !== null) {
     return
   }
+  statsPrev = null // fresh baseline for pixel decode/bytes deltas
   statsTimer = window.setInterval(() => {
     void pollWebRtcStats()
   }, 1000)
@@ -711,18 +785,37 @@ function stopTokenStream() {
   }
 }
 
+// True for the raw token mode and any SAS token mode (sas-int4-2s / -4s4).
+function isTokenMode(mode) {
+  return mode === "token" || mode.startsWith("sas-")
+}
+
+// Map a stream-mode value to the server codec id passed as ?codec=. Raw token
+// mode keeps the server default (null); the SAS modes name their preset.
+function tokenCodecFor(mode) {
+  if (mode === "sas-int4-2s") return "sas-int4-2s"
+  if (mode === "sas-int4-4s") return "sas-int4-4s"
+  return null
+}
+
 // When the user selects token mode and WebGPU is available, open the dedicated
 // token-stream WebSocket and drive a TokenStreamSession. The pixel path (the
 // WebRTC video element) is left untouched; token mode simply adds a parallel
 // consumer that activates only after the peer connection is up.
 async function maybeStartTokenStream(webgpu) {
-  if (streamModeSelect.value !== "token") {
+  if (!isTokenMode(streamModeSelect.value)) {
     return
   }
   if (!webgpu) {
-    logEvent("token mode requested but WebGPU is unavailable; using pixel path", {
-      source: "client",
-    })
+    // Make the WebGPU requirement explicit instead of silently using pixel.
+    const msg =
+      "WebGPU is UNAVAILABLE in this browser - token streaming cannot run (it " +
+      "would otherwise fall back to pixel/H.264). Enable WebGPU at chrome://gpu " +
+      "or edge://gpu (and use a GPU that supports it) to use the token path."
+    logEvent(msg, { source: "client" })
+    const st = document.getElementById("statusText")
+    if (st) st.textContent = "WebGPU unavailable - token streaming disabled"
+    alert(msg)
     return
   }
   if (tokenStreamSession) {
@@ -734,10 +827,18 @@ async function maybeStartTokenStream(webgpu) {
 
   tokenStreamSession = new TokenStreamSession({
     url: tokenUrl.href,
+    codec: tokenCodecFor(streamModeSelect.value),
     device: webgpu.device,
     canvas: idleCanvas,
     controlChannel,
     log: logEvent,
+    // Client-side telemetry from the token path (VAE decode load + wire bytes).
+    onMetrics: (m) => {
+      if (Number.isFinite(m.clientFps)) metrics.clientFps = m.clientFps
+      if (Number.isFinite(m.clientLatencyMs)) metrics.clientLatencyMs = m.clientLatencyMs
+      if (Number.isFinite(m.payloadBits)) metrics.payloadBits = m.payloadBits
+      renderMetrics()
+    },
   })
   tokenStreamSession.start()
   tokenRenderActive = true
@@ -787,7 +888,7 @@ async function connectSession() {
   // Probe WebGPU up front so token mode can decide whether to activate. A null
   // result means the pixel path is used regardless of the selected mode.
   let webgpu = null
-  if (streamModeSelect.value === "token") {
+  if (isTokenMode(streamModeSelect.value)) {
     webgpu = await detectWebGPU()
     logEvent(`webgpu ${webgpu ? "available" : "unavailable"}`, { source: "client" })
   }
@@ -998,6 +1099,29 @@ connectButton.addEventListener("click", () => {
   void connectSession()
 })
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
+
+// Telemetry info note: toggle the hidden definitions panel on click; dismiss it
+// on an outside click or the Escape key.
+if (metricsInfoBtn && metricsNote) {
+  metricsInfoBtn.addEventListener("click", (event) => {
+    event.stopPropagation()
+    metricsNote.hidden = !metricsNote.hidden
+  })
+  document.addEventListener("click", (event) => {
+    if (
+      !metricsNote.hidden &&
+      !metricsNote.contains(event.target) &&
+      event.target !== metricsInfoBtn
+    ) {
+      metricsNote.hidden = true
+    }
+  })
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      metricsNote.hidden = true
+    }
+  })
+}
 remoteVideo.addEventListener("playing", () => {
   setVideoVisible(true)
   updateMetricsFromVideo()

@@ -6,6 +6,7 @@
 // decoding any token frame.
 
 import { RawFloat16Decoder } from "./raw_f16.js"
+import { SASDecoder } from "./sas.js"
 
 /**
  * Codec id -> decoder instance. Keys must match the server-side
@@ -13,6 +14,7 @@ import { RawFloat16Decoder } from "./raw_f16.js"
  */
 export const TOKEN_CODEC_REGISTRY = new Map([
   ["raw_f16", new RawFloat16Decoder()],
+  ["sas", new SASDecoder()],
 ])
 
 /**

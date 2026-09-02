@@ -421,12 +421,13 @@ body[data-status="generating"] .connectButton {
   bottom: clamp(20px, 4vh, 40px);
   display: grid;
   grid-template-columns:
-    minmax(max-content, 0.7fr)
     minmax(max-content, 1fr)
-    minmax(max-content, 1.15fr)
-    minmax(max-content, 0.7fr)
-    minmax(max-content, 1.45fr);
-  width: min(960px, calc(100vw - 36px));
+    minmax(max-content, 1fr)
+    minmax(max-content, 0.9fr)
+    minmax(max-content, 1fr)
+    minmax(max-content, 0.6fr)
+    minmax(max-content, 1.3fr);
+  width: min(1120px, calc(100vw - 36px));
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
@@ -463,6 +464,91 @@ body[data-status="generating"] .connectButton {
   text-align: left;
   white-space: nowrap;
   font-weight: 760;
+}
+
+/* Telemetry: Server/Client values stacked in one cell so 8 numbers fit. */
+.metric .dual {
+  display: grid;
+  grid-auto-rows: auto;
+  gap: 1px;
+  text-align: left;
+  line-height: 1.15;
+}
+
+.metric .dual strong {
+  font-size: 0.8rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.metric .dual .sc {
+  display: inline-block;
+  width: 11px;
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+/* Clickable telemetry info note (definitions of the latency spans). */
+.metricsInfo {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  z-index: 6;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font: italic 700 0.72rem/14px Georgia, "Times New Roman", serif;
+  cursor: pointer;
+}
+
+.metricsInfo:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.metricsNote {
+  position: fixed;
+  left: 50%;
+  bottom: 104px;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(560px, calc(100vw - 36px));
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(16, 18, 20, 0.97);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(16px) saturate(1.1);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #e9ecee;
+}
+
+.metricsNote[hidden] {
+  display: none;
+}
+
+.metricsNote p {
+  margin: 0 0 8px;
+}
+
+.metricsNote p:last-child {
+  margin-bottom: 0;
+}
+
+.metricsNote b {
+  color: var(--accent-strong);
+}
+
+.metricsNote .noteHead,
+.metricsNote .noteDim {
+  color: var(--muted);
 }
 
 body[data-status="generating"] .statusLine strong {

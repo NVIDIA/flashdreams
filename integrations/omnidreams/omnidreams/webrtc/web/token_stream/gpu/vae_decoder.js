@@ -51,16 +51,28 @@ export class VaeDecoder {
 
     const modelUrl = new URL(descriptor.precisions[this._precision], location.href)
       .href
-    this._session = await this._ort.InferenceSession.create(modelUrl, {
-      executionProviders: ["webgpu"],
-      graphOptimizationLevel: "all",
-    })
 
     // I/O names: [0] is the latent / rgb, the rest are the cache slots in order.
     this._latentName = descriptor.input_names[0]
     this._rgbName = descriptor.output_names[0]
     this._cacheInNames = descriptor.input_names.slice(1)
     this._cacheOutNames = descriptor.output_names.slice(1)
+
+    // Perf fix: keep the large temporal cache (~300 MB across 9 tensors) resident
+    // on the GPU between chunks. ORT-Web defaults every output to CPU, so the
+    // cache was copied GPU->CPU each run and re-uploaded next run -- ~700 MB/chunk
+    // of pointless CPU<->GPU traffic that dominated decode time. Only rgb needs
+    // CPU (for the canvas). Output values are unchanged; this only changes where
+    // the tensors live (fp32 both ways, so the threaded cache is byte-identical).
+    const outputLocations = { [this._rgbName]: "cpu" }
+    for (const name of this._cacheOutNames) {
+      outputLocations[name] = "gpu-buffer"
+    }
+    this._session = await this._ort.InferenceSession.create(modelUrl, {
+      executionProviders: ["webgpu"],
+      graphOptimizationLevel: "all",
+      preferredOutputLocation: outputLocations,
+    })
 
     // ONNX latent input is [B=1, V=1, T, Cl, Hl, Wl]; descriptor.latent_shape is
     // the [T, Cl, Hl, Wl] tail.
@@ -146,7 +158,12 @@ export class VaeDecoder {
       feeds[name] = this._cache[i]
     })
     const results = await this._session.run(feeds)
-    // Thread the temporal cache forward for the next chunk.
+    // Release the cache GPU buffers we just consumed as inputs, then thread the
+    // new on-device cache_out tensors forward. Cold-start CPU zero tensors have
+    // no GPU buffer to free, so guard on location.
+    for (const t of this._cache) {
+      if (t?.location === "gpu-buffer") t.dispose?.()
+    }
     this._cache = this._cacheOutNames.map((name) => results[name])
     return results[this._rgbName]
   }
@@ -161,6 +178,10 @@ export class VaeDecoder {
       new this._ArrayCtor(this._latentLen),
       this._latentShape,
     ))
+    // Free the warmup's on-device cache before restoring the cold-start cache.
+    for (const t of this._cache) {
+      if (t?.location === "gpu-buffer") t.dispose?.()
+    }
     this._cache = cold
   }
 }

@@ -86,7 +86,8 @@ def create_webrtc_app(
             raise web.HTTPNotFound(reason="Token streaming not supported.")
         ws = web.WebSocketResponse()
         await ws.prepare(request)
-        await attach(ws)
+        # SAS token codec: let the client pick the per-session codec via ?codec=.
+        await attach(ws, codec_id=request.query.get("codec"))
         return ws
 
     async def healthz(request: web.Request) -> web.StreamResponse:

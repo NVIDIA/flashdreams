@@ -237,7 +237,19 @@ async def _vae_model(request: web.Request) -> web.StreamResponse:
     path = vae_artifacts.onnx_path(precision)
     if not path.exists():
         raise web.HTTPNotFound()
-    return web.FileResponse(path, headers={"Content-Type": "application/octet-stream"})
+    # Fix #3 (cache the VAE model): the client re-fetches this ONNX every session
+    # as part of decoder warmup. "no-cache" makes the browser revalidate via the
+    # ETag/Last-Modified FileResponse already sends -> a 304 with no body on
+    # repeat sessions (skips the 20-40MB download) while staying correct if the
+    # model is re-exported (the URL is unversioned, so a long immutable TTL would
+    # silently serve a stale decoder).
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 def _configure_app(app: web.Application) -> None:

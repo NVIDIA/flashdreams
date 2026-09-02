@@ -36,6 +36,8 @@ SPDX-License-Identifier: Apache-2.0
           <select id="streamModeSelect">
             <option value="pixel" selected>Video Pixels</option>
             <option value="token">Video Tokens</option>
+            <option value="sas-int4-2s">Video Tokens (SAS int4s2)</option>
+            <option value="sas-int4-4s">Video Tokens (SAS int4s4)</option>
           </select>
         </label>
         <label id="postprocessField" class="postprocessField" for="postprocessSelect" hidden>
@@ -75,13 +77,43 @@ SPDX-License-Identifier: Apache-2.0
       </section>
 
       <section class="metricsBar" aria-label="Session telemetry">
-        <div class="metric">
-          <span>FPS</span>
-          <strong id="fpsValue">--</strong>
+        <button id="metricsInfoBtn" class="metricsInfo" type="button" aria-label="What do these metrics mean?" title="What do these mean?">i</button>
+        <div id="metricsNote" class="metricsNote" role="note" hidden>
+          <p class="noteHead">Telemetry &mdash; all values are <b>per chunk</b> (8 RGB frames = 2 latent frames). FPS = 8000 / latency(ms).</p>
+          <p><b>Server Latency</b> = gen_ms + enqueue_ms<br>
+             <span class="noteDim">start:</span> just before the model generates the chunk<br>
+             <span class="noteDim">end:</span> just after the chunk is handed to the transport<br>
+             = model generation (+ VAE decode &amp; H.264 encode in pixel mode) + emit/deliver
+             <span class="noteDim">(token: wait-for-client-ack + SAS encode + send)</span></p>
+          <p><b>Client Latency</b> = WebGPU VAE decode <span class="noteDim">(token modes)</span><br>
+             <span class="noteDim">start:</span> just before the decode() call<br>
+             <span class="noteDim">end:</span> when decode() resolves<br>
+             = queue wait + WebGPU VAE decode + display transform</p>
+          <p><b>Payload</b> = wire bytes for the chunk &times; 8 (bits)<br>
+             <span class="noteDim">token/SAS: exact bytes sent; pixel: WebRTC byte counter, scaled to one chunk</span></p>
+          <p class="noteDim">Counted by neither: network transit, chunk assembly, canvas present.</p>
+        </div>
+        <!-- GPU load = frames processed per second (frames-in-chunk / processing
+             time). S = server (generation, from chunk_done gen_ms+enqueue_ms),
+             C = client (VAE decode for token/SAS; browser H.264 decode for
+             pixel). Server/Client stacked vertically so all metrics fit. -->
+        <div class="metric metricDual">
+          <span>GPU&nbsp;Load<br>(FPS)</span>
+          <div class="dual">
+            <strong><i class="sc">S</i><span id="serverFpsValue">--</span></strong>
+            <strong><i class="sc">C</i><span id="clientFpsValue">--</span></strong>
+          </div>
+        </div>
+        <div class="metric metricDual">
+          <span>Latency<br>(ms)</span>
+          <div class="dual">
+            <strong><i class="sc">S</i><span id="serverLatencyValue">--</span></strong>
+            <strong><i class="sc">C</i><span id="clientLatencyValue">--</span></strong>
+          </div>
         </div>
         <div class="metric">
-          <span>Latency</span>
-          <strong id="latencyValue">--</strong>
+          <span>Payload<br>(per&nbsp;chunk)</span>
+          <strong id="payloadValue">--</strong>
         </div>
         <div class="metric">
           <span>Resolution</span>

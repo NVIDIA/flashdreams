@@ -54,6 +54,10 @@ class TokenFrameEmitter:
         self._flow = asyncio.Semaphore(flow_window_size)
         self._inflight: set[int] = set()
         self._header_sent = False
+        # Fix #2 (eager pre-warm): set when the header is sent at attach from the
+        # VAE descriptor shape, so the first real chunk can assert the generated
+        # latent matches (a mismatch would corrupt SAS/raw decode).
+        self._eager_shape: tuple[int, tuple[int, ...]] | None = None
 
     async def emit_chunk(
         self, latent: torch.Tensor, *, chunk_index: int, is_keyframe: bool = False
@@ -73,6 +77,18 @@ class TokenFrameEmitter:
         if not self._header_sent:
             await self._send_session_header(latent)
             self._header_sent = True
+        elif self._eager_shape is not None:
+            # Fix #2: verify the eagerly-sent header matches the real latent, so a
+            # shape drift surfaces loudly instead of silently corrupting decode.
+            actual = (int(latent.shape[0]), tuple(int(x) for x in latent.shape[1:]))
+            if actual != self._eager_shape:
+                logger.error(
+                    "token eager header shape {} != generated latent {}; "
+                    "decode will corrupt",
+                    self._eager_shape,
+                    actual,
+                )
+            self._eager_shape = None  # check once
 
         await self._flow.acquire()
         self._inflight.add(chunk_index)
@@ -100,12 +116,12 @@ class TokenFrameEmitter:
         else:
             logger.debug("ignoring ack for unknown token chunk {}", chunk_id)
 
-    async def _send_session_header(self, latent: torch.Tensor) -> None:
-        """Send the one-shot control frame describing the stream to the client."""
+    def _header_bytes(self, *, frames_per_chunk: int, latent_shape: list[int]) -> bytes:
+        """Build the control-frame bytes for the session header."""
         header = {
             "protocol_version": framing.PROTOCOL_VERSION,
-            "latent_shape": list(latent.shape[1:]),
-            "frames_per_chunk": int(latent.shape[0]),
+            "latent_shape": list(latent_shape),
+            "frames_per_chunk": int(frames_per_chunk),
             "fps": self._fps,
             "codec": {
                 "id": self._codec.codec_id,
@@ -114,4 +130,34 @@ class TokenFrameEmitter:
             },
             **self._extra_header,
         }
-        await self._ws.send_bytes(framing.pack_control(json.dumps(header).encode()))
+        return framing.pack_control(json.dumps(header).encode())
+
+    async def _send_session_header(self, latent: torch.Tensor) -> None:
+        """Send the one-shot control frame describing the stream to the client."""
+        await self._ws.send_bytes(
+            self._header_bytes(
+                frames_per_chunk=int(latent.shape[0]),
+                latent_shape=list(latent.shape[1:]),
+            )
+        )
+
+    async def send_session_header_eager(
+        self, *, frames_per_chunk: int, latent_shape: list[int]
+    ) -> None:
+        """Fix #2 (eager pre-warm): send the session header at WS-attach time,
+        before the first generated chunk, using the shape from the VAE
+        descriptor. Lets the client download and compile the WebGPU VAE decoder
+        during the idle window before the user drives, so token modes go live on
+        the first control input instead of dropping the warmup chunks. Idempotent
+        and byte-identical to the lazy path (the descriptor shape equals the
+        generated latent's); the first real chunk asserts they match.
+        """
+        if self._header_sent:
+            return
+        await self._ws.send_bytes(
+            self._header_bytes(
+                frames_per_chunk=frames_per_chunk, latent_shape=latent_shape
+            )
+        )
+        self._header_sent = True
+        self._eager_shape = (int(frames_per_chunk), tuple(int(x) for x in latent_shape))

@@ -113,6 +113,18 @@ export class RenderLoop {
       this._scratchCtx = this._scratch.getContext("2d")
     }
     this._scratchCtx.putImageData(frame, 0, 0)
-    ctx.drawImage(this._scratch, 0, 0, this._canvas.width, this._canvas.height)
+    // Display-fit: aspect-fit (letterbox) the frame into the dpr-sized display
+    // canvas instead of stretching it, so it fits like the <video> path and
+    // does not overflow (which previously showed only part of the frame).
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    const cw = this._canvas.width
+    const ch = this._canvas.height
+    const scale = Math.min(cw / frame.width, ch / frame.height)
+    const dw = frame.width * scale
+    const dh = frame.height * scale
+    const dx = (cw - dw) / 2
+    const dy = (ch - dh) / 2
+    ctx.clearRect(0, 0, cw, ch)
+    ctx.drawImage(this._scratch, 0, 0, frame.width, frame.height, dx, dy, dw, dh)
   }
 }

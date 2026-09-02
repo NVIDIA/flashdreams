@@ -428,7 +428,21 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     def is_runtime_ready(self) -> bool:
         return self._runtime_ready
 
-    async def attach_token_stream_ws(self, ws) -> None:
+    # -----------------------------------------------------------------------
+    # SAS token codec: select the per-session codec from the client's ?codec=
+    # param (sas-int4-2s / sas-int4-4s), else the configured default.
+    # -----------------------------------------------------------------------
+    def _select_token_codec(self, codec_id):
+        """Pick the per-session token codec from the client's ?codec= param."""
+        presets = {"sas-int4-2s": (4, 2), "sas-int4-4s": (4, 4)}
+        if codec_id in presets:
+            from flashdreams.serving.token_stream.codec.sas import SASTokenCodecConfig
+
+            num_bits, num_stages = presets[codec_id]
+            return SASTokenCodecConfig(num_bits=num_bits, num_stages=num_stages).setup()
+        return self._token_stream_config.codec.setup()
+
+    async def attach_token_stream_ws(self, ws, codec_id: str | None = None) -> None:
         """Bind a token-stream WebSocket to the active session and stream latents to it."""
         if not self._token_stream_config.enabled:
             await ws.close()  # feature not enabled on this server
@@ -437,15 +451,35 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         if session is None or session.closed:
             await ws.close()
             return
-        codec = self._token_stream_config.codec.setup()
+        codec = self._select_token_codec(codec_id)
+        extra_header = self._token_stream_extra_header()
         emitter = TokenFrameEmitter(
             ws,
             codec=codec,
             fps=self.fps,
             flow_window_size=self._token_stream_config.flow_window_size,
-            extra_header=self._token_stream_extra_header(),
+            extra_header=extra_header,
         )
         session.token_emitter = emitter
+        # Fix #2 (eager pre-warm): push the session header now, at attach (which
+        # happens at Connect, before the user drives), instead of lazily on the
+        # first generated chunk. The VAE descriptor already carries the latent
+        # shape, so the client downloads and compiles its WebGPU VAE decoder
+        # during the idle window before the first control input.
+        descriptor = (
+            extra_header.get("vae_model") if isinstance(extra_header, dict) else None
+        )
+        latent_shape = (
+            descriptor.get("latent_shape") if isinstance(descriptor, dict) else None
+        )
+        if latent_shape and len(latent_shape) >= 2:
+            try:
+                await emitter.send_session_header_eager(
+                    frames_per_chunk=int(latent_shape[0]),
+                    latent_shape=[int(x) for x in latent_shape[1:]],
+                )
+            except Exception as exc:  # never let eager send break the WS loop
+                logger.warning("eager token header send failed: {}", exc)
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
