@@ -172,6 +172,13 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert ui_loop.state.show_fps
     assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
     assert (
+        ui_loop.state.show_live_edit_buttons is session._config.show_live_edit_buttons
+    )
+    assert (
+        ui_loop.state.live_edit_mapping_location
+        == session._config.live_edit_mapping_location
+    )
+    assert (
         ui_loop.state.native_dit_disabled_for_live_edit
         is session._config.native_dit_disabled_for_live_edit
     )
@@ -252,6 +259,9 @@ game:
   gamepad_button_style: PlayStation
   taxi:
     seed: 1234
+presentation:
+  show_live_edit_buttons: false
+  live_edit_mapping_location: control hints
 runtime:
   prewarm_blocks: 0
 """,
@@ -269,6 +279,8 @@ runtime:
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234
     assert app._config.gamepad_button_style == "PlayStation"
+    assert not app._config.show_live_edit_buttons
+    assert app._config.live_edit_mapping_location == "control hints"
     pipeline_config = app._pipeline_config
     assert pipeline_config is not None
     assert pipeline_config.diffusion_model.seed == 5678

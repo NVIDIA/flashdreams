@@ -608,6 +608,8 @@ class CrazyRobotaxiSession(ISession):
                 self._config.native_dit_disabled_for_live_edit
             ),
             show_control_tooltips=self._config.show_control_hints,
+            show_live_edit_buttons=self._config.show_live_edit_buttons,
+            live_edit_mapping_location=self._config.live_edit_mapping_location,
             settings_document=self._config.settings_document,
             controls=self._config.controls,
             gamepad_button_style=self._config.gamepad_button_style,

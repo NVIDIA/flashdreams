@@ -73,6 +73,7 @@ from crazy_robotaxi.rules import (
 )
 from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
+    LiveEditMappingLocation,
     SettingsDocument,
     SettingsError,
     clone_settings,
@@ -132,6 +133,13 @@ _MENU_BACK_CONTROLS = replace(
     ),
 )
 """Fixed menu navigation bindings, separate from gameplay controls."""
+
+_LIVE_EDIT_CONTROL_FIELDS: tuple[tuple[LiveEditAction, str], ...] = (
+    ("style", "cycle_style"),
+    ("weather", "cycle_weather"),
+    ("coins", "toggle_coins"),
+    ("obstacle", "spawn_obstacle"),
+)
 
 
 def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
@@ -250,6 +258,12 @@ class TaxiHudState:
 
     show_control_tooltips: bool = True
     """Whether to display keyboard control hints during gameplay."""
+
+    show_live_edit_buttons: bool = True
+    """Whether live-edit actions appear as clickable HUD buttons."""
+
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    """Where active live-edit mappings appear in the gameplay HUD."""
 
     settings_document: SettingsDocument | None = None
     """User-authored settings backing the reusable Options screen."""
@@ -1088,6 +1102,12 @@ class TaxiHudState:
             self.show_fps = draft.presentation.show_fps
         if ("presentation", "show_control_hints") not in overrides:
             self.show_control_tooltips = draft.presentation.show_control_hints
+        if ("presentation", "show_live_edit_buttons") not in overrides:
+            self.show_live_edit_buttons = draft.presentation.show_live_edit_buttons
+        if ("presentation", "live_edit_mapping_location") not in overrides:
+            self.live_edit_mapping_location = (
+                draft.presentation.live_edit_mapping_location
+            )
         self._settings_notice = f"SAVED {document.path}"
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S
@@ -1494,38 +1514,32 @@ class TaxiHudState:
         """Draw frame-aligned live-edit status and action buttons."""
         if status is None or not self.live_edit.any_enabled:
             return
-        device = self._active_control_device
-        controls = self.controls.for_device(device)
-        configured_actions: tuple[tuple[LiveEditAction, str, bool], ...] = (
+        control_entries = self._live_edit_control_entries()
+        actions = tuple(
             (
-                "style",
-                f"{_binding_slots_display(device, controls.cycle_style, self.gamepad_button_style)}  STYLE",
-                self.live_edit.style.enabled,
-            ),
-            (
-                "weather",
-                f"{_binding_slots_display(device, controls.cycle_weather, self.gamepad_button_style)}  WEATHER",
-                self.live_edit.weather.enabled,
-            ),
-            (
-                "coins",
-                f"{_binding_slots_display(device, controls.toggle_coins, self.gamepad_button_style)}  COINS",
-                self.live_edit.coins.enabled,
-            ),
-            (
-                "obstacle",
-                f"{_binding_slots_display(device, controls.spawn_obstacle, self.gamepad_button_style)}  OBSTACLE",
-                self.live_edit.obstacle.enabled,
-            ),
+                action,
+                (
+                    f"{label} ({mapping})"
+                    if self.live_edit_mapping_location == "buttons"
+                    else label
+                ),
+            )
+            for action, label, mapping in control_entries
+            if self.show_live_edit_buttons
         )
-        actions = tuple(item for item in configured_actions if item[2])
         lines = _live_edit_status_lines(status)
         button_width = max(
             (
                 _point_xy(imgui.calc_text_size(label))[0] + 20.0
-                for _action, label, _enabled in actions
+                for _action, label in actions
             ),
             default=1.0,
+        )
+        button_columns = (
+            2
+            if 2.0 * button_width + _point_xy(imgui.get_style().item_spacing)[0]
+            <= max(1.0, float(self.width) - 28.0)
+            else 1
         )
         _prepare_window(
             imgui,
@@ -1554,9 +1568,10 @@ class TaxiHudState:
             )
             for line in lines:
                 imgui.text(line)
-            imgui.separator()
-            for index, (action, label, _enabled) in enumerate(actions):
-                if index % 2:
+            if actions:
+                imgui.separator()
+            for index, (action, label) in enumerate(actions):
+                if index % button_columns:
                     imgui.same_line()
                 disabled = action == "weather" and status.skin_name not in {
                     None,
@@ -1574,6 +1589,27 @@ class TaxiHudState:
             imgui.end()
             imgui.pop_style_color(style_color_count)
             imgui.pop_style_var(style_var_count)
+
+    def _live_edit_control_entries(
+        self,
+    ) -> tuple[tuple[LiveEditAction, str, str], ...]:
+        """Return enabled live-edit actions with authored labels and mappings."""
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
+        fields_by_name = {item.name: item for item in controls_fields(controls)}
+        return tuple(
+            (
+                action,
+                control_label(fields_by_name[field_name]),
+                _binding_slots_display(
+                    device,
+                    getattr(controls, field_name),
+                    self.gamepad_button_style,
+                ),
+            )
+            for action, field_name in _LIVE_EDIT_CONTROL_FIELDS
+            if getattr(self.live_edit, action).enabled
+        )
 
     def _draw_control_tooltips(self, imgui: Any) -> None:
         """Draw controls for the device currently driving the game."""
@@ -1608,6 +1644,14 @@ class TaxiHudState:
             ("RESTART", display(controls.restart)),
             ("RETURN TO MENU", display(controls.return_to_menu)),
             ("HIDE CONTROLS", display(controls.toggle_hints)),
+            *(
+                tuple(
+                    (label, mapping)
+                    for _action, label, mapping in self._live_edit_control_entries()
+                )
+                if self.live_edit_mapping_location == "control hints"
+                else ()
+            ),
         )
         action_width = max(
             _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries

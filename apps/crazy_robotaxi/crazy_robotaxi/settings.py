@@ -27,6 +27,7 @@ from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.rules import TaxiGameConfig
 
 SettingPath = tuple[str, ...]
+LiveEditMappingLocation = Literal["buttons", "control hints"]
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,8 @@ class PresentationSettings:
     hud_enabled: bool = True
     show_fps: bool = False
     show_control_hints: bool = True
+    show_live_edit_buttons: bool = True
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
 
 
 @dataclass(frozen=True)
@@ -703,6 +706,7 @@ def _is_user_setting_field(value: object, item: Field[Any]) -> bool:
 
 __all__ = [
     "CrazyRobotaxiUserSettings",
+    "LiveEditMappingLocation",
     "SettingsDocument",
     "SettingsError",
     "clone_settings",

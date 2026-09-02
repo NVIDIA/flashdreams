@@ -730,7 +730,12 @@ def test_live_edit_card_dispatches_enabled_actions() -> None:
     )
     state.model_loop = model_loop
     imgui = _FakeImGui()
-    imgui.clicked_buttons = {"K  STYLE", "V  WEATHER", "C  COINS", "O  OBSTACLE"}
+    imgui.clicked_buttons = {
+        "CYCLE STYLE (K)",
+        "CYCLE WEATHER (V)",
+        "TOGGLE COINS (C)",
+        "SPAWN OBSTACLE (O)",
+    }
 
     state._draw_live_edit_card(
         imgui,
@@ -744,7 +749,11 @@ def test_live_edit_card_dispatches_enabled_actions() -> None:
         "coins",
         "obstacle",
     ]
-    assert {size for _label, size in imgui.button_sizes} == {(108.0, 34.0)}
+    assert len({size for _label, size in imgui.button_sizes}) == 1
+    assert all(
+        size is not None and size[0] >= imgui.calc_text_size(label).x + 20.0
+        for label, size in imgui.button_sizes
+    )
 
 
 def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
@@ -791,7 +800,47 @@ def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
     assert live_edit_flags & imgui.WindowFlags_.always_auto_resize
     assert live_edit_flags & imgui.WindowFlags_.no_scrollbar
     assert live_edit_flags & imgui.WindowFlags_.no_scroll_with_mouse
-    assert imgui.disabled_buttons == ["V  WEATHER"]
+    assert imgui.disabled_buttons == ["CYCLE WEATHER (V)"]
+
+
+def test_live_edit_mapping_location_and_button_visibility() -> None:
+    live_edit = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+    )
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=live_edit,
+        live_edit_mapping_location="control hints",
+    )
+    card_imgui = _FakeImGui()
+
+    state._draw_live_edit_card(
+        card_imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+
+    assert card_imgui.buttons == ["CYCLE STYLE", "CYCLE WEATHER"]
+    hints_imgui = _FakeImGui()
+    state._draw_control_tooltips(hints_imgui)
+    hints = [
+        value for row in hints_imgui.tables["##gameplay-control-hints"] for value in row
+    ]
+    assert "CYCLE STYLE" in hints
+    assert "K" in hints
+    assert "CYCLE WEATHER" in hints
+    assert "V" in hints
+
+    state.show_live_edit_buttons = False
+    hidden_imgui = _FakeImGui()
+    state._draw_live_edit_card(
+        hidden_imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+    assert hidden_imgui.buttons == []
+    assert "LIVE EDIT" in hidden_imgui.windows["Live Edit"]
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
@@ -2453,7 +2502,7 @@ def test_options_booleans_use_compact_native_green_checkboxes(
         for style, value in imgui.pushed_style_vars
         if style == imgui.StyleVar_.frame_padding and value == (10.0, 4.0)
     ]
-    assert len(compact_padding) == 3
+    assert len(compact_padding) == len(native_check_colors)
 
 
 def test_options_text_fields_wrap_without_resizing_the_submenu(
@@ -2582,13 +2631,21 @@ def test_options_save_persists_and_applies_presentation_setting(
     state._options_category = "presentation"
     imgui = _FakeImGui()
     imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.checkbox_values["##presentation.show_live_edit_buttons"] = False
+    imgui.combo_indices["##presentation.live_edit_mapping_location"] = 1
     imgui.clicked_buttons.add("SAVE")
 
     state.draw(imgui)
 
     assert state._menu_stage == "options"
     assert state.show_fps
+    assert not state.show_live_edit_buttons
+    assert state.live_edit_mapping_location == "control hints"
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
+    assert "show_live_edit_buttons: false" in document.path.read_text(encoding="utf-8")
+    assert "live_edit_mapping_location: control hints" in document.path.read_text(
+        encoding="utf-8"
+    )
     assert state._settings_notice == f"SAVED {document.path}"
     assert not state._settings_restart_notice
     options_lines = imgui.windows["Crazy Robotaxi - Options"]
