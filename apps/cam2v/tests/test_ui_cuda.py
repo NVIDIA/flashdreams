@@ -13,6 +13,7 @@ import torch
 from cam2v import Cam2VSlangPyUILoop, Cam2VUIState
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -95,7 +96,7 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
         failure_queue=queue.Queue(),
     )
     loop.register_session_ui_loop_objects(
-        output_layout=VideoTensorLayout.tchw,
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=manager,
     )
 
