@@ -4,6 +4,7 @@
 """Run a session with a client window."""
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ def run_session(
     *,
     metrics_output_sink: OutputSink | None = None,
     steps: int | None = None,
+    timeout_seconds: float | None = None,
 ) -> SessionDesc | None:
     """Run a session's UI and model loops.
 
@@ -68,19 +70,27 @@ def run_session(
             the model loop's results rather than the UI loop's.
         steps: Maximum model steps before ending the session; ``None`` leaves
             session completion to the UI or client window.
+        timeout_seconds: Maximum session runtime; ``None`` waits for another
+            lifecycle exit. Expiration signals both registered loops to stop.
 
     Returns:
         The resolved description for a requested replacement session, or
         ``None`` when the application run should end.
 
     Raises:
-        ValueError: ``steps`` is negative.
+        ValueError: ``steps`` is negative, or ``timeout_seconds`` is invalid.
         BaseException: A loop's failure if one was queued, otherwise this
             function's own, otherwise the first cleanup failure. The rest are
             logged.
     """
     if steps is not None and steps < 0:
         raise ValueError(f"steps must be >= 0 or None, got {steps}.")
+    if timeout_seconds is not None and (
+        not math.isfinite(timeout_seconds) or timeout_seconds < 0
+    ):
+        raise ValueError("timeout_seconds must be finite and non-negative.")
+
+    deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
 
     event_buffer = EventBuffer()
     model_thread_handle: threading.Thread | None = None
@@ -205,6 +215,8 @@ def run_session(
         collect_input()
         tick_ui()
 
+        if deadline is not None and time.monotonic() >= deadline:
+            stop.set()
         if not stop.is_set():
             model_thread_handle = threading.Thread(
                 target=model_loop._run_model_loop,
@@ -238,10 +250,21 @@ def run_session(
                 return True
 
             while not stop.is_set():
+                if deadline is not None and time.monotonic() >= deadline:
+                    stop.set()
+                    break
                 if should_end_ui():
                     break
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
+                if deadline is not None:
+                    wait_seconds = min(
+                        wait_seconds,
+                        max(0.0, deadline - time.monotonic()),
+                    )
                 if stop.wait(wait_seconds):
+                    break
+                if deadline is not None and time.monotonic() >= deadline:
+                    stop.set()
                     break
                 collect_input()
                 tick_ui()

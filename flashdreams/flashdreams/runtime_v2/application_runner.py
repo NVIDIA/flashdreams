@@ -4,7 +4,9 @@
 """Application lifecycle runner for the v2 runtime."""
 
 import logging
+import math
 import sys
+import time
 from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
@@ -39,7 +41,11 @@ class ApplicationRunner:
         self._metrics_output_sink = metrics_output_sink
 
     def run(
-        self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
+        self,
+        session_desc: SessionDesc,
+        commandline_args: Sequence[str] = (),
+        *,
+        timeout_seconds: float | None = None,
     ) -> None:
         """Initialize the application and run sessions until the window exits.
 
@@ -56,20 +62,40 @@ class ApplicationRunner:
         Args:
             session_desc: Output shape and timing requested for the session.
             commandline_args: Arguments owned and parsed by the application.
+            timeout_seconds: Maximum application runtime; ``None`` waits for a
+                normal lifecycle exit. The deadline includes initialization and
+                every replacement session.
+
+        Raises:
+            ValueError: ``timeout_seconds`` is not finite and greater than zero.
         """
+        if timeout_seconds is not None and (
+            not math.isfinite(timeout_seconds) or timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be finite and greater than zero.")
+
+        deadline = (
+            None if timeout_seconds is None else time.monotonic() + timeout_seconds
+        )
         session_run_started = False
         window_needs_close = True
         try:
             self._application.init(commandline_args)
             next_session_desc: SessionDesc | None = session_desc
             while next_session_desc is not None:
+                if deadline is not None and time.monotonic() >= deadline:
+                    break
                 session = self._application.create_session(next_session_desc)
                 session_run_started = True
+                remaining_seconds = (
+                    None if deadline is None else max(0.0, deadline - time.monotonic())
+                )
                 try:
                     next_session_desc = run_session(
                         session,
                         self._client_window,
                         metrics_output_sink=self._metrics_output_sink,
+                        timeout_seconds=remaining_seconds,
                     )
                 except BaseException:
                     # ``run_session`` closes the window on every failure.

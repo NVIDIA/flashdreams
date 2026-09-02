@@ -94,6 +94,7 @@ class _Application(IApplication):
         self._fail_to_close = fail_to_close
         self._session_length = session_length
         self.requested_session_descs: list[SessionDesc] = []
+        self.sessions: list[_Session] = []
 
     def init(self, commandline_args: Sequence[str]) -> None:
         self._calls.append(f"application.init({list(commandline_args)!r})")
@@ -103,7 +104,9 @@ class _Application(IApplication):
     def create_session(self, session_desc: SessionDesc) -> ISession:
         self._calls.append("application.create_session")
         self.requested_session_descs.append(session_desc)
-        return _Session(session_desc, self._calls, length=self._session_length)
+        session = _Session(session_desc, self._calls, length=self._session_length)
+        self.sessions.append(session)
+        return session
 
     def close(self) -> None:
         self._calls.append("application.close")
@@ -245,6 +248,33 @@ def test_application_runner_keeps_running_until_the_window_closes() -> None:
     # model frames on its following ticks.
     assert [result.step_index for result in window.results] == [1, 2, 3]
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+def test_application_timeout_signals_the_session_and_closes_everything() -> None:
+    calls: list[str] = []
+    application = _Application(calls)
+
+    ApplicationRunner(application, _SilentWindow(calls)).run(
+        _session_desc(),
+        timeout_seconds=0.02,
+    )
+
+    assert len(application.sessions) == 1
+    assert application.sessions[0]._shutdown_event.is_set()
+    assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+@pytest.mark.parametrize("timeout", [0.0, -1.0, float("nan"), float("inf")])
+def test_application_timeout_must_be_positive_and_finite(timeout: float) -> None:
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="finite and greater than zero"):
+        ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+            _session_desc(),
+            timeout_seconds=timeout,
+        )
+
+    assert calls == []
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:
