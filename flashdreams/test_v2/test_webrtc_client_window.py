@@ -413,6 +413,40 @@ async def test_browser_can_reconnect_without_restarting_the_server() -> None:
 
 
 @pytest.mark.asyncio
+async def test_malformed_offer_does_not_replace_the_active_browser() -> None:
+    window = WebRTCClientWindow()
+    peer: RTCPeerConnection | None = None
+    try:
+        window.open(_session_desc())
+        peer, _, _ = await _connect_browser(window)
+        server_peer = window.server._peer_connection
+        server_track = window.server._video_track
+        assert server_peer is not None
+        assert server_track is not None
+
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/webrtc/offer",
+                data="{",
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                assert response.status == 400
+            async with client.post(
+                f"{window.server.url}api/webrtc/offer",
+                json={"sdp": "not an SDP", "type": "offer"},
+            ) as response:
+                assert response.status == 400
+
+        assert window.server._peer_connection is server_peer
+        assert window.server._video_track is server_track
+        assert peer.connectionState == "connected"
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_write_delivers_a_video_frame_to_the_browser() -> None:
     window = WebRTCClientWindow()
     peer: RTCPeerConnection | None = None
