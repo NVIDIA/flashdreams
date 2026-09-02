@@ -341,7 +341,7 @@ def _overlay_dataclass(
 ) -> Any:
     if not is_dataclass(base) or isinstance(base, type):
         raise SettingsError(f"{'.'.join(path) or 'settings'} is not configurable")
-    known = {item.name: item for item in fields(base) if item.name != "_target"}
+    known = {item.name: item for item, _annotation in iter_setting_fields(base)}
     unknown = sorted(set(values) - set(known))
     if unknown:
         context = ".".join(path) or "settings"
@@ -511,17 +511,6 @@ def setting_value(root: Any, path: SettingPath) -> object:
     return value
 
 
-def editable_setting(value: object, path: SettingPath) -> bool:
-    """Return whether the generic UI can safely author ``value``."""
-    if path[-1:] == ("_target",) or path == ("model", "pipeline", "name"):
-        return False
-    return (
-        not isinstance(value, type)
-        and not callable(value)
-        and _serialize_value(value) is not _READ_ONLY
-    )
-
-
 def setting_choices(annotation: Any) -> tuple[object, ...]:
     """Return Literal choices for one field."""
     origin = get_origin(annotation)
@@ -541,7 +530,7 @@ def format_editor_value(value: object) -> str:
     """Format a scalar or sequence for the generic Options text editor."""
     serialized = _serialize_value(value)
     if serialized is _READ_ONLY:
-        return readonly_display(value)
+        raise SettingsError("value is not configurable")
     if isinstance(serialized, (list, dict)):
         yaml = YAML(typ="safe")
         yaml.default_flow_style = True
@@ -579,9 +568,7 @@ def parse_editor_value(
 
 def _settings_diff(base: object, current: object) -> dict[str, object]:
     result: dict[str, object] = {}
-    for item in fields(cast(Any, current)):
-        if item.name == "_target":
-            continue
+    for item, _annotation in iter_setting_fields(current):
         before = getattr(base, item.name)
         after = getattr(current, item.name)
         if is_dataclass(after) and not isinstance(after, type):
@@ -672,7 +659,7 @@ def restart_required_settings(
         prefix: tuple[str, ...],
     ) -> tuple[str, ...]:
         changed: list[str] = []
-        for item in fields(cast(Any, before)):
+        for item, _annotation in iter_setting_fields(before):
             old_value = getattr(before, item.name)
             new_value = getattr(after, item.name)
             path = (*prefix, item.name)
@@ -690,25 +677,26 @@ def restart_required_settings(
 
 
 def iter_setting_fields(value: object) -> tuple[tuple[Field[Any], Any], ...]:
-    """Return dataclass fields with resolved annotations in definition order."""
+    """Return user-authored dataclass fields in definition order."""
     if not is_dataclass(value) or isinstance(value, type):
         return ()
     hints = get_type_hints(type(value))
     return tuple(
         (item, hints.get(item.name, type(getattr(value, item.name))))
         for item in fields(value)
+        if _is_user_setting_field(value, item)
     )
 
 
-def readonly_display(value: object) -> str:
-    """Format structural settings for read-only UI display."""
-    if isinstance(value, type):
-        return f"{value.__module__}.{value.__qualname__}"
-    if callable(value):
-        module = getattr(value, "__module__", "")
-        name = getattr(value, "__qualname__", repr(value))
-        return f"{module}.{name}".lstrip(".")
-    return str(value)
+def _is_user_setting_field(value: object, item: Field[Any]) -> bool:
+    if item.name == "_target" or item.metadata.get("user_config") is False:
+        return False
+    current = getattr(value, item.name)
+    if isinstance(current, type) or callable(current):
+        return False
+    if is_dataclass(current) and not isinstance(current, type):
+        return bool(iter_setting_fields(current))
+    return _serialize_value(current) is not _READ_ONLY
 
 
 __all__ = [
@@ -717,11 +705,9 @@ __all__ = [
     "SettingsError",
     "clone_settings",
     "default_config_path",
-    "editable_setting",
     "format_editor_value",
     "iter_setting_fields",
     "parse_editor_value",
-    "readonly_display",
     "restart_required_settings",
     "setting_choices",
     "setting_value",

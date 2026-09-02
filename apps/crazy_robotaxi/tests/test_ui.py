@@ -2093,7 +2093,14 @@ def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
     assert state._options_category == "model"
     model_imgui = _FakeImGui()
     state.draw(model_imgui)
-    assert "Device:" in model_imgui.windows["Crazy Robotaxi - Options"]
+    lines = model_imgui.windows["Crazy Robotaxi - Options"]
+    assert "Device:" in lines
+    assert not any("READ ONLY" in line for line in lines)
+    assert lines.index("PIPELINE") < lines.index("Enable Sync And Profile:")
+    assert lines.index("Enable Sync And Profile:") < lines.index("DIFFUSION MODEL")
+    assert lines.index("DIFFUSION MODEL") < lines.index("Seed:")
+    assert lines.index("Seed:") < lines.index("TRANSFORMER")
+    assert lines.index("TRANSFORMER") < lines.index("Dtype:")
 
 
 def test_options_booleans_use_compact_native_green_checkboxes(

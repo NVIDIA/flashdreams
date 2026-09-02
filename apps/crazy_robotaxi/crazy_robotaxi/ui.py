@@ -60,11 +60,9 @@ from crazy_robotaxi.settings import (
     SettingsDocument,
     SettingsError,
     clone_settings,
-    editable_setting,
     format_editor_value,
     iter_setting_fields,
     parse_editor_value,
-    readonly_display,
     restart_required_settings,
     setting_choices,
     setting_value,
@@ -1457,7 +1455,12 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
-        for item, annotation in iter_setting_fields(value):
+        ordered_fields = sorted(
+            iter_setting_fields(value),
+            key=lambda entry: is_dataclass(getattr(value, entry[0].name))
+            and not isinstance(getattr(value, entry[0].name), type),
+        )
+        for item, annotation in ordered_fields:
             draft = self._options_draft
             if draft is None:
                 return
@@ -1470,9 +1473,6 @@ class TaxiHudState:
                 self._draw_settings_tree(imgui, current, item_path, content_width)
                 continue
             label = item.name.replace("_", " ").title()
-            if not editable_setting(current, item_path):
-                imgui.text(f"{label}: {readonly_display(current)}  [READ ONLY]")
-                continue
             label_text = f"{label}:"
             label_width, label_height = _point_xy(imgui.calc_text_size(label_text))
             item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
@@ -1602,16 +1602,12 @@ class TaxiHudState:
                 )
                 continue
             label = item.name.replace("_", " ").title()
-            if not editable_setting(current, item_path):
-                line = f"{label}: {readonly_display(current)}  [READ ONLY]"
-                widths.append(_point_xy(imgui.calc_text_size(line))[0])
-            else:
-                label_width = _point_xy(imgui.calc_text_size(f"{label}:"))[0]
-                widths.append(
-                    label_width
-                    + item_spacing_x
-                    + _settings_widget_content_width(imgui, current, annotation)
-                )
+            label_width = _point_xy(imgui.calc_text_size(f"{label}:"))[0]
+            widths.append(
+                label_width
+                + item_spacing_x
+                + _settings_widget_content_width(imgui, current, annotation)
+            )
             if any(
                 item_path[: len(override_path)] == override_path
                 for override_path in document.cli_overrides
