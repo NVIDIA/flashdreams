@@ -1901,7 +1901,7 @@ def test_menu_back_uses_styled_gamepad_cancel_button() -> None:
     assert state._menu_stage == "mode"
     imgui = _FakeImGui()
     state.draw(imgui)
-    assert "ESC / B  EXIT" in imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    assert "ESC / B - EXIT" in imgui.windows["Crazy Robotaxi - Select Game Mode"]
 
 
 def test_gameplay_return_to_map_uses_rebindable_controls() -> None:
@@ -2052,7 +2052,7 @@ def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
         _snapshot(session_state="leaderboard"),
     )
     assert (
-        "START / MENU RESTART   |   BACK / VIEW MENU"
+        "START / MENU - RESTART   |   BACK / VIEW - MENU"
         in terminal_imgui.windows["Game Over"]
     )
 
@@ -2306,7 +2306,7 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
     )
     assert imgui.table_outer_sizes["##leaderboard"][0] >= state.width * 0.5
     assert "PLAY AGAIN" in imgui.buttons
-    assert "P RESTART   |   M MENU" in imgui.windows["Game Over"]
+    assert "P - RESTART   |   M - MENU" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
     assert results_flags & imgui.WindowFlags_.always_auto_resize
     assert results_flags & imgui.WindowFlags_.no_scrollbar

@@ -2158,7 +2158,7 @@ class TaxiHudState:
                 return
             _centered_imgui_text(
                 imgui,
-                f"{self._menu_back_display()}  BACK",
+                f"{self._menu_back_display()} - BACK",
                 font_size=13.0,
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2510,7 +2510,7 @@ class TaxiHudState:
             self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
-                f"{self._menu_back_display()}  EXIT",
+                f"{self._menu_back_display()} - EXIT",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2667,7 +2667,7 @@ class TaxiHudState:
                 return
             _centered_imgui_text(
                 imgui,
-                f"{self._menu_back_display()}  BACK",
+                f"{self._menu_back_display()} - BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2845,7 +2845,7 @@ class TaxiHudState:
                 return
             _centered_imgui_text(
                 imgui,
-                f"{self._menu_back_display()}  BACK",
+                f"{self._menu_back_display()} - BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -3255,9 +3255,9 @@ class TaxiHudState:
         controls = self.controls.for_device(device)
         terminal_controls = (
             f"{_binding_slots_display(device, controls.restart, self.gamepad_button_style)} "
-            "RESTART   |   "
+            "- RESTART   |   "
             f"{_binding_slots_display(device, controls.return_to_menu, self.gamepad_button_style)} "
-            "MENU"
+            "- MENU"
         )
         leaderboard_column_widths = _leaderboard_column_widths(imgui, snapshot, race)
         leaderboard_width = (
