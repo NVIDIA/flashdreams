@@ -521,6 +521,9 @@ class OmnidreamsInferenceRuntime:
         self._postprocess_stream: VideoPostprocessStream | None = None
         self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
+        # Desired per-chunk sync+profile state; applied at each chunk boundary
+        # (see generate_chunk). Matches the omnidreams pipeline default (on).
+        self._profiling_enabled: bool = True
         self._clipgt_temp_dir: tempfile.TemporaryDirectory[str] | None = None
         # Selected once at initialization; the concrete backend is chosen
         # by ``select_encoder`` based on ``config.encoder_backend`` and
@@ -603,6 +606,14 @@ class OmnidreamsInferenceRuntime:
             self.config.rotate_speed_rad_per_s * m
         )
 
+    def set_profiling(self, enabled: bool) -> None:
+        """Live toggle for per-chunk sync+profile. Stores the desired value; it is
+        applied to the pipeline at the next chunk boundary (in generate_chunk) so
+        the flag stays stable across a chunk. Off removes the forced
+        torch.cuda.synchronize() each chunk (higher throughput) and disables the
+        per-stage AR timing logs."""
+        self._profiling_enabled = bool(enabled)
+
     async def generate_chunk(
         self,
         *,
@@ -617,6 +628,12 @@ class OmnidreamsInferenceRuntime:
         async with self._step_lock:
             if self._closed:
                 raise OmnidreamsRuntimeError("Session is closed.")
+            # Apply the pending profiling toggle here (asyncio thread, before the
+            # executor runs generate+finalize) so the flag is stable for the whole
+            # chunk and a mid-chunk flip can't trip finalize's profiler asserts.
+            self._wrapper.pipeline.config.enable_sync_and_profile = (
+                self._profiling_enabled
+            )
             return await self._run_on_runtime_thread(
                 self._generate_chunk_sync_all_ranks,
                 segments,

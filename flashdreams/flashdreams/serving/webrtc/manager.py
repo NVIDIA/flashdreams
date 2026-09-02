@@ -35,6 +35,7 @@ from flashdreams.serving.webrtc.messages import (
     MESSAGE_TYPE_ACTION,
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_SET_SPEED,
+    MESSAGE_TYPE_SET_PROFILING,
     MESSAGE_TYPE_EVENT,
     MESSAGE_TYPE_HEARTBEAT,
     MESSAGE_TYPE_TOKEN_FRAME_ACK,
@@ -749,6 +750,15 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             if callable(setter):
                 try:
                     setter(float(payload.get("value", 1.0)))
+                except (TypeError, ValueError):
+                    pass
+            return
+        if message_type == MESSAGE_TYPE_SET_PROFILING:
+            # Live profiling toggle: enable/disable per-chunk sync+profile.
+            setter = getattr(self._runtime, "set_profiling", None)
+            if callable(setter):
+                try:
+                    setter(bool(payload.get("value", True)))
                 except (TypeError, ValueError):
                     pass
             return

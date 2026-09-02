@@ -49,6 +49,13 @@ SPDX-License-Identifier: Apache-2.0
             <option value="4">Turbo (4x)</option>
           </select>
         </label>
+        <label id="profilingField" class="postprocessField" for="profilingSelect">
+          <span>Profiling</span>
+          <select id="profilingSelect">
+            <option value="on" selected>On (per-chunk sync)</option>
+            <option value="off">Off (faster)</option>
+          </select>
+        </label>
         <label id="postprocessField" class="postprocessField" for="postprocessSelect" hidden>
           <span>Post-process</span>
           <select id="postprocessSelect">

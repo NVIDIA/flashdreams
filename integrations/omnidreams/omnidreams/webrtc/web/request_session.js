@@ -25,6 +25,7 @@ const postprocessField = document.getElementById("postprocessField")
 const postprocessSelect = document.getElementById("postprocessSelect")
 const streamModeSelect = document.getElementById("streamModeSelect")
 const driveSpeedSelect = document.getElementById("driveSpeedSelect")
+const profilingSelect = document.getElementById("profilingSelect")
 const controlButtons = Array.from(document.querySelectorAll("[data-control-key]"))
 
 const allowedKeys = new Set(["w", "a", "s", "d"])
@@ -483,6 +484,20 @@ if (driveSpeedSelect) {
   driveSpeedSelect.addEventListener("change", sendDriveSpeed)
 }
 
+// Profiling toggle: ask the server to enable/disable per-chunk sync+profile.
+// Off removes the forced per-chunk GPU sync on the server (higher throughput).
+function sendProfiling() {
+  if (!controlChannel || controlChannel.readyState !== "open") {
+    return
+  }
+  const value = profilingSelect?.value !== "off"
+  controlChannel.send(JSON.stringify({ type: "set_profiling", value }))
+  logEvent(`profiling ${value ? "on" : "off"}`, { source: "client" })
+}
+if (profilingSelect) {
+  profilingSelect.addEventListener("change", sendProfiling)
+}
+
 function sendControlAction(action) {
   if (!connected || !controlChannel || controlChannel.readyState !== "open") {
     return false
@@ -923,6 +938,7 @@ async function connectSession() {
       logEvent("control data channel open")
       startHeartbeat()
       sendDriveSpeed()
+      sendProfiling()
     }
     channel.onclose = () => {
       connected = false
