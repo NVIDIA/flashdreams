@@ -28,6 +28,7 @@ from crazy_robotaxi.rules import TaxiGameConfig
 
 SettingPath = tuple[str, ...]
 LiveEditMappingLocation = Literal["buttons", "control hints"]
+_NON_USER_SETTING_PATHS = frozenset({("model", "pipeline", "name")})
 
 
 @dataclass(frozen=True)
@@ -346,7 +347,7 @@ def _overlay_dataclass(
 ) -> Any:
     if not is_dataclass(base) or isinstance(base, type):
         raise SettingsError(f"{'.'.join(path) or 'settings'} is not configurable")
-    known = {item.name: item for item, _annotation in iter_setting_fields(base)}
+    known = {item.name: item for item, _annotation in iter_setting_fields(base, path)}
     unknown = sorted(set(values) - set(known))
     if unknown:
         context = ".".join(path) or "settings"
@@ -571,13 +572,18 @@ def parse_editor_value(
     return _convert_value(raw, annotation, current, path, base_dir=base_dir)
 
 
-def _settings_diff(base: object, current: object) -> dict[str, object]:
+def _settings_diff(
+    base: object,
+    current: object,
+    path: SettingPath = (),
+) -> dict[str, object]:
     result: dict[str, object] = {}
-    for item, _annotation in iter_setting_fields(current):
+    for item, _annotation in iter_setting_fields(current, path):
         before = getattr(base, item.name)
         after = getattr(current, item.name)
+        item_path = (*path, item.name)
         if is_dataclass(after) and not isinstance(after, type):
-            nested = _settings_diff(before, after)
+            nested = _settings_diff(before, after, item_path)
             if nested:
                 result[item.name] = nested
         elif after != before:
@@ -664,7 +670,7 @@ def restart_required_settings(
         prefix: tuple[str, ...],
     ) -> tuple[str, ...]:
         changed: list[str] = []
-        for item, _annotation in iter_setting_fields(before):
+        for item, _annotation in iter_setting_fields(before, prefix):
             old_value = getattr(before, item.name)
             new_value = getattr(after, item.name)
             path = (*prefix, item.name)
@@ -681,7 +687,10 @@ def restart_required_settings(
     )
 
 
-def iter_setting_fields(value: object) -> tuple[tuple[Field[Any], Any], ...]:
+def iter_setting_fields(
+    value: object,
+    path: SettingPath = (),
+) -> tuple[tuple[Field[Any], Any], ...]:
     """Return user-authored dataclass fields in definition order."""
     if not is_dataclass(value) or isinstance(value, type):
         return ()
@@ -689,18 +698,22 @@ def iter_setting_fields(value: object) -> tuple[tuple[Field[Any], Any], ...]:
     return tuple(
         (item, hints.get(item.name, type(getattr(value, item.name))))
         for item in fields(value)
-        if _is_user_setting_field(value, item)
+        if _is_user_setting_field(value, item, (*path, item.name))
     )
 
 
-def _is_user_setting_field(value: object, item: Field[Any]) -> bool:
-    if item.name == "_target" or item.metadata.get("user_config") is False:
+def _is_user_setting_field(
+    value: object,
+    item: Field[Any],
+    path: SettingPath,
+) -> bool:
+    if item.name == "_target" or path in _NON_USER_SETTING_PATHS:
         return False
     current = getattr(value, item.name)
     if isinstance(current, type) or callable(current):
         return False
     if is_dataclass(current) and not isinstance(current, type):
-        return bool(iter_setting_fields(current))
+        return bool(iter_setting_fields(current, path))
     return _serialize_value(current) is not _READ_ONLY
 
 

@@ -59,7 +59,7 @@ class StreamInferencePipelineConfig(InstantiateConfig):
         default_factory=lambda: StreamInferencePipeline
     )
 
-    name: str = field(metadata={"user_config": False})
+    name: str
     """Stable slug for this pipeline variant; the primary key of
     ``<NAME>_CONFIGS``. Runners mirror it as ``runner_name`` so
     ``flashdreams-run <slug>`` resolves to this pipeline."""

@@ -1935,7 +1935,7 @@ class TaxiHudState:
         if document is None or draft is None:
             return
         ordered_fields = sorted(
-            iter_setting_fields(value),
+            iter_setting_fields(value, path),
             key=lambda entry: is_dataclass(getattr(value, entry[0].name))
             and not isinstance(getattr(value, entry[0].name), type),
         )
@@ -2063,7 +2063,7 @@ class TaxiHudState:
             return 1.0
         item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
         widths = [1.0]
-        for item, annotation in iter_setting_fields(value):
+        for item, annotation in iter_setting_fields(value, path):
             item_path = (*path, item.name)
             current = getattr(value, item.name)
             if is_dataclass(current) and not isinstance(current, type):

@@ -73,6 +73,14 @@ def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
         _load(path)
 
 
+def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("model:\n  pipeline:\n    name: other\n", encoding="utf-8")
+
+    with pytest.raises(SettingsError, match="model.pipeline has unknown keys: name"):
+        _load(path)
+
+
 def test_save_is_sparse_atomic_and_preserves_retained_comments(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(
