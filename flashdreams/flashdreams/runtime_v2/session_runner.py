@@ -126,21 +126,26 @@ def run_session(
             if ui_loop is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
-
-            loop_result = ui_loop._begin_run(events, generation)
-            if loop_result.stop_requested:
-                stop.set()
-                return
-            if loop_result.new_session_request is not None:
-                next_session_desc = loop_result.new_session_request
-                stop.set()
-                return
-            if loop_result.step_index is None or not step_requested:
-                return
-            result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
-            if result is not None and not isinstance(result, StepResult):
-                raise TypeError("A UI loop must return StepResult or None.")
-            ui_loop._finish_run(result)
+            result: StepResult | None = None
+            step_completed = False
+            try:
+                loop_result = ui_loop._begin_run(events, generation)
+                if loop_result.stop_requested:
+                    stop.set()
+                    return
+                if loop_result.new_session_request is not None:
+                    next_session_desc = loop_result.new_session_request
+                    stop.set()
+                    return
+                if loop_result.step_index is None or not step_requested:
+                    return
+                raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
+                if raw_result is not None and not isinstance(raw_result, StepResult):
+                    raise TypeError("A UI loop must return StepResult or None.")
+                result = raw_result
+                step_completed = True
+            finally:
+                ui_loop._finish_run(result, step_completed=step_completed)
             if result is not None:
                 window.write(result)
 

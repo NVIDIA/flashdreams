@@ -61,6 +61,7 @@ def test_new_session_button_submits_the_trimmed_prompt() -> None:
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
     run = loop._begin_run(UserInputEvents([]), generation=0)
+    loop._finish_run(None, step_completed=False)
 
     assert state.prompt == "a cat surfing"
     assert state.message == "Starting new session…"
@@ -68,9 +69,9 @@ def test_new_session_button_submits_the_trimmed_prompt() -> None:
         loop.session_desc,
         metadata={"existing": "value", "prompt": "a cat surfing"},
     )
-    assert (
-        loop._begin_run(UserInputEvents([]), generation=0).new_session_request is None
-    )
+    second = loop._begin_run(UserInputEvents([]), generation=0)
+    loop._finish_run(None, step_completed=False)
+    assert second.new_session_request is None
     imgui.text.assert_any_call(state.message)
     imgui.end.assert_called_once_with()
 
@@ -82,6 +83,7 @@ def test_new_session_button_rejects_an_empty_prompt() -> None:
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
     run = loop._begin_run(UserInputEvents([]), generation=0)
+    loop._finish_run(None, step_completed=False)
 
     assert run.new_session_request is None
     assert state.message == "Enter a prompt before starting a session."
@@ -95,17 +97,21 @@ def test_begin_run_returns_close_without_setting_the_shutdown_event() -> None:
         UserInputEvents([CloseUserInputEvent(timestamp=uint64(0))]),
         generation=0,
     )
+    loop._finish_run(None, step_completed=False)
 
     assert run.stop_requested
     assert not loop._shutdown_event.is_set()
 
 
-def test_begin_run_keeps_input_until_the_caller_runs_the_step() -> None:
+def test_finish_run_advances_and_consumes_input_when_the_step_is_skipped() -> None:
     loop = _loop(T2VUIState())
     event = NumeralKeypadUserInputEvent(timestamp=uint64(0), value=7)
 
     first = loop._begin_run(UserInputEvents([event]), generation=0)
+    loop._finish_run(None, step_completed=False)
     second = loop._begin_run(UserInputEvents([]), generation=0)
+    loop._finish_run(None, step_completed=False)
 
-    assert first.step_index == second.step_index == 0
-    assert loop.user_events.get_events() == [event]
+    assert first.step_index == 0
+    assert second.step_index == 1
+    assert loop.user_events.get_events() == []

@@ -207,9 +207,21 @@ class ILoop(ABC, Generic[StateT]):
         return _LoopRunResult(step_index=self._step_index)
 
     @final
-    def _finish_run(self, result: StepResult | list[StepResult] | None) -> None:
-        """Save one completed step."""
-        self.latest_result = result
+    def _finish_run(
+        self,
+        result: StepResult | list[StepResult] | None,
+        *,
+        step_completed: bool,
+    ) -> None:
+        """Finish one prepared run, saving its completed step when present.
+
+        Args:
+            result: Value returned by the completed step, or ``None``.
+            step_completed: Whether :meth:`step` returned successfully and
+                ``result`` should replace :attr:`latest_result`.
+        """
+        if step_completed:
+            self.latest_result = result
         self._step_index += 1
         self._pending_user_events.clear()
 
@@ -299,22 +311,27 @@ class IModelLoop(ILoop[StateT], ABC):
                 max_steps is None or steps_run < max_steps
             ):
                 events, generation = event_buffer.read(reader_id)
-                run = self._begin_run(events, generation)
-                if run.step_index is None:
-                    break
-                if self.frequency != 0 and last_run_started is not None:
-                    earliest_start = last_run_started + 1.0 / self.frequency
-                    self._shutdown_event.wait(
-                        max(0.0, earliest_start - time.monotonic())
-                    )
-                last_run_started = time.monotonic()
-                if self._shutdown_event.is_set():
-                    break
-                step_started_at = time.monotonic()
-                raw_result = self.step(run.step_index, self.user_events)
-                step_elapsed_s = time.monotonic() - step_started_at
-                result = _model_results(raw_result)
-                self._finish_run(result)
+                result: list[StepResult] | None = None
+                step_completed = False
+                try:
+                    run = self._begin_run(events, generation)
+                    if run.step_index is None:
+                        break
+                    if self.frequency != 0 and last_run_started is not None:
+                        earliest_start = last_run_started + 1.0 / self.frequency
+                        self._shutdown_event.wait(
+                            max(0.0, earliest_start - time.monotonic())
+                        )
+                    last_run_started = time.monotonic()
+                    if self._shutdown_event.is_set():
+                        break
+                    step_started_at = time.monotonic()
+                    raw_result = self.step(run.step_index, self.user_events)
+                    step_elapsed_s = time.monotonic() - step_started_at
+                    result = _model_results(raw_result)
+                    step_completed = True
+                finally:
+                    self._finish_run(result, step_completed=step_completed)
                 publish(generation, result, step_elapsed_s)
                 steps_run += 1
         except BaseException as error:
