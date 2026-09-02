@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-minimax-h3"
+version = "0.1.0"
+description = "MiniMax H3 video generation workflows for the FlashDreams runtime."
+requires-python = ">=3.10"
+dependencies = [
+    "accelerate>=1.12",
+    "av>=16",
+    "diffusers @ git+https://github.com/huggingface/diffusers.git@175fe6b2419a01db9c2ceabd01ec37d2c0305fc2",
+    "flashdreams",
+    "huggingface-hub>=0.33",
+    "numpy>=1.24,<2.5",
+    "pillow>=11",
+    "safetensors>=0.4",
+    "sentencepiece>=0.2",
+    "torch>=2.9",
+    "transformers @ git+https://github.com/huggingface/transformers.git@d1123114da1ab4395198146f4f84dae7fe8b693e",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "tomli>=2.0"]
+
+[project.entry-points."flashdreams.runner_configs"]
+"minimax-h3-t2va" = "minimax_h3.config:RUNNER_MINIMAX_H3_T2VA"
+"minimax-h3-fl2va" = "minimax_h3.config:RUNNER_MINIMAX_H3_FL2VA"
+"minimax-h3-ref2va" = "minimax_h3.config:RUNNER_MINIMAX_H3_REF2VA"
+
+[tool.setuptools.packages.find]
+include = ["minimax_h3*"]
+exclude = ["tests"]
+
+[tool.uv]
+managed = true
