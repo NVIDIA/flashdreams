@@ -56,6 +56,7 @@ from crazy_robotaxi.controls import (
 )
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import (
+    LEADERBOARD_LIMIT,
     HighScoreEntry,
     RaceTimeEntry,
     format_race_time_us,
@@ -3259,15 +3260,13 @@ class TaxiHudState:
             f"{_binding_slots_display(device, controls.return_to_menu, self.gamepad_button_style)} "
             "- MENU"
         )
-        leaderboard_column_widths = _leaderboard_column_widths(imgui, snapshot, race)
-        leaderboard_width = (
-            max(
-                sum(leaderboard_column_widths)
-                + float(imgui.get_style().scrollbar_size),
-                float(self.width) * 0.5,
-            )
-            if leaderboard
-            else 0.0
+        entries = _terminal_leaderboard_entries(snapshot)
+        leaderboard_column_widths = _leaderboard_column_widths(imgui, entries, race)
+        terminal_region = "terminal-name" if awaiting_name else "terminal"
+        leaderboard_max_height = self._menu_scroll_max_height(terminal_region)
+        leaderboard_width = max(
+            sum(leaderboard_column_widths) + float(imgui.get_style().scrollbar_size),
+            float(self.width) * 0.5,
         )
         content_width = max(
             _point_xy(imgui.calc_text_size(headline))[0],
@@ -3326,30 +3325,45 @@ class TaxiHudState:
                     color=(*accent_rgb, 1.0),
                 )
             imgui.separator()
+            leaderboard_height = self._draw_terminal_leaderboard(
+                imgui,
+                entries,
+                snapshot.high_score_rank,
+                race,
+                accent_rgb,
+                content_width,
+                leaderboard_column_widths,
+                leaderboard_max_height,
+            )
             if awaiting_name:
+                imgui.separator()
                 self._draw_terminal_name_entry(
                     imgui, race, accent_rgb, scale, content_width
                 )
-            else:
-                self._draw_terminal_leaderboard(
-                    imgui,
-                    snapshot,
-                    race,
-                    accent_rgb,
-                    content_width,
-                    leaderboard_column_widths,
-                )
             imgui.separator()
+            result_button_width = (
+                content_width - _point_xy(imgui.get_style().item_spacing)[0]
+            ) / 2.0
             if imgui.button(
                 "PLAY AGAIN",
-                imgui.ImVec2(content_width, max(34.0, 44.0 * scale)),
+                imgui.ImVec2(result_button_width, max(34.0, 44.0 * scale)),
             ):
                 self._request_restart()
+            imgui.same_line()
+            if imgui.button(
+                "RETURN TO MENU",
+                imgui.ImVec2(result_button_width, max(34.0, 44.0 * scale)),
+            ):
+                self._handle_escape()
+                return
             _centered_imgui_text(
                 imgui,
                 terminal_controls,
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
+            )
+            self._remember_menu_scroll_chrome(
+                imgui, terminal_region, leaderboard_height
             )
         finally:
             imgui.end()
@@ -3405,15 +3419,16 @@ class TaxiHudState:
     def _draw_terminal_leaderboard(
         self,
         imgui: Any,
-        snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+        entries: Sequence[HighScoreEntry | RaceTimeEntry],
+        high_score_rank: int | None,
         race: bool,
         accent_rgb: tuple[float, float, float],
         content_width: float,
         column_widths: tuple[float, float, float],
-    ) -> None:
+        max_height: float | None,
+    ) -> float:
         """Draw the ranked terminal results table."""
         _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
-        entries = snapshot.leaderboard
         if not entries:
             _centered_imgui_text(
                 imgui,
@@ -3421,8 +3436,13 @@ class TaxiHudState:
                 font_size=14.0,
                 color=(0.62, 0.62, 0.68, 1.0),
             )
-            return
-        table_height = max(90.0, min(250.0, float(self.height) - 290.0))
+            return 0.0
+        cell_padding_y = _point_xy(imgui.get_style().cell_padding)[1]
+        text_height = float(imgui.get_font_size()) + 2.0 * cell_padding_y
+        row_height = max(26.0, text_height)
+        table_height = text_height + len(entries) * row_height
+        if max_height is not None:
+            table_height = min(table_height, max_height)
         table_flags = (
             imgui.TableFlags_.row_bg
             | imgui.TableFlags_.borders_inner_h
@@ -3436,7 +3456,7 @@ class TaxiHudState:
             flags=table_flags,
             outer_size=imgui.ImVec2(content_width, table_height),
         ):
-            return
+            return table_height
         try:
             for label, width in zip(
                 ("RANK", "DRIVER", "TIME" if race else "SCORE"),
@@ -3448,7 +3468,7 @@ class TaxiHudState:
             imgui.table_headers_row()
             for rank, entry in enumerate(entries, start=1):
                 imgui.table_next_row(min_row_height=26.0)
-                if rank == snapshot.high_score_rank:
+                if rank == high_score_rank:
                     imgui.table_set_bg_color(
                         imgui.TableBgTarget_.row_bg1,
                         _imgui_color(imgui, (*accent_rgb, 0.24)),
@@ -3469,6 +3489,7 @@ class TaxiHudState:
                     imgui.text(value)
         finally:
             imgui.end_table()
+        return table_height
 
     def _request_restart(self) -> None:
         """Queue a game restart on the model thread."""
@@ -3978,14 +3999,14 @@ def _table_content_width(imgui: Any, *column_widths: float) -> float:
 
 def _leaderboard_column_widths(
     imgui: Any,
-    snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+    entries: Sequence[HighScoreEntry | RaceTimeEntry],
     race: bool,
 ) -> tuple[float, float, float]:
     """Measure complete leaderboard columns, including their cell padding."""
     ranks = ["RANK"]
     drivers = ["DRIVER"]
     results = ["TIME" if race else "SCORE"]
-    for rank, entry in enumerate(snapshot.leaderboard, start=1):
+    for rank, entry in enumerate(entries, start=1):
         ranks.append(f"#{rank}")
         drivers.append(entry.name)
         if race:
@@ -4001,6 +4022,31 @@ def _leaderboard_column_widths(
         return text_width + cell_padding
 
     return width(ranks), width(drivers), width(results)
+
+
+def _terminal_leaderboard_entries(
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+) -> tuple[HighScoreEntry | RaceTimeEntry, ...]:
+    """Include an unpersisted blank-name result while name entry is pending."""
+    entries: list[HighScoreEntry | RaceTimeEntry] = list(snapshot.leaderboard)
+    rank = snapshot.high_score_rank
+    if snapshot.session_state == "awaiting_name" and rank is not None:
+        if isinstance(snapshot, RaceGameSnapshot):
+            entry: HighScoreEntry | RaceTimeEntry = RaceTimeEntry(
+                snapshot.map_id,
+                snapshot.course_id,
+                "",
+                (
+                    snapshot.final_time_us
+                    if snapshot.final_time_us is not None
+                    else snapshot.elapsed_time_us
+                ),
+                "",
+            )
+        else:
+            entry = HighScoreEntry("", snapshot.score, "")
+        entries.insert(rank - 1, entry)
+    return tuple(entries[:LEADERBOARD_LIMIT])
 
 
 def _current_window_content_height(imgui: Any) -> float:
