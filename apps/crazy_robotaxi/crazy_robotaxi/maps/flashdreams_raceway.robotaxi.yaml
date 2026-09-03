@@ -210,7 +210,7 @@ spawns:
     road: start_finish_straight
     lane: 2
     distance_m: 220
-    image: crazy-robotaxi-grand-prix-demo.spawn-images/race-start--default.png
+    image: package://omnidreams_game_engine/screenshot.jpg
     prompt: >-
       A forward-facing view from a taxi on a wide closed Formula-style
       road circuit in daylight, with varied-radius corners, technical

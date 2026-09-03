@@ -419,7 +419,7 @@ spawns:
     road: spawn_arterial
     lane: 2
     distance_m: 128
-    image: crazy-robotaxi-boulevard-district.spawn-images/original-area-start--default.png
+    image: package://omnidreams_game_engine/screenshot.jpg
     prompt: >-
       A forward-facing view from a taxi moving through a quiet suburban
       district in daylight, with low commercial buildings, houses,
