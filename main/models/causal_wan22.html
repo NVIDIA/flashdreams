@@ -434,39 +434,39 @@ SPDX-License-Identifier: Apache-2.0
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/fastvideo_causal_wan22
+uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations_v2/fastvideo_causal_wan22
 </pre></div>
 </div>
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run Causal Wan2.2, launch the registered runner slug. For example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
+<p>To run Causal Wan2.2, launch its v2 T2V application. For example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 
-uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
+uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b-raccoon.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A playful raccoon is seen playing an electronic guitar, strumming the strings with its front paws. The raccoon has distinctive black facial markings and a bushy tail. It sits comfortably on a small stool, its body slightly tilted as it focuses intently on the instrument. The setting is a cozy, dimly lit room with vintage posters on the walls, adding a retro vibe. The raccoon&#39;s expressive eyes convey a sense of joy and concentration. Medium close-up shot, focusing on the raccoon&#39;s face and hands interacting with the guitar.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
 4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">480</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
-<p>We provide the following variant:</p>
+<p>The package exposes the following pipeline config for direct use:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -485,10 +485,8 @@ uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> <
 </table>
 </div>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/fastvideo_causal_wan22<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span>t2v-fastvideo-causal-wan2.2-t2v-14b<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>Some generated samples from the above commands:</p>

@@ -435,39 +435,30 @@ text-to-video (T2V) and image-to-video (I2V) tasks.</p>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/wan21
+uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations_v2/wan21
 </pre></div>
 </div>
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run Wan2.1, launch one of the registered runner slugs. For example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/wan21<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline&#39;s intricate details and the refreshing atmosphere of the seaside.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">832</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">480</span>
+<p>To run Wan2.1, launch its v2 T2V application:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/wan21<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-wan21-t2v-1.3b-480p.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline&#39;s intricate details and the refreshing atmosphere of the seaside.&quot;</span>
 </pre></div>
 </div>
 <p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
 4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/wan21<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline&#39;s intricate details and the refreshing atmosphere of the seaside.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">832</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">480</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/wan21<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-wan21-t2v-1.3b-480p.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline&#39;s intricate details and the refreshing atmosphere of the seaside.&quot;</span>
 </pre></div>
 </div>
-<p>For I2V, run with the following command:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/wan21<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>wan21-i2v-14b-480p<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline&#39;s intricate details and the refreshing atmosphere of the seaside.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">832</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">480</span>
-</pre></div>
-</div>
-<p>We provide the following variants:</p>
+<p>The package also exposes the following pipeline configs for direct use:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -489,10 +480,8 @@ uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> 
 </table>
 </div>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/wan21<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/wan21<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span>t2v-wan21-t2v-1.3b-480p<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>Some generated samples from the above commands:</p>
@@ -537,9 +526,9 @@ matched settings.</p>
        This chart shows per-diffusion-step DiT runtime in milliseconds with CFG at 480p (81 frames) on a single GPU.
        For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings.
        For the official Wan2.1 implementation, see
-       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/parity_check">this instruction</a>.
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21/tests/parity_check">this instruction</a>.
        For the FastVideo baseline, see
-       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21/tests/baseline_fastvideo">this instruction</a>.
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21/tests/baseline_fastvideo">this instruction</a>.
      </p>
    </figcaption>
  </figure>

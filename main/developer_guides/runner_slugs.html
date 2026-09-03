@@ -353,7 +353,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="../api/launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines, runners, and applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 </details></li>
@@ -458,17 +458,29 @@ application:</p>
 and presentation. The model package owns its implementation and canonical
 configuration:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>apps/&lt;app&gt;/
-  &lt;app&gt;/...
+  pyproject.toml
+  README.md
+  &lt;app&gt;/
+    ...
+  tests/
+    ...
 
 integrations_v2/&lt;model&gt;/
   config.py
-  impl/...
-  apps/&lt;app&gt;/adapter.py
+  impl/
+    ...
+  tests/
+    ...
+  apps/&lt;app&gt;/
+    __init__.py
+    adapter.py
+    README.md
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">config.py</span></code> is the only Python module at the integration root. The adapter
-imports model defaults and hooks only from <code class="docutils literal notranslate"><span class="pre">...config</span></code>, constructs the reusable
-application, and contains no model implementation or launch orchestration.</p>
+<p><code class="docutils literal notranslate"><span class="pre">config.py</span></code> is the model folder’s unique pipeline config (or model-specific
+pipeline-config wrapper) and the only implementation-facing module permitted at
+the integration root. The adapter imports defaults from it, while all other
+model implementation stays in <code class="docutils literal notranslate"><span class="pre">impl/</span></code>.</p>
 </section>
 <section id="adding-or-changing-a-binding">
 <h2>Adding or changing a binding<a class="headerlink" href="#adding-or-changing-a-binding" title="Link to this heading">#</a></h2>
@@ -479,11 +491,14 @@ application, and contains no model implementation or launch orchestration.</p>
 <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/config.py</span></code>.</p></li>
 <li><p>Add the minimal adapter at
 <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/apps/&lt;app&gt;/adapter.py</span></code>.</p></li>
-<li><p>Register the adapter under <code class="docutils literal notranslate"><span class="pre">flashdreams.applications_v2</span></code>.</p></li>
+<li><p>Register the default config under <code class="docutils literal notranslate"><span class="pre">flashdreams.applications_v2</span></code> as
+<code class="docutils literal notranslate"><span class="pre">&lt;demo-slug&gt;-&lt;model-slug&gt;</span></code> using <code class="docutils literal notranslate"><span class="pre">create_app</span></code>. Register additional variants
+as <code class="docutils literal notranslate"><span class="pre">&lt;demo-slug&gt;-&lt;model-slug&gt;-&lt;suffix&gt;</span></code> using <code class="docutils literal notranslate"><span class="pre">create_app_&lt;suffix&gt;</span></code>; for
+example, <code class="docutils literal notranslate"><span class="pre">t2v-foo-fast</span></code> maps to <code class="docutils literal notranslate"><span class="pre">create_app_fast</span></code>.</p></li>
 <li><p>Run the CPU ownership and import checks:</p></li>
 </ol>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span>ci_cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>apps/t2v/tests/test_integration_apps.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>apps/t2v/tests/test_structure.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>integrations_v2/&lt;model&gt;/tests
 </pre></div>
 </div>

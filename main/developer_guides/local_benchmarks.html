@@ -353,7 +353,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="../api/launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines, runners, and applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 </details></li>
@@ -435,13 +435,13 @@ writes a simple HTML report. It does not gate CI yet.</p>
 </div>
 <p>Run one scenario:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--scenario<span class="w"> </span>self-forcing-taehv-smoke<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/self-forcing-taehv
+<span class="w">  </span>--scenario<span class="w"> </span>self-forcing-v2-smoke<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>artifacts/benchmarks/self-forcing-v2
 </pre></div>
 </div>
-<p>The scenario command still owns its runtime requirements. Public runner
-scenarios need the usual runner extras, host FFmpeg for MP4 writing, GPU access,
-and any checkpoints or input assets that runner would normally resolve.</p>
+<p>The scenario command still owns its runtime requirements. Model scenarios need
+host FFmpeg for MP4 writing, GPU access, and any checkpoints or input assets the
+application normally resolves.</p>
 <section id="artifacts">
 <h2>Artifacts<a class="headerlink" href="#artifacts" title="Link to this heading">#</a></h2>
 <p>Each run writes:</p>
@@ -477,15 +477,20 @@ separated segment of the scenario id.</p>
 <span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;scenarios&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-runner-smoke&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My runner smoke&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-app-smoke&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My application smoke&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="nt">&quot;report_group&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-model&quot;</span><span class="p">,</span>
 <span class="w">        </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My Model&quot;</span>
 <span class="w">      </span><span class="p">},</span>
 <span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">        </span><span class="s2">&quot;flashdreams-run&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="s2">&quot;self-forcing-wan2.1-t2v-1.3b-taehv&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;flashdreams-run-v2&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;t2v-self-forcing-wan2.1-t2v-1.3b&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--output-path&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;{output_dir}/clip.mp4&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;--prompt&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;A cat surfing.&quot;</span><span class="p">,</span>
 <span class="w">        </span><span class="s2">&quot;--total-blocks&quot;</span><span class="p">,</span>
 <span class="w">        </span><span class="s2">&quot;8&quot;</span>
 <span class="w">      </span><span class="p">],</span>
@@ -498,7 +503,7 @@ separated segment of the scenario id.</p>
 <p>Run it with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--scenario-file<span class="w"> </span>local_scenarios.json<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--scenario<span class="w"> </span>my-runner-smoke
+<span class="w">  </span>--scenario<span class="w"> </span>my-app-smoke
 </pre></div>
 </div>
 </section>

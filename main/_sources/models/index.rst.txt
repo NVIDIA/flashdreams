@@ -243,7 +243,9 @@ Examples:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
+   uv run --project integrations_v2/self_forcing flashdreams-run-v2 \
+       t2v-self-forcing-wan2.1-t2v-1.3b --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+       --prompt "A cat surfing." --total-blocks 7
    uv run flashdreams-run lingbot-world-fast --example-data True --total-blocks 21
 
 Adding your own model

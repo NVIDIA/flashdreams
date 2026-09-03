@@ -450,37 +450,30 @@ algorithm.</p>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/cosmos_predict2
+uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations_v2/cosmos_predict2
 </pre></div>
 </div>
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run Cosmos-Predict2.5, launch one of the registered runner slugs. For
-example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/cosmos_predict2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>cosmos2-t2v-2b-720p<span class="w"> </span><span class="se">\</span>
+<p>To run Cosmos-Predict2.5, launch its v2 T2V application:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/cosmos_predict2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-cosmos2-t2v-2b-720p<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-cosmos2-t2v-2b-720p.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation.&quot;</span>
 </pre></div>
 </div>
 <p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
 4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/cosmos_predict2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>cosmos2-t2v-2b-720p<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/cosmos_predict2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-cosmos2-t2v-2b-720p<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/t2v-cosmos2-t2v-2b-720p.mp4<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation.&quot;</span>
 </pre></div>
 </div>
-<p>For I2V, run with the following command:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/cosmos_predict2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>cosmos2-i2v-2b-720p<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation.&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>https://media.githubusercontent.com/media/nvidia-cosmos/cosmos-predict2.5/refs/heads/main/assets/base/robot_welding.jpg<span class="w"> </span><span class="se">\</span>
-</pre></div>
-</div>
-<p>We provide the following variants:</p>
+<p>The package also exposes the following pipeline configs for direct use:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -502,10 +495,8 @@ example:</p>
 </table>
 </div>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/cosmos_predict2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>cosmos2-t2v-2b-720p<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/cosmos_predict2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>flashdreams-run-v2<span class="w"> </span>t2v-cosmos2-t2v-2b-720p<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>Some generated samples from the above commands:</p>

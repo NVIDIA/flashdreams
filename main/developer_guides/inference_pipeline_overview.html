@@ -353,7 +353,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="../api/launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines, runners, and applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 </details></li>
@@ -532,9 +532,9 @@ A typical <a class="reference internal" href="../api/infra.html#flashdreams.infr
 An I2V video model with a VAE-based causal encoder for HDMap control.</p></li>
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/lingbot/lingbot/config.py">LingBot-World config</a>:
 A camera-controlled I2V model that uses the per-step camera encoder.</p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/self_forcing/self_forcing/config.py">Self-Forcing config</a>:
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/self_forcing/config.py">Self-Forcing config</a>:
 A pure T2V model that sets <code class="docutils literal notranslate"><span class="pre">encoder=None</span></code>, so each rollout starts from noise.</p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/wan21/wan21/config.py">Wan2.1 config</a>:
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Wan2.1 config</a>:
 Treats a bidirectional video model as a single-rollout autoregressive model.</p></li>
 </ul>
 <p>For the detailed API documentation, please reference <a class="reference internal" href="../api/infra.html"><span class="doc">Infra</span></a>. To integrate a new model,

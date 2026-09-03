@@ -353,7 +353,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html">Pipelines, runners, and applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="serving.html">Serving</a></li>
 </ul>
 </details></li>
@@ -434,11 +434,11 @@ SPDX-License-Identifier: Apache-2.0
 </pre></div>
 </div>
 <p>Inspect one runner’s full options:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>Run a single-GPU inference (<code class="docutils literal notranslate"><span class="pre">run</span></code> is the default mode):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>Launch a WebRTC demo from a versioned manifest:</p>
@@ -452,11 +452,11 @@ initialization. Shared modes are <code class="docutils literal notranslate"><spa
 <code class="docutils literal notranslate"><span class="pre">local-window</span></code>.</p>
 <p>Run a multi-GPU inference:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
+<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
 <p>Resolve config only (no model instantiation):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--no-instantiate
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>--no-instantiate
 </pre></div>
 </div>
 </section>
@@ -464,7 +464,7 @@ initialization. Shared modes are <code class="docutils literal notranslate"><spa
 <h2>Post-processing presets<a class="headerlink" href="#post-processing-presets" title="Link to this heading">#</a></h2>
 <p>Post-processing presets run on decoded RGB frames from a video runner. Select
 one with <code class="docutils literal notranslate"><span class="pre">--postprocess.preset</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--postprocess.preset<span class="w"> </span>rtx-super-resolution
 </pre></div>
 </div>

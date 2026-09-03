@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Pipelines and runners &#8212; FlashDreams v0.1.0</title>
+    <title>Pipelines, runners, and applications &#8212; FlashDreams v0.1.0</title>
   
   
   
@@ -353,7 +353,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="infra.html">Infra</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Pipelines and runners</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Pipelines, runners, and applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="serving.html">Serving</a></li>
 </ul>
 </details></li>
@@ -406,7 +406,7 @@ SPDX-License-Identifier: Apache-2.0
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">CLI and API Reference</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Pipelines and runners</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Pipelines, runners, and applications</span></li>
   </ul>
 </nav>
 </div>
@@ -423,12 +423,14 @@ SPDX-License-Identifier: Apache-2.0
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="pipelines-and-runners">
-<h1>Pipelines and runners<a class="headerlink" href="#pipelines-and-runners" title="Link to this heading">#</a></h1>
-<p>FlashDreams model integrations are built from two public layers:</p>
+  <section id="pipelines-runners-and-applications">
+<h1>Pipelines, runners, and applications<a class="headerlink" href="#pipelines-runners-and-applications" title="Link to this heading">#</a></h1>
+<p>FlashDreams model integrations use these public layers:</p>
 <ul class="simple">
 <li><p><strong>Pipelines</strong> (<code class="docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code>) that define model behavior.</p></li>
 <li><p><strong>Runners</strong> (<code class="docutils literal notranslate"><span class="pre">RunnerConfig</span></code> + <code class="docutils literal notranslate"><span class="pre">Runner</span></code>) that define CLI-facing I/O.</p></li>
+<li><p><strong>V2 applications</strong> (<code class="docutils literal notranslate"><span class="pre">IApplication</span></code>) that bind reusable demo infrastructure
+directly to pipeline configs.</p></li>
 </ul>
 <p>Most actively developed model implementations now live under <code class="docutils literal notranslate"><span class="pre">integrations/*</span></code>
 as plugin-style standalone packages. This page keeps documenting the in-tree
@@ -444,27 +446,38 @@ examples.</p>
 </div>
 <section id="integration-structure-current">
 <h2>Integration structure (current)<a class="headerlink" href="#integration-structure-current" title="Link to this heading">#</a></h2>
-<p>For new model work, follow <code class="docutils literal notranslate"><span class="pre">integrations/&lt;name&gt;/</span></code>:</p>
+<p>V2 demo ports follow <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;name&gt;/</span></code>:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">config.py</span></code>: pipeline + runner config literals (slugged entries).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">runner.py</span></code>: runtime I/O, cache init, generate/finalize loop, persistence.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pipeline.py</span></code> and <code class="docutils literal notranslate"><span class="pre">transformer/*</span></code>: model compute path.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>: plugin packaging + entry-point registration.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">apps/&lt;demo&gt;/adapter.py</span></code>: <code class="docutils literal notranslate"><span class="pre">create_app()</span> <span class="pre">-&gt;</span> <span class="pre">IApplication</span></code> binding.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">config.py</span></code>: the model’s unique pipeline config literal or model-specific
+<code class="docutils literal notranslate"><span class="pre">StreamInferencePipelineConfig</span></code> wrapper.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">impl/</span></code>: all model-specific implementation.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tests/</span></code>: model-specific tests, when needed.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">apps/&lt;demo&gt;/README.md</span></code>: launch instructions for that demo.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>: packaging plus <code class="docutils literal notranslate"><span class="pre">flashdreams.applications_v2</span></code> entry points.</p></li>
 </ul>
-<p>This makes each integration effectively a standalone repository while still
-plugging into the same <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> registry.</p>
+<p>Apart from that unique config, the integration root contains no implementation
+modules. These packages do not add <code class="docutils literal notranslate"><span class="pre">runner.py</span></code> or
+<code class="docutils literal notranslate"><span class="pre">flashdreams.runner_configs</span></code> just to launch a v2 demo. Older plugin-style
+integrations under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code> may still expose runners through
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code>.</p>
+<p>The default application entry point uses
+<code class="docutils literal notranslate"><span class="pre">&lt;demo-slug&gt;-&lt;model-slug&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">create_app</span></code>. Additional compatible
+configurations may use <code class="docutils literal notranslate"><span class="pre">&lt;demo-slug&gt;-&lt;model-slug&gt;-&lt;suffix&gt;</span></code> and the matching
+<code class="docutils literal notranslate"><span class="pre">create_app_&lt;suffix&gt;</span></code> factory, such as a <code class="docutils literal notranslate"><span class="pre">-fast</span></code> entry point backed by
+<code class="docutils literal notranslate"><span class="pre">create_app_fast</span></code>.</p>
 </section>
 <section id="reference-integration-folders">
 <h2>Reference integration folders<a class="headerlink" href="#reference-integration-folders" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">omnidreams</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing">self_forcing</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing">causal_forcing</a></p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing">self_forcing</a></p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing">causal_forcing</a></p></li>
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot">lingbot</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21">wan21</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22">fastvideo_causal_wan22</a></p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21">wan21</a></p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22">fastvideo_causal_wan22</a></p></li>
 <li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr">flashvsr</a></p></li>
-<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2">cosmos_predict2</a></p></li>
+<li><p><a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2">cosmos_predict2</a></p></li>
 </ul>
 </section>
 <section id="nvidia-omnidreams">

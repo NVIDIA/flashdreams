@@ -353,7 +353,7 @@ SPDX-License-Identifier: Apache-2.0
 <li class="toctree-l2"><a class="reference internal" href="../api/launch_manifests.html">Launch manifests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/infra.html">Infra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines and runners</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/integrations.html">Pipelines, runners, and applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/serving.html">Serving</a></li>
 </ul>
 </details></li>
@@ -515,12 +515,12 @@ A typical pipeline config defines the architecture by composing other config dat
 <p>Often you just want to play with the parameters of an existing model without specifying a new configuration. The command-line interface, powered by <a class="reference external" href="https://github.com/brentyi/tyro">tyro</a>, exposes every nested dataclass field as a flag.</p>
 <p>Because configurations are strongly typed dataclasses, <code class="docutils literal notranslate"><span class="pre">tyro</span></code> generates the CLI automatically. Each shipped model is a named runner slug; pass any nested field as a flag to override it.</p>
 <p>For example, to list all existing configurable parameters for a model:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast-taehv-window15-sink3<span class="w"> </span>--help
 </pre></div>
 </div>
 <img alt="CLI helptext showing tyro dynamically parsing nested configuration arguments." class="zoomable" src="../_images/cli-screen-shot.png" />
 <p>To run the model with a modified configuration:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>self-forcing-wan2.1-t2v-1.3b-taehv<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast-taehv-window15-sink3<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--pipeline.diffusion-model.transformer.use-cuda-graph<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>

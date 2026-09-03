@@ -13,13 +13,15 @@
 .. See the License for the specific language governing permissions and
 .. limitations under the License.
 
-Pipelines and runners
+Pipelines, runners, and applications
 ===================================
 
-FlashDreams model integrations are built from two public layers:
+FlashDreams model integrations use these public layers:
 
 - **Pipelines** (``StreamInferencePipelineConfig``) that define model behavior.
 - **Runners** (``RunnerConfig`` + ``Runner``) that define CLI-facing I/O.
+- **V2 applications** (``IApplication``) that bind reusable demo infrastructure
+  directly to pipeline configs.
 
 Most actively developed model implementations now live under ``integrations/*``
 as plugin-style standalone packages. This page keeps documenting the in-tree
@@ -37,27 +39,39 @@ pipeline modules that are still exposed from ``flashdreams.recipes``.
 Integration structure (current)
 -------------------------------
 
-For new model work, follow ``integrations/<name>/``:
+V2 demo ports follow ``integrations_v2/<name>/``:
 
-- ``config.py``: pipeline + runner config literals (slugged entries).
-- ``runner.py``: runtime I/O, cache init, generate/finalize loop, persistence.
-- ``pipeline.py`` and ``transformer/*``: model compute path.
-- ``pyproject.toml``: plugin packaging + entry-point registration.
+- ``apps/<demo>/adapter.py``: ``create_app() -> IApplication`` binding.
+- ``config.py``: the model's unique pipeline config literal or model-specific
+  ``StreamInferencePipelineConfig`` wrapper.
+- ``impl/``: all model-specific implementation.
+- ``tests/``: model-specific tests, when needed.
+- ``apps/<demo>/README.md``: launch instructions for that demo.
+- ``pyproject.toml``: packaging plus ``flashdreams.applications_v2`` entry points.
 
-This makes each integration effectively a standalone repository while still
-plugging into the same ``flashdreams-run`` registry.
+Apart from that unique config, the integration root contains no implementation
+modules. These packages do not add ``runner.py`` or
+``flashdreams.runner_configs`` just to launch a v2 demo. Older plugin-style
+integrations under ``integrations/`` may still expose runners through
+``flashdreams-run``.
+
+The default application entry point uses
+``<demo-slug>-<model-slug>`` and ``create_app``. Additional compatible
+configurations may use ``<demo-slug>-<model-slug>-<suffix>`` and the matching
+``create_app_<suffix>`` factory, such as a ``-fast`` entry point backed by
+``create_app_fast``.
 
 Reference integration folders
 -----------------------------
 
 - `omnidreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams>`_
-- `self_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_
-- `causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/causal_forcing>`_
+- `self_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing>`_
+- `causal_forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing>`_
 - `lingbot <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_
-- `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/wan21>`_
-- `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/fastvideo_causal_wan22>`_
+- `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21>`_
+- `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22>`_
 - `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
-- `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations/cosmos_predict2>`_
+- `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2>`_
 
 NVIDIA OmniDreams
 -----------------
