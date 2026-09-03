@@ -442,36 +442,22 @@ gap, and a tiny conditional decoder for fast reconstruction.</p>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-flashvsr<span class="w"> </span>--inexact
 </pre></div>
 </div>
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run FlashVSR, provide an input video path and launch one of the
-registered runner slugs. For example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--input-path<span class="w"> </span>https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">8</span>
+<p>The v2 <code class="docutils literal notranslate"><span class="pre">v2v</span></code> application accepts a video and writes the super-resolved video
+through the standard application/session runtime:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>v2v-flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>upscaled.mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--<span class="w"> </span>--video-path<span class="w"> </span>input.mp4
 </pre></div>
 </div>
-<p>For multi-GPU inference, run the dense full-attention preset under
-<code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking 4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashvsr-v1.1-full-attn<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--input-path<span class="w"> </span>https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--chunk-size<span class="w"> </span><span class="m">8</span>
-</pre></div>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Multi-GPU is supported only by the dense <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-full-attn</span></code> preset.
-The <code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-*</span></code> presets are single-GPU only because
-their Triton sparse-attention backend is not context-parallel aware.</p>
-</div>
+<p>Omit <code class="docutils literal notranslate"><span class="pre">--video-path</span></code> to download and process the bounded Big Buck Bunny
+fallback.</p>
 <p>We provide the following variants:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -484,23 +470,21 @@ their Triton sparse-attention backend is not context-parallel aware.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-2.0</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">v2v-flashvsr-v1.1-sparse-ratio-2.0</span></code></p></td>
 <td><p>Streaming 2x video super-resolution with the stable sparse-attention preset.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-sparse-ratio-1.5</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">v2v-flashvsr-v1.1-sparse-ratio-1.5</span></code></p></td>
 <td><p>Streaming 2x video super-resolution with the faster sparse-attention preset.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">flashvsr-v1.1-full-attn</span></code></p></td>
-<td><p>Dense full-attention preset with multi-GPU context-parallel support.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">v2v-flashvsr-v1.1-full-attn</span></code></p></td>
+<td><p>Dense full-attention preset.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/flashvsr<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>v2v-flashvsr-v1.1-sparse-ratio-2.0<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 <p>A generated sample from the above commands:</p>
@@ -537,7 +521,7 @@ under matched settings.</p>
     <p class="model-footnote">
       This chart shows per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
       For the official FlashVSR implementation, see
-      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
+      <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr/tests/parity_check">this instruction</a>.
     </p>
   </figcaption>
 </figure>
