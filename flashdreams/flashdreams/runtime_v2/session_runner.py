@@ -133,7 +133,6 @@ def run_session(
                     stop.set()
                     return
 
-                # Note: we should consider making a `stop` request part of `UILoopRequests`
                 request = ui_loop.flush_ui_loop_requests()
                 if request is not None:
                     if request.hide_cursor is not None:

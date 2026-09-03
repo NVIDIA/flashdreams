@@ -63,7 +63,10 @@ class _Message(Generic[StateT]):
 
 @dataclass(slots=True)
 class UILoopRequests:
-    """Changes requested by a UI loop for the session runtime to apply."""
+    """Changes requested by a UI loop for the session runtime to apply.
+    Note: `_LoopRunResult::stop_requested` is not part of `UILoopRequests` because
+    it is a model & ui_loop request.
+    """
 
     new_session: SessionDesc | None = None
     """Replacement session description, or ``None`` to keep this session."""
