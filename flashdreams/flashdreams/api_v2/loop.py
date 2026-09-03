@@ -20,7 +20,6 @@ from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    NewSessionUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -113,7 +112,6 @@ class ILoop(ABC, Generic[StateT]):
         self._shutdown_event = shutdown_event
         self._failure_queue = failure_queue
         self._new_session_request: SessionDesc | None = None
-        self._new_session_event_desc: SessionDesc | None = None
         self._initialize_loop_state()
 
     def _initialize_loop_state(self) -> None:
@@ -185,11 +183,9 @@ class ILoop(ABC, Generic[StateT]):
         """Prepare one step or return a lifecycle request to the caller."""
         self._run_message_batch()
         self._pending_user_events.extend(events.get_events())
-        transition = _lifecycle_transition(
-            self._pending_user_events,
-            self._new_session_request,
-            self._new_session_event_desc,
-        )
+        transition = _parse_lifecycle_events(self._pending_user_events)
+        if transition is None and self._new_session_request is not None:
+            transition = _LoopRunResult(new_session_request=self._new_session_request)
         if transition is not None:
             self._pending_user_events.clear()
             self._new_session_request = None
@@ -368,7 +364,6 @@ class IUILoop(ILoop[StateT], ABC):
         self.session_desc = session_desc
         self.output_layout = session_desc.output_layout
         self._presentation_manager = presentation_manager
-        self._new_session_event_desc = session_desc
 
     @final
     def _set_model_loop(self, model_loop: IModelLoop[Any]) -> None:
@@ -427,23 +422,13 @@ class IUILoop(ILoop[StateT], ABC):
         return self._presentation_manager.presented_frames()
 
 
-def _lifecycle_transition(
+def _parse_lifecycle_events(
     events: list[UserInputEvent],
-    new_session_request: SessionDesc | None,
-    new_session_event_desc: SessionDesc | None,
 ) -> _LoopRunResult | None:
-    """Return the latest terminal lifecycle request, if any."""
-    transition = (
-        None
-        if new_session_request is None
-        else _LoopRunResult(new_session_request=new_session_request)
-    )
-    for event in events:
-        if isinstance(event, CloseUserInputEvent):
-            transition = _LoopRunResult(stop_requested=True)
-        elif isinstance(event, NewSessionUserInputEvent):
-            transition = _LoopRunResult(new_session_request=new_session_event_desc)
-    return transition
+    """Return the terminal lifecycle request, prioritizing close."""
+    if any(isinstance(event, CloseUserInputEvent) for event in events):
+        return _LoopRunResult(stop_requested=True)
+    return None
 
 
 def _model_results(

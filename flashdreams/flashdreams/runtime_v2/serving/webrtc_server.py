@@ -37,7 +37,6 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    NewSessionUserInputEvent,
     ResetUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
@@ -947,8 +946,6 @@ class WebRTCServer:
             )
         elif event_type == "reset":
             event = ResetUserInputEvent(timestamp=timestamp_us)
-        elif event_type == "new_session":
-            event = NewSessionUserInputEvent(timestamp=timestamp_us)
         elif event_type == "close":
             event = CloseUserInputEvent(timestamp=timestamp_us)
         else:

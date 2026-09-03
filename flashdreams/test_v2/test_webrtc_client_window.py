@@ -41,7 +41,6 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    NewSessionUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
@@ -146,7 +145,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'id="activate"' not in browser_page
                 assert 'id="reset"' not in browser_page
                 assert '<video id="video" autoplay muted playsinline>' in browser_page
-                assert 'id="new-session"' not in browser_page
                 assert 'id="status"' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
@@ -154,8 +152,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert response.status == 200
                 assert "activationPressed" not in browser_script
                 assert 'type: "reset"' not in browser_script
-                assert 'type: "new_session"' not in browser_script
-                assert "newSessionButton" not in browser_script
                 assert "beforeunload" not in browser_script
                 assert "waitForIceGatheringComplete" in browser_script
                 assert 'peer.iceGatheringState === "complete"' in browser_script
@@ -238,16 +234,14 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 }
             )
         )
-        channel.send(json.dumps({"type": "new_session"}))
-
         events = []
         for _ in range(100):
             events.extend(window.get_user_input_events().get_events())
-            if len(events) == 9:
+            if len(events) == 8:
                 break
             await asyncio.sleep(0.01)
 
-        assert len(events) == 9
+        assert len(events) == 8
         keyboard_events = [
             event for event in events if isinstance(event, KeyboardUserInputEvent)
         ]
@@ -290,7 +284,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
         assert xr.handedness == "right"
         assert xr.position == (1.0, 2.0, 3.0)
         assert xr.orientation == (0.0, 0.0, 0.0, 1.0)
-        assert any(isinstance(event, NewSessionUserInputEvent) for event in events)
         assert window.get_user_input_events().get_events() == []
     finally:
         if peer is not None:
@@ -736,12 +729,12 @@ def test_window_discards_events_buffered_during_a_session_handoff() -> None:
 
         window.server._buffer_browser_message(json.dumps({"type": "close"}))
         window.open(_session_desc())
-        window.server._buffer_browser_message(json.dumps({"type": "new_session"}))
+        window.server._buffer_browser_message(
+            json.dumps({"type": "focus", "focused": True})
+        )
 
         replacement_events = window.get_user_input_events().get_events()
-        assert [type(event) for event in replacement_events] == [
-            NewSessionUserInputEvent
-        ]
+        assert [type(event) for event in replacement_events] == [FocusUserInputEvent]
         assert (
             replacement_events[0].get_timestamp() < first_session_event.get_timestamp()
         )

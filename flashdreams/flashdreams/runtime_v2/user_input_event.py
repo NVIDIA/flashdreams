@@ -63,21 +63,6 @@ class CloseUserInputEvent(UserInputEvent):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class NewSessionUserInputEvent(UserInputEvent):
-    """The client asked to replace the current session.
-
-    ``run_session`` stops and cleans the current session, then returns its
-    resolved session description. ``ApplicationRunner`` uses that description
-    to create the replacement while leaving a reusable client window open.
-    """
-
-    @classmethod
-    def get_type_name(cls) -> str:
-        """Return the event type name."""
-        return "new_session"
-
-
-@dataclass(frozen=True, slots=True, eq=False)
 class ResetUserInputEvent(UserInputEvent):
     """The client asked to start the run over.
 

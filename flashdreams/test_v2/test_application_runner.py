@@ -13,15 +13,12 @@ from numpy import uint64
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEvent,
-    NewSessionUserInputEvent,
-)
+from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -38,9 +35,23 @@ class _ModelLoop(IModelLoop["_Session"]):
         return self.state.is_finished()
 
 
+class _ReplacementUILoop(IUILoop["_Session"]):
+    def step(self, step_index: int, events: UserInputEvents) -> None:
+        del step_index, events
+        self.request_new_session(self.session_desc)
+
+    def reset(self) -> None:
+        return
+
+
 class _Session(ISession):
     def __init__(
-        self, session_desc: SessionDesc, calls: list[str], *, length: int | None = None
+        self,
+        session_desc: SessionDesc,
+        calls: list[str],
+        *,
+        length: int | None = None,
+        request_replacement: bool = False,
     ) -> None:
         """
         Args:
@@ -48,14 +59,18 @@ class _Session(ISession):
             calls: Shared log every fake records into.
             length: Steps to generate before reporting that it has finished, or
                 ``None`` for a session that runs until its window ends it.
+            request_replacement: Whether the UI requests one replacement session.
         """
         self._session_desc = session_desc
         self._calls = calls
         self._length = length
+        self._request_replacement = request_replacement
         self._generated = 0
 
     def init(self) -> None:
         self._calls.append("session.init")
+        if self._request_replacement:
+            self.register_ui_loop(_ReplacementUILoop, state=self)
         self.register_model_loop(_ModelLoop, state=self)
 
     @property
@@ -88,11 +103,13 @@ class _Application(IApplication):
         fail_to_init: bool = False,
         fail_to_close: bool = False,
         session_length: int | None = None,
+        replace_first_session: bool = False,
     ) -> None:
         self._calls = calls
         self._fail_to_init = fail_to_init
         self._fail_to_close = fail_to_close
         self._session_length = session_length
+        self._replace_first_session = replace_first_session
         self.requested_session_descs: list[SessionDesc] = []
         self.sessions: list[_Session] = []
 
@@ -104,7 +121,12 @@ class _Application(IApplication):
     def create_session(self, session_desc: SessionDesc) -> ISession:
         self._calls.append("application.create_session")
         self.requested_session_descs.append(session_desc)
-        session = _Session(session_desc, self._calls, length=self._session_length)
+        session = _Session(
+            session_desc,
+            self._calls,
+            length=self._session_length,
+            request_replacement=self._replace_first_session and not self.sessions,
+        )
         self.sessions.append(session)
         return session
 
@@ -164,17 +186,21 @@ class _ClosingAfterWritesWindow(_SilentWindow):
         return UserInputEvents([])
 
 
-class _ReplacingWindow(_Window):
-    """Request one replacement, then close its session."""
+class _SecondSessionClosingWindow(_Window):
+    """Stay open for one replacement, then close its session."""
 
     def __init__(self, calls: list[str]) -> None:
         super().__init__(calls)
-        self._events = [NewSessionUserInputEvent, CloseUserInputEvent]
+        self._sessions_opened = 0
 
     def get_user_input_events(self) -> UserInputEvents:
-        if not self._events:
+        if self._sessions_opened < 2:
             return UserInputEvents([])
-        return UserInputEvents([self._events.pop(0)(timestamp=uint64(0))])
+        return super().get_user_input_events()
+
+    def open(self, session_desc: SessionDesc) -> None:
+        super().open(session_desc)
+        self._sessions_opened += 1
 
 
 class _MetricsSink:
@@ -296,8 +322,8 @@ def test_application_runner_keeps_metrics_output_separate_from_the_window() -> N
 
 def test_application_runner_replaces_a_session_before_closing_the_window() -> None:
     calls: list[str] = []
-    application = _Application(calls)
-    window = _ReplacingWindow(calls)
+    application = _Application(calls, replace_first_session=True)
+    window = _SecondSessionClosingWindow(calls)
     metrics = _MetricsSink(calls)
     session_desc = _session_desc()
 
@@ -340,8 +366,8 @@ def test_application_runner_closes_a_preserved_window_if_replacement_fails() -> 
 
     with pytest.raises(RuntimeError, match="replacement failed"):
         ApplicationRunner(
-            FailingReplacementApplication(calls),
-            _ReplacingWindow(calls),
+            FailingReplacementApplication(calls, replace_first_session=True),
+            _SecondSessionClosingWindow(calls),
         ).run(_session_desc())
 
     assert calls.count("application.create_session") == 2
@@ -360,8 +386,8 @@ def test_replacement_stops_if_per_session_metrics_fail_to_close() -> None:
 
     with pytest.raises(RuntimeError, match="metrics close failed"):
         ApplicationRunner(
-            _Application(calls),
-            _ReplacingWindow(calls),
+            _Application(calls, replace_first_session=True),
+            _SecondSessionClosingWindow(calls),
             metrics_output_sink=FailingMetricsSink(calls),
         ).run(_session_desc())
 
