@@ -63,6 +63,22 @@ def test_keyboard_bindings_drive_and_dispatch_actions() -> None:
     assert driver_input.command().throttle == 1.0
 
 
+def test_keyboard_driving_uses_the_shared_arcade_command_shape() -> None:
+    settings = ControlsConfig().keyboard
+
+    reverse_left = keyboard_driver_command(settings, {"a", "s"})
+    handbrake = keyboard_driver_command(settings, {"space"})
+
+    assert reverse_left.steer == 1.0
+    assert reverse_left.steer_is_direct
+    assert reverse_left.manual_control
+    assert reverse_left.brake == 1.0
+    assert reverse_left.throttle == 0.0
+    assert not reverse_left.reverse
+    assert handbrake.handbrake
+    assert handbrake.brake == 0.0
+
+
 def test_gamepad_return_to_menu_uses_digital_or_analog_button_state() -> None:
     settings = ControlsConfig().gamepad
     digital = GamepadUserInputEvent(
@@ -83,6 +99,52 @@ def test_gamepad_return_to_menu_uses_digital_or_analog_button_state() -> None:
         "return_to_menu"
     }
     assert gamepad_driver_command(settings, analog) is not None
+
+
+def test_gamepad_axes_have_rescaled_deadzones() -> None:
+    settings = ControlsConfig().gamepad
+    noisy = GamepadUserInputEvent(
+        timestamp=np.uint64(1),
+        axes=(-0.1,),
+        buttons=(*((0.0,) * 6), 0.03, 0.04),
+        pressed=(*((False,) * 6), True, True),
+    )
+    halfway = GamepadUserInputEvent(
+        timestamp=np.uint64(2),
+        axes=(-0.575,),
+        buttons=(*((0.0,) * 6), 0.525, 0.525),
+    )
+
+    neutral = gamepad_driver_command(settings, noisy)
+    half = gamepad_driver_command(settings, halfway)
+
+    assert neutral is not None
+    assert neutral.steer == neutral.throttle == neutral.brake == 0.0
+    assert half is not None
+    assert half.steer == pytest.approx(0.5)
+    assert half.throttle == pytest.approx(0.5)
+    assert half.brake == pytest.approx(0.5)
+
+
+def test_full_gamepad_and_keyboard_inputs_produce_the_same_drive_commands() -> None:
+    controls = ControlsConfig()
+    gamepad_forward_left = GamepadUserInputEvent(
+        timestamp=np.uint64(1),
+        axes=(-1.0,),
+        buttons=(*((0.0,) * 7), 1.0),
+    )
+    gamepad_reverse = replace(
+        gamepad_forward_left,
+        axes=(0.0,),
+        buttons=(*((0.0,) * 6), 1.0, 0.0),
+    )
+
+    assert keyboard_driver_command(
+        controls.keyboard, {"w", "a"}
+    ) == gamepad_driver_command(controls.gamepad, gamepad_forward_left)
+    assert keyboard_driver_command(controls.keyboard, {"s"}) == gamepad_driver_command(
+        controls.gamepad, gamepad_reverse
+    )
 
 
 def test_gamepad_defaults_use_standard_button_indices() -> None:
@@ -165,6 +227,26 @@ def test_axis_capture_ignores_baseline_and_derives_steering_inversion() -> None:
 
     held = replace(baseline, axes=(-0.8, 0.0))
     assert capture_binding("gamepad", "steering", baseline, held) is None
+
+
+def test_button_capture_prefers_analog_value_over_pressed_state() -> None:
+    baseline = GamepadUserInputEvent(
+        timestamp=np.uint64(1),
+        action="state",
+        buttons=(0.0,) * 8,
+        pressed=(False,) * 8,
+    )
+    light_trigger = replace(
+        baseline,
+        buttons=(*((0.0,) * 7), 0.1),
+        pressed=(*((False,) * 7), True),
+    )
+    deliberate_trigger = replace(light_trigger, buttons=(*((0.0,) * 7), 0.75))
+
+    assert capture_binding("gamepad", "scalar", light_trigger, baseline) is None
+    assert capture_binding(
+        "gamepad", "scalar", deliberate_trigger, baseline
+    ) == InputBinding("button", 7)
 
 
 def test_controls_document_round_trips_sparse_yaml_and_comments(tmp_path: Path) -> None:
