@@ -1600,6 +1600,8 @@ class TaxiHudState:
             if self.show_live_edit_buttons
         )
         lines = _live_edit_status_lines(status)
+        if not actions and not lines:
+            return
         button_width = max(
             (
                 _point_xy(imgui.calc_text_size(label))[0] + 20.0

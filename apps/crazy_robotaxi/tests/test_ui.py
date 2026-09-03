@@ -31,6 +31,7 @@ from crazy_robotaxi.high_scores import HighScoreEntry, RaceTimeEntry
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditMapContextConfig,
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
@@ -872,6 +873,23 @@ def test_live_edit_mapping_location_and_button_visibility() -> None:
     )
     assert hidden_imgui.buttons == []
     assert "LIVE EDIT" in hidden_imgui.windows["Live Edit"]
+
+
+def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            map_context=LiveEditMapContextConfig(enabled=True),
+        ),
+        show_live_edit_buttons=False,
+    )
+    imgui = _FakeImGui()
+
+    state._draw_live_edit_card(imgui, LiveEditHudStatus())
+
+    assert "Live Edit" not in imgui.windows
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
