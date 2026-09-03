@@ -148,6 +148,7 @@ def test_point_to_point_finishes_at_last_checkpoint_and_rejects_skips(
     authored = game_map.race_courses[0]
     course = GameMapRaceCourse(
         course_id="sprint",
+        spawn_id=authored.spawn_id,
         start_element_id=authored.start_element_id,
         checkpoint_element_ids=(
             authored.checkpoint_element_ids[0],
@@ -281,6 +282,7 @@ def test_backward_finish_crossing_does_not_complete_race(tmp_path: Path) -> None
     authored = game_map.race_courses[0]
     course = GameMapRaceCourse(
         course_id="one-lap",
+        spawn_id=authored.spawn_id,
         start_element_id=authored.start_element_id,
         checkpoint_element_ids=authored.checkpoint_element_ids,
         lap_count=1,
@@ -317,6 +319,7 @@ def test_swept_crossing_advances_through_adjacent_gates(
     authored = game_map.race_courses[0]
     course = GameMapRaceCourse(
         course_id="adjacent-gates",
+        spawn_id=authored.spawn_id,
         start_element_id=authored.start_element_id,
         checkpoint_element_ids=("southeast", "east_south", "north"),
         lap_count=0,
@@ -441,6 +444,7 @@ def test_race_times_are_isolated_by_map_and_course(tmp_path: Path) -> None:
         ({"start": "missing"}, "unknown node or road"),
         ({"checkpoints": []}, "at least one checkpoint"),
         ({"lap_count": -1}, "nonnegative integer"),
+        ({"spawn": "missing"}, "unknown spawn"),
         ({"checkpoints": ["south_west"]}, "may not reuse start"),
         ({"checkpoint_markers": "yes"}, "must be a boolean"),
     ],
@@ -454,6 +458,16 @@ def test_invalid_race_course_schema_is_rejected(
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(GameMapError, match=message):
+        load_game_map(path)
+
+
+def test_race_course_spawn_is_required(tmp_path: Path) -> None:
+    document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
+    del document["race_courses"][0]["spawn"]
+    path = tmp_path / "missing-course-spawn.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(GameMapError, match="requires.*spawn"):
         load_game_map(path)
 
 

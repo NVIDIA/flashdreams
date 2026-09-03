@@ -81,6 +81,7 @@ class _Pipeline:
 class _Engine:
     closed: bool = False
     is_running: bool = True
+    live_edit: object | None = None
 
     @property
     def current_game_frame(self):
@@ -160,6 +161,27 @@ def test_rollout_calls_pipeline_directly_and_owns_its_cache() -> None:
 
     rollout.close()
     assert engines[1].closed
+
+
+def test_rollout_attaches_live_edit_style_without_removed_timing_argument() -> None:
+    pipeline = _Pipeline()
+    engine = _Engine()
+    attached: list[tuple[object, object, str]] = []
+
+    class Style:
+        def attach_v2(self, pipeline, cache, prompt):
+            attached.append((pipeline, cache, prompt))
+
+    engine.live_edit = type("LiveEdit", (), {"style": Style()})()
+
+    rollout = WorldModelRollout(
+        pipeline=pipeline,
+        scene=_scene(),
+        engine_factory=lambda: engine,
+    )
+
+    assert attached == [(pipeline, rollout.cache, "a yellow taxi")]
+    rollout.close()
 
 
 def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:

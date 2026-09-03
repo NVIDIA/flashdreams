@@ -39,6 +39,7 @@ roads:
 
 race_courses:
   - id: test-loop
+    spawn: start
     start: south_west
     checkpoints: [southeast, east_north, north, west_south]
     lap_count: 3
@@ -49,7 +50,6 @@ spawns:
     road: south_west
     lane: 1
     distance_m: 30
-    variants:
-      default:
-        image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: A car racing on a rectangular city loop.
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A car racing on a rectangular city loop.
+    prompt_context: A forward-facing view from a car on a city road.

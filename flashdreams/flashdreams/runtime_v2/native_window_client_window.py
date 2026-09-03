@@ -87,6 +87,9 @@ _STANDARD_GAMEPAD_BUTTON_BITS: tuple[int | None, ...] = (
 )
 """SlangPy button bit indices in the browser standard-gamepad order."""
 
+_GAMEPAD_BUTTON_PRESSED_THRESHOLD = 0.5
+"""Analog value above which a native trigger reports a digital press."""
+
 
 class NativeWindowClientWindow(IClientWindow):
     """Present UI output through a main-thread GLFW window."""
@@ -764,9 +767,9 @@ def _gamepad_state_event(state: spy.GamepadState) -> GamepadUserInputEvent:
     button_bits = int(state.buttons)
     pressed = tuple(
         (
-            left_trigger > 0.0
+            left_trigger > _GAMEPAD_BUTTON_PRESSED_THRESHOLD
             if index == 6
-            else right_trigger > 0.0
+            else right_trigger > _GAMEPAD_BUTTON_PRESSED_THRESHOLD
             if index == 7
             else bit is not None and bool(button_bits & (1 << bit))
         )

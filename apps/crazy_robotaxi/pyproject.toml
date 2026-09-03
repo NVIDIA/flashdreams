@@ -11,6 +11,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "flashdreams[local-window]",
     "omnidreams-game-engine",
+    "ruamel-yaml>=0.18",
     "torch",
 ]
 
@@ -31,6 +32,7 @@ include = ["crazy_robotaxi*"]
 crazy_robotaxi = [
     "assets/*.npz",
     "maps/*.robotaxi.yaml",
+    "maps/*.spawn-images/*.png",
 ]
 
 [tool.uv]
