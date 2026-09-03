@@ -10,9 +10,12 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 
 import pytest
 import torch
+from numpy import uint64
+
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
@@ -42,7 +45,6 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -578,8 +580,30 @@ def test_run_session_profiles_input_through_window_write(tmp_path) -> None:
     output_record = next(
         record for record in records if record["phase"] == "input_to_window_write"
     )
-    assert output_record["endpoint"] == "window_write_return"
     assert output_record["input_type"] == "KeyboardUserInputEvent"
+
+
+def test_run_session_keeps_profile_separate_from_chunk_trace(tmp_path) -> None:
+    log = CallLog()
+    shared_path = tmp_path / "runtime.jsonl"
+    session_desc = replace(
+        _session_desc(),
+        metadata={
+            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle_path": str(shared_path),
+        },
+    )
+
+    with pytest.raises(ValueError, match="must use distinct paths"):
+        run_session(
+            FakeSession(session_desc, log),
+            RecordingClientWindow(log, []),
+            profiler=RuntimeProfiler(shared_path),
+            steps=1,
+        )
+
+    assert log.calls == []
+    assert not shared_path.exists()
 
 
 def test_run_session_opens_before_writing_and_closes_after() -> None:
@@ -1131,33 +1155,9 @@ def test_run_session_closes_a_session_that_failed_to_init() -> None:
     with pytest.raises(RuntimeError, match="init failed"):
         run_session(session, window, steps=1)
 
-    # A session and its constructor-owned window are released together.
-    assert log.calls == ["session.init", "window.close", "session.close"]
-
-
-def test_run_session_closes_owned_resources_when_trace_open_fails(tmp_path) -> None:
-    log = CallLog()
-    session_desc = _session_desc()
-    session_desc.metadata.update(
-        {
-            "trace_chunk_lifecycle": True,
-            "trace_chunk_lifecycle_path": tmp_path,
-        }
-    )
-    session = FakeSession(session_desc, log)
-    window = RecordingClientWindow(log)
-    profile_path = tmp_path / "runtime.jsonl"
-
-    with pytest.raises(IsADirectoryError):
-        run_session(
-            session,
-            window,
-            profiler=RuntimeProfiler(profile_path),
-            steps=1,
-        )
-
-    assert log.calls == ["window.close", "session.close"]
-    assert '"phase":"profile_summary"' in profile_path.read_text()
+    # A session that got halfway through starting still has to be released, and
+    # the window is never opened for a session that cannot run.
+    assert log.calls == ["session.init", "session.close"]
 
 
 def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:

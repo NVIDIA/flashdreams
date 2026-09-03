@@ -15,7 +15,6 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
-from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -186,7 +185,6 @@ class PresentationManager:
         self._stream_lock = threading.Lock()
         self._infer_stream_device = device is None
         self._trace_chunk_lifecycle = False
-        self._runtime_profiler: RuntimeProfiler | None = None
         self._presentation_stream: torch.cuda.Stream | None = None
         if device is not None:
             device = torch.device(device)
@@ -207,7 +205,6 @@ class PresentationManager:
         stop: threading.Event,
         put_timeout: float,
         trace_chunk_lifecycle: bool = False,
-        runtime_profiler: RuntimeProfiler | None = None,
         frames_per_second: int = 30,
         maximum_frames_per_second: int | None = None,
     ) -> None:
@@ -221,7 +218,6 @@ class PresentationManager:
             put_timeout: How long a blocked publish waits before rechecking
                 ``stop``, in seconds.
             trace_chunk_lifecycle: Emit chunk lifecycle diagnostics.
-            runtime_profiler: Record model-chunk publication, selection, and drops.
             frames_per_second: Initial video presentation rate.
             maximum_frames_per_second: Upper bound for presentation cadence;
                 ``None`` uses ``frames_per_second``.
@@ -235,7 +231,6 @@ class PresentationManager:
         self._stop = stop
         self._put_timeout = put_timeout
         self._trace_chunk_lifecycle = trace_chunk_lifecycle
-        self._runtime_profiler = runtime_profiler
 
     def publish(
         self,
@@ -293,26 +288,15 @@ class PresentationManager:
                 buffered_chunks=self.buffered_chunk_count,
                 chunk_capacity=self.buffered_chunk_capacity,
             )
-        profile_started_ns = (
-            None
-            if self._runtime_profiler is None
-            else self._runtime_profiler.timestamp_ns()
-        )
         pending = (generation, chunk)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
-            if self._publish_latest(pending):
-                self._record_publish_completed(pending, started_ns, profile_started_ns)
-            elif self._runtime_profiler is not None:
-                self._runtime_profiler.chunk_dropped(
-                    generation=generation,
-                    step=chunk[0].step_index,
-                    reason="publish_stopped",
-                )
+            self._publish_latest(pending)
+            self._trace_publish_completed(pending, started_ns)
             return
         while not self._stop.is_set():
             try:
                 self._bufferedChunks.put(pending, timeout=self._put_timeout)
-                self._record_publish_completed(pending, started_ns, profile_started_ns)
+                self._trace_publish_completed(pending, started_ns)
                 return
             except queue.Full:
                 continue
@@ -324,12 +308,6 @@ class PresentationManager:
                 wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
                 buffered_chunks=self.buffered_chunk_count,
                 chunk_capacity=self.buffered_chunk_capacity,
-            )
-        if self._runtime_profiler is not None:
-            self._runtime_profiler.chunk_dropped(
-                generation=generation,
-                step=chunk[0].step_index,
-                reason="publish_stopped",
             )
 
     @contextmanager
@@ -381,7 +359,7 @@ class PresentationManager:
         """
         if generation != self._generation:
             if self._presented_chunk is not None:
-                self._record_drop(
+                self._trace_drop(
                     self._generation,
                     self._presented_chunk,
                     reason="generation_changed_active",
@@ -402,7 +380,7 @@ class PresentationManager:
         ):
             self._frame_index += 1
             self._presented_frame_count += 1
-            self._record_presented_frame(generation)
+            self._trace_presented_frame(generation)
             self._presentation_clock.mark_advanced(now, backlog=backlog)
             return True, None
 
@@ -415,7 +393,7 @@ class PresentationManager:
         self._presented_chunk = chunk
         self._frame_index = 0
         self._presented_frame_count += 1
-        self._record_presented_frame(generation)
+        self._trace_presented_frame(generation)
         self._presentation_clock.mark_advanced(now, backlog=backlog)
         return True, chunk
 
@@ -600,11 +578,11 @@ class PresentationManager:
     def _reset_buffered_chunks(self) -> None:
         self._bufferedChunks = queue.Queue(maxsize=1)
 
-    def _publish_latest(self, pending: tuple[int, list[StepResult]]) -> bool:
+    def _publish_latest(self, pending: tuple[int, list[StepResult]]) -> None:
         while not self._stop.is_set():
             try:
                 self._bufferedChunks.put_nowait(pending)
-                return True
+                return
             except queue.Full:
                 try:
                     dropped_generation, dropped_chunk = (
@@ -612,7 +590,7 @@ class PresentationManager:
                     )
                     with self._counter_lock:
                         self._dropped_for_space += 1
-                    self._record_drop(
+                    self._trace_drop(
                         dropped_generation,
                         dropped_chunk,
                         reason="queue_full",
@@ -620,7 +598,6 @@ class PresentationManager:
                     )
                 except queue.Empty:
                     continue
-        return False
 
     def _take_buffered_chunk(
         self, generation: int, *, latest: bool
@@ -634,7 +611,7 @@ class PresentationManager:
             if chunk_generation != generation:
                 with self._counter_lock:
                     self._discarded_at_reset += 1
-                self._record_drop(
+                self._trace_drop(
                     chunk_generation,
                     chunk,
                     reason="generation_mismatch",
@@ -643,7 +620,7 @@ class PresentationManager:
             if selected is not None:
                 with self._counter_lock:
                     self._dropped_for_space += 1
-                self._record_drop(
+                self._trace_drop(
                     generation,
                     selected,
                     reason="take_latest",
@@ -653,77 +630,50 @@ class PresentationManager:
             if not latest:
                 return selected
 
-    def _record_publish_completed(
+    def _trace_publish_completed(
         self,
         pending: tuple[int, list[StepResult]],
         started_ns: int | None,
-        profile_started_ns: int | None,
     ) -> None:
+        if started_ns is None:
+            return
         generation, chunk = pending
-        profile_published_at_ns = (
-            None
-            if self._runtime_profiler is None or profile_started_ns is None
-            else self._runtime_profiler.timestamp_ns()
+        self._trace(
+            "publish_completed",
+            generation=generation,
+            step=chunk[0].step_index,
+            frames=chunk[0].frame_count,
+            wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
+            buffered_chunks=self.buffered_chunk_count,
+            chunk_capacity=self.buffered_chunk_capacity,
         )
-        if started_ns is not None:
-            self._trace(
-                "publish_completed",
-                generation=generation,
-                step=chunk[0].step_index,
-                frames=chunk[0].frame_count,
-                wait_ms=(time.monotonic_ns() - started_ns) / 1_000_000.0,
-                buffered_chunks=self.buffered_chunk_count,
-                chunk_capacity=self.buffered_chunk_capacity,
-            )
-        if self._runtime_profiler is not None and profile_published_at_ns is not None:
-            assert profile_started_ns is not None
-            self._runtime_profiler.chunk_published(
-                generation=generation,
-                step=chunk[0].step_index,
-                frame_count=chunk[0].frame_count,
-                wait_s=(profile_published_at_ns - profile_started_ns) / 1_000_000_000,
-                time_ns=profile_published_at_ns,
-            )
 
-    def _record_presented_frame(self, generation: int) -> None:
+    def _trace_presented_frame(self, generation: int) -> None:
+        if not self._trace_chunk_lifecycle:
+            return
         chunk = self._presented_chunk
         if chunk is None:
             return
-        profile_selected_at_ns = (
-            None
-            if self._runtime_profiler is None
-            else self._runtime_profiler.timestamp_ns()
+        self._trace(
+            "frame_presented",
+            generation=generation,
+            step=chunk[0].step_index,
+            frame=self._frame_index,
+            frames=chunk[0].frame_count,
+            edge=(
+                "both"
+                if chunk[0].frame_count == 1
+                else "first"
+                if self._frame_index == 0
+                else "last"
+                if self._frame_index + 1 == chunk[0].frame_count
+                else "middle"
+            ),
+            buffered_chunks=self.buffered_chunk_count,
+            chunk_capacity=self.buffered_chunk_capacity,
         )
-        if self._trace_chunk_lifecycle:
-            self._trace(
-                "frame_presented",
-                generation=generation,
-                step=chunk[0].step_index,
-                frame=self._frame_index,
-                frames=chunk[0].frame_count,
-                edge=(
-                    "both"
-                    if chunk[0].frame_count == 1
-                    else "first"
-                    if self._frame_index == 0
-                    else "last"
-                    if self._frame_index + 1 == chunk[0].frame_count
-                    else "middle"
-                ),
-                buffered_chunks=self.buffered_chunk_count,
-                chunk_capacity=self.buffered_chunk_capacity,
-            )
-        if self._runtime_profiler is not None:
-            assert profile_selected_at_ns is not None
-            self._runtime_profiler.frame_selected(
-                generation=generation,
-                step=chunk[0].step_index,
-                frame=self._frame_index,
-                frame_count=chunk[0].frame_count,
-                time_ns=profile_selected_at_ns,
-            )
 
-    def _record_drop(
+    def _trace_drop(
         self,
         generation: int,
         chunk: list[StepResult],
@@ -731,25 +681,20 @@ class PresentationManager:
         reason: str,
         replacement: tuple[int, list[StepResult]] | None = None,
     ) -> None:
-        if self._trace_chunk_lifecycle:
-            fields: dict[str, object] = {
-                "generation": generation,
-                "step": chunk[0].step_index,
-                "frames": chunk[0].frame_count,
-                "reason": reason,
-                "buffered_chunks": self.buffered_chunk_count,
-            }
-            if replacement is not None:
-                replacement_generation, replacement_chunk = replacement
-                fields["replacement_generation"] = replacement_generation
-                fields["replacement_step"] = replacement_chunk[0].step_index
-            self._trace("chunk_dropped", **fields)
-        if self._runtime_profiler is not None:
-            self._runtime_profiler.chunk_dropped(
-                generation=generation,
-                step=chunk[0].step_index,
-                reason=reason,
-            )
+        if not self._trace_chunk_lifecycle:
+            return
+        fields: dict[str, object] = {
+            "generation": generation,
+            "step": chunk[0].step_index,
+            "frames": chunk[0].frame_count,
+            "reason": reason,
+            "buffered_chunks": self.buffered_chunk_count,
+        }
+        if replacement is not None:
+            replacement_generation, replacement_chunk = replacement
+            fields["replacement_generation"] = replacement_generation
+            fields["replacement_step"] = replacement_chunk[0].step_index
+        self._trace("chunk_dropped", **fields)
 
     def _trace(self, phase: str, **fields: object) -> None:
         if not self._trace_chunk_lifecycle:

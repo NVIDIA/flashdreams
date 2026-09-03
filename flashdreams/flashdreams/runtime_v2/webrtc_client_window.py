@@ -27,13 +27,8 @@ class WebRTCClientWindow(IClientWindow):
     """
 
     @property
-    def profile_endpoint(self) -> str | None:
-        """Name the observable WebRTC boundary reached by the latest write."""
-        return self._profile_endpoint
-
-    @property
     def input_timestamp_origin_ns(self) -> int | None:
-        """Return the server session's host monotonic timestamp origin."""
+        """Return the server session's monotonic input timestamp origin."""
         return self.server.input_timestamp_origin_ns
 
     def __init__(
@@ -55,7 +50,6 @@ class WebRTCClientWindow(IClientWindow):
         """
         self._input_events: deque[UserInputEvent] = deque()
         self._input_lock = threading.Lock()
-        self._profile_endpoint: str | None = None
         self.server = WebRTCServer(
             host=host,
             port=port,
@@ -64,9 +58,9 @@ class WebRTCClientWindow(IClientWindow):
 
         def handle_input(event: UserInputEvent) -> None:
             """Buffer one backend event for the ``InputSource`` protocol."""
-            # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
-            with self._input_lock:
-                self._input_events.append(event)
+            # TODO: do we need to buffer every event? Later mouse moves may
+            # supersede earlier ones.
+            self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
 
@@ -95,9 +89,7 @@ class WebRTCClientWindow(IClientWindow):
         Args:
             result: One UI-composited frame matching the opened session.
         """
-        self._profile_endpoint = (
-            "webrtc_sender_admission" if self.server.write(result) else None
-        )
+        self.server.write(result)
 
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return sender-queue diagnostics."""

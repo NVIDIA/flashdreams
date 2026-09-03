@@ -143,7 +143,6 @@ class _VideoTrack(MediaStreamTrack):
         self._first_enqueued_at: float | None = None
         self._next_pts = 0
         self._frame_in_flight = False
-        self._sender_available = True
         self._closed = False
 
     def metrics_snapshot(self) -> dict[str, float | int]:
@@ -171,11 +170,10 @@ class _VideoTrack(MediaStreamTrack):
         """Synchronously admit one real frame and wake the sender.
 
         Returns:
-            Whether the active sender mailbox admitted the frame. Closed and
-            explicitly disconnected tracks reject it.
+            Whether the frame was admitted. A closed track rejects it.
         """
         with self._state_lock:
-            if self._closed or not self._sender_available:
+            if self._closed:
                 return False
             enqueued_at = time.monotonic()
             queued_frame = _QueuedRGBFrame(
@@ -193,11 +191,6 @@ class _VideoTrack(MediaStreamTrack):
         if schedule_wake:
             self._sender_loop.call_soon_threadsafe(self._finish_enqueue)
         return True
-
-    def set_sender_available(self, available: bool) -> None:
-        """Update whether the peer can admit newly produced frames."""
-        with self._state_lock:
-            self._sender_available = available
 
     async def recv(self) -> VideoFrame:
         """Serialize aiortc demand for the bounded frame queue."""
@@ -343,7 +336,7 @@ class WebRTCServer:
 
     @property
     def input_timestamp_origin_ns(self) -> int | None:
-        """Return the active session's host monotonic input timestamp origin."""
+        """Return the active session's monotonic input timestamp origin."""
         return self._session_start_ns
 
     def metrics_snapshot(self) -> dict[str, float | int]:
@@ -401,15 +394,12 @@ class WebRTCServer:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
 
-    def write(self, result: StepResult) -> bool:
+    def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.
 
         Args:
             result: Generated frames matching the description passed to
                 :meth:`open`.
-
-        Returns:
-            Whether the active sender mailbox admitted the frame.
 
         Raises:
             RuntimeError: The server is not open or has been closed.
@@ -427,9 +417,9 @@ class WebRTCServer:
             )
         track = self._video_track
         if track is None:
-            return False
+            return
         queued_frame = self._materialize_video_frame(result, frames[0])
-        return track.enqueue(queued_frame)
+        track.enqueue(queued_frame)
 
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""
@@ -650,13 +640,10 @@ class WebRTCServer:
         @peer_connection.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
             if peer_connection.connectionState == "connected":
-                video_track.set_sender_available(True)
                 self._media_connected.set()
             elif peer_connection.connectionState == "disconnected":
-                video_track.set_sender_available(False)
                 self._media_connected.clear()
             elif peer_connection.connectionState in {"failed", "closed"}:
-                video_track.set_sender_available(False)
                 self._media_connected.clear()
                 self._record_client_disconnect()
 

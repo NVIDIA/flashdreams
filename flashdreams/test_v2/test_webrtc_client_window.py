@@ -28,6 +28,7 @@ from aiortc import (
 )
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -324,54 +325,12 @@ async def test_peer_state_distinguishes_recovery_from_terminal_close(
         server_loop = window.server._loop
         assert server_loop is not None
 
-        future = asyncio.run_coroutine_threadsafe(transition("connected"), server_loop)
-        await asyncio.wrap_future(future)
-        window.write(
-            StepResult(
-                step_index=0,
-                output=torch.zeros((1, 3, 16, 16), dtype=torch.uint8),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
+        for connection_state in ("connected", "disconnected", "connected"):
+            future = asyncio.run_coroutine_threadsafe(
+                transition(connection_state),
+                server_loop,
             )
-        )
-        assert window.profile_endpoint == "webrtc_sender_admission"
-        admitted_before_disconnect = window.metrics_snapshot()[
-            "webrtc_sender_enqueued_count"
-        ]
-
-        future = asyncio.run_coroutine_threadsafe(
-            transition("disconnected"), server_loop
-        )
-        await asyncio.wrap_future(future)
-        window.write(
-            StepResult(
-                step_index=1,
-                output=torch.ones((1, 3, 16, 16), dtype=torch.uint8),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-            )
-        )
-        assert window.profile_endpoint is None
-        assert (
-            window.metrics_snapshot()["webrtc_sender_enqueued_count"]
-            == admitted_before_disconnect
-        )
-
-        future = asyncio.run_coroutine_threadsafe(transition("connected"), server_loop)
-        await asyncio.wrap_future(future)
-        window.write(
-            StepResult(
-                step_index=2,
-                output=torch.full((1, 3, 16, 16), 2, dtype=torch.uint8),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-            )
-        )
-        assert window.profile_endpoint == "webrtc_sender_admission"
-        assert (
-            window.metrics_snapshot()["webrtc_sender_enqueued_count"]
-            == admitted_before_disconnect + 1
-        )
+            await asyncio.wrap_future(future)
 
         assert window.server._media_connected.is_set()
         assert window.server._client_connected
@@ -507,7 +466,6 @@ def test_window_write_materializes_before_synchronous_sender_admission(
         track.enqueue.assert_called_once()
         assert len(captured) == 1
         assert _frame_mean(captured[0]) == 31.0
-        assert window.profile_endpoint == "webrtc_sender_admission"
     finally:
         window.server._video_track = None
         window.server._media_connected.clear()
@@ -534,7 +492,6 @@ def test_window_write_queues_during_media_negotiation() -> None:
 
         track.enqueue.assert_called_once()
         assert [_frame_mean(frame) for frame in captured] == [0.0]
-        assert window.profile_endpoint == "webrtc_sender_admission"
     finally:
         window.server._video_track = None
         window.close()

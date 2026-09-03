@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import torch
+
 from flashdreams.runtime_v2 import native_window_client_window as native_window_module
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
@@ -309,6 +310,7 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     )
     window = NativeWindowClientWindow(presenter_factory=cast(Any, create_presenter))
     window.open(_session_desc())
+    assert window.input_timestamp_origin_ns is not None
     window.get_user_input_events()
     window.write(_result())
     window.close()
@@ -359,7 +361,7 @@ def test_native_window_reports_input_and_close_from_event_pump() -> None:
         clock_ns=lambda: next(clock_values),
     )
     window.open(_session_desc())
-    assert window.input_timestamp_origin_ns == 1_000_000
+    assert window.input_timestamp_origin_ns is None
     presenter.pending_events.put(("keyboard", _KeyboardEvent("up", pressed=True)))
     presenter.pending_events.put(
         (

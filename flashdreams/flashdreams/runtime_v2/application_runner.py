@@ -34,7 +34,7 @@ class ApplicationRunner:
             application: Long-lived application that creates the session.
             client_window: Window that supplies input and presents generated output.
             metrics_output_sink: Optional sink for model-step metrics.
-            profiler: Optional correlated host-side runtime profiler.
+            profiler: Optional perceived input-latency profiler.
         """
         self._application = application
         self._client_window = client_window
@@ -75,8 +75,6 @@ class ApplicationRunner:
                 _close_client_window(self._client_window)
                 if self._metrics_output_sink is not None:
                     _close_output_sink(self._metrics_output_sink)
-                if self._profiler is not None:
-                    _close_profiler(self._profiler)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
@@ -103,16 +101,6 @@ def _close_output_sink(output_sink: OutputSink) -> None:
     except Exception:
         _LOGGER.exception(
             "The metrics output sink failed to close after a run that never started."
-        )
-
-
-def _close_profiler(profiler: RuntimeProfiler) -> None:
-    """Close a runtime profile after a run that never reached the session."""
-    try:
-        profiler.close()
-    except Exception:
-        _LOGGER.exception(
-            "The runtime profiler failed to close after a run that never started."
         )
 
 

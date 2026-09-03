@@ -14,7 +14,6 @@ argument that only one of them uses.
 """
 
 import argparse
-import logging
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -39,8 +38,6 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-
-_LOGGER = logging.getLogger(__name__)
 
 _ARGUMENT_SEPARATOR = "--"
 """What separates this command's arguments from the application's.
@@ -68,7 +65,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if not wants_application_help:
         try:
             mode.check_arguments(parsed)
-            _validate_artifact_paths(parsed)
+            _validate_profile_path(parsed)
         except ValueError as error:
             parser.error(str(error))
 
@@ -79,33 +76,23 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         application.init(application_args)
         return
     session_desc = _session_desc(application, parsed)
+    window = mode.create(parsed)
+    _report(mode.starting(window))
+    # Nothing here says how long the run is: a session reports itself finished,
+    # and a window ends the run when its client goes away.
+    metrics_output_sink = (
+        None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
+    )
     profiler = (
         None if parsed.profile_path is None else RuntimeProfiler(parsed.profile_path)
     )
-    runner_owns_profiler = False
-    try:
-        window = mode.create(parsed)
-        _report(mode.starting(window))
-        # Nothing here says how long the run is: a session reports itself finished,
-        # and a window ends the run when its client goes away.
-        metrics_output_sink = (
-            None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
-        )
-        runner = ApplicationRunner(
-            application,
-            window,
-            metrics_output_sink=metrics_output_sink,
-            profiler=profiler,
-        )
-        runner_owns_profiler = True
-        runner.run(session_desc, application_args)
-        _report(mode.finished(window))
-    finally:
-        if profiler is not None and not runner_owns_profiler:
-            _close_unowned_profiler(
-                profiler,
-                setup_failed=sys.exc_info()[0] is not None,
-            )
+    ApplicationRunner(
+        application,
+        window,
+        metrics_output_sink=metrics_output_sink,
+        profiler=profiler,
+    ).run(session_desc, application_args)
+    _report(mode.finished(window))
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -160,7 +147,7 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         "--profile-path",
         type=Path,
         default=None,
-        help="Write correlated host-side runtime latency records as JSONL.",
+        help="Write perceived input-latency records as JSONL.",
     )
     parser.add_argument(
         "--pixel-width", type=int, default=None, help="Frame width to generate."
@@ -202,39 +189,19 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _validate_artifact_paths(parsed: argparse.Namespace) -> None:
-    """Require every active output artifact to own a distinct path."""
-    artifacts = [
-        ("--profile-path", parsed.profile_path),
-        ("--stats-path", parsed.stats_path),
-        (
-            "--output-path",
-            parsed.output_path if parsed.mode == "mp4" else None,
-        ),
-    ]
-    owners: dict[Path, str] = {}
-    for flag, path in artifacts:
-        if path is None:
-            continue
-        resolved = path.expanduser().resolve()
-        existing = owners.get(resolved)
-        if existing is not None:
-            raise ValueError(f"{existing} and {flag} must use different paths.")
-        owners[resolved] = flag
-
-
-def _close_unowned_profiler(
-    profiler: RuntimeProfiler,
-    *,
-    setup_failed: bool,
-) -> None:
-    """Close a profiler retained by CLI setup."""
-    try:
-        profiler.close()
-    except Exception:
-        if not setup_failed:
-            raise
-        _LOGGER.exception("The runtime profiler failed to close during CLI setup.")
+def _validate_profile_path(parsed: argparse.Namespace) -> None:
+    """Keep the profile separate from artifacts written by the same run."""
+    if parsed.profile_path is None:
+        return
+    profile_path = parsed.profile_path.expanduser().resolve()
+    other_paths = [parsed.stats_path]
+    if parsed.mode == "mp4":
+        other_paths.append(parsed.output_path)
+    if any(
+        path is not None and path.expanduser().resolve() == profile_path
+        for path in other_paths
+    ):
+        raise ValueError("--profile-path must use a distinct output path.")
 
 
 def _session_desc(
