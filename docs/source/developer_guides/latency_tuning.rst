@@ -168,6 +168,9 @@ Use ``--profile-path`` with a V2 application to write a JSONL profile:
        --mode native-window \
        --profile-path artifacts/interactive-drive-input-latency.jsonl
 
+Replacement sessions append separate ``session_started`` and summary segments
+to the same artifact.
+
 The input source publishes the monotonic origin for its session-relative
 ``UserInputEvent.timestamp`` values. ``run_session`` then records two metrics:
 

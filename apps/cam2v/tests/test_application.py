@@ -165,7 +165,7 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
         failure_queue=failure_queue,
     )
     ui_loop.register_session_ui_loop_objects(
-        output_layout=VideoTensorLayout.tchw,
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=presentation_manager,
     )
     state = Cam2VModelState(
@@ -345,7 +345,7 @@ def test_slangpy_continuous_redraw_expires_recent_model_rate(
         failure_queue=queue.Queue(),
     )
     ui_loop.register_session_ui_loop_objects(
-        output_layout=VideoTensorLayout.tchw,
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=PresentationManager(),
     )
     ui = SimpleNamespace(
@@ -501,7 +501,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
         failure_queue=queue.Queue(),
     )
     ui_loop.register_session_ui_loop_objects(
-        output_layout=VideoTensorLayout.tchw,
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=presentation_manager,
     )
     pressed = UserInputEvents(

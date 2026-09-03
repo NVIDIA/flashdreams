@@ -46,7 +46,8 @@ class RuntimeProfiler:
     One runtime UI thread owns an instance. Input timestamps and runtime
     observations share ``time.monotonic_ns`` through the source-provided session
     origin. Each claimed input remains pending through the first subsequent
-    client-window write.
+    client-window write. Reopening the profiler appends an independent session
+    segment to the same artifact.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -60,7 +61,7 @@ class RuntimeProfiler:
             "input_to_ui_step_s": [],
             "input_to_window_write_s": [],
         }
-        self._closed = False
+        self._opened_once = False
 
     @property
     def path(self) -> Path:
@@ -76,10 +77,17 @@ class RuntimeProfiler:
         """Open the artifact and bind input timestamps to the runtime clock."""
         if self._output is not None:
             raise RuntimeError("RuntimeProfiler session already started.")
-        self._ensure_open()
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._output = self._path.open("w", encoding="utf-8")
+        mode = "a" if self._opened_once else "w"
+        self._output = self._path.open(mode, encoding="utf-8")
+        self._opened_once = True
         self._input_timestamp_origin_ns = input_timestamp_origin_ns
+        self._input_generation = None
+        self._pending_inputs.clear()
+        self._samples = {
+            "input_to_ui_step_s": [],
+            "input_to_window_write_s": [],
+        }
         self._write(
             "session_started",
             _now_ns(time_ns),
@@ -157,10 +165,7 @@ class RuntimeProfiler:
         return {name: _summarize(values) for name, values in self._samples.items()}
 
     def close(self) -> None:
-        """Write summaries and close the profile once."""
-        if self._closed:
-            return
-        self._closed = True
+        """Write summaries and close the active session segment."""
         output = self._output
         if output is None:
             return
@@ -183,6 +188,9 @@ class RuntimeProfiler:
         except BaseException as error:
             if failure is None:
                 failure = error
+        self._output = None
+        self._input_timestamp_origin_ns = None
+        self._input_generation = None
         if failure is not None:
             raise failure
 
@@ -215,13 +223,8 @@ class RuntimeProfiler:
         output.write("\n")
 
     def _ensure_started(self) -> None:
-        self._ensure_open()
         if self._output is None:
             raise RuntimeError("RuntimeProfiler session has not started.")
-
-    def _ensure_open(self) -> None:
-        if self._closed:
-            raise RuntimeError("RuntimeProfiler is closed.")
 
 
 def _now_ns(value: int | None) -> int:

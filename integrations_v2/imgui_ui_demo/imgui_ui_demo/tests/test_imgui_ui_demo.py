@@ -28,7 +28,7 @@ def test_text_input_updates_ui_owned_state() -> None:
         failure_queue=queue.Queue(),
     )
     loop.register_session_ui_loop_objects(
-        output_layout=SessionDesc().output_layout,
+        session_desc=SessionDesc(),
         presentation_manager=PresentationManager(),
     )
     imgui = SimpleNamespace(

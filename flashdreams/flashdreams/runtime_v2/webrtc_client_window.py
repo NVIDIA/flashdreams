@@ -5,6 +5,9 @@
 
 import threading
 from collections import deque
+from dataclasses import replace
+
+from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
@@ -22,14 +25,25 @@ class WebRTCClientWindow(IClientWindow):
     server's own thread, so they are queued here and handed over in batches when
     the session asks, as the protocol requires.
 
-    A browser that disconnects becomes a close event, so a run through this
-    window ends on its own even when the session would generate forever.
+    The server timestamps arrivals against one stable clock. This window clears
+    input buffered during a session handoff, then rebases later events to the
+    new session's clock. Input aimed at a completed UI cannot accidentally act
+    on its replacement.
+
+    Disconnecting releases only that browser's peer connection. The server and
+    current session stay available for a refreshed or replacement client until
+    the application is explicitly stopped.
     """
 
     @property
     def input_timestamp_origin_ns(self) -> int | None:
-        """Return the server session's monotonic input timestamp origin."""
-        return self.server.input_timestamp_origin_ns
+        """Return the current session's monotonic input timestamp origin."""
+        server_origin_ns = self.server.input_timestamp_origin_ns
+        if server_origin_ns is None:
+            return None
+        with self._input_lock:
+            session_event_offset_us = int(self._session_event_offset_us)
+        return server_origin_ns + session_event_offset_us * 1_000
 
     def __init__(
         self,
@@ -50,6 +64,8 @@ class WebRTCClientWindow(IClientWindow):
         """
         self._input_events: deque[UserInputEvent] = deque()
         self._input_lock = threading.Lock()
+        # Offset from the server's stable clock to the current session's clock.
+        self._session_event_offset_us = uint64(0)
         self.server = WebRTCServer(
             host=host,
             port=port,
@@ -60,7 +76,8 @@ class WebRTCClientWindow(IClientWindow):
             """Buffer one backend event for the ``InputSource`` protocol."""
             # TODO: do we need to buffer every event? Later mouse moves may
             # supersede earlier ones.
-            self._input_events.append(event)
+            with self._input_lock:
+                self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
 
@@ -71,6 +88,10 @@ class WebRTCClientWindow(IClientWindow):
             session_desc: Resolved dimensions, frame rate, and tensor layout.
         """
         self.server.open(session_desc)
+        session_event_offset_us = self.server.event_timestamp_us()
+        with self._input_lock:
+            self._input_events.clear()
+            self._session_event_offset_us = session_event_offset_us
 
     def get_user_input_events(self) -> UserInputEvents:
         """Implement ``InputSource.get_user_input_events`` for browser input.
@@ -81,7 +102,21 @@ class WebRTCClientWindow(IClientWindow):
         with self._input_lock:
             events = list(self._input_events)
             self._input_events.clear()
-        return UserInputEvents(events)
+            session_event_offset_us = int(self._session_event_offset_us)
+        return UserInputEvents(
+            [
+                replace(
+                    event,
+                    timestamp=uint64(
+                        max(
+                            0,
+                            int(event.get_timestamp()) - session_event_offset_us,
+                        )
+                    ),
+                )
+                for event in events
+            ]
+        )
 
     def write(self, result: StepResult) -> None:
         """Materialize and queue one UI-composited frame for the browser.

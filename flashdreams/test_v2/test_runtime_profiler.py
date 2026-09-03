@@ -129,3 +129,31 @@ def test_generation_change_discards_unpresented_input(tmp_path) -> None:
 
     assert profiler.summary()["input_to_window_write_s"] == {"count": 0}
     profiler.close()
+
+
+def test_replacement_sessions_append_independent_profile_segments(tmp_path) -> None:
+    path = tmp_path / "runtime.jsonl"
+    profiler = RuntimeProfiler(path)
+
+    for origin_ns in (1_000_000, 10_000_000):
+        profiler.session_started(
+            input_timestamp_origin_ns=origin_ns,
+            time_ns=origin_ns,
+        )
+        profiler.ui_step_started(
+            _input(),
+            generation=0,
+            step=0,
+            time_ns=origin_ns + 2_000_000,
+        )
+        profiler.close()
+
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    assert sum(record["phase"] == "session_started" for record in records) == 2
+    summaries = [
+        record
+        for record in records
+        if record["phase"] == "profile_summary"
+        and record["metric"] == "input_to_ui_step_s"
+    ]
+    assert [record["count"] for record in summaries] == [1, 1]

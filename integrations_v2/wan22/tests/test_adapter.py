@@ -34,13 +34,19 @@ def test_factory_exposes_single_block_ti2v_defaults() -> None:
     assert application.defaults.fps == 16
 
 
-def test_application_requires_prompt_and_existing_first_frame(tmp_path: Path) -> None:
-    """Reject missing static conditioning before loading the checkpoint."""
-    application = Wan22TI2VApplication()
+def test_application_accepts_deferred_prompt_and_requires_existing_first_frame(
+    tmp_path: Path,
+) -> None:
+    """Allow an interactive prompt while rejecting a missing first frame."""
     first_frame = _first_frame(tmp_path)
+    application = Wan22TI2VApplication(
+        pipeline_config=FakeT2VPipelineConfig(FakeT2VPipeline())
+    )
 
-    with pytest.raises(ValueError, match="--prompt is required"):
-        application.init(["--image-path", str(first_frame)])
+    application.init(["--image-path", str(first_frame), "--device", "cpu"])
+    application.close()
+
+    application = Wan22TI2VApplication()
     with pytest.raises(SystemExit):
         application.init(["--prompt", "A waterfall"])
     with pytest.raises(FileNotFoundError, match="first-frame image does not exist"):
