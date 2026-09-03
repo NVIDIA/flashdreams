@@ -213,6 +213,23 @@ def test_closing_twice_writes_once(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == written
 
 
+def test_reopening_the_sink_replaces_the_previous_session_record(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "stats_run.json"
+    sink = MetricsOutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result(0, {"total_ms": 10.0}))
+    sink.close()
+
+    sink.open(_session_desc())
+    sink.write(_result(7, {"total_ms": 20.0}))
+    sink.close()
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert [step["step_index"] for step in payload["steps"]] == [7]
+
+
 def test_nothing_can_be_recorded_before_a_session_is_open(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="open.. must run before write"):
         MetricsOutputSink(tmp_path / "stats_run.json").write(_result())

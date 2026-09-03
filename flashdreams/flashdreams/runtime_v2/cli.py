@@ -14,6 +14,7 @@ argument that only one of them uses.
 """
 
 import argparse
+import math
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -54,6 +55,10 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     own_args, application_args = split_arguments(arguments)
     parser = _parser()
     parsed = parser.parse_args(own_args)
+    if parsed.timeout is not None and (
+        not math.isfinite(parsed.timeout) or parsed.timeout <= 0
+    ):
+        parser.error("--timeout must be a finite number greater than zero.")
 
     mode = client_window_mode(parsed.mode)
     # Asking an application what it takes is answered by the application alone,
@@ -75,8 +80,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     session_desc = _session_desc(application, parsed)
     window = mode.create(parsed)
     _report(mode.starting(window))
-    # Nothing here says how long the run is: a session reports itself finished,
-    # and a window ends the run when its client goes away.
+    # The session's UI and client input decide when the run ends.
     metrics_output_sink = (
         None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )
@@ -84,7 +88,11 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         application,
         window,
         metrics_output_sink=metrics_output_sink,
-    ).run(session_desc, application_args)
+    ).run(
+        session_desc,
+        application_args,
+        timeout_seconds=parsed.timeout,
+    )
     _report(mode.finished(window))
 
 
@@ -119,6 +127,13 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("slug", help="Application to run.")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Stop the application after this many seconds.",
+    )
     add_client_window_arguments(parser)
     _add_session_arguments(parser)
     return parser

@@ -4,9 +4,9 @@
 """Create v2 client windows from runtime arguments.
 
 A mode is one way to watch a run: an MP4 file, a browser, whatever comes after
-them. Each mode owns the arguments it takes and what to tell the user about
-where its output went, so a command line offering the modes never has to know
-what any of them are, and adding one is adding it here.
+them. Each mode owns its arguments and user-facing messages, so a command line
+offering the modes never has to know what any of them are, and adding one is
+adding it here.
 """
 
 import argparse
@@ -153,7 +153,8 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "JSON file to record model-step measurements in, for a benchmark "
-            "to read. Nothing is measured unless this is asked for."
+            "to read. Nothing is measured unless this is asked for. If a run "
+            "replaces its session, the file contains the final session."
         ),
     )
     for mode in _MODES:

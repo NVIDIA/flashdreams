@@ -111,6 +111,7 @@ def test_shared_t2v_code_is_owned_by_app_package() -> None:
         "defaults.py",
         "session.py",
         "testing.py",
+        "ui.py",
     }
     assert (project / "tests").is_dir()
     readme = (project / "README.md").read_text()
