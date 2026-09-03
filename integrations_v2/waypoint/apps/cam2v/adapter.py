@@ -159,11 +159,11 @@ class WaypointCam2VApplication(IApplication):
         )
 
     def session_desc(self) -> SessionDesc:
-        """Return Waypoint's native 1024x512 TCHW presentation contract."""
+        """Return Waypoint's finite, native 1024x512 TCHW replay contract."""
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
-            presentation_mode=PresentationMode.CONTINUOUS,
+            presentation_mode=PresentationMode.ON_DEMAND,
             frames_per_second_for_ui=_PLAYBACK_FPS,
             frames_per_second_for_step=_PLAYBACK_FPS,
             video_width=_OUTPUT_WIDTH,

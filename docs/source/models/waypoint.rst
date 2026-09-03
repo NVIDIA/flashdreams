@@ -127,13 +127,16 @@ Run the same application interactively in a browser:
 .. code-block:: bash
 
    uv run --no-sync flashdreams-run-v2 cam2v-waypoint \
-       --mode webrtc --host 127.0.0.1 --port 8766 \
+       --mode webrtc --presentation-mode continuous \
+       --host 127.0.0.1 --port 8766 \
        -- --image-path seed.png --seed 464
 
 Open http://127.0.0.1:8766/. The control HUD highlights held keys; press ``R``
-to reset the rollout to the starting image. Arguments before the separator
-configure the V2 runtime; arguments after it configure Waypoint. To inspect all
-model arguments:
+to reset the rollout to the starting image. Continuous presentation keeps the
+interactive HUD responsive; the application default remains on-demand so
+finite replays contain each generated frame exactly once. Arguments before the
+separator configure the V2 runtime; arguments after it configure Waypoint. To
+inspect all model arguments:
 
 .. code-block:: bash
 

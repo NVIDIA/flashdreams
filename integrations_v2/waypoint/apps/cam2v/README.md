@@ -10,14 +10,15 @@ Install the Waypoint integration and launch its `cam2v-waypoint` application:
 ```bash
 uv sync --package flashdreams-waypoint --inexact
 uv run --no-sync flashdreams-run-v2 cam2v-waypoint --mode webrtc \
-  --host 0.0.0.0 --port 8089 -- --example-data
+  --presentation-mode continuous --host 0.0.0.0 --port 8089 -- \
+  --example-data
 ```
 
 Use a local starting image with live controls:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 cam2v-waypoint --mode webrtc \
-  --host 0.0.0.0 --port 8089 -- \
+  --presentation-mode continuous --host 0.0.0.0 --port 8089 -- \
   --image-path seed.png --seed 464
 ```
 
@@ -33,7 +34,9 @@ uv run --no-sync flashdreams-run-v2 cam2v-waypoint --mode webrtc \
 
 The on-screen HUD lists these controls and wraps held keys in brackets. Losing
 window or browser focus clears held controls. Pass `--no-ui` to disable the
-HUD.
+HUD. Interactive examples opt into continuous presentation for prompt HUD
+updates. Waypoint otherwise defaults to on-demand presentation so finite
+replays contain each generated frame exactly once.
 
 For a deterministic file-driven MP4:
 

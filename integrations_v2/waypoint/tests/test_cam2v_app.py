@@ -181,8 +181,8 @@ def test_package_uses_the_complete_v2_layout() -> None:
     assert not (_PACKAGE_ROOT.parents[1] / "integrations" / "waypoint").exists()
 
 
-def test_application_description_is_cheap_and_mp4_complete() -> None:
-    """Session metadata is available before args, downloads, or model loading."""
+def test_application_description_is_cheap_and_preserves_finite_replay() -> None:
+    """Default metadata preserves exact replay without loading model state."""
     app = WaypointCam2VApplication()
     session_desc = app.session_desc()
     assert session_desc.output_layout is VideoTensorLayout.tchw
@@ -190,7 +190,7 @@ def test_application_description_is_cheap_and_mp4_complete() -> None:
     assert session_desc.video_height == 512
     assert session_desc.frames_per_second_for_step == 60
     assert session_desc.backpressure_mode.value == "block"
-    assert session_desc.presentation_mode is PresentationMode.CONTINUOUS
+    assert session_desc.presentation_mode is PresentationMode.ON_DEMAND
 
 
 def test_application_requires_a_seed_source_and_actions_require_a_file() -> None:
