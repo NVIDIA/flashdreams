@@ -162,7 +162,7 @@ for the JSON-stats schema and both parity tests.
 
 ## Standalone uplift server
 
-The informal standalone gRPC uplift server can be launched directly with: 
+The informal standalone gRPC uplift server can be launched directly with:
 
 ```bash
 uv run --no-sync --package flashdreams-flashvsr --with grpcio --with Pillow \
