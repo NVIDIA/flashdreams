@@ -186,11 +186,12 @@ median, p90, and maximum values for these measurements:
 The ``endpoint`` field defines the final boundary. Native-window records use
 ``native_presenter_return`` after the presenter returns. WebRTC records use
 ``webrtc_sender_admission`` after frame materialization and sender admission.
-Writes completed without a connected WebRTC sender carry a null endpoint. Input
-and selected-frame correlations remain pending until a sender admits a later
-write. Browser decode, network transit, compositor scheduling, and physical
-scanout form a client-side continuation and can be joined with browser
-telemetry.
+The sender mailbox is active during WebRTC negotiation. An explicit
+``disconnected`` state gives writes a null endpoint until the same peer reaches
+``connected`` again. Input and selected-frame correlations remain pending until
+a sender admits a later write. Browser decode, network transit, compositor
+scheduling, and physical scanout form a client-side continuation and can be
+joined with browser telemetry.
 
 Profiles add host timestamping and JSONL writes to the measured run. Keep the
 same profile setting across candidate and reference measurements. Use Nsight

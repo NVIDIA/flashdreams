@@ -324,12 +324,54 @@ async def test_peer_state_distinguishes_recovery_from_terminal_close(
         server_loop = window.server._loop
         assert server_loop is not None
 
-        for connection_state in ("connected", "disconnected", "connected"):
-            future = asyncio.run_coroutine_threadsafe(
-                transition(connection_state),
-                server_loop,
+        future = asyncio.run_coroutine_threadsafe(transition("connected"), server_loop)
+        await asyncio.wrap_future(future)
+        window.write(
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 16, 16), dtype=torch.uint8),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
             )
-            await asyncio.wrap_future(future)
+        )
+        assert window.profile_endpoint == "webrtc_sender_admission"
+        admitted_before_disconnect = window.metrics_snapshot()[
+            "webrtc_sender_enqueued_count"
+        ]
+
+        future = asyncio.run_coroutine_threadsafe(
+            transition("disconnected"), server_loop
+        )
+        await asyncio.wrap_future(future)
+        window.write(
+            StepResult(
+                step_index=1,
+                output=torch.ones((1, 3, 16, 16), dtype=torch.uint8),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
+        assert window.profile_endpoint is None
+        assert (
+            window.metrics_snapshot()["webrtc_sender_enqueued_count"]
+            == admitted_before_disconnect
+        )
+
+        future = asyncio.run_coroutine_threadsafe(transition("connected"), server_loop)
+        await asyncio.wrap_future(future)
+        window.write(
+            StepResult(
+                step_index=2,
+                output=torch.full((1, 3, 16, 16), 2, dtype=torch.uint8),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
+        assert window.profile_endpoint == "webrtc_sender_admission"
+        assert (
+            window.metrics_snapshot()["webrtc_sender_enqueued_count"]
+            == admitted_before_disconnect + 1
+        )
 
         assert window.server._media_connected.is_set()
         assert window.server._client_connected
