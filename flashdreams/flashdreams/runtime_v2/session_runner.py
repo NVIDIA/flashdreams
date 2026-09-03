@@ -75,7 +75,7 @@ def run_session(
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
-        profiler: Optional perceived input-latency profiler.
+        profiler: Optional host-side input-latency profiler.
         steps: Maximum model steps; ``None`` runs until stopped.
 
     Raises:

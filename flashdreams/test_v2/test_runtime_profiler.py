@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU checks for V2 perceived input-latency profiles."""
+"""CPU checks for V2 host-side input-latency profiles."""
 
 import json
 

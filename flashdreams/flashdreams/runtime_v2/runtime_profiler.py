@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Perceived input-latency profiling for the V2 runtime."""
+"""Host-side input-latency profiling for the V2 runtime."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class _ClaimedInput:
 
 
 class RuntimeProfiler:
-    """Write input-to-UI and input-to-output latency records as JSONL.
+    """Write input-to-IUILoop and input-to-window-write records as JSONL.
 
     One runtime UI thread owns an instance. Input timestamps and runtime
     observations share ``time.monotonic_ns`` through the source-provided session
@@ -153,7 +153,7 @@ class RuntimeProfiler:
             )
 
     def summary(self) -> dict[str, dict[str, float | int]]:
-        """Return summary statistics for both perceived-latency metrics."""
+        """Return summary statistics for both host-side latency metrics."""
         return {name: _summarize(values) for name, values in self._samples.items()}
 
     def close(self) -> None:

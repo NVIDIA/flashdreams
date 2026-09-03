@@ -147,7 +147,7 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
         "--profile-path",
         type=Path,
         default=None,
-        help="Write perceived input-latency records as JSONL.",
+        help="Write host-side input-latency records as JSONL.",
     )
     parser.add_argument(
         "--pixel-width", type=int, default=None, help="Frame width to generate."

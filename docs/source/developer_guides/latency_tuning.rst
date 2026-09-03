@@ -157,7 +157,7 @@ resolution, and native-acceleration knobs first.
 Profiling and validated reference
 ---------------------------------
 
-V2 perceived input latency
+V2 host-side input latency
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use ``--profile-path`` with a V2 application to write a JSONL profile:
@@ -175,10 +175,12 @@ The input source publishes the monotonic origin for its session-relative
 - ``input_to_window_write_s`` ends when the first following client-window
   ``write`` call returns.
 
-Native-window and WebRTC writes expose different host-side delivery boundaries.
-Browser decode, network transit, compositor scheduling, and physical scanout
-require matching client telemetry. The final ``profile_summary`` records report
-count, median, p90, and maximum values.
+The native-window measurement ends after its presenter call returns. The WebRTC
+measurement ends after the host writes the latest frame into the existing
+single-slot sender mailbox. Active-peer delivery, RTP transit, browser decode,
+compositor scheduling, and physical scanout require matching client telemetry.
+The final ``profile_summary`` records report count, median, p90, and maximum
+values.
 
 JSONL writes add host overhead to the measured run. Keep profiling enabled for
 every run in a direct comparison. Use Nsight Systems for GPU stage attribution.

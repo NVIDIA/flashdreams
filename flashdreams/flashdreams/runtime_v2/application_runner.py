@@ -34,7 +34,7 @@ class ApplicationRunner:
             application: Long-lived application that creates the session.
             client_window: Window that supplies input and presents generated output.
             metrics_output_sink: Optional sink for model-step metrics.
-            profiler: Optional perceived input-latency profiler.
+            profiler: Optional host-side input-latency profiler.
         """
         self._application = application
         self._client_window = client_window

@@ -213,7 +213,7 @@ The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into
 the session's layout.
 
-`--profile-path artifacts/<run>.jsonl` records event-to-IUILoop and
+`--profile-path artifacts/<run>.jsonl` records host-side event-to-IUILoop and
 event-to-window-write latency. Each input source supplies the monotonic origin
 for its session-relative event timestamps. The
 [latency tuning guide](../../../docs/source/developer_guides/latency_tuning.rst)
