@@ -1486,12 +1486,12 @@ requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flash
 [[package]]
 name = "flashdreams-sana-wm"
 version = "0.1.0"
-source = { editable = "integrations/sana" }
+source = { editable = "integrations_v2/sana_wm" }
 dependencies = [
     { name = "accelerate" },
     { name = "diffusers" },
     { name = "flashdreams" },
-    { name = "imageio", extra = ["ffmpeg"] },
+    { name = "flashdreams-cam2v" },
     { name = "pillow" },
     { name = "pyyaml" },
     { name = "safetensors" },
@@ -1512,7 +1512,7 @@ requires-dist = [
     { name = "accelerate", specifier = ">=1.0" },
     { name = "diffusers", specifier = ">=0.36" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
     { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -2047,12 +2047,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/84/93bcd1300216ea50811cee96873b84a1bebf8d0489ffaf7f2a3756bab866/imageio-2.37.3.tar.gz", hash = "sha256:bbb37efbfc4c400fcd534b367b91fcd66d5da639aaa138034431a1c5e0a41451", size = 389673, upload-time = "2026-03-09T11:31:12.573Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/49/fa/391e437a34e55095173dca5f24070d89cbc233ff85bf1c29c93248c6588d/imageio-2.37.3-py3-none-any.whl", hash = "sha256:46f5bb8522cd421c0f5ae104d8268f569d856b29eb1a13b92829d1970f32c9f0", size = 317646, upload-time = "2026-03-09T11:31:10.771Z" },
-]
-
-[package.optional-dependencies]
-ffmpeg = [
-    { name = "imageio-ffmpeg" },
-    { name = "psutil" },
 ]
 
 [[package]]

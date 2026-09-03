@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-sana-wm"
+version = "0.1.0"
+description = "SANA-WM world-model and Cam2V integration for FlashDreams v2."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "accelerate>=1.0",
+    "diffusers>=0.36",
+    "flashdreams",
+    "flashdreams-cam2v",
+    "Pillow>=10",
+    "PyYAML>=6.0",
+    "safetensors>=0.5",
+    "sentencepiece>=0.2",
+    "torchvision>=0.26",
+    "transformers>=5.0,<6",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-cam2v = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.entry-points."flashdreams.applications_v2"]
+"cam2v-sana-wm-streaming" = "sana_wm.apps.cam2v.adapter:create_app"
+
+[tool.setuptools]
+packages = [
+    "sana_wm",
+    "sana_wm.apps",
+    "sana_wm.apps.cam2v",
+    "sana_wm.impl",
+    "sana_wm.impl.ops",
+]
+
+[tool.setuptools.package-dir]
+sana_wm = "."
+
+[tool.uv]
+managed = true

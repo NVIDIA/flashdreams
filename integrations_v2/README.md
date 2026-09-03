@@ -29,6 +29,8 @@ follows is already done for you.
 - `self_forcing`, `causal_forcing`, `fastvideo_causal_wan22`, `wan21`,
   `cosmos_predict2`, and `wan22` — model implementations with T2V adapters
   over the reusable `apps/t2v` package.
+- `sana_wm` — SANA-WM bidirectional and streaming pipelines plus the
+  `cam2v-sana-wm-streaming` live-control binding.
 - `flashvsr` — streaming video super-resolution bound to the shared
   `apps/v2v` video-to-video application.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
