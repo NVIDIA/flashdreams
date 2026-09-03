@@ -172,25 +172,26 @@ class LiveEditStyleConfig:
 
 @dataclass(frozen=True)
 class WeatherPreset:
-    """One selectable weather state driven by a prompt swap.
+    """One selectable weather state appended to the active map prompt.
 
     Weather is a base-world-only ability (design decision 2026-08-20): it
-    never composes with a skin prompt, so each preset carries exactly one
-    standalone scene prompt.
+    never composes with a skin prompt.
     """
 
     name: str
     """Short HUD label, e.g. ``rain``."""
 
-    prompt: str
-    """Full standalone scene prompt describing the weather over the base
-    world. Scene-native declarative phrasing lands much stronger than
-    instruction-style wording (calibration sweeps, 2026-08-08)."""
+    prompt_suffix: str
+    """Context-neutral weather text appended to the active map prompt.
+
+    Scene-native declarative phrasing lands much stronger than instruction-style
+    wording (calibration sweeps, 2026-08-08).
+    """
 
 
-# Daytime-rain phrasing follows the validated RAIN_NIGHT_NATIVE structure
-# (sweep_text_edit.py) adapted to the daylight suburban scenes, with the
-# visible-precipitation cues front-loaded (streaks in the air, droplets on
+# Weather phrasing follows the validated RAIN_NIGHT_NATIVE structure
+# (sweep_text_edit.py), with the visible-precipitation cues front-loaded
+# (streaks in the air, droplets on
 # the windshield/lens, tire spray) — the 2026-08-20 recapture showed wording
 # that leans on wet-road looks alone reads as "no rain" to viewers. Snow
 # extends the scene bundle's snowstorm wording with the same front-loaded
@@ -207,70 +208,49 @@ class WeatherPreset:
 _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
     WeatherPreset(
         name="rain",
-        prompt=(
-            "A dashcam perspective of a suburban street in a heavy daytime "
-            "downpour under a dark gray overcast sky. Dense visible rain "
-            "streaks slice through the air across the whole frame, and "
-            "raindrops and water droplets bead and run down the windshield "
-            "and camera lens. The asphalt road is saturated with sheeting "
-            "water, a glossy wet mirror breaking up reflections, and mist "
-            "and spray kick up from the tires of vehicles. The car's wet "
-            "hood is covered with rain droplets. Photorealistic dashcam "
-            "footage in pouring rain."
+        prompt_suffix=(
+            "Heavy daytime rain falls in a downpour beneath a dark gray overcast "
+            "sky. Dense visible rain streaks cross the whole frame, and water "
+            "droplets bead and run down the windshield and camera lens. The road "
+            "surface is saturated with sheeting water and glossy broken "
+            "reflections, with mist and tire spray in the air. The vehicle hood "
+            "is wet and covered with rain droplets."
         ),
     ),
     WeatherPreset(
         name="snow",
-        prompt=(
-            "A dashcam perspective from inside a vehicle driving down a "
-            "wide suburban residential street in heavy snowfall during a "
-            "snowstorm. Thick white snowflakes fall densely and visibly "
-            "through the air across the whole frame, streaking past the "
-            "windshield. The road is heavily covered in white snow with "
-            "visible parallel tire tracks, and fresh snow keeps "
-            "accumulating on the asphalt. Vehicles parked along the curb "
-            "and the roadsides are coated in a thick layer of snow. The "
-            "surrounding houses, lawns, and large trees are completely "
-            "blanketed in winter snow. The sky is a bright white-out "
-            "overcast winter sky. In the foreground, the bottom of the "
-            "windshield and the car's snow-dusted hood are visible, with "
-            "thick snowflakes and snow accumulating on the hood and around "
-            "the windshield wipers."
+        prompt_suffix=(
+            "Heavy snow falls in a dense snowstorm. Thick white snowflakes fill "
+            "the whole frame and streak past the windshield. The road is heavily "
+            "covered in fresh white snow with visible parallel tire tracks. "
+            "Roadside surfaces, vegetation, buildings, and vehicles are coated "
+            "in a thick layer of snow beneath a bright white-out winter sky. Snow "
+            "accumulates on the vehicle hood and around the windshield wipers."
         ),
     ),
     WeatherPreset(
         name="storm",
-        prompt=(
-            "A dashcam perspective of a suburban street in a violent "
-            "hurricane-force storm. Torrential rain hammers down in dense "
-            "sheets, thick rain streaks slice through the air, and water "
-            "sprays across the windshield and camera lens. The sky is a "
-            "dark green-black wall of storm clouds, so dark that oncoming "
-            "vehicles have their headlights on. Low fog and wind-driven "
-            "mist blow across the road, trees bend hard in the violent "
-            "wind, and loose leaves and debris fly through the air. The "
-            "flooded asphalt sheets with water and heavy spray kicks up "
-            "from the tires. Photorealistic dashcam footage inside a "
-            "severe storm."
+        prompt_suffix=(
+            "A violent storm surrounds the scene. Torrential rain falls in dense "
+            "sheets, thick rain streaks cross the air, and water sprays across "
+            "the windshield and camera lens. A dark green-black wall of storm "
+            "clouds makes vehicle headlights visible. Low fog and wind-driven "
+            "mist cross the road, trees bend in the wind, and loose leaves and "
+            "debris fill the air. The flooded road sheets with water and heavy "
+            "tire spray."
         ),
     ),
     WeatherPreset(
         name="hurricane",
-        prompt=(
-            "A dashcam perspective of a suburban street in the eyewall of "
-            "a landfalling hurricane, visibility collapsed to almost "
-            "nothing. Blinding torrential rain bands and solid walls of "
-            "white spray and mist swallow the street, so only the nearest "
-            "stretch of road is visible before everything dissolves into "
-            "gray-white murk. Fallen tree branches, palm fronds, leaves, "
-            "and scattered debris litter the flooded road surface, lying "
-            "across the lanes in standing water. The sky is an oppressive "
-            "black-green hurricane sky, dark as night at midday, and the "
-            "whole scene is drowned in emergency gloom. Oncoming headlights "
-            "smear into halos through the deluge, windshield wipers thrash "
-            "at full speed, and sheets of water crash over the windshield "
-            "and camera lens. Photorealistic dashcam footage inside a "
-            "catastrophic hurricane."
+        prompt_suffix=(
+            "Landfalling hurricane conditions reduce visibility to almost "
+            "nothing. Blinding torrential rain bands and walls of white spray "
+            "and mist hide everything beyond the nearest road surface. Fallen "
+            "branches, leaves, and scattered debris lie across flooded lanes in "
+            "standing water. An oppressive black-green hurricane sky darkens the "
+            "scene at midday. Headlights smear into halos through the deluge, "
+            "windshield wipers move at full speed, and sheets of water crash over "
+            "the windshield and camera lens."
         ),
     ),
 )

@@ -81,6 +81,7 @@ class _Pipeline:
 class _Engine:
     closed: bool = False
     is_running: bool = True
+    live_edit: object | None = None
 
     @property
     def current_game_frame(self):

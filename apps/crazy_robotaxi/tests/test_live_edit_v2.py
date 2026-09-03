@@ -22,6 +22,8 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
+    StyleSkin,
+    WeatherPreset,
     add_live_edit_args,
     live_edit_config_from_args,
     resolve_live_edit_assets,
@@ -36,10 +38,11 @@ from crazy_robotaxi.live_edit.obstacle_events import (
 from crazy_robotaxi.live_edit.obstacle_templates import load_obstacle_template_catalog
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay, LiveEditGameRules
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
+from crazy_robotaxi.live_edit.weather_ability import compose_swap_target
 from crazy_robotaxi.navigation import NavigationLane
 from ludus_renderer import SceneObject
 from omnidreams_game_engine.config import VehicleConfig
-from omnidreams_game_engine.contracts import GameUpdate
+from omnidreams_game_engine.contracts import GameRules, GameUpdate
 from omnidreams_game_engine.game_map import load_game_map
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -251,8 +254,8 @@ def test_live_edit_rules_award_coins_before_taxi_snapshots() -> None:
     inner = SimpleNamespace(is_running=True, advance_frames=advance_inner)
     gameplay = SimpleNamespace(advance=lambda _trajectory: (("actor",), 2))
     rules = LiveEditGameRules(
-        inner,
-        gameplay,
+        cast(GameRules, inner),
+        cast(LiveEditGameplay, gameplay),
         coin_collected=lambda count: awarded.append(count * 100),
     )
 
@@ -431,6 +434,38 @@ def _map_prompt_ability() -> tuple[StyleAbility, SimpleNamespace, list[Any]]:
     return ability, session, targets
 
 
+def test_weather_suffix_composes_without_changing_style_prompt() -> None:
+    style_config = LiveEditStyleConfig(
+        enabled=True,
+        skins=(StyleSkin("comic", "Comic-book visuals."),),
+    )
+    weather_config = LiveEditWeatherConfig(
+        enabled=True,
+        weathers=(WeatherPreset("rain", "Heavy rain falls."),),
+    )
+    common = {
+        "base_prompt": "A city road.",
+        "map_prompt_suffix": "The taxi is driving forward.",
+        "style_config": style_config,
+        "weather_config": weather_config,
+        "lora_available": True,
+    }
+
+    base = compose_swap_target(skin=None, weather=None, **common)
+    style = compose_swap_target(skin=style_config.skins[0], weather=None, **common)
+    weather = compose_swap_target(
+        skin=None, weather=weather_config.weathers[0], **common
+    )
+
+    assert base.prompt == "A city road. The taxi is driving forward."
+    assert style.prompt == "Comic-book visuals. The taxi is driving forward."
+    assert style.use_lora is True
+    assert style.guidance_chunks == 6
+    assert weather.prompt == (
+        "A city road. The taxi is driving forward. Heavy rain falls."
+    )
+
+
 def test_map_prompt_change_is_plain_and_deferred_during_guidance() -> None:
     ability, session, targets = _map_prompt_ability()
     ability._pending_map_suffix = "The taxi is driving forward."
@@ -497,7 +532,9 @@ def test_visual_swap_absorbs_pending_map_change_once() -> None:
     ability.before_v2_chunk()
 
     assert len(targets) == 1
-    assert targets[0].prompt.endswith("The taxi is driving forward.")
+    assert targets[0].prompt == (
+        f"{style.skins[0].prompt} The taxi is driving forward."
+    )
     assert ability._pending_map_suffix is None
 
 

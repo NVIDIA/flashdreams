@@ -46,7 +46,7 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditWeatherConfig,
 )
 from crazy_robotaxi.live_edit.map_context import MapContextTracker
-from crazy_robotaxi.live_edit.weather_ability import compose_swap_target
+from crazy_robotaxi.live_edit.weather_ability import compose_prompt, compose_swap_target
 
 _NO_PENDING = object()
 """Sentinel distinguishing "no request" from "revert to base" (None)."""
@@ -317,13 +317,20 @@ class StyleAbility:
                 "re-encode per swap (pre-encoding skipped)"
             )
             return
+        assert self._base_prompt is not None
         prompts: list[str] = []
         if self._config.enabled:
             prompts.extend(skin.prompt for skin in self._config.skins)
         if self._weather_config is not None:
-            prompts.extend(weather.prompt for weather in self._weather_config.weathers)
+            prompts.extend(
+                compose_prompt(
+                    base_prompt=self._base_prompt,
+                    appearance_prompt_suffix=weather.prompt_suffix,
+                )
+                for weather in self._weather_config.weathers
+            )
         if self._map_context_config is not None:
-            # Bare visual prompts are never issued while map context is active;
+            # Static combinations are never issued while map context is active;
             # complete combinations are encoded lazily at the chunk boundary.
             prompts.clear()
         start = time.perf_counter()
@@ -716,11 +723,6 @@ class StyleAbility:
             return False
         return interval > 0 and self._chunks_since_swap >= interval
 
-    @staticmethod
-    def _with_map_suffix(prompt: str, suffix: str) -> str:
-        """Append a normalized map suffix to one complete visual prompt."""
-        return " ".join(part.strip() for part in (prompt, suffix) if part.strip())
-
     def _edit_window_active(self) -> bool:
         """Return whether a guided style or weather landing is still active."""
         session = self._session
@@ -735,11 +737,12 @@ class StyleAbility:
         )
         return guidance is not None and guidance.chunks_remaining > 0
 
-    def _visual_target(self) -> Any:
+    def _visual_target(self, map_prompt_suffix: str) -> Any:
         """Compose the active visual state without changing it."""
         assert self._base_prompt is not None
         return compose_swap_target(
             base_prompt=self._base_prompt,
+            map_prompt_suffix=map_prompt_suffix,
             skin=(
                 None
                 if self._active_index is None
@@ -765,10 +768,9 @@ class StyleAbility:
         if session is None or session._cache is None or self._base_prompt is None:
             self._pending_map_suffix = suffix
             return
-        visual_target = self._visual_target()
+        visual_target = self._visual_target(suffix)
         target = replace(
             visual_target,
-            prompt=self._with_map_suffix(visual_target.prompt, suffix),
             guidance_scale=1.0,
             guidance_chunks=0,
             use_lora=False,
@@ -818,6 +820,7 @@ class StyleAbility:
 
         target = compose_swap_target(
             base_prompt=self._base_prompt,
+            map_prompt_suffix=map_suffix,
             skin=None if target_skin is None else self._config.skins[target_skin],
             weather=(
                 None
@@ -827,10 +830,6 @@ class StyleAbility:
             style_config=self._config,
             weather_config=self._weather_config,
             lora_available=self._lora_attached,
-        )
-        target = replace(
-            target,
-            prompt=self._with_map_suffix(target.prompt, map_suffix),
         )
         if (
             self._active_weather is not None
@@ -856,15 +855,12 @@ class StyleAbility:
             assert self._weather_config is not None
             rebase = compose_swap_target(
                 base_prompt=self._base_prompt,
+                map_prompt_suffix=map_suffix,
                 skin=None,
                 weather=None,
                 style_config=self._config,
                 weather_config=self._weather_config,
                 lora_available=self._lora_attached,
-            )
-            rebase = replace(
-                rebase,
-                prompt=self._with_map_suffix(rebase.prompt, map_suffix),
             )
             self._replace_text(session, rebase)
             target = replace(

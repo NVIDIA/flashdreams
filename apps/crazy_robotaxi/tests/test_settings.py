@@ -73,6 +73,31 @@ def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
         _load(path)
 
 
+def test_live_edit_prompt_suffix_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """\
+live_edit:
+  weather:
+    enabled: true
+    weathers:
+      - name: custom
+        prompt_suffix: Custom weather conditions.
+""",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+    document.save(document.settings)
+
+    assert document.settings.live_edit.weather.weathers[0].prompt_suffix == (
+        "Custom weather conditions."
+    )
+    assert "prompt_suffix: Custom weather conditions." in path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text("model:\n  pipeline:\n    name: other\n", encoding="utf-8")
