@@ -61,3 +61,17 @@ def test_consecutive_pointer_moves_are_retained_for_fast_and_slow_readers() -> N
         for event in slow_events.get_events()
         if isinstance(event, MouseUserInputEvent)
     ] == [0.1, 0.2, 0.3, 0.5, 0.6]
+
+
+def test_receipt_times_survive_buffer_garbage_collection() -> None:
+    buffer = EventBuffer()
+    buffer.register(0)
+    buffer.register(1)
+    event = _move(1, 0.1)
+    buffer.append(UserInputEvents([event], received_at_ns={id(event): 123}))
+
+    read_events, _ = buffer.read(0)
+    buffer.read(1)
+    assert buffer.collect_garbage() == 1
+
+    assert read_events.received_at_ns(event) == 123

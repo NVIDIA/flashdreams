@@ -318,7 +318,12 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         trace_enabled = getattr(state.config, "profile_input_latency", False)
         # Match Interactive Drive: apply every unread edge before rollout setup,
         # reset handling, or simulation reads the retained command.
-        input_times_s = state.driver_input.apply(events)
+        state.driver_input.apply(events)
+        input_event_receipts = tuple(
+            (int(event.get_timestamp()), received_at_ns, type(event).__name__)
+            for event in events.get_events()
+            if (received_at_ns := events.received_at_ns(event)) is not None
+        )
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
@@ -343,10 +348,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 live_edit.process_events(events)
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
-            input_window = state.input_timeline.next_window(
-                frame_count,
-                input_times_s=input_times_s,
-            )
+            input_window = state.input_timeline.next_window(frame_count)
             sampled_commands, transition_timestamps_us = state.driver_input.sample(
                 input_window
             )
@@ -378,10 +380,25 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         steer=command.steer,
                         reverse=command.reverse,
                     )
+            rollout_step_started_ns = time.monotonic_ns() if trace_enabled else None
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=commands,
             )
+            if rollout_step_started_ns is not None:
+                for event_us, received_at_ns, source in input_event_receipts:
+                    _log_chunk_trace(
+                        "model_input_processed",
+                        time_ns=rollout_step_started_ns,
+                        event_us=event_us,
+                        input_to_model_step_ms=(
+                            rollout_step_started_ns - received_at_ns
+                        )
+                        / 1_000_000.0,
+                        generation=runtime_generation,
+                        step=step_index,
+                        source=source,
+                    )
             if trace_enabled and generated._trace is not None:
                 trace = generated._trace
                 cache_finalize_returned_ns = trace.cache_finalize_returned_ns

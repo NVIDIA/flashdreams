@@ -352,6 +352,25 @@ async def test_peer_state_distinguishes_recovery_from_terminal_close(
         window.close()
 
 
+def test_window_records_input_at_server_ingress() -> None:
+    window = WebRTCClientWindow()
+    event = KeyboardUserInputEvent(
+        timestamp=0,
+        key="w",
+        state=KeyboardInputState.PRESSED,
+    )
+    callback = window.server._input_callback
+    assert callback is not None
+
+    before_ns = time.monotonic_ns()
+    callback(event)
+    batch = window.get_user_input_events()
+    after_ns = time.monotonic_ns()
+
+    assert batch.get_events() == [event]
+    assert before_ns <= batch.received_at_ns(event) <= after_ns
+
+
 @pytest.mark.asyncio
 async def test_write_delivers_a_video_frame_to_the_browser() -> None:
     window = WebRTCClientWindow()

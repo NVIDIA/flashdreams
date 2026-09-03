@@ -106,6 +106,20 @@ def run_session(
 
     def collect_input() -> None:
         events = window.get_user_input_events()
+        if trace_chunk_lifecycle:
+            received = events.get_events()
+            collected_at_ns = time.monotonic_ns()
+            events = UserInputEvents(
+                received,
+                received_at_ns={
+                    id(event): (
+                        received_at_ns
+                        if (received_at_ns := events.received_at_ns(event)) is not None
+                        else collected_at_ns
+                    )
+                    for event in received
+                },
+            )
         event_buffer.append(events)
         if _contains(events, CloseUserInputEvent):
             stop.set()
