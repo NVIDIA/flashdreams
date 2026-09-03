@@ -24,13 +24,16 @@ from t2v.ui import T2VImGuiUILoop
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.loop import IModelLoop, ModelInferenceState
+from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli
 from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
     create_application,
     registered_application_slugs,
+)
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
 from flashdreams.runtime_v2.session_desc import (
@@ -42,6 +45,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
 pytestmark = pytest.mark.ci_cpu
 
 needs_ffmpeg = pytest.mark.skipif(
@@ -300,34 +304,26 @@ def _install(
     """
     monkeypatch.setattr(cli, "create_application", lambda slug: application)
     if isinstance(application, T2VApplication):
-        # These command-wiring tests have no interactive client to end the
-        # always-present T2V UI after its stand-in model finishes.
-        original_step_ui = T2VImGuiUILoop.step_ui
-        finished_ui_loops: set[int] = set()
-
-        def finish_after_final_frame(
-            self: T2VImGuiUILoop,
-            imgui: object,
-            step_index: int,
-            events: UserInputEvents,
-        ) -> torch.Tensor | None:
-            result = original_step_ui(self, imgui, step_index, events)
-            if (
-                self.model_inference_state is ModelInferenceState.FINISHED
-                and not self._presentation_manager.has_pending_frames()
-            ):
-                finished_ui_loops.add(id(self))
-            return result
-
+        # These command-wiring tests need neither interactive controls nor CUDA.
         monkeypatch.setattr(
             T2VImGuiUILoop,
-            "step_ui",
-            finish_after_final_frame,
+            "_initialize_loop_state",
+            BlitModelOutputToScreenLoop._initialize_loop_state,
+        )
+        monkeypatch.setattr(
+            T2VImGuiUILoop,
+            "step",
+            BlitModelOutputToScreenLoop.step,
         )
         monkeypatch.setattr(
             T2VImGuiUILoop,
             "is_finished",
-            lambda self: id(self) in finished_ui_loops,
+            BlitModelOutputToScreenLoop.is_finished,
+        )
+        monkeypatch.setattr(
+            T2VImGuiUILoop,
+            "reset",
+            BlitModelOutputToScreenLoop.reset,
         )
     if window is not None:
         monkeypatch.setattr(

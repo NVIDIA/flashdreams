@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import numpy as np
 import numpy.typing as npt
@@ -21,6 +22,9 @@ import torch
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
+)
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -32,6 +36,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
 from t2v.application import T2VApplication
+from t2v.ui import T2VImGuiUILoop
 
 _REAL_CLIP_LUMINANCE = (16.0, 240.0)
 """Mean pixel value a real clip has to land inside, from ``0`` to ``255``.
@@ -143,12 +148,19 @@ def check_t2v_model_impl(
             backpressure_mode=BackpressureMode.BLOCK,
             presentation_mode=PresentationMode.ON_DEMAND,
         )
-        run_session(
-            application.create_session(session_desc),
-            _DiscardingClientWindow(),
-            metrics_output_sink=inspector,
-            steps=steps,
-        )
+        with patch.multiple(
+            T2VImGuiUILoop,
+            _initialize_loop_state=BlitModelOutputToScreenLoop._initialize_loop_state,
+            step=BlitModelOutputToScreenLoop.step,
+            is_finished=BlitModelOutputToScreenLoop.is_finished,
+            reset=BlitModelOutputToScreenLoop.reset,
+        ):
+            run_session(
+                application.create_session(session_desc),
+                _DiscardingClientWindow(),
+                metrics_output_sink=inspector,
+                steps=steps,
+            )
     finally:
         application.close()
 

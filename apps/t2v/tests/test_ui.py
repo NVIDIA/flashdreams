@@ -20,6 +20,7 @@ from flashdreams.runtime_v2.user_input_event import (
     NumeralKeypadUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
 pytestmark = pytest.mark.ci_cpu
 
 
