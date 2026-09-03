@@ -1,0 +1,110 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Configs for the Causal-Forcing distilled model (chunkwise + framewise)."""
+
+from __future__ import annotations
+
+from typing import cast
+
+from causal_forcing.impl.checkpoint import state_dict_transform
+from flashdreams.infra.config import derive_config
+from flashdreams.infra.diffusion.model import DiffusionModelConfig
+from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
+from flashdreams.recipes.wan import (
+    Wan21TransformerConfig,
+    WanDiTNetwork1pt3BConfig,
+    WanI2VCtrlEncoderConfig,
+    WanInferencePipelineConfig,
+    WanVAEDecoderConfig,
+    WanVAEEncoderConfig,
+)
+
+CHECKPOINT_PATH_CHUNKWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/chunkwise/causal_forcing.pt"
+CHECKPOINT_PATH_FRAMEWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/main/framewise/causal_forcing.pt"
+
+
+# Causal-Forcing chunkwise Wan 2.1 1.3B T2V pipeline.
+PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
+    name="causal-forcing-wan2.1-t2v-1.3b-chunkwise",
+    # Warning: This will slow down the e2e latency.
+    enable_sync_and_profile=True,
+    encoder=None,
+    decoder=WanVAEDecoderConfig(),
+    diffusion_model=DiffusionModelConfig(
+        seed=42,
+        transformer=Wan21TransformerConfig(
+            network=WanDiTNetwork1pt3BConfig(
+                patch_embedding_type="conv3d",
+                cp_method="ring",
+            ),
+            checkpoint_path=CHECKPOINT_PATH_CHUNKWISE,
+            state_dict_transform=state_dict_transform,
+            batch_shape=(),
+            len_t=3,
+            guidance_scale=1.0,
+            window_size_t=21,
+            sink_size_t=0,
+            stamp_image_latent=False,
+            compile_network=True,
+        ),
+        scheduler=FlowMatchSchedulerConfig(
+            num_inference_steps=4,
+            denoising_timesteps=[1000, 750, 500, 250],
+            warp_denoising_step=True,
+            shift=5.0,
+            sigma_min=0.0,
+            extra_one_step=True,
+            num_train_timesteps=1000,
+        ),
+    ),
+)
+# Framewise variant: one latent frame per AR chunk.
+PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
+        name="causal-forcing-wan2.1-t2v-1.3b-framewise",
+        diffusion_model=dict(
+            transformer=dict(
+                checkpoint_path=CHECKPOINT_PATH_FRAMEWISE,
+                len_t=1,
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+# I2V variant: framewise T2V model can naturally support I2V, by stamping
+# the image latent into the KV cache of the first rollout (stamp_image_latent=True)
+PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE = cast(
+    WanInferencePipelineConfig,
+    derive_config(
+        PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
+        name="causal-forcing-wan2.1-i2v-1.3b-framewise",
+        encoder=WanI2VCtrlEncoderConfig(
+            encoder=WanVAEEncoderConfig(),
+        ),
+        diffusion_model=dict(
+            transformer=dict(stamp_image_latent=True),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+CAUSAL_FORCING_CONFIGS: dict[str, WanInferencePipelineConfig] = {
+    cfg.name: cfg
+    for cfg in (
+        PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
+        PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
+        PIPELINE_WAN21_I2V_1PT3B_FRAMEWISE,
+    )
+}

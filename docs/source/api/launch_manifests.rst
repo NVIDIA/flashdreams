@@ -78,21 +78,25 @@ fails instead of silently launching a different preset:
 
 .. code-block:: bash
 
-   uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest configs/launch_manifest/lingbot_webrtc.yaml
+   uv run flashdreams-run <runner-slug> mp4 \
+       --manifest path/to/webrtc-launch.yaml
 
-Examples
---------
+V2 applications
+---------------
+
+Launch manifests configure ``flashdreams-run`` runners. V2 applications expose
+their runtime and application arguments directly through ``flashdreams-run-v2``
+instead. For LingBot:
 
 .. code-block:: bash
 
-   # WebRTC
-   uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest configs/launch_manifest/lingbot_webrtc.yaml
-
    # MP4 replay
-   uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest configs/launch_manifest/lingbot_mp4.yaml
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode mp4 --output-path outputs/lingbot-replay.mp4 -- --example-data
 
-OmniDreams is a v2 application and uses ``flashdreams-run-v2`` application
-arguments instead of launch manifests. See :doc:`/models/omnidreams`.
+   # WebRTC
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
+
+See :doc:`/models/lingbot_world` and :doc:`/models/omnidreams` for their
+application-specific arguments.

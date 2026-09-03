@@ -246,7 +246,7 @@ CLI overrides parse correctly:
 
 .. code-block:: bash
 
-   uv run flashdreams-run --no-instantiate self-forcing-wan2.1-t2v-1.3b-taehv
+   uv run flashdreams-run --no-instantiate lingbot-world-fast
 
 Remove the flag for a real generation run, or use ``--help`` on the runner
 slug to inspect all supported options.

@@ -113,7 +113,7 @@ only when an RTX preset is selected, and is not redistributed as source in
 this repository.
 
 ================================================================================
-Optional integration: integrations/lingbot
+Optional integration: integrations_v2/lingbot
 ================================================================================
 
 aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp

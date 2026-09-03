@@ -7,7 +7,7 @@ Applications built on the v2 API. Each directory is a standalone package that
 depends on `flashdreams` and holds no framework code of its own.
 
 This is the guide to writing one. If the model generates video from a prompt,
-read [`flashdreams.t2v_v2`](../flashdreams/flashdreams/t2v_v2/README.md)
+read [`apps/t2v`](../apps/t2v/README.md)
 instead, that path is a subclass and a `pyproject.toml`, and most of what
 follows is already done for you.
 
@@ -18,40 +18,53 @@ follows is already done for you.
 - `red_screen` — the smallest interactive one, streaming to a browser.
 - `slangpy_ui_demo` — three applications that draw widgets over model output,
   and the reference for writing a UI loop.
-- `cam2v_lingbot` — the Lingbot World specialization of the shared interactive
-  camera-to-video application.
+- `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
+  shared interactive camera-to-video application.
+- `hy_worldplay` — the HY-WorldPlay model and its `cam2v-hy-worldplay` binding,
+  including live PRoPE/action camera-history adaptation.
 - `waypoint` — the interactive Waypoint 1.5 image-established application
   with deterministic control replay and live keyboard/mouse input.
-- `t2v_self_forcing`, `t2v_causal_forcing`, `t2v_fastvideo_causal_wan22`,
-  `t2v_wan21`, `t2v_cosmos_predict2` — real models, each a thin wrapper over
-  `flashdreams.t2v_v2`.
+- `self_forcing`, `causal_forcing`, `fastvideo_causal_wan22`, `wan21`,
+  `cosmos_predict2`, and `wan22` — model implementations with T2V adapters
+  over the reusable `apps/t2v` package.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
 
 ## The layout
 
 ```text
-integrations_v2/<name>/
+integrations_v2/<model>/
   pyproject.toml
   README.md
-  <package>/
-    __init__.py        # exports create_app
-    app.py             # IApplication, ISession, IModelLoop
-    tests/
-      test_<name>.py
+  __init__.py
+  config.py            # model's unique pipeline config or config wrapper
+  impl/                # all model-specific implementation
+  tests/               # model-specific tests, when needed
+  apps/
+    <demo>/
+      __init__.py
+      adapter.py       # create_app() -> IApplication
+      README.md        # launch instructions only
 ```
 
-Nothing enforces this shape, and it bends where a package has more than one
-application: `slangpy_ui_demo` names a module per application rather than
-`app.py`, and the t2v integrations split their tests into
-`test_stand_in_model.py` and `test_real_model.py`. The workspace glob in the
-root `pyproject.toml` picks up any directory here that has a `pyproject.toml`.
+The workspace glob in the root `pyproject.toml` picks up any directory here
+that has a `pyproject.toml`. Packages with multiple demos mirror the
+`integrations_v2/omnidreams/apps/` layout.
+
+V2 integrations expose pipeline-config literals and application entry points
+directly. Each model keeps its single `config.py` at the integration root,
+either as a `StreamInferencePipelineConfig` literal or a model-specific config
+wrapper. Keep all other model-specific implementation under
+`impl/`; no other implementation modules belong at the integration root. Keep
+model-specific tests under `tests/`, not in the demo folder. Do not add a `runner.py` or
+`flashdreams.runner_configs` entry point; the model adapter supplies its
+application defaults from its pipeline config.
 
 ## The package metadata
 
 The parts that matter, taking
 [`color_fade`](color_fade/pyproject.toml) as the shape and
-[`t2v_self_forcing`](t2v_self_forcing/pyproject.toml) for the entry point:
+[`self_forcing`](self_forcing/pyproject.toml) for the entry point:
 
 ```toml
 [project]
@@ -66,10 +79,20 @@ flashdreams = { workspace = true }
 include = ["color_fade*"]
 
 # color_fade registers no entry point and is found by the module fallback below.
-# Anything real should register one, the way t2v_self_forcing does:
+# Anything real should register one, the way self_forcing does:
 [project.entry-points."flashdreams.applications_v2"]
-"t2v-self-forcing" = "t2v_self_forcing.app:create_app"
+"t2v-self-forcing-wan2.1-t2v-1.3b" = "self_forcing.apps.t2v.adapter:create_app"
+"t2v-self-forcing-wan2.1-t2v-1.3b-taehv" = "self_forcing.apps.t2v.adapter:create_app_taehv"
+
+[tool.setuptools.package-dir]
+self_forcing = "."
 ```
+
+The default entry point is ``<demo-slug>-<model-slug>`` and uses
+``create_app``. Additional compatible configurations may append a descriptive
+``-<suffix>`` (for example ``-fast``) and use the matching
+``create_app_<suffix>`` factory in the same adapter. Multiword entry-point
+suffixes stay hyphenated while the Python factory uses underscores.
 
 An integration depends on the framework and never the reverse. `tool.uv.sources`
 resolves `flashdreams` from this repository while developing; a published
@@ -91,8 +114,9 @@ re-exports `create_app`. Every t2v integration and `slangpy_ui_demo` register
 properly instead. Do the same for anything real, so the slug is listed by
 `flashdreams-run-v2 --help` rather than having to be known already.
 
-`create_app` takes no arguments and returns an uninitialized `IApplication`. It
-must not load anything; that is what `init` is for.
+Every `create_app` or `create_app_<suffix>` factory takes no arguments and
+returns an uninitialized `IApplication`. It must not load anything; that is
+what `init` is for.
 
 ## What to implement
 
@@ -232,7 +256,7 @@ cannot see files in the real one.
 
 A real model needs a second file. Keep the CPU tests on a stand-in pipeline and
 put the run that loads a checkpoint behind `ci_gpu` and an environment variable,
-so a GPU runner opts in explicitly. `flashdreams.t2v_v2.testing` provides both
+so a GPU runner opts in explicitly. `t2v.testing` provides both
 halves for text-to-video models.
 
 ## Where to go next
@@ -243,5 +267,5 @@ halves for text-to-video models.
   in detail.
 - [Runtime](../flashdreams/flashdreams/runtime_v2/README.md) - the buffering
   between those threads, and the command line that starts them.
-- [`flashdreams.t2v_v2`](../flashdreams/flashdreams/t2v_v2/README.md) - adding a
+- [`apps/t2v`](../apps/t2v/README.md) - adding a
   text-to-video model.

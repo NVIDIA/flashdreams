@@ -77,10 +77,10 @@ To install an integration directly from the repo:
 
 .. code-block:: bash
 
-   pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/wan21"
+   pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations_v2/wan21"
 
    # or with uv
-   uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations/wan21"
+   uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.git#subdirectory=integrations_v2/wan21"
 
 The rationale is in `DEV.md
 <https://github.com/NVIDIA/flashdreams/blob/main/DEV.md>`__: the

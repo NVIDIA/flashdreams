@@ -3,15 +3,17 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import pytest
 
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.scripts import cli
-from flashdreams.serving.launch import ResolvedLaunch, resolve_launch
+from flashdreams.serving import launch as launch_module
+from flashdreams.serving.launch import ResolvedLaunch
 from flashdreams.serving.launch_manifest import load_launch_manifest
 
 pytestmark = pytest.mark.ci_cpu
@@ -27,6 +29,39 @@ def _config(name: str = "demo-runner") -> RunnerConfig:
             pipeline=SimpleNamespace(diffusion_model=SimpleNamespace(seed=1)),
         ),
     )
+
+
+@dataclasses.dataclass(kw_only=True)
+class _TestRunnerConfig(RunnerConfig):
+    pipeline: Annotated[Any, cli.tyro.conf.Suppress] = dataclasses.field(
+        default_factory=lambda: SimpleNamespace(diffusion_model=SimpleNamespace(seed=1))
+    )
+
+
+class _LaunchCapability:
+    def supported_modes(self, config, options):
+        del config, options
+        return ("mp4", "null", "webrtc")
+
+    def resolve(self, config, *, mode, options):
+        del config, options
+        return ResolvedLaunch(mode=mode, label="test launch", launch=lambda: None)
+
+
+def _install_launchable_runner(monkeypatch: pytest.MonkeyPatch) -> str:
+    name = "demo-runner"
+    config = _TestRunnerConfig(
+        runner_name=name,
+        description="Test runner.",
+        launch_capability="tests:capability",
+    )
+    monkeypatch.setattr(cli, "all_runners", lambda: {name: config})
+    monkeypatch.setattr(
+        launch_module,
+        "_load_launch_capability",
+        lambda _path: _LaunchCapability(),
+    )
+    return name
 
 
 def test_entrypoint_routes_application_slug_through_unified_cli(
@@ -335,16 +370,18 @@ def test_legacy_local_window_manifest_is_routed_without_second_cli(
 
 def test_mode_help_lists_only_mode_specific_central_overrides(
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    runner = _install_launchable_runner(monkeypatch)
     with pytest.raises(SystemExit) as webrtc_exit:
-        cli.entrypoint(["lingbot-world-fast", "webrtc", "--help"])
+        cli.entrypoint([runner, "webrtc", "--help"])
     assert webrtc_exit.value.code == 0
     webrtc_help = capsys.readouterr().out
     assert "Available modes: run, mp4, null, webrtc" in webrtc_help
     assert "--host HOST" in webrtc_help
 
     with pytest.raises(SystemExit) as mp4_exit:
-        cli.entrypoint(["lingbot-world-fast", "mp4", "--help"])
+        cli.entrypoint([runner, "mp4", "--help"])
     assert mp4_exit.value.code == 0
     mp4_help = capsys.readouterr().out
     assert "Selected mode: mp4" in mp4_help
@@ -395,11 +432,12 @@ def test_explicit_runner_cli_override_wins_over_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    runner = _install_launchable_runner(monkeypatch)
     path = tmp_path / "launch.yaml"
     path.write_text(
-        """\
+        f"""\
 schema_version: 1
-runner: lingbot-world-fast
+runner: {runner}
 mode: webrtc
 runner_overrides:
   device: cuda:2
@@ -416,7 +454,7 @@ runner_overrides:
 
     cli.entrypoint(
         [
-            "lingbot-world-fast",
+            runner,
             "webrtc",
             "--manifest",
             str(path),
@@ -428,30 +466,3 @@ runner_overrides:
 
     assert captured[0][0].device == "cuda:3"
     assert captured[0][1]["mode"] == "webrtc"
-
-
-@pytest.mark.parametrize(
-    "filename",
-    [
-        "lingbot_mp4.yaml",
-        "lingbot_webrtc.yaml",
-    ],
-)
-def test_documented_launch_manifests_resolve(filename: str) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    manifest = load_launch_manifest(
-        repo_root / "configs" / "launch_manifest" / filename
-    )
-    config = manifest.apply_runner_overrides(cli.all_runners()[manifest.runner])
-
-    if manifest.mode != "run":
-        resolved = resolve_launch(
-            config,
-            mode=cast(Any, manifest.mode),
-            options=cli.LaunchOptions(
-                launch_manifest=manifest.path,
-                scenario=manifest.scenario,
-                output=manifest.output,
-            ),
-        )
-        assert resolved.mode == manifest.mode

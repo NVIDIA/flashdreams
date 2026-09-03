@@ -32,6 +32,7 @@ from omnidreams.impl.native.acceleration import (
 from torch import Tensor
 
 from flashdreams.core.attention.rope import (
+    KVCacheRelativeRotaryPositionEmbedding3D,
     RotaryPositionEmbedding3D,
 )
 from flashdreams.core.checkpoint.load import load_checkpoint
@@ -107,7 +108,7 @@ class CosmosTransformerCache(TransformerAutoregressiveCache):
     network_cache_uncond: CosmosDiTNetworkCache | None = None
     """Unconditional cache for CFG; ``None`` disables CFG."""
 
-    rope_adapter: RotaryPositionEmbedding3D
+    rope_adapter: RotaryPositionEmbedding3D | KVCacheRelativeRotaryPositionEmbedding3D
     """3D RoPE adapter, advanced via ``shift_t`` each step."""
 
     rope_freqs: Tensor | None = None
@@ -221,6 +222,9 @@ class CosmosTransformerConfig(TransformerConfig):
     sink_size_t: int = 0
     """Sink-token count (pre-patchify T)."""
 
+    early_short_history_block_count: int | None = None
+    """Number of initial blocks limited to one chunk of visual history."""
+
     compile_network: bool = True
     """``torch.compile`` the network."""
 
@@ -324,6 +328,31 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         assert config.len_t % kt == 0, (
             f"len_t ({config.len_t}) must be divisible by patch_temporal ({kt})."
         )
+        if (
+            not config.network.apply_rope_before_kvcache
+            and config.native_dit_acceleration != "disabled"
+        ):
+            raise ValueError(
+                "Cache-relative RoPE is not supported by native DiT acceleration; "
+                "set native_dit_acceleration='disabled'"
+            )
+        if config.early_short_history_block_count is not None:
+            if config.native_dit_acceleration != "disabled":
+                raise ValueError(
+                    "Early short history is not supported by native DiT acceleration; "
+                    "set native_dit_acceleration='disabled'"
+                )
+            if not (
+                1 <= config.early_short_history_block_count <= config.network.num_blocks
+            ):
+                raise ValueError(
+                    "early_short_history_block_count must be between 1 and "
+                    f"num_blocks ({config.network.num_blocks})"
+                )
+            if config.window_size_t < config.len_t:
+                raise ValueError(
+                    "Early short history requires window_size_t to be at least len_t"
+                )
         self._output_height: int | None = None
         self._output_width: int | None = None
 
@@ -563,15 +592,27 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 )
 
         head_dim = cfg.network.model_channels // cfg.network.num_heads
-        rope_adapter = RotaryPositionEmbedding3D(
-            len_t=pT,
-            len_h=pH,
-            len_w=pW,
-            head_dim=head_dim,
-            h_extrapolation_ratio=cfg.h_extrapolation_ratio,
-            w_extrapolation_ratio=cfg.w_extrapolation_ratio,
-            device=self.device,
-        )
+        rope_kwargs: dict[str, Any] = {
+            "len_t": pT,
+            "len_h": pH,
+            "len_w": pW,
+            "head_dim": head_dim,
+            "h_extrapolation_ratio": cfg.h_extrapolation_ratio,
+            "w_extrapolation_ratio": cfg.w_extrapolation_ratio,
+            "device": self.device,
+        }
+        if cfg.network.apply_rope_before_kvcache:
+            rope_adapter = RotaryPositionEmbedding3D(**rope_kwargs)
+        else:
+            assert cfg.window_size_t % kt == 0 and cfg.sink_size_t % kt == 0, (
+                "Cache-relative RoPE requires window_size_t and sink_size_t "
+                f"to be divisible by patch_temporal ({kt})"
+            )
+            rope_adapter = KVCacheRelativeRotaryPositionEmbedding3D(
+                **rope_kwargs,
+                window_size_t=cfg.window_size_t // kt,
+                sink_size_t=cfg.sink_size_t // kt,
+            )
         rope_adapter.set_context_parallel_group(cp_group=self.cp_groups.THW_group)
 
         num_tokens_per_view_per_step = pH * pW
@@ -581,6 +622,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             chunk_size=num_tokens_per_view_per_step * pT,
             window_size=num_tokens_per_view_per_step * cfg.window_size_t,
             sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
+            early_short_history_block_count=cfg.early_short_history_block_count,
             context=text_embeddings,
         )
         network_cache_uncond: CosmosDiTNetworkCache | None = None
@@ -593,6 +635,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 chunk_size=num_tokens_per_view_per_step * pT,
                 window_size=num_tokens_per_view_per_step * cfg.window_size_t,
                 sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
+                early_short_history_block_count=cfg.early_short_history_block_count,
                 context=negative_text_embeddings,
             )
 

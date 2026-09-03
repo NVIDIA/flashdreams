@@ -5,6 +5,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 import tomli as tomllib
@@ -34,17 +35,21 @@ from omnidreams.apps.interactive_drive.adapter import (
 from omnidreams.config import (
     OMNIDREAMS_CONFIGS,
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
+    OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
 )
 from omnidreams.impl.pipeline import OmnidreamsPipelineConfig
 from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 
 from flashdreams.api_v2.application import IApplication
-from integrations_v2.omnidreams.benchmarks.cases import BENCHMARK_CASES
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -59,7 +64,84 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
         ),
         "omnidreams-perf": OMNIDREAMS_PERF_PIPELINE_CONFIG,
         "omnidreams-fast-perf": OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        "omnidreams-responsive": OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+        "omnidreams-perf-responsive": (OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG),
+        "omnidreams-fast-perf-responsive": (
+            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG
+        ),
+        "omnidreams-optimized-gb300-responsive": (
+            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG
+        ),
+        "omnidreams-optimized-rtx-pro-6000-responsive": (
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG
+        ),
     }
+
+
+@pytest.mark.parametrize(
+    ("config", "base"),
+    [
+        (OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        ),
+    ],
+)
+def test_responsive_configs_preserve_their_base_presets(
+    config: OmnidreamsPipelineConfig,
+    base: OmnidreamsPipelineConfig,
+) -> None:
+    transformer = cast(CosmosTransformerConfig, config.diffusion_model.transformer)
+    base_transformer = cast(
+        CosmosTransformerConfig,
+        base.diffusion_model.transformer,
+    )
+
+    assert config.name == f"{base.name}-responsive"
+    assert transformer.window_size_t == 4
+    assert transformer.sink_size_t == base_transformer.sink_size_t
+    assert transformer.early_short_history_block_count == 9
+    assert not transformer.network.apply_rope_before_kvcache
+    assert transformer.native_dit_acceleration == "disabled"
+    assert transformer.skip_finalize_kv_cache == base_transformer.skip_finalize_kv_cache
+    assert (
+        transformer.network.self_attention_backend
+        == base_transformer.network.self_attention_backend
+    )
+    assert (
+        transformer.network.cross_attention_backend
+        == base_transformer.network.cross_attention_backend
+    )
+    assert (
+        transformer.network.self_attn_optimized_impl_config
+        == base_transformer.network.self_attn_optimized_impl_config
+    )
+    assert (
+        transformer.network.cross_attn_optimized_impl_config
+        == base_transformer.network.cross_attn_optimized_impl_config
+    )
+    assert config.diffusion_model.seed == base.diffusion_model.seed
+    assert config.diffusion_model.scheduler == base.diffusion_model.scheduler
+    assert config.image_encoder == base.image_encoder
+    assert config.encoder == base.encoder
+    assert config.decoder == base.decoder
+
+    assert base_transformer.window_size_t == 6
+    assert base_transformer.early_short_history_block_count is None
+    assert base_transformer.network.apply_rope_before_kvcache
 
 
 def test_fast_perf_uses_native_vae_when_available() -> None:
@@ -181,5 +263,28 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         ),
         "crazy-robotaxi-omnidreams-fast-perf": (
             "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-gb300": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_gb300_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-rtx-pro-6000": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_rtx_pro_6000_app"
+        ),
+        "crazy-robotaxi-omnidreams-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-perf-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_perf_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-fast-perf-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-gb300-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:"
+            "create_optimized_gb300_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:"
+            "create_optimized_rtx_pro_6000_responsive_app"
         ),
     }

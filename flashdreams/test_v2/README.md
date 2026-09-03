@@ -25,19 +25,8 @@ CPU-only tests for the v2 protocols themselves:
   incomplete, and what it says about where the output went. The WebRTC tests are
   skipped when the serving packages are missing, which is also why a run writing
   a file does not import them.
-- `test_t2v_application.py` covers the shared text-to-video application: its
-  flags, the clip it says it would generate, what it refuses to generate, and
-  when the model is
-  loaded. Covering it here is what lets each `integrations_v2/t2v_*` package test
-  only what is particular to its own model, over the stand-in pipeline
-  `flashdreams.t2v_v2.testing` ships.
-- `test_t2v_session.py` covers one rollout through `T2VSession`: the prompt
-  encoded into a cache once, a block generated per step, and what a reset or a
-  close leaves behind. Driving a rollout is the same job for every model, so it
-  is covered here rather than in each integration.
-- `test_t2v_model_check.py` covers `check_t2v_model_impl` failing usefully. Every
-  integration runs the passing path against its own stand-in; what a check says
-  about a run that fell short is only worth covering once.
+- [`apps/t2v/tests`](../../apps/t2v/tests) covers the reusable text-to-video
+  application, session, model loop, and stand-in model checks.
 - `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
   the command line at `--`, choosing a window, describing the session to ask for,
   and running one into a real MP4 with a stand-in for a model. An application

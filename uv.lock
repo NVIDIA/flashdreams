@@ -22,7 +22,6 @@ members = [
     "crazy-robotaxi",
     "flashdreams",
     "flashdreams-cam2v",
-    "flashdreams-cam2v-lingbot",
     "flashdreams-causal-forcing",
     "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
@@ -39,11 +38,6 @@ members = [
     "flashdreams-self-forcing",
     "flashdreams-slangpy-ui-demo",
     "flashdreams-t2v",
-    "flashdreams-t2v-causal-forcing",
-    "flashdreams-t2v-cosmos-predict2",
-    "flashdreams-t2v-fastvideo-causal-wan22",
-    "flashdreams-t2v-self-forcing",
-    "flashdreams-t2v-wan21",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "flashdreams-waypoint",
@@ -1176,26 +1170,9 @@ dependencies = [
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "runners", "serving"], editable = "flashdreams" }]
 
 [[package]]
-name = "flashdreams-cam2v-lingbot"
-version = "0.1.0"
-source = { editable = "integrations_v2/cam2v_lingbot" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-cam2v" },
-    { name = "flashdreams-lingbot" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
-    { name = "flashdreams-lingbot", editable = "integrations/lingbot" },
-]
-
-[[package]]
 name = "flashdreams-causal-forcing"
 version = "0.1.0"
-source = { editable = "integrations/causal_forcing" }
+source = { editable = "integrations_v2/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1232,7 +1209,7 @@ requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 [[package]]
 name = "flashdreams-cosmos-predict2"
 version = "0.1.0"
-source = { editable = "integrations/cosmos_predict2" }
+source = { editable = "integrations_v2/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1260,7 +1237,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
 version = "0.1.0"
-source = { editable = "integrations/fastvideo_causal_wan22" }
+source = { editable = "integrations_v2/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1314,15 +1291,12 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-hy-worldplay"
 version = "0.1.0"
-source = { editable = "integrations/hy_worldplay" }
+source = { editable = "integrations_v2/hy_worldplay" }
 dependencies = [
     { name = "diffusers" },
     { name = "flashdreams" },
+    { name = "flashdreams-cam2v" },
     { name = "flashdreams-wan22" },
-    { name = "imageio", extra = ["ffmpeg"] },
-    { name = "mediapy" },
-    { name = "moviepy" },
-    { name = "opencv-python-headless" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1337,11 +1311,8 @@ dev = [
 requires-dist = [
     { name = "diffusers", specifier = ">=0.34" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-wan22", editable = "integrations/wan22" },
-    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "moviepy", specifier = ">=1.0,<2" },
-    { name = "opencv-python-headless" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
+    { name = "flashdreams-wan22", editable = "integrations_v2/wan22" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "scipy", specifier = ">=1.11" },
 ]
@@ -1380,17 +1351,10 @@ requires-dist = [
 [[package]]
 name = "flashdreams-lingbot"
 version = "0.1.0"
-source = { editable = "integrations/lingbot" }
+source = { editable = "integrations_v2/lingbot" }
 dependencies = [
-    { name = "aiohttp" },
-    { name = "aiortc" },
     { name = "flashdreams" },
     { name = "flashdreams-cam2v" },
-    { name = "mediapy" },
-    { name = "opencv-python-headless" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 
 [package.optional-dependencies]
@@ -1401,15 +1365,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9" },
-    { name = "aiortc", specifier = ">=1.9" },
     { name = "flashdreams", editable = "flashdreams" },
     { name = "flashdreams-cam2v", editable = "apps/cam2v" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
 
@@ -1563,7 +1522,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-self-forcing"
 version = "0.1.0"
-source = { editable = "integrations/self_forcing" }
+source = { editable = "integrations_v2/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1603,88 +1562,24 @@ dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
 ]
 
-[package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
-
-[[package]]
-name = "flashdreams-t2v-causal-forcing"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_causal_forcing" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-causal-forcing" },
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "tomli" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-causal-forcing", editable = "integrations/causal_forcing" },
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
 ]
-
-[[package]]
-name = "flashdreams-t2v-cosmos-predict2"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_cosmos_predict2" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-cosmos-predict2" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-cosmos-predict2", editable = "integrations/cosmos_predict2" },
-]
-
-[[package]]
-name = "flashdreams-t2v-fastvideo-causal-wan22"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_fastvideo_causal_wan22" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-fastvideo-causal-wan22" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-fastvideo-causal-wan22", editable = "integrations/fastvideo_causal_wan22" },
-]
-
-[[package]]
-name = "flashdreams-t2v-self-forcing"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_self_forcing" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-self-forcing" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-self-forcing", editable = "integrations/self_forcing" },
-]
-
-[[package]]
-name = "flashdreams-t2v-wan21"
-version = "0.1.0"
-source = { editable = "integrations_v2/t2v_wan21" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-wan21" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-wan21", editable = "integrations/wan21" },
-]
+provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan21"
 version = "0.1.0"
-source = { editable = "integrations/wan21" }
+source = { editable = "integrations_v2/wan21" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1710,7 +1605,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-wan22"
 version = "0.1.0"
-source = { editable = "integrations/wan22" }
+source = { editable = "integrations_v2/wan22" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -2678,22 +2573,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/f0/0cfadd537c5470378b1b32bd859cf2824972174b51b873c9d95cfd7475a5/ml_dtypes-0.5.4-cp312-cp312-win_amd64.whl", hash = "sha256:c1a953995cccb9e25a4ae19e34316671e4e2edaebe4cf538229b1fc7109087b7", size = 212222, upload-time = "2025-11-17T22:31:53.742Z" },
     { url = "https://files.pythonhosted.org/packages/16/2e/9acc86985bfad8f2c2d30291b27cd2bb4c74cea08695bd540906ed744249/ml_dtypes-0.5.4-cp312-cp312-win_arm64.whl", hash = "sha256:9bad06436568442575beb2d03389aa7456c690a5b05892c471215bfd8cf39460", size = 160793, upload-time = "2025-11-17T22:31:55.358Z" },
 ]
-
-[[package]]
-name = "moviepy"
-version = "1.0.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "decorator" },
-    { name = "imageio" },
-    { name = "imageio-ffmpeg" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "proglog" },
-    { name = "requests" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/18/54/01a8c4e35c75ca9724d19a7e4de9dc23f0ceb8769102c7de056113af61c3/moviepy-1.0.3.tar.gz", hash = "sha256:2884e35d1788077db3ff89e763c5ba7bfddbd7ae9108c9bc809e7ba58fa433f5", size = 388311, upload-time = "2020-05-07T16:27:46.856Z" }
 
 [[package]]
 name = "mpmath"
@@ -3714,18 +3593,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8e/22/2de9408ac81acbb8a7d05d4cc064a152ccf33b3d480ebe0cd292153db239/pre_commit-4.6.0.tar.gz", hash = "sha256:718d2208cef53fdc38206e40524a6d4d9576d103eb16f0fec11c875e7716e9d9", size = 198525, upload-time = "2026-04-21T20:31:41.613Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/6e/4b28b62ecb6aae56769c34a8ff1d661473ec1e9519e2d5f8b2c150086b26/pre_commit-4.6.0-py2.py3-none-any.whl", hash = "sha256:e2cf246f7299edcabcf15f9b0571fdce06058527f0a06535068a86d38089f29b", size = 226472, upload-time = "2026-04-21T20:31:40.092Z" },
-]
-
-[[package]]
-name = "proglog"
-version = "0.1.12"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/af/c108866c452eda1132f3d6b3cb6be2ae8430c97e9309f38ca9dbd430af37/proglog-0.1.12.tar.gz", hash = "sha256:361ee074721c277b89b75c061336cb8c5f287c92b043efa562ccf7866cda931c", size = 8794, upload-time = "2025-05-09T14:36:18.316Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/1b/f7ea6cde25621cd9236541c66ff018f4268012a534ec31032bcb187dc5e7/proglog-0.1.12-py3-none-any.whl", hash = "sha256:ccaafce51e80a81c65dc907a460c07ccb8ec1f78dc660cfd8f9ec3a22f01b84c", size = 6337, upload-time = "2025-05-09T14:36:16.798Z" },
 ]
 
 [[package]]

@@ -206,5 +206,5 @@ remains the reference for that retained API.
   line that does it.
 - [Writing an integration](../../../integrations_v2/README.md) - the checklist
   for a new application.
-- [`flashdreams.t2v_v2`](../t2v_v2/README.md) - the text-to-video API built on
+- [`apps/t2v`](../../../apps/t2v/README.md) - the text-to-video API built on
   these protocols, and how to add a model to it.

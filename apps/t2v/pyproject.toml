@@ -8,13 +8,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flashdreams-t2v"
 version = "0.1.0"
-description = "Reusable transport-neutral FlashDreams text-to-video application primitives"
+description = "Reusable FlashDreams v2 text-to-video application primitives"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["flashdreams[local-window,serving]"]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
-[tool.setuptools]
-packages = ["t2v"]
-package-dir = { t2v = "." }
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "tomli>=2.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["t2v*"]

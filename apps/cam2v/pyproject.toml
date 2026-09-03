@@ -19,9 +19,8 @@ dependencies = ["flashdreams[local-window,runners,serving]"]
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
-[tool.setuptools]
-packages = ["cam2v"]
-package-dir = { cam2v = "." }
+[tool.setuptools.packages.find]
+include = ["cam2v*"]
 
 [tool.setuptools.package-data]
 cam2v = ["assets/*.ppm"]
