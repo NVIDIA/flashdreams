@@ -300,6 +300,7 @@ game:
 presentation:
   show_live_edit_buttons: false
   live_edit_mapping_location: control hints
+  show_current_prompt: true
 runtime:
   prewarm_blocks: 0
 """,
@@ -319,6 +320,7 @@ runtime:
     assert app._config.gamepad_button_style == "PlayStation"
     assert not app._config.show_live_edit_buttons
     assert app._config.live_edit_mapping_location == "control hints"
+    assert app._config.show_current_prompt
     pipeline_config = app._pipeline_config
     assert pipeline_config is not None
     assert pipeline_config.diffusion_model.seed == 5678

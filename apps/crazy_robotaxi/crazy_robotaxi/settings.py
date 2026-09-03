@@ -124,6 +124,7 @@ class PresentationSettings:
 
     hud_enabled: bool = True
     show_fps: bool = False
+    show_current_prompt: bool = False
     show_control_hints: bool = True
     show_live_edit_buttons: bool = True
     live_edit_mapping_location: LiveEditMappingLocation = "buttons"
