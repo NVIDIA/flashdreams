@@ -58,6 +58,7 @@ presentation:
   show_fps: true
   show_live_edit_buttons: false
   live_edit_mapping_location: control hints
+  show_current_prompt: true
 """,
         encoding="utf-8",
     )
@@ -70,6 +71,7 @@ presentation:
     assert document.settings.presentation.show_fps
     assert not document.settings.presentation.show_live_edit_buttons
     assert document.settings.presentation.live_edit_mapping_location == "control hints"
+    assert document.settings.presentation.show_current_prompt
 
 
 def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
