@@ -290,8 +290,7 @@ class WorldModelRenderBackend(RenderBackend):
         if enabled == self._postprocess_enabled:
             return
         self._postprocess_enabled = enabled
-        self._output_stream.finish()
-        self._output_stream = self._new_output_stream()
+        self._output_stream.set_postprocess_enabled(enabled)
 
     def close(self) -> None:
         self._clear_pipeline(finalize_pending=True, recreate_output_stream=False)
@@ -343,7 +342,7 @@ class WorldModelRenderBackend(RenderBackend):
         if result.frame_count != expected_frames:
             raise RuntimeError(
                 f"Expected {expected_frames} generated frames, "
-                f"got {result.frame_count}."
+                f"got {result.frame_count} at step index {step_index}."
             )
         self._step_index += 1
         model_frames = list(result.lazy_rgb_frames())
@@ -384,7 +383,7 @@ class WorldModelRenderBackend(RenderBackend):
 
     def _new_output_stream(self) -> VideoOutputStream:
         postprocess_stream = None
-        if self._postprocess_enabled:
+        if self._postprocess.is_enabled():
             postprocess_stream = VideoPostprocessStream(
                 postprocess=self._postprocess,
                 output_layout="bvtchw",
@@ -392,10 +391,12 @@ class WorldModelRenderBackend(RenderBackend):
                 per_view=False,
                 world_size=1,
             )
-        return VideoOutputStream(
+        output_stream = VideoOutputStream(
             postprocess_stream=postprocess_stream,
             output_layout="bvtchw",
         )
+        output_stream.set_postprocess_enabled(self._postprocess_enabled)
+        return output_stream
 
     def _initial_rgb_tensor(self, frame: object) -> torch.Tensor:
         tensor = torch.from_numpy(_rgb_hwc_uint8(frame))

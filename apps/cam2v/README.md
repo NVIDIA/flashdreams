@@ -15,6 +15,9 @@ application named `cam2v-<model-config-name>`.
 
 Losing browser focus clears held keys.
 
+Presentation pacing follows the complete model-loop time, including optional
+post-processing; the model-only status remains separate.
+
 ## Usage
 
 Concrete launch commands live with each model adapter:

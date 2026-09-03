@@ -40,6 +40,7 @@ class _BufferSession(VideoPostProcessorSession):
         self.spec = spec
         self.chunk: VideoChunk | None = None
         self.prepare_calls = 0
+        self.reset_calls = 0
 
     def prepare(self) -> None:
         self.prepare_calls += 1
@@ -47,6 +48,10 @@ class _BufferSession(VideoPostProcessorSession):
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         self.chunk = chunk
         return []
+
+    def reset(self) -> None:
+        self.chunk = None
+        self.reset_calls += 1
 
     def flush(self) -> list[VideoChunk]:
         if self.chunk is None:
@@ -104,6 +109,29 @@ def test_stream_prepares_session_once_before_processing() -> None:
 
     stream.process(second, autoregressive_index=1)
     assert processor_session.prepare_calls == 1
+
+
+def test_stream_reset_reuses_prepared_processor_session() -> None:
+    stream = _stream(_BufferConfig())
+    first = torch.ones(3, 3, 4, 5)
+    second = torch.full((2, 3, 4, 5), 2.0)
+
+    stream.process(first, autoregressive_index=0)
+    chain = stream.state.sessions[-1]
+    assert isinstance(chain, _VideoPostprocessChainSession)
+    processor_session = chain._sessions[0]
+    assert isinstance(processor_session, _BufferSession)
+
+    stream.reset()
+    output = stream.process(second, autoregressive_index=0)
+
+    assert output.shape[0] == 0
+    assert stream.state.sessions[-1] is chain
+    assert chain._sessions[0] is processor_session
+    assert processor_session.reset_calls == 1
+    assert processor_session.prepare_calls == 1
+    tail = stream.finish()
+    assert tail is not None and torch.equal(tail, second)
 
 
 def test_stream_profiles_buffering_as_a_separate_ar_stat(

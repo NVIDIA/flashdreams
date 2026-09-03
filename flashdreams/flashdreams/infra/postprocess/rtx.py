@@ -203,6 +203,10 @@ class _RTXVideoSuperResolutionPostProcessorSession(VideoPostProcessorSession):
         }
         return [VideoChunk(tensor=output, layout="bvtchw", metadata=metadata)]
 
+    def reset(self) -> None:
+        """Start a fresh stream while retaining the loaded VFX effect."""
+        self._closed = False
+
     def flush(self) -> list[VideoChunk]:
         """Close the VFX effect and emit no tail frames."""
         if not self._closed:

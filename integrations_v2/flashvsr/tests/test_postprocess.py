@@ -157,6 +157,52 @@ def test_flashvsr_postprocess_can_drop_short_tail(
     assert created[0].inputs == []
 
 
+def test_flashvsr_postprocess_can_start_on_steady_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _install_fake_builder(monkeypatch)
+    config = FlashVSRPostProcessorConfig(device="cpu", chunk_size=8, dtype="float32")
+    session = config.setup().start(VideoSpec(height=4, width=6, fps=30))
+    video = torch.zeros((8, 3, 4, 6))
+
+    ready = session.process(VideoChunk(tensor=video, layout="tchw"))
+    result = concatenate_video_chunks(ready, layout="tchw")
+
+    assert result.shape == (8, 3, 8, 12)
+    assert [idx for idx, _ in created[0].inputs] == [0, 1]
+    assert [clip.shape[2] for _, clip in created[0].inputs] == [5, 8]
+    assert created[0].finalized == [0, 1]
+    assert session.flush() == []
+
+
+def test_flashvsr_postprocess_handles_lingbot_chunks_and_resets_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _install_fake_builder(monkeypatch)
+    config = FlashVSRPostProcessorConfig(device="cpu", chunk_size=8, dtype="float32")
+    session = config.setup().start(VideoSpec(height=4, width=6, fps=16))
+
+    cold = session.process(VideoChunk(tensor=torch.zeros((9, 3, 4, 6)), layout="tchw"))
+    steady = session.process(
+        VideoChunk(tensor=torch.ones((12, 3, 4, 6)), layout="tchw")
+    )
+    session.reset()
+    restarted = session.process(
+        VideoChunk(tensor=torch.full((12, 3, 4, 6), 2.0), layout="tchw")
+    )
+
+    assert [chunk.tensor.shape[2] for chunk in cold] == [5]
+    assert [chunk.tensor.shape[2] for chunk in steady] == [8, 8]
+    assert [chunk.tensor.shape[2] for chunk in restarted] == [5]
+    assert len(created) == 1
+    pipeline = created[0]
+    assert [idx for idx, _ in pipeline.inputs] == [0, 1, 2, 0]
+    assert [clip.shape[2] for _, clip in pipeline.inputs] == [5, 8, 8, 5]
+    assert pipeline.cache_initializations == 1
+    assert pipeline.cache_resets == 1
+    assert len(set(pipeline.cache_ids)) == 1
+
+
 def test_flashvsr_postprocess_does_not_finalize_when_generate_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -25,9 +25,6 @@ _PRESENTATION_STREAM_PRIORITY = -1
 _MODEL_FPS_WINDOW_SECONDS = 2.0
 """Wall-time window used to estimate generated-frame throughput."""
 
-_PRESENTATION_DRAIN_MARGIN = 0.9
-"""Present slightly faster than recent model FPS when possible."""
-
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[runtime-v2-chunk-trace]"
 
@@ -76,8 +73,9 @@ class _PresentationClock:
             now: Monotonic completion time for the chunk.
             generation: Session generation that produced the chunk.
             frame_count: Number of generated frames in the chunk.
-            step_elapsed_s: Time spent running the model step, excluding loop
-                pacing and downstream publication backpressure.
+            step_elapsed_s: Time spent producing the result, including
+                post-processing inside the model step but excluding loop pacing
+                and downstream publication backpressure.
 
         Raises:
             TypeError: ``frame_count`` is not an integer.
@@ -105,31 +103,25 @@ class _PresentationClock:
                 self._model_frame_rate.reset()
                 return
             self._frame_interval = max(
-                (1.0 / frames_per_second) * _PRESENTATION_DRAIN_MARGIN,
+                1.0 / frames_per_second,
                 self._minimum_frame_interval,
             )
 
-    def is_due(self, now: float, generation: int, *, backlog: bool = False) -> bool:
+    def is_due(self, now: float, generation: int) -> bool:
         """Return whether the next model frame may be selected."""
         with self._lock:
             if generation != self._generation:
                 self._reset_generation(generation)
-            return backlog or self._next_frame_at is None or now >= self._next_frame_at
+            return self._next_frame_at is None or now >= self._next_frame_at
 
-    def mark_advanced(self, now: float, *, backlog: bool = False) -> None:
+    def mark_advanced(self, now: float) -> None:
         """Record one selected frame without catching up after a long stall."""
-        frame_interval = (
-            self._minimum_frame_interval if backlog else self._frame_interval
-        )
         with self._lock:
-            if backlog:
-                self._next_frame_at = now + frame_interval
-                return
             next_frame_at = self._next_frame_at
-            if next_frame_at is None or now - next_frame_at >= frame_interval:
-                self._next_frame_at = now + frame_interval
+            if next_frame_at is None or now - next_frame_at >= self._frame_interval:
+                self._next_frame_at = now + self._frame_interval
             else:
-                self._next_frame_at = next_frame_at + frame_interval
+                self._next_frame_at = next_frame_at + self._frame_interval
 
     def _reset_generation(self, generation: int) -> None:
         self._generation = generation
@@ -249,8 +241,9 @@ class PresentationManager:
             generation: Reset generation the chunk was generated in. A chunk
                 from an earlier one is discarded rather than presented.
             chunk: One :class:`StepResult` per model channel.
-            step_elapsed_s: Time spent running the model step; ``None`` leaves
-                the presentation cadence unchanged.
+            step_elapsed_s: Time spent producing the result, including
+                post-processing inside the model step; ``None`` leaves the
+                presentation cadence unchanged.
 
         Raises:
             ValueError: ``chunk`` is empty, or its channels disagree about
@@ -344,9 +337,9 @@ class PresentationManager:
         """Move to the next model frame, if one is available.
 
         Called on the UI thread, once per tick. The manager advances only when
-        the presentation clock is due, unless the chunk queue is full and needs
-        to drain. A ``generation`` other than the last one seen drops what is
-        being presented, so nothing generated before a reset survives it.
+        the presentation clock is due. A ``generation`` other than the last one
+        seen drops what is being presented, so nothing generated before a reset
+        survives it.
 
         Args:
             generation: Current reset generation, from the event buffer.
@@ -370,8 +363,7 @@ class PresentationManager:
             self._presented_frame_count = 0
 
         now = time.monotonic() if now is None else float(now)
-        backlog = self.is_backlogged
-        if not self._presentation_clock.is_due(now, generation, backlog=backlog):
+        if not self._presentation_clock.is_due(now, generation):
             return False, None
 
         if (
@@ -381,7 +373,7 @@ class PresentationManager:
             self._frame_index += 1
             self._presented_frame_count += 1
             self._trace_presented_frame(generation)
-            self._presentation_clock.mark_advanced(now, backlog=backlog)
+            self._presentation_clock.mark_advanced(now)
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -394,7 +386,7 @@ class PresentationManager:
         self._frame_index = 0
         self._presented_frame_count += 1
         self._trace_presented_frame(generation)
-        self._presentation_clock.mark_advanced(now, backlog=backlog)
+        self._presentation_clock.mark_advanced(now)
         return True, chunk
 
     @property

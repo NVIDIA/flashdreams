@@ -265,6 +265,56 @@ def test_video_output_stream_state_is_isolated_per_session() -> None:
     assert first.postprocess_stream is not second.postprocess_stream
 
 
+def test_video_output_stream_toggle_preserves_postprocess_session() -> None:
+    class _StatefulPostprocess:
+        last_process_stats = None
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.finish_calls = 0
+            self.reset_calls = 0
+
+        def process(
+            self,
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            self.calls += 1
+            return output + self.calls
+
+        def finish(self) -> None:
+            self.finish_calls += 1
+            return None
+
+        def reset(self) -> None:
+            self.reset_calls += 1
+
+    postprocess = _StatefulPostprocess()
+    output_stream = VideoOutputStream(
+        postprocess_stream=cast(Any, postprocess),
+        output_layout="tchw",
+    )
+    video = torch.zeros((1, 3, 2, 2))
+
+    first = output_stream.process(video, autoregressive_index=0)
+    output_stream.set_postprocess_enabled(False)
+    bypassed = output_stream.process(video, autoregressive_index=1)
+    output_stream.set_postprocess_enabled(True)
+    resumed = output_stream.process(video, autoregressive_index=2)
+
+    assert torch.equal(first.video_chunk, video + 1)
+    assert bypassed.video_chunk.data_ptr() == video.data_ptr()
+    assert torch.equal(resumed.video_chunk, video + 2)
+    assert output_stream.postprocess_stream is postprocess
+    assert postprocess.calls == 2
+    assert postprocess.reset_calls == 2
+    assert postprocess.finish_calls == 0
+    assert output_stream.finish() is None
+    assert postprocess.finish_calls == 1
+
+
 def test_prepare_video_for_mp4_tiles_multiview_video() -> None:
     video = torch.zeros((1, 2, 3, 3, 4, 5))
 

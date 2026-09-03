@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -26,10 +26,13 @@ from interactive_drive import (
     InteractiveDriveUILoop,
     download_default_scene,
 )
+from interactive_drive.config import InteractiveDrivePostprocessConfig
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.types import ControlSnapshot
 
-from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
+import flashdreams.plugins.registry as registry_module
+from flashdreams.infra.postprocess import VideoPostProcessorConfig
+from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -361,16 +364,53 @@ def test_world_model_accepts_postprocess_preset(
             str(scene),
             "--postprocess-preset",
             "example-preset",
+            "--no-postprocess-compile",
         ]
     )
 
     assert app._config is not None
     assert isinstance(app._config, InteractiveDriveConfig)
     assert app._config.app.postprocess.preset == "example-preset"
+    assert app._config.app.postprocess.processor_chunk_size == 8
+    assert app._config.app.postprocess.processor_compile_network is False
     session = app.create_session(app.session_desc())
     session.init()
     assert isinstance(session.ui_loop, InteractiveDriveUILoop)
     assert session.ui_loop.state.show_postprocess_toggle
+
+
+@dataclass(kw_only=True)
+class _ChunkedPostprocessorConfig(VideoPostProcessorConfig):
+    chunk_size: int = 16
+    compile_network: bool = True
+    use_cuda_graph: bool = True
+
+
+def test_world_model_overrides_preset_processor_chunk_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registered = _ChunkedPostprocessorConfig(chunk_size=16)
+    monkeypatch.setattr(
+        registry_module,
+        "resolve_postprocess_preset",
+        lambda name: registered,
+    )
+    postprocess = InteractiveDrivePostprocessConfig(
+        preset="example-preset",
+        processor_chunk_size=8,
+        processor_compile_network=False,
+    )
+
+    (resolved,) = postprocess.resolved_processors()
+
+    assert isinstance(resolved, _ChunkedPostprocessorConfig)
+    assert resolved.chunk_size == 8
+    assert resolved.compile_network is False
+    assert resolved.use_cuda_graph is False
+    assert registered.chunk_size == 16
+    assert registered.compile_network is True
+    assert registered.use_cuda_graph is True
+    assert postprocess.preset == "example-preset"
 
 
 def test_default_scene_uses_original_hugging_face_location(tmp_path: Path) -> None:
