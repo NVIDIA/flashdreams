@@ -540,6 +540,7 @@ def _session_desc(
         video_height=1,
     )
 
+
 def _key_event() -> UserInputEvents:
     return UserInputEvents(
         [

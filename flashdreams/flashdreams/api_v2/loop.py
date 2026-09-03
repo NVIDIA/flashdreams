@@ -414,7 +414,9 @@ class IUILoop(ILoop[StateT], ABC):
         """Request that the client window release or capture pointer motion."""
         if not isinstance(lock_cursor_to_window, bool):
             raise TypeError("lock_cursor_to_window must be a bool.")
-        self.get_or_create_ui_loop_requests().lock_cursor_to_window = lock_cursor_to_window
+        self.get_or_create_ui_loop_requests().lock_cursor_to_window = (
+            lock_cursor_to_window
+        )
 
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:

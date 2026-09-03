@@ -53,6 +53,7 @@ def _imgui(*, prompt: str, submit: bool) -> SimpleNamespace:
         button=Mock(return_value=submit),
     )
 
+
 def test_begin_run_returns_close_without_setting_the_shutdown_event() -> None:
     loop = _loop(T2VUIState())
 
