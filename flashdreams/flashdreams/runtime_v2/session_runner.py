@@ -70,8 +70,7 @@ def run_session(
             the model loop's results rather than the UI loop's.
         steps: Maximum model steps before ending the session; ``None`` leaves
             session completion to the UI or client window.
-        timeout_seconds: Maximum session runtime; ``None`` waits for another
-            lifecycle exit. Expiration signals both registered loops to stop.
+        timeout_seconds: Maximum session runtime; ``None`` means session does not have a time-limit. Timeout expiry signals both registered loops to stop.
 
     Returns:
         The resolved description for a requested replacement session, or
