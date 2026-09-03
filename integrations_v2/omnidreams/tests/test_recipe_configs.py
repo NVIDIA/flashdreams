@@ -264,6 +264,12 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         "crazy-robotaxi-omnidreams-fast-perf": (
             "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
         ),
+        "crazy-robotaxi-omnidreams-optimized-gb300": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_gb300_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-rtx-pro-6000": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_rtx_pro_6000_app"
+        ),
         "crazy-robotaxi-omnidreams-responsive": (
             "omnidreams.apps.crazy_robotaxi.adapter:create_responsive_app"
         ),

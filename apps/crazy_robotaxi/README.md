@@ -39,11 +39,13 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-Eight OmniDreams runner configurations are registered:
+Ten OmniDreams runner configurations are registered:
 
 | Runner | Configuration |
 | --- | --- |
 | `crazy-robotaxi-omnidreams` | Standard |
+| `crazy-robotaxi-omnidreams-optimized-gb300` | GB300-optimized attention |
+| `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000` | RTX PRO 6000-optimized attention |
 | `crazy-robotaxi-omnidreams-perf` | Performance optimized |
 | `crazy-robotaxi-omnidreams-fast-perf` | Fast performance optimized |
 | `crazy-robotaxi-omnidreams-responsive` | Standard with responsive model history |
