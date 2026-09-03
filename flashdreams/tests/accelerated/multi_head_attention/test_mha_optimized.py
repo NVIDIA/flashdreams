@@ -561,6 +561,73 @@ def test_mha_optimized_quantized_projections_match_torch(
 @pytest.mark.parametrize(
     "attention_type", tuple(AttentionType), ids=lambda value: value.value
 )
+@pytest.mark.parametrize(
+    "output_projection_dtype",
+    tuple(DTYPE_MAX),
+    ids=lambda dtype: str(dtype).removeprefix("torch."),
+)
+@torch.inference_mode()
+def test_mha_optimized_quantized_output_projection_matches_torch(
+    cuda_device: torch.device,
+    attention_type: AttentionType,
+    output_projection_dtype: torch.dtype,
+) -> None:
+    """Match quantized output projection against native-precision attention."""
+    attention_config = AttentionConfig(
+        query_dim=_QUERY_DIM,
+        n_heads=_N_HEADS,
+        head_dim=_HEAD_DIM,
+        qk_norm_scope=QKNormScope.HEAD,
+    )
+    optimized_impl_config = OptimizedImplConfig(
+        quantization=QuantizationOption(output_projection=output_projection_dtype),
+        sdpa_backend=SDPABackend.CUDNN,
+        use_tma=False,
+    )
+    torch.manual_seed(17)
+    reference = _TorchMHA(attention_type, attention_config)
+    actual = _OptimizedMHA(attention_type, attention_config, optimized_impl_config)
+    actual.load_state_dict(reference.state_dict(), strict=True)
+    reference.to(device=cuda_device, dtype=torch.bfloat16).eval()
+    actual.to(device=cuda_device, dtype=torch.bfloat16).eval()
+
+    assert set(actual.state_dict()) == set(reference.state_dict())
+    assert isinstance(
+        actual.quantized_output_projection, QuantizedNonPersistentLinear
+    )
+    assert actual.quantized_output_projection.dtype is output_projection_dtype
+    assert actual.quantized_query_projection is None
+
+    quantization_tolerance = (
+        torch.finfo(output_projection_dtype).eps
+        if output_projection_dtype.is_floating_point
+        else 5 / DTYPE_MAX[output_projection_dtype]
+    )
+    tolerance = max(2e-2, quantization_tolerance)
+    generator = torch.Generator(device=cuda_device).manual_seed(19)
+    if attention_type is AttentionType.SELF_ATTENTION:
+        _check_self_attention(
+            reference,
+            actual,
+            attention_config,
+            generator,
+            cuda_device,
+            tolerance,
+        )
+    else:
+        _check_cross_attention(
+            reference,
+            actual,
+            attention_config,
+            generator,
+            cuda_device,
+            tolerance,
+        )
+
+
+@pytest.mark.parametrize(
+    "attention_type", tuple(AttentionType), ids=lambda value: value.value
+)
 @pytest.mark.parametrize("rope_scope", tuple(RoPEScope), ids=lambda value: value.value)
 @pytest.mark.parametrize(
     "sdpa_backend", tuple(SDPABackend), ids=lambda value: value.value
