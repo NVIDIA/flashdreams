@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 import torch
@@ -114,11 +115,11 @@ def _application(
     requested_frames: list[int | None],
     processor_sessions: list[_FakeProcessorSession] | None = None,
     *,
-    requested_inputs: list[str | None] | None = None,
+    requested_inputs: list[str | Path | None] | None = None,
     loaded_spec: VideoSpec = _INPUT_SPEC,
     full_frame_count: int = 35,
 ) -> V2VApplication:
-    def load(video_path: str | None, frame_count: int | None) -> LoadedVideo:
+    def load(video_path: str | Path | None, frame_count: int | None) -> LoadedVideo:
         if requested_inputs is not None:
             requested_inputs.append(video_path)
         requested_frames.append(frame_count)
@@ -165,7 +166,7 @@ def test_application_advertises_the_output_video_contract() -> None:
 
 
 def test_no_video_path_uses_the_bounded_big_buck_bunny_default() -> None:
-    requested_inputs: list[str | None] = []
+    requested_inputs: list[str | Path | None] = []
     requested_frames: list[int | None] = []
     application = _application(
         requested_frames,
@@ -175,12 +176,12 @@ def test_no_video_path_uses_the_bounded_big_buck_bunny_default() -> None:
     application.init([])
 
     assert requested_inputs == [None]
-    assert requested_frames == [61]
+    assert requested_frames == [13 + 16 * 99]
 
 
 def test_video_path_selects_a_full_video_and_resolves_its_output_contract() -> None:
     selected_spec = VideoSpec(height=96, width=160, fps=30.0)
-    requested_inputs: list[str | None] = []
+    requested_inputs: list[str | Path | None] = []
     requested_frames: list[int | None] = []
     application = _application(
         requested_frames,

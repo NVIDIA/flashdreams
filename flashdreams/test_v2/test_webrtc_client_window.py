@@ -519,6 +519,25 @@ async def test_webrtc_always_configures_a_bounded_two_frame_sender_queue(
         window.close()
 
 
+@pytest.mark.asyncio
+async def test_server_closes_while_browser_peer_is_still_connected() -> None:
+    window = WebRTCClientWindow(startup_timeout_seconds=1.0)
+    peer: RTCPeerConnection | None = None
+    try:
+        assert isinstance(window.server._loop, asyncio.SelectorEventLoop)
+        window.open(_session_desc())
+        peer, _, _ = await _connect_browser(window)
+
+        await asyncio.to_thread(window.close)
+
+        assert not window.server._thread.is_alive()
+        assert window.server._loop is None
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
 def test_cpu_materialization_returns_an_independently_owned_video_frame() -> None:
     source = torch.full((3, 16, 16), 10, dtype=torch.uint8)
 

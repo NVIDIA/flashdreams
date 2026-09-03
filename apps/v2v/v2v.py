@@ -64,8 +64,8 @@ _BIG_BUCK_BUNNY_URL = (
 _BIG_BUCK_BUNNY_SPEC = VideoSpec(height=480, width=853, fps=24.0)
 """Source dimensions and frame rate of the bundled Big Buck Bunny encode."""
 
-_DEFAULT_MAX_CHUNKS = 4
-"""Number of chunks processed by default, keeping the demo short enough to inspect."""
+_DEFAULT_MAX_CHUNKS = 100
+"""Number of Big Buck Bunny chunks processed by default."""
 
 _INPUT_CACHE_DIR = default_flashdreams_cache_dir() / "v2v"
 """User-writable cache for remote inputs and the extracted demo MP4."""
