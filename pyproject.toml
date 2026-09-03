@@ -54,8 +54,9 @@ exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**",
 ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 extraPaths = [
     "flashdreams",
-    "apps/t2v",
     "apps",
+    "apps/cam2v",
+    "apps/t2v",
     "apps/crazy_robotaxi",
     "apps/interactive_drive",
     "apps/omnidreams_game_engine",
@@ -89,7 +90,6 @@ reportIncompatibleVariableOverride = "none"
 python-version = "3.10"
 extra-paths = [
     "flashdreams",
-    "apps/t2v",
     "apps",
     "apps/cam2v",
     "apps/t2v",
