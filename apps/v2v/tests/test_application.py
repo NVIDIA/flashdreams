@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU contract tests for the reusable upsample-video application."""
+"""CPU contract tests for the reusable v2v application."""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from dataclasses import dataclass, field
 
 import pytest
 import torch
-from upsample_video import (
+from v2v import (
     LoadedVideo,
-    UpsampleVideoApplication,
-    UpsampleVideoApplicationDefaults,
+    V2VApplication,
+    V2VApplicationDefaults,
 )
 
 from flashdreams.api_v2.session import ISession
@@ -101,25 +101,34 @@ class _FakeProcessorConfig(VideoPostProcessorConfig):
         return _FakeProcessor(self.sessions)
 
 
-def _loaded_video(frame_count: int) -> LoadedVideo:
+def _loaded_video(frame_count: int, spec: VideoSpec = _INPUT_SPEC) -> LoadedVideo:
     frames = torch.linspace(
         -1.0,
         1.0,
-        steps=frame_count * 3 * _INPUT_SPEC.height * _INPUT_SPEC.width,
-    ).reshape(frame_count, 3, _INPUT_SPEC.height, _INPUT_SPEC.width)
-    return LoadedVideo(frames=frames, spec=_INPUT_SPEC)
+        steps=frame_count * 3 * spec.height * spec.width,
+    ).reshape(frame_count, 3, spec.height, spec.width)
+    return LoadedVideo(frames=frames, spec=spec)
 
 
 def _application(
-    requested_frames: list[int],
+    requested_frames: list[int | None],
     processor_sessions: list[_FakeProcessorSession] | None = None,
-) -> UpsampleVideoApplication:
-    def load(frame_count: int) -> LoadedVideo:
+    *,
+    requested_inputs: list[str | None] | None = None,
+    loaded_spec: VideoSpec = _INPUT_SPEC,
+    full_frame_count: int = 35,
+) -> V2VApplication:
+    def load(video_path: str | None, frame_count: int | None) -> LoadedVideo:
+        if requested_inputs is not None:
+            requested_inputs.append(video_path)
         requested_frames.append(frame_count)
-        return _loaded_video(frame_count)
+        return _loaded_video(
+            full_frame_count if frame_count is None else frame_count,
+            loaded_spec,
+        )
 
-    return UpsampleVideoApplication(
-        defaults=UpsampleVideoApplicationDefaults(
+    return V2VApplication(
+        defaults=V2VApplicationDefaults(
             processor=_FakeProcessorConfig(
                 sessions=processor_sessions if processor_sessions is not None else []
             ),
@@ -132,9 +141,9 @@ def _application(
     )
 
 
-def _session() -> tuple[ISession, list[_FakeProcessorSession], list[int]]:
+def _session() -> tuple[ISession, list[_FakeProcessorSession], list[int | None]]:
     processor_sessions: list[_FakeProcessorSession] = []
-    requested_frames: list[int] = []
+    requested_frames: list[int | None] = []
     application = _application(requested_frames, processor_sessions)
     application.init(["--max-chunks", "2"])
     session = application.create_session(application.session_desc())
@@ -142,7 +151,7 @@ def _session() -> tuple[ISession, list[_FakeProcessorSession], list[int]]:
     return session, processor_sessions, requested_frames
 
 
-def test_application_advertises_the_upsampled_video_contract() -> None:
+def test_application_advertises_the_output_video_contract() -> None:
     application = _application([])
 
     desc = application.session_desc()
@@ -151,11 +160,49 @@ def test_application_advertises_the_upsampled_video_contract() -> None:
     assert (desc.video_width, desc.video_height) == (256, 128)
     assert desc.frames_per_second_for_ui == 24
     assert desc.frames_per_second_for_step == 24
-    assert desc.metadata["application"] == "upsample-video"
+    assert desc.metadata["application"] == "v2v"
     assert desc.metadata["model"] == "fake-2x"
 
 
-def test_model_loop_upsamples_cold_and_steady_chunks() -> None:
+def test_no_video_path_uses_the_bounded_big_buck_bunny_default() -> None:
+    requested_inputs: list[str | None] = []
+    requested_frames: list[int | None] = []
+    application = _application(
+        requested_frames,
+        requested_inputs=requested_inputs,
+    )
+
+    application.init([])
+
+    assert requested_inputs == [None]
+    assert requested_frames == [61]
+
+
+def test_video_path_selects_a_full_video_and_resolves_its_output_contract() -> None:
+    selected_spec = VideoSpec(height=96, width=160, fps=30.0)
+    requested_inputs: list[str | None] = []
+    requested_frames: list[int | None] = []
+    application = _application(
+        requested_frames,
+        requested_inputs=requested_inputs,
+        loaded_spec=selected_spec,
+    )
+    pre_init_desc = application.session_desc()
+
+    application.init(["--video-path", "selected.mp4"])
+    session = application.create_session(pre_init_desc)
+
+    assert requested_inputs == ["selected.mp4"]
+    assert requested_frames == [None]
+    assert (session.session_desc.video_width, session.session_desc.video_height) == (
+        320,
+        192,
+    )
+    assert session.session_desc.frames_per_second_for_step == 30
+    assert session.session_desc.metadata["input"] == "selected.mp4"
+
+
+def test_model_loop_transforms_cold_and_steady_chunks() -> None:
     session, processor_sessions, requested_frames = _session()
     model_loop = session.model_loop
 

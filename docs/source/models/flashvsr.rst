@@ -66,16 +66,18 @@ Installation
 Running the method
 ------------------
 
-The v2 ``upsample-video`` application downloads a public Big Buck Bunny encode,
-upsamples a bounded excerpt, and writes it through the standard application/session
-runtime:
+The v2 ``v2v`` application accepts a video and writes the super-resolved video
+through the standard application/session runtime:
 
 .. code-block:: bash
 
    uv run --no-sync flashdreams-run-v2 \
-       upsample-video-flashvsr-v1.1-sparse-ratio-2.0 \
-       --output-path big-buck-bunny-upscaled.mp4 \
-       -- --max-chunks 4
+       v2v-flashvsr-v1.1-sparse-ratio-2.0 \
+       --output-path upscaled.mp4 \
+       -- --video-path input.mp4
+
+Omit ``--video-path`` to download and process the bounded Big Buck Bunny
+fallback.
 
 We provide the following variants:
 
@@ -85,11 +87,11 @@ We provide the following variants:
 
    * - Method
      - Description
-   * - ``upsample-video-flashvsr-v1.1-sparse-ratio-2.0``
+   * - ``v2v-flashvsr-v1.1-sparse-ratio-2.0``
      - Streaming 2x video super-resolution with the stable sparse-attention preset.
-   * - ``upsample-video-flashvsr-v1.1-sparse-ratio-1.5``
+   * - ``v2v-flashvsr-v1.1-sparse-ratio-1.5``
      - Streaming 2x video super-resolution with the faster sparse-attention preset.
-   * - ``upsample-video-flashvsr-v1.1-full-attn``
+   * - ``v2v-flashvsr-v1.1-full-attn``
      - Dense full-attention preset.
 
 To inspect all supported CLI arguments and their default values, run:
@@ -97,7 +99,7 @@ To inspect all supported CLI arguments and their default values, run:
 .. code-block:: bash
 
    uv run --no-sync flashdreams-run-v2 \
-       upsample-video-flashvsr-v1.1-sparse-ratio-2.0 -- --help
+       v2v-flashvsr-v1.1-sparse-ratio-2.0 -- --help
 
 A generated sample from the above commands:
 

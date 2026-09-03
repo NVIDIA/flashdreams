@@ -8,9 +8,9 @@ SPDX-License-Identifier: Apache-2.0
 FlashVSR-v1.1 streaming video super-resolution (LR projector + distilled
 Wan 2.1 DiT + TC decoder + AdaIN color corrector), packaged as a
 [`flashdreams`](../..) integration. The model remains a reusable
-`StreamInferencePipeline`; the `upsample-video` demo exposes it through the v2
-application/session API and plays a bounded Big Buck Bunny excerpt without
-interactive input.
+`StreamInferencePipeline`; the `v2v` application exposes video input and video
+output through the v2 application/session API. It falls back to a bounded Big
+Buck Bunny excerpt when no source video is selected.
 
 This is a worked example of the
 [Adding a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
@@ -19,22 +19,24 @@ developer-guide flow.
 ## Applications
 
 FlashVSR binds the reusable
-[Upsample Video](../../apps/upsample_video/README.md) application to the
+[V2V](../../apps/v2v/README.md) application to the
 following model configurations:
 
 | Entry-point slug | Configuration |
 | --- | --- |
-| `upsample-video-flashvsr-v1.1-sparse-ratio-2.0` | Stable sparse attention. |
-| `upsample-video-flashvsr-v1.1-sparse-ratio-1.5` | Faster, lower-budget sparse attention. |
-| `upsample-video-flashvsr-v1.1-full-attn` | Dense full attention for context parallelism. |
+| `v2v-flashvsr-v1.1-sparse-ratio-2.0` | Stable sparse attention. |
+| `v2v-flashvsr-v1.1-sparse-ratio-1.5` | Faster, lower-budget sparse attention. |
+| `v2v-flashvsr-v1.1-full-attn` | Dense full attention for context parallelism. |
 
 ```bash
 uv sync --package flashdreams-flashvsr --inexact
-uv run --no-sync flashdreams-run-v2 upsample-video-flashvsr-v1.1-sparse-ratio-2.0 --output-path big-buck-bunny-upscaled.mp4 -- --max-chunks 4
+uv run --no-sync flashdreams-run-v2 v2v-flashvsr-v1.1-sparse-ratio-2.0 --output-path artifacts/upscaled.mp4 -- --video-path input.mp4
 ```
 
 The shared app README documents controls, presentation modes, the
-`--max-chunks` application argument, and its CPU tests.
+`--video-path` and `--max-chunks` application arguments, the Big Buck Bunny
+fallback, and its CPU tests.
+
 ## Install
 
 The plugin is registered as a `uv` workspace member in the repo-root
@@ -119,7 +121,7 @@ automatically by the model adapter.
 | Path | Purpose |
 |---|---|
 | `config.py` | Pipeline construction and shipped model presets. |
-| `apps/upsample_video/adapter.py` | Thin FlashVSR binding for the shared `upsample-video` application. |
+| `apps/v2v/adapter.py` | Thin FlashVSR binding for the shared `v2v` application. |
 | `impl/pipeline.py` | `FlashVSRPipeline` + `FlashVSRPipelineConfig` (5-step `generate`; 7 profiler events). |
 | `impl/encoder/` | Bicubic upres + `Causal_LQ4x_Proj` LR projector. |
 | `impl/transformer/` | `FlashVSRTransformer` + sparse-attention DiT. |

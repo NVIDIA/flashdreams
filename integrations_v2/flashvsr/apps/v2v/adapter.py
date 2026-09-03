@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashVSR binding for the reusable upsample-video application."""
+"""FlashVSR binding for the reusable v2v application."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from flashvsr.impl.postprocess import (
     FlashVSRPostProcessorConfig,
     _chunk_mode,
 )
-from upsample_video import UpsampleVideoApplication, UpsampleVideoApplicationDefaults
+from v2v import V2VApplication, V2VApplicationDefaults
 
 from flashdreams.api_v2.application import IApplication
 
@@ -33,10 +33,10 @@ def _create_application(
     processor: FlashVSRPostProcessorConfig,
     *,
     model_name: str,
-) -> UpsampleVideoApplication:
+) -> V2VApplication:
     first_chunk_size, steady_chunk_size = _chunk_mode(processor.chunk_size)
-    return UpsampleVideoApplication(
-        defaults=UpsampleVideoApplicationDefaults(
+    return V2VApplication(
+        defaults=V2VApplicationDefaults(
             processor=processor,
             first_chunk_size=first_chunk_size,
             steady_chunk_size=steady_chunk_size,
@@ -46,7 +46,7 @@ def _create_application(
 
 
 def create_app() -> IApplication:
-    """Create the stable sparse FlashVSR upsampling application."""
+    """Create the stable sparse FlashVSR V2V application."""
     return _create_application(
         POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_2_0,
         model_name="flashvsr-v1.1-sparse-ratio-2.0",
@@ -54,7 +54,7 @@ def create_app() -> IApplication:
 
 
 def create_app_sparse_ratio_1_5() -> IApplication:
-    """Create the faster sparse FlashVSR upsampling application."""
+    """Create the faster sparse FlashVSR V2V application."""
     return _create_application(
         POSTPROCESS_PRESET_FLASHVSR_V1_1_SPARSE_1_5,
         model_name="flashvsr-v1.1-sparse-ratio-1.5",
@@ -62,7 +62,7 @@ def create_app_sparse_ratio_1_5() -> IApplication:
 
 
 def create_app_full_attn() -> IApplication:
-    """Create the dense-attention FlashVSR upsampling application."""
+    """Create the dense-attention FlashVSR V2V application."""
     return _create_application(
         POSTPROCESS_PRESET_FLASHVSR_V1_1_FULL_ATTN,
         model_name="flashvsr-v1.1-full-attn",

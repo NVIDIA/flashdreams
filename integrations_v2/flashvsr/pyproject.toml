@@ -20,12 +20,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flashdreams-flashvsr"
 version = "0.1.0"
-description = "FlashVSR streaming video super-resolution and FlashDreams v2 upsampling application."
+description = "FlashVSR streaming video super-resolution and FlashDreams V2V application."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
-    "flashdreams-upsample-video-v2",
+    "flashdreams-v2v",
     "ninja>=1.13.0",
 ]
 
@@ -34,7 +34,7 @@ managed = true
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
-flashdreams-upsample-video-v2 = { workspace = true }
+flashdreams-v2v = { workspace = true }
 
 [project.optional-dependencies]
 dev = [
@@ -43,9 +43,9 @@ dev = [
 
 # V2 application entry points follow ``<demo-slug>-<model-config-name>``.
 [project.entry-points."flashdreams.applications_v2"]
-"upsample-video-flashvsr-v1.1-sparse-ratio-2.0" = "flashvsr.apps.upsample_video.adapter:create_app"
-"upsample-video-flashvsr-v1.1-sparse-ratio-1.5" = "flashvsr.apps.upsample_video.adapter:create_app_sparse_ratio_1_5"
-"upsample-video-flashvsr-v1.1-full-attn" = "flashvsr.apps.upsample_video.adapter:create_app_full_attn"
+"v2v-flashvsr-v1.1-sparse-ratio-2.0" = "flashvsr.apps.v2v.adapter:create_app"
+"v2v-flashvsr-v1.1-sparse-ratio-1.5" = "flashvsr.apps.v2v.adapter:create_app_sparse_ratio_1_5"
+"v2v-flashvsr-v1.1-full-attn" = "flashvsr.apps.v2v.adapter:create_app_full_attn"
 
 # Each entry registers one post-processor preset slug selectable via
 # ``--postprocess.preset``. ``flashdreams.plugins.registry.discover_postprocess_presets``
@@ -59,7 +59,7 @@ dev = [
 packages = [
     "flashvsr",
     "flashvsr.apps",
-    "flashvsr.apps.upsample_video",
+    "flashvsr.apps.v2v",
     "flashvsr.impl",
     "flashvsr.impl.csrc",
     "flashvsr.impl.decoder",

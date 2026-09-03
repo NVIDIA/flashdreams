@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FlashVSR binding for the reusable upsample-video application."""
+"""FlashVSR binding for the reusable v2v application."""
 
 from .adapter import (
     create_app,

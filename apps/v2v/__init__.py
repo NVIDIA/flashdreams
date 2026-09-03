@@ -13,22 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Big Buck Bunny upsampling application."""
+"""Reusable transport-neutral video-to-video application primitives."""
 
-from .application import (
+from .v2v import (
     LoadedVideo,
-    UpsampleVideoApplication,
-    UpsampleVideoApplicationDefaults,
-    UpsampleVideoModelLoop,
-    UpsampleVideoModelState,
-    UpsampleVideoSession,
+    V2VApplication,
+    V2VApplicationDefaults,
+    V2VApplicationSession,
+    V2VModelLoop,
+    V2VModelState,
 )
 
 __all__ = [
     "LoadedVideo",
-    "UpsampleVideoApplication",
-    "UpsampleVideoApplicationDefaults",
-    "UpsampleVideoModelLoop",
-    "UpsampleVideoModelState",
-    "UpsampleVideoSession",
+    "V2VApplication",
+    "V2VApplicationDefaults",
+    "V2VApplicationSession",
+    "V2VModelLoop",
+    "V2VModelState",
 ]

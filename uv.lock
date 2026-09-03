@@ -38,7 +38,7 @@ members = [
     "flashdreams-self-forcing",
     "flashdreams-slangpy-ui-demo",
     "flashdreams-t2v",
-    "flashdreams-upsample-video-v2",
+    "flashdreams-v2v",
     "flashdreams-wan21",
     "flashdreams-wan22",
     "flashdreams-waypoint",
@@ -1263,7 +1263,7 @@ version = "0.1.0"
 source = { editable = "integrations_v2/flashvsr" }
 dependencies = [
     { name = "flashdreams" },
-    { name = "flashdreams-upsample-video-v2" },
+    { name = "flashdreams-v2v" },
     { name = "ninja" },
 ]
 
@@ -1275,7 +1275,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-upsample-video-v2", editable = "apps/upsample_video" },
+    { name = "flashdreams-v2v", editable = "apps/v2v" },
     { name = "ninja", specifier = ">=1.13.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
@@ -1570,9 +1570,9 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-upsample-video-v2"
+name = "flashdreams-v2v"
 version = "0.1.0"
-source = { editable = "apps/upsample_video" }
+source = { editable = "apps/v2v" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
     { name = "imageio-ffmpeg" },

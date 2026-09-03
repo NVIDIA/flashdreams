@@ -6,9 +6,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flashdreams-upsample-video-v2"
+name = "flashdreams-v2v"
 version = "0.1.0"
-description = "Reusable FlashDreams v2 video-upscaling demonstration"
+description = "Reusable transport-neutral FlashDreams video-to-video application primitives"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -26,8 +26,9 @@ dev = [
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
-[tool.setuptools.packages.find]
-include = ["upsample_video*"]
+[tool.setuptools]
+packages = ["v2v"]
+package-dir = { v2v = "." }
 
 [tool.uv]
 managed = true

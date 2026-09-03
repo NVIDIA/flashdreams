@@ -28,7 +28,7 @@ follows is already done for you.
   `cosmos_predict2`, and `wan22` — model implementations with T2V adapters
   over the reusable `apps/t2v` package.
 - `flashvsr` — streaming video super-resolution bound to the shared
-  `apps/upsample_video` Big Buck Bunny application.
+  `apps/v2v` video-to-video application.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
 

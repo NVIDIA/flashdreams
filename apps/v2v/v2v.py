@@ -13,17 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Big Buck Bunny upsampling through the FlashDreams v2 application API."""
+"""Video-to-video transformation through the FlashDreams v2 application API."""
 
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 import tempfile
 import zipfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -58,7 +59,7 @@ _BIG_BUCK_BUNNY_URL = (
     "https://download.blender.org/peach/bigbuckbunny_movies/"
     f"{_BIG_BUCK_BUNNY_FILENAME}.zip"
 )
-"""Public Blender archive used by the uninteractive upsampling demo."""
+"""Public Blender archive used when no input video is selected."""
 
 _BIG_BUCK_BUNNY_SPEC = VideoSpec(height=480, width=853, fps=24.0)
 """Source dimensions and frame rate of the bundled Big Buck Bunny encode."""
@@ -66,10 +67,10 @@ _BIG_BUCK_BUNNY_SPEC = VideoSpec(height=480, width=853, fps=24.0)
 _DEFAULT_MAX_CHUNKS = 4
 """Number of chunks processed by default, keeping the demo short enough to inspect."""
 
-_INPUT_CACHE_DIR = default_flashdreams_cache_dir() / "upsample-video"
-"""User-writable cache for the compressed demo input and extracted MP4."""
+_INPUT_CACHE_DIR = default_flashdreams_cache_dir() / "v2v"
+"""User-writable cache for remote inputs and the extracted demo MP4."""
 
-InputLoader = Callable[[int], "LoadedVideo"]
+InputLoader = Callable[[str | Path | None, int | None], "LoadedVideo"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,8 +85,8 @@ class LoadedVideo:
 
 
 @dataclass(frozen=True, slots=True)
-class UpsampleVideoApplicationDefaults:
-    """Integration-provided defaults for the reusable upsampling demo."""
+class V2VApplicationDefaults:
+    """Integration-provided defaults for the reusable V2V application."""
 
     processor: VideoPostProcessorConfig
     """Video post-processor selected by the model integration."""
@@ -100,26 +101,29 @@ class UpsampleVideoApplicationDefaults:
     """Model configuration name reported in session metadata."""
 
     max_chunks: int = _DEFAULT_MAX_CHUNKS
-    """Default number of source-video chunks to process."""
+    """Default chunk limit when no input video is selected."""
 
 
 @dataclass(frozen=True, slots=True)
 class _ApplicationConfig:
-    """Resolved upsampling settings and input shared with one session."""
+    """Resolved V2V settings and input shared with one session."""
 
     processor: VideoPostProcessorConfig
     """Video post-processor settings selected by the application factory."""
 
     video: LoadedVideo
-    """Bounded Big Buck Bunny input held on CPU."""
+    """Bounded input video held on CPU."""
+
+    input_name: str
+    """Human-readable source name reported in session metadata."""
 
     chunks: tuple[tuple[int, int], ...]
     """Input frame ranges consumed by consecutive model steps."""
 
 
 @dataclass(slots=True)
-class UpsampleVideoModelState:
-    """Mutable stream state owned by the upsampling model loop."""
+class V2VModelState:
+    """Mutable stream state owned by the V2V model loop."""
 
     config: _ApplicationConfig
     """Resolved application settings and source frames."""
@@ -134,18 +138,18 @@ class UpsampleVideoModelState:
     """Number of input ranges already consumed."""
 
 
-class UpsampleVideoModelLoop(IModelLoop[UpsampleVideoModelState]):
-    """Upsample one bounded input range per model step."""
+class V2VModelLoop(IModelLoop[V2VModelState]):
+    """Transform one bounded input range per model step."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
-        """Upsample the next source-video range.
+        """Transform the next source-video range.
 
         Args:
             step_index: Zero-based chunk index since the latest reset.
             events: User input ignored by this uninteractive application.
 
         Returns:
-            One upsampled video channel in ``bcthw`` layout.
+            One transformed video channel in ``bcthw`` layout.
 
         Raises:
             RuntimeError: Steps arrive out of sequence or the processor buffers
@@ -155,7 +159,7 @@ class UpsampleVideoModelLoop(IModelLoop[UpsampleVideoModelState]):
         state = self.state
         if step_index != state.chunks_generated:
             raise RuntimeError(
-                "Upsample-video step is out of sequence: expected "
+                "V2V step is out of sequence: expected "
                 f"{state.chunks_generated}, got {step_index}."
             )
 
@@ -192,7 +196,7 @@ class UpsampleVideoModelLoop(IModelLoop[UpsampleVideoModelState]):
         ]
 
     def is_finished(self) -> bool:
-        """Return whether every bounded input range has been upsampled."""
+        """Return whether every bounded input range has been transformed."""
         return self.state.chunks_generated >= len(self.state.config.chunks)
 
     def reset(self) -> None:
@@ -206,23 +210,23 @@ class UpsampleVideoModelLoop(IModelLoop[UpsampleVideoModelState]):
         self.state.processor_session = _ClosedPostProcessorSession()
 
 
-class UpsampleVideoSession(ISession):
-    """One finite Big Buck Bunny upsampling run."""
+class V2VApplicationSession(ISession):
+    """One finite video-to-video run."""
 
     def __init__(self, config: _ApplicationConfig, session_desc: SessionDesc) -> None:
         self._config = config
         self._session_desc = session_desc
-        self._state: UpsampleVideoModelState | None = None
+        self._state: V2VModelState | None = None
 
     def init(self) -> None:
         """Create the stream processor and register the model loop."""
-        state = UpsampleVideoModelState(
+        state = V2VModelState(
             config=self._config,
             session_desc=self._session_desc,
             processor_session=_start_processor(self._config),
         )
         self._state = state
-        self.register_model_loop(UpsampleVideoModelLoop, state=state)
+        self.register_model_loop(V2VModelLoop, state=state)
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -234,25 +238,25 @@ class UpsampleVideoSession(ISession):
         self._state = None
 
 
-class UpsampleVideoApplication(IApplication):
-    """Upsample a short Big Buck Bunny excerpt without interactive controls."""
+class V2VApplication(IApplication):
+    """Transform a selected video or a default Big Buck Bunny excerpt."""
 
     def __init__(
         self,
         *,
-        defaults: UpsampleVideoApplicationDefaults,
+        defaults: V2VApplicationDefaults,
         input_loader: InputLoader | None = None,
         input_spec: VideoSpec = _BIG_BUCK_BUNNY_SPEC,
     ) -> None:
-        """Create a lazy upsampling application.
+        """Create a lazy video-to-video application.
 
         Args:
             defaults: Model integration defaults for this application.
-            input_loader: Test seam replacing download and bounded video decode.
-            input_spec: Expected source-video contract.
+            input_loader: Test seam replacing input resolution and bounded decode.
+            input_spec: Default source-video contract advertised before initialization.
         """
         self.defaults = defaults
-        self._input_loader = input_loader or _load_big_buck_bunny
+        self._input_loader = input_loader or _load_input_video
         self._input_spec = input_spec
         self._config: _ApplicationConfig | None = None
 
@@ -263,44 +267,66 @@ class UpsampleVideoApplication(IApplication):
             commandline_args: Application-specific command-line arguments.
 
         Raises:
-            ValueError: A setting is invalid or the decoded source does not
-                match the advertised input contract.
+            ValueError: A setting or the decoded input video is invalid.
         """
         parser = argparse.ArgumentParser(
-            prog="flashdreams-run-v2 <upsample-video-slug> --",
-            description="Upsample a short Big Buck Bunny excerpt.",
+            prog="flashdreams-run-v2 <v2v-slug> --",
+            description="Transform an input video with Big Buck Bunny as the default.",
+        )
+        parser.add_argument(
+            "--video-path",
+            default=None,
+            help="local video path or HTTP(S) URL; defaults to Big Buck Bunny",
         )
         parser.add_argument(
             "--max-chunks",
             type=int,
-            default=self.defaults.max_chunks,
-            help="number of source-video chunks to process",
+            default=None,
+            help=(
+                "maximum source-video chunks to process; selected videos default "
+                f"to all chunks, Big Buck Bunny defaults to {self.defaults.max_chunks}"
+            ),
         )
         args = parser.parse_args(list(commandline_args))
 
-        if args.max_chunks <= 0:
+        if args.max_chunks is not None and args.max_chunks <= 0:
             raise ValueError(f"--max-chunks must be > 0, got {args.max_chunks}.")
 
+        max_chunks = (
+            self.defaults.max_chunks
+            if args.video_path is None and args.max_chunks is None
+            else args.max_chunks
+        )
         first_size = self.defaults.first_chunk_size
         steady_size = self.defaults.steady_chunk_size
-        requested_frames = first_size + steady_size * (args.max_chunks - 1)
-        video = self._input_loader(requested_frames)
-        _validate_loaded_video(video, self._input_spec)
+        requested_frames = (
+            None if max_chunks is None else first_size + steady_size * (max_chunks - 1)
+        )
+        video = self._input_loader(args.video_path, requested_frames)
+        _validate_loaded_video(video)
         chunks = _build_chunks(
             total_frames=int(video.frames.shape[0]),
             first_size=first_size,
             steady_size=steady_size,
-            max_chunks=args.max_chunks,
+            max_chunks=max_chunks,
         )
         self._config = _ApplicationConfig(
             processor=self.defaults.processor,
             video=video,
+            input_name=(
+                _BIG_BUCK_BUNNY_FILENAME
+                if args.video_path is None
+                else Path(args.video_path).name
+            ),
             chunks=chunks,
         )
 
     def session_desc(self) -> SessionDesc:
-        """Return the output contract for the fixed demo input."""
-        output = self.defaults.processor.output_spec(self._input_spec)
+        """Return the output contract for the selected or default input."""
+        input_spec = (
+            self._input_spec if self._config is None else self._config.video.spec
+        )
+        output = self.defaults.processor.output_spec(input_spec)
         assert output.fps is not None
         return SessionDesc(
             output_layout=VideoTensorLayout.bcthw,
@@ -311,20 +337,24 @@ class UpsampleVideoApplication(IApplication):
             video_width=output.width,
             video_height=output.height,
             metadata={
-                "application": "upsample-video",
+                "application": "v2v",
                 "model": self.defaults.model_name,
-                "input": _BIG_BUCK_BUNNY_FILENAME,
+                "input": (
+                    _BIG_BUCK_BUNNY_FILENAME
+                    if self._config is None
+                    else self._config.input_name
+                ),
             },
         )
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
-        """Create one finite upsampling session.
+        """Create one finite video-to-video session.
 
         Args:
             session_desc: Runtime-requested output contract.
 
         Returns:
-            Uninitialized upsampling session.
+            Uninitialized video-to-video session.
 
         Raises:
             RuntimeError: :meth:`init` has not run.
@@ -332,25 +362,36 @@ class UpsampleVideoApplication(IApplication):
                 model's output contract.
         """
         if self._config is None:
-            raise RuntimeError("UpsampleVideoApplication.init() must run first.")
+            raise RuntimeError("V2VApplication.init() must run first.")
         expected = self.session_desc()
         if session_desc.output_layout is not expected.output_layout:
             raise ValueError(
-                "Upsample-video only produces bcthw output, got "
+                "V2V only produces bcthw output, got "
                 f"{session_desc.output_layout.value}."
             )
         actual_size = (session_desc.video_width, session_desc.video_height)
         expected_size = (expected.video_width, expected.video_height)
-        if actual_size != expected_size:
+        default_output = self.defaults.processor.output_spec(self._input_spec)
+        default_size = (default_output.width, default_output.height)
+        if actual_size not in (expected_size, default_size):
             raise ValueError(
-                "Upsample-video output size must be "
+                "V2V output size must be "
                 f"{expected_size[0]}x{expected_size[1]}, got "
                 f"{actual_size[0]}x{actual_size[1]}."
             )
-        return UpsampleVideoSession(self._config, session_desc)
+        resolved = replace(
+            session_desc,
+            output_layout=expected.output_layout,
+            frames_per_second_for_ui=expected.frames_per_second_for_ui,
+            frames_per_second_for_step=expected.frames_per_second_for_step,
+            video_width=expected.video_width,
+            video_height=expected.video_height,
+            metadata=expected.metadata,
+        )
+        return V2VApplicationSession(self._config, resolved)
 
     def close(self) -> None:
-        """Release the decoded source excerpt."""
+        """Release the decoded input video."""
         self._config = None
 
 
@@ -360,7 +401,7 @@ class _ClosedPostProcessorSession(VideoPostProcessorSession):
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         """Reject processing after loop shutdown."""
         del chunk
-        raise RuntimeError("Upsample-video model loop is closed.")
+        raise RuntimeError("V2V model loop is closed.")
 
     def flush(self) -> list[VideoChunk]:
         """Return no tail after loop shutdown."""
@@ -374,57 +415,58 @@ def _start_processor(config: _ApplicationConfig) -> VideoPostProcessorSession:
 
 
 def _build_chunks(
-    *, total_frames: int, first_size: int, steady_size: int, max_chunks: int
+    *, total_frames: int, first_size: int, steady_size: int, max_chunks: int | None
 ) -> tuple[tuple[int, int], ...]:
     chunks: list[tuple[int, int]] = []
     start = 0
-    while start < total_frames and len(chunks) < max_chunks:
+    while start < total_frames and (max_chunks is None or len(chunks) < max_chunks):
         target = first_size if not chunks else steady_size
         size = min(target, total_frames - start)
         chunks.append((start, size))
         start += size
     if not chunks:
-        raise ValueError("Big Buck Bunny input contains no decodable frames.")
+        raise ValueError("Input video contains no decodable frames.")
     return tuple(chunks)
 
 
-def _validate_loaded_video(video: LoadedVideo, expected: VideoSpec) -> None:
+def _validate_loaded_video(video: LoadedVideo) -> None:
     if video.frames.ndim != 4 or video.frames.shape[1] != 3:
         raise ValueError(
-            "Big Buck Bunny frames must have [T, C=3, H, W] shape, got "
+            "Input video frames must have [T, C=3, H, W] shape, got "
             f"{tuple(video.frames.shape)}."
         )
     shape = (int(video.frames.shape[-2]), int(video.frames.shape[-1]))
-    expected_shape = (expected.height, expected.width)
-    if (
-        shape != expected_shape
-        or (video.spec.height, video.spec.width) != expected_shape
-    ):
+    spec_shape = (video.spec.height, video.spec.width)
+    if shape != spec_shape:
         raise ValueError(
-            f"Big Buck Bunny input must be {expected.width}x{expected.height}, "
-            f"got {shape[1]}x{shape[0]}."
+            "Input video frame dimensions do not match its metadata: "
+            f"frames are {shape[1]}x{shape[0]}, metadata is "
+            f"{video.spec.width}x{video.spec.height}."
         )
     if video.spec.channels != 3:
         raise ValueError(
-            f"Big Buck Bunny input must be RGB, got {video.spec.channels} channels."
+            f"Input video must be RGB, got {video.spec.channels} channels."
         )
-    if video.spec.fps is None or expected.fps is None:
-        raise ValueError("Big Buck Bunny input must report a frame rate.")
-    if round(video.spec.fps) != round(expected.fps):
-        raise ValueError(
-            f"Big Buck Bunny input must be {expected.fps:g} fps, "
-            f"got {video.spec.fps:g}."
-        )
+    if (
+        video.spec.fps is None
+        or not math.isfinite(video.spec.fps)
+        or video.spec.fps <= 0
+    ):
+        raise ValueError("Input video must report a positive finite frame rate.")
 
 
-def _load_big_buck_bunny(max_frames: int) -> LoadedVideo:
-    path = _resolve_big_buck_bunny()
+def _load_input_video(value: str | Path | None, max_frames: int | None) -> LoadedVideo:
+    path = (
+        _resolve_big_buck_bunny()
+        if value is None
+        else resolve_input_path(value, cache_dir=_INPUT_CACHE_DIR)
+    )
     try:
         import imageio_ffmpeg  # noqa: PLC0415
     except ImportError as error:  # pragma: no cover - dependency gate
         raise ImportError(
-            "Decoding the upsample-video input needs imageio-ffmpeg. "
-            "Install the flashdreams-upsample-video-v2 package."
+            "Decoding the v2v input needs imageio-ffmpeg. "
+            "Install the flashdreams-v2v package."
         ) from error
 
     reader = imageio_ffmpeg.read_frames(str(path), pix_fmt="rgb24")
@@ -438,12 +480,12 @@ def _load_big_buck_bunny(max_frames: int) -> LoadedVideo:
                 .reshape(height, width, 3)
                 .copy()
             )
-            if len(frames) == max_frames:
+            if max_frames is not None and len(frames) == max_frames:
                 break
     finally:
         reader.close()
     if not frames:
-        raise ValueError(f"Big Buck Bunny input contains no frames: {path}")
+        raise ValueError(f"Input video contains no frames: {path}")
 
     array = np.stack(frames)
     tensor = torch.from_numpy(array).float().div(127.5).sub(1.0)
@@ -503,9 +545,9 @@ def _resolve_big_buck_bunny() -> Path:
 
 __all__ = [
     "LoadedVideo",
-    "UpsampleVideoApplication",
-    "UpsampleVideoApplicationDefaults",
-    "UpsampleVideoModelLoop",
-    "UpsampleVideoModelState",
-    "UpsampleVideoSession",
+    "V2VApplication",
+    "V2VApplicationDefaults",
+    "V2VModelLoop",
+    "V2VModelState",
+    "V2VApplicationSession",
 ]

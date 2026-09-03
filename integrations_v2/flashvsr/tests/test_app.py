@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU contract tests for the FlashVSR upsample-video binding."""
+"""CPU contract tests for the FlashVSR v2v binding."""
 
 import os
 
 import pytest
-from flashvsr.apps.upsample_video.adapter import (
+from flashvsr.apps.v2v.adapter import (
     create_app,
     create_app_full_attn,
     create_app_sparse_ratio_1_5,
