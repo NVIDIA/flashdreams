@@ -31,11 +31,11 @@ Available application slugs:
 | `crazy-robotaxi-omnidreams-perf-responsive` | `OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-fast-perf-responsive` | `OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG` |
 
-The non-responsive `perf` variants require a one-time preparation step:
+The `perf`, `fast-perf`, and `fast-perf-responsive` variants require a
+one-time preparation step:
 
 ```bash
 uv run --no-sync omnidreams-prepare --perf
-```
 
 See the shared [Crazy Robotaxi README](../../../../apps/crazy_robotaxi/README.md)
 for controls, application arguments, game modes, and tests. See the
