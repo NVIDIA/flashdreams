@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import secrets
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -15,12 +14,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-import torch
-from loguru import logger
 from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
+from flashdreams.infra.config import derive_config
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -29,13 +27,13 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .session import (
-    Action2VModelSession,
     Action2VSession,
     ActionMapper,
+    _normalize_reset_key,
 )
 
-Action2VPipelineFactory = Callable[[int, torch.device, bool], Any]
-"""Load one application-owned model pipeline."""
+Action2VInputResolver = Callable[[Mapping[str, Any]], Path]
+"""Resolve application arguments into one session's first frame."""
 
 Action2VSeedLoader = Callable[[Path, SessionDesc], Tensor]
 """Load seed display frames for one resolved session description."""
@@ -43,10 +41,8 @@ Action2VSeedLoader = Callable[[Path, SessionDesc], Tensor]
 Action2VActionMapperFactory = Callable[[SessionDesc, float], ActionMapper]
 """Create a live snapshot mapper for one session's dimensions."""
 
-Action2VModelSessionBuilder = Callable[
-    [Any, threading.Lock, SessionDesc, Tensor, int], Action2VModelSession
-]
-"""Build integration-owned rollout state over the shared model pipeline."""
+_DEFAULT_RESET_KEY = "T"
+"""Key that requests an in-place session reset."""
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -56,8 +52,11 @@ class Action2VApplicationDefaults:
     slug: str
     """Application name used in help and log messages."""
 
-    pipeline_factory: Action2VPipelineFactory
-    """Integration hook that loads the shared model pipeline."""
+    pipeline_config: Any
+    """Model pipeline configuration owned by the integration."""
+
+    input_resolver: Action2VInputResolver
+    """Integration hook that resolves the first-frame path."""
 
     seed_loader: Action2VSeedLoader
     """Integration hook that loads and normalizes initial display frames."""
@@ -65,8 +64,8 @@ class Action2VApplicationDefaults:
     action_mapper_factory: Action2VActionMapperFactory
     """Integration hook that maps live model-neutral snapshots."""
 
-    model_session_builder: Action2VModelSessionBuilder
-    """Integration hook that owns cache, RNG, and generation semantics."""
+    total_blocks: int
+    """Default number of autoregressive blocks in one rollout."""
 
     pixel_width: int
     """Native generated frame width."""
@@ -77,14 +76,11 @@ class Action2VApplicationDefaults:
     fps: int
     """Playback rate and initial model-loop pacing limit."""
 
-    default_first_frame_resolver: Callable[[], Path] | None = None
-    """Resolve an integration-provided first frame lazily when omitted."""
-
     device: str = "cuda"
     """Device on which the application constructs the shared pipeline."""
 
     output_layout: VideoTensorLayout = VideoTensorLayout.tchw
-    """Tensor layout emitted by model sessions."""
+    """Tensor layout emitted by the model pipeline."""
 
     backpressure_mode: BackpressureMode = BackpressureMode.BLOCK
     """Preserve every generated model frame in presentation order."""
@@ -93,7 +89,10 @@ class Action2VApplicationDefaults:
     """Present each generated frame exactly once by default."""
 
     ui_fps: int | None = None
-    """Input/UI polling rate; ``None`` uses :attr:`fps`."""
+    """Input/UI polling rate; ``None`` uses ``fps``."""
+
+    input_defaults: Mapping[str, Any] = field(default_factory=dict)
+    """Integration-owned defaults for image and example-data selection."""
 
     metadata: Mapping[str, Any] = field(default_factory=dict)
     """Application metadata copied into each session description."""
@@ -101,20 +100,18 @@ class Action2VApplicationDefaults:
     def __post_init__(self) -> None:
         if not self.slug:
             raise ValueError("Action2VApplicationDefaults.slug must not be empty.")
+        if self.total_blocks <= 0:
+            raise ValueError("Action2VApplicationDefaults.total_blocks must be > 0.")
         if self.pixel_width <= 0 or self.pixel_height <= 0:
             raise ValueError("Action2VApplicationDefaults dimensions must be > 0.")
         if self.fps <= 0 or (self.ui_fps is not None and self.ui_fps <= 0):
             raise ValueError("Action2VApplicationDefaults frame rates must be > 0.")
+        object.__setattr__(
+            self,
+            "input_defaults",
+            MappingProxyType(dict(self.input_defaults)),
+        )
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
-
-
-@dataclass(frozen=True, slots=True)
-class _ApplicationConfig:
-    first_frame: Path | None
-    seed: int
-    device: torch.device
-    profile: bool
-    mouse_sensitivity: float
 
 
 class Action2VApplication(IApplication):
@@ -122,26 +119,39 @@ class Action2VApplication(IApplication):
 
     def __init__(self, *, defaults: Action2VApplicationDefaults) -> None:
         self.defaults = defaults
-        self._config: _ApplicationConfig | None = None
+        self._pipeline_config = defaults.pipeline_config
+        self._device = defaults.device
+        self._total_blocks = defaults.total_blocks
+        self._use_ui = True
+        self._mouse_sensitivity = 1.0
+        self._reset_key = _DEFAULT_RESET_KEY
+        self._input_values: dict[str, Any] | None = None
         self._pipeline: Any | None = None
         self._pipeline_lock = threading.Lock()
 
+    @property
+    def pipeline_config(self) -> Any:
+        """Return the model configuration after command-line overrides."""
+        return self._pipeline_config
+
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse first-frame, device, and deterministic RNG settings."""
+        """Parse shared action-to-video inputs without loading the model."""
         parser = argparse.ArgumentParser(
             prog=f"flashdreams-run-v2 {self.defaults.slug} --",
             description="Generate video from an image and keyboard/mouse actions.",
         )
+        input_defaults = self.defaults.input_defaults
         parser.add_argument(
-            "--first-frame",
+            "--image-path",
             type=Path,
-            required=self.defaults.default_first_frame_resolver is None,
+            default=input_defaults.get("image_path"),
             help="Image that establishes the initial world state.",
         )
         parser.add_argument(
-            "--seed",
-            type=int,
-            help="Non-negative model RNG seed; generated randomly when omitted.",
+            "--example-data",
+            action=argparse.BooleanOptionalAction,
+            default=bool(input_defaults.get("example_data", False)),
+            help="Use the integration's packaged or downloadable example image.",
         )
         parser.add_argument(
             "--device",
@@ -149,9 +159,16 @@ class Action2VApplication(IApplication):
             help="Model device. Default: %(default)s.",
         )
         parser.add_argument(
-            "--profile",
-            action="store_true",
-            help="Enable integration pipeline profiling.",
+            "--total-blocks",
+            type=int,
+            default=self.defaults.total_blocks,
+            help="Autoregressive chunks generated per rollout. Default: %(default)s.",
+        )
+        parser.add_argument(
+            "--ui",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Capture the pointer for interactive action controls.",
         )
         parser.add_argument(
             "--mouse-sensitivity",
@@ -159,26 +176,35 @@ class Action2VApplication(IApplication):
             default=1.0,
             help="Non-negative multiplier for pointer motion. Default: %(default)s.",
         )
-        self._configure_argument_parser(parser)
+        parser.add_argument(
+            "--reset-key",
+            type=_normalize_reset_key,
+            default=_DEFAULT_RESET_KEY,
+            help="ASCII letter that resets the session. Default: %(default)s.",
+        )
+        parser.add_argument("--seed", type=int, default=None)
         args = parser.parse_args(list(commandline_args))
 
-        if args.seed is not None and args.seed < 0:
-            raise ValueError(f"--seed must be non-negative, got {args.seed}")
+        if args.total_blocks <= 0:
+            raise ValueError("--total-blocks must be > 0.")
         if not math.isfinite(args.mouse_sensitivity) or args.mouse_sensitivity < 0:
             raise ValueError("--mouse-sensitivity must be finite and non-negative")
-        self._validate_arguments(args)
 
-        seed = secrets.randbits(63) if args.seed is None else args.seed
-        if args.seed is None:
-            logger.info("[{}] generated seed {}", self.defaults.slug, seed)
-        self._config = _ApplicationConfig(
-            first_frame=args.first_frame,
-            seed=seed,
-            device=torch.device(args.device),
-            profile=args.profile,
-            mouse_sensitivity=args.mouse_sensitivity,
-        )
-        self._apply_parsed_arguments(args)
+        self._pipeline_config = self.defaults.pipeline_config
+        if args.seed is not None:
+            self._pipeline_config = derive_config(
+                self._pipeline_config,
+                diffusion_model={"seed": args.seed},
+            )
+        self._device = args.device
+        self._total_blocks = args.total_blocks
+        self._use_ui = args.ui
+        self._mouse_sensitivity = args.mouse_sensitivity
+        self._reset_key = args.reset_key
+        self._input_values = {
+            "image_path": args.image_path,
+            "example_data": args.example_data,
+        }
 
     def session_desc(self) -> SessionDesc:
         """Return the model's native output shape and interactive rates."""
@@ -195,57 +221,44 @@ class Action2VApplication(IApplication):
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Load shared modules lazily and create one isolated action rollout."""
-        config = self._require_config()
+        input_values = self._input_values
+        if input_values is None:
+            raise RuntimeError(
+                f"{type(self).__name__}.init() must run before create_session()."
+            )
         self._validate_session_desc(session_desc)
-        first_frame = config.first_frame
-        if first_frame is None:
-            resolver = self.defaults.default_first_frame_resolver
-            assert resolver is not None
-            first_frame = resolver()
+        first_frame = self.defaults.input_resolver(input_values)
         seed_frames = self.defaults.seed_loader(first_frame, session_desc)
-        pipeline = self._ensure_pipeline(config)
+        seed = self._pipeline_config.diffusion_model.seed
+        if seed is None:
+            raise ValueError("Action2V pipeline config must set diffusion_model.seed.")
+        pipeline = self._ensure_pipeline()
         return Action2VSession(
-            model_session_factory=lambda: self.defaults.model_session_builder(
-                pipeline,
-                self._pipeline_lock,
-                session_desc,
-                seed_frames,
-                config.seed,
-            ),
+            pipeline=pipeline,
+            pipeline_lock=self._pipeline_lock,
             session_desc=session_desc,
+            seed_frames=seed_frames,
+            seed=seed,
             action_mapper=self.defaults.action_mapper_factory(
-                session_desc, config.mouse_sensitivity
+                session_desc, self._mouse_sensitivity
             ),
+            total_blocks=self._total_blocks,
+            use_ui=self._use_ui,
+            reset_key=self._reset_key,
         )
 
     def close(self) -> None:
         """Release the application-owned pipeline after all sessions stop."""
         pipeline = self._pipeline
         self._pipeline = None
-        self._config = None
+        self._input_values = None
         close = getattr(pipeline, "close", None)
         if callable(close):
             close()
 
-    def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
-        """Add integration-specific application arguments to ``parser``."""
-
-    def _validate_arguments(self, args: argparse.Namespace) -> None:
-        """Reject invalid integration-specific arguments."""
-
-    def _apply_parsed_arguments(self, args: argparse.Namespace) -> None:
-        """Retain integration-specific arguments after shared validation."""
-
-    def _require_config(self) -> _ApplicationConfig:
-        if self._config is None:
-            raise RuntimeError(f"{type(self).__name__}.init() must run first")
-        return self._config
-
-    def _ensure_pipeline(self, config: _ApplicationConfig) -> Any:
+    def _ensure_pipeline(self) -> Any:
         if self._pipeline is None:
-            self._pipeline = self.defaults.pipeline_factory(
-                config.seed, config.device, config.profile
-            )
+            self._pipeline = self._pipeline_config.setup().to(self._device).eval()
         return self._pipeline
 
     def _validate_session_desc(self, session_desc: SessionDesc) -> None:

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,7 +15,6 @@ import torch
 from action2v import (
     Action2VModelLoop,
     Action2VSession,
-    Action2VStep,
     ActionEventAccumulator,
     ActionSnapshot,
 )
@@ -71,27 +71,64 @@ def test_event_accumulator_separates_held_and_transient_input() -> None:
     assert cleared == ActionSnapshot()
 
 
-class _ModelSession:
-    """Small model-session stand-in recording actions and lifecycle calls."""
+class _DiffusionModel:
+    dtype = torch.float32
 
     def __init__(self) -> None:
-        self.seed_frames = torch.zeros((4, 3, 2, 4))
+        self.rng = torch.Generator().manual_seed(3)
+
+
+class _Pipeline:
+    """Small standard-pipeline stand-in recording actions and lifecycle calls."""
+
+    device = torch.device("cpu")
+
+    def __init__(self) -> None:
+        self.diffusion_model = _DiffusionModel()
         self.actions: list[Any] = []
-        self.resets = 0
-        self.closed = False
+        self.initialized_caches: list[dict[str, int]] = []
 
-    def step(self, step_index: int, action: Any) -> Action2VStep:
-        self.actions.append(action)
-        return Action2VStep(
-            frames=torch.full((4, 3, 2, 4), step_index / 10),
-            metrics={"model_step": step_index},
-        )
+    def initialize_cache(self, *, seed_pixels: torch.Tensor) -> dict[str, int]:
+        assert seed_pixels.shape == (1, 4, 3, 2, 4)
+        cache = {"autoregressive_index": 0}
+        self.initialized_caches.append(cache)
+        return cache
 
-    def reset(self) -> None:
-        self.resets += 1
+    def generate(
+        self,
+        *,
+        autoregressive_index: int,
+        cache: dict[str, int],
+        input: Any,
+    ) -> torch.Tensor:
+        cache["autoregressive_index"] = autoregressive_index
+        self.actions.append(input)
+        return torch.full((1, 4, 3, 2, 4), autoregressive_index / 10)
 
-    def close(self) -> None:
-        self.closed = True
+    def finalize(
+        self,
+        *,
+        autoregressive_index: int,
+        cache: dict[str, int],
+    ) -> dict[str, int]:
+        assert cache["autoregressive_index"] == autoregressive_index
+        return {"model_step": autoregressive_index}
+
+
+def _session(pipeline: _Pipeline) -> Action2VSession:
+    return Action2VSession(
+        pipeline=pipeline,
+        pipeline_lock=threading.Lock(),
+        session_desc=SessionDesc(
+            output_layout=VideoTensorLayout.tchw,
+            video_width=4,
+            video_height=2,
+        ),
+        seed_frames=torch.zeros((4, 3, 2, 4)),
+        seed=3,
+        action_mapper=lambda snapshot: snapshot,
+        total_blocks=10,
+    )
 
 
 class _CursorWindow(IClientWindow):
@@ -124,12 +161,27 @@ class _CursorWindow(IClientWindow):
         self.opened = False
 
 
+class _KeyWindow(_CursorWindow):
+    """Report one keyboard event while recording the normal window lifecycle."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__()
+        self._key = key
+
+    def get_user_input_events(self) -> UserInputEvents:
+        key = self._key
+        if not key:
+            return UserInputEvents([])
+        self._key = ""
+        return _events(
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key=key, state=KeyboardInputState.PRESSED
+            )
+        )
+
+
 def test_action2v_requests_cursor_options_only_after_window_opens() -> None:
-    session = Action2VSession(
-        model_session_factory=_ModelSession,
-        session_desc=SessionDesc(video_width=4, video_height=2),
-        action_mapper=lambda snapshot: snapshot,
-    )
+    session = _session(_Pipeline())
     window = _CursorWindow()
 
     run_session(session, window, steps=1)
@@ -137,18 +189,21 @@ def test_action2v_requests_cursor_options_only_after_window_opens() -> None:
     assert window.cursor_requests == [("hide", True), ("lock", True)]
 
 
+def test_t_key_requests_a_new_session_by_default() -> None:
+    """Route the default binding through the UI loop's new-session request."""
+    session = _session(_Pipeline())
+    window = _KeyWindow("t")
+
+    next_session_desc = run_session(session, window)
+
+    assert next_session_desc is session.session_desc
+    window.close()
+
+
 def test_shared_session_emits_seed_then_live_actions_and_resets() -> None:
     """Drive seed, live input, and reset through the shared loop."""
-    model_session = _ModelSession()
-    session = Action2VSession(
-        model_session_factory=lambda: model_session,
-        session_desc=SessionDesc(
-            output_layout=VideoTensorLayout.tchw,
-            video_width=4,
-            video_height=2,
-        ),
-        action_mapper=lambda snapshot: snapshot,
-    )
+    pipeline = _Pipeline()
+    session = _session(pipeline)
     session.init()
     loop = cast(Action2VModelLoop, session.model_loop)
 
@@ -162,7 +217,7 @@ def test_shared_session_emits_seed_then_live_actions_and_resets() -> None:
     second = loop.step(2, UserInputEvents([]))[0]
 
     assert [seed.frame_count, first.frame_count, second.frame_count] == [4, 4, 4]
-    assert model_session.actions == [
+    assert pipeline.actions == [
         ActionSnapshot(keys=frozenset({"W"})),
         ActionSnapshot(keys=frozenset({"W"})),
     ]
@@ -173,21 +228,34 @@ def test_shared_session_emits_seed_then_live_actions_and_resets() -> None:
     }
     assert not loop.is_finished()
     loop.reset()
-    assert model_session.resets == 1
+    assert len(pipeline.initialized_caches) == 2
     assert not loop.is_finished()
     loop.close()
-    assert model_session.closed
+    assert loop.state.cache is None
 
 
 def test_dummy_application_runs_without_a_model() -> None:
     """Exercise application discovery inputs and one CPU generation step."""
     first_frame = Path(__file__).parents[1] / "action2v" / "assets" / "dummy_frame.ppm"
     app = create_dummy_app()
-    app.init(["--first-frame", str(first_frame), "--seed", "3"])
+    app.init(
+        [
+            "--image-path",
+            str(first_frame),
+            "--seed",
+            "3",
+            "--total-blocks",
+            "1",
+            "--no-ui",
+        ]
+    )
+    assert app.pipeline_config.diffusion_model.seed == 3
     session_desc = app.session_desc()
     assert session_desc is not None
     session = app.create_session(session_desc)
     session.init()
+    with pytest.raises(RuntimeError, match="has not registered a UI loop"):
+        session.ui_loop
     loop = cast(Action2VModelLoop, session.model_loop)
 
     seed = loop.step(0, UserInputEvents([]))[0]
@@ -204,7 +272,7 @@ def test_dummy_application_runs_without_a_model() -> None:
         )
     )
     assert generated.metrics["dummy_step"] == 1
-    assert not loop.is_finished()
+    assert loop.is_finished()
 
 
 def test_help_documents_the_live_application_options(
@@ -217,16 +285,20 @@ def test_help_documents_the_live_application_options(
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
     for option in (
-        "--first-frame",
-        "--seed",
+        "--image-path",
+        "--example-data",
         "--device",
-        "--profile",
+        "--total-blocks",
+        "--ui",
+        "--seed",
         "--mouse-sensitivity",
+        "--reset-key",
     ):
         assert option in help_text
     for option in (
+        "--first-frame",
+        "--profile",
         "--seed-image",
-        "--example-data",
         "--actions",
         "--actions-file",
         "--controls-file",
@@ -236,6 +308,30 @@ def test_help_documents_the_live_application_options(
         with pytest.raises(SystemExit) as invalid_option:
             create_dummy_app().init([option, "input.json"])
         assert invalid_option.value.code == 2
+
+
+@pytest.mark.parametrize("reset_key", ["", "1", "tt", "é"])
+def test_reset_key_rejects_non_ascii_letters(reset_key: str) -> None:
+    """Reject reset bindings outside the documented single-letter range."""
+    with pytest.raises(SystemExit) as exit_info:
+        create_dummy_app().init(["--reset-key", reset_key])
+
+    assert exit_info.value.code == 2
+
+
+def test_reset_key_cli_option_rebinds_the_session_key() -> None:
+    """Pass a normalized reset binding from the application into its UI loop."""
+    first_frame = Path(__file__).parents[1] / "action2v" / "assets" / "dummy_frame.ppm"
+    app = create_dummy_app()
+    app.init(["--image-path", str(first_frame), "--reset-key", "r"])
+    session = app.create_session(app.session_desc())
+    window = _KeyWindow("R")
+
+    next_session_desc = run_session(session, window)
+
+    assert next_session_desc is session.session_desc
+    window.close()
+    app.close()
 
 
 def test_shared_package_registers_the_dummy_application() -> None:

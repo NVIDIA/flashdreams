@@ -34,6 +34,7 @@ def test_waypoint_package_registers_action2v_slug() -> None:
     assert "flashdreams-waypoint" not in manifest["project"]["dependencies"]
     assert (package_root / "config.py").is_file()
     assert (package_root / "impl").is_dir()
+    assert not (package_root / "impl" / "model_session.py").exists()
     assert (package_root / "apps" / "action2v" / "adapter.py").is_file()
     assert manifest["tool"]["setuptools"]["packages"] == [
         "waypoint",

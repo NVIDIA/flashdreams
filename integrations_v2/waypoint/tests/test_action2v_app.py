@@ -21,7 +21,6 @@ from waypoint import WaypointControl
 from waypoint.apps.action2v import adapter
 from waypoint.apps.action2v.adapter import WaypointApplication, load_seed_display_frames
 from waypoint.impl.input_mapping import WaypointActionMapper
-from waypoint.impl.model_session import WaypointModelSession
 from waypoint.impl.pipeline import WaypointInferencePipeline
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
@@ -57,8 +56,18 @@ class _FakePipeline:
 
     def __init__(self, seed: int = 7) -> None:
         self.diffusion_model = _FakeDiffusionModel(seed)
+        self.device = torch.device("cpu")
+        self.to_calls: list[torch.device] = []
         self.initialized_caches: list[dict[str, Any]] = []
         self.generate_calls: list[tuple[int, WaypointControl]] = []
+
+    def to(self, device: torch.device | str) -> "_FakePipeline":
+        self.device = torch.device(device)
+        self.to_calls.append(self.device)
+        return self
+
+    def eval(self) -> "_FakePipeline":
+        return self
 
     def initialize_cache(self, *, seed_pixels: Tensor) -> dict[str, Any]:
         assert seed_pixels.shape == (1, 4, 3, 4, 8)
@@ -69,19 +78,20 @@ class _FakePipeline:
 
     def generate(
         self,
+        *,
         autoregressive_index: int,
         cache: dict[str, Any],
-        control: WaypointControl,
+        input: WaypointControl,
     ) -> Tensor:
         assert autoregressive_index == cache["autoregressive_index"] + 1
         cache["autoregressive_index"] = autoregressive_index
-        self.generate_calls.append((autoregressive_index, control))
+        self.generate_calls.append((autoregressive_index, input))
         random_value = torch.rand((), generator=self.diffusion_model.rng)
-        control_value = sum(control.buttons) / 1000
+        control_value = sum(input.buttons) / 1000
         return (random_value + control_value).expand(1, 4, 3, 4, 8).clone()
 
     def finalize(
-        self, autoregressive_index: int, cache: dict[str, Any]
+        self, *, autoregressive_index: int, cache: dict[str, Any]
     ) -> dict[str, float]:
         assert cache["autoregressive_index"] == autoregressive_index
         return {"diffuse_ms": 1.25, "finalize_ms": 0.25}
@@ -96,18 +106,36 @@ class _AutogradFakePipeline(_FakePipeline):
 
     def generate(
         self,
+        *,
         autoregressive_index: int,
         cache: dict[str, Any],
-        control: WaypointControl,
+        input: WaypointControl,
     ) -> Tensor:
         self.last_output = (
-            super().generate(autoregressive_index, cache, control).requires_grad_()
+            super()
+            .generate(
+                autoregressive_index=autoregressive_index,
+                cache=cache,
+                input=input,
+            )
+            .requires_grad_()
         )
         return self.last_output
 
 
 def _pipeline(seed: int = 7) -> WaypointInferencePipeline:
     return cast(WaypointInferencePipeline, _FakePipeline(seed))
+
+
+def _pipeline_config(
+    pipeline: WaypointInferencePipeline, setup_calls: list[int | None] | None = None
+) -> Any:
+    def setup(config: Any) -> WaypointInferencePipeline:
+        if setup_calls is not None:
+            setup_calls.append(config.diffusion_model.seed)
+        return pipeline
+
+    return replace(adapter.WAYPOINT_ACTION2V_DEFAULTS.pipeline_config, _target=setup)
 
 
 def _desc(*, width: int = 8, height: int = 4) -> SessionDesc:
@@ -138,18 +166,16 @@ def _session(
 ) -> Action2VSession:
     session_desc = _desc()
     return Action2VSession(
-        model_session_factory=lambda: WaypointModelSession(
-            pipeline=pipeline,
-            pipeline_lock=pipeline_lock or threading.Lock(),
-            session_desc=session_desc,
-            seed_frames=_seed_frames(session_desc),
-            seed=seed,
-        ),
+        pipeline=pipeline,
+        pipeline_lock=pipeline_lock or threading.Lock(),
         session_desc=session_desc,
+        seed_frames=_seed_frames(session_desc),
+        seed=seed,
         action_mapper=WaypointActionMapper(
             video_width=session_desc.video_width,
             video_height=session_desc.video_height,
         ),
+        total_blocks=10_000,
     )
 
 
@@ -187,19 +213,19 @@ def test_application_description_is_cheap_and_mp4_complete() -> None:
     assert session_desc.presentation_mode is PresentationMode.ON_DEMAND
 
 
-def test_application_rejects_removed_example_flags() -> None:
-    """Reject the removed example and action-limit arguments."""
+def test_application_requires_an_image_source() -> None:
+    """Reject a rollout without an explicit image or example data."""
     app = WaypointApplication()
-    for option in ("--example-data", "--actions"):
-        with pytest.raises(SystemExit) as removed_option:
-            app.init(["--first-frame", "seed.png", option, "2"])
-        assert removed_option.value.code == 2
+    app.init([])
+
+    with pytest.raises(ValueError, match="--image-path or --example-data"):
+        app.create_session(app.session_desc())
 
 
-def test_default_first_frame_is_downloaded_lazily(
+def test_example_image_is_downloaded_lazily(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Resolve the integration default only when a session starts."""
+    """Resolve example data only when a session starts."""
     downloaded = tmp_path / "crystal_desert_blade.jpg"
     download_calls: list[tuple[str, Path, str | None]] = []
     seed_calls: list[Path] = []
@@ -217,9 +243,9 @@ def test_default_first_frame_is_downloaded_lazily(
     monkeypatch.setattr(adapter, "download_to_cache", download_to_cache)
     app = WaypointApplication(
         seed_loader=lambda path: seed_calls.append(path) or torch.empty(0),
-        pipeline_factory=lambda seed, device, profile: _pipeline(seed),
+        pipeline_config=_pipeline_config(_pipeline(11)),
     )
-    app.init(["--seed", "11"])
+    app.init(["--example-data", "--seed", "11"])
 
     assert download_calls == []
     app.create_session(app.session_desc())
@@ -240,10 +266,9 @@ def test_invalid_session_contract_precedes_image_or_model_work() -> None:
     calls: list[str] = []
     app = WaypointApplication(
         seed_loader=lambda path: calls.append(f"seed:{path}") or torch.empty(0),
-        pipeline_factory=lambda seed, device, profile: calls.append("pipeline")
-        or _pipeline(seed),
+        pipeline_config=_pipeline_config(_pipeline(11)),
     )
-    app.init(["--first-frame", "missing.png", "--seed", "11"])
+    app.init(["--image-path", "missing.png", "--seed", "11"])
     with pytest.raises(ValueError, match="tchw"):
         app.create_session(SessionDesc(output_layout=VideoTensorLayout.bcthw))
     with pytest.raises(ValueError, match="1024x512"):
@@ -259,23 +284,17 @@ def test_invalid_session_contract_precedes_image_or_model_work() -> None:
 
 def test_application_loads_one_pipeline_for_two_sessions() -> None:
     """One application shares model modules while each session stays distinct."""
-    factory_calls: list[tuple[int, torch.device, bool]] = []
+    setup_calls: list[int | None] = []
     fake_pipeline = _pipeline(19)
     seed_frames = torch.zeros(1).expand(4, 3, 512, 1024)
 
-    def pipeline_factory(
-        seed: int, device: torch.device, profile: bool
-    ) -> WaypointInferencePipeline:
-        factory_calls.append((seed, device, profile))
-        return fake_pipeline
-
     app = WaypointApplication(
-        pipeline_factory=pipeline_factory,
+        pipeline_config=_pipeline_config(fake_pipeline, setup_calls),
         seed_loader=lambda path: seed_frames,
     )
     app.init(
         [
-            "--first-frame",
+            "--image-path",
             "seed.png",
             "--seed",
             "19",
@@ -287,7 +306,8 @@ def test_application_loads_one_pipeline_for_two_sessions() -> None:
     second = app.create_session(app.session_desc())
     assert first is not second
     assert first.session_desc == second.session_desc
-    assert factory_calls == [(19, torch.device("cpu"), False)]
+    assert setup_calls == [19]
+    assert cast(_FakePipeline, fake_pipeline).to_calls == [torch.device("cpu")]
 
 
 def test_seed_loader_normalizes_rgb_and_repeats_four_frames(tmp_path: Path) -> None:
