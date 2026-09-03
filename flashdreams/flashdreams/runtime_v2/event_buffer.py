@@ -4,6 +4,8 @@
 """Input events shared by the model and UI loops."""
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from flashdreams.runtime_v2.user_input_event import (
     ResetUserInputEvent,
@@ -38,6 +40,12 @@ class EventBuffer:
         """Return the current reset generation."""
         with self._lock:
             return self._generation
+
+    @contextmanager
+    def hold_generation(self) -> Iterator[int]:
+        """Yield the current generation while input appends are paused."""
+        with self._lock:
+            yield self._generation
 
     def register(self, reader_id: int) -> None:
         """Register a reader before input collection begins."""

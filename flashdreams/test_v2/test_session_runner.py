@@ -588,7 +588,7 @@ def test_finished_model_loop_executes_an_accepted_message() -> None:
     assert len(session.observed_events) == 1
 
 
-def test_finished_model_loop_drops_a_self_message_at_shutdown() -> None:
+def test_finished_model_loop_rejects_a_self_message_at_shutdown_cutoff() -> None:
     session = FiniteSession(_session_desc(), CallLog(), length=1, generated=1)
     session.init()
     event_buffer = EventBuffer()
@@ -599,7 +599,8 @@ def test_finished_model_loop_drops_a_self_message_at_shutdown() -> None:
         nonlocal calls
         del state
         calls += 1
-        invoke_async(session.model_loop, self_message)
+        with pytest.raises(RuntimeError, match="Loop is shutting down"):
+            invoke_async(session.model_loop, self_message)
 
     invoke_async(session.model_loop, self_message)
     session.model_loop._run_model_loop(
@@ -613,6 +614,70 @@ def test_finished_model_loop_drops_a_self_message_at_shutdown() -> None:
     assert session._failure_queue.empty()
 
 
+def test_finished_model_loop_executes_a_message_accepted_after_the_main_batch() -> None:
+    session = FiniteSession(_session_desc(), CallLog(), length=1)
+    session.init()
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+
+    def finish_and_reset(state: FakeSession) -> None:
+        assert isinstance(state, FiniteSession)
+        state._generated = 1
+        invoke_async(session.model_loop, lambda owner: owner.reset())
+
+    invoke_async(session.model_loop, finish_and_reset)
+    session.model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda generation, results, elapsed: None,
+        max_steps=1,
+    )
+
+    assert session._generated == 1
+    assert len(session.observed_events) == 1
+    assert session._failure_queue.empty()
+
+
+def test_finished_model_loop_observes_a_reset_appended_after_its_read() -> None:
+    class ResetAfterReadEventBuffer(EventBuffer):
+        def __init__(self) -> None:
+            super().__init__()
+            self._reset_appended = False
+
+        def read(self, reader_id: int) -> tuple[UserInputEvents, int]:
+            events, generation = super().read(reader_id)
+            if not self._reset_appended:
+                self._reset_appended = True
+                self.append(_lifecycle_event(ResetUserInputEvent))
+            return events, generation
+
+    session = FiniteSession(_session_desc(), CallLog(), length=1)
+    session.init()
+    event_buffer = ResetAfterReadEventBuffer()
+    event_buffer.register(0)
+
+    def finish(state: FakeSession) -> None:
+        assert isinstance(state, FiniteSession)
+        state._generated = 1
+
+    invoke_async(session.model_loop, finish)
+    session.model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda generation, results, elapsed: None,
+        max_steps=1,
+    )
+
+    assert session.model_loop._generation == 1
+    assert session._generated == 1
+    assert len(session.observed_events) == 1
+    assert any(
+        isinstance(event, ResetUserInputEvent)
+        for event in session.observed_events[0].get_events()
+    )
+    assert session._failure_queue.empty()
+
+
 def test_finished_model_loop_rejects_a_message_after_shutdown_is_claimed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -622,15 +687,16 @@ def test_finished_model_loop_rejects_a_message_after_shutdown_is_claimed(
     event_buffer.register(0)
     queue_checked = threading.Event()
     finish_check = threading.Event()
-    original_empty = session.model_loop._message_queue.empty
+    original_get_nowait = session.model_loop._message_queue.get_nowait
 
-    def synchronized_empty() -> bool:
-        empty = original_empty()
+    def synchronized_get_nowait() -> object:
         queue_checked.set()
         assert finish_check.wait(timeout=1.0)
-        return empty
+        return original_get_nowait()
 
-    monkeypatch.setattr(session.model_loop._message_queue, "empty", synchronized_empty)
+    monkeypatch.setattr(
+        session.model_loop._message_queue, "get_nowait", synchronized_get_nowait
+    )
     model_thread = threading.Thread(
         target=session.model_loop._run_model_loop,
         kwargs={

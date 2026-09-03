@@ -184,6 +184,9 @@ class ILoop(ABC, Generic[StateT]):
                     batch.append(self._message_queue.get_nowait())
                 except queue.Empty:
                     break
+        self._run_messages(batch)
+
+    def _run_messages(self, batch: list[_Message[StateT]]) -> None:
         for message in batch:
             result = message.operation(self.state)
             if result is not None:
@@ -212,17 +215,29 @@ class IModelLoop(ILoop[StateT], ABC):
     bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
-    def _claim_finished_shutdown(self, generation: int) -> bool:
-        """Atomically stop message acceptance for an idle finished loop."""
-        with self._lifecycle_lock:
-            if (
-                not self.is_finished()
-                or generation != self._generation
-                or not self._message_queue.empty()
-            ):
-                return False
-            self._accepting_messages = False
+    def _settle_finished_state(self, event_buffer: EventBuffer) -> bool:
+        """Process the terminal message batch and return whether to stop."""
+        with event_buffer.hold_generation() as generation:
+            with self._lifecycle_lock:
+                if not self.is_finished() or generation != self._generation:
+                    return False
+                self._accepting_messages = False
+                batch: list[_Message[StateT]] = []
+                while True:
+                    try:
+                        batch.append(self._message_queue.get_nowait())
+                    except queue.Empty:
+                        break
+
+        self._run_messages(batch)
+        if self.is_finished():
             return True
+
+        with self._lifecycle_lock:
+            if self._closed or self._shutdown_event.is_set():
+                return True
+            self._accepting_messages = True
+        return False
 
     @final
     def _run_model_loop(
@@ -248,7 +263,7 @@ class IModelLoop(ILoop[StateT], ABC):
             while not self._shutdown_event.is_set() and (
                 max_steps is None or steps_run < max_steps
             ):
-                if self._claim_finished_shutdown(event_buffer.generation):
+                if self._settle_finished_state(event_buffer):
                     break
                 last_run_started = self._pace(last_run_started)
                 if self._shutdown_event.is_set():
@@ -256,7 +271,11 @@ class IModelLoop(ILoop[StateT], ABC):
                 events, generation = event_buffer.read(reader_id)
                 step_index = self._begin_run(events, generation)
                 if step_index is None:
-                    break
+                    if self._shutdown_event.is_set() or self._settle_finished_state(
+                        event_buffer
+                    ):
+                        break
+                    continue
                 step_started_at = time.monotonic()
                 raw_result = self.step(step_index, events)
                 step_elapsed_s = time.monotonic() - step_started_at
