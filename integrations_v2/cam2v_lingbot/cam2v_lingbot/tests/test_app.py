@@ -26,6 +26,7 @@ def test_package_registers_the_shared_cam2v_application() -> None:
 
     dependencies = manifest["project"]["dependencies"]
     assert "flashdreams-cam2v" in dependencies
+    assert "flashdreams-flashvsr" in dependencies
     assert "flashdreams-lingbot" in dependencies
     assert (
         manifest["project"]["entry-points"]["flashdreams.applications_v2"][

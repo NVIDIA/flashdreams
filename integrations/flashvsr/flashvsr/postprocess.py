@@ -210,12 +210,33 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         """Buffer input frames and emit complete FlashVSR chunks."""
         bcthw = self._chunk_to_bcthw(chunk)
+        starts_on_steady_chunk = (
+            self._ar_idx == 0
+            and self._buffer is None
+            and bcthw.shape[2] == self._subseq_size
+        )
         self._ensure_pipeline(bcthw)
         self._append_to_buffer(bcthw, metadata=chunk.metadata)
+        if starts_on_steady_chunk:
+            assert self._buffer is not None
+            # The decoder must consume its shorter cold-start shape before it
+            # can emit a complete steady chunk. Prime from the first frame and
+            # discard the synthetic output.
+            prime = self._buffer[:, :, :1].expand(-1, -1, self._first_size, -1, -1)
+            self._run_flashvsr_chunk(prime.contiguous())
         # Generation AR chunks can be smaller than FlashVSR's required window.
         # This synchronous call may therefore return [] after buffering; the
         # later AR chunk or flush provides the remaining frames.
         return self._drain_ready_chunks()
+
+    def reset(self) -> None:
+        """Reset temporal state while retaining FlashVSR weights and buffers."""
+        if self._pipeline is not None:
+            assert self._cache is not None
+            self._pipeline.reset_cache_in_place(self._cache)
+        self._buffer = None
+        self._metadata_spans.clear()
+        self._ar_idx = 0
 
     @torch.no_grad()
     def flush(self) -> list[VideoChunk]:

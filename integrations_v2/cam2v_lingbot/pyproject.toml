@@ -14,12 +14,14 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "flashdreams-cam2v",
+    "flashdreams-flashvsr",
     "flashdreams-lingbot",
 ]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
 flashdreams-cam2v = { workspace = true }
+flashdreams-flashvsr = { workspace = true }
 flashdreams-lingbot = { workspace = true }
 
 [project.entry-points."flashdreams.applications_v2"]

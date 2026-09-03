@@ -1180,6 +1180,7 @@ source = { editable = "integrations_v2/cam2v_lingbot" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-cam2v" },
+    { name = "flashdreams-flashvsr" },
     { name = "flashdreams-lingbot" },
 ]
 
@@ -1187,6 +1188,7 @@ dependencies = [
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "flashdreams-cam2v", editable = "apps/cam2v" },
+    { name = "flashdreams-flashvsr", editable = "integrations/flashvsr" },
     { name = "flashdreams-lingbot", editable = "integrations/lingbot" },
 ]
 

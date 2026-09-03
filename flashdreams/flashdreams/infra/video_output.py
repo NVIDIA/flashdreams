@@ -159,8 +159,20 @@ class VideoOutputStream:
     ) -> None:
         self.postprocess_stream = postprocess_stream
         self.output_layout = output_layout
+        self._postprocess_enabled = postprocess_stream is not None
         self._closed = False
         self._last_step_index: int | None = None
+
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Toggle processing without replacing or closing the stream."""
+        if enabled and self.postprocess_stream is None:
+            raise RuntimeError("cannot enable an unconfigured post-processing stream")
+        enabled = bool(enabled)
+        if enabled == self._postprocess_enabled:
+            return
+        if self.postprocess_stream is not None:
+            self.postprocess_stream.reset()
+        self._postprocess_enabled = enabled
 
     def process(
         self,
@@ -176,7 +188,7 @@ class VideoOutputStream:
             raise RuntimeError("cannot process video after finish()")
         processed = video_chunk
         result_metadata = dict(metadata or {})
-        if self.postprocess_stream is not None:
+        if self.postprocess_stream is not None and self._postprocess_enabled:
             processed = self.postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=autoregressive_index,

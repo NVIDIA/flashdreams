@@ -26,6 +26,8 @@ display time. Integrations may enable one concise console record per AR step;
 the Lingbot specialization logs its warmup/steady phase, frame count,
 synchronized step wall time, and chunk FPS. Model metrics retain the
 warmup-excluded cumulative `steady_state_fps` metric for benchmark comparisons.
+Presentation pacing uses the complete model-loop wall time, including
+post-processing when enabled; the model-only status remains separate.
 
 The v2 runtime runs Cam2V's complete UI-thread lifecycle, including SlangPy
 rendering, model-frame conversion, composition, and window writes, on its

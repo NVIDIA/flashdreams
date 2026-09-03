@@ -27,8 +27,28 @@ The command prints the browser URL. Use `W`/`S` to move, `A`/`D` or
 camera. The retained SlangPy overlay lists active controls, and the arrow keys
 mirror `W`/`A`/`S`/`D`.
 
-The UI/write path owns presentation pacing, and WebRTC sends each available
-frame as soon as aiortc requests it rather than applying another pacer.
+To load FlashVSR once and expose the **Post-processing** checkbox, select a
+preset when starting the application:
+
+```bash
+uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+    --mode webrtc --host 0.0.0.0 --port 8089 -- \
+    --example-data \
+    --postprocess-preset flashvsr-v1.1-sparse-1.5 \
+    --postprocess-chunk-size 8
+```
+
+The 8-frame setting adapts Lingbot's 9-frame first block and 12-frame steady
+blocks to FlashVSR's 5-frame first call and 8-frame steady calls. Checking or
+unchecking the box resets only FlashVSR's temporal buffer/cache; its model,
+compiled network, and cache allocation remain resident until the application
+exits. Add `--no-postprocess-compile` to avoid FlashVSR compiler autotuning
+during development.
+
+The UI/write path owns presentation pacing. Its cadence follows completed
+model-loop throughput, including FlashVSR when enabled, and never accelerates
+merely because a chunk is queued. WebRTC sends each available frame as soon as
+aiortc requests it rather than applying another pacer.
 `window.write` synchronously converts the UI result and materializes owned
 `VideoFrame` objects. SlangPy rendering/composition and the WebRTC sink use
 separate high-priority CUDA streams joined by a readiness event. The sender
