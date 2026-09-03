@@ -45,10 +45,12 @@ Events are processed in V2 timestamp order. Edge state is persistent; mouse and
 wheel accumulators are per generated action. A reset inside a batch clears both
 persistent and accumulated state before later events in that batch are applied.
 
-File-driven mode has complete precedence over live input: keyboard and mouse
-events do not alter a controls-file rollout. Reset and close remain runtime
-lifecycle events in either mode. Live mode samples one coalesced control for
-every model-loop action.
+File-driven mode has complete precedence over live movement input: keyboard and
+mouse events do not alter a controls-file action. Pressing ``R`` is a model-owned
+restart command in either mode; it rebuilds the cache, restores the seeded RNG,
+and emits the starting image without forwarding ``R`` as a model button. Runtime
+reset and close lifecycle events remain supported. Live mode samples one
+coalesced control for every model-loop action.
 
 ## Reuse review
 
@@ -60,10 +62,10 @@ semantic interpretation.
 
 The older `flashdreams.runtime.mapping.InputMapping` protocol belongs to the
 legacy runtime's canonical/inference-input schema and is not compatible with
-the V2 loop contract. The shared `apps/cam2v` package has useful application,
-session, UI, and reset organization, but its keyboard resampler produces camera
-trajectories and does not handle Waypoint's button vocabulary, mouse motion, or
-wheel channel. Neither is a dependency for this integration.
+the V2 loop contract. The shared `apps/cam2v` model loop produces camera
+trajectories and cannot represent Waypoint's button vocabulary, mouse motion,
+or wheel channel. Waypoint therefore retains its action adapter while reusing
+the Cam2V UI loop and parameterized control HUD.
 
 `WaypointControlEventAdapter` is intentionally named as an integration-specific
 adapter even though some of its mechanics can later be shared. A reusable
@@ -79,9 +81,9 @@ action-to-video design should keep three boundaries:
    object to checkpoint-specific tensors (`WaypointControlEncoder`).
 
 A future generic action-to-video app can also own seed/replay/live-mode
-selection, reset wiring, and a control-help overlay while accepting the mapper
-and model pipeline as integration-provided strategies. This PR does not add
-that public protocol: with only one direct consumer, doing so would make
-Waypoint's Windows virtual-key and pixel-delta policies accidental framework
+selection and reset wiring while accepting the mapper and model pipeline as
+integration-provided strategies. This integration does not add that public
+protocol: with only one direct consumer, doing so would make Waypoint's Windows
+virtual-key and pixel-delta policies accidental framework
 contracts. The extraction should be validated jointly with the next compatible
 interactive world model.

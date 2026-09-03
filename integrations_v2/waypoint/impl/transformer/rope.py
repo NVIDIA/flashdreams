@@ -20,7 +20,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
+from waypoint.impl.spec import WAYPOINT_1_5, WaypointModelSpec
 
 
 def apply_waypoint_ortho_rope(tokens: Tensor, cosine: Tensor, sine: Tensor) -> Tensor:

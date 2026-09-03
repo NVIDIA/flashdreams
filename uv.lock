@@ -41,7 +41,6 @@ members = [
     "flashdreams-wan21",
     "flashdreams-wan22",
     "flashdreams-waypoint",
-    "flashdreams-waypoint-v2",
     "ludus-renderer",
     "omnidreams-game-engine",
 ]
@@ -1629,9 +1628,11 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-waypoint"
 version = "0.1.0"
-source = { editable = "integrations/waypoint" }
+source = { editable = "integrations_v2/waypoint" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-cam2v" },
+    { name = "pillow" },
 ]
 
 [package.optional-dependencies]
@@ -1642,26 +1643,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
+    { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "flashdreams-waypoint-v2"
-version = "0.1.0"
-source = { editable = "integrations_v2/waypoint" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-waypoint" },
-    { name = "pillow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-waypoint", editable = "integrations/waypoint" },
-    { name = "pillow", specifier = ">=10" },
-]
 
 [[package]]
 name = "flip-evaluator"

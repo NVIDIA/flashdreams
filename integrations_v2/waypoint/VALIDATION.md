@@ -9,6 +9,24 @@ Validated on 2026-08-25 against FlashDreams main `8fd97fa3`, source PR #464
 `0f178234`, and the official `world_engine` implementation at
 `b3f1e725dedac17ccbfaf9ee37f5e068bb44bed4`.
 
+## V2 layout migration gates
+
+The 2026-09-03 migration moved all Waypoint model and application code into
+`integrations_v2/waypoint`, registered `cam2v-waypoint`, and removed the legacy
+`integrations/waypoint` package. The migration gates passed:
+
+- Ruff format and lint checks over Waypoint and the shared Cam2V HUD.
+- 68 CPU tests covering model contracts, V2 sessions, HUD controls, deterministic
+  `R` reset, MP4 frame accounting, and the absence of the legacy directory.
+- ty checks over Waypoint and Cam2V using the repository dependency environment.
+- Wheel build and inspection, including the application entry point and bundled
+  118-action control timeline.
+- Workspace lockfile validation with a single `flashdreams-waypoint` package.
+
+The CUDA and published-weight measurements below are preserved from the original
+model integration and V2 runtime validation; the migration changes package and
+UI boundaries, not model math.
+
 ## Artifacts and hardware
 
 - GPU: NVIDIA RTX PRO 6000 Blackwell Workstation Edition (96 GiB), driver
@@ -30,13 +48,13 @@ and long-rollout outputs are under its `additional-inference/` directory.
 ## Automated gates
 
 - Ruff 0.12.7 check and format: passed.
-- ty 0.0.53 for both integration packages: passed.
+- ty 0.0.53 for the former split model and application packages: passed.
 - CPU model, TAEHV, V2 lifecycle, reset, input, and MP4 tests: 51 passed and
   7 deselected.
 - CUDA fixed-cache FlexAttention equivalence, local and global layers over
   eight autoregressive frames: 2 passed.
-- Built-wheel entry-point discovery: `waypoint-1-5-1b` resolves to
-  `WaypointApplication`; all 118 bundled actions are available.
+- Built-wheel entry-point discovery: `cam2v-waypoint` resolves to
+  `WaypointCam2VApplication`; all 118 bundled actions are available.
 
 ## Real V2 inference
 
@@ -84,7 +102,7 @@ exactly 164 frames.
 
 Final review gates also passed the complete pre-commit suite (Ruff check/fix,
 Ruff format, lockfile/version checks, and `ty`), 52 focused CPU tests across
-TAEHV and both Waypoint packages, and the two CUDA fixed-cache tests. The broad
+TAEHV and the former split Waypoint packages, and the two CUDA fixed-cache tests. The broad
 CPU run passed 1,584 tests with 2 skipped and 337 deselected after excluding
 only `integrations/omnidreams/tests/interactive_drive`; collecting that
 unrelated directory requires the optional `pyvirtualdisplay` and

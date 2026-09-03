@@ -9,8 +9,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 from waypoint import WAYPOINT_1_5
-from waypoint.transformer import WaypointAttentionPolicy, WaypointKVCache
-from waypoint.transformer.network import _compiled_fixed_attention
+from waypoint.impl.transformer import WaypointAttentionPolicy, WaypointKVCache
+from waypoint.impl.transformer.network import _compiled_fixed_attention
 
 pytestmark = pytest.mark.ci_gpu
 

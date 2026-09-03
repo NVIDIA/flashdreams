@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Waypoint 1.5 V2 application."""
+"""Waypoint 1.5 Cam2V application adapter."""
 
 from __future__ import annotations
 
@@ -17,9 +17,6 @@ from typing import cast
 import torch
 from loguru import logger
 from torch import Tensor
-from waypoint import WaypointControl, load_controls_from_file
-from waypoint.config import PIPELINE_WAYPOINT_1_5
-from waypoint.pipeline import WaypointInferencePipeline
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
@@ -31,7 +28,10 @@ from flashdreams.runtime_v2.session_desc import (
     SessionDesc,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from waypoint_v2.session import WaypointSession
+from waypoint import WaypointControl, load_controls_from_file
+from waypoint.apps.cam2v.session import WaypointSession
+from waypoint.config import PIPELINE_WAYPOINT_1_5
+from waypoint.impl.pipeline import WaypointInferencePipeline
 
 _OUTPUT_WIDTH = 1024
 _OUTPUT_HEIGHT = 512
@@ -56,9 +56,10 @@ class _ApplicationConfig:
     device: torch.device
     profile: bool
     mouse_sensitivity: float
+    use_ui: bool
 
 
-class WaypointApplication(IApplication):
+class WaypointCam2VApplication(IApplication):
     """Load one Waypoint model and create isolated image-established sessions."""
 
     def __init__(
@@ -92,10 +93,15 @@ class WaypointApplication(IApplication):
             ValueError: Inputs do not describe a valid file or live rollout.
         """
         parser = argparse.ArgumentParser(
-            prog="flashdreams-run-v2 waypoint-1-5-1b --",
+            prog="flashdreams-run-v2 cam2v-waypoint --",
             description="Run Waypoint 1.5 from an image using file or live controls.",
         )
-        parser.add_argument("--seed-image", type=Path)
+        parser.add_argument(
+            "--image-path",
+            "--seed-image",
+            dest="seed_image",
+            type=Path,
+        )
         parser.add_argument("--example-data", action="store_true")
         parser.add_argument("--controls-file", type=Path)
         parser.add_argument(
@@ -107,10 +113,16 @@ class WaypointApplication(IApplication):
         parser.add_argument("--device", default="cuda")
         parser.add_argument("--profile", action="store_true")
         parser.add_argument("--mouse-sensitivity", type=float, default=1.0)
+        parser.add_argument(
+            "--ui",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Show the interactive control overlay (default: enabled).",
+        )
         args = parser.parse_args(list(commandline_args))
 
         if args.seed_image is None and not args.example_data:
-            raise ValueError("pass --seed-image or --example-data")
+            raise ValueError("pass --image-path/--seed-image or --example-data")
         if args.seed is not None and args.seed < 0:
             raise ValueError(f"--seed must be non-negative, got {args.seed}")
         if not math.isfinite(args.mouse_sensitivity) or args.mouse_sensitivity < 0:
@@ -135,7 +147,7 @@ class WaypointApplication(IApplication):
 
         seed = secrets.randbits(63) if args.seed is None else args.seed
         if args.seed is None:
-            logger.info(f"[waypoint-1.5-1b] generated seed {seed}")
+            logger.info(f"[cam2v-waypoint] generated seed {seed}")
         self._config = _ApplicationConfig(
             seed_image=args.seed_image,
             controls=controls,
@@ -143,10 +155,11 @@ class WaypointApplication(IApplication):
             device=torch.device(args.device),
             profile=args.profile,
             mouse_sensitivity=args.mouse_sensitivity,
+            use_ui=args.ui,
         )
 
     def session_desc(self) -> SessionDesc:
-        """Return Waypoint's native 1024x512 TCHW presentation contract."""
+        """Return Waypoint's finite, native 1024x512 TCHW replay contract."""
         return SessionDesc(
             output_layout=VideoTensorLayout.tchw,
             backpressure_mode=BackpressureMode.BLOCK,
@@ -188,6 +201,7 @@ class WaypointApplication(IApplication):
             seed=config.seed,
             controls=config.controls,
             mouse_sensitivity=config.mouse_sensitivity,
+            use_ui=config.use_ui,
         )
 
     def close(self) -> None:
@@ -196,7 +210,7 @@ class WaypointApplication(IApplication):
 
     def _require_config(self) -> _ApplicationConfig:
         if self._config is None:
-            raise RuntimeError("WaypointApplication.init() must run first")
+            raise RuntimeError("WaypointCam2VApplication.init() must run first")
         return self._config
 
     def _ensure_pipeline(self, config: _ApplicationConfig) -> WaypointInferencePipeline:
@@ -284,7 +298,7 @@ def _download_example_image() -> Path:
 
 def create_app() -> IApplication:
     """Return a new lazy Waypoint 1.5 V2 application."""
-    return WaypointApplication()
+    return WaypointCam2VApplication()
 
 
-__all__ = ["WaypointApplication", "create_app", "load_seed_display_frames"]
+__all__ = ["WaypointCam2VApplication", "create_app", "load_seed_display_frames"]

@@ -26,7 +26,7 @@ from typing import Any, cast
 import torch
 from torch import Tensor
 
-from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
+from waypoint.impl.spec import WAYPOINT_1_5, WaypointModelSpec
 
 
 def load_controls_from_file(path: Path) -> tuple["WaypointControl", ...]:

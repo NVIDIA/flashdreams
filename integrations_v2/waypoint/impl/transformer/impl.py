@@ -16,11 +16,11 @@ from flashdreams.infra.diffusion.transformer import (
     TransformerAutoregressiveCache,
     TransformerConfig,
 )
-from waypoint.checkpoint import load_waypoint_state_dict
-from waypoint.controls import WaypointControl, make_control_context
-from waypoint.spec import WaypointModelSpec
-from waypoint.transformer.cache import WaypointKVCache
-from waypoint.transformer.network import WaypointDiT, WaypointDiTConfig
+from waypoint.impl.checkpoint import load_waypoint_state_dict
+from waypoint.impl.controls import WaypointControl, make_control_context
+from waypoint.impl.spec import WaypointModelSpec
+from waypoint.impl.transformer.cache import WaypointKVCache
+from waypoint.impl.transformer.network import WaypointDiT, WaypointDiTConfig
 
 
 @dataclass(kw_only=True)

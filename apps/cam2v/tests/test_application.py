@@ -536,6 +536,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     assert any(line.startswith("Recent model rate (2 s):") for line in displayed)
     assert state.active_keys_widget is not None
     assert state.active_keys_widget.text == "Active keys: W"
+    assert state.control_widgets[0].text == "Move forward / backward: [W] / S"
 
     ui_loop.step(
         1,

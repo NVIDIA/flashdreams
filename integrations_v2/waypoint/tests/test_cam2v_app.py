@@ -13,14 +13,19 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import tomli as tomllib
 import torch
+from cam2v import Cam2VSlangPyUILoop
 from numpy import uint64
 from torch import Tensor
 from waypoint import WaypointControl
-from waypoint.pipeline import WaypointInferencePipeline
-from waypoint_v2.app import WaypointApplication, load_seed_display_frames
-from waypoint_v2.control_events import WaypointControlEventAdapter
-from waypoint_v2.session import WaypointModelLoop, WaypointSession
+from waypoint.apps.cam2v.adapter import (
+    WaypointCam2VApplication,
+    load_seed_display_frames,
+)
+from waypoint.apps.cam2v.control_events import WaypointControlEventAdapter
+from waypoint.apps.cam2v.session import WaypointModelLoop, WaypointSession
+from waypoint.impl.pipeline import WaypointInferencePipeline
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
@@ -41,6 +46,8 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 class _FakeDiffusionModel:
@@ -133,6 +140,7 @@ def _session(
     *,
     controls: tuple[WaypointControl, ...] | None,
     seed: int = 7,
+    use_ui: bool = False,
 ) -> WaypointSession:
     session_desc = _desc()
     return WaypointSession(
@@ -143,6 +151,7 @@ def _session(
         seed=seed,
         controls=controls,
         mouse_sensitivity=1.0,
+        use_ui=use_ui,
     )
 
 
@@ -156,9 +165,25 @@ def _empty_events() -> UserInputEvents:
     return UserInputEvents([])
 
 
-def test_application_description_is_cheap_and_mp4_complete() -> None:
-    """Session metadata is available before args, downloads, or model loading."""
-    app = WaypointApplication()
+def test_package_uses_the_complete_v2_layout() -> None:
+    """Keep model code, Cam2V binding, and entry point in one V2 package."""
+    manifest = tomllib.loads((_PACKAGE_ROOT / "pyproject.toml").read_text())
+
+    assert manifest["project"]["name"] == "flashdreams-waypoint"
+    assert "flashdreams-cam2v" in manifest["project"]["dependencies"]
+    assert manifest["project"]["entry-points"]["flashdreams.applications_v2"] == {
+        "cam2v-waypoint": "waypoint.apps.cam2v.adapter:create_app"
+    }
+    assert (_PACKAGE_ROOT / "config.py").is_file()
+    assert (_PACKAGE_ROOT / "impl").is_dir()
+    assert (_PACKAGE_ROOT / "apps" / "cam2v" / "adapter.py").is_file()
+    assert not (_PACKAGE_ROOT / "impl" / "runner.py").exists()
+    assert not (_PACKAGE_ROOT.parents[1] / "integrations" / "waypoint").exists()
+
+
+def test_application_description_is_cheap_and_preserves_finite_replay() -> None:
+    """Default metadata preserves exact replay without loading model state."""
+    app = WaypointCam2VApplication()
     session_desc = app.session_desc()
     assert session_desc.output_layout is VideoTensorLayout.tchw
     assert session_desc.video_width == 1024
@@ -170,7 +195,7 @@ def test_application_description_is_cheap_and_mp4_complete() -> None:
 
 def test_application_requires_a_seed_source_and_actions_require_a_file() -> None:
     """Invalid argument combinations fail without constructing model state."""
-    app = WaypointApplication()
+    app = WaypointCam2VApplication()
     with pytest.raises(ValueError, match="seed-image"):
         app.init([])
     with pytest.raises(ValueError, match="actions requires"):
@@ -180,7 +205,7 @@ def test_application_requires_a_seed_source_and_actions_require_a_file() -> None
 def test_invalid_session_contract_precedes_image_or_model_work() -> None:
     """Layout and size rejection happen before image decode or checkpoint setup."""
     calls: list[str] = []
-    app = WaypointApplication(
+    app = WaypointCam2VApplication(
         seed_loader=lambda path: calls.append(f"seed:{path}") or torch.empty(0),
         pipeline_factory=lambda seed, device, profile: calls.append("pipeline")
         or _pipeline(seed),
@@ -216,7 +241,7 @@ def test_application_loads_one_pipeline_for_two_sessions(tmp_path: Path) -> None
         factory_calls.append((seed, device, profile))
         return fake_pipeline
 
-    app = WaypointApplication(
+    app = WaypointCam2VApplication(
         pipeline_factory=pipeline_factory,
         seed_loader=lambda path: seed_frames,
     )
@@ -344,6 +369,54 @@ def test_reset_rebuilds_cache_and_replays_first_action_deterministically() -> No
     assert loop.state.cache is None
 
 
+def test_r_key_restarts_the_rollout_and_internal_action_index() -> None:
+    """Pressing R emits the seed and makes the next action AR index one."""
+    fake = _FakePipeline(seed=37)
+    session = _session(cast(WaypointInferencePipeline, fake), controls=None, seed=37)
+    session.init()
+    loop = cast(WaypointModelLoop, session.model_loop)
+    loop.step(0, _empty_events())
+    first = loop.step(1, _empty_events())[0].read_output().clone()
+    first_cache = fake.initialized_caches[-1]
+
+    restart = loop.step(
+        2,
+        _events(
+            KeyboardUserInputEvent(
+                timestamp=uint64(0), key="r", state=KeyboardInputState.PRESSED
+            )
+        ),
+    )[0]
+    replay = loop.step(3, _empty_events())[0].read_output()
+
+    assert restart.step_index == 2
+    assert restart.metrics == {"autoregressive_index": 0, "seed_frames": 4}
+    assert torch.equal(restart.read_output(), loop.state.seed_frames)
+    assert torch.equal(first, replay)
+    assert [call[0] for call in fake.generate_calls] == [1, 1]
+    assert fake.initialized_caches[-1] is not first_cache
+
+
+def test_session_registers_waypoint_controls_with_the_shared_cam2v_hud() -> None:
+    """Expose Waypoint actions and reset through the shared Cam2V overlay."""
+    session = _session(_pipeline(), controls=None, use_ui=True)
+
+    session.init()
+
+    ui_loop = cast(Cam2VSlangPyUILoop, session.ui_loop)
+    controls = {
+        group.action: tuple(control.label for control in group.keys)
+        for group in ui_loop.state.control_groups
+    }
+    assert controls == {
+        "Move": ("W", "A", "S", "D"),
+        "Sprint": ("Shift",),
+        "Jump / action": ("Space",),
+        "Reset rollout": ("R",),
+    }
+    assert not ui_loop.state.show_status
+
+
 def test_two_sessions_share_modules_but_keep_cache_and_rng_state_isolated() -> None:
     """Interleaved sessions replay the same seeded sequence independently."""
     fake = _FakePipeline(seed=43)
@@ -358,6 +431,7 @@ def test_two_sessions_share_modules_but_keep_cache_and_rng_state_isolated() -> N
         seed=43,
         controls=controls,
         mouse_sensitivity=1.0,
+        use_ui=False,
     )
     second = WaypointSession(
         pipeline=pipeline,
@@ -367,6 +441,7 @@ def test_two_sessions_share_modules_but_keep_cache_and_rng_state_isolated() -> N
         seed=43,
         controls=controls,
         mouse_sensitivity=1.0,
+        use_ui=False,
     )
     first.init()
     second.init()

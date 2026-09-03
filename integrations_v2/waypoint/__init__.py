@@ -15,13 +15,13 @@
 
 """Waypoint 1.5 integration contracts."""
 
-from waypoint.controls import (
+from waypoint.impl.controls import (
     WaypointControl,
     load_controls_from_file,
     make_control_context,
 )
-from waypoint.encoder import WaypointControlEncoder, WaypointControlEncoderConfig
-from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
+from waypoint.impl.encoder import WaypointControlEncoder, WaypointControlEncoderConfig
+from waypoint.impl.spec import WAYPOINT_1_5, WaypointModelSpec
 
 __all__ = [
     "WAYPOINT_1_5",

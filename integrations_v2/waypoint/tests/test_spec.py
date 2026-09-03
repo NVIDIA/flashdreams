@@ -28,18 +28,21 @@ from waypoint import (
     load_controls_from_file,
     make_control_context,
 )
-from waypoint.checkpoint import (
+from waypoint.config import PIPELINE_WAYPOINT_1_5
+from waypoint.impl.checkpoint import (
     expected_waypoint_1_5_checkpoint_keys,
     expected_waypoint_1_5_checkpoint_shapes,
     load_waypoint_state_dict,
     validate_waypoint_1_5_checkpoint_keys,
     validate_waypoint_1_5_checkpoint_shapes,
 )
-from waypoint.config import PIPELINE_WAYPOINT_1_5
-from waypoint.decoder import WaypointTAEHVDecoder
-from waypoint.encoder import WaypointControlEncoderConfig
-from waypoint.pipeline import WaypointInferencePipeline, WaypointInferencePipelineConfig
-from waypoint.transformer import (
+from waypoint.impl.decoder import WaypointTAEHVDecoder
+from waypoint.impl.encoder import WaypointControlEncoderConfig
+from waypoint.impl.pipeline import (
+    WaypointInferencePipeline,
+    WaypointInferencePipelineConfig,
+)
+from waypoint.impl.transformer import (
     WaypointAttentionPolicy,
     WaypointDiTConfig,
     WaypointKVCache,
@@ -49,8 +52,8 @@ from waypoint.transformer import (
     adaptive_rms_norm,
     apply_waypoint_ortho_rope,
 )
-from waypoint.transformer.impl import WaypointTransformerCache
-from waypoint.transformer.network import (
+from waypoint.impl.transformer.impl import WaypointTransformerCache
+from waypoint.impl.transformer.network import (
     _ConditionHead,
     _ControlFusion,
     _WaypointAttention,

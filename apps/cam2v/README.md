@@ -13,7 +13,9 @@ application named `cam2v-<model-config-name>`.
 | `Q` / `E` | Strafe left / right |
 | `I` / `K` | Pitch up / down |
 
-Losing browser focus clears held keys.
+Losing browser focus clears held keys. The HUD wraps each held key in brackets.
+Model adapters may replace the displayed groups while keeping the same UI loop;
+Waypoint shows its raw-action controls and `R` reset command this way.
 
 ## Usage
 
@@ -21,6 +23,7 @@ Concrete launch commands live with each model adapter:
 
 - [Lingbot](../../integrations_v2/lingbot/apps/cam2v/README.md)
 - [HY-WorldPlay](../../integrations_v2/hy_worldplay/apps/cam2v/README.md)
+- [Waypoint](../../integrations_v2/waypoint/apps/cam2v/README.md)
 
 The general command shape is:
 
