@@ -86,7 +86,7 @@ class _Session(ISession):
         self._generated += 1
         return StepResult(
             step_index=step_index,
-            output=torch.zeros((1, 3, 1, 2, 2)),
+            output=torch.full((1, 3, 1, 2, 2), step_index),
             frame_count=1,
             output_layout=VideoTensorLayout.bcthw,
         )
@@ -270,9 +270,9 @@ def test_application_runner_keeps_running_until_the_window_closes() -> None:
         _session_desc()
     )
 
-    # The UI ticks once while inference is NOT_STARTED, then presents the three
-    # model frames on its following ticks.
-    assert [result.step_index for result in window.results] == [1, 2, 3]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1, 2]
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
 
 
@@ -314,7 +314,9 @@ def test_application_runner_keeps_metrics_output_separate_from_the_window() -> N
         metrics_output_sink=metrics,
     ).run(_session_desc())
 
-    assert [result.step_index for result in window.results] == [1, 2]
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
     assert [result.step_index for result in metrics.results] == [0, 1]
     assert calls.index("metrics.open") < calls.index("metrics.write(0)")
     assert calls.index("metrics.write(1)") < calls.index("metrics.close")

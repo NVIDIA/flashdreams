@@ -707,6 +707,49 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
     assert ui.step(2, UserInputEvents([])) is None
 
 
+def test_default_ui_finishes_only_after_drawing_the_final_model_frame() -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+    stop = threading.Event()
+    failures: queue.Queue[BaseException] = queue.Queue()
+    model = FakeModelLoop()
+    model.register_session_loop_objects(
+        state=FakeSession(_session_desc(), CallLog()),
+        frequency=30,
+        shutdown_event=stop,
+        failure_queue=failures,
+    )
+    ui = BlitModelOutputToScreenLoop()
+    ui.register_session_loop_objects(
+        state=None,
+        frequency=30,
+        shutdown_event=stop,
+        failure_queue=failures,
+    )
+    ui.register_session_ui_loop_objects(
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
+        presentation_manager=manager,
+    )
+    ui._set_model_loop(model)
+    manager.publish(
+        0,
+        [
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 1, 1)),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        ],
+    )
+    model._set_inference_state(ModelInferenceState.FINISHED)
+
+    assert not ui.is_finished()
+    assert manager.advance(0, now=1.0)[0]
+    assert not ui.is_finished()
+    assert ui.step(0, UserInputEvents([])) is not None
+    assert ui.is_finished()
+
+
 def test_presentation_manager_defaults_to_one_pending_chunk() -> None:
     manager = PresentationManager(device=torch.device("cpu"))
 
