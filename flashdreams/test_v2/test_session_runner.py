@@ -535,6 +535,41 @@ def _lifecycle_event(event_type: type[UserInputEvent]) -> UserInputEvents:
     return UserInputEvents([event_type(timestamp=uint64(0))])
 
 
+def test_model_loop_collects_input_after_pacing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeSession(_session_desc(), CallLog())
+    session.init()
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+    pace_calls = 0
+
+    def pace(last_run_started: float | None) -> float:
+        nonlocal pace_calls
+        del last_run_started
+        if pace_calls == 1:
+            event_buffer.append(_key_event())
+        pace_calls += 1
+        return float(pace_calls)
+
+    monkeypatch.setattr(session.model_loop, "_pace", pace)
+    session.model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda generation, results, elapsed: None,
+        max_steps=2,
+    )
+
+    assert session.observed_events[0].get_events() == []
+    observed = session.observed_events[1].get_events()
+    assert len(observed) == 1
+    assert isinstance(observed[0], KeyboardUserInputEvent)
+    assert (observed[0].key, observed[0].state) == (
+        "a",
+        KeyboardInputState.PRESSED,
+    )
+
+
 def test_run_session_presents_every_step_in_order() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)

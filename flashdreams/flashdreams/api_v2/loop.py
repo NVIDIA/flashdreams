@@ -236,12 +236,18 @@ class IModelLoop(ILoop[StateT], ABC):
             while not self._shutdown_event.is_set() and (
                 max_steps is None or steps_run < max_steps
             ):
-                events, generation = event_buffer.read(reader_id)
-                step_index = self._begin_run(events, generation)
-                if step_index is None:
+                if (
+                    self.is_finished()
+                    and event_buffer.generation == self._generation
+                    and self._message_queue.empty()
+                ):
                     break
                 last_run_started = self._pace(last_run_started)
                 if self._shutdown_event.is_set():
+                    break
+                events, generation = event_buffer.read(reader_id)
+                step_index = self._begin_run(events, generation)
+                if step_index is None:
                     break
                 step_started_at = time.monotonic()
                 raw_result = self.step(step_index, events)
