@@ -562,17 +562,21 @@ def test_mha_optimized_quantized_projections_match_torch(
     "attention_type", tuple(AttentionType), ids=lambda value: value.value
 )
 @pytest.mark.parametrize(
-    "output_projection_dtype",
+    "qkv_fusion_option", tuple(QKVFusionOption), ids=lambda value: value.value
+)
+@pytest.mark.parametrize(
+    "projection_dtype",
     tuple(DTYPE_MAX),
     ids=lambda dtype: str(dtype).removeprefix("torch."),
 )
 @torch.inference_mode()
-def test_mha_optimized_quantized_output_projection_matches_torch(
+def test_mha_optimized_combined_quantization_matches_torch(
     cuda_device: torch.device,
     attention_type: AttentionType,
-    output_projection_dtype: torch.dtype,
+    qkv_fusion_option: QKVFusionOption,
+    projection_dtype: torch.dtype,
 ) -> None:
-    """Match quantized output projection against native-precision attention."""
+    """Match Q/K/V + output projection quantized together against native precision."""
     attention_config = AttentionConfig(
         query_dim=_QUERY_DIM,
         n_heads=_N_HEADS,
@@ -580,7 +584,10 @@ def test_mha_optimized_quantized_output_projection_matches_torch(
         qk_norm_scope=QKNormScope.HEAD,
     )
     optimized_impl_config = OptimizedImplConfig(
-        quantization=QuantizationOption(output_projection=output_projection_dtype),
+        qkv_fusion_option=qkv_fusion_option,
+        quantization=QuantizationOption(
+            projection=projection_dtype, output_projection=projection_dtype
+        ),
         sdpa_backend=SDPABackend.CUDNN,
         use_tma=False,
     )
@@ -592,16 +599,16 @@ def test_mha_optimized_quantized_output_projection_matches_torch(
     actual.to(device=cuda_device, dtype=torch.bfloat16).eval()
 
     assert set(actual.state_dict()) == set(reference.state_dict())
+    assert isinstance(actual.quantized_query_projection, QuantizedNonPersistentLinear)
     assert isinstance(
         actual.quantized_output_projection, QuantizedNonPersistentLinear
     )
-    assert actual.quantized_output_projection.dtype is output_projection_dtype
-    assert actual.quantized_query_projection is None
+    assert actual.quantized_output_projection.dtype is projection_dtype
 
     quantization_tolerance = (
-        torch.finfo(output_projection_dtype).eps
-        if output_projection_dtype.is_floating_point
-        else 5 / DTYPE_MAX[output_projection_dtype]
+        torch.finfo(projection_dtype).eps
+        if projection_dtype.is_floating_point
+        else 5 / DTYPE_MAX[projection_dtype]
     )
     tolerance = max(2e-2, quantization_tolerance)
     generator = torch.Generator(device=cuda_device).manual_seed(19)
