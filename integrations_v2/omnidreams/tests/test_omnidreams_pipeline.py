@@ -198,8 +198,21 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
         def __init__(self) -> None:
             self.cache_kwargs: list[dict[str, Any]] = []
 
-        def initialize_cache(self, **kwargs: Any) -> object:
-            self.cache_kwargs.append(kwargs)
+        def initialize_cache(
+            self,
+            chunk_size: int,
+            window_size: int,
+            sink_size: int,
+            context: torch.Tensor,
+        ) -> object:
+            self.cache_kwargs.append(
+                {
+                    "chunk_size": chunk_size,
+                    "window_size": window_size,
+                    "sink_size": sink_size,
+                    "context": context,
+                }
+            )
             return object()
 
     class FakeRopeAdapter:
