@@ -441,9 +441,9 @@ SPDX-License-Identifier: Apache-2.0
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">7</span>
 </pre></div>
 </div>
-<p>Launch a WebRTC demo from a versioned manifest:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_webrtc.yaml
+<p>Launch the LingBot v2 Cam2V application:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span>--<span class="w"> </span>--example-data
 </pre></div>
 </div>
 <p>The common command shape is <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span> <span class="pre">&lt;runner&gt;</span> <span class="pre">[mode]</span></code>. A runner only

@@ -485,24 +485,27 @@ integration-specific fields fail before CUDA initialization.</p>
 </div>
 <p>The runner and positional mode must agree with the manifest. For example, this
 fails instead of silently launching a different preset:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_webrtc.yaml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>&lt;runner-slug&gt;<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--manifest<span class="w"> </span>path/to/webrtc-launch.yaml
 </pre></div>
 </div>
 </section>
-<section id="examples">
-<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># WebRTC</span>
-uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_webrtc.yaml
+<section id="v2-applications">
+<h2>V2 applications<a class="headerlink" href="#v2-applications" title="Link to this heading">#</a></h2>
+<p>Launch manifests configure <code class="docutils literal notranslate"><span class="pre">flashdreams-run</span></code> runners. V2 applications expose
+their runtime and application arguments directly through <code class="docutils literal notranslate"><span class="pre">flashdreams-run-v2</span></code>
+instead. For LingBot:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># MP4 replay</span>
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>mp4<span class="w"> </span>--output-path<span class="w"> </span>outputs/lingbot-replay.mp4<span class="w"> </span>--<span class="w"> </span>--example-data
 
-<span class="c1"># MP4 replay</span>
-uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>lingbot-world-fast<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--manifest<span class="w"> </span>configs/launch_manifest/lingbot_mp4.yaml
+<span class="c1"># WebRTC</span>
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span>--<span class="w"> </span>--example-data
 </pre></div>
 </div>
-<p>OmniDreams is a v2 application and uses <code class="docutils literal notranslate"><span class="pre">flashdreams-run-v2</span></code> application
-arguments instead of launch manifests. See <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>.</p>
+<p>See <a class="reference internal" href="../models/lingbot_world.html"><span class="doc">LingBot-World</span></a> and <a class="reference internal" href="../models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a> for their
+application-specific arguments.</p>
 </section>
 </section>
 
@@ -555,7 +558,7 @@ arguments instead of launch manifests. See <a class="reference internal" href=".
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#schema">Schema</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#precedence">Precedence</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v2-applications">V2 applications</a></li>
 </ul>
   </nav></div>
 

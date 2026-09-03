@@ -58,43 +58,31 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/lingbot
+   uv sync --project integrations_v2/lingbot
 
 Running the method
 ------------------
 
-To run LingBot-World, launch one of the registered runner slugs. For
-example:
+The Lingbot package binds its model pipeline directly to the reusable Cam2V
+v2 application:
 
 .. code-block:: bash
 
-   uv run --project integrations/lingbot \
-       flashdreams-run \
-       lingbot-world-fast \
-       --example-data True \
-       --example-idx 0 \
-       --pixel-height 464 --pixel-width 832 \
-       --total-blocks 21
+   uv sync --package flashdreams-lingbot --inexact
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
+
+Application arguments follow ``--``. Run
+``flashdreams-run-v2 cam2v-lingbot -- --help`` for custom first-frame,
+intrinsics, prompt, and motion-normalizer inputs.
 
 Sample data is downloaded from the
 `LingBot-World v2 repository <https://github.com/Robbyant/lingbot-world-v2/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
 out of memory for large ``--total-blocks`` values.
 
-For multi-GPU inference, run the same command under ``torchrun`` (taking
-4 GPUs as an example):
-
-.. code-block:: bash
-
-   uv run --project integrations/lingbot \
-       torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       lingbot-world-fast \
-       --example-data True \
-       --example-idx 0 \
-       --pixel-height 464 --pixel-width 832 \
-       --total-blocks 21
-
-We provide the following variants:
+The package exposes the following pipeline configurations for programmatic
+use:
 
 .. list-table::
    :header-rows: 1
@@ -114,27 +102,17 @@ We provide the following variants:
      - LingBot-World V2 14B causal-fast with the TAEHV decoder,
        ``window_size_t=15`` + ``sink_size_t=3`` streaming KV-cache.
 
-To inspect all supported CLI arguments and their default values, run:
-
-.. code-block:: bash
-
-   uv run --project integrations/lingbot \
-       flashdreams-run \
-       lingbot-world-fast \
-       --help
-
 .. _lingbot-world-v2:
 
 LingBot-World V2
 ----------------
 
 LingBot-World V2 is the newer 14B causal-fast checkpoint from Robbyant. It
-uses the same architecture, pipeline, and serving code as v1 — only the
-checkpoint config slug changes — so every command on this page works by
-swapping in a V2 runner slug. See the canonical repository at
+uses the same architecture and pipeline code as v1; only the checkpoint
+configuration changes. See the canonical repository at
 `Robbyant/lingbot-world-v2 <https://github.com/Robbyant/lingbot-world-v2>`_.
 
-Two V2 runner slugs are registered:
+Two V2 pipeline configs are exported:
 
 .. list-table::
    :header-rows: 1
@@ -148,18 +126,6 @@ Two V2 runner slugs are registered:
    * - ``lingbot-world-v2-14b-causal-fast-taehv-window15-sink3``
      - V2 checkpoint with the efficient streaming preset: TAEHV decoder,
        ``window_size_t=15`` + ``sink_size_t=3`` streaming KV-cache.
-
-For example, to run the V2 model on a single GPU:
-
-.. code-block:: bash
-
-   uv run --project integrations/lingbot \
-       flashdreams-run \
-       lingbot-world-v2-14b-causal-fast \
-       --example-data True \
-       --example-idx 0 \
-       --pixel-height 464 --pixel-width 832 \
-       --total-blocks 21
 
 The V2 checkpoint (~70 GB) is pulled from
 ``huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast`` on first run.
@@ -180,9 +146,9 @@ What to expect
   ~100 GB have been seen to run out mid-load.
 - **First launch**: a few minutes (download + Triton autotuning +
   CUDA-graph warmup). Subsequent launches reuse the caches.
-- **Outputs**: ``outputs/<runner-slug>.mp4`` (16 FPS, 464×832 by
-  default) and ``outputs/stats_<runner-slug>.json``. Override with
-  ``--output-dir`` / ``--pixel-height`` / ``--pixel-width`` / ``--fps``.
+- **Outputs**: select MP4, WebRTC, or native-window presentation with the
+  ``flashdreams-run-v2`` runtime arguments. The Cam2V defaults are 16 FPS and
+  464×832.
 
 See :doc:`/developer_guides/inference_pipeline_overview` for what one
 autoregressive chunk does end-to-end.
@@ -224,41 +190,12 @@ Some generated samples from the above commands:
 Launch the interactive server
 -----------------------------
 
-Spin up the interactive LingBot-World server via WebRTC:
+Run the same Cam2V application in WebRTC mode:
 
 .. code-block:: bash
 
-   # from the repo root
-   uv run --package flashdreams-lingbot \
-       torchrun --nproc_per_node 4 --no-python flashdreams-run \
-       lingbot-world-fast-taehv-window15-sink3 webrtc \
-       --host 0.0.0.0 --port 8089
-
-``scenario.example_idx`` in a launch manifest selects which example to
-download (``0``, ``1``, ``2``, ``5``); assets auto-download on first launch.
-The HTTP port opens only after model load + warmup — a few minutes on
-first launch, much faster afterwards. When ready the server prints
-``Connect via http://<server-ip>:8089/request_session`` (use
-``localhost`` when running locally).
-
-.. note::
-
-   On a remote or cloud GPU instance (e.g. `Brev <https://www.brev.dev/>`_),
-   the HTTP server port is usually not reachable at the host IP directly.
-   Forward or expose the HTTP port for the viewer page and signaling, and open
-   ``http://localhost:8089/request_session`` when using a local forward:
-
-   .. code-block:: bash
-
-      # Brev
-      brev port-forward <instance> -p 8089:8089
-      # or plain SSH
-      ssh -L 8089:localhost:8089 <user>@<host>
-
-   These commands expose only the HTTP/signaling path; they do not carry the
-   WebRTC media path. LingBot-World does not deploy TURN by default, so remote
-   deployments that need relay or UDP media connectivity must provide it
-   separately. See :ref:`webrtc-troubleshooting`.
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
 When successfully connected, the browser-based UI looks like this:
 
@@ -295,9 +232,9 @@ matched settings.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings,
          and all runs use Ulysses sequence parallelism for multi-GPU inference.
          For the official LingBot-World implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/parity_check">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests/parity_check">this instruction</a>.
          For the LightX2V baseline, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/baseline_lightx2v">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests/baseline_lightx2v">this instruction</a>.
        </p>
      </figcaption>
    </figure>

@@ -40,12 +40,12 @@ Run a single-GPU inference (``run`` is the default mode):
 
    uv run flashdreams-run lingbot-world-fast --total-blocks 7
 
-Launch a WebRTC demo from a versioned manifest:
+Launch the LingBot v2 Cam2V application:
 
 .. code-block:: bash
 
-   uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest configs/launch_manifest/lingbot_webrtc.yaml
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA

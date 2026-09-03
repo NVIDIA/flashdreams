@@ -441,10 +441,11 @@ prompt/scene semantics, and chunk generation.</p></li>
 </section>
 <section id="reference-integration">
 <h2>Reference integration<a class="headerlink" href="#reference-integration" title="Link to this heading">#</a></h2>
-<p>The public WebRTC demos provide concrete examples of the shared serving stack:</p>
+<p>The reusable applications provide concrete examples of the shared serving stack:</p>
 <ul class="simple">
 <li><p>shared transport code under <code class="docutils literal notranslate"><span class="pre">flashdreams/flashdreams/serving/webrtc/</span></code>,</p></li>
-<li><p>LingBot runner and runtime wiring under <code class="docutils literal notranslate"><span class="pre">integrations/lingbot/lingbot/</span></code>,</p></li>
+<li><p>camera-to-video application behavior under <code class="docutils literal notranslate"><span class="pre">apps/cam2v/</span></code>,</p></li>
+<li><p>thin model bindings under <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;model&gt;/apps/cam2v/adapter.py</span></code>,</p></li>
 <li><p>OmniDreams model wiring under <code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/</span></code> and serving
 under <code class="docutils literal notranslate"><span class="pre">apps/interactive_drive/</span></code>.</p></li>
 </ul>
@@ -452,13 +453,13 @@ under <code class="docutils literal notranslate"><span class="pre">apps/interact
 <section id="launch-patterns">
 <h2>Launch patterns<a class="headerlink" href="#launch-patterns" title="Link to this heading">#</a></h2>
 <p>Single GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span>--example-data<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
 <p>Multi GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span>--example-data<span class="w"> </span>True<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>cam2v-lingbot<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span>--example-data<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </pre></div>
 </div>
 </section>

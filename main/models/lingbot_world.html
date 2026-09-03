@@ -445,39 +445,28 @@ SPDX-License-Identifier: Apache-2.0
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot
+uv<span class="w"> </span>sync<span class="w"> </span>--project<span class="w"> </span>integrations_v2/lingbot
 </pre></div>
 </div>
 </section>
 <section id="running-the-method">
 <h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>To run LingBot-World, launch one of the registered runner slugs. For
-example:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">464</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+<p>The Lingbot package binds its model pipeline directly to the reusable Cam2V
+v2 application:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span>--inexact
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span>--<span class="w"> </span>--example-data
 </pre></div>
 </div>
+<p>Application arguments follow <code class="docutils literal notranslate"><span class="pre">--</span></code>. Run
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run-v2</span> <span class="pre">cam2v-lingbot</span> <span class="pre">--</span> <span class="pre">--help</span></code> for custom first-frame,
+intrinsics, prompt, and motion-normalizer inputs.</p>
 <p>Sample data is downloaded from the
 <a class="reference external" href="https://github.com/Robbyant/lingbot-world-v2/tree/main/examples">LingBot-World v2 repository</a>.
 Valid <code class="docutils literal notranslate"><span class="pre">--example-idx</span></code> values are <code class="docutils literal notranslate"><span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">5</span></code>. Note the single GPU command might run
 out of memory for large <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> values.</p>
-<p>For multi-GPU inference, run the same command under <code class="docutils literal notranslate"><span class="pre">torchrun</span></code> (taking
-4 GPUs as an example):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">464</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
-<p>We provide the following variants:</p>
+<p>The package exposes the following pipeline configurations for programmatic
+use:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -507,22 +496,14 @@ out of memory for large <code class="docutils literal notranslate"><span class="
 </tbody>
 </table>
 </div>
-<p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--help
-</pre></div>
-</div>
 </section>
 <section id="id1">
 <span id="id2"></span><h2>LingBot-World V2<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
 <p>LingBot-World V2 is the newer 14B causal-fast checkpoint from Robbyant. It
-uses the same architecture, pipeline, and serving code as v1 — only the
-checkpoint config slug changes — so every command on this page works by
-swapping in a V2 runner slug. See the canonical repository at
+uses the same architecture and pipeline code as v1; only the checkpoint
+configuration changes. See the canonical repository at
 <a class="reference external" href="https://github.com/Robbyant/lingbot-world-v2">Robbyant/lingbot-world-v2</a>.</p>
-<p>Two V2 runner slugs are registered:</p>
+<p>Two V2 pipeline configs are exported:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -545,16 +526,6 @@ swapping in a V2 runner slug. See the canonical repository at
 </tbody>
 </table>
 </div>
-<p>For example, to run the V2 model on a single GPU:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations/lingbot<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-v2-14b-causal-fast<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-data<span class="w"> </span>True<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-idx<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--pixel-height<span class="w"> </span><span class="m">464</span><span class="w"> </span>--pixel-width<span class="w"> </span><span class="m">832</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">21</span>
-</pre></div>
-</div>
 <p>The V2 checkpoint (~70 GB) is pulled from
 <code class="docutils literal notranslate"><span class="pre">huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast</span></code> on first run.
 Export <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> first.</p>
@@ -574,9 +545,9 @@ under <code class="docutils literal notranslate"><span class="pre">$HF_HOME</spa
 ~100 GB have been seen to run out mid-load.</p></li>
 <li><p><strong>First launch</strong>: a few minutes (download + Triton autotuning +
 CUDA-graph warmup). Subsequent launches reuse the caches.</p></li>
-<li><p><strong>Outputs</strong>: <code class="docutils literal notranslate"><span class="pre">outputs/&lt;runner-slug&gt;.mp4</span></code> (16 FPS, 464×832 by
-default) and <code class="docutils literal notranslate"><span class="pre">outputs/stats_&lt;runner-slug&gt;.json</span></code>. Override with
-<code class="docutils literal notranslate"><span class="pre">--output-dir</span></code> / <code class="docutils literal notranslate"><span class="pre">--pixel-height</span></code> / <code class="docutils literal notranslate"><span class="pre">--pixel-width</span></code> / <code class="docutils literal notranslate"><span class="pre">--fps</span></code>.</p></li>
+<li><p><strong>Outputs</strong>: select MP4, WebRTC, or native-window presentation with the
+<code class="docutils literal notranslate"><span class="pre">flashdreams-run-v2</span></code> runtime arguments. The Cam2V defaults are 16 FPS and
+464×832.</p></li>
 </ul>
 <p>See <a class="reference internal" href="../developer_guides/inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> for what one
 autoregressive chunk does end-to-end.</p>
@@ -611,36 +582,10 @@ autoregressive chunk does end-to-end.</p>
 </div></section>
 <section id="launch-the-interactive-server">
 <h2>Launch the interactive server<a class="headerlink" href="#launch-the-interactive-server" title="Link to this heading">#</a></h2>
-<p>Spin up the interactive LingBot-World server via WebRTC:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># from the repo root</span>
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-lingbot<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>torchrun<span class="w"> </span>--nproc_per_node<span class="w"> </span><span class="m">4</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>lingbot-world-fast-taehv-window15-sink3<span class="w"> </span>webrtc<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span>
+<p>Run the same Cam2V application in WebRTC mode:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span>--<span class="w"> </span>--example-data
 </pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">scenario.example_idx</span></code> in a launch manifest selects which example to
-download (<code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">2</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span></code>); assets auto-download on first launch.
-The HTTP port opens only after model load + warmup — a few minutes on
-first launch, much faster afterwards. When ready the server prints
-<code class="docutils literal notranslate"><span class="pre">Connect</span> <span class="pre">via</span> <span class="pre">http://&lt;server-ip&gt;:8089/request_session</span></code> (use
-<code class="docutils literal notranslate"><span class="pre">localhost</span></code> when running locally).</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>On a remote or cloud GPU instance (e.g. <a class="reference external" href="https://www.brev.dev/">Brev</a>),
-the HTTP server port is usually not reachable at the host IP directly.
-Forward or expose the HTTP port for the viewer page and signaling, and open
-<code class="docutils literal notranslate"><span class="pre">http://localhost:8089/request_session</span></code> when using a local forward:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Brev</span>
-brev<span class="w"> </span>port-forward<span class="w"> </span>&lt;instance&gt;<span class="w"> </span>-p<span class="w"> </span><span class="m">8089</span>:8089
-<span class="c1"># or plain SSH</span>
-ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8089</span>:localhost:8089<span class="w"> </span>&lt;user&gt;@&lt;host&gt;
-</pre></div>
-</div>
-<p>These commands expose only the HTTP/signaling path; they do not carry the
-WebRTC media path. LingBot-World does not deploy TURN by default, so remote
-deployments that need relay or UDP media connectivity must provide it
-separately. See <a class="reference internal" href="../troubleshooting.html#webrtc-troubleshooting"><span class="std std-ref">WebRTC connection or video does not appear</span></a>.</p>
 </div>
 <p>When successfully connected, the browser-based UI looks like this:</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
@@ -669,9 +614,9 @@ matched settings.</p>
        For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend under matched runtime settings,
        and all runs use Ulysses sequence parallelism for multi-GPU inference.
        For the official LingBot-World implementation, see
-       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/parity_check">this instruction</a>.
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests/parity_check">this instruction</a>.
        For the LightX2V baseline, see
-       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot/tests/baseline_lightx2v">this instruction</a>.
+       <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/lingbot/tests/baseline_lightx2v">this instruction</a>.
      </p>
    </figcaption>
  </figure>
