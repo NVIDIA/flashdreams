@@ -20,6 +20,8 @@ follows is already done for you.
   and the reference for writing a UI loop.
 - `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
   shared interactive camera-to-video application.
+- `waypoint` — the Waypoint model binding to the shared `apps/action2v`
+  application.
 - `hy_worldplay` — the HY-WorldPlay model and its `cam2v-hy-worldplay` binding,
   including live PRoPE/action camera-history adaptation.
 - `waypoint` — the interactive Waypoint 1.5 image-established application

@@ -21,6 +21,7 @@ conflicts = [[
 members = [
     "crazy-robotaxi",
     "flashdreams",
+    "flashdreams-action2v",
     "flashdreams-cam2v",
     "flashdreams-causal-forcing",
     "flashdreams-color-fade",
@@ -42,7 +43,6 @@ members = [
     "flashdreams-wan21",
     "flashdreams-wan22",
     "flashdreams-waypoint",
-    "flashdreams-waypoint-v2",
     "ludus-renderer",
     "omnidreams-game-engine",
 ]
@@ -1158,6 +1158,17 @@ cuda13 = [
 ]
 
 [[package]]
+name = "flashdreams-action2v"
+version = "0.1.0"
+source = { editable = "apps/action2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
+
+[[package]]
 name = "flashdreams-cam2v"
 version = "0.1.0"
 source = { editable = "apps/cam2v" }
@@ -1653,9 +1664,11 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-waypoint"
 version = "0.1.0"
-source = { editable = "integrations/waypoint" }
+source = { editable = "integrations_v2/waypoint" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-action2v" },
+    { name = "pillow" },
 ]
 
 [package.optional-dependencies]
@@ -1666,26 +1679,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-action2v", editable = "apps/action2v" },
+    { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "flashdreams-waypoint-v2"
-version = "0.1.0"
-source = { editable = "integrations_v2/waypoint" }
-dependencies = [
-    { name = "flashdreams" },
-    { name = "flashdreams-waypoint" },
-    { name = "pillow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-waypoint", editable = "integrations/waypoint" },
-    { name = "pillow", specifier = ">=10" },
-]
 
 [[package]]
 name = "flip-evaluator"

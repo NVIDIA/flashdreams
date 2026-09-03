@@ -20,6 +20,7 @@ from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
     ModelInferenceState,
+    UILoopRequests,
     invoke_async,
 )
 from flashdreams.api_v2.session import ISession
@@ -485,6 +486,17 @@ class RecordingClientWindow(IClientWindow):
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
+        self.cursor_requests: list[tuple[str, bool]] = []
+
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Record one cursor visibility request."""
+        self._log.record("window.request_hide_cursor")
+        self.cursor_requests.append(("hide", hide_cursor))
+
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Record one cursor capture request."""
+        self._log.record("window.request_lock_cursor_to_window")
+        self.cursor_requests.append(("lock", lock_cursor_to_window))
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -527,7 +539,6 @@ def _session_desc(
         video_width=1,
         video_height=1,
     )
-
 
 def _key_event() -> UserInputEvents:
     return UserInputEvents(

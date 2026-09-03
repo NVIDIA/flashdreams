@@ -54,14 +54,25 @@ class _LoopRunResult:
     stop_requested: bool = False
     """Whether the session should stop without a replacement."""
 
-    new_session_request: SessionDesc | None = None
-    """Replacement session description, or ``None`` when none was requested."""
-
 
 @dataclass(slots=True)
 class _Message(Generic[StateT]):
     operation: Callable[[StateT], None]
     """Operation to run before the loop's next step."""
+
+
+@dataclass(slots=True)
+class UILoopRequests:
+    """Changes requested by a UI loop for the session runtime to apply."""
+
+    new_session: SessionDesc | None = None
+    """Replacement session description, or ``None`` to keep this session."""
+
+    hide_cursor: bool | None = None
+    """Cursor visibility change, or ``None`` to leave it unchanged."""
+
+    lock_cursor_to_window: bool | None = None
+    """Cursor capture change, or ``None`` to leave it unchanged."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -111,7 +122,6 @@ class ILoop(ABC, Generic[StateT]):
         self._lifecycle_lock = threading.Lock()
         self._shutdown_event = shutdown_event
         self._failure_queue = failure_queue
-        self._new_session_request: SessionDesc | None = None
         self._initialize_loop_state()
 
     def _initialize_loop_state(self) -> None:
@@ -184,11 +194,8 @@ class ILoop(ABC, Generic[StateT]):
         self._run_message_batch()
         self._pending_user_events.extend(events.get_events())
         transition = _parse_lifecycle_events(self._pending_user_events)
-        if transition is None and self._new_session_request is not None:
-            transition = _LoopRunResult(new_session_request=self._new_session_request)
         if transition is not None:
             self._pending_user_events.clear()
-            self._new_session_request = None
             return transition
         if self._shutdown_event.is_set():
             return _LoopRunResult(stop_requested=True)
@@ -370,6 +377,8 @@ class IUILoop(ILoop[StateT], ABC):
         self.output_layout = session_desc.output_layout
         self._presentation_manager = presentation_manager
 
+        self._ui_loop_requests: UILoopRequests | None = None
+
     @final
     def _set_model_loop(self, model_loop: IModelLoop[Any]) -> None:
         """Store the model loop whose inference lifecycle this UI observes."""
@@ -388,7 +397,32 @@ class IUILoop(ILoop[StateT], ABC):
         Args:
             session_desc: Fully resolved description for the replacement session.
         """
-        self._new_session_request = session_desc
+        self.get_or_create_ui_loop_requests().new_session = session_desc
+
+    @final
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Request that the client window show or hide its cursor."""
+        if not isinstance(hide_cursor, bool):
+            raise TypeError("hide_cursor must be a bool.")
+        self.get_or_create_ui_loop_requests().hide_cursor = hide_cursor
+
+    @final
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Request that the client window release or capture pointer motion."""
+        if not isinstance(lock_cursor_to_window, bool):
+            raise TypeError("lock_cursor_to_window must be a bool.")
+        self.get_or_create_ui_loop_requests().lock_cursor_to_window = lock_cursor_to_window
+
+    def get_or_create_ui_loop_requests(self) -> UILoopRequests:
+        if self._ui_loop_requests is None:
+            self._ui_loop_requests = UILoopRequests()
+        return self._ui_loop_requests
+
+    def flush_ui_loop_requests(self) -> UILoopRequests | None:
+        """return UI loop requests and clear the internal state of requests."""
+        requests = self._ui_loop_requests
+        self._ui_loop_requests = None
+        return requests
 
     @final
     def presented_model_frame(
@@ -467,5 +501,6 @@ __all__ = [
     "IModelLoop",
     "IUILoop",
     "ModelInferenceState",
+    "UILoopRequests",
     "invoke_async",
 ]

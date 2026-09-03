@@ -132,10 +132,20 @@ def run_session(
                 if loop_result.stop_requested:
                     stop.set()
                     return
-                if loop_result.new_session_request is not None:
-                    next_session_desc = loop_result.new_session_request
-                    stop.set()
-                    return
+
+                # Note: we should consider making a `stop` request part of `UILoopRequests`
+                request = ui_loop.flush_ui_loop_requests()
+                if request is not None:
+                    if request.hide_cursor is not None:
+                        window.request_hide_cursor(request.hide_cursor)
+                    if request.lock_cursor_to_window is not None:
+                        window.request_lock_cursor_to_window(
+                            request.lock_cursor_to_window
+                        )
+                    if request.new_session is not None:
+                        next_session_desc = request.new_session
+                        stop.set()
+                        return
                 if loop_result.step_index is None or not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)

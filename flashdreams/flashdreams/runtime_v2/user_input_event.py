@@ -89,9 +89,9 @@ class MouseUserInputEvent(UserInputEvent):
     action: Literal["move", "button", "wheel"] = "move"
     """Mouse action represented by this event."""
     x: float = 0.0
-    """Horizontal pointer coordinate normalized to the video viewport."""
+    """Horizontal pointer coordinate in video-width units."""
     y: float = 0.0
-    """Vertical pointer coordinate normalized to the video viewport."""
+    """Vertical pointer coordinate in video-height units."""
     button: int = 0
     """SlangPy-compatible mouse button index for a button action."""
     pressed: bool = False

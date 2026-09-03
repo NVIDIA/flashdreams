@@ -123,6 +123,29 @@ class NativeWindowClientWindow(IClientWindow):
             deque()
         )
         self._pressed_key_values: dict[str, str] = {}
+        self._hide_cursor = False
+        self._lock_cursor_to_window = False
+
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Show or hide the cursor in the native window."""
+        presenter = self._presenter
+        if presenter is not None:
+            presenter.configure_cursor(
+                hide_cursor=hide_cursor,
+                lock_cursor_to_window=self._lock_cursor_to_window,
+            )
+        self._hide_cursor = hide_cursor
+
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Release or capture pointer motion in the native window."""
+        super().request_lock_cursor_to_window(lock_cursor_to_window)
+        presenter = self._presenter
+        if presenter is not None:
+            presenter.configure_cursor(
+                hide_cursor=self._hide_cursor,
+                lock_cursor_to_window=lock_cursor_to_window,
+            )
+        self._lock_cursor_to_window = lock_cursor_to_window
 
     def open(self, session_desc: SessionDesc) -> None:
         """Create the GLFW window on the runtime's UI thread.
@@ -152,6 +175,10 @@ class NativeWindowClientWindow(IClientWindow):
                 on_mouse_event=self._on_mouse_event,
                 on_gamepad_event=self._on_gamepad_event,
                 on_gamepad_state=self._on_gamepad_state,
+            )
+            presenter.configure_cursor(
+                hide_cursor=self._hide_cursor,
+                lock_cursor_to_window=self._lock_cursor_to_window,
             )
         except BaseException:
             presenter.close()
@@ -306,6 +333,7 @@ class NativeWindowClientWindow(IClientWindow):
             event,
             width=session_desc.video_width,
             height=session_desc.video_height,
+            lock_cursor_to_window=self._lock_cursor_to_window,
         )
         if mouse_event is not None:
             self._put_input(mouse_event)
@@ -328,7 +356,13 @@ class NativeWindowClientWindow(IClientWindow):
 class _SlangPyNativeWindowPresenter:
     """Own the SlangPy window and forward frames to its presentation context."""
 
-    def __init__(self, *, width: int, height: int, title: str) -> None:
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+        title: str,
+    ) -> None:
         """Create a fixed-size SlangPy window and Vulkan surface.
 
         Args:
@@ -375,6 +409,18 @@ class _SlangPyNativeWindowPresenter:
         self._window.on_mouse_event = self._on_mouse_event
         self._window.on_gamepad_event = self._on_gamepad_event
         self._window.on_gamepad_state = self._on_gamepad_state
+
+    def configure_cursor(
+        self, *, hide_cursor: bool, lock_cursor_to_window: bool
+    ) -> None:
+        """Change the native cursor mode while the window is running."""
+        if lock_cursor_to_window:
+            cursor_mode = self._spy.CursorMode.disabled
+        elif hide_cursor:
+            cursor_mode = self._spy.CursorMode.hidden
+        else:
+            cursor_mode = self._spy.CursorMode.normal
+        self._window.cursor_mode = cursor_mode
 
     def set_input_callbacks(
         self,
@@ -701,11 +747,18 @@ def _keyboard_input_text(event: spy.KeyboardEvent) -> str | None:
 
 
 def _mouse_event(
-    event: spy.MouseEvent, *, width: int, height: int
+    event: spy.MouseEvent,
+    *,
+    width: int,
+    height: int,
+    lock_cursor_to_window: bool = False,
 ) -> MouseUserInputEvent | None:
     x, y = float(event.pos.x), float(event.pos.y)
-    normalized_x = min(1.0, max(0.0, x / width))
-    normalized_y = min(1.0, max(0.0, y / height))
+    normalized_x = x / width
+    normalized_y = y / height
+    if not lock_cursor_to_window:
+        normalized_x = min(1.0, max(0.0, normalized_x))
+        normalized_y = min(1.0, max(0.0, normalized_y))
     if event.is_move():
         return MouseUserInputEvent(timestamp=uint64(0), x=normalized_x, y=normalized_y)
     if event.is_button_down() or event.is_button_up():

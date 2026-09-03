@@ -146,7 +146,13 @@ class _Presenter:
         self.presentation_threads: list[int] = []
         self.close_threads: list[int] = []
         self.presented: list[torch.Tensor] = []
+        self.cursor_options: list[tuple[bool, bool]] = []
         self.should_close = False
+
+    def configure_cursor(
+        self, *, hide_cursor: bool, lock_cursor_to_window: bool
+    ) -> None:
+        self.cursor_options.append((hide_cursor, lock_cursor_to_window))
 
     def set_input_callbacks(self, **callbacks: Any) -> None:
         self.callbacks = callbacks
@@ -198,6 +204,26 @@ def test_slangpy_presenter_uses_standard_window_event_pump() -> None:
     presenter.process_events()
 
     assert process_count == 1
+
+
+def test_slangpy_presenter_maps_cursor_options_independently() -> None:
+    modes = SimpleNamespace(
+        normal=object(),
+        hidden=object(),
+        disabled=object(),
+    )
+    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
+    presenter._spy = SimpleNamespace(CursorMode=modes)
+    presenter._window = SimpleNamespace(cursor_mode=None)
+
+    presenter.configure_cursor(hide_cursor=False, lock_cursor_to_window=False)
+    assert presenter._window.cursor_mode is modes.normal
+
+    presenter.configure_cursor(hide_cursor=True, lock_cursor_to_window=False)
+    assert presenter._window.cursor_mode is modes.hidden
+
+    presenter.configure_cursor(hide_cursor=False, lock_cursor_to_window=True)
+    assert presenter._window.cursor_mode is modes.disabled
 
 
 def test_slangpy_presenter_waits_for_gpu_work_before_releasing_resources() -> None:
@@ -383,6 +409,42 @@ def test_native_window_reports_input_and_close_from_event_pump() -> None:
     assert mouse.x == 0.5
     assert mouse.y == 0.25
     assert isinstance(events[2], CloseUserInputEvent)
+
+
+def test_cursor_options_can_change_while_native_window_is_running() -> None:
+    presenter = _Presenter()
+    presenter_args: dict[str, object] = {}
+
+    def create_presenter(**kwargs: object) -> _Presenter:
+        presenter_args.update(kwargs)
+        return presenter
+
+    window = NativeWindowClientWindow(presenter_factory=cast(Any, create_presenter))
+    window.request_hide_cursor(True)
+    window.open(_session_desc())
+    window.request_lock_cursor_to_window(True)
+    presenter.pending_events.put(("mouse", _MouseMoveEvent(3.0, -1.0)))
+    locked_events = window.get_user_input_events().get_events()
+
+    window.request_hide_cursor(False)
+    window.request_lock_cursor_to_window(False)
+    presenter.pending_events.put(("mouse", _MouseMoveEvent(3.0, -1.0)))
+    unlocked_events = window.get_user_input_events().get_events()
+    window.close()
+    window.request_lock_cursor_to_window(True)
+
+    assert "hide_cursor" not in presenter_args
+    assert "lock_cursor_to_window" not in presenter_args
+    assert presenter.cursor_options == [
+        (True, False),
+        (True, True),
+        (False, True),
+        (False, False),
+    ]
+    locked_mouse = cast(MouseUserInputEvent, locked_events[0])
+    unlocked_mouse = cast(MouseUserInputEvent, unlocked_events[0])
+    assert (locked_mouse.x, locked_mouse.y) == (1.5, -0.5)
+    assert (unlocked_mouse.x, unlocked_mouse.y) == (1.0, 0.0)
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:

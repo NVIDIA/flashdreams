@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-action2v"
+version = "0.1.0"
+description = "Reusable interactive FlashDreams action-to-video application primitives"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["flashdreams[serving]"]
+
+[project.entry-points."flashdreams.applications_v2"]
+"action2v-dummy" = "action2v.dummy:create_app"
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["action2v*"]
+
+[tool.setuptools.package-data]
+action2v = ["assets/*.ppm"]

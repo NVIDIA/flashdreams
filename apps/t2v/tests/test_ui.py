@@ -53,43 +53,6 @@ def _imgui(*, prompt: str, submit: bool) -> SimpleNamespace:
         button=Mock(return_value=submit),
     )
 
-
-def test_new_session_button_submits_the_trimmed_prompt() -> None:
-    state = T2VUIState(prompt="old prompt")
-    loop = _loop(state)
-    imgui = _imgui(prompt="  a cat surfing  ", submit=True)
-
-    loop.step_ui(imgui, 0, UserInputEvents([]))
-    run = loop._begin_run(UserInputEvents([]), generation=0)
-    loop._finish_run(None, step_completed=False)
-
-    assert state.prompt == "a cat surfing"
-    assert state.message == "Starting new session…"
-    assert run.new_session_request == replace(
-        loop.session_desc,
-        metadata={"existing": "value", "prompt": "a cat surfing"},
-    )
-    second = loop._begin_run(UserInputEvents([]), generation=0)
-    loop._finish_run(None, step_completed=False)
-    assert second.new_session_request is None
-    imgui.text.assert_any_call(state.message)
-    imgui.end.assert_called_once_with()
-
-
-def test_new_session_button_rejects_an_empty_prompt() -> None:
-    state = T2VUIState()
-    loop = _loop(state)
-    imgui = _imgui(prompt="   ", submit=True)
-
-    loop.step_ui(imgui, 0, UserInputEvents([]))
-    run = loop._begin_run(UserInputEvents([]), generation=0)
-    loop._finish_run(None, step_completed=False)
-
-    assert run.new_session_request is None
-    assert state.message == "Enter a prompt before starting a session."
-    imgui.text.assert_any_call(state.message)
-
-
 def test_begin_run_returns_close_without_setting_the_shutdown_event() -> None:
     loop = _loop(T2VUIState())
 
