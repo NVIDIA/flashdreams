@@ -92,6 +92,9 @@ class QuantizationOption:
     output_projection: torch.dtype | None = None
     """Output projection dtype; ``None`` preserves native precision."""
 
+    output_granularity: Granularity = Granularity.SLICE
+    """Activation quantization granularity for the output projection."""
+
     quantized_sdpa: bool = False
     """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention.
 
@@ -1141,7 +1144,9 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         if self.quantized_output_projection is None:
             raise RuntimeError("quantized output projection is not initialized")
         return self.quantized_output_projection(
-            x, Granularity.SLICE, out_dtype=x.dtype
+            x,
+            self.optimized_impl_config.quantization.output_granularity,
+            out_dtype=x.dtype,
         )
 
 
