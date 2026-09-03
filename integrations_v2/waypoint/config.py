@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
-from waypoint.decoder import WaypointTAEHVDecoderConfig
-from waypoint.encoder import WaypointControlEncoderConfig
-from waypoint.pipeline import WaypointInferencePipelineConfig
-from waypoint.scheduler import WaypointEulerSchedulerConfig
-from waypoint.spec import WAYPOINT_1_5
-from waypoint.transformer import WaypointTransformerConfig
+from waypoint.impl.decoder import WaypointTAEHVDecoderConfig
+from waypoint.impl.encoder import WaypointControlEncoderConfig
+from waypoint.impl.pipeline import WaypointInferencePipelineConfig
+from waypoint.impl.scheduler import WaypointEulerSchedulerConfig
+from waypoint.impl.spec import WAYPOINT_1_5
+from waypoint.impl.transformer import WaypointTransformerConfig
 
 WAYPOINT_1_5_CHECKPOINT = (
     "https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/model.safetensors"

@@ -7,20 +7,64 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any
 
 import torch
+from cam2v import (
+    Cam2VControlGroup,
+    Cam2VControlKey,
+    Cam2VSlangPyUILoop,
+    Cam2VUIState,
+)
 from torch import Tensor
-from waypoint import WAYPOINT_1_5, WaypointControl
-from waypoint.pipeline import WaypointInferencePipeline
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
-from waypoint_v2.control_events import WaypointControlEventAdapter
+from waypoint import WAYPOINT_1_5, WaypointControl
+from waypoint.apps.cam2v.control_events import WaypointControlEventAdapter
+from waypoint.impl.pipeline import WaypointInferencePipeline
+
+_WAYPOINT_CONTROL_GROUPS = (
+    Cam2VControlGroup(
+        action="Move",
+        keys=(
+            Cam2VControlKey("w", "W"),
+            Cam2VControlKey("a", "A"),
+            Cam2VControlKey("s", "S"),
+            Cam2VControlKey("d", "D"),
+        ),
+    ),
+    Cam2VControlGroup(
+        action="Sprint",
+        keys=(Cam2VControlKey("shift", "Shift"),),
+    ),
+    Cam2VControlGroup(
+        action="Jump / action",
+        keys=(Cam2VControlKey("space", "Space"),),
+    ),
+    Cam2VControlGroup(
+        action="Reset rollout",
+        keys=(Cam2VControlKey("r", "R"),),
+    ),
+)
+"""Keyboard controls displayed by the Waypoint Cam2V overlay."""
+
+_WAYPOINT_UI_INSTRUCTIONS = (
+    "Mouse: look around",
+    "Held controls are shown in brackets.",
+    "Click the video before using controls.",
+)
+"""Waypoint-specific control hints displayed below the HUD."""
 
 
 @dataclass(slots=True)
@@ -48,26 +92,13 @@ class WaypointModelLoop(IModelLoop[WaypointModelState]):
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Generate the seed result or one controlled autoregressive action."""
         state = self.state
-        if step_index == 0:
-            if state.seed_emitted or state.controls_generated:
-                raise RuntimeError("Waypoint seed step is out of sequence")
-            state.seed_emitted = True
-            return [
-                StepResult(
-                    step_index=0,
-                    output=state.seed_frames.detach(),
-                    frame_count=WAYPOINT_1_5.frames_per_action,
-                    output_layout=state.session_desc.output_layout,
-                    metrics={"autoregressive_index": 0, "seed_frames": 4},
-                )
-            ]
+        if _restart_requested(events):
+            self.reset()
+            return self._seed_result(step_index)
+        if not state.seed_emitted:
+            return self._seed_result(step_index)
 
-        expected_index = state.controls_generated + 1
-        if step_index != expected_index:
-            raise RuntimeError(
-                f"Waypoint action step is out of sequence: expected {expected_index}, "
-                f"got {step_index}"
-            )
+        autoregressive_index = state.controls_generated + 1
         control = self._control_for_step(events)
         cache = self._require_cache()
 
@@ -76,14 +107,14 @@ class WaypointModelLoop(IModelLoop[WaypointModelState]):
             if rng is None:
                 raise RuntimeError("Waypoint pipeline must have a deterministic seed")
             rng.set_state(state.rng_state)
-            video = state.pipeline.generate(step_index, cache, control)
-            stats = state.pipeline.finalize(step_index, cache)
+            video = state.pipeline.generate(autoregressive_index, cache, control)
+            stats = state.pipeline.finalize(autoregressive_index, cache)
             state.rng_state = rng.get_state()
 
         output = _presentation_frames(video, state.session_desc)
         state.controls_generated += 1
         metrics: dict[str, float | int] = dict(stats or {})
-        metrics.setdefault("autoregressive_index", step_index)
+        metrics.setdefault("autoregressive_index", autoregressive_index)
         metrics.setdefault("generated_frames", output.shape[0])
         return [
             StepResult(
@@ -92,6 +123,18 @@ class WaypointModelLoop(IModelLoop[WaypointModelState]):
                 frame_count=output.shape[0],
                 output_layout=state.session_desc.output_layout,
                 metrics=metrics,
+            )
+        ]
+
+    def _seed_result(self, step_index: int) -> list[StepResult]:
+        self.state.seed_emitted = True
+        return [
+            StepResult(
+                step_index=step_index,
+                output=self.state.seed_frames.detach(),
+                frame_count=WAYPOINT_1_5.frames_per_action,
+                output_layout=self.state.session_desc.output_layout,
+                metrics={"autoregressive_index": 0, "seed_frames": 4},
             )
         ]
 
@@ -148,6 +191,7 @@ class WaypointSession(ISession):
         seed: int,
         controls: tuple[WaypointControl, ...] | None,
         mouse_sensitivity: float,
+        use_ui: bool = True,
     ) -> None:
         """Create an uninitialized Waypoint session.
 
@@ -160,6 +204,7 @@ class WaypointSession(ISession):
             seed: Fixed per-session diffusion seed.
             controls: Finite file-driven actions, or ``None`` for live input.
             mouse_sensitivity: Multiplier used by the live input adapter.
+            use_ui: Whether to register the shared Cam2V control overlay.
 
         Raises:
             ValueError: The layout or seed-frame shape does not match the session.
@@ -187,7 +232,13 @@ class WaypointSession(ISession):
         self._seed = seed
         self._controls = controls
         self._mouse_sensitivity = mouse_sensitivity
+        self._use_ui = use_ui
         self._state: WaypointModelState | None = None
+
+    @cached_property
+    def _presentation_manager(self) -> PresentationManager:
+        """Return a frame manager initialized on the model device."""
+        return PresentationManager(device=self._pipeline.device)
 
     def init(self) -> None:
         """Move the seed to the model device, establish cache, and register the loop."""
@@ -220,6 +271,22 @@ class WaypointSession(ISession):
             rng_state=initial_rng_state.clone(),
         )
         self._state = state
+        if self._use_ui:
+            self.register_ui_loop(
+                Cam2VSlangPyUILoop,
+                state=Cam2VUIState(
+                    total_blocks=len(self._controls)
+                    if self._controls is not None
+                    else 1,
+                    target_fps=self._session_desc.frames_per_second_for_step,
+                    warmup_blocks=0,
+                    control_groups=_WAYPOINT_CONTROL_GROUPS,
+                    instructions=_WAYPOINT_UI_INSTRUCTIONS,
+                    show_status=False,
+                ),
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
         self.register_model_loop(WaypointModelLoop, state=state)
 
     @property
@@ -232,6 +299,15 @@ class WaypointSession(ISession):
         if self._state is not None:
             self._state.cache = None
             self._state.control_events.reset()
+
+
+def _restart_requested(events: UserInputEvents) -> bool:
+    return any(
+        isinstance(event, KeyboardUserInputEvent)
+        and event.state is KeyboardInputState.PRESSED
+        and event.key.strip().lower() == "r"
+        for event in events.get_events()
+    )
 
 
 def _seed_pixels(seed_frames: Tensor) -> Tensor:

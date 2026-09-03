@@ -62,7 +62,7 @@ Support summary
    * - Surface
      - FlashDreams support
    * - Application slug
-     - waypoint-1-5-1b through flashdreams-run-v2
+     - cam2v-waypoint through flashdreams-run-v2
    * - Input modalities
      - RGB/RGBA seed image; keyboard and mouse buttons; relative mouse motion;
        ternary scroll-wheel direction
@@ -104,10 +104,10 @@ From the FlashDreams repository root:
 
 .. code-block:: bash
 
-   uv sync --package flashdreams-waypoint-v2 --inexact
+   uv sync --package flashdreams-waypoint --inexact
 
-The V2 application package depends on the sibling flashdreams-waypoint model
-package, so both are installed together.
+The package contains the model implementation, configuration, tests, and Cam2V
+application binding in the V2 integration layout.
 
 Running the model
 -----------------
@@ -117,7 +117,8 @@ and bundled control timeline:
 
 .. code-block:: bash
 
-   uv run --no-sync flashdreams-run-v2 waypoint-1-5-1b \
+   uv run --no-sync flashdreams-run-v2 cam2v-waypoint \
+       --presentation-mode on_demand \
        --output-path waypoint.mp4 --stats-path waypoint.metrics.json \
        -- --example-data --actions 40 --seed 464 --profile
 
@@ -125,16 +126,18 @@ Run the same application interactively in a browser:
 
 .. code-block:: bash
 
-   uv run --no-sync flashdreams-run-v2 waypoint-1-5-1b \
+   uv run --no-sync flashdreams-run-v2 cam2v-waypoint \
        --mode webrtc --host 127.0.0.1 --port 8766 \
-       -- --seed-image seed.png --seed 464
+       -- --image-path seed.png --seed 464
 
-Open http://127.0.0.1:8766/. Arguments before the separator configure the V2
-runtime; arguments after it configure Waypoint. To inspect all model arguments:
+Open http://127.0.0.1:8766/. The control HUD highlights held keys; press ``R``
+to reset the rollout to the starting image. Arguments before the separator
+configure the V2 runtime; arguments after it configure Waypoint. To inspect all
+model arguments:
 
 .. code-block:: bash
 
-   uv run --no-sync flashdreams-run-v2 waypoint-1-5-1b -- --help
+   uv run --no-sync flashdreams-run-v2 cam2v-waypoint -- --help
 
 Model and integration architecture
 ----------------------------------
@@ -170,7 +173,7 @@ reports both rather than relabeling the upstream model.
 The package-level design review contains component, class, use-case, and
 sequence diagrams:
 
-.. button-link:: https://github.com/NVIDIA/flashdreams/blob/main/integrations/waypoint/README.md
+.. button-link:: https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/README.md
    :color: secondary
    :outline:
 

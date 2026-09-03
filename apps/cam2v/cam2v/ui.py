@@ -21,14 +21,62 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
-_CAMERA_KEY_ORDER = ("w", "s", "q", "e", "a", "d", "j", "l", "i", "k")
-"""Stable order used when active camera controls are displayed."""
-
-_CAMERA_KEYS = frozenset(_CAMERA_KEY_ORDER)
-"""Keyboard controls recognized by the shared camera pose integrator."""
-
 RECENT_MODEL_FPS_WINDOW_SECONDS = 2.0
 """Trailing AR-step completion window displayed in the model status panel."""
+
+
+@dataclass(frozen=True, slots=True)
+class Cam2VControlKey:
+    """One keyboard key displayed in a Cam2V control group."""
+
+    key: str
+    """Canonical runtime key used to track held state."""
+
+    label: str
+    """Short user-facing label rendered in the overlay."""
+
+
+@dataclass(frozen=True, slots=True)
+class Cam2VControlGroup:
+    """One action and its associated keyboard controls."""
+
+    action: str
+    """User-facing action description."""
+
+    keys: tuple[Cam2VControlKey, ...]
+    """Keys that trigger the action."""
+
+
+DEFAULT_CAM2V_CONTROL_GROUPS = (
+    Cam2VControlGroup(
+        action="Move forward / backward",
+        keys=(Cam2VControlKey("w", "W"), Cam2VControlKey("s", "S")),
+    ),
+    Cam2VControlGroup(
+        action="Strafe left / right",
+        keys=(Cam2VControlKey("q", "Q"), Cam2VControlKey("e", "E")),
+    ),
+    Cam2VControlGroup(
+        action="Yaw left / right",
+        keys=(
+            Cam2VControlKey("a", "A"),
+            Cam2VControlKey("d", "D"),
+            Cam2VControlKey("j", "J"),
+            Cam2VControlKey("l", "L"),
+        ),
+    ),
+    Cam2VControlGroup(
+        action="Pitch up / down",
+        keys=(Cam2VControlKey("i", "I"), Cam2VControlKey("k", "K")),
+    ),
+)
+"""Default keyboard groups for the shared camera pose integrator."""
+
+DEFAULT_CAM2V_UI_INSTRUCTIONS = (
+    "Held controls are shown in brackets.",
+    "Click the video before using keyboard controls.",
+)
+"""Default hints rendered below the Cam2V controls."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,12 +119,19 @@ class Cam2VUIState:
     warmup_blocks: int
     """Leading blocks excluded from recent model throughput."""
 
-    held_keys: set[str] = field(default_factory=set)
-    """Camera-control keys currently held by the client."""
+    control_groups: tuple[Cam2VControlGroup, ...] = DEFAULT_CAM2V_CONTROL_GROUPS
+    """Action-oriented key groups displayed by the overlay."""
 
-    _keyboard_state: KeyboardState = field(
-        default_factory=lambda: KeyboardState(supported_keys=_CAMERA_KEYS),
-    )
+    instructions: tuple[str, ...] = DEFAULT_CAM2V_UI_INSTRUCTIONS
+    """Short usage hints displayed below the controls."""
+
+    show_status: bool = True
+    """Whether model throughput lines are included above the controls."""
+
+    held_keys: set[str] = field(default_factory=set)
+    """Keyboard control keys currently held by the client."""
+
+    _keyboard_state: KeyboardState = field(init=False)
     """UI-thread-owned source-aware keyboard state."""
 
     status: Cam2VUIStatus | None = None
@@ -91,8 +146,14 @@ class Cam2VUIState:
     status_widgets: list[Any] = field(default_factory=list, init=False, repr=False)
     """Retained SlangPy text widgets for model status."""
 
+    control_widgets: list[Any] = field(default_factory=list, init=False, repr=False)
+    """Retained SlangPy text widgets for action-oriented key groups."""
+
     active_keys_widget: Any | None = field(default=None, init=False, repr=False)
-    """Retained SlangPy text widget for active camera controls."""
+    """Retained SlangPy text widget for active keyboard controls."""
+
+    def __post_init__(self) -> None:
+        self._keyboard_state = self._new_keyboard_state()
 
     def update_status(self, status: Cam2VUIStatus) -> None:
         """Replace the displayed model-generation status."""
@@ -101,9 +162,15 @@ class Cam2VUIState:
     def reset(self) -> None:
         """Clear transient controls and model status for a new generation."""
         self.held_keys.clear()
-        self._keyboard_state = KeyboardState(supported_keys=_CAMERA_KEYS)
+        self._keyboard_state = self._new_keyboard_state()
         self.status = None
         self.frames_presented = 0
+
+    def _new_keyboard_state(self) -> KeyboardState:
+        keys = frozenset(
+            control.key for group in self.control_groups for control in group.keys
+        )
+        return KeyboardState(supported_keys=keys)
 
 
 class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
@@ -142,27 +209,38 @@ def _ensure_widgets(
         return
     state.window = ui.Window(
         ui.screen,
-        "Camera controls",
+        "Controls",
         position=(16, 16),
-        size=(360, 280),
+        size=(400, 340 if state.show_status else 220),
     )
-    state.status_widgets = [
-        ui.Text(state.window, line)
-        for line in _status_lines(state, sampled_at=sampled_at)
+    if state.show_status:
+        state.status_widgets = [
+            ui.Text(state.window, line)
+            for line in _status_lines(state, sampled_at=sampled_at)
+        ]
+    state.control_widgets = [
+        ui.Text(state.window, _control_group_text(group, state.held_keys))
+        for group in state.control_groups
     ]
-    ui.Text(state.window, "Move: W/S    Strafe: Q/E")
-    ui.Text(state.window, "Yaw: A/D or J/L    Pitch: I/K")
     state.active_keys_widget = ui.Text(state.window, _active_keys_text(state))
-    ui.Text(state.window, "Click the video before using keyboard controls.")
+    for instruction in state.instructions:
+        ui.Text(state.window, instruction)
 
 
 def _refresh_widgets(state: Cam2VUIState, *, sampled_at: float) -> None:
-    for widget, line in zip(
-        state.status_widgets,
-        _status_lines(state, sampled_at=sampled_at),
+    if state.status_widgets:
+        for widget, line in zip(
+            state.status_widgets,
+            _status_lines(state, sampled_at=sampled_at),
+            strict=True,
+        ):
+            widget.text = line
+    for widget, group in zip(
+        state.control_widgets,
+        state.control_groups,
         strict=True,
     ):
-        widget.text = line
+        widget.text = _control_group_text(group, state.held_keys)
     if state.active_keys_widget is not None:
         state.active_keys_widget.text = _active_keys_text(state)
 
@@ -207,15 +285,31 @@ def _status_lines(
 
 
 def _active_keys_text(state: Cam2VUIState) -> str:
-    active = [key.upper() for key in _CAMERA_KEY_ORDER if key in state.held_keys]
+    active = [
+        control.label
+        for group in state.control_groups
+        for control in group.keys
+        if control.key in state.held_keys
+    ]
     return f"Active keys: {', '.join(active) if active else 'none'}"
+
+
+def _control_group_text(
+    group: Cam2VControlGroup,
+    held_keys: set[str],
+) -> str:
+    labels = [
+        f"[{control.label}]" if control.key in held_keys else control.label
+        for control in group.keys
+    ]
+    return f"{group.action}: {' / '.join(labels)}"
 
 
 def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
     for event in events.get_events():
         if isinstance(event, FocusUserInputEvent) and not event.focused:
             state.held_keys.clear()
-            state._keyboard_state = KeyboardState(supported_keys=_CAMERA_KEYS)
+            state._keyboard_state = state._new_keyboard_state()
             continue
         if not isinstance(event, KeyboardUserInputEvent):
             continue
@@ -229,6 +323,8 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
 
 
 __all__ = [
+    "Cam2VControlGroup",
+    "Cam2VControlKey",
     "Cam2VSlangPyUILoop",
     "Cam2VUIState",
     "Cam2VUIStatus",

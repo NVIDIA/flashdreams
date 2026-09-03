@@ -15,23 +15,26 @@
 
 """Native Waypoint DiT topology and conditioning primitives."""
 
-from waypoint.transformer.cache import (
+from waypoint.impl.transformer.cache import (
     WaypointAttentionPolicy,
     WaypointKVCache,
     WaypointKVView,
 )
-from waypoint.transformer.impl import (
+from waypoint.impl.transformer.impl import (
     WaypointTransformer,
     WaypointTransformerCache,
     WaypointTransformerConfig,
 )
-from waypoint.transformer.network import (
+from waypoint.impl.transformer.network import (
     WaypointDiT,
     WaypointDiTConfig,
     sinusoidal_noise_embedding,
 )
-from waypoint.transformer.norm import adaptive_gate, adaptive_rms_norm
-from waypoint.transformer.rope import WaypointOrthoRoPEAngles, apply_waypoint_ortho_rope
+from waypoint.impl.transformer.norm import adaptive_gate, adaptive_rms_norm
+from waypoint.impl.transformer.rope import (
+    WaypointOrthoRoPEAngles,
+    apply_waypoint_ortho_rope,
+)
 
 __all__ = [
     "WaypointDiT",

@@ -11,7 +11,7 @@ import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE, BlockMask
 
-from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
+from waypoint.impl.spec import WAYPOINT_1_5, WaypointModelSpec
 
 
 @dataclass(frozen=True, kw_only=True)

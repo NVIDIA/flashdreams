@@ -17,9 +17,9 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineConfig,
 )
 from flashdreams.recipes.taehv import Hy15TAEHVEncoder, Hy15TAEHVEncoderConfig
-from waypoint.controls import WaypointControl
-from waypoint.decoder import WaypointTAEHVDecoder
-from waypoint.transformer.impl import WaypointTransformerCache
+from waypoint.impl.controls import WaypointControl
+from waypoint.impl.decoder import WaypointTAEHVDecoder
+from waypoint.impl.transformer.impl import WaypointTransformerCache
 
 
 @dataclass(kw_only=True)

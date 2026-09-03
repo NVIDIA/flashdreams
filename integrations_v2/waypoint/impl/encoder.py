@@ -12,7 +12,7 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCache,
 )
-from waypoint.controls import WaypointControl
+from waypoint.impl.controls import WaypointControl
 
 
 @dataclass(kw_only=True)

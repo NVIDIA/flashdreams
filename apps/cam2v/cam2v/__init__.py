@@ -20,6 +20,8 @@ from .session import (
     CameraControlInput,
 )
 from .ui import (
+    Cam2VControlGroup,
+    Cam2VControlKey,
     Cam2VSlangPyUILoop,
     Cam2VUIState,
     Cam2VUIStatus,
@@ -29,6 +31,8 @@ __all__ = [
     "Cam2VApplication",
     "Cam2VApplicationDefaults",
     "Cam2VConditioning",
+    "Cam2VControlGroup",
+    "Cam2VControlKey",
     "Cam2VGenerateStep",
     "Cam2VInputResolver",
     "Cam2VModelLoop",

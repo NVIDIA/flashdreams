@@ -26,10 +26,13 @@ from torch import Tensor, nn
 from torch.nn.attention.flex_attention import BlockMask
 
 from flashdreams.infra.config import InstantiateConfig
-from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
-from waypoint.transformer.cache import WaypointKVCache
-from waypoint.transformer.norm import adaptive_gate, adaptive_rms_norm
-from waypoint.transformer.rope import WaypointOrthoRoPEAngles, apply_waypoint_ortho_rope
+from waypoint.impl.spec import WAYPOINT_1_5, WaypointModelSpec
+from waypoint.impl.transformer.cache import WaypointKVCache
+from waypoint.impl.transformer.norm import adaptive_gate, adaptive_rms_norm
+from waypoint.impl.transformer.rope import (
+    WaypointOrthoRoPEAngles,
+    apply_waypoint_ortho_rope,
+)
 
 
 # Compile the pure fixed-attention operation so FlexAttention receives the

@@ -6,35 +6,44 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flashdreams-waypoint-v2"
+name = "flashdreams-waypoint"
 version = "0.1.0"
-description = "FlashDreams V2 application for the Waypoint 1.5 world model."
+description = "Waypoint 1.5 Cam2V integration for FlashDreams v2."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
-    "flashdreams-waypoint",
+    "flashdreams-cam2v",
     "pillow>=10",
 ]
 
-[project.entry-points."flashdreams.applications_v2"]
-waypoint-1-5-1b = "waypoint_v2.app:create_app"
-
 [tool.uv.sources]
 flashdreams = { workspace = true }
-flashdreams-waypoint = { workspace = true }
+flashdreams-cam2v = { workspace = true }
 
-[tool.setuptools.packages.find]
-include = ["waypoint_v2*"]
-exclude = ["tests"]
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.entry-points."flashdreams.applications_v2"]
+"cam2v-waypoint" = "waypoint.apps.cam2v.adapter:create_app"
+
+[tool.setuptools]
+packages = [
+    "waypoint",
+    "waypoint.apps",
+    "waypoint.apps.cam2v",
+    "waypoint.apps.cam2v.assets",
+    "waypoint.impl",
+    "waypoint.impl.transformer",
+]
+
+[tool.setuptools.package-dir]
+waypoint = "."
 
 [tool.setuptools.package-data]
-waypoint_v2 = ["assets/*.json"]
+"waypoint.apps.cam2v" = ["assets/*.json"]
 
-[tool.pytest.ini_options]
-addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
-markers = [
-    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
-    "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
-    "manual: heavy or environment-specific test, opt-in only",
-]
+[tool.uv]
+managed = true

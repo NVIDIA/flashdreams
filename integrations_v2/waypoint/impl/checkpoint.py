@@ -22,7 +22,7 @@ from typing import Mapping
 import torch
 from torch import nn
 
-from waypoint.spec import WAYPOINT_1_5, WaypointModelSpec
+from waypoint.impl.spec import WAYPOINT_1_5, WaypointModelSpec
 
 
 def expected_waypoint_1_5_checkpoint_shapes(
