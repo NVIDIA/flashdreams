@@ -111,6 +111,15 @@ presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
 model record because they describe a different frame.
 
+`--profile-path artifacts/<run>.jsonl` adds a correlated host-side runtime
+profile. It follows each input event through the UI step that claims it and the
+next observable client-window write. Native-window records end at presenter
+return. WebRTC records end at sender admission. The final records summarize
+model-step, UI-step, publish, presentation, client-window, and input-latency
+distributions. The
+[latency tuning guide](../../../docs/source/developer_guides/latency_tuning.rst)
+defines every field and measurement boundary.
+
 ## Starting and stopping a run
 
 `ApplicationRunner.run` calls `init`, `create_session` and `run_session` in

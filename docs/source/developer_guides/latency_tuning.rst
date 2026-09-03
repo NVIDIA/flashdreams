@@ -157,6 +157,45 @@ resolution, and native-acceleration knobs first.
 Profiling and validated reference
 ---------------------------------
 
+V2 runtime input latency profile
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--profile-path`` with any V2 application to write a correlated JSONL
+profile under ``artifacts/``:
+
+.. code-block:: bash
+
+   uv run flashdreams-run-v2 interactive-drive-omnidreams-perf \
+       --mode native-window \
+       --profile-path artifacts/interactive-drive-runtime.jsonl
+
+Every record uses the host monotonic clock. Input latency starts at the existing
+session-relative ``UserInputEvent.timestamp`` and follows the UI step that first
+claims the event. The final ``profile_summary`` records report count, mean,
+median, p90, and maximum values for these measurements:
+
+- ``input_to_ui_step_s`` measures event receipt through UI-step entry.
+- ``input_to_window_write_s`` measures event receipt through the first
+  observable client-window write after its UI claim.
+- ``model_step_s`` measures the model loop's ``step`` call.
+- ``ui_step_s`` measures the UI loop's ``step`` call.
+- ``publish_wait_s`` measures admission to the bounded presentation queue.
+- ``frame_to_window_write_s`` measures UI composition and the observable
+  client-window write.
+
+The ``endpoint`` field defines the final boundary. Native-window records use
+``native_presenter_return`` after the presenter returns. WebRTC records use
+``webrtc_sender_admission`` after frame materialization and sender admission.
+Writes completed without a connected WebRTC sender carry a null endpoint. Input
+and selected-frame correlations remain pending until a sender admits a later
+write. Browser decode, network transit, compositor scheduling, and physical
+scanout form a client-side continuation and can be joined with browser
+telemetry.
+
+Profiles add host timestamping and JSONL writes to the measured run. Keep the
+same profile setting across candidate and reference measurements. Use Nsight
+Systems for CUDA kernel, stream, and CPU/GPU overlap analysis.
+
 Set ``output.profile_world_model: true`` to enable FlashDreams CUDA-event
 profiling for the world-model runtime. Set ``output.sync_gpu_timing: true`` only
 when you need raster compute

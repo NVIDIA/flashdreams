@@ -28,7 +28,6 @@ from aiortc import (
 )
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
-
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -444,6 +443,7 @@ def test_window_write_materializes_before_synchronous_sender_admission(
     source = torch.full((1, 3, 16, 16), 31, dtype=torch.uint8)
     try:
         window.open(_session_desc())
+        assert window.input_timestamp_origin_ns is not None
         window.server._video_track = cast(Any, track)
         window.server._media_connected.set()
         with monkeypatch.context() as patch:
@@ -465,6 +465,7 @@ def test_window_write_materializes_before_synchronous_sender_admission(
         track.enqueue.assert_called_once()
         assert len(captured) == 1
         assert _frame_mean(captured[0]) == 31.0
+        assert window.profile_endpoint == "webrtc_sender_admission"
     finally:
         window.server._video_track = None
         window.server._media_connected.clear()
@@ -491,6 +492,7 @@ def test_window_write_queues_during_media_negotiation() -> None:
 
         track.enqueue.assert_called_once()
         assert [_frame_mean(frame) for frame in captured] == [0.0]
+        assert window.profile_endpoint == "webrtc_sender_admission"
     finally:
         window.server._video_track = None
         window.close()

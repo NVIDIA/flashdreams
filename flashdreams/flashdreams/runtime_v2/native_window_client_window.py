@@ -91,6 +91,16 @@ _STANDARD_GAMEPAD_BUTTON_BITS: tuple[int | None, ...] = (
 class NativeWindowClientWindow(IClientWindow):
     """Present UI output through a main-thread GLFW window."""
 
+    @property
+    def profile_endpoint(self) -> str:
+        """Name the completed native presentation boundary."""
+        return "native_presenter_return"
+
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the native session's host monotonic timestamp origin."""
+        return self._session_started_ns
+
     def __init__(
         self,
         *,

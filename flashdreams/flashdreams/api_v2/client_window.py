@@ -24,3 +24,13 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     Created by the runtime, never by an application.
     """
+
+    @property
+    def profile_endpoint(self) -> str | None:
+        """Name the observable boundary reached when ``write`` returns."""
+        return "window_write_return"
+
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the host monotonic origin for input-event timestamps."""
+        return None

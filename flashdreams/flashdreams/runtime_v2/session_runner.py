@@ -15,6 +15,7 @@ from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -55,6 +56,7 @@ def run_session(
     window: IClientWindow,
     *,
     metrics_output_sink: OutputSink | None = None,
+    profiler: RuntimeProfiler | None = None,
     steps: int | None = None,
 ) -> None:
     """Run a session's UI and model loops.
@@ -72,6 +74,7 @@ def run_session(
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
+        profiler: Optional correlated host-side runtime profiler.
         steps: Maximum model steps; ``None`` runs until stopped.
 
     Raises:
@@ -89,20 +92,12 @@ def run_session(
     stop = session._shutdown_event
     presentation_manager = session._presentation_manager
     trace_chunk_lifecycle = session_desc.metadata.get(_TRACE_METADATA_KEY) is True
-    presentation_manager.configure(
-        backpressure_mode=session_desc.backpressure_mode,
-        stop=stop,
-        put_timeout=tick_seconds,
-        trace_chunk_lifecycle=trace_chunk_lifecycle,
-        frames_per_second=session_desc.frames_per_second_for_step,
-        maximum_frames_per_second=session_desc.frames_per_second_for_ui,
-    )
     model_thread_handle: threading.Thread | None = None
     ui_loop: IUILoop[object] | None = None
     model_loop: IModelLoop[object] | None = None
     high_level_failures: BaseException | None = None
     cleanup_failures: list[BaseException] = []
-    attempted_output_sinks: list[OutputSink] = []
+    attempted_output_sinks: list[OutputSink] = [window]
 
     def collect_input() -> None:
         events = window.get_user_input_events()
@@ -119,12 +114,43 @@ def run_session(
         step_index = ui_loop._begin_run(events, generation)
         if step_index is None or stop.is_set():
             return
+        profile_started_at_ns = None if profiler is None else profiler.timestamp_ns()
+        step_started_at = time.monotonic()
         result = ui_loop.step(step_index, events)
+        step_elapsed_s = time.monotonic() - step_started_at
+        profile_completed_at_ns = None if profiler is None else profiler.timestamp_ns()
         if result is not None and not isinstance(result, StepResult):
             raise TypeError("A UI loop must return StepResult or None.")
         ui_loop._finish_run(result)
+        profile_window_completed_at_ns: int | None = None
         if result is not None:
             window.write(result)
+            if profiler is not None:
+                profile_window_completed_at_ns = profiler.timestamp_ns()
+        if profiler is not None:
+            assert profile_started_at_ns is not None
+            assert profile_completed_at_ns is not None
+            profiler.ui_step_started(
+                events,
+                generation=generation,
+                step=step_index,
+                time_ns=profile_started_at_ns,
+            )
+            profiler.ui_step_completed(
+                generation=generation,
+                step=step_index,
+                duration_s=step_elapsed_s,
+                presented=result is not None,
+                time_ns=profile_completed_at_ns,
+            )
+            if result is not None:
+                assert profile_window_completed_at_ns is not None
+                profiler.window_write_completed(
+                    endpoint=window.profile_endpoint,
+                    generation=generation,
+                    ui_step=step_index,
+                    time_ns=profile_window_completed_at_ns,
+                )
 
     def publish_model_results(
         generation: int,
@@ -153,12 +179,21 @@ def run_session(
                 return
             run_ui_once()
 
-    trace_log = (
-        _open_chunk_trace(session_desc.metadata.get(_TRACE_PATH_METADATA_KEY))
-        if trace_chunk_lifecycle
-        else None
-    )
+    trace_log: _ChunkTraceLog | None = None
     try:
+        presentation_manager.configure(
+            backpressure_mode=session_desc.backpressure_mode,
+            stop=stop,
+            put_timeout=tick_seconds,
+            trace_chunk_lifecycle=trace_chunk_lifecycle,
+            runtime_profiler=profiler,
+            frames_per_second=session_desc.frames_per_second_for_step,
+            maximum_frames_per_second=session_desc.frames_per_second_for_ui,
+        )
+        if trace_chunk_lifecycle:
+            trace_log = _open_chunk_trace(
+                session_desc.metadata.get(_TRACE_PATH_METADATA_KEY)
+            )
         if trace_chunk_lifecycle:
             _TRACE_LOGGER.info(
                 "%s phase=session_config time_ns=%d backpressure=%s "
@@ -182,8 +217,22 @@ def run_session(
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
-        attempted_output_sinks.append(window)
         window.open(session_desc)
+        if profiler is not None:
+            profiler.session_started(
+                input_timestamp_origin_ns=window.input_timestamp_origin_ns,
+            )
+            profiler.record(
+                "session_config",
+                backpressure=session_desc.backpressure_mode.value,
+                presentation=session_desc.presentation_mode.value,
+                step_fps=session_desc.frames_per_second_for_step,
+                ui_fps=session_desc.frames_per_second_for_ui,
+                width=session_desc.video_width,
+                height=session_desc.video_height,
+                window=type(window).__name__,
+                endpoint=window.profile_endpoint,
+            )
         if metrics_output_sink is not None:
             attempted_output_sinks.append(metrics_output_sink)
             metrics_output_sink.open(session_desc)
@@ -197,6 +246,7 @@ def run_session(
                     "event_buffer": event_buffer,
                     "reader_id": _MODEL_READER_ID,
                     "publish": publish_model_results,
+                    "profiler": profiler,
                     "max_steps": steps,
                 },
                 name=_MODEL_THREAD_NAME,
@@ -259,6 +309,11 @@ def run_session(
         if trace_log is not None:
             try:
                 _close_chunk_trace(trace_log)
+            except BaseException as error:
+                cleanup_failures.append(error)
+        if profiler is not None:
+            try:
+                profiler.close()
             except BaseException as error:
                 cleanup_failures.append(error)
 

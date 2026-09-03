@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -26,16 +27,19 @@ class ApplicationRunner:
         client_window: IClientWindow,
         *,
         metrics_output_sink: OutputSink | None = None,
+        profiler: RuntimeProfiler | None = None,
     ) -> None:
         """
         Args:
             application: Long-lived application that creates the session.
             client_window: Window that supplies input and presents generated output.
             metrics_output_sink: Optional sink for model-step metrics.
+            profiler: Optional correlated host-side runtime profiler.
         """
         self._application = application
         self._client_window = client_window
         self._metrics_output_sink = metrics_output_sink
+        self._profiler = profiler
 
     def run(
         self, session_desc: SessionDesc, commandline_args: Sequence[str] = ()
@@ -64,12 +68,15 @@ class ApplicationRunner:
                 session,
                 self._client_window,
                 metrics_output_sink=self._metrics_output_sink,
+                profiler=self._profiler,
             )
         finally:
             if not run_started:
                 _close_client_window(self._client_window)
                 if self._metrics_output_sink is not None:
                     _close_output_sink(self._metrics_output_sink)
+                if self._profiler is not None:
+                    _close_profiler(self._profiler)
             _close_application(
                 self._application, run_failed=sys.exc_info()[0] is not None
             )
@@ -96,6 +103,16 @@ def _close_output_sink(output_sink: OutputSink) -> None:
     except Exception:
         _LOGGER.exception(
             "The metrics output sink failed to close after a run that never started."
+        )
+
+
+def _close_profiler(profiler: RuntimeProfiler) -> None:
+    """Close a runtime profile after a run that never reached the session."""
+    try:
+        profiler.close()
+    except Exception:
+        _LOGGER.exception(
+            "The runtime profiler failed to close after a run that never started."
         )
 
 

@@ -85,6 +85,7 @@ Use `--no-instantiate` before GPU work to inspect the resolved runner config wit
 
 - Inspect available runners with `uv run flashdreams-run --help`, then inspect a specific runner with `uv run flashdreams-run --no-instantiate <runner-name>`.
 - Prefer CPU checks first: config imports, checkpoint key-remap shape/bijection tests on CPU or meta tensors, docs builds, `pytest -m ci_cpu`, and static assertions about runner names and pipeline wiring.
+- For interactive V2 latency work, capture `--profile-path artifacts/<run>.jsonl` and use `docs/source/developer_guides/latency_tuning.rst` to interpret each host-side endpoint.
 - Avoid `ci_gpu`, generation, `torchrun`, Docker GPU tests, large Hugging Face downloads, rollout parity, CUDA graph, WebRTC runtime, and quality-regression tests on CPU-only hosts unless the user requests them or the test explicitly skips cleanly.
 
 ## Testing Guidance

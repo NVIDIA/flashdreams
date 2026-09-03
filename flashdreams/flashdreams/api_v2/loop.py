@@ -23,6 +23,7 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
+    from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 
 StateT = TypeVar("StateT")
 
@@ -219,6 +220,7 @@ class IModelLoop(ILoop[StateT], ABC):
         event_buffer: EventBuffer,
         reader_id: int,
         publish: Callable[[int, list[StepResult], float], None],
+        profiler: RuntimeProfiler | None = None,
         max_steps: int | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
@@ -228,6 +230,7 @@ class IModelLoop(ILoop[StateT], ABC):
             reader_id: This loop's event reader ID.
             publish: Function called with each model result and the elapsed
                 seconds spent in :meth:`step`.
+            profiler: Optional correlated runtime profiler.
             max_steps: Maximum steps; ``None`` runs until stopped.
         """
         steps_run = 0
@@ -243,9 +246,29 @@ class IModelLoop(ILoop[StateT], ABC):
                 last_run_started = self._pace(last_run_started)
                 if self._shutdown_event.is_set():
                     break
+                profile_started_at_ns = (
+                    None if profiler is None else profiler.timestamp_ns()
+                )
                 step_started_at = time.monotonic()
                 raw_result = self.step(step_index, events)
                 step_elapsed_s = time.monotonic() - step_started_at
+                profile_completed_at_ns = (
+                    None if profiler is None else profiler.timestamp_ns()
+                )
+                if profiler is not None:
+                    assert profile_started_at_ns is not None
+                    assert profile_completed_at_ns is not None
+                    profiler.model_step_started(
+                        generation=generation,
+                        step=step_index,
+                        time_ns=profile_started_at_ns,
+                    )
+                    profiler.model_step_completed(
+                        generation=generation,
+                        step=step_index,
+                        duration_s=step_elapsed_s,
+                        time_ns=profile_completed_at_ns,
+                    )
                 result = _model_results(raw_result)
                 self._finish_run(result)
                 publish(generation, result, step_elapsed_s)

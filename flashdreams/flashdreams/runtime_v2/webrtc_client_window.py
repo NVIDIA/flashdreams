@@ -10,7 +10,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import MouseUserInputEvent, UserInputEvent
+from flashdreams.runtime_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -25,6 +25,16 @@ class WebRTCClientWindow(IClientWindow):
     A browser that disconnects becomes a close event, so a run through this
     window ends on its own even when the session would generate forever.
     """
+
+    @property
+    def profile_endpoint(self) -> str | None:
+        """Name the observable WebRTC boundary reached by the latest write."""
+        return self._profile_endpoint
+
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the server session's host monotonic timestamp origin."""
+        return self.server.input_timestamp_origin_ns
 
     def __init__(
         self,
@@ -45,6 +55,7 @@ class WebRTCClientWindow(IClientWindow):
         """
         self._input_events: deque[UserInputEvent] = deque()
         self._input_lock = threading.Lock()
+        self._profile_endpoint: str | None = None
         self.server = WebRTCServer(
             host=host,
             port=port,
@@ -54,7 +65,8 @@ class WebRTCClientWindow(IClientWindow):
         def handle_input(event: UserInputEvent) -> None:
             """Buffer one backend event for the ``InputSource`` protocol."""
             # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
-            self._input_events.append(event)
+            with self._input_lock:
+                self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
 
@@ -83,7 +95,9 @@ class WebRTCClientWindow(IClientWindow):
         Args:
             result: One UI-composited frame matching the opened session.
         """
-        self.server.write(result)
+        self._profile_endpoint = (
+            "webrtc_sender_admission" if self.server.write(result) else None
+        )
 
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return sender-queue diagnostics."""

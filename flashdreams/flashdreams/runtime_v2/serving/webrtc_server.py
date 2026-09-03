@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import torch
@@ -334,6 +334,11 @@ class WebRTCServer:
         """Return the browser URL for this server."""
         return f"http://{self._host}:{self._port}/"
 
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the active session's host monotonic input timestamp origin."""
+        return self._session_start_ns
+
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return non-blocking sender diagnostics."""
         track = self._video_track
@@ -389,12 +394,15 @@ class WebRTCServer:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
 
-    def write(self, result: StepResult) -> None:
+    def write(self, result: StepResult) -> bool:
         """Materialize and admit one generated result to the sender mailbox.
 
         Args:
             result: Generated frames matching the description passed to
                 :meth:`open`.
+
+        Returns:
+            Whether a connected sender admitted the frame.
 
         Raises:
             RuntimeError: The server is not open or has been closed.
@@ -412,9 +420,9 @@ class WebRTCServer:
             )
         track = self._video_track
         if track is None:
-            return
+            return False
         queued_frame = self._materialize_video_frame(result, frames[0])
-        track.enqueue(queued_frame)
+        return track.enqueue(queued_frame)
 
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""

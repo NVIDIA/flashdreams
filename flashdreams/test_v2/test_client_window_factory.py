@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 
 import pytest
-
+from flashdreams.runtime_v2.cli import _parser, _validate_artifact_paths
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
@@ -67,6 +67,51 @@ def test_a_native_window_mode_is_lazy_and_keeps_its_title() -> None:
 
     assert isinstance(window, NativeWindowClientWindow)
     assert window.title == "World model"
+
+
+@pytest.mark.parametrize(
+    ("first_flag", "second_flag"),
+    [
+        ("--profile-path", "--stats-path"),
+        ("--profile-path", "--output-path"),
+        ("--stats-path", "--output-path"),
+    ],
+)
+def test_output_artifacts_require_distinct_paths(
+    tmp_path: Path,
+    first_flag: str,
+    second_flag: str,
+) -> None:
+    shared = tmp_path / "run-artifact"
+    arguments = [
+        "demo",
+        "--output-path",
+        str(tmp_path / "output.mp4"),
+        first_flag,
+        str(shared),
+        second_flag,
+        str(shared),
+    ]
+    parsed = _parser().parse_args(arguments)
+
+    with pytest.raises(ValueError, match="must use different paths"):
+        _validate_artifact_paths(parsed)
+
+
+def test_output_artifacts_accept_distinct_paths(tmp_path: Path) -> None:
+    parsed = _parser().parse_args(
+        [
+            "demo",
+            "--profile-path",
+            str(tmp_path / "profile.jsonl"),
+            "--stats-path",
+            str(tmp_path / "stats.json"),
+            "--output-path",
+            str(tmp_path / "output.mp4"),
+        ]
+    )
+
+    _validate_artifact_paths(parsed)
 
 
 class TestWebRTC:

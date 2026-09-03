@@ -3,6 +3,7 @@
 
 """CPU test for the v2 session loop, independent of any application."""
 
+import json
 import logging
 import queue
 import threading
@@ -12,8 +13,6 @@ from contextlib import contextmanager
 
 import pytest
 import torch
-from numpy import uint64
-
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
@@ -27,6 +26,7 @@ from flashdreams.runtime_v2.presentation_manager import (
     PresentationManager,
     _PresentationClock,
 )
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -42,6 +42,7 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from numpy import uint64
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -474,7 +475,12 @@ class RecordingClientWindow(IClientWindow):
         self._hold_writes = hold_writes
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
+        self._input_timestamp_origin_ns: int | None = None
         self.results: list[StepResult] = []
+
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        return self._input_timestamp_origin_ns
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -488,6 +494,7 @@ class RecordingClientWindow(IClientWindow):
         if self._fail_to_open:
             raise RuntimeError("open failed")
         self.session_desc = session_desc
+        self._input_timestamp_origin_ns = time.monotonic_ns()
 
     def write(self, result: StepResult) -> None:
         if self._hold_writes is not None:
@@ -546,6 +553,33 @@ def test_run_session_presents_every_step_in_order() -> None:
     assert window.results[-1] is session.ui_loop.latest_result
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
+
+
+def test_run_session_profiles_input_through_window_write(tmp_path) -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log)
+    window = RecordingClientWindow(log, [_key_event()])
+    profile_path = tmp_path / "runtime.jsonl"
+
+    run_session(
+        session,
+        window,
+        profiler=RuntimeProfiler(profile_path),
+        steps=1,
+    )
+
+    records = [json.loads(line) for line in profile_path.read_text().splitlines()]
+    phases = {record["phase"] for record in records}
+    assert {
+        "input_to_ui_step",
+        "input_to_window_write",
+        "profile_summary",
+    } <= phases
+    output_record = next(
+        record for record in records if record["phase"] == "input_to_window_write"
+    )
+    assert output_record["endpoint"] == "window_write_return"
+    assert output_record["input_type"] == "KeyboardUserInputEvent"
 
 
 def test_run_session_opens_before_writing_and_closes_after() -> None:
@@ -1097,9 +1131,33 @@ def test_run_session_closes_a_session_that_failed_to_init() -> None:
     with pytest.raises(RuntimeError, match="init failed"):
         run_session(session, window, steps=1)
 
-    # A session that got halfway through starting still has to be released, and
-    # the window is never opened for a session that cannot run.
-    assert log.calls == ["session.init", "session.close"]
+    # A session and its constructor-owned window are released together.
+    assert log.calls == ["session.init", "window.close", "session.close"]
+
+
+def test_run_session_closes_owned_resources_when_trace_open_fails(tmp_path) -> None:
+    log = CallLog()
+    session_desc = _session_desc()
+    session_desc.metadata.update(
+        {
+            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle_path": tmp_path,
+        }
+    )
+    session = FakeSession(session_desc, log)
+    window = RecordingClientWindow(log)
+    profile_path = tmp_path / "runtime.jsonl"
+
+    with pytest.raises(IsADirectoryError):
+        run_session(
+            session,
+            window,
+            profiler=RuntimeProfiler(profile_path),
+            steps=1,
+        )
+
+    assert log.calls == ["window.close", "session.close"]
+    assert '"phase":"profile_summary"' in profile_path.read_text()
 
 
 def test_run_session_gives_the_step_after_a_reset_the_whole_batch() -> None:
