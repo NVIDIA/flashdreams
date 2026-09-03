@@ -110,6 +110,9 @@ class ApplicationConfig:
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
 
+    show_current_prompt: bool = False
+    """Whether the HUD displays the prompt currently driving generation."""
+
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
 
@@ -303,6 +306,7 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.diagnostics.input_trace_path
             ),
             show_fps=settings.presentation.show_fps,
+            show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
             show_live_edit_buttons=settings.presentation.show_live_edit_buttons,

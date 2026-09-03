@@ -714,6 +714,22 @@ def test_hud_frames_preserve_frame_aligned_live_edit_status() -> None:
     assert [frame.live_edit_status for frame in frames] == [status, status]
 
 
+def test_hud_frames_preserve_frame_aligned_prompt() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+
+    frames = build_hud_frames(
+        video,
+        (_snapshot(), _snapshot()),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        current_prompt="A taxi driving through a city.",
+    )
+
+    assert [frame.current_prompt for frame in frames] == [
+        "A taxi driving through a city.",
+        "A taxi driving through a city.",
+    ]
+
+
 def test_live_edit_card_dispatches_enabled_actions() -> None:
     live_edit = LiveEditConfig(
         style=LiveEditStyleConfig(enabled=True),
@@ -976,6 +992,36 @@ def test_fps_counter_measures_distinct_generated_video_frames(
     state._draw_fps_counter(imgui)
 
     assert imgui.windows["Performance"] == ["VIDEO FPS   30.0"]
+
+
+@pytest.mark.parametrize("show_current_prompt", [False, True])
+def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> None:
+    video = torch.zeros(1, 3, 180, 320)
+    state = TaxiHudState(
+        320,
+        180,
+        _calibration(),
+        show_current_prompt=show_current_prompt,
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            current_prompt=(
+                "A taxi driving through a wide city boulevard with buildings and trees."
+            ),
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert ("Current Prompt" in imgui.windows) is show_current_prompt
+    if show_current_prompt:
+        assert len(imgui.windows["Current Prompt"]) > 1
 
 
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
@@ -2709,6 +2755,7 @@ def test_options_save_persists_and_applies_presentation_setting(
     state._options_category = "presentation"
     imgui = _FakeImGui()
     imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.checkbox_values["##presentation.show_current_prompt"] = True
     imgui.checkbox_values["##presentation.show_live_edit_buttons"] = False
     imgui.combo_indices["##presentation.live_edit_mapping_location"] = 1
     imgui.clicked_buttons.add("SAVE")
@@ -2717,9 +2764,11 @@ def test_options_save_persists_and_applies_presentation_setting(
 
     assert state._menu_stage == "options"
     assert state.show_fps
+    assert state.show_current_prompt
     assert not state.show_live_edit_buttons
     assert state.live_edit_mapping_location == "control hints"
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
+    assert "show_current_prompt: true" in document.path.read_text(encoding="utf-8")
     assert "show_live_edit_buttons: false" in document.path.read_text(encoding="utf-8")
     assert "live_edit_mapping_location: control hints" in document.path.read_text(
         encoding="utf-8"

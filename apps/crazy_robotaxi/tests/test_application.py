@@ -274,6 +274,7 @@ game:
   taxi:
     seed: 1234
 presentation:
+  show_current_prompt: true
   show_live_edit_buttons: false
   live_edit_mapping_location: control hints
 runtime:
@@ -293,6 +294,7 @@ runtime:
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234
     assert app._config.gamepad_button_style == "PlayStation"
+    assert app._config.show_current_prompt
     assert not app._config.show_live_edit_buttons
     assert app._config.live_edit_mapping_location == "control hints"
     pipeline_config = app._pipeline_config

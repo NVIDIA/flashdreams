@@ -348,7 +348,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         simulation_timestamps_us: tuple[int, ...] | None = None
         cache_finalize_returned_ns: int | None = None
         live_edit_status: LiveEditHudStatus | None = None
+        current_prompt = ""
         if snapshot.session_state in active_states:
+            current_prompt = rollout.scene.prompt
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
                 for action in ("style", "weather", "coins", "obstacle"):
@@ -419,6 +421,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 live_edit.style.after_v2_chunk()
             if live_edit is not None:
                 live_edit_status = live_edit.hud_status()
+                if live_edit.style is not None:
+                    current_prompt = live_edit.style.active_prompt or current_prompt
             state.blocks_generated += 1
             video = generated.video_bvtchw[0, 0]
             expected_shape = (
@@ -474,6 +478,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             simulation_timestamps_us=simulation_timestamps_us,
             cache_finalize_returned_ns=cache_finalize_returned_ns,
             live_edit_status=live_edit_status,
+            current_prompt=current_prompt,
         )
         invoke_async(
             state.ui_loop,
@@ -600,6 +605,7 @@ class CrazyRobotaxiSession(ISession):
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
+            show_current_prompt=self._config.show_current_prompt,
             hud_enabled=self._config.hud_enabled,
             live_edit=self._config.live_edit,
             native_dit_disabled_for_live_edit=(

@@ -28,8 +28,8 @@ from crazy_robotaxi.live_edit.config import (
     live_edit_config_from_args,
     resolve_live_edit_assets,
 )
-from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
 from crazy_robotaxi.live_edit.item_ability import ItemEffects
+from crazy_robotaxi.live_edit.nitro_ability import NitroAbility
 from crazy_robotaxi.live_edit.obstacle_events import (
     ObstacleAbility,
     ObstacleEvent,
@@ -464,6 +464,22 @@ def test_weather_suffix_composes_without_changing_style_prompt() -> None:
     assert weather.prompt == (
         "A city road. The taxi is driving forward. Heavy rain falls."
     )
+
+
+def test_active_prompt_reports_composed_model_target() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(
+            enabled=True,
+            skins=(StyleSkin("comic", "Comic-book visuals."),),
+        )
+    )
+    ability._base_prompt = "A city road."
+
+    assert ability.active_prompt == "A city road."
+
+    ability._active_index = 0
+
+    assert ability.active_prompt == "Comic-book visuals."
 
 
 def test_map_prompt_change_is_plain_and_deferred_during_guidance() -> None:

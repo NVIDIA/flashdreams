@@ -201,6 +201,9 @@ class TaxiHudFrame:
     live_edit_status: LiveEditHudStatus | None = None
     """Live-edit state aligned with this generated frame."""
 
+    current_prompt: str = ""
+    """Model prompt aligned with this generated frame."""
+
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
 
@@ -247,6 +250,9 @@ class TaxiHudState:
 
     show_fps: bool = False
     """Whether to display the measured generated-video frame rate."""
+
+    show_current_prompt: bool = False
+    """Whether to display the frame-aligned model prompt across the HUD top."""
 
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
@@ -1101,6 +1107,8 @@ class TaxiHudState:
             self.hud_enabled = draft.presentation.hud_enabled
         if ("presentation", "show_fps") not in overrides:
             self.show_fps = draft.presentation.show_fps
+        if ("presentation", "show_current_prompt") not in overrides:
+            self.show_current_prompt = draft.presentation.show_current_prompt
         if ("presentation", "show_control_hints") not in overrides:
             self.show_control_tooltips = draft.presentation.show_control_hints
         if ("presentation", "show_live_edit_buttons") not in overrides:
@@ -1214,18 +1222,21 @@ class TaxiHudState:
         if self._menu_stage == "options":
             self._draw_options(imgui)
             return
-        self._draw_fps_counter(imgui)
         if self._menu_stage == "mode":
+            self._draw_fps_counter(imgui)
             self._draw_mode_selection(imgui)
             return
         if self._menu_stage == "map":
+            self._draw_fps_counter(imgui)
             self._draw_map_selection(imgui)
             return
         if self._menu_stage == "course":
+            self._draw_fps_counter(imgui)
             self._draw_course_selection(imgui)
             return
         hud_frame = self._current
         if hud_frame is None:
+            self._draw_fps_counter(imgui)
             dots = "." * (1 + (ui_tick // 15) % 3)
             elapsed_s = max(0, int(time.monotonic() - self._loading_started_at_s))
             self._draw_text_window(
@@ -1236,19 +1247,29 @@ class TaxiHudState:
                 lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
             )
             return
+        snapshot = hud_frame.snapshot
+        active = snapshot.session_state in {"playing", "awaiting_start", "racing"}
+        prompt_offset = (
+            self._draw_current_prompt(imgui, hud_frame.current_prompt)
+            if self.hud_enabled
+            and active
+            and self.show_current_prompt
+            and hud_frame.current_prompt
+            else 0.0
+        )
+        self._draw_fps_counter(imgui, top=14.0 + prompt_offset)
         if not self.hud_enabled:
             return
 
-        snapshot = hud_frame.snapshot
         if isinstance(snapshot, RaceGameSnapshot) and snapshot.session_state in {
             "awaiting_start",
             "racing",
         }:
-            self._draw_race_status(imgui, snapshot)
+            self._draw_race_status(imgui, snapshot, top_offset=prompt_offset)
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
-                center_y=110.0,
+                center_y=110.0 + prompt_offset,
                 color_rgb=(1.0, 0.18, 0.08),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
@@ -1256,11 +1277,11 @@ class TaxiHudState:
             isinstance(snapshot, TaxiGameSnapshot)
             and snapshot.session_state == "playing"
         ):
-            self._draw_taxi_status(imgui, snapshot)
+            self._draw_taxi_status(imgui, snapshot, top_offset=prompt_offset)
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
-                center_y=110.0,
+                center_y=110.0 + prompt_offset,
                 color_rgb=(
                     (118.0 / 255.0, 185.0 / 255.0, 0.0)
                     if snapshot.phase == "seeking_pickup"
@@ -1268,15 +1289,56 @@ class TaxiHudState:
                 ),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
-        if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
+        if active:
             self._draw_speed(imgui, hud_frame.speed_mps)
-            self._draw_coin_counter(imgui, hud_frame.live_edit_status)
-            self._draw_live_edit_card(imgui, hud_frame.live_edit_status)
+            self._draw_coin_counter(
+                imgui, hud_frame.live_edit_status, top_offset=prompt_offset
+            )
+            self._draw_live_edit_card(
+                imgui, hud_frame.live_edit_status, top_offset=prompt_offset
+            )
             self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
 
-    def _draw_taxi_status(self, imgui: Any, snapshot: TaxiGameSnapshot) -> None:
+    def _draw_current_prompt(self, imgui: Any, prompt: str) -> float:
+        """Draw the frame-aligned prompt in a plain wrapped debug window."""
+        panel_width = max(1.0, float(self.width) - 28.0)
+        window_padding = _point_xy(imgui.get_style().window_padding)
+        item_spacing_y = _point_xy(imgui.get_style().item_spacing)[1]
+        content_width = max(1.0, panel_width - 2.0 * window_padding[0])
+        frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
+        wrapped, _underlying_width, _editor_height, _field_height = (
+            _wrapped_editor_layout(
+                imgui,
+                prompt,
+                content_width + 2.0 * frame_padding_x,
+            )
+        )
+        lines = tuple(line.rstrip() for line in wrapped.splitlines()) or ("",)
+        font_size = float(imgui.get_font_size())
+        panel_height = (
+            float(imgui.get_frame_height())
+            + 2.0 * window_padding[1]
+            + len(lines) * font_size
+            + max(0, len(lines) - 1) * item_spacing_y
+        )
+        self._draw_text_window(
+            imgui,
+            "Current Prompt",
+            position=(14.0, 14.0),
+            size=(panel_width, panel_height),
+            lines=lines,
+        )
+        return panel_height + 8.0
+
+    def _draw_taxi_status(
+        self,
+        imgui: Any,
+        snapshot: TaxiGameSnapshot,
+        *,
+        top_offset: float = 0.0,
+    ) -> None:
         """Draw the source game's one-line taxi status directly over the frame."""
         phase = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
         fare_time = (
@@ -1296,20 +1358,26 @@ class TaxiHudState:
             if snapshot.phase == "seeking_pickup"
             else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
         )
-        self._draw_status_strip(imgui, label, color_rgb=color, top=35.0)
+        self._draw_status_strip(imgui, label, color_rgb=color, top=35.0 + top_offset)
         event = _event_label(snapshot)
         if event:
             self._draw_centered_text(
                 imgui,
                 event,
-                top=160.0,
+                top=160.0 + top_offset,
                 font_size=44.0,
                 color_rgb=color,
                 shadow=True,
                 font=self._gameplay_overlay_font(imgui),
             )
 
-    def _draw_race_status(self, imgui: Any, snapshot: RaceGameSnapshot) -> None:
+    def _draw_race_status(
+        self,
+        imgui: Any,
+        snapshot: RaceGameSnapshot,
+        *,
+        top_offset: float = 0.0,
+    ) -> None:
         """Draw the source game's one-line race status directly over the frame."""
         if snapshot.session_state == "awaiting_start":
             progress = "CROSS START LINE TO BEGIN"
@@ -1342,7 +1410,7 @@ class TaxiHudState:
             imgui,
             label,
             color_rgb=(200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0),
-            top=35.0,
+            top=35.0 + top_offset,
             outline=True,
         )
 
@@ -1495,7 +1563,7 @@ class TaxiHudState:
                 )
         return self._gameplay_font
 
-    def _draw_fps_counter(self, imgui: Any) -> None:
+    def _draw_fps_counter(self, imgui: Any, *, top: float = 14.0) -> None:
         """Draw the measured generated-video rate when the counter is enabled."""
         if not self.show_fps:
             return
@@ -1503,7 +1571,7 @@ class TaxiHudState:
         self._draw_text_window(
             imgui,
             "Performance",
-            position=(float(max(14.0, self.width - width - 14.0)), 14.0),
+            position=(float(max(14.0, self.width - width - 14.0)), top),
             size=(width, 66.0),
             lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
         )
@@ -1512,6 +1580,8 @@ class TaxiHudState:
         self,
         imgui: Any,
         status: LiveEditHudStatus | None,
+        *,
+        top_offset: float = 0.0,
     ) -> None:
         """Draw frame-aligned live-edit status and action buttons."""
         if status is None or not self.live_edit.any_enabled:
@@ -1539,7 +1609,7 @@ class TaxiHudState:
         )
         _prepare_window(
             imgui,
-            position=(14.0, 94.0),
+            position=(14.0, 94.0 + top_offset),
             size=None,
             alpha=0.94,
             pivot=(0.0, 0.0),
@@ -1588,13 +1658,15 @@ class TaxiHudState:
         self,
         imgui: Any,
         status: LiveEditHudStatus | None,
+        *,
+        top_offset: float = 0.0,
     ) -> None:
         """Draw collected coins in the upper-left while coins are available."""
         if status is None or not status.coins_enabled:
             return
         _prepare_window(
             imgui,
-            position=(14.0, 14.0),
+            position=(14.0, 14.0 + top_offset),
             size=None,
             alpha=0.94,
             pivot=(0.0, 0.0),
@@ -3669,6 +3741,7 @@ def build_hud_frames(
     simulation_timestamps_us: Sequence[int | None] | None = None,
     cache_finalize_returned_ns: int | None = None,
     live_edit_status: LiveEditHudStatus | None = None,
+    current_prompt: str = "",
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -3704,6 +3777,7 @@ def build_hud_frames(
                 rig_pose_world=pose,
                 speed_mps=float(speeds_mps[index]),
                 live_edit_status=live_edit_status,
+                current_prompt=current_prompt,
                 transition_timestamp_us=transition_timestamps_us[index],
                 runtime_generation=runtime_generation,
                 model_step_index=model_step_index,

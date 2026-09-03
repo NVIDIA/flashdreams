@@ -154,6 +154,13 @@ class StyleAbility:
         return self._weather_config.weathers[self._active_weather].name
 
     @property
+    def active_prompt(self) -> str | None:
+        """Return the composed prompt currently selected in the model cache."""
+        if self._base_prompt is None:
+            return None
+        return self._visual_target(self._active_map_suffix).prompt
+
+    @property
     def skin_names(self) -> tuple[str, ...]:
         """Selectable skin names (empty when the style ability is off)."""
         if not self._config.enabled:

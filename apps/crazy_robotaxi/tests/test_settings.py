@@ -49,6 +49,7 @@ game:
   gamepad_button_style: PlayStation
 presentation:
   show_fps: true
+  show_current_prompt: true
   show_live_edit_buttons: false
   live_edit_mapping_location: control hints
 """,
@@ -61,6 +62,7 @@ presentation:
     assert document.settings.renderer.raster.resolution_wh == (1280, 704)
     assert document.settings.game.gamepad_button_style == "PlayStation"
     assert document.settings.presentation.show_fps
+    assert document.settings.presentation.show_current_prompt
     assert not document.settings.presentation.show_live_edit_buttons
     assert document.settings.presentation.live_edit_mapping_location == "control hints"
 
