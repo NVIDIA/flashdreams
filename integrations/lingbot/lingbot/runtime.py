@@ -1106,6 +1106,5 @@ __all__ = [
     "inference_config_from_runner_config",
     "inference_input_from_replay_inputs",
     "inference_input_from_runner_config",
-    "replay_inputs_from_inference_input",
     "replay_inputs_from_mapping",
 ]
