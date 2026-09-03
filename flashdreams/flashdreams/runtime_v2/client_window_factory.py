@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.png_client_window import PngClientWindow
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -67,7 +68,9 @@ class _Mp4Mode(ClientWindowMode):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--output-path", type=Path, help="MP4 file to write. Required for mp4."
+            "--output-path",
+            type=Path,
+            help="Output file to write. Required for mp4 and png.",
         )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
@@ -81,6 +84,29 @@ class _Mp4Mode(ClientWindowMode):
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
         return str(cast(Mp4ClientWindow, client_window).path)
+
+
+class _PngMode(ClientWindowMode):
+    """Write one image or a numbered image sequence."""
+
+    name = "png"
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        # Shared with MP4: the selected mode determines the required suffix.
+        return None
+
+    def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        if parsed_args.output_path is None:
+            raise ValueError("--output-path is required when writing PNG output.")
+        if parsed_args.output_path.suffix.lower() != ".png":
+            raise ValueError("PNG output path must end in .png.")
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        self.check_arguments(parsed_args)
+        return PngClientWindow(parsed_args.output_path)
+
+    def finished(self, client_window: IClientWindow) -> str | None:
+        return str(cast(PngClientWindow, client_window).path)
 
 
 class _WebRTCMode(ClientWindowMode):
@@ -129,6 +155,7 @@ class _NativeWindowMode(ClientWindowMode):
 
 _MODES: tuple[ClientWindowMode, ...] = (
     _Mp4Mode(),
+    _PngMode(),
     _WebRTCMode(),
     _NativeWindowMode(),
 )

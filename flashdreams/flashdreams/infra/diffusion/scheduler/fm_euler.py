@@ -28,7 +28,9 @@ exact 5-entry timestep schedule
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 import torch
@@ -83,6 +85,27 @@ class FlowMatchEulerDiscreteSchedulerConfig(SchedulerConfig):
     enable_tqdm: bool = False
     """Whether to enable the tqdm progress bar inside :meth:`sample`."""
 
+    use_dynamic_shifting: bool = False
+    """Derive the sigma warp from the current image token count."""
+
+    base_image_seq_len: int = 256
+    """Image-token count corresponding to :attr:`base_shift`."""
+
+    max_image_seq_len: int = 4096
+    """Image-token count corresponding to :attr:`max_shift`."""
+
+    base_shift: float = 0.5
+    """Dynamic shift at :attr:`base_image_seq_len`."""
+
+    max_shift: float = 1.15
+    """Dynamic shift at :attr:`max_image_seq_len`."""
+
+    shift_terminal: float | None = None
+    """Optional non-zero terminal sigma used before appending clean sigma zero."""
+
+    time_shift_type: Literal["exponential", "linear"] = "exponential"
+    """Dynamic time-warp family."""
+
 
 class FlowMatchEulerDiscreteScheduler(Scheduler):
     """First-order explicit Euler solver for flow-matching ODEs.
@@ -136,6 +159,8 @@ class FlowMatchEulerDiscreteScheduler(Scheduler):
             )
             timesteps_np = np.asarray(ft, dtype=np.float32)
             sigmas_np = (timesteps_np / N_train).astype(np.float32)
+        elif config.use_dynamic_shifting:
+            sigmas_np, timesteps_np = self._dynamic_schedule(config.base_image_seq_len)
         else:
             # Standard diffusers FlowMatchEulerDiscrete schedule: train
             # sigmas come from alphas = linspace(1, 1/N_train, N_train)[::-1]
@@ -164,6 +189,37 @@ class FlowMatchEulerDiscreteScheduler(Scheduler):
             torch.from_numpy(sigmas_np),
             persistent=False,
         )
+
+    def _dynamic_schedule(self, image_seq_len: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return Qwen/SD3-style resolution-dependent sigmas and timesteps."""
+        config = self.config
+        if image_seq_len <= 0:
+            raise ValueError(f"image_seq_len must be positive, got {image_seq_len}")
+        span = config.max_image_seq_len - config.base_image_seq_len
+        if span <= 0:
+            raise ValueError(
+                "max_image_seq_len must be greater than base_image_seq_len"
+            )
+        slope = (config.max_shift - config.base_shift) / span
+        mu = config.base_shift + slope * (image_seq_len - config.base_image_seq_len)
+        sigmas = np.linspace(
+            1.0,
+            1.0 / config.num_inference_steps,
+            config.num_inference_steps,
+            dtype=np.float32,
+        )
+        if config.time_shift_type == "exponential":
+            weight = math.exp(mu)
+        elif config.time_shift_type == "linear":
+            weight = mu
+        else:
+            raise ValueError(f"Unsupported time_shift_type: {config.time_shift_type!r}")
+        sigmas = weight / (weight + (1.0 / sigmas - 1.0))
+        if config.shift_terminal is not None:
+            one_minus = 1.0 - sigmas
+            sigmas = 1.0 - one_minus / (one_minus[-1] / (1.0 - config.shift_terminal))
+        sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
+        return sigmas, (sigmas * config.num_train_timesteps).astype(np.float32)
 
     _FP32_BUFFERS = ("timesteps", "sigmas")
 
@@ -199,12 +255,45 @@ class FlowMatchEulerDiscreteScheduler(Scheduler):
         ``rng`` is unused (deterministic ODE) but accepted for interface
         conformance.
         """
-        input_dtype = initial_noise.dtype
-        N = self.config.num_inference_steps
+        return self._sample_schedule(
+            initial_noise,
+            predict_flow,
+            self.timesteps,
+            self.sigmas,
+        )
 
+    def sample_for_sequence_length(
+        self,
+        initial_noise: Tensor,
+        predict_flow: FlowPredictor,
+        image_seq_len: int,
+        rng: torch.Generator | None = None,
+    ) -> Tensor:
+        """Denoise with a schedule derived from ``image_seq_len``.
+
+        This is deliberately separate from :meth:`sample`: existing integrations
+        retain their fixed schedule, while image models can supply their
+        per-rollout token count without storing spatial state on a config.
+        """
+        del rng
+        if not self.config.use_dynamic_shifting:
+            raise ValueError("sample_for_sequence_length requires use_dynamic_shifting")
+        sigmas_np, timesteps_np = self._dynamic_schedule(image_seq_len)
+        timesteps = torch.from_numpy(timesteps_np).to(initial_noise.device)
+        sigmas = torch.from_numpy(sigmas_np).to(initial_noise.device)
+        return self._sample_schedule(initial_noise, predict_flow, timesteps, sigmas)
+
+    def _sample_schedule(
+        self,
+        initial_noise: Tensor,
+        predict_flow: FlowPredictor,
+        timesteps: Tensor,
+        sigmas: Tensor,
+    ) -> Tensor:
+        input_dtype = initial_noise.dtype
         noisy = initial_noise
         for i in tqdm(
-            range(N),
+            range(self.config.num_inference_steps),
             disable=not self.config.enable_tqdm,
             desc="FlowMatchEulerDiscreteScheduler",
         ):
@@ -213,8 +302,8 @@ class FlowMatchEulerDiscreteScheduler(Scheduler):
             # both the timestep handed to the network and the per-step
             # ``dt`` to the input dtype so downstream modulation /
             # Linear layers stay consistent.
-            timestep = self.timesteps[i].to(dtype=input_dtype)
-            dt = (self.sigmas[i + 1] - self.sigmas[i]).to(dtype=input_dtype)
+            timestep = timesteps[i].to(dtype=input_dtype)
+            dt = (sigmas[i + 1] - sigmas[i]).to(dtype=input_dtype)
 
             flow = predict_flow(noisy, timestep)
             noisy = noisy + dt * flow
