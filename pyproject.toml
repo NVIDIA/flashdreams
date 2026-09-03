@@ -92,6 +92,7 @@ extra-paths = [
     "flashdreams",
     "apps",
     "apps/cam2v",
+    "apps/t2v",
     "apps/action2v",
     "apps/crazy_robotaxi",
     "apps/interactive_drive",
