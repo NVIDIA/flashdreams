@@ -384,10 +384,6 @@ window.addEventListener("blur", () => {
   }
 });
 
-window.addEventListener("beforeunload", () => {
-  sendInput({type: "close"});
-});
-
 const waitForIceGatheringComplete = async () => {
   if (peer.iceGatheringState === "complete") {
     return;

@@ -19,7 +19,7 @@ from typing import final
 
 from torch import Tensor
 
-from flashdreams.api_v2.loop import IUILoop
+from flashdreams.api_v2.loop import IUILoop, ModelInferenceState
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -28,6 +28,9 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 class BlitModelOutputToScreenLoop(IUILoop[None]):
     """Draw every model channel into one UI frame."""
 
+    def _initialize_loop_state(self) -> None:
+        self._last_presented_frame_count = 0
+
     @final
     def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
         """Draw the model channels in list order."""
@@ -35,6 +38,9 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
         output = None
         for frame in self.presented_model_frames():
             output = self._presentation_manager.composite(output, frame)
+        self._last_presented_frame_count = (
+            self._presentation_manager.presented_frame_count
+        )
         if output is None:
             return None
         return StepResult(
@@ -44,8 +50,16 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
             output_layout=self.output_layout,
         )
 
+    def is_finished(self) -> bool:
+        return (
+            self.model_inference_state is ModelInferenceState.FINISHED
+            and not self._presentation_manager.has_pending_frames()
+            and self._last_presented_frame_count
+            == self._presentation_manager.presented_frame_count
+        )
+
     def reset(self) -> None:
-        return
+        self._last_presented_frame_count = 0
 
 
 def _frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:

@@ -13,9 +13,11 @@ packages own one root `config.py`; their entry points and adapters live under
 
 ## Controls
 
-T2V has no live controls. Inputs are fixed for a session: `--prompt` is always
-required, and model adapters may add startup inputs such as a first-frame image.
-Use `--seed` to make sampling repeatable when the model supports it.
+An interactive WebRTC run shows an ImGui prompt field over the latest generated
+frame. Submitting it starts a fresh session and rollout cache without unloading
+the model. Reaching `--total-blocks` leaves the final frame and prompt UI active.
+Model adapters may also add startup inputs such as a first-frame image. Use
+`--seed` to make sampling repeatable when the model supports it.
 
 ## Usage
 
@@ -28,9 +30,19 @@ uv run --package flashdreams-self-forcing flashdreams-run-v2 \
   --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
 
+To keep the model resident and submit prompts from a browser:
+
+```bash
+uv run --package flashdreams-causal-forcing flashdreams-run-v2 \
+  t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise --mode webrtc --port 8080
+```
+
+Open `http://localhost:8080`. An initial `--prompt` is optional for interactive
+runs; the prompt UI can start the first and subsequent sessions.
+
 Shared application arguments are:
 
-- `--prompt TEXT` — required; its empty default is rejected.
+- `--prompt TEXT` — optional initial text; explicitly empty text is rejected.
 - `--total-blocks N` — autoregressive blocks to generate; defaults to the model
   adapter value (one for bidirectional models).
 - `--device DEVICE` — model device; defaults to `cuda`.

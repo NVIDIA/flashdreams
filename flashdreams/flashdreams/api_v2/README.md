@@ -64,10 +64,11 @@ comes from the session description: the model loop steps at
 `frames_per_second_for_step`, and the UI ticks at `frames_per_second_for_ui`.
 
 The UI thread initially selects frames from model chunks at
-`frames_per_second_for_step`. With nonblocking `BackpressureMode.DROP_OLDEST` backpressure, the oldest chunk not-finished being processed by the ui-thread will be discarded in favor of a new chunk returned by the model-thread if presentation-manager buffer is full. With `BackpressureMode.BLOCK` backpressure, instead of discarding a chunk the model-thread will wait for an open chunk-slot to store its result in the presentation-manager before progressing to its next `step`. The goal of this backpressure model is to allow independent computation and presentation of UI (for reactivity to user inputs) separate from the backend logic of the model-thread.```
-`PresentationMode.CONTINUOUS` lets an `IUILoop` redraw every UI tick;
-`PresentationMode.ON_DEMAND` runs it only when the selected model frame changes.
-Interactive or clock-driven UIs should use continuous presentation.
+`frames_per_second_for_step`. With nonblocking `BackpressureMode.DROP_OLDEST` backpressure, the oldest chunk not-finished being processed by the ui-thread will be discarded in favor of a new chunk returned by the model-thread if presentation-manager buffer is full. With `BackpressureMode.BLOCK` backpressure, instead of discarding a chunk the model-thread will wait for an open chunk-slot to store its result in the presentation-manager before progressing to its next `step`. The goal of this backpressure model is to allow independent computation and presentation of UI (for reactivity to user inputs) separate from the backend logic of the model-thread.
+`PresentationMode.CONTINUOUS` runs an `IUILoop` every UI tick while model
+inference is active; `PresentationMode.ON_DEMAND` runs it only when the selected
+model frame changes. An unfinished UI also ticks while model inference has not
+started or has finished, independent of presentation mode.
 
 ## Loops
 
@@ -182,10 +183,16 @@ frames faster than the UI thread can consume them:
 `SessionDesc.presentation_mode` handles the UI loop ticking faster than the
 model-generation-loop produces frames:
 
-- `PresentationMode.CONTINUOUS` runs the UI every tick and may reuse
-  the newest generated model frame.
+- `PresentationMode.CONTINUOUS` runs the UI every tick and may reuse the newest
+  generated model frame.
 - `PresentationMode.ON_DEMAND` runs the UI after the presentation manager
   advances to a new model frame.
+
+An `IModelLoop` owns its `inference_state`. An `IUILoop` can query that state
+through `model_inference_state` to distinguish `NOT_STARTED`, `RUNNING`, and
+`FINISHED`; it does not store a second copy. An unfinished UI continues ticking
+after inference so it can remain responsive and request another session.
+Override `is_finished` when the UI has its own terminal condition.
 
 Use `PresentationMode.ON_DEMAND` with `BackpressureMode.BLOCK` when every
 generated model frame must be selected and written exactly once in order.
@@ -193,7 +200,11 @@ generated model frame must be selected and written exactly once in order.
 For full immediate Dear ImGui controls drawn over model output, subclass
 `ImGuiUILoop` from `flashdreams.runtime_v2.imgui_ui_loop` and implement
 `step_ui(imgui, step_index, events)` rather than `step`. Its `imgui` proxy
-exposes `imgui_bundle.imgui` and an image-like pixel upload convenience form.
+exposes `imgui_bundle.imgui` and an image-like pixel upload convenience form. A
+UI control that needs a fresh application session calls
+`request_new_session(session_desc)` with a fully resolved replacement
+description; the runtime cleans the current session and passes that description
+to `ApplicationRunner` unchanged.
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

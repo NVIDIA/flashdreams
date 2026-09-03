@@ -8,6 +8,7 @@
 import asyncio
 import json
 import time
+from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -34,7 +35,6 @@ from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEvent,
     FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
@@ -113,12 +113,19 @@ async def _connect_browser(
 @pytest.mark.asyncio
 async def test_window_buffers_browser_events_until_drained() -> None:
     window = WebRTCClientWindow()
+    server_loop = window.server._loop
+    assert server_loop is not None
+    assert (
+        server_loop.get_exception_handler()
+        is webrtc_server._handle_webrtc_loop_exception
+    )
     assert window.metrics_snapshot() == {
         "webrtc_sender_queue_depth_count": 0,
         "webrtc_sender_queue_capacity_count": 2,
         "webrtc_sender_enqueued_count": 0,
         "webrtc_sender_handed_off_count": 0,
         "webrtc_sender_dropped_for_lag_count": 0,
+        "webrtc_sender_discarded_on_session_change_count": 0,
         "webrtc_sender_discarded_on_close_count": 0,
         "webrtc_sender_oldest_queue_age_s": 0.0,
         "webrtc_sender_materialized_count": 0,
@@ -145,6 +152,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert response.status == 200
                 assert "activationPressed" not in browser_script
                 assert 'type: "reset"' not in browser_script
+                assert "beforeunload" not in browser_script
                 assert "waitForIceGatheringComplete" in browser_script
                 assert 'peer.iceGatheringState === "complete"' in browser_script
                 assert "Unable to start WebRTC" in browser_script
@@ -226,7 +234,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 }
             )
         )
-
         events = []
         for _ in range(100):
             events.extend(window.get_user_input_events().get_events())
@@ -282,6 +289,31 @@ async def test_window_buffers_browser_events_until_drained() -> None:
         if peer is not None:
             await peer.close()
         window.close()
+
+
+def test_webrtc_loop_suppresses_only_the_aioice_completed_retry_race() -> None:
+    loop = Mock(spec=asyncio.AbstractEventLoop)
+    context: dict[str, Any] = {
+        "message": webrtc_server._AIOICE_COMPLETED_RETRY_MESSAGE,
+        "exception": asyncio.InvalidStateError("invalid state"),
+        "handle": Mock(spec=asyncio.TimerHandle),
+    }
+
+    webrtc_server._handle_webrtc_loop_exception(loop, context)
+
+    loop.default_exception_handler.assert_not_called()
+
+    near_matches = (
+        {**context, "exception": RuntimeError("invalid state")},
+        {**context, "message": "Exception in callback another retry"},
+        {**context, "handle": Mock(spec=asyncio.Handle)},
+    )
+    for near_match in near_matches:
+        loop.reset_mock()
+
+        webrtc_server._handle_webrtc_loop_exception(loop, near_match)
+
+        loop.default_exception_handler.assert_called_once_with(near_match)
 
 
 @pytest.mark.asyncio
@@ -345,10 +377,65 @@ async def test_peer_state_distinguishes_recovery_from_terminal_close(
 
         assert not window.server._media_connected.is_set()
         assert not window.server._client_connected
-        events = window.get_user_input_events().get_events()
-        assert len(events) == 1
-        assert isinstance(events[0], CloseUserInputEvent)
+        assert window.server._peer_connection is None
+        assert window.server._video_track is None
+        assert window.get_user_input_events().get_events() == []
+        peer.close.assert_awaited_once()
     finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_can_reconnect_without_restarting_the_server() -> None:
+    window = WebRTCClientWindow()
+    first_peer: RTCPeerConnection | None = None
+    second_peer: RTCPeerConnection | None = None
+    try:
+        window.open(_session_desc())
+        first_peer, _, _ = await _connect_browser(window)
+        second_peer, _, _ = await _connect_browser(window)
+
+        assert window.server._peer_connection is not None
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        if first_peer is not None:
+            await first_peer.close()
+        if second_peer is not None:
+            await second_peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_offer_does_not_replace_the_active_browser() -> None:
+    window = WebRTCClientWindow()
+    peer: RTCPeerConnection | None = None
+    try:
+        window.open(_session_desc())
+        peer, _, _ = await _connect_browser(window)
+        server_peer = window.server._peer_connection
+        server_track = window.server._video_track
+        assert server_peer is not None
+        assert server_track is not None
+
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/webrtc/offer",
+                data="{",
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                assert response.status == 400
+            async with client.post(
+                f"{window.server.url}api/webrtc/offer",
+                json={"sdp": "not an SDP", "type": "offer"},
+            ) as response:
+                assert response.status == 400
+
+        assert window.server._peer_connection is server_peer
+        assert window.server._video_track is server_track
+        assert peer.connectionState == "connected"
+    finally:
+        if peer is not None:
+            await peer.close()
         window.close()
 
 
@@ -360,6 +447,13 @@ async def test_write_delivers_a_video_frame_to_the_browser() -> None:
         window.open(_session_desc())
         peer, _, video_track = await _connect_browser(window)
         track = await asyncio.wait_for(video_track, timeout=5)
+        server_peer = window.server._peer_connection
+        server_track = window.server._video_track
+
+        window.open(_session_desc())
+
+        assert window.server._peer_connection is server_peer
+        assert window.server._video_track is server_track
 
         window.write(
             StepResult(
@@ -419,6 +513,25 @@ async def test_webrtc_always_configures_a_bounded_two_frame_sender_queue(
         track = window.server._video_track
         assert track is not None
         assert track.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_server_closes_while_browser_peer_is_still_connected() -> None:
+    window = WebRTCClientWindow(startup_timeout_seconds=1.0)
+    peer: RTCPeerConnection | None = None
+    try:
+        assert isinstance(window.server._loop, asyncio.SelectorEventLoop)
+        window.open(_session_desc())
+        peer, _, _ = await _connect_browser(window)
+
+        await asyncio.to_thread(window.close)
+
+        assert not window.server._thread.is_alive()
+        assert window.server._loop is None
     finally:
         if peer is not None:
             await peer.close()
@@ -577,6 +690,75 @@ async def test_video_track_overflow_retains_the_two_newest_frames() -> None:
         assert metrics["webrtc_sender_dropped_for_lag_count"] == 1
     finally:
         await track.close()
+
+
+@pytest.mark.asyncio
+async def test_video_track_discards_queued_frames_between_sessions() -> None:
+    track = _VideoTrack(frames_per_second=60)
+    try:
+        track.enqueue(_video_frame(10))
+        track.enqueue(_video_frame(20))
+
+        await track.start_session()
+
+        metrics = track.metrics_snapshot()
+        assert metrics["webrtc_sender_queue_depth_count"] == 0
+        assert metrics["webrtc_sender_discarded_on_session_change_count"] == 2
+        track.enqueue(_video_frame(30))
+        assert _frame_mean(await track.recv()) == 30.0
+    finally:
+        await track.close()
+
+
+def test_server_reopens_only_for_the_same_stream_format() -> None:
+    window = WebRTCClientWindow()
+    session_desc = _session_desc()
+    session_starts: list[str] = []
+
+    class ReusableTrack:
+        async def start_session(self) -> None:
+            session_starts.append("start")
+
+    try:
+        window.open(session_desc)
+        event_origin_ns = window.server._event_origin_ns
+        window.server._video_track = cast(Any, ReusableTrack())
+
+        window.open(session_desc)
+
+        assert session_starts == ["start"]
+        assert window.server._event_origin_ns == event_origin_ns
+        with pytest.raises(ValueError, match="same stream format"):
+            window.open(replace(session_desc, video_width=32))
+    finally:
+        window.server._video_track = None
+        window.close()
+
+
+def test_window_discards_events_buffered_during_a_session_handoff() -> None:
+    window = WebRTCClientWindow()
+    try:
+        window.open(_session_desc())
+        time.sleep(0.01)
+        window.server._buffer_browser_message(
+            json.dumps({"type": "keyboard", "key": "w", "pressed": True})
+        )
+        first_session_event = window.get_user_input_events().get_events()[0]
+        assert first_session_event.get_timestamp() > 0
+
+        window.server._buffer_browser_message(json.dumps({"type": "close"}))
+        window.open(_session_desc())
+        window.server._buffer_browser_message(
+            json.dumps({"type": "focus", "focused": True})
+        )
+
+        replacement_events = window.get_user_input_events().get_events()
+        assert [type(event) for event in replacement_events] == [FocusUserInputEvent]
+        assert (
+            replacement_events[0].get_timestamp() < first_session_event.get_timestamp()
+        )
+    finally:
+        window.close()
 
 
 @pytest.mark.asyncio
@@ -753,6 +935,7 @@ def test_server_close_drains_without_inventing_a_frame() -> None:
         "webrtc_sender_enqueued_count": 3,
         "webrtc_sender_handed_off_count": 3,
         "webrtc_sender_dropped_for_lag_count": 0,
+        "webrtc_sender_discarded_on_session_change_count": 0,
         "webrtc_sender_discarded_on_close_count": 0,
         "webrtc_sender_oldest_queue_age_s": 0.0,
     }
