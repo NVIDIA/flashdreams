@@ -570,6 +570,104 @@ def test_model_loop_collects_input_after_pacing(
     )
 
 
+def test_finished_model_loop_executes_an_accepted_message() -> None:
+    session = FiniteSession(_session_desc(), CallLog(), length=1, generated=1)
+    session.init()
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+
+    invoke_async(session.model_loop, lambda state: state.reset())
+    session.model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda generation, results, elapsed: None,
+        max_steps=1,
+    )
+
+    assert session._generated == 1
+    assert len(session.observed_events) == 1
+
+
+def test_finished_model_loop_drops_a_self_message_at_shutdown() -> None:
+    session = FiniteSession(_session_desc(), CallLog(), length=1, generated=1)
+    session.init()
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+    calls = 0
+
+    def self_message(state: FakeSession) -> None:
+        nonlocal calls
+        del state
+        calls += 1
+        invoke_async(session.model_loop, self_message)
+
+    invoke_async(session.model_loop, self_message)
+    session.model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda generation, results, elapsed: None,
+    )
+
+    assert calls == 1
+    assert session.model_loop._message_queue.empty()
+    assert session._failure_queue.empty()
+
+
+def test_finished_model_loop_rejects_a_message_after_shutdown_is_claimed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FiniteSession(_session_desc(), CallLog(), length=1, generated=1)
+    session.init()
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+    queue_checked = threading.Event()
+    finish_check = threading.Event()
+    original_empty = session.model_loop._message_queue.empty
+
+    def synchronized_empty() -> bool:
+        empty = original_empty()
+        queue_checked.set()
+        assert finish_check.wait(timeout=1.0)
+        return empty
+
+    monkeypatch.setattr(session.model_loop._message_queue, "empty", synchronized_empty)
+    model_thread = threading.Thread(
+        target=session.model_loop._run_model_loop,
+        kwargs={
+            "event_buffer": event_buffer,
+            "reader_id": 0,
+            "publish": lambda generation, results, elapsed: None,
+        },
+    )
+    model_thread.start()
+    assert queue_checked.wait(timeout=1.0)
+
+    errors: list[BaseException] = []
+    sender_attempted = threading.Event()
+
+    def send_message() -> None:
+        sender_attempted.set()
+        try:
+            invoke_async(session.model_loop, lambda state: state.reset())
+        except BaseException as error:
+            errors.append(error)
+
+    sender_thread = threading.Thread(target=send_message)
+    sender_thread.start()
+    assert sender_attempted.wait(timeout=1.0)
+    finish_check.set()
+    model_thread.join(timeout=1.0)
+    sender_thread.join(timeout=1.0)
+
+    assert not model_thread.is_alive()
+    assert not sender_thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert str(errors[0]) == "Loop is shutting down."
+    assert session._generated == 1
+    assert session._failure_queue.empty()
+
+
 def test_run_session_presents_every_step_in_order() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)

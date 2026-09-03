@@ -212,6 +212,18 @@ class IModelLoop(ILoop[StateT], ABC):
     bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
+    def _claim_finished_shutdown(self, generation: int) -> bool:
+        """Atomically stop message acceptance for an idle finished loop."""
+        with self._lifecycle_lock:
+            if (
+                not self.is_finished()
+                or generation != self._generation
+                or not self._message_queue.empty()
+            ):
+                return False
+            self._accepting_messages = False
+            return True
+
     @final
     def _run_model_loop(
         self,
@@ -236,11 +248,7 @@ class IModelLoop(ILoop[StateT], ABC):
             while not self._shutdown_event.is_set() and (
                 max_steps is None or steps_run < max_steps
             ):
-                if (
-                    self.is_finished()
-                    and event_buffer.generation == self._generation
-                    and self._message_queue.empty()
-                ):
+                if self._claim_finished_shutdown(event_buffer.generation):
                     break
                 last_run_started = self._pace(last_run_started)
                 if self._shutdown_event.is_set():
