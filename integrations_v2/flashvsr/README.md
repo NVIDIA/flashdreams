@@ -159,3 +159,12 @@ bash integrations_v2/flashvsr/tests/parity_check/run.sh
 
 See [`integrations_v2/flashvsr/tests/parity_check/README.md`](tests/parity_check/README.md)
 for the JSON-stats schema and both parity tests.
+
+## Standalone uplift server
+
+The informal standalone gRPC uplift server can be launched directly with: 
+
+```bash
+uv run --no-sync --package flashdreams-flashvsr --with grpcio --with Pillow \
+    python -m flashvsr.impl.uplift_server --port 50051
+```
