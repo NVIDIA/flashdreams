@@ -98,6 +98,36 @@ def test_taxi_brake_from_rest_enters_reverse() -> None:
     assert result.speed_mps < 0.0
 
 
+def test_direct_steering_preserves_keyboard_arcade_response() -> None:
+    vehicle = TaxiVehicleConfig()
+    direct = integrate_taxi_vehicle(
+        _state(),
+        DriverCommand(steer=1.0, steer_is_direct=True),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+    legacy_keyboard = integrate_taxi_vehicle(
+        _state(),
+        DriverCommand(steer=1.0),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+
+    assert direct.steer_rad == pytest.approx(legacy_keyboard.steer_rad)
+
+    half_lock = _state()
+    half_lock.steer_rad = vehicle.max_steer_rad * 0.5
+    released = integrate_taxi_vehicle(
+        half_lock,
+        DriverCommand(steer_is_direct=True),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+    assert released.steer_rad == pytest.approx(
+        half_lock.steer_rad - vehicle.steer_return_rate_rad_per_s * 0.1
+    )
+
+
 def test_collected_coins_add_to_overall_taxi_score() -> None:
     controller = _controller()
 
