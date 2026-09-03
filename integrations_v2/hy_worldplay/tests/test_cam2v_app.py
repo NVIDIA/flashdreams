@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from math import radians
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -66,6 +67,9 @@ def test_application_uses_hy_worldplay_pipeline_config() -> None:
     assert application.session_desc().video_height == 704
     assert application.session_desc().frames_per_second_for_step == 16
     assert application.defaults.generate_step is adapter.generate_hy_worldplay_step
+    assert application.defaults.pose_integrator_factory().rotate_speed_rad_per_s == (
+        pytest.approx(radians(12.0))
+    )
     assert isinstance(create_app(), HyWorldPlayCam2VApplication)
 
 

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any
@@ -73,6 +73,9 @@ class Cam2VSessionConfig:
 
     generate_step: Cam2VGenerateStep = generate_camera_step
     """Integration hook that adapts camera payloads and generates one step."""
+
+    pose_integrator_factory: Callable[[], CameraPoseIntegrator] = CameraPoseIntegrator
+    """Construct the integration-calibrated camera pose integrator."""
 
     log_model_timing: bool = False
     """Write one synchronized wall-time record for each AR model step."""
@@ -347,6 +350,7 @@ class Cam2VSession(ISession):
                 keyboard_resampler=KeyboardResampler(
                     fps=self._session_desc.frames_per_second_for_step,
                 ),
+                pose_integrator=self._config.pose_integrator_factory(),
                 ui_loop=ui_loop,
             ),
         )

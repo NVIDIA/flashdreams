@@ -31,6 +31,7 @@ from cam2v import (
     Cam2VUIState,
     Cam2VUIStatus,
     CameraControlInput,
+    CameraPoseIntegrator,
     KeyboardResampler,
 )
 from cam2v.dummy import DummyCam2VPipelineConfig
@@ -654,6 +655,7 @@ def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:
 def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> None:
     """Keep the loaded model application-scoped and rollout inputs session-scoped."""
     pipeline_config = _PipelineConfig()
+    pose_integrator = CameraPoseIntegrator(rotate_speed_rad_per_s=1.25)
     seen: list[Mapping[str, Any]] = []
 
     def resolve(values: Mapping[str, Any]) -> Cam2VConditioning:
@@ -671,6 +673,7 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
             first_frame_interpolation="nearest",
             device="cpu",
             fps=16,
+            pose_integrator_factory=lambda: pose_integrator,
         )
     )
     app.init(["--total-blocks", "2", "--warmup-blocks", "0", "--no-ui"])
@@ -688,6 +691,7 @@ def test_application_owns_pipeline_and_resolves_inputs_per_session_desc() -> Non
     assert pipeline_config.pipeline.device == "cpu"
     assert model_loop.state.config.first_frame_dtype is torch.float64
     assert model_loop.state.config.first_frame_interpolation == "nearest"
+    assert model_loop.state.pose_integrator is pose_integrator
     app.close()
     assert pipeline_config.pipeline.closed
 

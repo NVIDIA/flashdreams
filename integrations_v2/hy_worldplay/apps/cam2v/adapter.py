@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
+from math import radians
 from typing import Any
 
 import torch
@@ -13,6 +15,7 @@ from cam2v import (
     Cam2VApplication,
     Cam2VApplicationDefaults,
     CameraControlInput,
+    CameraPoseIntegrator,
 )
 from torch import Tensor
 
@@ -192,6 +195,10 @@ HY_WORLDPLAY_CAM2V_DEFAULTS = Cam2VApplicationDefaults(
         "example_data": False,
         "example_idx": 0,
     },
+    pose_integrator_factory=partial(
+        CameraPoseIntegrator,
+        rotate_speed_rad_per_s=radians(12.0),
+    ),
 )
 """HY-WorldPlay defaults for the reusable Cam2V application."""
 

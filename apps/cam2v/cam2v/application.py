@@ -208,6 +208,7 @@ class Cam2VApplication(IApplication):
                 first_frame_dtype=self.defaults.first_frame_dtype,
                 first_frame_interpolation=self.defaults.first_frame_interpolation,
                 generate_step=self.defaults.generate_step,
+                pose_integrator_factory=self.defaults.pose_integrator_factory,
                 warmup_blocks=self._warmup_blocks,
                 log_model_timing=self.defaults.log_model_timing,
                 install_hint=self.defaults.install_hint,

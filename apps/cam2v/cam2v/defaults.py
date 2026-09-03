@@ -17,6 +17,8 @@ from flashdreams.infra.runner_io import ResizeInterpolation
 from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
+from .controls import CameraPoseIntegrator
+
 Cam2VInputResolver = Callable[[Mapping[str, Any]], "Cam2VConditioning"]
 """Resolve application arguments into one session's camera conditioning."""
 
@@ -95,6 +97,9 @@ class Cam2VApplicationDefaults:
 
     generate_step: Cam2VGenerateStep = generate_camera_step
     """Integration hook that adapts camera payloads and generates one step."""
+
+    pose_integrator_factory: Callable[[], CameraPoseIntegrator] = CameraPoseIntegrator
+    """Construct the integration-calibrated camera pose integrator."""
 
     device: str = "cuda"
     """Device on which the application constructs the shared pipeline."""
