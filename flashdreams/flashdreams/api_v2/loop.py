@@ -195,6 +195,15 @@ class ILoop(ABC, Generic[StateT]):
     ) -> _LoopRunResult:
         """Prepare one step or return a lifecycle request to the caller."""
         self._run_message_batch()
+        return self._incorporate_user_events(events, generation)
+
+    @final
+    def _incorporate_user_events(
+        self,
+        events: UserInputEvents,
+        generation: int,
+    ) -> _LoopRunResult:
+        """Add newly available user events to the prepared run."""
         self._pending_user_events.extend(events.get_events())
         transition = _parse_lifecycle_events(self._pending_user_events)
         if transition is not None:
@@ -335,6 +344,10 @@ class IModelLoop(ILoop[StateT], ABC):
                         )
                     last_run_started = time.monotonic()
                     if self._shutdown_event.is_set():
+                        break
+                    events, generation = event_buffer.read(reader_id)
+                    run = self._incorporate_user_events(events, generation)
+                    if run.step_index is None:
                         break
                     step_started_at = time.monotonic()
                     raw_result = self.step(run.step_index, self.user_events)
