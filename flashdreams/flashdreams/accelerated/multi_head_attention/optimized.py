@@ -89,6 +89,12 @@ class QuantizationOption:
     projection: torch.dtype | None = None
     """Q/K/V projection dtype; ``None`` preserves native precision."""
 
+    output_projection: torch.dtype | None = None
+    """Output projection dtype; ``None`` preserves native precision."""
+
+    output_granularity: Granularity = Granularity.SLICE
+    """Activation quantization granularity for the output projection."""
+
     quantized_sdpa: bool = False
     """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention.
 
@@ -102,10 +108,18 @@ class QuantizationOption:
     """
 
     def __post_init__(self) -> None:
-        """Validate the projection quantization dtype."""
+        """Validate the projection quantization dtypes."""
         if self.projection is not None and self.projection not in DTYPE_MAX:
             raise ValueError(
                 f"unsupported projection quantization dtype: {self.projection}"
+            )
+        if (
+            self.output_projection is not None
+            and self.output_projection not in DTYPE_MAX
+        ):
+            raise ValueError(
+                "unsupported output projection quantization dtype: "
+                f"{self.output_projection}"
             )
         if not isinstance(self.quantized_sdpa, bool):
             raise TypeError(
@@ -216,6 +230,9 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
     quantized_value_projection: QuantizedNonPersistentLinear | None
     """Nonpersistent quantized value projection."""
 
+    quantized_output_projection: QuantizedNonPersistentLinear | None
+    """Nonpersistent quantized output projection."""
+
     _validated_cuda_device_index: int | None
     """CUDA device whose compute capability has passed validation."""
 
@@ -281,6 +298,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         self.quantized_query_projection = None
         self.quantized_key_projection = None
         self.quantized_value_projection = None
+        self.quantized_output_projection = None
         self._refresh_derived_weights()
         self.register_load_state_dict_post_hook(self._refresh_derived_weights)
 
@@ -311,6 +329,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         self.quantized_query_projection = None
         self.quantized_key_projection = None
         self.quantized_value_projection = None
+        self.quantized_output_projection = None
 
         projection_dtype = self.optimized_impl_config.quantization.projection
         projection_biases = (
@@ -342,6 +361,16 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
                     self.value_projection.bias,
                     projection_dtype,
                 )
+
+        output_projection_dtype = (
+            self.optimized_impl_config.quantization.output_projection
+        )
+        if output_projection_dtype is not None:
+            self.quantized_output_projection = self._new_quantized_projection(
+                self.output_projection.weight,
+                self.output_projection.bias,
+                output_projection_dtype,
+            )
 
         if self.qkv_fusion_option is QKVFusionOption.FULL:
             fused_weight = (
@@ -1106,8 +1135,19 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         return query, key, value
 
     def _project_output(self, x: Tensor) -> Tensor:
-        """Apply the FP16/BF16 output projection."""
-        return self.output_projection(x)
+        """Apply the output projection, quantized when configured."""
+        output_projection_dtype = (
+            self.optimized_impl_config.quantization.output_projection
+        )
+        if output_projection_dtype is None:
+            return self.output_projection(x)
+        if self.quantized_output_projection is None:
+            raise RuntimeError("quantized output projection is not initialized")
+        return self.quantized_output_projection(
+            x,
+            self.optimized_impl_config.quantization.output_granularity,
+            out_dtype=x.dtype,
+        )
 
 
 __all__ = [
