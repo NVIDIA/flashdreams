@@ -13,10 +13,12 @@ from typing import Any
 
 import torch
 from loguru import logger
+from torch.nn import functional as F
 
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.postprocess import VideoPostprocessStream
+from flashdreams.infra.postprocess.base import from_bvtchw, to_bvtchw
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
 from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
@@ -317,6 +319,13 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 _synchronize_output(output_frames)
             elif state.postprocess_enabled:
                 output_frames = postprocess_output_frames
+            else:
+                output_frames = _resize_raw_for_presentation(
+                    generated_frames,
+                    layout=state.session_desc.output_layout,
+                    height=state.session_desc.video_height,
+                    width=state.session_desc.video_width,
+                )
         step_completed_at = time.perf_counter()
         postprocess_step_wall_s = step_completed_at - model_completed_at
         postprocess_output_frame_count = _video_frame_count(
@@ -568,6 +577,29 @@ def _concatenate_video(
     if first.shape[time_dim] == 0:
         return second
     return torch.cat((first, second), dim=time_dim)
+
+
+def _resize_raw_for_presentation(
+    frames: torch.Tensor,
+    *,
+    layout: VideoTensorLayout,
+    height: int,
+    width: int,
+) -> torch.Tensor:
+    """Resize raw video frames to the fixed presentation dimensions."""
+    canonical = to_bvtchw(frames, layout=layout.value)
+    if canonical.shape[-2:] == (height, width):
+        return frames
+    resized = F.interpolate(
+        canonical.flatten(0, 2),
+        size=(height, width),
+        mode="bilinear",
+        align_corners=False,
+    )
+    return from_bvtchw(
+        resized.reshape(*canonical.shape[:-2], height, width),
+        layout=layout.value,
+    )
 
 
 __all__ = [

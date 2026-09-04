@@ -64,6 +64,7 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -376,6 +377,7 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
 ):
     """Advance the resident postprocessor while presenting the generated frames."""
     model_loop, state, _ = _input_test_model_loop()
+    state.session_desc = replace(state.session_desc, video_width=2, video_height=2)
 
     class _PostprocessStream:
         def __init__(self) -> None:
@@ -398,9 +400,37 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
     result = model_loop.step(0, UserInputEvents([]))[0]
 
     assert postprocess_stream.calls == 1
-    assert torch.equal(result.read_output(), torch.zeros((2, 3, 1, 1)))
+    assert torch.equal(result.read_output(), torch.zeros((2, 3, 2, 2)))
+    assert result_to_rgb24_tensor(result, state.session_desc).shape == (2, 2, 2, 3)
     assert result.metrics["postprocess_enabled"] == 0
     assert result.metrics["postprocess_output_frames"] == 2
+
+
+@pytest.mark.parametrize(
+    ("layout", "shape"),
+    (
+        (VideoTensorLayout.tchw, (2, 3, 1, 1)),
+        (VideoTensorLayout.btchw, (1, 2, 3, 1, 1)),
+        (VideoTensorLayout.bcthw, (1, 3, 2, 1, 1)),
+        (VideoTensorLayout.bvtchw, (1, 1, 2, 3, 1, 1)),
+    ),
+)
+def test_raw_presentation_resize_preserves_supported_video_layouts(
+    layout: VideoTensorLayout,
+    shape: tuple[int, ...],
+) -> None:
+    """Keep raw fallback frames compatible with every declared output layout."""
+    frames = torch.zeros(shape)
+
+    resized = cam2v_session._resize_raw_for_presentation(
+        frames,
+        layout=layout,
+        height=2,
+        width=2,
+    )
+
+    assert resized.shape[:-2] == frames.shape[:-2]
+    assert resized.shape[-2:] == (2, 2)
 
 
 def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() -> (
