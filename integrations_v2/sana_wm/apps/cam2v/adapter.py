@@ -91,16 +91,15 @@ class SanaWMCam2VPipeline(StreamInferencePipeline):
             raise ValueError("SANA-WM Cam2V requires a fixed diffusion seed.")
 
         prompt = text[0].strip()
-        cache = super().initialize_cache(
-            decoder_context={"prompt": prompt, "fps": DEFAULT_FPS}
-        )
+        fps = SANA_WM_CAM2V_DEFAULTS.fps
+        cache = super().initialize_cache(decoder_context={"prompt": prompt, "fps": fps})
         setattr(
             cache,
             _CACHE_STATE_ATTRIBUTE,
             _SanaCam2VState(
                 image=image,
                 prompt=prompt,
-                fps=DEFAULT_FPS,
+                fps=fps,
                 steps=int(scheduler.num_inference_steps),
                 flow_shift=float(scheduler.shift),
                 seed=seed,

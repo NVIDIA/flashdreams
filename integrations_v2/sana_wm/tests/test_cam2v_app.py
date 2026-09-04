@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pytest
 import sana_wm.impl.conditioning as conditioning_module
+import sana_wm.impl.transformer as transformer_module
 import tomli as tomllib
 import torch
 from cam2v import Cam2VApplication, CameraControlInput, CameraPoseIntegrator
@@ -22,6 +23,7 @@ from sana_wm.config import PIPELINE_SANA_WM_STREAMING
 from sana_wm.impl.conditioning import resolve_sana_wm_conditioning
 from sana_wm.impl.controls import SanaWMCameraPoseIntegrator
 from sana_wm.impl.decoder import SanaWMDecodedVideo
+from sana_wm.impl.transformer import SanaWMStreamingTransformerConfig
 
 from flashdreams.infra.pipeline import StreamInferencePipeline
 
@@ -67,6 +69,50 @@ def test_application_passes_sana_owned_adapters_to_cam2v() -> None:
     assert application.session_desc().video_height == 704
     assert application.session_desc().frames_per_second_for_step == 16
     assert isinstance(create_app(), SanaWMCam2VApplication)
+
+
+@pytest.mark.parametrize(
+    ("flag", "enabled"), [("--compile", True), ("--no-compile", False)]
+)
+def test_application_applies_compile_flag(flag: str, enabled: bool) -> None:
+    """Keep the shared compile override valid for the SANA-WM config."""
+    application = SanaWMCam2VApplication()
+
+    application.init([flag])
+
+    transformer = application.pipeline_config.diffusion_model.transformer
+    assert isinstance(transformer, SanaWMStreamingTransformerConfig)
+    assert transformer.compile_network is enabled
+
+
+def test_streaming_transformer_compiles_lazy_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compile the loaded Stage-1 module when the shared flag is enabled."""
+    raw_model = torch.nn.Linear(1, 1)
+    compiled_model = torch.nn.Identity()
+    monkeypatch.setattr(
+        transformer_module, "SanaWMStage1Model", lambda _spec: raw_model
+    )
+    monkeypatch.setattr(
+        transformer_module, "load_checkpoint", lambda _path: raw_model.state_dict()
+    )
+    monkeypatch.setattr(
+        transformer_module,
+        "compile_module",
+        lambda model: compiled_model if model is raw_model else model,
+    )
+    transformer = SanaWMStreamingTransformerConfig(compile_network=True).setup()
+    monkeypatch.setattr(
+        transformer,
+        "_ensure_runtime_config",
+        lambda: SimpleNamespace(model=SimpleNamespace(model="dummy")),
+    )
+    transformer.weight_dtype = torch.float32
+
+    transformer._ensure_model()
+
+    assert transformer.model is compiled_model
 
 
 def test_resolver_center_crops_intrinsics_with_the_first_frame(tmp_path: Path) -> None:
@@ -174,6 +220,7 @@ def test_generate_step_passes_accumulated_history_to_sana_conditioning(
 ) -> None:
     """Grow camera history while preserving Sana's one-time static inputs."""
     pipeline = _FakePipeline()
+    monkeypatch.setattr(adapter, "SANA_WM_CAM2V_DEFAULTS", SimpleNamespace(fps=30))
     monkeypatch.setattr(
         StreamInferencePipeline,
         "initialize_cache",
@@ -188,9 +235,10 @@ def test_generate_step_passes_accumulated_history_to_sana_conditioning(
     second = adapter.generate_sana_wm_step(pipeline, 1, cache, _camera_input(0.625))
 
     assert pipeline.initialize_kwargs == {
-        "decoder_context": {"prompt": "a road", "fps": 16}
+        "decoder_context": {"prompt": "a road", "fps": 30}
     }
     assert [request.num_frames for request in pipeline.requests] == [25, 49]
+    assert [request.fps for request in pipeline.requests] == [30, 30]
     assert pipeline.requests[0].image is image
     assert pipeline.requests[0].poses_c2w[0].tolist() == np.eye(4).tolist()
     assert pipeline.requests[1].poses_c2w[-1, 0, 3] == pytest.approx(1.2)

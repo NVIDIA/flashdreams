@@ -31,6 +31,7 @@ from torch import Tensor
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
+from flashdreams.infra.compile import compile_module
 from flashdreams.infra.diffusion.transformer import (
     Transformer,
     TransformerAutoregressiveCache,
@@ -149,6 +150,7 @@ class SanaWMStreamingTransformerCache(SanaWMTransformerCache):
 
     latent_state: Tensor | None = None
     initial_latent_state: Tensor | None = None
+    latent_generator: torch.Generator | None = None
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,10 @@ class SanaWMStreamingTransformerConfig(SanaWMTransformerConfig):
 
     sink_token: bool = True
     """Keep the first chunk as the Stage-1 streaming sink anchor."""
+
+    compile_network: bool = False
+    """Compile Stage-1 via
+    :func:`flashdreams.infra.compile.compile_module`."""
 
 
 class SanaWMTransformer(Transformer[SanaWMTransformerCache]):
@@ -727,6 +733,8 @@ class SanaWMStreamingTransformer(SanaWMTransformer):
         self.model = model.eval().to(weight_dtype)
         self._model_built = True
         self._prepare_stage1_quant()
+        if self.config.compile_network:
+            self.model = compile_module(self.model)
         logger.info(
             "[timing] streaming stage1 build+load+quant: {:.3f}s (precision={})",
             time.perf_counter() - t0,
@@ -742,26 +750,42 @@ class SanaWMStreamingTransformer(SanaWMTransformer):
         current = cache.latent_state
         if current is not None and current.shape[2] > target_shape[2]:
             raise ValueError("SANA-WM streaming camera history cannot shrink.")
-        if current is None or tuple(current.shape) != target_shape:
+        if current is not None and (
+            current.shape[:2] != target_shape[:2]
+            or current.shape[3:] != target_shape[3:]
+        ):
+            raise ValueError("SANA-WM streaming latent shape changed outside time.")
+
+        generator = cache.latent_generator
+        if generator is None:
             generator = torch.Generator(device=self.device).manual_seed(
                 conditioning.seed
             )
-            expanded = torch.randn(
-                target_shape,
+            cache.latent_generator = generator
+        elif generator.initial_seed() != conditioning.seed:
+            raise ValueError("SANA-WM streaming seed cannot change during a rollout.")
+
+        if current is None or tuple(current.shape) != target_shape:
+            noise_shape = (
+                target_shape
+                if current is None
+                else (
+                    *target_shape[:2],
+                    target_shape[2] - current.shape[2],
+                    *target_shape[3:],
+                )
+            )
+            fresh_noise = torch.randn(
+                noise_shape,
                 dtype=self._ensure_weight_dtype(),
                 device=self.device,
                 generator=generator,
             )
-            if current is not None:
-                if (
-                    current.shape[:2] != expanded.shape[:2]
-                    or current.shape[3:] != expanded.shape[3:]
-                ):
-                    raise ValueError(
-                        "SANA-WM streaming latent shape changed outside time."
-                    )
-                expanded[:, :, : current.shape[2]] = current
-            cache.latent_state = expanded
+            cache.latent_state = (
+                fresh_noise
+                if current is None
+                else torch.cat((current, fresh_noise), dim=2)
+            )
             cache.latent_state[:, :, :1] = conditioning.first_latent.to(
                 device=self.device,
                 dtype=cache.latent_state.dtype,

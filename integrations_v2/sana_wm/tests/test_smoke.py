@@ -411,6 +411,59 @@ def test_transformer_initial_noise_uses_conditioning_payload() -> None:
     torch.testing.assert_close(noise[:, :, :1], first_latent)
 
 
+def test_streaming_transformer_grows_noise_from_one_reproducible_rng_stream() -> None:
+    """Append fresh noise while making a fixed seed repeat across rollouts."""
+    transformer = SanaWMStreamingTransformerConfig().setup()
+    transformer.weight_dtype = torch.float32
+    first_latent = torch.full((1, 2, 1, 1, 1), 7.0)
+
+    def conditioning(
+        total_frames: int, start: int
+    ) -> SanaWMStreamingStage1Conditioning:
+        return SanaWMStreamingStage1Conditioning(
+            condition=torch.empty((1, 1, 1)),
+            uncondition=None,
+            model_kwargs={},
+            first_latent=first_latent,
+            latent_shape=(1, 2, total_frames - start, 1, 1),
+            cfg_scale=1.0,
+            flow_shift=1.0,
+            steps=1,
+            seed=123,
+            total_latent_shape=(1, 2, total_frames, 1, 1),
+            start_frame=start,
+            end_frame=total_frames,
+            chunk_index=int(start > 0),
+            chunk_boundaries=(0, 2, 3),
+        )
+
+    chunks = (conditioning(2, 0), conditioning(3, 2))
+
+    def draw_rollout() -> tuple[torch.Tensor, torch.Tensor]:
+        cache = transformer.initialize_autoregressive_cache(conditioning=chunks[0])
+        return tuple(
+            transformer.initial_noise(
+                latent_shape=chunk.latent_shape,
+                rng=None,
+                cache=cache,
+                input=chunk,
+            )
+            for chunk in chunks
+        )
+
+    generator = torch.Generator().manual_seed(123)
+    expected_initial = torch.randn((1, 2, 2, 1, 1), generator=generator)
+    expected_initial[:, :, :1] = first_latent
+    expected_appended = torch.randn((1, 2, 1, 1, 1), generator=generator)
+
+    first_run = draw_rollout()
+    second_run = draw_rollout()
+    torch.testing.assert_close(first_run[0], expected_initial)
+    torch.testing.assert_close(first_run[1], expected_appended)
+    torch.testing.assert_close(second_run[0], first_run[0])
+    torch.testing.assert_close(second_run[1], first_run[1])
+
+
 def test_streaming_transformer_commits_chunks_into_prefix_cache() -> None:
     """Keep chunk state while bounding the per-step Stage-1 model window."""
 
