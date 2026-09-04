@@ -169,7 +169,9 @@ Use ``--profile-path`` with a V2 application to write a JSONL profile:
        --profile-path artifacts/interactive-drive-input-latency.jsonl
 
 Replacement sessions append separate ``session_started`` and summary segments
-to the same artifact.
+to the same artifact. Each ``session_started`` record identifies the concrete
+client-window type, output layout, UI and model rates, resolution, presentation
+mode, backpressure mode, and both measurement endpoints.
 
 The input source publishes the monotonic origin for its session-relative
 ``UserInputEvent.timestamp`` values. ``run_session`` then records two metrics:
@@ -178,12 +180,17 @@ The input source publishes the monotonic origin for its session-relative
 - ``input_to_window_write_s`` ends when the first following client-window
   ``write`` call returns.
 
-The native-window measurement ends after its presenter call returns. The WebRTC
-measurement ends after the host admits the latest frame to the bounded two-frame
-sender queue. Active-peer delivery, RTP transit, browser decode,
-compositor scheduling, and physical scanout require matching client telemetry.
-The final ``profile_summary`` records report count, median, p90, and maximum
-values.
+The native-window measurement ends when its window ``write`` returns, normally
+after the presenter call. The WebRTC measurement also ends when ``write``
+returns. An active video track returns after host materialization and admission
+to the bounded two-frame sender queue. A server waiting for a video track
+returns after shape validation. Active-peer delivery, RTP transit, browser
+decode, compositor scheduling, and physical scanout require matching client
+telemetry.
+The final ``profile_summary`` records report an exact count and maximum.
+Median and p90 use every sample through 1,024 observations, then use a uniform
+bounded reservoir. ``quantile_sample_count`` and ``quantiles_approximate`` make
+that transition explicit in the artifact.
 
 JSONL writes add host overhead to the measured run. Keep profiling enabled for
 every run in a direct comparison. Use Nsight Systems for GPU stage attribution.

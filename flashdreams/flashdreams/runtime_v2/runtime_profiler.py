@@ -18,15 +18,24 @@
 from __future__ import annotations
 
 import json
+import random
 import statistics
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
+_ARTIFACT_TYPE = "flashdreams.runtime_v2.input_latency_profile"
+"""Artifact type for V2 host-side input-latency records."""
+
 _SCHEMA_VERSION = 1
+"""Input-latency artifact schema version."""
+
+_SUMMARY_SAMPLE_LIMIT = 1_024
+"""Maximum observations retained for session quantiles."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +47,43 @@ class _ClaimedInput:
     event_type: str
     generation: int
     ui_step: int
+
+
+class _MetricAccumulator:
+    """Keep exact counts and maxima with bounded quantile samples."""
+
+    def __init__(self) -> None:
+        self._count = 0
+        self._maximum: float | None = None
+        self._samples: list[float] = []
+        self._random = random.Random(0)
+
+    def add(self, value: float) -> None:
+        """Add one sample using deterministic reservoir sampling."""
+        self._count += 1
+        self._maximum = value if self._maximum is None else max(self._maximum, value)
+        if len(self._samples) < _SUMMARY_SAMPLE_LIMIT:
+            self._samples.append(value)
+            return
+        replacement = self._random.randrange(self._count)
+        if replacement < _SUMMARY_SAMPLE_LIMIT:
+            self._samples[replacement] = value
+
+    def summary(self) -> dict[str, float | int | bool]:
+        """Return bounded-memory summary statistics."""
+        if self._count == 0:
+            return {"count": 0}
+        ordered = sorted(self._samples)
+        maximum = self._maximum
+        assert maximum is not None
+        return {
+            "count": self._count,
+            "median_s": statistics.median(ordered),
+            "p90_s": _percentile(ordered, 0.9),
+            "max_s": maximum,
+            "quantile_sample_count": len(ordered),
+            "quantiles_approximate": self._count > len(ordered),
+        }
 
 
 class RuntimeProfiler:
@@ -57,10 +103,7 @@ class RuntimeProfiler:
         self._input_timestamp_origin_ns: int | None = None
         self._input_generation: int | None = None
         self._pending_inputs: list[_ClaimedInput] = []
-        self._samples: dict[str, list[float]] = {
-            "input_to_ui_step_s": [],
-            "input_to_window_write_s": [],
-        }
+        self._samples = _metric_accumulators()
         self._opened_once = False
 
     @property
@@ -72,6 +115,8 @@ class RuntimeProfiler:
         self,
         *,
         input_timestamp_origin_ns: int | None,
+        session_desc: SessionDesc,
+        client_window_type: str,
         time_ns: int | None = None,
     ) -> None:
         """Open the artifact and bind input timestamps to the runtime clock."""
@@ -84,14 +129,25 @@ class RuntimeProfiler:
         self._input_timestamp_origin_ns = input_timestamp_origin_ns
         self._input_generation = None
         self._pending_inputs.clear()
-        self._samples = {
-            "input_to_ui_step_s": [],
-            "input_to_window_write_s": [],
-        }
+        self._samples = _metric_accumulators()
         self._write(
             "session_started",
             _now_ns(time_ns),
             input_timestamp_origin_ns=input_timestamp_origin_ns,
+            measurement_endpoints={
+                "input_to_ui_step_s": "ui_loop_begin_run",
+                "input_to_window_write_s": "client_window_write_return",
+            },
+            runtime_settings={
+                "client_window_type": client_window_type,
+                "output_layout": session_desc.output_layout.value,
+                "frames_per_second_for_ui": session_desc.frames_per_second_for_ui,
+                "frames_per_second_for_step": session_desc.frames_per_second_for_step,
+                "video_width": session_desc.video_width,
+                "video_height": session_desc.video_height,
+                "presentation_mode": session_desc.presentation_mode.value,
+                "backpressure_mode": session_desc.backpressure_mode.value,
+            },
         )
 
     def ui_step_started(
@@ -122,12 +178,12 @@ class RuntimeProfiler:
                     claimed_at_ns=started_at_ns,
                     claim_duration_s=claim_duration_s,
                     timestamp_us=int(event.get_timestamp()),
-                    event_type=type(event).__name__,
+                    event_type=event.get_type_name(),
                     generation=generation,
                     ui_step=step,
                 )
             )
-            self._samples["input_to_ui_step_s"].append(claim_duration_s)
+            self._samples["input_to_ui_step_s"].add(claim_duration_s)
 
     def window_write_completed(
         self,
@@ -148,7 +204,7 @@ class RuntimeProfiler:
         self._write_claims(pending)
         for observation in pending:
             duration_s = _elapsed_s(observation.received_at_ns, completed_at_ns)
-            self._samples["input_to_window_write_s"].append(duration_s)
+            self._samples["input_to_window_write_s"].add(duration_s)
             self._write(
                 "input_to_window_write",
                 completed_at_ns,
@@ -160,9 +216,9 @@ class RuntimeProfiler:
                 duration_s=duration_s,
             )
 
-    def summary(self) -> dict[str, dict[str, float | int]]:
+    def summary(self) -> dict[str, dict[str, float | int | bool]]:
         """Return summary statistics for both host-side latency metrics."""
-        return {name: _summarize(values) for name, values in self._samples.items()}
+        return {name: values.summary() for name, values in self._samples.items()}
 
     def close(self) -> None:
         """Write summaries and close the active session segment."""
@@ -178,7 +234,7 @@ class RuntimeProfiler:
                     "profile_summary",
                     observed_at_ns,
                     metric=metric,
-                    **_summarize(values),
+                    **values.summary(),
                 )
         except BaseException as error:
             failure = error
@@ -215,6 +271,7 @@ class RuntimeProfiler:
             raise RuntimeError("RuntimeProfiler session has not started.")
         record = {
             **fields,
+            "artifact_type": _ARTIFACT_TYPE,
             "schema_version": _SCHEMA_VERSION,
             "phase": phase,
             "time_ns": time_ns,
@@ -237,15 +294,10 @@ def _elapsed_s(start_ns: int, end_ns: int) -> float:
     return (end_ns - start_ns) / 1_000_000_000
 
 
-def _summarize(values: list[float]) -> dict[str, float | int]:
-    if not values:
-        return {"count": 0}
-    ordered = sorted(values)
+def _metric_accumulators() -> dict[str, _MetricAccumulator]:
     return {
-        "count": len(ordered),
-        "median_s": statistics.median(ordered),
-        "p90_s": _percentile(ordered, 0.9),
-        "max_s": ordered[-1],
+        "input_to_ui_step_s": _MetricAccumulator(),
+        "input_to_window_write_s": _MetricAccumulator(),
     }
 
 

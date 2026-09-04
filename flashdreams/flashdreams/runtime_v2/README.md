@@ -227,7 +227,8 @@ the session's layout.
 `--profile-path artifacts/<run>.jsonl` records host-side event-to-IUILoop and
 event-to-window-write latency. Each input source supplies the monotonic origin
 for its session-relative event timestamps. Replacement sessions append distinct
-segments to the same JSONL artifact. The
+segments with measurement endpoints and runtime settings to the same JSONL
+artifact. The
 [latency tuning guide](../../../docs/source/developer_guides/latency_tuning.rst)
 defines the JSONL records and host-side boundaries.
 

@@ -605,7 +605,7 @@ def test_run_session_profiles_input_through_window_write(tmp_path) -> None:
     output_record = next(
         record for record in records if record["phase"] == "input_to_window_write"
     )
-    assert output_record["input_type"] == "KeyboardUserInputEvent"
+    assert output_record["input_type"] == "keyboard"
 
 
 def test_run_session_keeps_profile_separate_from_chunk_trace(tmp_path) -> None:

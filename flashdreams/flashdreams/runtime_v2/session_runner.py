@@ -251,6 +251,8 @@ def run_session(
                     if isinstance(window, TimestampedInputSource)
                     else None
                 ),
+                session_desc=session_desc,
+                client_window_type=type(window).__name__,
             )
         if metrics_output_sink is not None:
             metrics_output_sink.open(session_desc)
