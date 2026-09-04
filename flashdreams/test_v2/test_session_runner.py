@@ -3,6 +3,7 @@
 
 """CPU test for the v2 session loop, independent of any application."""
 
+import json
 import logging
 import queue
 import threading
@@ -20,7 +21,6 @@ from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
     ModelInferenceState,
-    UILoopRequests,
     invoke_async,
 )
 from flashdreams.api_v2.session import ISession
@@ -34,6 +34,7 @@ from flashdreams.runtime_v2.presentation_manager import (
     PresentationManager,
     _PresentationClock,
 )
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -485,6 +486,7 @@ class RecordingClientWindow(IClientWindow):
         self._hold_writes = hold_writes
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
+        self._input_timestamp_origin_ns: int | None = None
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
 
@@ -498,6 +500,10 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        return self._input_timestamp_origin_ns
+
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
         with self._lock:
@@ -510,6 +516,7 @@ class RecordingClientWindow(IClientWindow):
         if self._fail_to_open:
             raise RuntimeError("open failed")
         self.session_desc = session_desc
+        self._input_timestamp_origin_ns = time.monotonic_ns()
 
     def write(self, result: StepResult) -> None:
         if self._hold_writes is not None:
@@ -573,6 +580,55 @@ def test_run_session_presents_every_step_in_order() -> None:
     assert window.results[-1] is session.ui_loop.latest_result
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
+
+
+def test_run_session_profiles_input_through_window_write(tmp_path) -> None:
+    log = CallLog()
+    session = FakeSession(_session_desc(), log)
+    window = RecordingClientWindow(log, [_key_event()])
+    profile_path = tmp_path / "runtime.jsonl"
+
+    run_session(
+        session,
+        window,
+        profiler=RuntimeProfiler(profile_path),
+        steps=1,
+    )
+
+    records = [json.loads(line) for line in profile_path.read_text().splitlines()]
+    phases = {record["phase"] for record in records}
+    assert {
+        "input_to_ui_step",
+        "input_to_window_write",
+        "profile_summary",
+    } <= phases
+    output_record = next(
+        record for record in records if record["phase"] == "input_to_window_write"
+    )
+    assert output_record["input_type"] == "keyboard"
+
+
+def test_run_session_keeps_profile_separate_from_chunk_trace(tmp_path) -> None:
+    log = CallLog()
+    shared_path = tmp_path / "runtime.jsonl"
+    session_desc = replace(
+        _session_desc(),
+        metadata={
+            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle_path": str(shared_path),
+        },
+    )
+
+    with pytest.raises(ValueError, match="must use distinct paths"):
+        run_session(
+            FakeSession(session_desc, log),
+            RecordingClientWindow(log, []),
+            profiler=RuntimeProfiler(shared_path),
+            steps=1,
+        )
+
+    assert log.calls == ["window.close", "session.close"]
+    assert not shared_path.exists()
 
 
 def test_run_session_opens_before_writing_and_closes_after() -> None:

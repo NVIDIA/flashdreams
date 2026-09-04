@@ -18,6 +18,7 @@ import math
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
@@ -31,6 +32,7 @@ from flashdreams.runtime_v2.client_window_factory import (
     client_window_mode,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -68,6 +70,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if not wants_application_help:
         try:
             mode.check_arguments(parsed)
+            _validate_profile_path(parsed)
         except ValueError as error:
             parser.error(str(error))
 
@@ -84,10 +87,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     metrics_output_sink = (
         None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )
+    profiler = (
+        None if parsed.profile_path is None else RuntimeProfiler(parsed.profile_path)
+    )
     ApplicationRunner(
         application,
         window,
         metrics_output_sink=metrics_output_sink,
+        profiler=profiler,
     ).run(
         session_desc,
         application_args,
@@ -152,6 +159,12 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
     what the application generates.
     """
     parser.add_argument(
+        "--profile-path",
+        type=Path,
+        default=None,
+        help="Write host-side input-latency records as JSONL.",
+    )
+    parser.add_argument(
         "--pixel-width", type=int, default=None, help="Frame width to generate."
     )
     parser.add_argument(
@@ -189,6 +202,21 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
             "Whether the UI runs continuously or only for newly selected model frames."
         ),
     )
+
+
+def _validate_profile_path(parsed: argparse.Namespace) -> None:
+    """Keep the profile separate from artifacts written by the same run."""
+    if parsed.profile_path is None:
+        return
+    profile_path = parsed.profile_path.expanduser().resolve()
+    other_paths = [parsed.stats_path]
+    if parsed.mode == "mp4":
+        other_paths.append(parsed.output_path)
+    if any(
+        path is not None and path.expanduser().resolve() == profile_path
+        for path in other_paths
+    ):
+        raise ValueError("--profile-path must use a distinct output path.")
 
 
 def _session_desc(

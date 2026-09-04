@@ -374,6 +374,11 @@ class WebRTCServer:
         """Return the browser URL for this server."""
         return f"http://{self._host}:{self._port}/"
 
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the server event clock's monotonic origin."""
+        return self._event_origin_ns
+
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return non-blocking sender diagnostics."""
         track = self._video_track

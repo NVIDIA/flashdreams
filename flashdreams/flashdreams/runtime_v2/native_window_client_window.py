@@ -91,6 +91,13 @@ _STANDARD_GAMEPAD_BUTTON_BITS: tuple[int | None, ...] = (
 class NativeWindowClientWindow(IClientWindow):
     """Present UI output through a main-thread GLFW window."""
 
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the native session's monotonic input timestamp origin."""
+        if not self._input_timestamps_share_runtime_clock:
+            return None
+        return self._session_started_ns
+
     def __init__(
         self,
         *,
@@ -113,6 +120,7 @@ class NativeWindowClientWindow(IClientWindow):
         self.title = title
         self._presenter_factory = presenter_factory
         self._clock_ns = clock_ns
+        self._input_timestamps_share_runtime_clock = clock_ns is time.monotonic_ns
         self._session_started_ns: int | None = None
         self._session_desc: SessionDesc | None = None
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
@@ -158,7 +166,8 @@ class NativeWindowClientWindow(IClientWindow):
         """
         if threading.current_thread() is not threading.main_thread():
             raise RuntimeError(
-                "NativeWindowClientWindow.open() must run on the process main thread for event polling."
+                "NativeWindowClientWindow.open() must run on the process main "
+                "thread for event polling."
             )
         if self._presenter is not None:
             raise RuntimeError("NativeWindowClientWindow is already open.")

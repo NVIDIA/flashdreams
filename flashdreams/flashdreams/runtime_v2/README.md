@@ -224,6 +224,14 @@ The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into
 the session's layout.
 
+`--profile-path artifacts/<run>.jsonl` records host-side event-to-IUILoop and
+event-to-window-write latency. Each input source supplies the monotonic origin
+for its session-relative event timestamps. Replacement sessions append distinct
+segments with measurement endpoints and runtime settings to the same JSONL
+artifact. The
+[latency tuning guide](../../../docs/source/developer_guides/latency_tuning.rst)
+defines the JSONL records and host-side boundaries.
+
 `SlangPyUILoop` is the alternative for SlangPy's retained
 widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both return a `[1, C, H, W]` frame, so an `ISession` using either should declare a `tchw` output layout.
 

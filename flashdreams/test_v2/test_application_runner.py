@@ -3,6 +3,7 @@
 
 """CPU tests for the v2 application runner."""
 
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
@@ -16,6 +17,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -354,6 +356,21 @@ def test_application_runner_replaces_a_session_before_closing_the_window() -> No
     assert application.requested_session_descs[1] is session_desc
     assert calls.count("application.init([])") == 1
     assert calls.count("application.close") == 1
+
+
+def test_application_runner_profiles_each_replacement_session(tmp_path) -> None:
+    calls: list[str] = []
+    profile_path = tmp_path / "runtime.jsonl"
+
+    ApplicationRunner(
+        _Application(calls, replace_first_session=True),
+        _SecondSessionClosingWindow(calls),
+        profiler=RuntimeProfiler(profile_path),
+    ).run(_session_desc())
+
+    records = [json.loads(line) for line in profile_path.read_text().splitlines()]
+    assert sum(record["phase"] == "session_started" for record in records) == 2
+    assert sum(record["phase"] == "profile_summary" for record in records) == 4
 
 
 def test_application_runner_closes_a_preserved_window_if_replacement_fails() -> None:

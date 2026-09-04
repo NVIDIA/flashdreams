@@ -11,10 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.input_source import TimestampedInputSource
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
 from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 
@@ -48,6 +50,7 @@ def run_session(
     window: IClientWindow,
     *,
     metrics_output_sink: OutputSink | None = None,
+    profiler: RuntimeProfiler | None = None,
     steps: int | None = None,
     timeout_seconds: float | None = None,
 ) -> SessionDesc | None:
@@ -59,15 +62,16 @@ def run_session(
     is not running, an unfinished UI ticks regardless of presentation mode so
     it can request another session.
 
-    Both loops, the metrics sink, and the session are closed before this returns
-    or raises. The client window stays open only when a clean replacement was
-    requested; otherwise it is closed.
+    Both loops, the metrics sink, the profiler, and the session are closed before
+    this returns or raises. A clean replacement request preserves the client
+    window. Every other exit closes it.
 
     Args:
         session: Session to run.
         window: Source of input and destination for UI output.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
+        profiler: Optional host-side input-latency profiler.
         steps: Maximum model steps before ending the session; ``None`` leaves
             session completion to the UI or client window.
         timeout_seconds: Maximum session runtime; ``None`` means session does not have a time-limit. Timeout expiry signals both registered loops to stop.
@@ -103,6 +107,8 @@ def run_session(
     trace_log: _ChunkTraceLog | None = None
     try:
         session_desc = session.session_desc
+        if profiler is not None:
+            _validate_profile_path(session_desc, profiler.path)
         tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
         stop = session._shutdown_event
         presentation_manager = session._presentation_manager
@@ -125,6 +131,7 @@ def run_session(
             if ui_loop is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
+            input_claimed_at_ns = time.monotonic_ns() if profiler is not None else None
             result: StepResult | None = None
             step_completed = False
             try:
@@ -132,7 +139,6 @@ def run_session(
                 if loop_result.stop_requested:
                     stop.set()
                     return
-
                 request = ui_loop.flush_ui_loop_requests()
                 if request is not None:
                     if request.hide_cursor is not None:
@@ -145,7 +151,16 @@ def run_session(
                         next_session_desc = request.new_session
                         stop.set()
                         return
-                if loop_result.step_index is None or not step_requested:
+                if loop_result.step_index is None:
+                    return
+                if profiler is not None:
+                    profiler.ui_step_started(
+                        ui_loop.user_events,
+                        generation=generation,
+                        step=loop_result.step_index,
+                        time_ns=input_claimed_at_ns,
+                    )
+                if not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
                 if raw_result is not None and not isinstance(raw_result, StepResult):
@@ -156,6 +171,12 @@ def run_session(
                 ui_loop._finish_run(result, step_completed=step_completed)
             if result is not None:
                 window.write(result)
+                if profiler is not None:
+                    profiler.window_write_completed(
+                        generation=generation,
+                        ui_step=loop_result.step_index,
+                        time_ns=time.monotonic_ns(),
+                    )
 
         def publish_model_results(
             generation: int,
@@ -223,6 +244,16 @@ def run_session(
         event_buffer.register(_MODEL_READER_ID)
 
         window.open(session_desc)
+        if profiler is not None:
+            profiler.session_started(
+                input_timestamp_origin_ns=(
+                    window.input_timestamp_origin_ns
+                    if isinstance(window, TimestampedInputSource)
+                    else None
+                ),
+                session_desc=session_desc,
+                client_window_type=type(window).__name__,
+            )
         if metrics_output_sink is not None:
             metrics_output_sink.open(session_desc)
         collect_input()
@@ -315,6 +346,11 @@ def run_session(
                 metrics_output_sink.close()
             except BaseException as error:
                 cleanup_failures.append(error)
+        if profiler is not None:
+            try:
+                profiler.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
         if next_session_desc is None:
             try:
                 window.close()
@@ -362,6 +398,22 @@ def run_session(
     if primary_failure is not None:
         raise primary_failure
     return next_session_desc
+
+
+def _validate_profile_path(session_desc: SessionDesc, profile_path: Path) -> None:
+    """Keep the profile separate from an enabled chunk lifecycle trace."""
+    metadata = session_desc.metadata
+    if metadata.get(_TRACE_METADATA_KEY) is not True:
+        return
+    trace_path = metadata.get(_TRACE_PATH_METADATA_KEY)
+    if (
+        isinstance(trace_path, str | Path)
+        and Path(trace_path).expanduser().resolve()
+        == profile_path.expanduser().resolve()
+    ):
+        raise ValueError(
+            "Runtime profile and chunk lifecycle trace must use distinct paths."
+        )
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

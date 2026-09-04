@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -28,6 +29,7 @@ class ApplicationRunner:
         client_window: IClientWindow,
         *,
         metrics_output_sink: OutputSink | None = None,
+        profiler: RuntimeProfiler | None = None,
     ) -> None:
         """
         Args:
@@ -35,10 +37,13 @@ class ApplicationRunner:
             client_window: Window that supplies input and presents generated output.
             metrics_output_sink: Optional sink for model-step metrics. It is
                 opened and closed once for each session.
+            profiler: Optional host-side input-latency profiler. It is opened
+                and closed once for each session.
         """
         self._application = application
         self._client_window = client_window
         self._metrics_output_sink = metrics_output_sink
+        self._profiler = profiler
 
     def run(
         self,
@@ -95,6 +100,7 @@ class ApplicationRunner:
                         session,
                         self._client_window,
                         metrics_output_sink=self._metrics_output_sink,
+                        profiler=self._profiler,
                         timeout_seconds=remaining_seconds,
                     )
                 except BaseException:
