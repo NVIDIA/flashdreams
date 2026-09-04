@@ -370,8 +370,7 @@ class Cam2VApplication(IApplication):
             )
         if width % ratio or height % ratio:
             raise ValueError(
-                f"Frame dimensions must be multiples of {ratio}, got "
-                f"{width}x{height}."
+                f"Frame dimensions must be multiples of {ratio}, got {width}x{height}."
             )
 
 

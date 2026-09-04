@@ -33,8 +33,8 @@ from cam2v import (
     Cam2VSlangPyUILoop,
     Cam2VUIState,
     Cam2VUIStatus,
-    CameraPoseIntegrator,
     CameraControlInput,
+    CameraPoseIntegrator,
     KeyboardResampler,
 )
 from cam2v.dummy import DummyCam2VPipelineConfig
@@ -63,8 +63,8 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -393,7 +393,7 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
             self.calls += 1
             return output + 1
 
-    postprocess_stream = _PostprocessStream()
+    postprocess_stream: Any = _PostprocessStream()
     state.postprocess_stream = postprocess_stream
     state.postprocess_enabled = False
 
@@ -433,9 +433,7 @@ def test_raw_presentation_resize_preserves_supported_video_layouts(
     assert resized.shape[-2:] == (2, 2)
 
 
-def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() -> (
-    None
-):
+def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() -> None:
     """Drain a completed processor without presenting its final tail."""
     model_loop, state, _ = _input_test_model_loop()
 
@@ -456,7 +454,7 @@ def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() 
             self.finish_calls += 1
             return torch.full((1, 3, 1, 1), 2.0)
 
-    postprocess_stream = _PostprocessStream()
+    postprocess_stream: Any = _PostprocessStream()
     state.postprocess_stream = postprocess_stream
     state.postprocess_enabled = False
     state.blocks_generated = state.config.total_blocks - 1
@@ -501,7 +499,8 @@ def test_model_loop_pairs_original_and_postprocessed_frames_for_comparison() -> 
         generate_step=generate_step,
         postprocess_comparison=True,
     )
-    state.postprocess_stream = _DelayedPostprocessStream()
+    postprocess_stream: Any = _DelayedPostprocessStream()
+    state.postprocess_stream = postprocess_stream
 
     first = model_loop.step(0, UserInputEvents([]))[0].read_output()
     second = model_loop.step(1, UserInputEvents([]))[0].read_output()
@@ -536,7 +535,7 @@ def test_model_loop_includes_the_postprocess_tail_in_a_comparison() -> None:
             self.finish_calls += 1
             return torch.full((1, 3, 2, 2), 2.0)
 
-    postprocess_stream = _TailPostprocessStream()
+    postprocess_stream: Any = _TailPostprocessStream()
     state.config = replace(
         state.config,
         total_blocks=1,
