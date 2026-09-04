@@ -269,7 +269,6 @@ class WorldModelRollout:
             self.pipeline,
             self.cache,
             self.scene.prompt,
-            seconds_per_chunk=float(self.frame_count(1)) / 30.0,
         )
 
 

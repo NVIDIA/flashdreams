@@ -15,17 +15,25 @@ import torch
 from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
+    _configure_live_edit_pipeline,
     _fit_bev_renderer_to_ui,
 )
+from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
+from crazy_robotaxi.live_edit.config import (
+    LiveEditCoinsConfig,
+    LiveEditConfig,
+    LiveEditObstacleConfig,
+    LiveEditStyleConfig,
+    LiveEditWeatherConfig,
+)
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
     CrazyRobotaxiSession,
     ModelState,
-    _restart_requested,
     _taxi_driver_command,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
@@ -69,7 +77,6 @@ from flashdreams.runtime_v2.native_window_client_window import (
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -165,8 +172,30 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert ui_loop.state.model_loop is model_loop
     assert len(ui_loop.state.map_options) == 2
     assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
+    assert all(
+        option.preview_image_path is not None for option in ui_loop.state.map_options
+    )
+    raceway = next(
+        option
+        for option in ui_loop.state.map_options
+        if option.path.name == "flashdreams_raceway.robotaxi.yaml"
+    )
+    assert raceway.race_courses[0].spawn_id == "race_start"
+    assert raceway.race_courses[0].preview_image_path is not None
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
+    assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
+    assert (
+        ui_loop.state.show_live_edit_buttons is session._config.show_live_edit_buttons
+    )
+    assert (
+        ui_loop.state.live_edit_mapping_location
+        == session._config.live_edit_mapping_location
+    )
+    assert (
+        ui_loop.state.native_dit_disabled_for_live_edit
+        is session._config.native_dit_disabled_for_live_edit
+    )
     assert session._config.renderer.bev.width == 234
     assert session._config.renderer.bev.height == 234
 
@@ -213,9 +242,9 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
         ]
     )
     assert app._config is not None
-    assert app._config.cli_game_mode == "race"
-    assert app._config.cli_map_path == _DEMO_RACE_MAP.resolve()
-    assert app._config.cli_race_course_id == "grand-prix"
+    assert app._config.initial_game_mode == "race"
+    assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
+    assert app._config.initial_race_course_id == "grand-prix"
 
     session = app.create_session(app.session_desc())
     session.init()
@@ -226,46 +255,171 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.game_selected
     assert model_loop.state.config.game_mode == "race"
     assert model_loop.state.config.race_course_id == "grand-prix"
+    assert model_loop.state.config.scene_request.spawn_id == "race_start"
 
 
-def test_pressed_r_requests_a_v2_game_restart() -> None:
-    pressed = KeyboardUserInputEvent(
-        timestamp=np.uint64(1),
-        key="R",
-        state=KeyboardInputState.PRESSED,
+def test_user_config_overrides_model_and_game_without_selecting_menus(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """\
+model:
+  device: cpu
+  pipeline:
+    diffusion_model:
+      seed: 5678
+game:
+  gamepad_button_style: PlayStation
+  taxi:
+    seed: 1234
+presentation:
+  show_current_prompt: true
+  show_live_edit_buttons: false
+  live_edit_mapping_location: control hints
+runtime:
+  prewarm_blocks: 0
+""",
+        encoding="utf-8",
     )
-    released = KeyboardUserInputEvent(
-        timestamp=np.uint64(2),
-        key="r",
-        state=KeyboardInputState.RELEASED,
+    app = _application()
+
+    app.init(["--config", str(config_path)])
+
+    assert app._config is not None
+    assert app._config.initial_game_mode is None
+    assert app._config.initial_map_path is None
+    assert app._config.initial_race_course_id is None
+    assert app._config.model_preset_name == "omnidreams"
+    assert app._config.device == "cpu"
+    assert app._config.game.seed == 1234
+    assert app._config.gamepad_button_style == "PlayStation"
+    assert app._config.show_current_prompt
+    assert not app._config.show_live_edit_buttons
+    assert app._config.live_edit_mapping_location == "control hints"
+    pipeline_config = app._pipeline_config
+    assert pipeline_config is not None
+    assert pipeline_config.diffusion_model.seed == 5678
+    assert app.session_desc().video_width == 1280
+    assert app.session_desc().video_height == 704
+
+
+def test_explicit_cli_overrides_user_config_without_rewriting_it(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """\
+model:
+  device: cuda
+presentation:
+  show_fps: false
+runtime:
+  prewarm_blocks: 7
+""",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(
+        [
+            "--config",
+            str(config_path),
+            "--device",
+            "cpu",
+            "--show-fps",
+            "--prewarm-blocks",
+            "0",
+        ]
     )
 
-    assert _restart_requested(UserInputEvents([pressed]))
-    assert not _restart_requested(UserInputEvents([released]))
+    assert app._config is not None
+    assert app._config.device == "cpu"
+    assert app._config.show_fps
+    assert app._config.prewarm_blocks == 0
+    document = app._config.settings_document
+    assert document is not None
+    assert document.settings.model.device == "cuda"
+    assert not document.settings.presentation.show_fps
+    assert document.settings.runtime.prewarm_blocks == 7
+    assert document.cli_overrides[("model", "device")] == "cpu"
+    assert document.cli_overrides[("presentation", "show_fps")] is True
 
 
-def test_pressed_gamepad_start_requests_a_v2_game_restart() -> None:
-    released = (False,) * 10
-    pressed = (*released[:9], True)
+def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
+    """Keep the app's fixed output contract compatible with V2 native output."""
 
-    assert _restart_requested(
-        UserInputEvents(
-            [
-                GamepadUserInputEvent(
-                    timestamp=np.uint64(1), action="state", pressed=pressed
-                )
-            ]
+    class Presenter:
+        should_close = False
+
+        def __init__(self) -> None:
+            self.frames: list[torch.Tensor] = []
+            self.closed = False
+
+        def set_input_callbacks(self, **callbacks: object) -> None:
+            assert set(callbacks) == {
+                "on_keyboard_event",
+                "on_mouse_event",
+                "on_gamepad_event",
+                "on_gamepad_state",
+            }
+
+        def configure_cursor(
+            self, *, hide_cursor: bool, lock_cursor_to_window: bool
+        ) -> None:
+            assert not hide_cursor
+            assert not lock_cursor_to_window
+
+        def present_frame(self, frame: torch.Tensor) -> bool:
+            self.frames.append(frame)
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+    desc = _application().session_desc()
+    presenter = Presenter()
+    presenter_arguments: dict[str, object] = {}
+
+    def create_presenter(**arguments: object) -> Presenter:
+        presenter_arguments.update(arguments)
+        return presenter
+
+    window = NativeWindowClientWindow(
+        title="Crazy Robotaxi",
+        presenter_factory=cast(Any, create_presenter),
+    )
+    source = torch.zeros(
+        (1, 3, desc.video_height, desc.video_width),
+        dtype=torch.float32,
+    )
+
+    window.open(desc)
+    window.write(
+        StepResult(
+            step_index=0,
+            output=source,
+            frame_count=1,
+            output_layout=desc.output_layout,
         )
     )
-    assert not _restart_requested(
-        UserInputEvents(
-            [
-                GamepadUserInputEvent(
-                    timestamp=np.uint64(2), action="state", pressed=released
-                )
-            ]
-        )
+    window.close()
+
+    assert presenter_arguments == {
+        "width": desc.video_width,
+        "height": desc.video_height,
+        "title": "Crazy Robotaxi",
+    }
+    assert len(presenter.frames) == 1
+    assert presenter.frames[0].shape == (
+        desc.video_height,
+        desc.video_width,
+        3,
     )
+    assert presenter.frames[0].device == source.device
+    assert presenter.frames[0].dtype is torch.uint8
+    assert torch.all(presenter.frames[0] == 128)
+    assert presenter.closed
 
 
 def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
@@ -291,6 +445,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
+            self.control_actions = BoundActionState(ControlsConfig())
 
         @staticmethod
         def ensure_rollout() -> object:
@@ -322,6 +477,7 @@ def test_model_input_is_applied_before_rollout_work() -> None:
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
+            self.control_actions = BoundActionState(ControlsConfig())
 
         def ensure_rollout(self) -> None:
             assert self.driver_input.command().throttle == 1.0
@@ -410,7 +566,11 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         scene=cast(Any, object()),
         config=cast(
             Any,
-            SimpleNamespace(total_blocks=None, pipeline_profiling=False),
+            SimpleNamespace(
+                total_blocks=None,
+                pipeline_profiling=False,
+                controls=ControlsConfig(),
+            ),
         ),
         session_desc=cast(
             Any,
@@ -424,6 +584,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         ui_loop=cast(Any, ui_loop),
         rollout=cast(Any, rollout),
         last_video=torch.zeros(1, 3, 4, 4),
+        last_hdmap=torch.ones(1, 3, 4, 4),
         last_pose=np.eye(4, dtype=np.float32),
         prewarm_complete=True,
         game_selected=True,
@@ -433,7 +594,8 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
 
     results = loop.step(0, UserInputEvents([]))
 
-    assert len(results) == 1
+    assert len(results) == 2
+    assert torch.all(results[1].read_output() == 1.0)
     assert not state.finished
     assert not loop.is_finished()
     assert len(ui_loop.operations) == 1
@@ -530,6 +692,41 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
     assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
 
 
+@pytest.mark.parametrize(
+    "live_edit",
+    [
+        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
+        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)),
+        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)),
+    ],
+)
+def test_prompt_live_edit_disables_only_native_dit(
+    live_edit: LiveEditConfig,
+) -> None:
+    configured: Any = _configure_live_edit_pipeline(
+        OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        live_edit,
+    )
+
+    assert configured.diffusion_model.transformer.native_dit_acceleration == "disabled"
+    assert configured.image_encoder.native_vae_acceleration == "required"
+    assert configured.encoder.native_vae_acceleration == "required"
+    assert configured.decoder.use_cuda_graph is True
+
+
+def test_pixel_live_edit_preserves_native_dit() -> None:
+    pipeline = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    live_edit = LiveEditConfig(
+        coins=LiveEditCoinsConfig(enabled=True),
+        obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0),
+    )
+
+    configured = _configure_live_edit_pipeline(pipeline, live_edit)
+
+    assert configured is pipeline
+    assert configured.diffusion_model.transformer.native_dit_acceleration == "required"
+
+
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
 def test_adapter_dimensions_configure_renderer_geometry(
     resolution_wh: tuple[int, int], monkeypatch
@@ -584,13 +781,15 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
 
-def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
+def test_fast_perf_honors_explicit_pipeline_overrides(tmp_path: Path) -> None:
     app = _application(
         defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
     )
 
     app.init(
         [
+            "--config",
+            str(tmp_path / "config.yaml"),
             "--seed",
             "7",
             "--no-compile",
@@ -700,15 +899,43 @@ def test_input_latency_trace_accepts_an_explicit_path(tmp_path) -> None:
     ],
 )
 def test_fps_counter_is_an_app_local_option(
+    tmp_path: Path,
     arguments: list[str],
     expected: bool,
 ) -> None:
     app = _application()
 
-    app.init(arguments)
+    app.init(["--config", str(tmp_path / "config.yaml"), *arguments])
 
     assert app._config is not None
     assert app._config.show_fps is expected
+
+
+def test_controls_directory_is_a_separate_cli_only_config(tmp_path: Path) -> None:
+    controls_dir = tmp_path / "controls"
+    controls_dir.mkdir()
+    (controls_dir / "keyboard.yaml").write_text(
+        "schema_version: 1\nrestart: [p]\n",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(
+        [
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--controls-dir",
+            str(controls_dir),
+        ]
+    )
+
+    assert app._config is not None
+    assert app._config.controls.keyboard.restart[0] is not None
+    assert app._config.controls.keyboard.restart[0].code == "p"
+    assert (
+        app._config.control_documents["keyboard"].path
+        == (controls_dir / "keyboard.yaml").resolve()
+    )
 
 
 @pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])

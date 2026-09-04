@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from flashdreams.runtime.keyboard import normalize_key
@@ -37,7 +38,27 @@ class DriverInput:
     """Normalized keyboard driving keys currently held down."""
 
     controller_command: DriverCommand | None = None
-    """Latest wheel or gamepad command; ``None`` enables keyboard input."""
+    """Latest wheel or gamepad command, retained while keyboard is active."""
+
+    keyboard_command: Callable[[set[str]], DriverCommand] = field(
+        default=lambda keys: _keyboard_command(keys)
+    )
+    """Mapping from retained keyboard keys to a driving command."""
+
+    gamepad_command: Callable[[GamepadUserInputEvent], DriverCommand | None] = field(
+        default=lambda event: _gamepad_command(event)
+    )
+    """Mapping from one standard-gamepad event to a driving command."""
+
+    wheel_command: Callable[[GameWheelUserInputEvent], DriverCommand | None] = field(
+        default=lambda event: _wheel_command(event)
+    )
+    """Mapping from one semantic wheel event to a driving command."""
+
+    key_normalizer: Callable[[str], str | None] = field(
+        default=lambda key: _normalize_drive_key(key)
+    )
+    """Normalizer and filter for retained keyboard driving keys."""
 
     _sampled_command: DriverCommand = field(
         default_factory=DriverCommand,
@@ -49,6 +70,8 @@ class DriverInput:
         init=False,
         repr=False,
     )
+    _use_controller: bool = field(default=False, init=False, repr=False)
+    """Whether the most recent deliberate driving input came from a controller."""
 
     def apply(self, events: UserInputEvents) -> tuple[float, ...]:
         """Retain new input and return command-transition times in seconds."""
@@ -133,13 +156,13 @@ class DriverInput:
 
     def command(self) -> DriverCommand:
         """Return the command represented by the current retained input state."""
-        if self.controller_command is not None:
+        if self._use_controller and self.controller_command is not None:
             return self.controller_command
-        return _keyboard_command(self.pressed_keys)
+        return self.keyboard_command(self.pressed_keys)
 
     def source(self) -> str:
         """Return the currently active input source."""
-        if self.controller_command is not None:
+        if self._use_controller and self.controller_command is not None:
             return "wheel/gamepad"
         return "keyboard" if self.pressed_keys else "idle"
 
@@ -147,6 +170,7 @@ class DriverInput:
         """Clear retained, sampled, and pending driving input."""
         self.pressed_keys.clear()
         self.controller_command = None
+        self._use_controller = False
         self._sampled_command = DriverCommand()
         self._pending_transitions.clear()
 
@@ -157,31 +181,41 @@ class DriverInput:
             self.pressed_keys.clear()
             return True
         if isinstance(event, KeyboardUserInputEvent):
-            key = _normalize_drive_key(event.key)
+            key = self.key_normalizer(event.key)
             if key is None:
                 return False
             if event.state is KeyboardInputState.PRESSED:
                 self.pressed_keys.add(key)
+                self._use_controller = False
             else:
                 self.pressed_keys.discard(key)
             return True
         if isinstance(event, GameWheelUserInputEvent):
-            self.controller_command = (
-                None
-                if event.action == "disconnected"
-                else DriverCommand(
-                    throttle=event.throttle,
-                    brake=event.brake,
-                    steer=-event.steering,
-                    steer_is_direct=True,
-                    manual_control=True,
-                )
-            )
+            self._apply_controller_command(self.wheel_command(event))
             return True
         if isinstance(event, GamepadUserInputEvent):
-            self.controller_command = _gamepad_command(event)
+            self._apply_controller_command(self.gamepad_command(event))
             return True
         return False
+
+    def _apply_controller_command(self, command: DriverCommand | None) -> None:
+        """Switch sources only when a controller supplies deliberate input."""
+        self.controller_command = command
+        if command is None:
+            self._use_controller = False
+        elif self._use_controller or _command_has_input(command):
+            self._use_controller = True
+
+
+def _command_has_input(command: DriverCommand) -> bool:
+    return (
+        abs(command.throttle) > 0.01
+        or abs(command.brake) > 0.01
+        or abs(command.steer) > 0.01
+        or command.stop
+        or command.handbrake
+        or command.reverse
+    )
 
 
 def _keyboard_command(pressed_keys: set[str]) -> DriverCommand:
@@ -226,6 +260,18 @@ def _gamepad_command(event: GamepadUserInputEvent) -> DriverCommand | None:
         brake=brake,
         steer=steer,
         reverse=reverse,
+        steer_is_direct=True,
+        manual_control=True,
+    )
+
+
+def _wheel_command(event: GameWheelUserInputEvent) -> DriverCommand | None:
+    if event.action == "disconnected":
+        return None
+    return DriverCommand(
+        throttle=event.throttle,
+        brake=event.brake,
+        steer=-event.steering,
         steer_is_direct=True,
         manual_control=True,
     )

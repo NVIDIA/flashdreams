@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -29,11 +30,35 @@ from crazy_robotaxi.live_edit.obstacle_ability import (
 from crazy_robotaxi.live_edit.obstacle_events import ObstacleAbility
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.navigation import NavigationLane
-from flashdreams.runtime_v2.user_input_event import (
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+LiveEditAction = Literal["style", "weather", "coins", "obstacle"]
+"""Manual live-edit actions shared by keyboard and UI controls."""
+
+
+@dataclass(frozen=True, slots=True)
+class LiveEditHudStatus:
+    """Frame-aligned live-edit state for the presentation thread."""
+
+    skin_name: str | None = None
+    """Active skin, or ``None`` when style switching is unavailable."""
+
+    weather_name: str | None = None
+    """Active weather, or ``None`` when weather switching is unavailable."""
+
+    coins_enabled: bool | None = None
+    """Runtime coin visibility, or ``None`` when the ability is unavailable."""
+
+    coins_collected: int = 0
+    """Collected coin count."""
+
+    nitro_seconds_remaining: float | None = None
+    """Remaining nitro boost time, or ``None`` when inactive or unavailable."""
+
+    item_flash: str | None = None
+    """Transient pickup message."""
+
+    obstacle_count: int | None = None
+    """Active obstacle count, or ``None`` when the ability is unavailable."""
 
 
 def _procedural_coin_sprite() -> Image.Image:
@@ -228,38 +253,69 @@ class LiveEditGameplay:
             return ()
         return (self.obstacles,)
 
-    def process_events(self, events: UserInputEvents) -> None:
-        """Consume rising-edge ability keys on the V2 model thread."""
-        for event in events.get_events():
-            if not isinstance(event, KeyboardUserInputEvent):
-                continue
-            if event.state is not KeyboardInputState.PRESSED:
-                continue
-            key = str(event.key).strip().lower()
-            if key == "k" and self.style is not None:
+    def request_action(self, action: LiveEditAction) -> None:
+        """Apply one manual live-edit action on the model thread."""
+        if action == "style":
+            if self.style is not None:
                 self.style.request_cycle()
-            elif key == "v" and self.style is not None:
+        elif action == "weather":
+            if self.style is not None:
                 self.style.request_weather_cycle()
-            elif key == "c" and self.coins is not None:
+        elif action == "coins":
+            if self.coins is not None:
                 self.coins.toggle()
-            elif key == "o" and self.obstacles is not None:
+        elif action == "obstacle":
+            if self.obstacles is not None:
                 self.obstacles.request_spawn()
+        else:
+            raise ValueError(f"Unknown live-edit action: {action}")
 
-    def advance(self, trajectory: TrajectoryChunk) -> tuple[Any, ...]:
+    def hud_status(self) -> LiveEditHudStatus:
+        """Snapshot presentation state after the current model chunk."""
+        style = self.style
+        coins = self.coins
+        nitro = self.nitro
+        items = self.items
+        obstacles = self.obstacles
+        return LiveEditHudStatus(
+            skin_name=(
+                style.active_skin_name
+                if style is not None and self.config.style.enabled
+                else None
+            ),
+            weather_name=(
+                style.active_weather_name
+                if style is not None and self.config.weather.enabled
+                else None
+            ),
+            coins_enabled=None if coins is None else coins.enabled,
+            coins_collected=0 if coins is None else coins.collected_count,
+            nitro_seconds_remaining=(
+                nitro.seconds_remaining if nitro is not None and nitro.active else None
+            ),
+            item_flash=None if items is None else items.flash_label,
+            obstacle_count=None if obstacles is None else len(obstacles.events),
+        )
+
+    def advance(self, trajectory: TrajectoryChunk) -> tuple[tuple[Any, ...], int]:
         """Advance pickups and obstacles after one physics trajectory."""
         if self.style is not None:
             self.style.update_map_context(trajectory.boundary_state_after_chunk)
-        if self.coins is not None:
-            self.coins.advance_frames(trajectory.vehicle_states)
+        coins_collected = (
+            0
+            if self.coins is None
+            else self.coins.advance_frames(trajectory.vehicle_states)
+        )
         if self.items is not None and self.effects is not None:
             for item_type in self.items.advance_frames(trajectory.vehicle_states):
                 self.items.flash(self.effects.apply(item_type))
-        if self.obstacles is None:
-            return ()
-        return self.obstacles.advance_frames(trajectory)
+        actors = (
+            () if self.obstacles is None else self.obstacles.advance_frames(trajectory)
+        )
+        return actors, coins_collected
 
     def postprocess_video(self, video: Tensor, step: Any) -> Tensor:
-        """Composite frame-aligned collectibles and state chips on device."""
+        """Composite frame-aligned collectibles on device."""
         if not self._presentation_enabled:
             return video
         result = video.clone()
@@ -285,31 +341,12 @@ class LiveEditGameplay:
                         image_height=int(result.shape[-2]),
                     )
                 )
-            labels = []
-            if self.style is not None and (
-                self.config.style.enabled or self.config.weather.enabled
-            ):
-                labels.append(f"SKIN {self.style.active_skin_name.upper()}")
-                labels.append(f"WEATHER {self.style.active_weather_name.upper()}")
-            if self.coins is not None:
-                labels.append(
-                    f"COINS {self.coins.collected_count}  +{self.coins.score}"
-                )
-            if self.nitro is not None and self.nitro.active:
-                labels.append(f"NITRO {self.nitro.seconds_remaining:.1f}s")
-            if self.items is not None and self.items.flash_label is not None:
-                labels.append(self.items.flash_label)
-            if self.obstacles is not None:
-                labels.append(
-                    f"OBSTACLES {len(self.obstacles.events)}  HITS {self.obstacles.hit_count}"
-                )
             frame = ((result[0, 0, index] + 1.0) * 127.5).round().clamp(0, 255)
             frame = frame.to(torch.uint8).permute(1, 2, 0).contiguous()
             frame = self._compositor.composite(
                 frame,
                 sprites=sprites,
                 frame_index=self._frame_index,
-                labels=labels,
                 sharpen_sigma=self.config.sharpen_sigma,
                 sharpen_amount=(
                     self.config.sharpen_amount
@@ -388,9 +425,16 @@ class LiveEditGameplay:
 class LiveEditGameRules:
     """Add live-edit dynamic actors while preserving the selected game rules."""
 
-    def __init__(self, inner: GameRules, gameplay: LiveEditGameplay) -> None:
+    def __init__(
+        self,
+        inner: GameRules,
+        gameplay: LiveEditGameplay,
+        *,
+        coin_collected: Callable[[int], None] | None = None,
+    ) -> None:
         self.inner = inner
         self.gameplay = gameplay
+        self._coin_collected = coin_collected
 
     @property
     def is_running(self) -> bool:
@@ -402,10 +446,13 @@ class LiveEditGameRules:
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> GameUpdate:
+        dynamic_actors, coins_collected = self.gameplay.advance(trajectory)
+        if coins_collected and self._coin_collected is not None:
+            self._coin_collected(coins_collected)
         update = self.inner.advance_frames(trajectory, frame_interval_s)
         return GameUpdate(
             frames=update.frames,
-            dynamic_actors=(*update.dynamic_actors, *self.gameplay.advance(trajectory)),
+            dynamic_actors=(*update.dynamic_actors, *dynamic_actors),
         )
 
     def submit_text(self, value: str, vehicle_state: VehicleState) -> object:

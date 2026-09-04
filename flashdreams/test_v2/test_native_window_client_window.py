@@ -497,7 +497,7 @@ def test_native_window_reports_standard_gamepad_events() -> None:
         False,
         False,
         True,
-        True,
+        False,
         False,
         False,
         False,
