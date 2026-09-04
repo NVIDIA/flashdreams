@@ -280,7 +280,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
 
         generated_frames = frames.detach()
         output_frames = generated_frames
-        postprocess_stats = None
         postprocess_stream = state.postprocess_stream
         postprocess_output_frames = generated_frames
         final_chunk = state.blocks_generated + 1 == state.config.total_blocks
@@ -293,7 +292,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 generated_frames,
                 autoregressive_index=step_index,
             )
-            postprocess_stats = postprocess_stream.last_process_stats
             if final_chunk:
                 tail = postprocess_stream.finish()
                 if tail is not None:
@@ -350,8 +348,6 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 "postprocess_output_frames": postprocess_output_frame_count,
             }
         )
-        if postprocess_stats is not None:
-            metrics["postprocess_ms"] = postprocess_stats.elapsed_ms
         if state.steady_started_at is not None:
             state.steady_frames_generated += frame_count
             steady_elapsed_s = step_completed_at - state.steady_started_at

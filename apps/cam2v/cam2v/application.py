@@ -26,6 +26,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .defaults import Cam2VApplicationDefaults, Cam2VConditioning
+from .postprocess_comparison import comparison_output_spec
 from .session import Cam2VSession, Cam2VSessionConfig
 
 
@@ -48,7 +49,6 @@ class Cam2VApplication(IApplication):
         self._input_values: dict[str, Any] | None = None
         self._pipeline: Any | None = None
         self._postprocess = VideoPostprocessChainConfig()
-        self._postprocess_profile = False
         self._postprocess_comparison_ui = False
 
     @property
@@ -163,15 +163,6 @@ class Cam2VApplication(IApplication):
             ),
         )
         parser.add_argument(
-            "--postprocess-profile",
-            action=argparse.BooleanOptionalAction,
-            default=False,
-            help=(
-                "Synchronize and record FlashVSR CUDA timing. Use for benchmarks, "
-                "not interactive runs."
-            ),
-        )
-        parser.add_argument(
             "--postprocess-comparison-ui",
             action=argparse.BooleanOptionalAction,
             default=False,
@@ -211,7 +202,6 @@ class Cam2VApplication(IApplication):
             chunk_size=args.postprocess_chunk_size,
             compile_network=args.postprocess_compile,
         )
-        self._postprocess_profile = args.postprocess_profile
         self._postprocess_comparison_ui = args.postprocess_comparison_ui
         self._input_values = {
             "prompt": args.prompt,
@@ -245,16 +235,8 @@ class Cam2VApplication(IApplication):
                 f"{type(self).__name__}.init() must run before create_session()."
             )
         self._validate_layout(session_desc)
-        model_width = int(
-            session_desc.metadata.get(
-                "cam2v_model_video_width", session_desc.video_width
-            )
-        )
-        model_height = int(
-            session_desc.metadata.get(
-                "cam2v_model_video_height", session_desc.video_height
-            )
-        )
+        model_width = session_desc.video_width
+        model_height = session_desc.video_height
         resolved_values = {
             **input_values,
             "pixel_height": model_height,
@@ -272,38 +254,30 @@ class Cam2VApplication(IApplication):
             pipeline = self._pipeline_config.setup().to(self._device).eval()
             self._pipeline = pipeline
         self._validate_frame_size(
-            replace(
-                session_desc,
-                video_width=model_width,
-                video_height=model_height,
-            ),
-            pipeline,
+            width=model_width,
+            height=model_height,
+            pipeline=pipeline,
         )
         input_spec = VideoSpec(
             height=model_height,
             width=model_width,
             fps=session_desc.frames_per_second_for_step,
         )
-        presentation_spec = _postprocess_output_spec(
-            self._postprocess,
-            input_spec=input_spec,
+        presentation_spec = (
+            self._postprocess.output_spec(input_spec)
+            if self._postprocess.is_enabled()
+            else input_spec
         )
-        presentation_width = presentation_spec.width
         if self._postprocess_comparison_ui:
-            _validate_postprocess_comparison_specs(
+            presentation_spec = comparison_output_spec(
                 input_spec=input_spec,
-                output_spec=presentation_spec,
+                postprocessed_spec=presentation_spec,
             )
-            presentation_width *= 2
+        # The runtime opens the UI and output sink from this presentation contract.
         presentation_desc = replace(
             session_desc,
-            video_width=presentation_width,
+            video_width=presentation_spec.width,
             video_height=presentation_spec.height,
-            metadata={
-                **session_desc.metadata,
-                "cam2v_model_video_width": model_width,
-                "cam2v_model_video_height": model_height,
-            },
         )
         postprocess_stream = None
         if self._postprocess.is_enabled():
@@ -313,7 +287,6 @@ class Cam2VApplication(IApplication):
                 fps=session_desc.frames_per_second_for_step,
                 per_view=False,
                 world_size=_distributed_world_size(),
-                profile=self._postprocess_profile,
             )
             postprocess_stream.prepare(input_spec)
         return Cam2VSession(
@@ -380,7 +353,13 @@ class Cam2VApplication(IApplication):
         if self._use_ui and session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("The Cam2V SlangPy UI overlay requires tchw output.")
 
-    def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
+    def _validate_frame_size(
+        self,
+        *,
+        width: int,
+        height: int,
+        pipeline: Any,
+    ) -> None:
         """Reject frame dimensions that cannot map to integral latents."""
         decoder = getattr(pipeline, "decoder", None)
         ratio = getattr(decoder, "spatial_compression_ratio", None)
@@ -389,10 +368,10 @@ class Cam2VApplication(IApplication):
                 "Cam2V requires a decoder with a positive integer "
                 "spatial_compression_ratio."
             )
-        if session_desc.video_width % ratio or session_desc.video_height % ratio:
+        if width % ratio or height % ratio:
             raise ValueError(
                 f"Frame dimensions must be multiples of {ratio}, got "
-                f"{session_desc.video_width}x{session_desc.video_height}."
+                f"{width}x{height}."
             )
 
 
@@ -421,36 +400,6 @@ def _distributed_world_size() -> int:
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         return torch.distributed.get_world_size()
     return 1
-
-
-def _postprocess_output_spec(
-    postprocess: VideoPostprocessChainConfig,
-    *,
-    input_spec: VideoSpec,
-) -> VideoSpec:
-    """Resolve the final presentation size without constructing a processor."""
-    output_spec = input_spec
-    for processor in postprocess.resolved_processors():
-        output_spec = processor.output_spec(output_spec)
-    return output_spec
-
-
-def _validate_postprocess_comparison_specs(
-    *,
-    input_spec: VideoSpec,
-    output_spec: VideoSpec,
-) -> None:
-    """Reject post-processors that cannot form a frame-for-frame comparison."""
-    if output_spec.channels != input_spec.channels:
-        raise ValueError(
-            "--postprocess-comparison-ui requires the postprocessor to preserve "
-            f"{input_spec.channels} video channels; got {output_spec.channels}."
-        )
-    if output_spec.fps != input_spec.fps:
-        raise ValueError(
-            "--postprocess-comparison-ui requires the postprocessor to preserve "
-            f"the input frame rate; got {input_spec.fps!r} -> {output_spec.fps!r}."
-        )
 
 
 __all__ = ["Cam2VApplication"]

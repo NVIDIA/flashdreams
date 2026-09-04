@@ -185,6 +185,16 @@ def test_chain_propagates_output_spec_to_downstream_session() -> None:
     assert session._sessions[1].spec == VideoSpec(height=8, width=12, fps=12)
 
 
+def test_chain_reports_final_output_spec() -> None:
+    chain = VideoPostprocessChainConfig(
+        processors=(_ScaleSpecConfig(scale=2), _ScaleSpecConfig(scale=3))
+    )
+
+    assert chain.output_spec(VideoSpec(height=4, width=6, fps=12, channels=1)) == (
+        VideoSpec(height=24, width=36, fps=12, channels=1)
+    )
+
+
 def test_stream_rejects_input_spec_changes() -> None:
     stream = _stream(_BufferConfig())
     stream.process(torch.ones(3, 3, 4, 5), autoregressive_index=0)

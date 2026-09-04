@@ -8,7 +8,34 @@ from __future__ import annotations
 import torch
 from torch.nn import functional as F
 
+from flashdreams.infra.postprocess import VideoSpec
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
+
+def comparison_output_spec(
+    *,
+    input_spec: VideoSpec,
+    postprocessed_spec: VideoSpec,
+) -> VideoSpec:
+    """Return the presentation spec for an original-versus-processed canvas."""
+    if postprocessed_spec.channels != input_spec.channels:
+        raise ValueError(
+            "--postprocess-comparison-ui requires the postprocessor to preserve "
+            f"{input_spec.channels} video channels; got "
+            f"{postprocessed_spec.channels}."
+        )
+    if postprocessed_spec.fps != input_spec.fps:
+        raise ValueError(
+            "--postprocess-comparison-ui requires the postprocessor to preserve "
+            f"the input frame rate; got {input_spec.fps!r} -> "
+            f"{postprocessed_spec.fps!r}."
+        )
+    return VideoSpec(
+        height=postprocessed_spec.height,
+        width=postprocessed_spec.width * 2,
+        fps=postprocessed_spec.fps,
+        channels=postprocessed_spec.channels,
+    )
 
 
 def compose_postprocess_comparison(
@@ -89,4 +116,4 @@ def _side_by_side_video(
     return torch.cat((original_frames, postprocessed_frames), dim=-1)
 
 
-__all__ = ["compose_postprocess_comparison"]
+__all__ = ["comparison_output_spec", "compose_postprocess_comparison"]

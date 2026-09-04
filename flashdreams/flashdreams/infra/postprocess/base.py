@@ -164,6 +164,13 @@ class VideoPostprocessChainConfig(PrintableConfig):
         """Return whether any post-processing step is configured."""
         return bool(self.processors or self.preset)
 
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        """Return the final stream specification produced from ``input_spec``."""
+        output_spec = input_spec
+        for processor in self.resolved_processors():
+            output_spec = processor.output_spec(output_spec)
+        return output_spec
+
     def requires_all_ranks(self, *, world_size: int) -> bool:
         """Return whether any processor must execute on every rank."""
         return any(

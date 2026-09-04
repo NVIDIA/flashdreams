@@ -303,8 +303,6 @@ def test_model_loop_waits_for_postprocessing_in_presentation_timing(
     model_loop, state, _ = _input_test_model_loop()
 
     class _PostprocessStream:
-        last_process_stats = None
-
         @staticmethod
         def process(
             output: torch.Tensor,
@@ -338,8 +336,6 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
     model_loop, state, _ = _input_test_model_loop()
 
     class _PostprocessStream:
-        last_process_stats = None
-
         def __init__(self) -> None:
             self.calls = 0
 
@@ -372,8 +368,6 @@ def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() 
     model_loop, state, _ = _input_test_model_loop()
 
     class _PostprocessStream:
-        last_process_stats = None
-
         def __init__(self) -> None:
             self.finish_calls = 0
 
@@ -416,8 +410,6 @@ def test_model_loop_pairs_original_and_postprocessed_frames_for_comparison() -> 
         return torch.full((2, 3, 1, 1), float(step_index))
 
     class _DelayedPostprocessStream:
-        last_process_stats = None
-
         def __init__(self) -> None:
             self.calls = 0
 
@@ -456,8 +448,6 @@ def test_model_loop_includes_the_postprocess_tail_in_a_comparison() -> None:
     model_loop, state, _ = _input_test_model_loop()
 
     class _TailPostprocessStream:
-        last_process_stats = None
-
         def __init__(self) -> None:
             self.finish_calls = 0
 
@@ -1011,7 +1001,7 @@ def test_application_prepares_a_postprocess_stream_for_each_session(
     app.init(arguments)
 
     first = app.create_session(app.session_desc())
-    second = app.create_session(first.session_desc)
+    second = app.create_session(app.session_desc())
 
     assert prepared == [
         VideoSpec(height=4, width=8, fps=16),
@@ -1022,11 +1012,12 @@ def test_application_prepares_a_postprocess_stream_for_each_session(
     assert first._postprocess_stream is not None
     assert second._postprocess_stream is not None
     assert first._postprocess_stream is not second._postprocess_stream
-    assert first._postprocess_stream.profile is False
     assert first.session_desc.video_width == presentation_width
     assert first.session_desc.video_height == 8
     assert second.session_desc.video_width == presentation_width
     assert second.session_desc.video_height == 8
+    assert first.session_desc.metadata == {}
+    assert second.session_desc.metadata == {}
     assert second._config.model_video_width == 8
     assert second._config.model_video_height == 4
     assert first._config.model_video_width == 8
