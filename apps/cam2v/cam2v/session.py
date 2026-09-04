@@ -233,6 +233,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             {
                 "model_step_wall_s": model_step_wall_s,
                 "chunk_fps": frame_count / model_step_wall_s,
+                "total_s": model_step_wall_s,
             }
         )
         if state.steady_started_at is not None:

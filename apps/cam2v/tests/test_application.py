@@ -214,6 +214,7 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_metrics() -> None:
         result.metrics["chunk_fps"]
     )
     assert result.metrics["model_step_wall_s"] > 0
+    assert result.metrics["total_s"] == result.metrics["model_step_wall_s"]
     ui_loop._run_message_batch()
     assert ui_state.status is not None
     assert ui_state.status.completed_blocks == 1
