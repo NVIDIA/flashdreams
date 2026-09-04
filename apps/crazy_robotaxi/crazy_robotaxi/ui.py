@@ -286,6 +286,9 @@ class TaxiHudState:
     live_edit_mapping_location: LiveEditMappingLocation = "buttons"
     """Where active live-edit mappings appear in the gameplay HUD."""
 
+    show_hdmap: bool = False
+    """Whether to present the model's HD-map conditioning instead of its output."""
+
     settings_document: SettingsDocument | None = None
     """User-authored settings backing the reusable Options screen."""
 
@@ -562,6 +565,8 @@ class TaxiHudState:
                 self._handle_escape()
             if "toggle_hints" in actions:
                 self.show_control_tooltips = not self.show_control_tooltips
+            if self._menu_stage == "game" and "toggle_hdmap" in actions:
+                self.show_hdmap = not self.show_hdmap
         for event in received:
             if isinstance(event, GamepadUserInputEvent):
                 if event.action == "state":
@@ -1766,6 +1771,7 @@ class TaxiHudState:
                 if self.live_edit_mapping_location == "control hints"
                 else ()
             ),
+            ("TOGGLE HD MAP VIEW", display(controls.toggle_hdmap)),
         )
         action_width = max(
             _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries
@@ -3739,14 +3745,18 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
-        bev_frame = frames[1] if len(frames) > 1 else None
+        hdmap_frame = frames[1] if len(frames) > 1 else None
+        bev_frame = frames[2] if len(frames) > 2 else None
         if video is not None:
             self.state.select_presented_frame(video)
             self.state.draw_waypoints(imgui, video)
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
-        return self.state.composite_bev(video, bev_frame)
+        background = (
+            hdmap_frame if self.state.show_hdmap and hdmap_frame is not None else video
+        )
+        return self.state.composite_bev(background, bev_frame)
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
