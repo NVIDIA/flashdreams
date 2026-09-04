@@ -426,7 +426,7 @@ SPDX-License-Identifier: Apache-2.0
 <p>Waypoint-1.5-1B is Overworld’s dense, autoregressive interactive video world
 model. FlashDreams integrates the published BF16 checkpoint as an
 image-established, keyboard/mouse-controlled V2 application with deterministic
-MP4 replay, per-action metrics, and live WebRTC presentation.</p>
+per-action metrics and live WebRTC presentation.</p>
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
@@ -451,17 +451,17 @@ MP4 replay, per-action metrics, and live WebRTC presentation.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p>Application slug</p></td>
-<td><p>waypoint-1-5-1b through flashdreams-run-v2</p></td>
+<td><p>action2v-waypoint-1-5-1b through flashdreams-run-v2</p></td>
 </tr>
 <tr class="row-odd"><td><p>Input modalities</p></td>
-<td><p>RGB/RGBA seed image; keyboard and mouse buttons; relative mouse motion;
+<td><p>RGB/RGBA first-frame image; keyboard and mouse buttons; relative mouse motion;
 ternary scroll-wheel direction</p></td>
 </tr>
 <tr class="row-even"><td><p>Output modality</p></td>
 <td><p>Four RGB frames per action, native 1024x512 TCHW in the [-1, 1] range</p></td>
 </tr>
 <tr class="row-odd"><td><p>Control modes</p></td>
-<td><p>Live browser events or a finite, versioned JSON action timeline</p></td>
+<td><p>Live browser keyboard and mouse events</p></td>
 </tr>
 <tr class="row-even"><td><p>Output modes</p></td>
 <td><p>WebRTC, MP4, null output, and optional per-action metrics</p></td>
@@ -499,30 +499,23 @@ separate Overworld-Models/taehv1_5 checkpoint into the Hugging Face cache.</p></
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <p>From the FlashDreams repository root:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-waypoint-v2<span class="w"> </span>--inexact
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-waypoint<span class="w"> </span>--inexact
 </pre></div>
 </div>
-<p>The V2 application package depends on the sibling flashdreams-waypoint model
-package, so both are installed together.</p>
+<p>The package includes the model implementation and its Action2V adapter.</p>
 </section>
 <section id="running-the-model">
 <h2>Running the model<a class="headerlink" href="#running-the-model" title="Link to this heading">#</a></h2>
-<p>Generate a deterministic 40-action MP4 using the pinned public example image
-and bundled control timeline:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>waypoint-1-5-1b<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-path<span class="w"> </span>waypoint.mp4<span class="w"> </span>--stats-path<span class="w"> </span>waypoint.metrics.json<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--<span class="w"> </span>--example-data<span class="w"> </span>--actions<span class="w"> </span><span class="m">40</span><span class="w"> </span>--seed<span class="w"> </span><span class="m">464</span><span class="w"> </span>--profile
-</pre></div>
-</div>
-<p>Run the same application interactively in a browser:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>waypoint-1-5-1b<span class="w"> </span><span class="se">\</span>
+<p>Run the application interactively in a browser:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>action2v-waypoint-1-5-1b<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">8766</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--<span class="w"> </span>--seed-image<span class="w"> </span>seed.png<span class="w"> </span>--seed<span class="w"> </span><span class="m">464</span>
+<span class="w">    </span>--<span class="w"> </span>--seed<span class="w"> </span><span class="m">464</span>
 </pre></div>
 </div>
-<p>Open <a class="reference external" href="http://127.0.0.1:8766/">http://127.0.0.1:8766/</a>. Arguments before the separator configure the V2
+<p>Open <a class="reference external" href="http://127.0.0.1:8766/">http://127.0.0.1:8766/</a>. Waypoint downloads its pinned default first frame
+when <code class="docutils literal notranslate"><span class="pre">--first-frame</span></code> is omitted. Arguments before the separator configure the V2
 runtime; arguments after it configure Waypoint. To inspect all model arguments:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>waypoint-1-5-1b<span class="w"> </span>--<span class="w"> </span>--help
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>action2v-waypoint-1-5-1b<span class="w"> </span>--<span class="w"> </span>--help
 </pre></div>
 </div>
 </section>
@@ -556,13 +549,13 @@ published-model versus serialized-checkpoint accounting figures; FlashDreams
 reports both rather than relabeling the upstream model.</p>
 <p>The package-level design review contains component, class, use-case, and
 sequence diagrams:</p>
-<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-outline-secondary reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations/waypoint/README.md"><span>Waypoint architecture design</span></a></p>
+<p><a class="sd-sphinx-override sd-btn sd-text-wrap sd-btn-outline-secondary reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/README.md"><span>Waypoint architecture design</span></a></p>
 </section>
 <section id="measured-flashdreams-performance">
 <h2>Measured FlashDreams performance<a class="headerlink" href="#measured-flashdreams-performance" title="Link to this heading">#</a></h2>
 <p>The final FlashDreams path was measured on 2026-08-26 using an RTX PRO 6000
 Blackwell Workstation Edition (96 GiB), driver 595.84, PyTorch 2.12.1+cu130,
-CUDA 13.0, BF16 weights, the pinned example seed/control timeline, seed 464,
+CUDA 13.0, BF16 weights, the pinned validation first frame and control timeline, seed 464,
 native 1024x512 output, four denoise evaluations, and synchronous profiling.
 Actions 1-19 were warmup; actions 20-40 were the steady-state sample.</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -665,8 +658,8 @@ simulator.</p>
 high-stakes automation, or deployments that remove reasonable safeguards.</p></li>
 <li><p>The current server accepts one WebRTC browser client per process. Multiple
 sessions may share model weights, but model execution is serialized.</p></li>
-<li><p>Live results depend on browser event timing. Use a control file and fixed
-seed when reproducibility matters.</p></li>
+<li><p>Live results depend on browser event timing and are not reproducible from the
+application command line alone.</p></li>
 </ul>
 <p>Review the upstream model card and world-model safety discussion before
 deployment:</p>
