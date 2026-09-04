@@ -179,8 +179,8 @@ The input source publishes the monotonic origin for its session-relative
   ``write`` call returns.
 
 The native-window measurement ends after its presenter call returns. The WebRTC
-measurement ends after the host writes the latest frame into the existing
-single-slot sender mailbox. Active-peer delivery, RTP transit, browser decode,
+measurement ends after the host admits the latest frame to the bounded two-frame
+sender queue. Active-peer delivery, RTP transit, browser decode,
 compositor scheduling, and physical scanout require matching client telemetry.
 The final ``profile_summary`` records report count, median, p90, and maximum
 values.
