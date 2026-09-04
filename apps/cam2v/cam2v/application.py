@@ -235,12 +235,15 @@ class Cam2VApplication(IApplication):
                 f"{type(self).__name__}.init() must run before create_session()."
             )
         self._validate_layout(session_desc)
-        model_width = session_desc.video_width
-        model_height = session_desc.video_height
+        input_spec = VideoSpec(
+            height=session_desc.video_height,
+            width=session_desc.video_width,
+            fps=session_desc.frames_per_second_for_step,
+        )
         resolved_values = {
             **input_values,
-            "pixel_height": model_height,
-            "pixel_width": model_width,
+            "pixel_height": input_spec.height,
+            "pixel_width": input_spec.width,
             "fps": session_desc.frames_per_second_for_step,
         }
         conditioning = self.defaults.input_resolver(resolved_values)
@@ -253,31 +256,22 @@ class Cam2VApplication(IApplication):
         if pipeline is None:
             pipeline = self._pipeline_config.setup().to(self._device).eval()
             self._pipeline = pipeline
-        self._validate_frame_size(
-            width=model_width,
-            height=model_height,
-            pipeline=pipeline,
-        )
-        input_spec = VideoSpec(
-            height=model_height,
-            width=model_width,
-            fps=session_desc.frames_per_second_for_step,
-        )
-        presentation_spec = (
+        self._validate_frame_size(session_desc, pipeline)
+        output_spec = (
             self._postprocess.output_spec(input_spec)
             if self._postprocess.is_enabled()
             else input_spec
         )
         if self._postprocess_comparison_ui:
-            presentation_spec = comparison_output_spec(
+            output_spec = comparison_output_spec(
                 input_spec=input_spec,
-                postprocessed_spec=presentation_spec,
+                postprocessed_spec=output_spec,
             )
         # The runtime opens the UI and output sink from this presentation contract.
-        presentation_desc = replace(
+        session_desc = replace(
             session_desc,
-            video_width=presentation_spec.width,
-            video_height=presentation_spec.height,
+            video_width=output_spec.width,
+            video_height=output_spec.height,
         )
         postprocess_stream = None
         if self._postprocess.is_enabled():
@@ -292,13 +286,13 @@ class Cam2VApplication(IApplication):
         return Cam2VSession(
             pipeline=pipeline,
             postprocess_stream=postprocess_stream,
-            session_desc=presentation_desc,
+            session_desc=session_desc,
             config=Cam2VSessionConfig(
                 conditioning=conditioning,
                 total_blocks=self._total_blocks,
                 device=torch.device(self._device),
-                model_video_width=model_width,
-                model_video_height=model_height,
+                model_video_width=input_spec.width,
+                model_video_height=input_spec.height,
                 first_frame_dtype=self.defaults.first_frame_dtype,
                 first_frame_interpolation=self.defaults.first_frame_interpolation,
                 generate_step=self.defaults.generate_step,
@@ -353,13 +347,7 @@ class Cam2VApplication(IApplication):
         if self._use_ui and session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("The Cam2V SlangPy UI overlay requires tchw output.")
 
-    def _validate_frame_size(
-        self,
-        *,
-        width: int,
-        height: int,
-        pipeline: Any,
-    ) -> None:
+    def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
         """Reject frame dimensions that cannot map to integral latents."""
         decoder = getattr(pipeline, "decoder", None)
         ratio = getattr(decoder, "spatial_compression_ratio", None)
@@ -368,9 +356,10 @@ class Cam2VApplication(IApplication):
                 "Cam2V requires a decoder with a positive integer "
                 "spatial_compression_ratio."
             )
-        if width % ratio or height % ratio:
+        if session_desc.video_width % ratio or session_desc.video_height % ratio:
             raise ValueError(
-                f"Frame dimensions must be multiples of {ratio}, got {width}x{height}."
+                f"Frame dimensions must be multiples of {ratio}, got "
+                f"{session_desc.video_width}x{session_desc.video_height}."
             )
 
 
