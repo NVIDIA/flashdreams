@@ -164,14 +164,12 @@ class VideoOutputStream:
         self._last_step_index: int | None = None
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
-        """Toggle processing without replacing or closing the stream."""
+        """Select post-processed output without resetting the stream."""
         if enabled and self.postprocess_stream is None:
             raise RuntimeError("cannot enable an unconfigured post-processing stream")
         enabled = bool(enabled)
         if enabled == self._postprocess_enabled:
             return
-        if self.postprocess_stream is not None:
-            self.postprocess_stream.reset()
         self._postprocess_enabled = enabled
 
     def process(
@@ -188,7 +186,7 @@ class VideoOutputStream:
             raise RuntimeError("cannot process video after finish()")
         processed = video_chunk
         result_metadata = dict(metadata or {})
-        if self.postprocess_stream is not None and self._postprocess_enabled:
+        if self.postprocess_stream is not None:
             processed = self.postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=autoregressive_index,
@@ -196,10 +194,11 @@ class VideoOutputStream:
             postprocess_stats = self.postprocess_stream.last_process_stats
             if postprocess_stats is not None:
                 result_metadata["postprocess"] = postprocess_stats.as_dict()
+        output = processed if self._postprocess_enabled else video_chunk
         self._last_step_index = autoregressive_index
         return StepResult.from_video_chunk(
             step_index=autoregressive_index,
-            video_chunk=processed.detach(),
+            video_chunk=output.detach(),
             layout=self.output_layout,
             output_window=output_window,
             metrics=metrics,
@@ -214,7 +213,7 @@ class VideoOutputStream:
         if self.postprocess_stream is None:
             return None
         flushed = self.postprocess_stream.finish()
-        if flushed is None:
+        if not self._postprocess_enabled or flushed is None:
             return None
         if self._last_step_index is None:
             raise RuntimeError("post-processing emitted a tail before any video step")

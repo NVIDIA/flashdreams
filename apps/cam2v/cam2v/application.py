@@ -48,7 +48,6 @@ class Cam2VApplication(IApplication):
         self._input_values: dict[str, Any] | None = None
         self._pipeline: Any | None = None
         self._postprocess = VideoPostprocessChainConfig()
-        self._postprocess_stream: VideoPostprocessStream | None = None
         self._postprocess_profile = False
 
     @property
@@ -156,7 +155,7 @@ class Cam2VApplication(IApplication):
         parser.add_argument(
             "--postprocess-compile",
             action=argparse.BooleanOptionalAction,
-            default=True,
+            default=False,
             help=(
                 "Compile post-processors for steady-state performance. Disable "
                 "to skip compiler autotuning during development."
@@ -287,20 +286,23 @@ class Cam2VApplication(IApplication):
                 "cam2v_model_video_height": model_height,
             },
         )
-        postprocess_stream = self._postprocess_stream
+        postprocess_stream = None
         if self._postprocess.is_enabled():
-            if postprocess_stream is None:
-                postprocess_stream = VideoPostprocessStream(
-                    postprocess=self._postprocess,
-                    output_layout=session_desc.output_layout.value,
+            postprocess_stream = VideoPostprocessStream(
+                postprocess=self._postprocess,
+                output_layout=session_desc.output_layout.value,
+                fps=session_desc.frames_per_second_for_step,
+                per_view=False,
+                world_size=_distributed_world_size(),
+                profile=self._postprocess_profile,
+            )
+            postprocess_stream.prepare(
+                VideoSpec(
+                    height=model_height,
+                    width=model_width,
                     fps=session_desc.frames_per_second_for_step,
-                    per_view=False,
-                    world_size=_distributed_world_size(),
-                    profile=self._postprocess_profile,
                 )
-                self._postprocess_stream = postprocess_stream
-            else:
-                postprocess_stream.reset()
+            )
         return Cam2VSession(
             pipeline=pipeline,
             postprocess_stream=postprocess_stream,
@@ -326,12 +328,8 @@ class Cam2VApplication(IApplication):
     def close(self) -> None:
         """Release the application-owned pipeline after all sessions stop."""
         pipeline = self._pipeline
-        postprocess_stream = self._postprocess_stream
         self._pipeline = None
-        self._postprocess_stream = None
         self._input_values = None
-        if postprocess_stream is not None:
-            postprocess_stream.finish()
         close = getattr(pipeline, "close", None)
         if callable(close):
             close()

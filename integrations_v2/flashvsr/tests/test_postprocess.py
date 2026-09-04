@@ -175,7 +175,7 @@ def test_flashvsr_postprocess_can_start_on_steady_chunk(
     assert session.flush() == []
 
 
-def test_flashvsr_postprocess_handles_lingbot_chunks_and_resets_in_place(
+def test_flashvsr_postprocess_handles_lingbot_chunks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_builder(monkeypatch)
@@ -186,20 +186,14 @@ def test_flashvsr_postprocess_handles_lingbot_chunks_and_resets_in_place(
     steady = session.process(
         VideoChunk(tensor=torch.ones((12, 3, 4, 6)), layout="tchw")
     )
-    session.reset()
-    restarted = session.process(
-        VideoChunk(tensor=torch.full((12, 3, 4, 6), 2.0), layout="tchw")
-    )
 
     assert [chunk.tensor.shape[2] for chunk in cold] == [5]
     assert [chunk.tensor.shape[2] for chunk in steady] == [8, 8]
-    assert [chunk.tensor.shape[2] for chunk in restarted] == [5]
     assert len(created) == 1
     pipeline = created[0]
-    assert [idx for idx, _ in pipeline.inputs] == [0, 1, 2, 0]
-    assert [clip.shape[2] for _, clip in pipeline.inputs] == [5, 8, 8, 5]
+    assert [idx for idx, _ in pipeline.inputs] == [0, 1, 2]
+    assert [clip.shape[2] for _, clip in pipeline.inputs] == [5, 8, 8]
     assert pipeline.cache_initializations == 1
-    assert pipeline.cache_resets == 1
     assert len(set(pipeline.cache_ids)) == 1
 
 
@@ -253,16 +247,10 @@ def test_flashvsr_postprocessor_declares_distributed_execution() -> None:
         sparse.validate_execution(world_size=2)
 
 
-def test_flashvsr_distributed_prepare_warms_both_shapes_and_resets_state(
+def test_flashvsr_prepare_warms_both_shapes_and_resets_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_builder(monkeypatch)
-    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
-    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
-    monkeypatch.setattr(torch.distributed, "get_world_size", lambda: 2)
-    monkeypatch.setattr(
-        flashvsr_postprocess, "_resolve_postprocess_device", lambda _: "cpu"
-    )
     config = FlashVSRPostProcessorConfig(
         device="cpu",
         chunk_size=8,

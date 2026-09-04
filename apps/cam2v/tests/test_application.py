@@ -330,6 +330,77 @@ def test_model_loop_waits_for_postprocessing_in_presentation_timing(
     assert result.metrics["model_loop_wall_s"] == 3.0
 
 
+def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled() -> (
+    None
+):
+    """Advance the resident postprocessor while presenting the generated frames."""
+    model_loop, state, _ = _input_test_model_loop()
+
+    class _PostprocessStream:
+        last_process_stats = None
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def process(
+            self,
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            self.calls += 1
+            return output + 1
+
+    postprocess_stream = _PostprocessStream()
+    state.postprocess_stream = postprocess_stream
+    state.postprocess_enabled = False
+
+    result = model_loop.step(0, UserInputEvents([]))[0]
+
+    assert postprocess_stream.calls == 1
+    assert torch.equal(result.read_output(), torch.zeros((2, 3, 1, 1)))
+    assert result.metrics["postprocess_enabled"] == 0
+    assert result.metrics["postprocess_output_frames"] == 2
+
+
+def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() -> (
+    None
+):
+    """Drain a completed processor without presenting its final tail."""
+    model_loop, state, _ = _input_test_model_loop()
+
+    class _PostprocessStream:
+        last_process_stats = None
+
+        def __init__(self) -> None:
+            self.finish_calls = 0
+
+        @staticmethod
+        def process(
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            return output + 1
+
+        def finish(self) -> torch.Tensor:
+            self.finish_calls += 1
+            return torch.full((1, 3, 1, 1), 2.0)
+
+    postprocess_stream = _PostprocessStream()
+    state.postprocess_stream = postprocess_stream
+    state.postprocess_enabled = False
+    state.blocks_generated = state.config.total_blocks - 1
+
+    result = model_loop.step(0, UserInputEvents([]))[0]
+
+    assert postprocess_stream.finish_calls == 1
+    assert torch.equal(result.read_output(), torch.zeros((2, 3, 1, 1)))
+    assert result.metrics["postprocess_output_frames"] == 3
+
+
 def test_keyboard_resampler_keeps_an_aliased_key_held_until_all_sources_release() -> (
     None
 ):
@@ -557,12 +628,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
         presentation_manager=presentation_manager,
     )
     model_loop, model_state, _ = _input_test_model_loop()
-    postprocess_stream: Any = SimpleNamespace(reset_calls=0)
-
-    def reset_postprocess() -> None:
-        postprocess_stream.reset_calls += 1
-
-    postprocess_stream.reset = reset_postprocess
+    postprocess_stream: Any = SimpleNamespace()
     model_state.postprocess_stream = postprocess_stream
     model_state.postprocess_enabled = True
     ui_loop._set_model_loop(model_loop)
@@ -606,7 +672,6 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     model_loop._run_message_batch()
     assert state.postprocess_enabled is False
     assert model_state.postprocess_enabled is False
-    assert postprocess_stream.reset_calls == 1
 
     ui_loop.step(
         1,
@@ -803,10 +868,10 @@ class _ChunkedPostprocessorConfig(VideoPostProcessorConfig):
         )
 
 
-def test_application_owns_one_configured_postprocess_stream(
+def test_application_prepares_a_postprocess_stream_for_each_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reuse one stream across sessions and apply Lingbot's 8-frame override."""
+    """Prepare each session's stream before its first generated chunk."""
     registered = _ChunkedPostprocessorConfig()
     monkeypatch.setattr(
         cam2v_application,
@@ -817,6 +882,12 @@ def test_application_owns_one_configured_postprocess_stream(
         registry_module,
         "resolve_postprocess_preset",
         lambda name: registered,
+    )
+    prepared: list[VideoSpec] = []
+    monkeypatch.setattr(
+        cam2v_application.VideoPostprocessStream,
+        "prepare",
+        lambda self, spec: prepared.append(spec),
     )
     app = Cam2VApplication(
         defaults=Cam2VApplicationDefaults(
@@ -839,15 +910,18 @@ def test_application_owns_one_configured_postprocess_stream(
     )
 
     first = app.create_session(app.session_desc())
-    stream = app._postprocess_stream
     second = app.create_session(first.session_desc)
 
-    assert stream is not None
-    assert stream.profile is False
+    assert prepared == [
+        VideoSpec(height=4, width=8, fps=16),
+        VideoSpec(height=4, width=8, fps=16),
+    ]
     assert isinstance(first, Cam2VSession)
     assert isinstance(second, Cam2VSession)
-    assert second._postprocess_stream is stream
-    assert first._postprocess_stream is stream
+    assert first._postprocess_stream is not None
+    assert second._postprocess_stream is not None
+    assert first._postprocess_stream is not second._postprocess_stream
+    assert first._postprocess_stream.profile is False
     assert first.session_desc.video_width == 16
     assert first.session_desc.video_height == 8
     assert second.session_desc.video_width == 16

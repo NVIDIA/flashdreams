@@ -150,19 +150,49 @@ class VideoPostprocessStream:
         )
         return result
 
+    def prepare(self, input_spec: VideoSpec, *, views: int = 1) -> None:
+        """Create and warm processor resources before generated frames arrive.
+
+        Call this after the input video's dimensions are known and before the
+        first timed inference step. Resources remain resident until the stream
+        is discarded.
+        """
+        if views <= 0:
+            raise ValueError("views must be > 0.")
+        if self._prepared:
+            if input_spec != self.state.input_spec:
+                raise ValueError(
+                    "postprocess input stream specification changed from "
+                    f"{self.state.input_spec!r} to {input_spec!r}."
+                )
+            return
+        if not self.postprocess.is_enabled():
+            return
+        if self.per_view:
+            if self.output_layout != "bvtchw":
+                raise ValueError(
+                    "postprocess_per_view requires a layout with an explicit view "
+                    f"axis; got {self.output_layout!r}."
+                )
+            self.state.num_views = views
+            for view_idx in range(views):
+                session = self.postprocess.setup(input_spec)
+                self.state.sessions[view_idx] = session
+                session.prepare()
+        else:
+            session = self.postprocess.setup(input_spec)
+            self.state.sessions[-1] = session
+            session.prepare()
+        self.state.input_spec = input_spec
+        self._synchronize_preparation()
+        self._prepared = True
+
     def add_process_stats(self, stats: dict[str, float]) -> dict[str, object]:
         """Add the latest postprocess measurement to pipeline AR stats."""
         combined: dict[str, object] = dict(stats)
         if self.last_process_stats is not None:
             combined["postprocess"] = self.last_process_stats.as_dict()
         return combined
-
-    def reset(self) -> None:
-        """Start a fresh rollout without rebuilding processor resources."""
-        for session in self.state.sessions.values():
-            session.reset()
-        self._closed = False
-        self.last_process_stats = None
 
     def finish(self) -> Tensor | None:
         """Close the stream and return any post-processing tail frames."""
@@ -199,14 +229,14 @@ class VideoPostprocessStream:
         """Prepare sessions once, then synchronize distributed readiness."""
         if self._prepared or not self.postprocess.is_enabled():
             return
-        prepare_video_postprocess(
-            postprocess=self.postprocess,
-            output_layout=self.output_layout,
-            fps=self.fps,
-            per_view=self.per_view,
-            state=self.state,
-            output=output,
+        input_spec = infer_video_spec_from_tensor_shape(
+            output, layout=self.output_layout, fps=self.fps
         )
+        views = to_bvtchw(output, layout=self.output_layout).shape[1]
+        self.prepare(input_spec, views=views)
+
+    def _synchronize_preparation(self) -> None:
+        """Synchronize ranks after every processor has completed preparation."""
         if (
             self.postprocess.requires_all_ranks(world_size=self.world_size)
             and torch.distributed.is_available()
@@ -216,7 +246,6 @@ class VideoPostprocessStream:
             # All compilation/model warmup collectives have completed before a
             # rank can enter it, and the process-group timeout bounds failures.
             torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
-        self._prepared = True
 
 
 def create_video_postprocess_stream(
@@ -331,40 +360,6 @@ def apply_video_postprocess(
         )
 
     return result
-
-
-def prepare_video_postprocess(
-    *,
-    postprocess: VideoPostprocessChainConfig,
-    output_layout: VideoTensorLayout,
-    fps: float | None,
-    per_view: bool,
-    state: _VideoPostprocessStreamState,
-    output: Tensor,
-) -> None:
-    """Create and prepare sessions before the first measured process call."""
-    _validate_input_spec(state=state, output=output, layout=output_layout, fps=fps)
-    if per_view:
-        if output_layout != "bvtchw":
-            raise ValueError(
-                "postprocess_per_view requires a layout with an explicit view "
-                f"axis; got {output_layout!r}."
-            )
-        canonical = to_bvtchw(output, layout=output_layout)
-        views = canonical.shape[1]
-        state.num_views = views
-        for view_idx in range(views):
-            view = canonical[:, view_idx : view_idx + 1]
-            spec = infer_video_spec_from_tensor_shape(view, layout="bvtchw", fps=fps)
-            session = postprocess.setup(spec)
-            state.sessions[view_idx] = session
-            session.prepare()
-        return
-
-    spec = infer_video_spec_from_tensor_shape(output, layout=output_layout, fps=fps)
-    session = postprocess.setup(spec)
-    state.sessions[-1] = session
-    session.prepare()
 
 
 def flush_video_postprocess(

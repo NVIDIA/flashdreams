@@ -92,7 +92,7 @@ class Cam2VSessionConfig:
     """Optional first-frame loader hint for missing integration dependencies."""
 
     postprocess_enabled: bool = False
-    """Whether the configured application-owned postprocessor starts enabled."""
+    """Whether post-processed frames are selected at session start."""
 
     def __post_init__(self) -> None:
         if self.total_blocks <= 0:
@@ -125,10 +125,10 @@ class Cam2VModelState:
     """Resolved inputs and rollout controls."""
 
     postprocess_stream: VideoPostprocessStream | None = None
-    """Application-owned postprocess stream retained across rollout resets."""
+    """Session-owned postprocess stream retained while the rollout runs."""
 
     postprocess_enabled: bool = False
-    """Whether generated chunks currently pass through post-processing."""
+    """Whether post-processed chunks are selected for presentation."""
 
     keyboard_resampler: KeyboardResampler | None = None
     """Legacy combined input view retained for construction compatibility."""
@@ -179,7 +179,7 @@ class Cam2VModelState:
         self.keyboard_track = keyboard_resampler.keyboard_track
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
-        """Toggle the resident postprocessor and reset only its temporal state."""
+        """Select generated or post-processed frames without resetting the stream."""
         enabled = bool(enabled)
         if enabled and self.postprocess_stream is None:
             raise RuntimeError(
@@ -187,8 +187,6 @@ class Cam2VModelState:
             )
         if enabled == self.postprocess_enabled:
             return
-        if self.postprocess_stream is not None:
-            self.postprocess_stream.reset()
         self.postprocess_enabled = enabled
 
 
@@ -270,34 +268,41 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         model_completed_at = time.perf_counter()
         model_step_wall_s = model_completed_at - step_started_at
 
-        output_frames = frames.detach()
+        generated_frames = frames.detach()
+        output_frames = generated_frames
         postprocess_stats = None
         postprocess_stream = state.postprocess_stream
-        if state.postprocess_enabled:
-            assert postprocess_stream is not None
-            output_frames = postprocess_stream.process(
-                output_frames,
+        postprocess_output_frames = generated_frames
+        if postprocess_stream is not None:
+            postprocess_output_frames = postprocess_stream.process(
+                generated_frames,
                 autoregressive_index=step_index,
             )
             postprocess_stats = postprocess_stream.last_process_stats
             if state.blocks_generated + 1 == state.config.total_blocks:
                 tail = postprocess_stream.finish()
                 if tail is not None:
-                    output_frames = _concatenate_video(
-                        output_frames,
+                    postprocess_output_frames = _concatenate_video(
+                        postprocess_output_frames,
                         tail,
                         layout=state.session_desc.output_layout,
                     )
             # Presentation pacing observes the complete model-loop wall time.
             # Do not let asynchronous post-processing spill into the next step.
-            _synchronize_output(output_frames)
+            _synchronize_output(postprocess_output_frames)
+            if state.postprocess_enabled:
+                output_frames = postprocess_output_frames
         step_completed_at = time.perf_counter()
         postprocess_step_wall_s = step_completed_at - model_completed_at
+        postprocess_output_frame_count = _video_frame_count(
+            postprocess_output_frames,
+            layout=state.session_desc.output_layout,
+        )
         output_frame_count = _video_frame_count(
             output_frames,
             layout=state.session_desc.output_layout,
         )
-        if output_frame_count <= 0:
+        if state.postprocess_enabled and output_frame_count <= 0:
             raise RuntimeError(
                 "Post-processing buffered the entire Cam2V chunk. Use a "
                 "postprocess chunk size no larger than the model cadence."
@@ -312,7 +317,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 "model_loop_wall_s": step_completed_at - step_started_at,
                 "postprocess_step_wall_s": postprocess_step_wall_s,
                 "postprocess_enabled": int(state.postprocess_enabled),
-                "postprocess_output_frames": output_frame_count,
+                "postprocess_output_frames": postprocess_output_frame_count,
             }
         )
         if postprocess_stats is not None:
@@ -355,26 +360,11 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         """Return whether this rollout generated its requested blocks."""
         return self.state.blocks_generated >= self.state.config.total_blocks
 
-    def reset(self) -> None:
-        """Discard model and camera state for a new session generation."""
-        state = self.state
-        state.cache = None
-        state.blocks_generated = 0
-        state.frames_generated = 0
-        state.input_timeline.reset(start_s=0.0)
-        state.keyboard_track.reset()
-        state.pose_integrator.reset()
-        state.steady_started_at = None
-        state.steady_frames_generated = 0
-        state._recent_model_frame_rate_tracker.reset()
-        if state.postprocess_stream is not None:
-            state.postprocess_stream.reset()
-
     def close(self) -> None:
-        """Release session-owned tensors while retaining the application model."""
+        """Release session-owned tensors and finish post-processing."""
         self.state.cache = None
         if self.state.postprocess_stream is not None:
-            self.state.postprocess_stream.reset()
+            self.state.postprocess_stream.finish()
 
 
 class Cam2VSession(ISession):
@@ -393,7 +383,7 @@ class Cam2VSession(ISession):
 
         Args:
             pipeline: Application-owned model pipeline.
-            postprocess_stream: Application-owned generated-video processor.
+            postprocess_stream: Generated-video processor owned by this session.
             config: Resolved inputs and rollout controls.
             session_desc: Output dimensions, layout, and loop rates.
             use_ui: Whether to register the shared Cam2V overlay.

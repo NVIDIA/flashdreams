@@ -18,6 +18,7 @@ from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
+    VideoSpec,
 )
 from flashdreams.infra.video_output import VideoOutputStream
 from interactive_drive.backends.base import RenderBackend
@@ -303,6 +304,7 @@ class WorldModelRenderBackend(RenderBackend):
         prompt: str,
     ) -> list[object]:
         self._clear_pipeline(finalize_pending=False)
+        self._prepare_postprocess(initial_rgb)
         self._cache = self._initialize_cache(initial_rgb, prompt)
         return self._step_pipeline(condition_frames)
 
@@ -380,6 +382,16 @@ class WorldModelRenderBackend(RenderBackend):
         self._output_stream.finish()
         if recreate_output_stream:
             self._output_stream = self._new_output_stream()
+
+    def _prepare_postprocess(self, initial_rgb: object) -> None:
+        """Warm the resident processor before the first timed model chunk."""
+        postprocess_stream = self._output_stream.postprocess_stream
+        if postprocess_stream is None:
+            return
+        rgb = _rgb_hwc_uint8(initial_rgb)
+        postprocess_stream.prepare(
+            VideoSpec(height=rgb.shape[0], width=rgb.shape[1], fps=self._chunk.fps)
+        )
 
     def _new_output_stream(self) -> VideoOutputStream:
         postprocess_stream = None
