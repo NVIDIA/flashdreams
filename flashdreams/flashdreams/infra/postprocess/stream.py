@@ -194,6 +194,13 @@ class VideoPostprocessStream:
             combined["postprocess"] = self.last_process_stats.as_dict()
         return combined
 
+    def reset(self) -> None:
+        """Start a fresh rollout without rebuilding processor resources."""
+        for session in self.state.sessions.values():
+            session.reset()
+        self._closed = False
+        self.last_process_stats = None
+
     def finish(self) -> Tensor | None:
         """Close the stream and return any post-processing tail frames."""
         if self._closed:

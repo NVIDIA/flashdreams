@@ -386,6 +386,22 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         """Return whether this rollout generated its requested blocks."""
         return self.state.blocks_generated >= self.state.config.total_blocks
 
+    def reset(self) -> None:
+        """Discard model and camera state for a new session generation."""
+        state = self.state
+        if state.postprocess_stream is not None:
+            state.postprocess_stream.reset()
+        state.cache = None
+        state.blocks_generated = 0
+        state.frames_generated = 0
+        state.input_timeline.reset(start_s=0.0)
+        state.keyboard_track.reset()
+        state.pose_integrator.reset()
+        state.steady_started_at = None
+        state.steady_frames_generated = 0
+        state._recent_model_frame_rate_tracker.reset()
+        state.comparison_pending_generated_frames = None
+
     def close(self) -> None:
         """Release session-owned tensors and finish post-processing."""
         self.state.cache = None

@@ -109,6 +109,13 @@ class Cam2VUIState:
         """Replace the displayed model-generation status."""
         self.status = status
 
+    def reset(self) -> None:
+        """Clear transient controls and model status for a new generation."""
+        self.held_keys.clear()
+        self._keyboard_state = KeyboardState(supported_keys=_CAMERA_KEYS)
+        self.status = None
+        self.frames_presented = 0
+
 
 class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
     """Draw Cam2V controls and model throughput over generated video."""
@@ -138,6 +145,11 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         _refresh_widgets(self.state, sampled_at=sampled_at)
 
         return frame
+
+    def reset(self) -> None:
+        """Clear UI-loop state for a new generation."""
+        self.state.reset()
+        super().reset()
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
         """Apply a checkbox change without replacing the active session."""

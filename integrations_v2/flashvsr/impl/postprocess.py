@@ -191,10 +191,12 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         # Warmup must not consume rollout state. Keep the transformer cache
         # object and its CUDA-graph-bound KV storage, but restore every nested
         # cache's cold-start bookkeeping for the real video.
-        self._pipeline.reset_cache_in_place(self._cache)
-        self._buffer = None
-        self._metadata_spans.clear()
-        self._ar_idx = 0
+        self._reset_rollout_state()
+
+    @torch.no_grad()
+    def reset(self) -> None:
+        """Reset temporal state while retaining FlashVSR weights and buffers."""
+        self._reset_rollout_state()
 
     @torch.no_grad()
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
@@ -292,6 +294,15 @@ class _FlashVSRPostProcessorSession(VideoPostProcessorSession):
         device = _resolve_postprocess_device(self._config.device)
         self._pipeline = pipeline_cfg.setup().to(device=device).eval()
         self._cache = self._pipeline.initialize_cache()
+
+    def _reset_rollout_state(self) -> None:
+        """Restore the prepared processor to its cold-start stream state."""
+        if self._pipeline is not None:
+            assert self._cache is not None
+            self._pipeline.reset_cache_in_place(self._cache)
+        self._buffer = None
+        self._metadata_spans.clear()
+        self._ar_idx = 0
 
     def _append_to_buffer(self, bcthw: Tensor, *, metadata: dict[str, Any]) -> None:
         assert self._pipeline is not None

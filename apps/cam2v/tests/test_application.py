@@ -268,6 +268,48 @@ def _input_test_model_loop(
     return model_loop, state, pipeline
 
 
+def test_model_loop_reset_restores_existing_generation_state() -> None:
+    """Keep the reset behavior that Cam2V already exposed on origin/main."""
+    model_loop, state, _ = _input_test_model_loop()
+    postprocess_stream = Mock()
+    state.postprocess_stream = postprocess_stream
+    state.blocks_generated = 3
+    state.frames_generated = 6
+    state.input_timeline.next_window(2)
+    assert state.keyboard_track.on_edge(timestamp_s=1.0, action="keydown", key="w")
+    state.pose_integrator.integrate_chunk(
+        segments=[(0.0, 1.0, frozenset({"w"}))],
+        frame_times=[1.0],
+    )
+    state.steady_started_at = 1.0
+    state.steady_frames_generated = 6
+    state._recent_model_frame_rate_tracker.observe(
+        completed_at=1.0,
+        frame_count=6,
+        elapsed_s=1.0,
+    )
+    state.comparison_pending_generated_frames = torch.ones((1, 3, 1, 1))
+
+    model_loop.reset()
+
+    postprocess_stream.reset.assert_called_once_with()
+    assert state.cache is None
+    assert state.blocks_generated == 0
+    assert state.frames_generated == 0
+    assert state.input_timeline.next_window_start_s == 0.0
+    assert state.keyboard_track.pending_event_count == 0
+    assert state.pose_integrator.current_pose().tolist() == [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    assert state.steady_started_at is None
+    assert state.steady_frames_generated == 0
+    assert state._recent_model_frame_rate_tracker.snapshot().frames_per_second() == 0.0
+    assert state.comparison_pending_generated_frames is None
+
+
 def test_model_loop_logs_each_ar_step_wall_timing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -559,6 +601,46 @@ def test_slangpy_continuous_redraw_expires_recent_model_rate(
     assert "Recent model rate (2 s): 0.00 FPS" in (
         widget.text for widget in state.status_widgets
     )
+
+
+def test_slangpy_ui_loop_reset_restores_existing_ui_state() -> None:
+    """Clear Cam2V's transient UI state without changing the PP selection."""
+    renderer = Mock()
+    ui_loop = Cam2VSlangPyUILoop(renderer=renderer)
+    state = Cam2VUIState(
+        total_blocks=4,
+        target_fps=16,
+        warmup_blocks=0,
+        show_postprocess_toggle=True,
+        postprocess_enabled=True,
+    )
+    ui_loop.register_session_loop_objects(
+        state=state,
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.held_keys.add("w")
+    assert state._keyboard_state.apply_event(event="keydown", key="w")
+    state.update_status(
+        Cam2VUIStatus(
+            completed_blocks=1,
+            frames_generated=2,
+            chunk_fps=2.0,
+            recent_model_rate_snapshot=None,
+            model_step_wall_s=1.0,
+        )
+    )
+    state.frames_presented = 2
+
+    ui_loop.reset()
+
+    renderer.reset.assert_called_once_with()
+    assert not state.held_keys
+    assert state._keyboard_state.snapshot() == frozenset()
+    assert state.status is None
+    assert state.frames_presented == 0
+    assert state.postprocess_enabled
 
 
 def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:

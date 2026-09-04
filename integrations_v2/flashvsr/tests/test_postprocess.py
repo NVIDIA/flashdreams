@@ -175,7 +175,7 @@ def test_flashvsr_postprocess_can_start_on_steady_chunk(
     assert session.flush() == []
 
 
-def test_flashvsr_postprocess_handles_lingbot_chunks(
+def test_flashvsr_postprocess_handles_lingbot_chunks_and_resets_in_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_builder(monkeypatch)
@@ -186,14 +186,20 @@ def test_flashvsr_postprocess_handles_lingbot_chunks(
     steady = session.process(
         VideoChunk(tensor=torch.ones((12, 3, 4, 6)), layout="tchw")
     )
+    session.reset()
+    restarted = session.process(
+        VideoChunk(tensor=torch.full((12, 3, 4, 6), 2.0), layout="tchw")
+    )
 
     assert [chunk.tensor.shape[2] for chunk in cold] == [5]
     assert [chunk.tensor.shape[2] for chunk in steady] == [8, 8]
+    assert [chunk.tensor.shape[2] for chunk in restarted] == [5]
     assert len(created) == 1
     pipeline = created[0]
-    assert [idx for idx, _ in pipeline.inputs] == [0, 1, 2]
-    assert [clip.shape[2] for _, clip in pipeline.inputs] == [5, 8, 8]
+    assert [idx for idx, _ in pipeline.inputs] == [0, 1, 2, 0]
+    assert [clip.shape[2] for _, clip in pipeline.inputs] == [5, 8, 8, 5]
     assert pipeline.cache_initializations == 1
+    assert pipeline.cache_resets == 1
     assert len(set(pipeline.cache_ids)) == 1
 
 
