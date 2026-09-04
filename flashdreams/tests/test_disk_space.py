@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import errno
+import io
 from types import SimpleNamespace
 
 import pytest
@@ -175,3 +176,26 @@ def test_download_to_cache_converts_enospc(
     )
     assert "frame.png" in message
     assert "https://example.test/frame.png" in message
+
+
+def test_download_to_cache_sends_product_user_agent(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened = []
+
+    def fake_urlopen(request, *, timeout):
+        opened.append((request, timeout))
+        return io.BytesIO(b"frame")
+
+    monkeypatch.setenv(disk.CACHE_MIN_FREE_ENV, "0")
+    monkeypatch.setattr(
+        "flashdreams.core.io.download.urllib.request.urlopen", fake_urlopen
+    )
+
+    path = download_to_cache("https://example.test/frame.png", cache_dir=tmp_path)
+
+    request, timeout = opened[0]
+    assert path.read_bytes() == b"frame"
+    assert request.full_url == "https://example.test/frame.png"
+    assert request.get_header("User-agent") == "FlashDreams/1.0"
+    assert timeout == 30.0

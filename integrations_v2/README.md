@@ -20,6 +20,8 @@ follows is already done for you.
   and the reference for writing a UI loop.
 - `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
   shared interactive camera-to-video application.
+- `waypoint` — the Waypoint model binding to the shared `apps/action2v`
+  application.
 - `hy_worldplay` — the HY-WorldPlay model and its `cam2v-hy-worldplay` binding,
   including live PRoPE/action camera-history adaptation.
 - `waypoint` — the interactive Waypoint 1.5 image-established application
@@ -27,6 +29,8 @@ follows is already done for you.
 - `self_forcing`, `causal_forcing`, `fastvideo_causal_wan22`, `wan21`,
   `cosmos_predict2`, and `wan22` — model implementations with T2V adapters
   over the reusable `apps/t2v` package.
+- `flashvsr` — streaming video super-resolution bound to the shared
+  `apps/v2v` video-to-video application.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
 

@@ -63,6 +63,8 @@ class WebRTCClientWindow(IClientWindow):
             startup_timeout_seconds: Maximum time to wait for server startup.
         """
         self._input_events: deque[UserInputEvent] = deque()
+        self._hide_cursor = False
+        self._lock_cursor_to_window = False
         self._input_lock = threading.Lock()
         # Offset from the server's stable clock to the current session's clock.
         self._session_event_offset_us = uint64(0)
@@ -80,6 +82,22 @@ class WebRTCClientWindow(IClientWindow):
                 self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
+
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Show or hide the cursor in the browser window."""
+        self.server.configure_cursor(
+            hide_cursor=hide_cursor,
+            lock_cursor_to_window=self._lock_cursor_to_window,
+        )
+        self._hide_cursor = hide_cursor
+
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Release or capture pointer motion in the browser window."""
+        self.server.configure_cursor(
+            hide_cursor=self._hide_cursor,
+            lock_cursor_to_window=lock_cursor_to_window,
+        )
+        self._lock_cursor_to_window = lock_cursor_to_window
 
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.

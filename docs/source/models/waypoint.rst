@@ -36,7 +36,7 @@ Waypoint 1.5
 Waypoint-1.5-1B is Overworld's dense, autoregressive interactive video world
 model. FlashDreams integrates the published BF16 checkpoint as an
 image-established, keyboard/mouse-controlled V2 application with deterministic
-MP4 replay, per-action metrics, and live WebRTC presentation.
+per-action metrics and live WebRTC presentation.
 
 .. raw:: html
 
@@ -62,14 +62,14 @@ Support summary
    * - Surface
      - FlashDreams support
    * - Application slug
-     - waypoint-1-5-1b through flashdreams-run-v2
+     - action2v-waypoint-1-5-1b through flashdreams-run-v2
    * - Input modalities
-     - RGB/RGBA seed image; keyboard and mouse buttons; relative mouse motion;
+     - RGB/RGBA first-frame image; keyboard and mouse buttons; relative mouse motion;
        ternary scroll-wheel direction
    * - Output modality
      - Four RGB frames per action, native 1024x512 TCHW in the [-1, 1] range
    * - Control modes
-     - Live browser events or a finite, versioned JSON action timeline
+     - Live browser keyboard and mouse events
    * - Output modes
      - WebRTC, MP4, null output, and optional per-action metrics
    * - Precision and device
@@ -104,37 +104,28 @@ From the FlashDreams repository root:
 
 .. code-block:: bash
 
-   uv sync --package flashdreams-waypoint-v2 --inexact
+   uv sync --package flashdreams-waypoint --inexact
 
-The V2 application package depends on the sibling flashdreams-waypoint model
-package, so both are installed together.
+The package includes the model implementation and its Action2V adapter.
 
 Running the model
 -----------------
 
-Generate a deterministic 40-action MP4 using the pinned public example image
-and bundled control timeline:
+Run the application interactively in a browser:
 
 .. code-block:: bash
 
-   uv run --no-sync flashdreams-run-v2 waypoint-1-5-1b \
-       --output-path waypoint.mp4 --stats-path waypoint.metrics.json \
-       -- --example-data --actions 40 --seed 464 --profile
-
-Run the same application interactively in a browser:
-
-.. code-block:: bash
-
-   uv run --no-sync flashdreams-run-v2 waypoint-1-5-1b \
+   uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
        --mode webrtc --host 127.0.0.1 --port 8766 \
-       -- --seed-image seed.png --seed 464
+       -- --seed 464
 
-Open http://127.0.0.1:8766/. Arguments before the separator configure the V2
+Open http://127.0.0.1:8766/. Waypoint downloads its pinned default first frame
+when ``--first-frame`` is omitted. Arguments before the separator configure the V2
 runtime; arguments after it configure Waypoint. To inspect all model arguments:
 
 .. code-block:: bash
 
-   uv run --no-sync flashdreams-run-v2 waypoint-1-5-1b -- --help
+   uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b -- --help
 
 Model and integration architecture
 ----------------------------------
@@ -170,7 +161,7 @@ reports both rather than relabeling the upstream model.
 The package-level design review contains component, class, use-case, and
 sequence diagrams:
 
-.. button-link:: https://github.com/NVIDIA/flashdreams/blob/main/integrations/waypoint/README.md
+.. button-link:: https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/README.md
    :color: secondary
    :outline:
 
@@ -181,7 +172,7 @@ Measured FlashDreams performance
 
 The final FlashDreams path was measured on 2026-08-26 using an RTX PRO 6000
 Blackwell Workstation Edition (96 GiB), driver 595.84, PyTorch 2.12.1+cu130,
-CUDA 13.0, BF16 weights, the pinned example seed/control timeline, seed 464,
+CUDA 13.0, BF16 weights, the pinned validation first frame and control timeline, seed 464,
 native 1024x512 output, four denoise evaluations, and synchronous profiling.
 Actions 1-19 were warmup; actions 20-40 were the steady-state sample.
 
@@ -269,8 +260,8 @@ Important limitations:
   high-stakes automation, or deployments that remove reasonable safeguards.
 - The current server accepts one WebRTC browser client per process. Multiple
   sessions may share model weights, but model execution is serialized.
-- Live results depend on browser event timing. Use a control file and fixed
-  seed when reproducibility matters.
+- Live results depend on browser event timing and are not reproducible from the
+  application command line alone.
 
 Review the upstream model card and world-model safety discussion before
 deployment:

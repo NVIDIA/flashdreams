@@ -54,6 +54,25 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 ================================================================================
+Optional application: apps/v2v
+================================================================================
+
+Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
+    (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
+
+    The v2v application downloads the Blender Foundation's
+    big_buck_bunny_480p_h264.mov encode at runtime and processes an excerpt
+    as demo input. The source video is licensed under the Creative Commons Attribution
+    3.0 license (https://creativecommons.org/licenses/by/3.0/) and is not
+    redistributed in this repository.
+
+================================================================================
+Optional integration: integrations_v2/flashvsr
+================================================================================
+
+ninja                  Apache-2.0   https://github.com/ninja-build/ninja
+
+================================================================================
 Optional integration: integrations_v2/omnidreams
 ================================================================================
 

@@ -488,6 +488,17 @@ class RecordingClientWindow(IClientWindow):
         self.session_desc: SessionDesc | None = None
         self._input_timestamp_origin_ns: int | None = None
         self.results: list[StepResult] = []
+        self.cursor_requests: list[tuple[str, bool]] = []
+
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Record one cursor visibility request."""
+        self._log.record("window.request_hide_cursor")
+        self.cursor_requests.append(("hide", hide_cursor))
+
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Record one cursor capture request."""
+        self._log.record("window.request_lock_cursor_to_window")
+        self.cursor_requests.append(("lock", lock_cursor_to_window))
 
     @property
     def input_timestamp_origin_ns(self) -> int | None:

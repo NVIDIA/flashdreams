@@ -332,6 +332,8 @@ class WebRTCServer:
         self._runner: web.AppRunner | None = None
         self._offer_lock: asyncio.Lock | None = None
         self._peer_connection: RTCPeerConnection | None = None
+        self._control_channel: Any | None = None
+        self._sent_cursor_options: tuple[bool, bool] | None = None
         self._video_track: _VideoTrack | None = None
         self._final_video_track_metrics: dict[str, float | int] | None = None
         self._media_connected = threading.Event()
@@ -342,6 +344,8 @@ class WebRTCServer:
         self._materialization_count = 0
         self._closed = False
         self._client_connected = False
+        self._hide_cursor = False
+        self._lock_cursor_to_window = False
         self._thread = threading.Thread(
             target=self._run_server,
             name="flashdreams-webrtc",
@@ -397,6 +401,45 @@ class WebRTCServer:
             **sender_metrics,
             "webrtc_sender_materialized_count": self._materialization_count,
         }
+
+    def configure_cursor(
+        self, *, hide_cursor: bool, lock_cursor_to_window: bool
+    ) -> None:
+        """Apply cursor options and notify an already-connected browser."""
+        if not isinstance(hide_cursor, bool):
+            raise TypeError("hide_cursor must be a bool.")
+        if not isinstance(lock_cursor_to_window, bool):
+            raise TypeError("lock_cursor_to_window must be a bool.")
+        if (
+            hide_cursor == self._hide_cursor
+            and lock_cursor_to_window == self._lock_cursor_to_window
+        ):
+            return
+        self._hide_cursor = hide_cursor
+        self._lock_cursor_to_window = lock_cursor_to_window
+        loop = self._loop
+        if loop is not None and self._control_channel is not None:
+            loop.call_soon_threadsafe(self._send_cursor_options)
+
+    def _send_cursor_options(self) -> None:
+        """Send current cursor options on the WebRTC event-loop thread."""
+        channel = self._control_channel
+        if channel is None or channel.readyState != "open":
+            return
+        cursor_options = (self._hide_cursor, self._lock_cursor_to_window)
+        if cursor_options == self._sent_cursor_options:
+            return
+        channel.send(
+            json.dumps(
+                {
+                    "type": "cursor_options",
+                    "hide_cursor": cursor_options[0],
+                    "lock_cursor_to_window": cursor_options[1],
+                }
+            )
+        )
+
+        self._sent_cursor_options = cursor_options
 
     def event_timestamp_us(self) -> np.uint64:
         """Return the current timestamp relative to this server's first session.
@@ -662,6 +705,8 @@ class WebRTCServer:
             {
                 "open": self._session_desc is not None,
                 "client_connected": self._client_connected,
+                "hide_cursor": self._hide_cursor,
+                "lock_cursor_to_window": self._lock_cursor_to_window,
             }
         )
 
@@ -699,15 +744,31 @@ class WebRTCServer:
             video_track = _VideoTrack(session_desc.frames_per_second_for_ui)
             peer_connection.addTrack(video_track)
             has_reliable_control = False
+            control_channel: Any | None = None
 
             @peer_connection.on("datachannel")
             def on_datachannel(channel: Any) -> None:
-                nonlocal has_reliable_control
+                nonlocal control_channel, has_reliable_control
                 is_reliable_control = channel.label == "controls"
                 if is_reliable_control:
                     has_reliable_control = True
+                    control_channel = channel
                     if self._peer_connection is peer_connection:
                         self._client_connected = True
+                        self._control_channel = channel
+
+                        self._sent_cursor_options = None
+
+                    @channel.on("open")
+                    def on_open() -> None:
+                        if self._peer_connection is peer_connection:
+                            self._send_cursor_options()
+
+                    if (
+                        self._peer_connection is peer_connection
+                        and channel.readyState == "open"
+                    ):
+                        self._send_cursor_options()
 
                 @channel.on("message")
                 def on_message(message: Any) -> None:
@@ -786,6 +847,10 @@ class WebRTCServer:
             self._client_connected = has_reliable_control
             if peer_connection.connectionState == "connected":
                 self._media_connected.set()
+            self._control_channel = control_channel
+            self._sent_cursor_options = None
+            if control_channel is not None and control_channel.readyState == "open":
+                self._send_cursor_options()
             return web.json_response(
                 {"sdp": local_description.sdp, "type": local_description.type}
             )
@@ -831,8 +896,8 @@ class WebRTCServer:
                 raise ValueError(
                     "Mouse event action must be 'move', 'button', or 'wheel'."
                 )
-            x = _normalized_coordinate(payload.get("x"), label="Mouse x")
-            y = _normalized_coordinate(payload.get("y"), label="Mouse y")
+            x = _finite_number(payload.get("x"), label="Mouse x")
+            y = _finite_number(payload.get("y"), label="Mouse y")
             button = payload.get("button", 0)
             pressed = payload.get("pressed", False)
             wheel_x = _finite_number(payload.get("wheel_x", 0.0), label="wheel_x")
@@ -979,7 +1044,9 @@ class WebRTCServer:
             self._media_connected.clear()
             self._client_connected = False
             track = self._video_track
+            self._control_channel = None
             self._video_track = None
+            self._sent_cursor_options = None
         else:
             track = detached_video_track
         failures: list[BaseException] = []

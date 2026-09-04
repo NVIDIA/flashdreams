@@ -36,7 +36,8 @@ dependencies = [
     "grpcio-tools>=1.50",
     "grpcio>=1.50",
     "nvidia-cudnn-frontend==1.22.1",
-    "nvidia-cudnn-cu13==9.23.2.1; sys_platform == 'win32'",
+    # Must match the cuDNN bundled by the Windows PyTorch cu130 wheel.
+    "nvidia-cudnn-cu13==9.20.0.48; sys_platform == 'win32'",
     "opencv-python-headless>=4.5",
     "shapely>=2.0",
     # Runtime deps for the ``interactive_drive`` desktop demo package. Most
