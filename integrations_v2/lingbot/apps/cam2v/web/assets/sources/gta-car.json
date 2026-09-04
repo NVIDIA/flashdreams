@@ -1,0 +1,104 @@
+{
+  "id": "gta_lowrider_13",
+  "name": "GTA Lowrider",
+  "hidden": true,
+  "description": "Third-person GTA lowrider street — key 1 = enter car & drive, key 2 = exit car, key 3 = honk horn, key 4 = headlights, key 5 = spray tag, key 6 = hydraulics bounce",
+  "image": {
+    "label": "GTA Lowrider",
+    "src": "/lingbot-cases/gta-car.jpg"
+  },
+  "scene": {
+    "base": {
+      "default": "A sun-baked city street with a parked teal-green 1964 lowrider convertible with gleaming chrome wire wheels and graffiti tags sprayed across its body. The world contains EXACTLY ONE row of tall palm trees on the left at a fixed position AND EXACTLY ONE graffiti-covered brick wall on the right at a fixed position AND EXACTLY ONE glowing storefront sign straight ahead at a fixed position AND EXACTLY ONE teal lowrider car in the centre at a fixed position. Low pastel storefronts and tangled overhead power lines line a wide empty asphalt street, cracked pavement, warm golden-hour sunlight and long shadows under a hazy orange sunset sky. Cel-shaded GTA comic-book art style, bold black outlines, saturated colours, high contrast.",
+      "driving": "A teal-green 1964 lowrider convertible seen from directly behind as it cruises down a sun-baked city street, the young man now sitting in the driver's seat with one arm resting on the wheel, his flat-brim black cap and black t-shirt visible from behind through the open cabin, chrome wire wheels spinning and the graffiti-tagged bodywork gleaming. The world contains EXACTLY ONE row of tall palm trees on the left at a fixed position AND EXACTLY ONE graffiti-covered brick wall on the right at a fixed position AND EXACTLY ONE glowing storefront sign straight ahead at a fixed position. Low pastel storefronts and tangled overhead power lines line a wide asphalt street, warm golden-hour sunlight and long shadows under a hazy orange sunset sky. Cel-shaded GTA comic-book art style, bold black outlines, saturated colours, high contrast."
+    },
+    "player": {
+      "default": "A young man seen from behind — wearing a flat-brim black baseball cap, a loose black t-shirt, grey jeans and white sneakers, tattoos down his arms, holding a green spray-paint can in his right hand. EXACTLY ONE young man — a single lone person, no duplicate and no clone.",
+      "driving": ""
+    },
+    "camera": {
+      "default": {
+        "static": "Third-person view from behind the young man, his back centred in frame at constant size beside the parked lowrider, the green spray can visible in his hand — never a first-person view. Neither the man nor the camera moves; look-input is the only camera motion, arcing around the stationary centred man while held.",
+        "dynamic": "Strict third-person rear view from close behind and slightly above the young man, his back and shoulders filling frame centre beside the car — never first-person. It holds a fixed rear position and does not rotate around him; look-input becomes the man changing heading."
+      },
+      "driving": {
+        "static": "Third-person chase view from directly behind the lowrider, the car centred in frame at constant size with the driver visible from behind — never a first-person or in-cabin view. Neither the car nor the camera moves; look-input arcs the camera around the stationary centred car while held.",
+        "dynamic": "Strict third-person chase-cam from close behind and slightly above the lowrider, its rear end and spinning wire wheels filling frame centre — never first-person. It holds a fixed position behind the car and tracks it forward down the street; look-input becomes the car changing heading."
+      }
+    },
+    "movement": {
+      "default": {
+        "static": "The young man stands still beside the lowrider, weight settled, shaking the spray can with a faint rattle as heat shimmers off the asphalt and the palm fronds sway in a light breeze.",
+        "dynamic": "The young man strides forward down the street past the parked car, sneakers scuffing the warm asphalt, the spray can swinging at his side as storefronts and palms slide past."
+      },
+      "driving": {
+        "static": "The lowrider idles low on its suspension, engine rumbling, the driver's arm resting on the wheel and exhaust haze curling from the tailpipe as heat ripples off the street ahead.",
+        "dynamic": "The lowrider rolls forward down the street at a cruising pace, wire wheels spinning and chrome catching the sunset light, storefronts, palms and power lines sweeping past on either side."
+      }
+    },
+    "events": [
+      {
+        "name": "Enter Car",
+        "actor": "character",
+        "baseVersion": "driving",
+        "cameraVersion": "driving",
+        "movementVersion": "driving",
+        "detail": "The young man steps around to the driver's door of the teal lowrider, pulls it open, drops into the seat and pulls the door shut; the viewpoint settles into a chase position behind the car as the engine turns over and rumbles to life, and he stays behind the wheel. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Exit Car",
+        "actor": "character",
+        "baseVersion": "default",
+        "cameraVersion": "default",
+        "movementVersion": "default",
+        "detail": "The lowrider rolls to a stop and the engine cuts; the young man pushes the driver's door open and climbs back out onto the street beside the car, standing once more on foot with the green spray can in hand. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Honk Horn",
+        "actor": "character",
+        "detail": "The driver leans on the horn and a loud blaring honk blasts out across the street, echoing off the storefronts and scattering a few pedestrians, before easing off. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Headlights",
+        "actor": "character",
+        "detail": "The lowrider's headlights snap on, throwing two bright cones of light down the street ahead and lighting up the asphalt, and stay lit. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Spray Tag",
+        "actor": "character",
+        "detail": "The young man shakes the can and sprays a burst of bright green paint onto the wall ahead, leaving a fresh dripping graffiti tag that stays sprayed on the brick, then lowers the can. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Hydraulics Bounce",
+        "actor": "character",
+        "detail": "The lowrider's hydraulic suspension kicks hard, hopping the front end up off the asphalt and slamming it back down, the whole car bouncing on its wire wheels before settling low again. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Police Arrive",
+        "actor": "environment",
+        "detail": "The young man stays where he is, unchanged in pose and position, while police cruisers race in with sirens wailing and red-and-blue lights flashing, screeching to a stop at angles across the street as officers pile out and take cover; the parked cruisers and officers stay, blocking the road. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Nightfall",
+        "actor": "environment",
+        "detail": "The warm orange sunset drains from the sky as night falls over the street — the sky deepens to dark blue and black, the storefront signs and streetlights flicker on casting neon pools across the wet-looking asphalt, and from then on the scene stays lit only by artificial light. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      },
+      {
+        "name": "Rival Lowrider Rolls Up",
+        "actor": "environment",
+        "detail": "A rival crew's crimson-red lowrider rolls up and stops across the street ahead, engine growling, and stays parked there with its crew leaning against it, sizing up the young man and his car. The main subject stays EXACTLY ONE in frame — a single main character, no second copy of the main subject, no duplicate and no clone of it."
+      }
+    ],
+    "hud": {
+      "show": true,
+      "maxHealth": 100,
+      "health": 100,
+      "inventory": [
+        "a green spray can"
+      ]
+    },
+    "jumpPrompt": "The young man springs upward off both feet, leaping high off the warm asphalt, his sneakers lifting clear of the ground before he drops back down and lands in a low crouch.",
+    "crouchPrompt": "The camera lowers toward the ground as the young man crouches down low, bending his knees and ducking into a compact, hunched stance beside the car; the viewpoint sinks smoothly to a low, near-ground vantage and settles there, close to the ground.",
+    "standPrompt": "The young man straightens back up out of the crouch, rising to full standing height as the camera lifts smoothly back to its normal eye-level vantage."
+  }
+}

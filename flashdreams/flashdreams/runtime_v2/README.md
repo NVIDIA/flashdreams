@@ -260,6 +260,40 @@ replacement must keep the negotiated layout, frame rates, width, and height.
 What a sink expects of the pixel values it is handed is part of the result
 contract, in [`api_v2`](../api_v2/README.md#what-a-step-returns).
 
+## Serving an application's own browser UI
+
+The WebRTC mode ships one minimal viewer at `/`, which every application gets.
+An application wanting a richer page — a scene picker, an event panel, a
+heads-up display — implements `IWebUiProvider` from `flashdreams.api_v2.web_ui`
+and returns four things: the directory holding its web assets, the scene the
+page renders before any frame arrives, the session's first frame, and what to
+do with one page submission.
+
+Doing so adds five routes to that run:
+
+| Route | Serves |
+| --- | --- |
+| `GET /request_session` | `index.html` from the application's web root |
+| `GET /<file>` | any other file in that web root, resolved inside it only |
+| `GET /api/session/initial_scene` | `initial_scene()`, verbatim as JSON |
+| `GET /api/session/first_frame` | `first_frame()`, or 404 before one exists |
+| `POST /api/session/input` | `apply_session_input()`, then the resulting scene |
+
+The serving layer stays generic: it copies the scene into a JSON response and
+hands the decoded request body back without inspecting either, so what a scene
+is belongs to the application. JSON, form, and multipart bodies all arrive as
+one flat mapping, with uploaded files as `bytes` under their field name. An
+application raising `ValueError` becomes a 400 carrying its message.
+
+The wiring runs through `ClientWindowMode.attach_application`, called once
+after the window is created. Only `_WebRTCMode` overrides it, and only for an
+application implementing the protocol — every other application keeps exactly
+the routes it had before, since the handlers answer 404 without a provider.
+
+`ClientWindowMode.create` builds the window before the application attaches,
+and aiohttp freezes its router at startup, so these routes are registered up
+front and `WebRTCServer.serve_web_ui()` fills in the application behind them.
+
 ## Adding a mode
 
 A mode is one way to watch a run. Subclass `ClientWindowMode` in

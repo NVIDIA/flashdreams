@@ -41,6 +41,37 @@ The reusable applications provide concrete examples of the shared serving stack:
 - OmniDreams model wiring under ``integrations_v2/omnidreams/`` and serving
   under ``apps/interactive_drive/``.
 
+Application-served browser UI
+-----------------------------
+
+The v2 WebRTC runtime serves one minimal viewer at ``/`` for every application.
+An application that implements ``IWebUiProvider``
+(``flashdreams.api_v2.web_ui``) also has its own page and session endpoints
+served:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Route
+     - Serves
+   * - ``GET /request_session``
+     - ``index.html`` from the application's web root.
+   * - ``GET /<file>``
+     - Any other file in that web root, resolved inside it only.
+   * - ``GET /api/session/initial_scene``
+     - The application's scene, verbatim as JSON.
+   * - ``GET /api/session/first_frame``
+     - The session's first frame, or ``404`` before one exists.
+   * - ``POST /api/session/input``
+     - One page submission, answered with the resulting scene.
+
+These routes answer ``404`` for an application that does not implement the
+protocol, so adding it changes nothing for the others. The serving layer never
+inspects a scene: prompt, event, and upload semantics belong to the
+application. ``integrations_v2/lingbot/`` is the reference implementation; see
+:doc:`/models/lingbot_world`.
+
 Launch patterns
 ---------------
 

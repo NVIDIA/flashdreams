@@ -62,9 +62,10 @@ and streams the generated camera view to a browser over WebRTC:
        interactive-drive-omnidreams --mode webrtc \
        --host 0.0.0.0 --port 8089
 
-Then open ``http://<server-ip>:8089/request_session`` in a browser on the same network
-(use ``localhost`` on the same machine). The first launch spends several
-minutes loading checkpoints and compiling kernels; later launches reuse
+Then open ``http://<server-ip>:8089/`` in a browser on the same network (use
+``localhost`` on the same machine). An application serving its own page, such
+as Lingbot, also offers it at ``/request_session``. The first launch spends
+several minutes loading checkpoints and compiling kernels; later launches reuse
 the cached assets.
 
 Inspect the application arguments without loading checkpoints:

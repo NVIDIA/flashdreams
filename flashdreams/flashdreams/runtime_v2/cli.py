@@ -79,6 +79,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         return
     session_desc = _session_desc(application, parsed)
     window = mode.create(parsed)
+    mode.attach_application(window, application)
     _report(mode.starting(window))
     # The session's UI and client input decide when the run ends.
     metrics_output_sink = (

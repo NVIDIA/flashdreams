@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
+from loguru import logger
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -23,6 +25,8 @@ from flashdreams.runtime_v2.user_input_event import (
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
@@ -471,6 +475,9 @@ def _parse_lifecycle_events(
 ) -> _LoopRunResult | None:
     """Return the terminal lifecycle request, prioritizing close."""
     if any(isinstance(event, CloseUserInputEvent) for event in events):
+        # A client can end the whole run this way, which otherwise looks from
+        # the outside like the server exiting on its own.
+        logger.info("A client sent a close event; stopping the session.")
         return _LoopRunResult(stop_requested=True)
     return None
 

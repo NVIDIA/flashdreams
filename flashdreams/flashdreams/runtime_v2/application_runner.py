@@ -9,6 +9,8 @@ import sys
 import time
 from collections.abc import Sequence
 
+from loguru import logger
+
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.output_sink import OutputSink
@@ -82,10 +84,17 @@ class ApplicationRunner:
         try:
             self._application.init(commandline_args)
             next_session_desc: SessionDesc | None = session_desc
+            session_count = 0
             while next_session_desc is not None:
                 if deadline is not None and time.monotonic() >= deadline:
+                    logger.info(
+                        "Application run ending: the {}s timeout expired.",
+                        timeout_seconds,
+                    )
                     break
                 session = self._application.create_session(next_session_desc)
+                session_count += 1
+                logger.info("Session {} starting.", session_count)
                 session_run_started = True
                 remaining_seconds = (
                     None if deadline is None else max(0.0, deadline - time.monotonic())
@@ -100,8 +109,27 @@ class ApplicationRunner:
                 except BaseException:
                     # ``run_session`` closes the window on every failure.
                     window_needs_close = False
+                    logger.info(
+                        "Session {} failed; the run ends with it.", session_count
+                    )
                     raise
                 window_needs_close = next_session_desc is not None
+                # A run that stops without saying so is indistinguishable from
+                # a crash to whoever is watching the server, so every way out
+                # of this loop says which one it was.
+                if next_session_desc is None:
+                    logger.info(
+                        "Session {} ended and asked for no replacement, so the "
+                        "application run is complete. A session ends when the "
+                        "client closes the window, the model finishes its "
+                        "requested steps, or the UI stops.",
+                        session_count,
+                    )
+                else:
+                    logger.info(
+                        "Session {} ended and requested a replacement.",
+                        session_count,
+                    )
         finally:
             if window_needs_close:
                 _close_client_window(self._client_window)

@@ -10,6 +10,7 @@ from dataclasses import replace
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.web_ui import IWebUiProvider
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -71,6 +72,17 @@ class WebRTCClientWindow(IClientWindow):
                 self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
+
+    def serve_web_ui(self, web_ui: IWebUiProvider) -> None:
+        """Serve an application's own browser UI from this window's server.
+
+        Construction is specific to this implementation; it is not part of the
+        ``IClientWindow`` protocol.
+
+        Args:
+            web_ui: Application whose page and session routes to serve.
+        """
+        self.server.serve_web_ui(web_ui)
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the browser window."""

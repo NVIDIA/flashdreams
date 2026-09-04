@@ -1,0 +1,157 @@
+{
+  "id": "watergun_aquapark",
+  "name": "Water Blaster",
+  "description": "First-person water-blaster FPS at a floating aqua park — keys 1-9: rapid fire, pump/reload, splash blast, melee bash, raise float shield, duck behind cover, spray screen, dive dodge, sprint; + green slime blast (fires the green quarry water); Space = jump gap, C = crouch behind cover",
+  "image": {
+    "label": "Water Blaster",
+    "src": "/lingbot-cases/watergun.jpg"
+  },
+  "scene": {
+    "base": {
+      "default": "First-person point of view aiming out across a colourful floating inflatable aqua park on a calm green quarry lake under bright summer sun. The world contains EXACTLY ONE large ring-shaped blue inflatable obstacle platform straight ahead at a fixed position AND EXACTLY ONE person in swimwear standing on the floats ahead at a fixed position AND EXACTLY ONE rocky tree-lined bank across the water in the background at a fixed position. Interconnected inflatable platforms in blue, green and yellow float on the dark green water, swimmers in life vests and swimsuits scattered across them, sunlight glinting off the ripples. Photorealistic first-person action-cam look, saturated colours, bright midday light.",
+      "downed": "First-person point of view plunged down into the green quarry water after being knocked off the floats — the view is half-submerged at the waterline, water sloshing across the lens, bubbles and ripples all around, the colourful inflatable platforms bobbing above at the surface. The player is in the water, no longer up on the floats. Photorealistic first-person action-cam look."
+    },
+    "player": {
+      "default": "A bare hand at the lower right of the frame gripping a blue and red toy water blaster. EXACTLY ONE water blaster held at the lower right at a fixed position.",
+      "downed": ""
+    },
+    "camera": {
+      "default": {
+        "static": "First-person view with the blue and red water blaster and the hand gripping it held at the lower right of the frame at constant size — never a third-person body, no character seen from behind. Neither the player nor the camera moves on its own; arrow-key look-input is the only source of motion, swinging the aim/view across the aqua park while held.",
+        "dynamic": "Strict first-person view, the water blaster held ready at the lower right of the frame as the camera advances forward across the floating platforms — never a third-person body. Look-input aims and turns the view left and right; the blaster stays fixed at the lower right."
+      }
+    },
+    "movement": {
+      "default": {
+        "static": "The player stands still on a bobbing inflatable platform, the water blaster raised and steady at the lower right, the floats rocking gently on the ripples and water lapping at their edges as swimmers move in the distance.",
+        "dynamic": "The player wades and clambers forward across the bobbing inflatable platforms, the water blaster held up at the lower right, the floats pitching underfoot and water splashing up as the aqua park rushes past on either side."
+      }
+    },
+    "events": [
+      {
+        "name": "Rapid Fire",
+        "actor": "character",
+        "detail": "The hand pumps and unloads a rapid burst from the water blaster, a stuttering volley of water jets spraying out one after another across the floats in a scatter of spray and mist, then eases off.",
+        "removeItem": "water"
+      },
+      {
+        "name": "Pump Reload",
+        "actor": "character",
+        "detail": "The other hand grabs the pump handle and racks the water blaster back and forth to pressurise it, water sloshing in the clear reservoir, then brings it back up to the ready position at the lower right.",
+        "addItem": "water"
+      },
+      {
+        "name": "Splash Blast",
+        "actor": "character",
+        "detail": "The player unleashes a wide fan of water from the blaster, a broad sweeping spray that douses everything on the platform ahead in a sheet of glittering droplets, then settles.",
+        "removeItem": "water"
+      },
+      {
+        "name": "Melee Bash",
+        "actor": "character",
+        "detail": "The player swings the water blaster forward like a bat, cracking it against a close-up target with a splash, then pulls it back to the ready position at the lower right.",
+        "health": 0
+      },
+      {
+        "name": "Raise Float Shield",
+        "actor": "character",
+        "detail": "The free hand hauls up a clear inflatable board and holds it flat across the front of the view like a shield, incoming jets of water hammering into it and sheeting off to the sides in bursts of spray, then lowers it back down as the water blaster returns to the ready position at the lower right.",
+        "health": 0
+      },
+      {
+        "name": "Duck Behind Cover",
+        "actor": "character",
+        "detail": "The player drops down behind the raised edge of a big inflatable platform, the view dipping low behind the bobbing float as water jets streak overhead and splatter across the cover, then rises back up with the water blaster raised at the lower right.",
+        "health": 0
+      },
+      {
+        "name": "Sprint Charge",
+        "actor": "character",
+        "detail": "The player breaks into a hard sprint straight ahead, pounding across the pitching inflatable platforms with the water blaster held up, the floats and swimmers rushing past faster and water splashing up with every step, then eases back to a steady ready jog.",
+        "health": 0
+      },
+      {
+        "name": "Green Slime Blast",
+        "actor": "character",
+        "detail": "The player sucks the dark green quarry water up into the blaster and unloads it as a thick, glowing green slime stream, a heavy rope of bright green lake water arcing across the aqua park and slamming into the target — leaving BOLD, vivid neon-green splat marks that burst outward and STAIN wherever they land. Every inflatable platform and any opponent it hits is left coated in bright, saturated green splotches, thick dripping streaks and glistening slime that cling to the surface as strong, high-contrast green stains and stay clearly marked long after the stream cuts off.",
+        "removeItem": "water"
+      },
+      {
+        "name": "Swim",
+        "actor": "character",
+        "detail": "The view drops to water level as the player jumps off the inflatable float into the green quarry lake and swims forward, arms and hands stroking through the water at the lower frame and spray fanning up ahead as the colourful aqua-park platforms bob past on either side. First-person view, never a third-person body."
+      },
+      {
+        "name": "Dive",
+        "actor": "character",
+        "detail": "The view plunges underwater as the player dives down beneath the surface of the green quarry lake, the water closing over the frame into murky green light shot through with rising bubbles and shafts of sunlight, the undersides of the inflatable floats and swimmers' legs drifting overhead through the rippling surface. First-person view, never a third-person body."
+      },
+      {
+        "name": "Rival Blaster Ambush",
+        "actor": "environment",
+        "detail": "A rival player in a life vest pops up from behind an inflatable platform ahead and opens fire with their own water blaster, jets of water arcing straight toward the camera and splattering across the lens, the rival ducking and weaving as they keep firing.",
+        "health": -12
+      },
+      {
+        "name": "Rival Shoots Back",
+        "actor": "environment",
+        "health": -10,
+        "detail": "A rival player in a life vest on the floats ahead returns fire, sending a hard jet of water straight back at the camera that splatters and streams across the lens, the view flinching and blurring under the soaking before the water runs off. EXACTLY ONE rival in frame — a single opponent, no duplicate and no clone."
+      },
+      {
+        "name": "Rival Slimes You",
+        "actor": "environment",
+        "health": -12,
+        "detail": "A rival player ahead unloads a thick rope of glowing PURPLE slime straight at the camera — a heavy jet of vivid neon-purple goo, a completely DIFFERENT colour from the player's own green slime — that splatters across the lens and clings, oozing and dripping down the view in bold, saturated purple streaks and splotches that stay clearly marked before they slowly run off. EXACTLY ONE rival in frame — a single opponent, no duplicate and no clone."
+      },
+      {
+        "name": "Bathers Get Super Soakers",
+        "actor": "environment",
+        "health": -12,
+        "detail": "The director hands out huge super soakers to every bather in the aqua park, and the whole park opens fire at once — swimmers on every inflatable platform ahead and to both sides raising big bright pump-action water blasters and unleashing arcing jets of water toward the camera from all directions, crossing streams and spray filling the air as the bathers duck, weave and keep pumping. From then on the other bathers STAY armed with super soakers, firing back across the floats."
+      },
+      {
+        "name": "Player Falls In",
+        "actor": "environment",
+        "detail": "A swimmer standing on the floats ahead loses their footing, arms wheeling, and topples off the inflatable into the green water with a big splash — they vanish under the surface for a moment, then bob back up in a life vest where the empty float now sits."
+      },
+      {
+        "name": "Crocodile Lunges",
+        "actor": "environment",
+        "health": -20,
+        "detail": "A big crocodile surges up out of the green quarry water beside the inflatable floats, jaws gaping wide as it lunges straight at the camera in a burst of spray and thrashing water, snapping close before it twists and slides back below the surface. From then on the crocodile lurks in the water, cruising the aqua park with just its eyes and snout above the surface. EXACTLY ONE crocodile in the water — a single lone crocodile, no duplicate and no clone."
+      },
+      {
+        "name": "Wave Surge",
+        "actor": "environment",
+        "detail": "The calm lake churns up into rolling swells that sweep across the aqua park, the inflatable platforms pitching and heaving hard on the waves, spray flying off their edges as everything bobs violently."
+      },
+      {
+        "name": "Storm Rolls In",
+        "actor": "environment",
+        "detail": "Dark grey clouds sweep across the sky and blot out the summer sun, the light dropping to a flat overcast gloom, rain beginning to pockmark the lake surface and the water turning choppy and slate-green across the whole aqua park."
+      },
+      {
+        "name": "Giant Balloon Drops",
+        "actor": "environment",
+        "detail": "A huge water balloon plummets down and bursts on the platform ahead in an enormous explosion of water, drenching the whole float in a wall of spray — then it is GONE, nothing left but the soaked, dripping platform and settling ripples where it hit."
+      },
+      {
+        "name": "Float Deflates",
+        "actor": "environment",
+        "detail": "One of the large inflatable platforms ahead splits and rapidly deflates, folding and sagging down flat into the water and sinking below the surface — it is GONE, leaving a wide gap of open green water where the float used to be, the gap staying open."
+      }
+    ],
+    "hud": {
+      "show": true,
+      "maxHealth": 100,
+      "health": 100,
+      "inventory": [
+        "water"
+      ]
+    },
+    "jumpPrompt": "The player leaps up and forward off the edge of the inflatable platform, sailing over a gap of open water with the blaster held out, then lands splashing onto the next float and steadies.",
+    "crouchPrompt": "The view drops low as the player crouches down behind the raised edge of an inflatable platform for cover, only the top of the water blaster peeking over, and holds low.",
+    "standPrompt": "The player rises back up from behind the inflatable to full standing height, the water blaster lifting back up to the ready position at the lower right, the view returning to its normal vantage."
+  }
+}

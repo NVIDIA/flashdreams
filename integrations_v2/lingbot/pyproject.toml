@@ -59,5 +59,14 @@ packages = [
 [tool.setuptools.package-dir]
 lingbot = "."
 
+[tool.setuptools.package-data]
+"lingbot.apps.cam2v" = [
+    "web/adapter.css",
+    "web/adapter.js",
+    "web/scene_presets.json",
+    "web/assets/*.jpg",
+    "web/assets/sources/*.json",
+]
+
 [tool.uv]
 managed = true
