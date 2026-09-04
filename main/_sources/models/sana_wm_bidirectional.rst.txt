@@ -41,8 +41,8 @@ SANA-WM_bidirectional
 ``SANA-WM_bidirectional`` is the full-sequence, camera-controlled
 `NVlabs/Sana <https://github.com/NVlabs/Sana>`_ world model release. Given a
 first frame, a text prompt, and a camera trajectory, it renders a video clip in
-a single bidirectional pass. FlashDreams runs it through the
-``sana-wm-bidirectional`` runner with a native Stage-1 DiT and an LTX-2 refiner.
+a single bidirectional pass. FlashDreams exposes it through the
+``PIPELINE_SANA_WM_BIDIRECTIONAL`` pipeline configuration, with a native Stage-1 DiT and an LTX-2 refiner.
 
 The sibling streaming release has a separate model card:
 :doc:`sana_wm_streaming`.
@@ -57,7 +57,7 @@ Requirements
 ------------
 
 - **PyTorch**: >= 2.9.
-- **Precision**: BF16 by default. The FlashDreams runner also exposes opt-in
+- **Precision**: BF16 by default. The pipeline configuration also exposes opt-in
   FP8 and FP4 execution paths, but the upstream-vs-FlashDreams benchmark for
   ``SANA-WM_bidirectional`` is BF16-only because upstream
   ``SANA-WM_bidirectional`` does not support those precision flags.
@@ -70,62 +70,16 @@ Installation
    # from the repo root
    uv sync --package flashdreams-sana-wm --extra dev
 
-Running the method
-------------------
+Programmatic pipeline access
+----------------------------
 
-Launch the ``sana-wm-bidirectional`` runner with a first-frame image, a prompt,
-and a camera trajectory:
+The bidirectional model is available as a pipeline configuration:
 
-.. code-block:: bash
+.. code-block:: python
 
-   uv run flashdreams-run sana-wm-bidirectional \
-       --image-path <path to initial frame PNG> \
-       --prompt-path <path to prompt TXT> \
-       --camera-path <path to camera trajectory NPY> \
-       --intrinsics-path <path to intrinsics NPY> \
-       --num-frames 161 \
-       --output-dir outputs/sana_wm_bidirectional_bf16
+   from sana_wm.config import PIPELINE_SANA_WM_BIDIRECTIONAL
 
-The first frame, prompt, camera, and intrinsics inputs must follow the same
-shape conventions as the ``SANA-WM_bidirectional`` release examples.
-
-Optional inputs and knobs
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-- ``--intrinsics-path`` is optional. When omitted, intrinsics are derived from
-  the first-frame size, assuming a centered principal point and a horizontal
-  field of view of ``--intrinsics-hfov-deg``.
-- ``--camera-path`` can be replaced by an ``--action`` DSL string:
-
-  .. code-block:: bash
-
-     uv run flashdreams-run sana-wm-bidirectional \
-         --image-path my_frame.png \
-         --prompt "a scene description; describe the world's own motion" \
-         --action "w-100,dw-60,w-101" \
-         --num-frames 161 \
-         --output-dir outputs/mine
-
-  Action trajectories are fitted to the requested frame count: shorter action
-  strings repeat, and longer action strings are truncated without materializing
-  frames beyond the requested output length.
-
-- ``--no-refiner True`` runs Stage-1 only, for diagnostics.
-
-To inspect all supported CLI arguments and their default values, run:
-
-.. code-block:: bash
-
-   uv run flashdreams-run sana-wm-bidirectional --help
-
-What to expect
---------------
-
-- **Model checkpoint**: pulled from
-  ``huggingface.co/Efficient-Large-Model/SANA-WM_bidirectional`` on first run.
-- **First launch**: a few minutes for download and warmup; subsequent launches
-  reuse local caches.
-- **Outputs**: ``outputs/<output-dir>/sana-wm-bidirectional.mp4``.
+   pipeline = PIPELINE_SANA_WM_BIDIRECTIONAL.setup().to("cuda").eval()
 
 Profiling benchmark
 -------------------

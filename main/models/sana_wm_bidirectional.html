@@ -427,8 +427,8 @@ SPDX-License-Identifier: Apache-2.0
 <p><code class="docutils literal notranslate"><span class="pre">SANA-WM_bidirectional</span></code> is the full-sequence, camera-controlled
 <a class="reference external" href="https://github.com/NVlabs/Sana">NVlabs/Sana</a> world model release. Given a
 first frame, a text prompt, and a camera trajectory, it renders a video clip in
-a single bidirectional pass. FlashDreams runs it through the
-<code class="docutils literal notranslate"><span class="pre">sana-wm-bidirectional</span></code> runner with a native Stage-1 DiT and an LTX-2 refiner.</p>
+a single bidirectional pass. FlashDreams exposes it through the
+<code class="docutils literal notranslate"><span class="pre">PIPELINE_SANA_WM_BIDIRECTIONAL</span></code> pipeline configuration, with a native Stage-1 DiT and an LTX-2 refiner.</p>
 <p>The sibling streaming release has a separate model card:
 <a class="reference internal" href="sana_wm_streaming.html"><span class="doc">SANA-WM_streaming</span></a>.</p>
 <div class="model-video-card model-hero-media zoomable docutils container">
@@ -438,7 +438,7 @@ a single bidirectional pass. FlashDreams runs it through the
 <h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><strong>PyTorch</strong>: &gt;= 2.9.</p></li>
-<li><p><strong>Precision</strong>: BF16 by default. The FlashDreams runner also exposes opt-in
+<li><p><strong>Precision</strong>: BF16 by default. The pipeline configuration also exposes opt-in
 FP8 and FP4 execution paths, but the upstream-vs-FlashDreams benchmark for
 <code class="docutils literal notranslate"><span class="pre">SANA-WM_bidirectional</span></code> is BF16-only because upstream
 <code class="docutils literal notranslate"><span class="pre">SANA-WM_bidirectional</span></code> does not support those precision flags.</p></li>
@@ -451,57 +451,14 @@ uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> 
 </pre></div>
 </div>
 </section>
-<section id="running-the-method">
-<h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>Launch the <code class="docutils literal notranslate"><span class="pre">sana-wm-bidirectional</span></code> runner with a first-frame image, a prompt,
-and a camera trajectory:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-bidirectional<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>initial<span class="w"> </span>frame<span class="w"> </span>PNG&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>prompt<span class="w"> </span>TXT&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--camera-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>camera<span class="w"> </span>trajectory<span class="w"> </span>NPY&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--intrinsics-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>intrinsics<span class="w"> </span>NPY&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--num-frames<span class="w"> </span><span class="m">161</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-dir<span class="w"> </span>outputs/sana_wm_bidirectional_bf16
+<section id="programmatic-pipeline-access">
+<h2>Programmatic pipeline access<a class="headerlink" href="#programmatic-pipeline-access" title="Link to this heading">#</a></h2>
+<p>The bidirectional model is available as a pipeline configuration:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sana_wm.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIPELINE_SANA_WM_BIDIRECTIONAL</span>
+
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">PIPELINE_SANA_WM_BIDIRECTIONAL</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
 </pre></div>
 </div>
-<p>The first frame, prompt, camera, and intrinsics inputs must follow the same
-shape conventions as the <code class="docutils literal notranslate"><span class="pre">SANA-WM_bidirectional</span></code> release examples.</p>
-<section id="optional-inputs-and-knobs">
-<h3>Optional inputs and knobs<a class="headerlink" href="#optional-inputs-and-knobs" title="Link to this heading">#</a></h3>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">--intrinsics-path</span></code> is optional. When omitted, intrinsics are derived from
-the first-frame size, assuming a centered principal point and a horizontal
-field of view of <code class="docutils literal notranslate"><span class="pre">--intrinsics-hfov-deg</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--camera-path</span></code> can be replaced by an <code class="docutils literal notranslate"><span class="pre">--action</span></code> DSL string:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-bidirectional<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>my_frame.png<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;a scene description; describe the world&#39;s own motion&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--action<span class="w"> </span><span class="s2">&quot;w-100,dw-60,w-101&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--num-frames<span class="w"> </span><span class="m">161</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-dir<span class="w"> </span>outputs/mine
-</pre></div>
-</div>
-<p>Action trajectories are fitted to the requested frame count: shorter action
-strings repeat, and longer action strings are truncated without materializing
-frames beyond the requested output length.</p>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--no-refiner</span> <span class="pre">True</span></code> runs Stage-1 only, for diagnostics.</p></li>
-</ul>
-<p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-bidirectional<span class="w"> </span>--help
-</pre></div>
-</div>
-</section>
-</section>
-<section id="what-to-expect">
-<h2>What to expect<a class="headerlink" href="#what-to-expect" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>Model checkpoint</strong>: pulled from
-<code class="docutils literal notranslate"><span class="pre">huggingface.co/Efficient-Large-Model/SANA-WM_bidirectional</span></code> on first run.</p></li>
-<li><p><strong>First launch</strong>: a few minutes for download and warmup; subsequent launches
-reuse local caches.</p></li>
-<li><p><strong>Outputs</strong>: <code class="docutils literal notranslate"><span class="pre">outputs/&lt;output-dir&gt;/sana-wm-bidirectional.mp4</span></code>.</p></li>
-</ul>
 </section>
 <section id="profiling-benchmark">
 <h2>Profiling benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">#</a></h2>
@@ -599,11 +556,7 @@ model authors.</p>
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requirements">Requirements</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-method">Running the method</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-inputs-and-knobs">Optional inputs and knobs</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-to-expect">What to expect</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#programmatic-pipeline-access">Programmatic pipeline access</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profiling-benchmark">Profiling benchmark</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#citation">Citation</a></li>
 </ul>

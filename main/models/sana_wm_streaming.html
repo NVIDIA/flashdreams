@@ -428,7 +428,7 @@ SPDX-License-Identifier: Apache-2.0
 <a class="reference external" href="https://github.com/NVlabs/Sana">NVlabs/Sana</a> world model release. It
 produces video progressively across autoregressive chunks with a chunk-causal
 Stage-1 DiT, streaming LTX-2 refiner, and streaming VAE decode path.
-FlashDreams runs it through the <code class="docutils literal notranslate"><span class="pre">sana-wm-streaming</span></code> runner.</p>
+FlashDreams exposes it through the <code class="docutils literal notranslate"><span class="pre">cam2v-sana-wm-streaming</span></code> application.</p>
 <p>The sibling full-sequence release has a separate model card:
 <a class="reference internal" href="sana_wm_bidirectional.html"><span class="doc">SANA-WM_bidirectional</span></a>.</p>
 <div class="model-video-card model-hero-media zoomable docutils container">
@@ -451,60 +451,22 @@ uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> 
 </pre></div>
 </div>
 </section>
-<section id="running-the-method">
-<h2>Running the method<a class="headerlink" href="#running-the-method" title="Link to this heading">#</a></h2>
-<p>Launch the <code class="docutils literal notranslate"><span class="pre">sana-wm-streaming</span></code> runner with a first-frame image, a prompt, and
-a camera trajectory:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-streaming<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>initial<span class="w"> </span>frame<span class="w"> </span>PNG&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>prompt<span class="w"> </span>TXT&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--camera-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>camera<span class="w"> </span>trajectory<span class="w"> </span>NPY&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--intrinsics-path<span class="w"> </span>&lt;path<span class="w"> </span>to<span class="w"> </span>intrinsics<span class="w"> </span>NPY&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--num-frames<span class="w"> </span><span class="m">241</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-dir<span class="w"> </span>outputs/sana_wm_streaming_bf16
+<section id="interactive-cam2v-application">
+<h2>Interactive Cam2V application<a class="headerlink" href="#interactive-cam2v-application" title="Link to this heading">#</a></h2>
+<p>Launch the V2 application to drive SANA-WM with live keyboard controls. The
+model adapter passes controls through the SANA-WM action remapper and appends
+each generated block to the camera conditioning history.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-sana-wm-streaming<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--example-data
 </pre></div>
 </div>
-<p>The first frame, prompt, camera, and intrinsics inputs must follow the same
-shape conventions as the <code class="docutils literal notranslate"><span class="pre">SANA-WM_streaming</span></code> release examples.</p>
-<p>The runner defaults to 3 latent frames per block and the distilled schedule
-<code class="docutils literal notranslate"><span class="pre">1000,960,889,727,0</span></code>. Requested frame counts are snapped to
-<code class="docutils literal notranslate"><span class="pre">8</span> <span class="pre">*</span> <span class="pre">--num-frame-per-block</span> <span class="pre">*</span> <span class="pre">k</span> <span class="pre">+</span> <span class="pre">1</span></code> before inference.</p>
-<section id="optional-inputs-and-knobs">
-<h3>Optional inputs and knobs<a class="headerlink" href="#optional-inputs-and-knobs" title="Link to this heading">#</a></h3>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">--intrinsics-path</span></code> is optional. When omitted, intrinsics are derived from
-the first-frame size.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--camera-path</span></code> can be replaced by an <code class="docutils literal notranslate"><span class="pre">--action</span></code> DSL string:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-streaming<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--image-path<span class="w"> </span>my_frame.png<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;a scene description; describe the world&#39;s own motion&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--action<span class="w"> </span><span class="s2">&quot;w-80,dw-40,w-80,aw-40&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--num-frames<span class="w"> </span><span class="m">241</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output-dir<span class="w"> </span>outputs/mine_streaming
-</pre></div>
-</div>
-<p>Action trajectories are fitted to the snapped frame count: shorter action
-strings repeat, and longer action strings are truncated without materializing
-frames beyond the requested output length.</p>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--stage1-precision</span></code> and <code class="docutils literal notranslate"><span class="pre">--refiner-precision</span></code> accept <code class="docutils literal notranslate"><span class="pre">bf16</span></code>, <code class="docutils literal notranslate"><span class="pre">fp8</span></code>,
-or <code class="docutils literal notranslate"><span class="pre">fp4</span></code> when the selected hardware supports the requested precision.</p></li>
-</ul>
-<p>To inspect all supported CLI arguments and their default values, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run<span class="w"> </span>sana-wm-streaming<span class="w"> </span>--help
-</pre></div>
-</div>
-</section>
-</section>
-<section id="what-to-expect">
-<h2>What to expect<a class="headerlink" href="#what-to-expect" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>Model checkpoint</strong>: pulled from
-<code class="docutils literal notranslate"><span class="pre">huggingface.co/Efficient-Large-Model/SANA-WM_streaming</span></code> on first run.</p></li>
-<li><p><strong>First launch</strong>: a few minutes for download and warmup; subsequent launches
-reuse local caches.</p></li>
-<li><p><strong>Outputs</strong>: <code class="docutils literal notranslate"><span class="pre">outputs/&lt;output-dir&gt;/sana-wm-streaming.mp4</span></code>.</p></li>
-</ul>
+<p>The application uses the checkpoint fixed resolution of 1280x704 and ten
+24-frame blocks by default. Use <code class="docutils literal notranslate"><span class="pre">--total-blocks</span></code> after <code class="docutils literal notranslate"><span class="pre">--</span></code> to change the
+rollout length.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--example-data</span></code> to download the official <code class="docutils literal notranslate"><span class="pre">demo_0.png</span></code> and paired prompt
+to the FlashDreams example-data cache. Explicit image and prompt arguments
+override those example inputs.</p>
 </section>
 <section id="profiling-benchmark">
 <h2>Profiling benchmark<a class="headerlink" href="#profiling-benchmark" title="Link to this heading">#</a></h2>
@@ -634,11 +596,7 @@ commit 6298508.</p>
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requirements">Requirements</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-method">Running the method</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-inputs-and-knobs">Optional inputs and knobs</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-to-expect">What to expect</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interactive-cam2v-application">Interactive Cam2V application</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profiling-benchmark">Profiling benchmark</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#citation">Citation</a></li>
 </ul>
