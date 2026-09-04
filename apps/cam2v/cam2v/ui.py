@@ -113,6 +113,9 @@ class Cam2VUIState:
 class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
     """Draw Cam2V controls and model throughput over generated video."""
 
+    comparison_label: str | None = None
+    """Optional static label for a specialized presentation mode."""
+
     def step_ui(
         self,
         ui: Any,
@@ -130,6 +133,7 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
             self.state,
             sampled_at=sampled_at,
             set_postprocess_enabled=self.set_postprocess_enabled,
+            comparison_label=self.comparison_label,
         )
         _refresh_widgets(self.state, sampled_at=sampled_at)
 
@@ -151,12 +155,19 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         )
 
 
+class Cam2VPostprocessComparisonSlangPyUILoop(Cam2VSlangPyUILoop):
+    """Show a labelled original-versus-postprocessed Cam2V comparison canvas."""
+
+    comparison_label = "Original (left, upscaled) | Post-processed (right)"
+
+
 def _ensure_widgets(
     ui: Any,
     state: Cam2VUIState,
     *,
     sampled_at: float,
     set_postprocess_enabled: Callable[[bool], None],
+    comparison_label: str | None,
 ) -> None:
     if state.window is not None:
         return
@@ -164,7 +175,7 @@ def _ensure_widgets(
         ui.screen,
         "Camera controls",
         position=(16, 16),
-        size=(360, 310),
+        size=(460, 330) if comparison_label is not None else (360, 310),
     )
     state.status_widgets = [
         ui.Text(state.window, line)
@@ -173,7 +184,9 @@ def _ensure_widgets(
     ui.Text(state.window, "Move: W/S    Strafe: Q/E")
     ui.Text(state.window, "Yaw: A/D or J/L    Pitch: I/K")
     state.active_keys_widget = ui.Text(state.window, _active_keys_text(state))
-    if state.show_postprocess_toggle:
+    if comparison_label is not None:
+        ui.Text(state.window, comparison_label)
+    elif state.show_postprocess_toggle:
         state.postprocess_checkbox = ui.CheckBox(
             state.window,
             "Post-processing",
@@ -256,6 +269,7 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
 
 
 __all__ = [
+    "Cam2VPostprocessComparisonSlangPyUILoop",
     "Cam2VSlangPyUILoop",
     "Cam2VUIState",
     "Cam2VUIStatus",

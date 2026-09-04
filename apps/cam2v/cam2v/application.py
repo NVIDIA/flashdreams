@@ -49,6 +49,7 @@ class Cam2VApplication(IApplication):
         self._pipeline: Any | None = None
         self._postprocess = VideoPostprocessChainConfig()
         self._postprocess_profile = False
+        self._postprocess_comparison_ui = False
 
     @property
     def pipeline_config(self) -> Any:
@@ -170,6 +171,15 @@ class Cam2VApplication(IApplication):
                 "not interactive runs."
             ),
         )
+        parser.add_argument(
+            "--postprocess-comparison-ui",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "Show original and post-processed frames side by side. Requires "
+                "--postprocess-preset and --ui."
+            ),
+        )
         parser.add_argument("--seed", type=int, default=None)
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
@@ -202,6 +212,7 @@ class Cam2VApplication(IApplication):
             compile_network=args.postprocess_compile,
         )
         self._postprocess_profile = args.postprocess_profile
+        self._postprocess_comparison_ui = args.postprocess_comparison_ui
         self._input_values = {
             "prompt": args.prompt,
             "prompt_path": args.prompt_path,
@@ -268,17 +279,25 @@ class Cam2VApplication(IApplication):
             ),
             pipeline,
         )
+        input_spec = VideoSpec(
+            height=model_height,
+            width=model_width,
+            fps=session_desc.frames_per_second_for_step,
+        )
         presentation_spec = _postprocess_output_spec(
             self._postprocess,
-            input_spec=VideoSpec(
-                height=model_height,
-                width=model_width,
-                fps=session_desc.frames_per_second_for_step,
-            ),
+            input_spec=input_spec,
         )
+        presentation_width = presentation_spec.width
+        if self._postprocess_comparison_ui:
+            _validate_postprocess_comparison_specs(
+                input_spec=input_spec,
+                output_spec=presentation_spec,
+            )
+            presentation_width *= 2
         presentation_desc = replace(
             session_desc,
-            video_width=presentation_spec.width,
+            video_width=presentation_width,
             video_height=presentation_spec.height,
             metadata={
                 **session_desc.metadata,
@@ -296,13 +315,7 @@ class Cam2VApplication(IApplication):
                 world_size=_distributed_world_size(),
                 profile=self._postprocess_profile,
             )
-            postprocess_stream.prepare(
-                VideoSpec(
-                    height=model_height,
-                    width=model_width,
-                    fps=session_desc.frames_per_second_for_step,
-                )
-            )
+            postprocess_stream.prepare(input_spec)
         return Cam2VSession(
             pipeline=pipeline,
             postprocess_stream=postprocess_stream,
@@ -321,6 +334,7 @@ class Cam2VApplication(IApplication):
                 log_model_timing=self.defaults.log_model_timing,
                 install_hint=self.defaults.install_hint,
                 postprocess_enabled=self._postprocess.is_enabled(),
+                postprocess_comparison=self._postprocess_comparison_ui,
             ),
             use_ui=self._use_ui,
         )
@@ -348,6 +362,12 @@ class Cam2VApplication(IApplication):
             raise ValueError("--warmup-blocks must be >= 0.")
         if args.world_scale is not None and args.world_scale < 0:
             raise ValueError("--world-scale must be >= 0 when set.")
+        if args.postprocess_comparison_ui and not args.ui:
+            raise ValueError("--postprocess-comparison-ui requires --ui.")
+        if args.postprocess_comparison_ui and not args.postprocess_preset:
+            raise ValueError(
+                "--postprocess-comparison-ui requires --postprocess-preset."
+            )
 
     def _validate_layout(self, session_desc: SessionDesc) -> None:
         """Reject output layouts that differ from the model's declared layout."""
@@ -413,6 +433,24 @@ def _postprocess_output_spec(
     for processor in postprocess.resolved_processors():
         output_spec = processor.output_spec(output_spec)
     return output_spec
+
+
+def _validate_postprocess_comparison_specs(
+    *,
+    input_spec: VideoSpec,
+    output_spec: VideoSpec,
+) -> None:
+    """Reject post-processors that cannot form a frame-for-frame comparison."""
+    if output_spec.channels != input_spec.channels:
+        raise ValueError(
+            "--postprocess-comparison-ui requires the postprocessor to preserve "
+            f"{input_spec.channels} video channels; got {output_spec.channels}."
+        )
+    if output_spec.fps != input_spec.fps:
+        raise ValueError(
+            "--postprocess-comparison-ui requires the postprocessor to preserve "
+            f"the input frame rate; got {input_spec.fps!r} -> {output_spec.fps!r}."
+        )
 
 
 __all__ = ["Cam2VApplication"]

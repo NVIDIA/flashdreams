@@ -20,6 +20,7 @@ from .session import (
     CameraControlInput,
 )
 from .ui import (
+    Cam2VPostprocessComparisonSlangPyUILoop,
     Cam2VSlangPyUILoop,
     Cam2VUIState,
     Cam2VUIStatus,
@@ -33,6 +34,7 @@ __all__ = [
     "Cam2VInputResolver",
     "Cam2VModelLoop",
     "Cam2VModelState",
+    "Cam2VPostprocessComparisonSlangPyUILoop",
     "Cam2VSession",
     "Cam2VSessionConfig",
     "Cam2VSlangPyUILoop",
