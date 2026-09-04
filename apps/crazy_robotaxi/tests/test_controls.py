@@ -142,9 +142,9 @@ def test_full_gamepad_and_keyboard_inputs_produce_the_same_drive_commands() -> N
     assert keyboard_driver_command(
         controls.keyboard, {"w", "a"}
     ) == gamepad_driver_command(controls.gamepad, gamepad_forward_left)
-    assert keyboard_driver_command(
-        controls.keyboard, {"s"}
-    ) == gamepad_driver_command(controls.gamepad, gamepad_reverse)
+    assert keyboard_driver_command(controls.keyboard, {"s"}) == gamepad_driver_command(
+        controls.gamepad, gamepad_reverse
+    )
 
 
 def test_gamepad_defaults_use_standard_button_indices() -> None:
@@ -159,6 +159,8 @@ def test_gamepad_defaults_use_standard_button_indices() -> None:
     assert gamepad.restart == (InputBinding("button", 9), None)
     assert gamepad.return_to_menu == (InputBinding("button", 8), None)
     assert gamepad.toggle_hints == (InputBinding("button", 5), None)
+    assert controls.keyboard.toggle_hdmap == (InputBinding("key", "m"), None)
+    assert gamepad.toggle_hdmap == (InputBinding("button", 2), None)
     assert gamepad.cycle_style == (InputBinding("button", 14), None)
     assert gamepad.cycle_weather == (InputBinding("button", 15), None)
     assert gamepad.toggle_coins == (InputBinding("button", 12), None)
@@ -169,12 +171,13 @@ def test_gamepad_defaults_use_standard_button_indices() -> None:
     pressed = GamepadUserInputEvent(
         timestamp=np.uint64(1),
         action="state",
-        pressed=tuple(index in {5, 8, 9, 12, 13, 14, 15} for index in range(16)),
+        pressed=tuple(index in {2, 5, 8, 9, 12, 13, 14, 15} for index in range(16)),
     )
     assert BoundActionState(controls).apply(UserInputEvents([pressed])) == {
         "restart",
         "return_to_menu",
         "toggle_hints",
+        "toggle_hdmap",
         "style",
         "weather",
         "coins",

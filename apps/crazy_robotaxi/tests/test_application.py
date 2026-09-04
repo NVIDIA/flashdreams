@@ -578,6 +578,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         ui_loop=cast(Any, ui_loop),
         rollout=cast(Any, rollout),
         last_video=torch.zeros(1, 3, 4, 4),
+        last_hdmap=torch.ones(1, 3, 4, 4),
         last_pose=np.eye(4, dtype=np.float32),
         prewarm_complete=True,
         game_selected=True,
@@ -587,7 +588,8 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
 
     results = loop.step(0, UserInputEvents([]))
 
-    assert len(results) == 1
+    assert len(results) == 2
+    assert torch.all(results[1].read_output() == 1.0)
     assert not state.finished
     assert not loop.is_finished()
     assert len(ui_loop.operations) == 1

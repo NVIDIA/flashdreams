@@ -86,6 +86,7 @@ class ModelState:
     menu_video: torch.Tensor | None = None
     """Cached black model channel published while the menu is active."""
     last_video: torch.Tensor | None = None
+    last_hdmap: torch.Tensor | None = None
     last_bev: torch.Tensor | None = None
     last_pose: np.ndarray | None = None
     last_speed_mps: float = 0.0
@@ -275,6 +276,7 @@ class ModelState:
         self.finished = False
         self.realtime_miss_count = 0
         self.last_video = None
+        self.last_hdmap = None
         self.last_bev = None
         self.last_pose = None
         self.driver_input.reset()
@@ -436,6 +438,14 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     f"expected {expected_shape}, got {tuple(video.shape[1:])}"
                 )
             engine_step = generated.engine
+            hdmap = engine_step.condition.hdmap_bvtchw
+            expected_hdmap_shape = (1, 1, int(video.shape[0]), *expected_shape)
+            if tuple(hdmap.shape) != expected_hdmap_shape:
+                raise ValueError(
+                    "HD-map conditioning does not match the generated video: "
+                    f"expected {expected_hdmap_shape}, got {tuple(hdmap.shape)}"
+                )
+            hdmap = hdmap[0, 0]
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
             if trace_enabled:
@@ -451,13 +461,19 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
             state.last_video = video[-1:].detach()
+            state.last_hdmap = hdmap[-1:].detach()
             state.last_bev = None if bev is None else bev[-1:].detach()
             state.last_pose = poses[-1].copy()
             state.last_speed_mps = speeds_mps[-1]
         else:
-            if state.last_video is None or state.last_pose is None:
+            if (
+                state.last_video is None
+                or state.last_hdmap is None
+                or state.last_pose is None
+            ):
                 raise RuntimeError("Terminal game state has no generated frame")
             video = state.last_video
+            hdmap = state.last_hdmap
             game_frames = (snapshot,)
             poses = state.last_pose[None, ...]
             speeds_mps = (state.last_speed_mps,)
@@ -547,6 +563,12 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
                 metrics=metrics,
+            ),
+            StepResult(
+                step_index=step_index,
+                output=hdmap,
+                frame_count=count,
+                output_layout=VideoTensorLayout.tchw,
             ),
         ]
         if bev is not None:

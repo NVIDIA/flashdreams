@@ -1045,6 +1045,7 @@ def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> No
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
+    hdmap = torch.full((1, 3, height, width), 0.5, dtype=torch.bfloat16)
     bev = torch.full((1, 4, 32, 32), 255, dtype=torch.uint8)
     bev[:, :3].fill_(191)
     hud_state = TaxiHudState(width, height, _calibration())
@@ -1061,6 +1062,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
         0,
         [
             StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
             StepResult(0, bev, 1, VideoTensorLayout.tchw),
         ],
     )
@@ -1137,6 +1139,57 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert hud_state._bev_composite is None
     assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
+
+
+def test_imgui_ui_loop_can_present_exact_hdmap_conditioning() -> None:
+    width, height = 160, 96
+    video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
+    hdmap = torch.full((1, 3, height, width), 0.75, dtype=torch.bfloat16)
+    hud_state = TaxiHudState(width, height, _calibration(), hud_enabled=False)
+    hud_state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    presentation = PresentationManager()
+    presentation.publish(
+        0,
+        [
+            StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
+        ],
+    )
+    presentation.advance(0)
+    loop = CrazyRobotaxiImGuiUILoop(renderer=_Renderer(width, height))
+    loop.register_session_loop_objects(
+        state=hud_state,
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        output_layout=VideoTensorLayout.tchw,
+        presentation_manager=presentation,
+    )
+
+    generated = loop.step(0, UserInputEvents([])).read_output()
+    conditioning = loop.step(
+        1,
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="m",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        ),
+    ).read_output()
+
+    assert torch.all(generated == -0.5)
+    assert torch.all(conditioning == 0.75)
 
 
 def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
@@ -1244,7 +1297,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
             keyboard=replace(
                 defaults.keyboard,
                 restart=(InputBinding("key", "p"), None),
-                return_to_menu=(InputBinding("key", "m"), None),
+                return_to_menu=(InputBinding("key", "n"), None),
                 toggle_hints=(InputBinding("key", "j"), None),
             ),
         ),
@@ -1269,7 +1322,8 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         ["FORWARD", "W / UP ARROW", "BRAKE / REVERSE", "S / DOWN ARROW"],
         ["STEER LEFT", "A / LEFT ARROW", "STEER RIGHT", "D / RIGHT ARROW"],
         ["HANDBRAKE", "SPACE", "RESTART", "P"],
-        ["RETURN TO MENU", "M", "HIDE CONTROLS", "J"],
+        ["RETURN TO MENU", "N", "HIDE CONTROLS", "J"],
+        ["TOGGLE HD MAP VIEW", "M"],
     ]
     controls_flags = imgui.window_flags["Controls"]
     assert controls_flags & imgui.WindowFlags_.always_auto_resize
@@ -2076,6 +2130,32 @@ def test_h_toggles_gameplay_control_tooltips() -> None:
     assert state.show_control_tooltips
 
 
+def test_m_toggles_hdmap_view_only_during_gameplay() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="m",
+        state=KeyboardInputState.RELEASED,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="M",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_hdmap
+
+    state.consume_input_events(UserInputEvents([released]))
+    state._menu_stage = "game"
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state.show_hdmap
+
+    state.consume_input_events(UserInputEvents([released]))
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_hdmap
+
+
 def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
     state = TaxiHudState(160, 96, _calibration())
     imgui = _FakeImGui()
@@ -2083,7 +2163,7 @@ def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
     state._draw_control_tooltips(imgui)
 
     assert imgui.table_column_counts["##gameplay-control-hints"] == 2
-    assert len(imgui.tables["##gameplay-control-hints"]) == 8
+    assert len(imgui.tables["##gameplay-control-hints"]) == 9
 
 
 def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:

@@ -110,6 +110,7 @@ ControlAction = Literal[
     "restart",
     "return_to_menu",
     "toggle_hints",
+    "toggle_hdmap",
     "style",
     "weather",
     "coins",
@@ -126,6 +127,7 @@ _DISCRETE_ACTIONS: dict[str, ControlAction] = {
     "restart": "restart",
     "return_to_menu": "return_to_menu",
     "toggle_hints": "toggle_hints",
+    "toggle_hdmap": "toggle_hdmap",
     "cycle_style": "style",
     "cycle_weather": "weather",
     "toggle_coins": "coins",
@@ -225,6 +227,11 @@ class KeyboardControls:
     )
     """Keys that toggle gameplay control hints."""
 
+    toggle_hdmap: BindingSlots = _bindings_field(
+        (_key("m"), None), "TOGGLE HD MAP VIEW"
+    )
+    """Keys that toggle the model's HD-map conditioning view."""
+
     cycle_style: BindingSlots = _bindings_field(
         (_key("k"), None), "CYCLE STYLE", feature="style"
     )
@@ -277,6 +284,11 @@ class GamepadControls:
     )
     """Controls that toggle gameplay control hints."""
 
+    toggle_hdmap: BindingSlots = _bindings_field(
+        (_button(2), None), "TOGGLE HD MAP VIEW"
+    )
+    """Controls that toggle the model's HD-map conditioning view."""
+
     cycle_style: BindingSlots = _bindings_field(
         (_button(14), None), "CYCLE STYLE", feature="style"
     )
@@ -328,6 +340,9 @@ class WheelControls:
         (None, None), "SHOW OR HIDE CONTROL HINTS"
     )
     """Controls that toggle gameplay control hints."""
+
+    toggle_hdmap: BindingSlots = _bindings_field((None, None), "TOGGLE HD MAP VIEW")
+    """Controls that toggle the model's HD-map conditioning view."""
 
     cycle_style: BindingSlots = _bindings_field(
         (None, None), "CYCLE STYLE", feature="style"
