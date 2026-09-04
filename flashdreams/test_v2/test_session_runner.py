@@ -30,6 +30,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.presentation_manager import (
+    _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
     _PresentationClock,
 )
@@ -104,6 +105,10 @@ def _observe_model_step(
     )
 
 
+def _presentation_fps(model_fps: float) -> float:
+    return model_fps / _PRESENTATION_DRAIN_MARGIN
+
+
 def test_presentation_clock_uses_recent_model_fps() -> None:
     clock = _PresentationClock(frames_per_second=16)
 
@@ -111,12 +116,12 @@ def test_presentation_clock_uses_recent_model_fps() -> None:
     assert clock.frames_per_second == 16
 
     _observe_model_step(clock, 1.9, 12, 0.9)
-    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12 / 0.9))
 
     assert clock.is_due(now=2.0, generation=0)
     clock.mark_advanced(now=2.0)
-    assert not clock.is_due(now=2.074, generation=0)
-    assert clock.is_due(now=2.075, generation=0)
+    assert not clock.is_due(now=2.067, generation=0)
+    assert clock.is_due(now=2.068, generation=0)
 
 
 def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
@@ -131,18 +136,35 @@ def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
     assert clock.frames_per_second == 60
 
 
+def test_presentation_clock_allows_backlog_before_paced_deadline() -> None:
+    clock = _PresentationClock(
+        frames_per_second=30,
+        maximum_frames_per_second=60,
+    )
+
+    assert clock.is_due(now=1.0, generation=0)
+    clock.mark_advanced(now=1.0)
+    assert not clock.is_due(now=1.016, generation=0)
+
+    assert clock.is_due(now=1.016, generation=0, backlog=True)
+    clock.mark_advanced(now=1.016, backlog=True)
+
+    assert not clock.is_due(now=1.032, generation=0)
+    assert clock.is_due(now=1.033, generation=0)
+
+
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
     clock = _PresentationClock(frames_per_second=30)
 
     _observe_model_step(clock, 0.0, 10, 1.0)
     _observe_model_step(clock, 1.0, 10, 1.0)
-    assert clock.frames_per_second == pytest.approx(10.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(10.0))
 
     _observe_model_step(clock, 2.0, 20, 1.0)
-    assert clock.frames_per_second == pytest.approx(15.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(15.0))
 
     _observe_model_step(clock, 3.0, 20, 1.0)
-    assert clock.frames_per_second == pytest.approx(20.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(20.0))
 
 
 def test_presentation_clock_ignores_gaps_between_model_steps() -> None:
@@ -150,17 +172,17 @@ def test_presentation_clock_ignores_gaps_between_model_steps() -> None:
 
     _observe_model_step(clock, 1.0, 12, 0.9)
     _observe_model_step(clock, 1.9, 12, 0.9)
-    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12 / 0.9))
 
     _observe_model_step(clock, 6.8, 12, 0.9)
-    assert clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12 / 0.9))
 
 
 def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
     clock = _PresentationClock(frames_per_second=16)
     _observe_model_step(clock, 1.0, 12, 1.0)
     _observe_model_step(clock, 2.0, 12, 1.0)
-    assert clock.frames_per_second == pytest.approx(12.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(12.0))
 
     assert clock.is_due(now=2.1, generation=1)
     assert clock.frames_per_second == 16
@@ -818,7 +840,7 @@ def test_presentation_manager_drains_active_chunk_frame_by_frame() -> None:
     assert not manager.is_backlogged
 
 
-def test_presentation_manager_keeps_pacing_when_backlogged() -> None:
+def test_presentation_manager_advances_when_due_or_backlogged() -> None:
     manager = PresentationManager(device=torch.device("cpu"))
     manager.configure(
         backpressure_mode=BackpressureMode.BLOCK,
@@ -844,8 +866,7 @@ def test_presentation_manager_keeps_pacing_when_backlogged() -> None:
 
     manager.publish(0, [result(1, 1)])
     assert manager.is_backlogged
-    assert not manager.advance(0, now=1.01)[0]
-    assert manager.advance(0, now=1.1)[0]
+    assert manager.advance(0, now=1.01)[0]
 
 
 def test_presentation_manager_publish_updates_presentation_clock(
@@ -878,7 +899,9 @@ def test_presentation_manager_publish_updates_presentation_clock(
     manager.clear()
 
     manager.publish(0, [result(1)], step_elapsed_s=0.9)
-    assert manager._presentation_clock.frames_per_second == pytest.approx(12 / 0.9)
+    assert manager._presentation_clock.frames_per_second == pytest.approx(
+        _presentation_fps(12 / 0.9)
+    )
 
 
 def test_composite_rejects_frames_with_different_dimensions() -> None:

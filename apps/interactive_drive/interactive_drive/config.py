@@ -7,10 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
-from flashdreams.infra.postprocess import (
-    VideoPostprocessChainConfig,
-    VideoPostProcessorConfig,
-)
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 
 ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
@@ -29,30 +26,6 @@ class ChunkConfig:
     @property
     def frame_interval_us(self) -> int:
         return round(1_000_000 / float(self.fps))
-
-
-@dataclass(kw_only=True)
-class InteractiveDrivePostprocessConfig(VideoPostprocessChainConfig):
-    """Post-processing configured for Interactive Drive's model cadence."""
-
-    processor_chunk_size: int = 8
-    processor_compile_network: bool = True
-
-    def resolved_processors(self) -> tuple[VideoPostProcessorConfig, ...]:
-        """Match chunk-aware processors to the app's steady output size."""
-        resolved: list[VideoPostProcessorConfig] = []
-        for processor in super().resolved_processors():
-            changes: dict[str, object] = {}
-            if hasattr(processor, "chunk_size"):
-                changes["chunk_size"] = self.processor_chunk_size
-            if hasattr(processor, "compile_network"):
-                changes["compile_network"] = self.processor_compile_network
-            if not self.processor_compile_network and hasattr(
-                processor, "use_cuda_graph"
-            ):
-                changes["use_cuda_graph"] = False
-            resolved.append(replace(processor, **changes) if changes else processor)
-        return tuple(resolved)
 
 
 @dataclass(frozen=True)
@@ -161,8 +134,8 @@ class AppConfig:
     world_model_device: str = "cuda:0"
     world_model_seed: int | None = None
     world_model_debug_condition_frame_dir: Path | None = None
-    postprocess: InteractiveDrivePostprocessConfig = field(
-        default_factory=InteractiveDrivePostprocessConfig
+    postprocess: VideoPostprocessChainConfig = field(
+        default_factory=VideoPostprocessChainConfig
     )
     bev: BevConfig = BevConfig()
     # OOB thresholds plumbed to LoopConfig (overridable via CLI --oob-*).

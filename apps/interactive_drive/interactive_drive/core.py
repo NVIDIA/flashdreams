@@ -21,6 +21,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig
 from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.runtime.keyboard import normalize_key
 from flashdreams.runtime_v2.session_desc import BackpressureMode, SessionDesc
@@ -41,7 +42,6 @@ from interactive_drive.config import (
     AppConfig,
     BevConfig,
     ChunkConfig,
-    InteractiveDrivePostprocessConfig,
     RasterConfig,
     VehicleConfig,
     WorldModelProfileConfig,
@@ -500,15 +500,6 @@ class _InteractiveDriveApplicationBase(IApplication):
             ),
         )
         parser.add_argument(
-            "--postprocess-compile",
-            action=argparse.BooleanOptionalAction,
-            default=True,
-            help=(
-                "Compile post-processors for steady-state performance. Disable "
-                "during development to skip compiler autotuning."
-            ),
-        )
-        parser.add_argument(
             "--world-model-profile",
             action="store_true",
             help="Enable synchronized world-model profiling.",
@@ -547,10 +538,8 @@ class _InteractiveDriveApplicationBase(IApplication):
             world_model_debug_condition_frame_dir=(
                 args.world_model_debug_condition_frame_dir
             ),
-            postprocess=InteractiveDrivePostprocessConfig(
+            postprocess=VideoPostprocessChainConfig(
                 preset=args.postprocess_preset,
-                processor_chunk_size=chunk.chunk_frames,
-                processor_compile_network=args.postprocess_compile,
             ),
             bev=BevConfig(enabled=False),
             vehicle=VehicleConfig(),
