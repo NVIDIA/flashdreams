@@ -1359,6 +1359,7 @@ source = { editable = "integrations_v2/lingbot" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-cam2v" },
+    { name = "flashdreams-flashvsr" },
 ]
 
 [package.optional-dependencies]
@@ -1371,6 +1372,7 @@ dev = [
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
     { name = "flashdreams-cam2v", editable = "apps/cam2v" },
+    { name = "flashdreams-flashvsr", editable = "integrations_v2/flashvsr" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
 ]

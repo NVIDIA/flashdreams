@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from torch import Tensor
 
+from flashdreams.api_v2.loop import invoke_async
 from flashdreams.runtime.keyboard import KeyboardState
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateSnapshot
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
@@ -71,6 +73,12 @@ class Cam2VUIState:
     warmup_blocks: int
     """Leading blocks excluded from recent model throughput."""
 
+    show_postprocess_toggle: bool = False
+    """Whether a configured postprocessor can be controlled from the overlay."""
+
+    postprocess_enabled: bool = False
+    """Latest post-processing selection made by the UI thread."""
+
     held_keys: set[str] = field(default_factory=set)
     """Camera-control keys currently held by the client."""
 
@@ -94,6 +102,9 @@ class Cam2VUIState:
     active_keys_widget: Any | None = field(default=None, init=False, repr=False)
     """Retained SlangPy text widget for active camera controls."""
 
+    postprocess_checkbox: Any | None = field(default=None, init=False, repr=False)
+    """Retained post-processing toggle when a preset is configured."""
+
     def update_status(self, status: Cam2VUIStatus) -> None:
         """Replace the displayed model-generation status."""
         self.status = status
@@ -109,6 +120,9 @@ class Cam2VUIState:
 class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
     """Draw Cam2V controls and model throughput over generated video."""
 
+    comparison_label: str | None = None
+    """Optional static label for a specialized presentation mode."""
+
     def step_ui(
         self,
         ui: Any,
@@ -121,7 +135,13 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         frame = self.presented_model_frame()
         self.state.frames_presented = self._presentation_manager.presented_frame_count
         sampled_at = time.perf_counter()
-        _ensure_widgets(ui, self.state, sampled_at=sampled_at)
+        _ensure_widgets(
+            ui,
+            self.state,
+            sampled_at=sampled_at,
+            set_postprocess_enabled=self.set_postprocess_enabled,
+            comparison_label=self.comparison_label,
+        )
         _refresh_widgets(self.state, sampled_at=sampled_at)
 
         return frame
@@ -131,12 +151,35 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         self.state.reset()
         super().reset()
 
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Apply a checkbox change without replacing the active session."""
+        if not self.state.show_postprocess_toggle:
+            return
+        enabled = bool(enabled)
+        if enabled == self.state.postprocess_enabled:
+            return
+        self.state.postprocess_enabled = enabled
+        invoke_async(
+            self._model_loop,
+            lambda model_state, enabled=enabled: model_state.set_postprocess_enabled(
+                enabled
+            ),
+        )
+
+
+class Cam2VPostprocessComparisonSlangPyUILoop(Cam2VSlangPyUILoop):
+    """Show a labelled original-versus-postprocessed Cam2V comparison canvas."""
+
+    comparison_label = "Original (left, upscaled) | Post-processed (right)"
+
 
 def _ensure_widgets(
     ui: Any,
     state: Cam2VUIState,
     *,
     sampled_at: float,
+    set_postprocess_enabled: Callable[[bool], None],
+    comparison_label: str | None,
 ) -> None:
     if state.window is not None:
         return
@@ -144,7 +187,7 @@ def _ensure_widgets(
         ui.screen,
         "Camera controls",
         position=(16, 16),
-        size=(360, 280),
+        size=(460, 330) if comparison_label is not None else (360, 310),
     )
     state.status_widgets = [
         ui.Text(state.window, line)
@@ -153,6 +196,15 @@ def _ensure_widgets(
     ui.Text(state.window, "Move: W/S    Strafe: Q/E")
     ui.Text(state.window, "Yaw: A/D or J/L    Pitch: I/K")
     state.active_keys_widget = ui.Text(state.window, _active_keys_text(state))
+    if comparison_label is not None:
+        ui.Text(state.window, comparison_label)
+    elif state.show_postprocess_toggle:
+        state.postprocess_checkbox = ui.CheckBox(
+            state.window,
+            "Post-processing",
+            value=state.postprocess_enabled,
+            callback=set_postprocess_enabled,
+        )
     ui.Text(state.window, "Click the video before using keyboard controls.")
 
 
@@ -229,6 +281,7 @@ def _apply_ui_input(state: Cam2VUIState, events: UserInputEvents) -> None:
 
 
 __all__ = [
+    "Cam2VPostprocessComparisonSlangPyUILoop",
     "Cam2VSlangPyUILoop",
     "Cam2VUIState",
     "Cam2VUIStatus",

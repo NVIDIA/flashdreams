@@ -13,9 +13,12 @@ from typing import Any
 
 import torch
 from loguru import logger
+from torch.nn import functional as F
 
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
+from flashdreams.infra.postprocess import VideoPostprocessStream
+from flashdreams.infra.postprocess.base import from_bvtchw, to_bvtchw
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
 from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
@@ -24,11 +27,14 @@ from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .controls import CameraPoseIntegrator, KeyboardResampler
 from .defaults import Cam2VConditioning, Cam2VGenerateStep, generate_camera_step
+from .postprocess_comparison import compose_postprocess_comparison
 from .ui import (
     RECENT_MODEL_FPS_WINDOW_SECONDS,
+    Cam2VPostprocessComparisonSlangPyUILoop,
     Cam2VSlangPyUILoop,
     Cam2VUIState,
     Cam2VUIStatus,
@@ -62,6 +68,12 @@ class Cam2VSessionConfig:
     device: torch.device
     """Device holding model inputs and cache state."""
 
+    model_video_width: int | None = None
+    """Raw model width when presentation is postprocessed to another size."""
+
+    model_video_height: int | None = None
+    """Raw model height when presentation is postprocessed to another size."""
+
     first_frame_dtype: torch.dtype
     """Tensor dtype required by the model's first-frame input."""
 
@@ -83,6 +95,12 @@ class Cam2VSessionConfig:
     install_hint: str = ""
     """Optional first-frame loader hint for missing integration dependencies."""
 
+    postprocess_enabled: bool = False
+    """Whether post-processed frames are selected at session start."""
+
+    postprocess_comparison: bool = False
+    """Whether output shows original and post-processed frames side by side."""
+
     def __post_init__(self) -> None:
         if self.total_blocks <= 0:
             raise ValueError("Cam2VSessionConfig.total_blocks must be > 0.")
@@ -90,6 +108,16 @@ class Cam2VSessionConfig:
             raise ValueError("Cam2VSessionConfig.warmup_blocks must be >= 0.")
         if not isinstance(self.log_model_timing, bool):
             raise TypeError("Cam2VSessionConfig.log_model_timing must be bool.")
+        if not isinstance(self.postprocess_enabled, bool):
+            raise TypeError("Cam2VSessionConfig.postprocess_enabled must be bool.")
+        if not isinstance(self.postprocess_comparison, bool):
+            raise TypeError("Cam2VSessionConfig.postprocess_comparison must be bool.")
+        if (self.model_video_width is None) != (self.model_video_height is None):
+            raise ValueError("Cam2V model dimensions must be set together.")
+        if self.model_video_width is not None:
+            assert self.model_video_height is not None
+            if self.model_video_width <= 0 or self.model_video_height <= 0:
+                raise ValueError("Cam2V model dimensions must be positive.")
 
 
 @dataclass(slots=True)
@@ -104,6 +132,15 @@ class Cam2VModelState:
 
     config: Cam2VSessionConfig
     """Resolved inputs and rollout controls."""
+
+    postprocess_stream: VideoPostprocessStream | None = None
+    """Session-owned postprocess stream retained while the rollout runs."""
+
+    postprocess_enabled: bool = False
+    """Whether post-processed chunks are selected for presentation."""
+
+    comparison_pending_generated_frames: torch.Tensor | None = None
+    """Original tchw frames awaiting their post-processed counterparts."""
 
     keyboard_resampler: KeyboardResampler | None = None
     """Legacy combined input view retained for construction compatibility."""
@@ -153,6 +190,17 @@ class Cam2VModelState:
         self.input_timeline = keyboard_resampler.input_timeline
         self.keyboard_track = keyboard_resampler.keyboard_track
 
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Select generated or post-processed frames without resetting the stream."""
+        enabled = bool(enabled)
+        if enabled and self.postprocess_stream is None:
+            raise RuntimeError(
+                "Cannot enable post-processing without --postprocess-preset."
+            )
+        if enabled == self.postprocess_enabled:
+            return
+        self.postprocess_enabled = enabled
+
 
 class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
     """Generate one camera-controlled video chunk per model-loop iteration."""
@@ -166,10 +214,16 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
 
         conditioning = state.config.conditioning
         if state.cache is None:
+            model_height = (
+                state.config.model_video_height or state.session_desc.video_height
+            )
+            model_width = (
+                state.config.model_video_width or state.session_desc.video_width
+            )
             first_frame = load_first_frame_tensor(
                 conditioning.first_frame_path,
-                pixel_height=state.session_desc.video_height,
-                pixel_width=state.session_desc.video_width,
+                pixel_height=model_height,
+                pixel_width=model_width,
                 device=state.config.device,
                 dtype=state.config.first_frame_dtype,
                 interpolation=state.config.first_frame_interpolation,
@@ -222,10 +276,73 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 cache=state.cache,
             )
         )
-        if state.config.device.type == "cuda" and torch.cuda.is_available():
-            torch.cuda.current_stream(state.config.device).synchronize()
+        _synchronize_output(frames)
+        model_completed_at = time.perf_counter()
+        model_step_wall_s = model_completed_at - step_started_at
+
+        generated_frames = frames.detach()
+        output_frames = generated_frames
+        postprocess_stream = state.postprocess_stream
+        postprocess_output_frames = generated_frames
+        final_chunk = state.blocks_generated + 1 == state.config.total_blocks
+        if state.config.postprocess_comparison and postprocess_stream is None:
+            raise RuntimeError(
+                "Post-processing comparison requires a configured postprocessor."
+            )
+        if postprocess_stream is not None:
+            postprocess_output_frames = postprocess_stream.process(
+                generated_frames,
+                autoregressive_index=step_index,
+            )
+            if final_chunk:
+                tail = postprocess_stream.finish()
+                if tail is not None:
+                    postprocess_output_frames = _concatenate_video(
+                        postprocess_output_frames,
+                        tail,
+                        layout=state.session_desc.output_layout,
+                    )
+            # Presentation pacing observes the complete model-loop wall time.
+            # Do not let asynchronous post-processing spill into the next step.
+            _synchronize_output(postprocess_output_frames)
+            if state.config.postprocess_comparison:
+                (
+                    output_frames,
+                    state.comparison_pending_generated_frames,
+                ) = compose_postprocess_comparison(
+                    pending_generated_frames=state.comparison_pending_generated_frames,
+                    generated_frames=generated_frames,
+                    postprocessed_frames=postprocess_output_frames,
+                    final_chunk=final_chunk,
+                    output_layout=state.session_desc.output_layout,
+                )
+                _synchronize_output(output_frames)
+            elif state.postprocess_enabled:
+                output_frames = postprocess_output_frames
+            else:
+                output_frames = _resize_raw_for_presentation(
+                    generated_frames,
+                    layout=state.session_desc.output_layout,
+                    height=state.session_desc.video_height,
+                    width=state.session_desc.video_width,
+                )
         step_completed_at = time.perf_counter()
-        model_step_wall_s = step_completed_at - step_started_at
+        postprocess_step_wall_s = step_completed_at - model_completed_at
+        postprocess_output_frame_count = _video_frame_count(
+            postprocess_output_frames,
+            layout=state.session_desc.output_layout,
+        )
+        output_frame_count = _video_frame_count(
+            output_frames,
+            layout=state.session_desc.output_layout,
+        )
+        if (
+            state.postprocess_enabled or state.config.postprocess_comparison
+        ) and output_frame_count <= 0:
+            raise RuntimeError(
+                "Post-processing produced no frames for the Cam2V presentation. "
+                "Use a postprocess chunk size no larger than the model cadence."
+            )
 
         state.blocks_generated += 1
         state.frames_generated += frame_count
@@ -233,6 +350,11 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
             {
                 "model_step_wall_s": model_step_wall_s,
                 "chunk_fps": frame_count / model_step_wall_s,
+                "model_loop_wall_s": step_completed_at - step_started_at,
+                "postprocess_step_wall_s": postprocess_step_wall_s,
+                "postprocess_enabled": int(state.postprocess_enabled),
+                "postprocess_comparison": int(state.config.postprocess_comparison),
+                "postprocess_output_frames": postprocess_output_frame_count,
             }
         )
         if state.steady_started_at is not None:
@@ -262,8 +384,8 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         return [
             StepResult(
                 step_index=step_index,
-                output=frames.detach(),
-                frame_count=frame_count,
+                output=output_frames,
+                frame_count=output_frame_count,
                 output_layout=state.session_desc.output_layout,
                 metrics=metrics,
             )
@@ -276,6 +398,8 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
     def reset(self) -> None:
         """Discard model and camera state for a new session generation."""
         state = self.state
+        if state.postprocess_stream is not None:
+            state.postprocess_stream.reset()
         state.cache = None
         state.blocks_generated = 0
         state.frames_generated = 0
@@ -285,10 +409,14 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.steady_started_at = None
         state.steady_frames_generated = 0
         state._recent_model_frame_rate_tracker.reset()
+        state.comparison_pending_generated_frames = None
 
     def close(self) -> None:
-        """Release session-owned tensors while retaining the application model."""
+        """Release session-owned tensors and finish post-processing."""
         self.state.cache = None
+        self.state.comparison_pending_generated_frames = None
+        if self.state.postprocess_stream is not None:
+            self.state.postprocess_stream.finish()
 
 
 class Cam2VSession(ISession):
@@ -298,6 +426,7 @@ class Cam2VSession(ISession):
         self,
         *,
         pipeline: Any,
+        postprocess_stream: VideoPostprocessStream | None = None,
         config: Cam2VSessionConfig,
         session_desc: SessionDesc,
         use_ui: bool = True,
@@ -306,11 +435,17 @@ class Cam2VSession(ISession):
 
         Args:
             pipeline: Application-owned model pipeline.
+            postprocess_stream: Generated-video processor owned by this session.
             config: Resolved inputs and rollout controls.
             session_desc: Output dimensions, layout, and loop rates.
             use_ui: Whether to register the shared Cam2V overlay.
         """
+        if config.postprocess_comparison and postprocess_stream is None:
+            raise ValueError(
+                "Cam2V postprocess comparison requires a configured postprocessor."
+            )
         self._pipeline = pipeline
+        self._postprocess_stream = postprocess_stream
         self._config = config
         self._session_desc = session_desc
         self._use_ui = use_ui
@@ -329,12 +464,22 @@ class Cam2VSession(ISession):
         """Register the UI and model-generation loops with isolated state."""
         ui_loop = None
         if self._use_ui:
+            ui_loop_type = (
+                Cam2VPostprocessComparisonSlangPyUILoop
+                if self._config.postprocess_comparison
+                else Cam2VSlangPyUILoop
+            )
             registered_ui = self.register_ui_loop(
-                Cam2VSlangPyUILoop,
+                ui_loop_type,
                 state=Cam2VUIState(
                     total_blocks=self._config.total_blocks,
                     target_fps=self._session_desc.frames_per_second_for_step,
                     warmup_blocks=self._config.warmup_blocks,
+                    show_postprocess_toggle=(
+                        self._postprocess_stream is not None
+                        and not self._config.postprocess_comparison
+                    ),
+                    postprocess_enabled=self._config.postprocess_enabled,
                 ),
                 width=self._session_desc.video_width,
                 height=self._session_desc.video_height,
@@ -345,6 +490,8 @@ class Cam2VSession(ISession):
             Cam2VModelLoop,
             state=Cam2VModelState(
                 pipeline=self._pipeline,
+                postprocess_stream=self._postprocess_stream,
+                postprocess_enabled=self._config.postprocess_enabled,
                 session_desc=self._session_desc,
                 config=self._config,
                 keyboard_resampler=KeyboardResampler(
@@ -391,6 +538,68 @@ def _numeric_metrics(stats: object) -> dict[str, float | int]:
         for name, value in stats.items()
         if isinstance(value, int | float) and not isinstance(value, bool)
     }
+
+
+def _video_frame_count(
+    video: torch.Tensor,
+    *,
+    layout: VideoTensorLayout,
+) -> int:
+    """Return a v2 video tensor's temporal extent."""
+    time_dim = {
+        VideoTensorLayout.tchw: 0,
+        VideoTensorLayout.btchw: 1,
+        VideoTensorLayout.bcthw: 2,
+        VideoTensorLayout.bvtchw: 2,
+    }[layout]
+    return int(video.shape[time_dim])
+
+
+def _synchronize_output(output: torch.Tensor) -> None:
+    """Wait for CUDA output so step wall time covers completed production."""
+    if output.is_cuda:
+        torch.cuda.current_stream(output.device).synchronize()
+
+
+def _concatenate_video(
+    first: torch.Tensor,
+    second: torch.Tensor,
+    *,
+    layout: VideoTensorLayout,
+) -> torch.Tensor:
+    """Join postprocess output and its final tail in presentation order."""
+    time_dim = {
+        VideoTensorLayout.tchw: 0,
+        VideoTensorLayout.btchw: 1,
+        VideoTensorLayout.bcthw: 2,
+        VideoTensorLayout.bvtchw: 2,
+    }[layout]
+    if first.shape[time_dim] == 0:
+        return second
+    return torch.cat((first, second), dim=time_dim)
+
+
+def _resize_raw_for_presentation(
+    frames: torch.Tensor,
+    *,
+    layout: VideoTensorLayout,
+    height: int,
+    width: int,
+) -> torch.Tensor:
+    """Resize raw video frames to the fixed presentation dimensions."""
+    canonical = to_bvtchw(frames, layout=layout.value)
+    if canonical.shape[-2:] == (height, width):
+        return frames
+    resized = F.interpolate(
+        canonical.flatten(0, 2),
+        size=(height, width),
+        mode="bilinear",
+        align_corners=False,
+    )
+    return from_bvtchw(
+        resized.reshape(*canonical.shape[:-2], height, width),
+        layout=layout.value,
+    )
 
 
 __all__ = [

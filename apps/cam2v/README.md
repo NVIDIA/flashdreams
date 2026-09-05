@@ -15,6 +15,9 @@ application named `cam2v-<model-config-name>`.
 
 Losing browser focus clears held keys.
 
+Presentation pacing follows the complete model-loop time, including optional
+post-processing; the model-only status remains separate.
+
 ## Usage
 
 Concrete launch commands live with each model adapter:
@@ -64,7 +67,25 @@ Cam2V application arguments, after `--`:
 | `--ui`, `--no-ui` | Enable or disable the controls/status overlay |
 | `--compile`, `--no-compile` | Enable or disable model compilation |
 | `--sync-and-profile`, `--no-sync-and-profile` | Enable or disable synchronized per-stage pipeline timings |
+| `--postprocess-comparison-ui`, `--no-postprocess-comparison-ui` | Show synchronized original and post-processed panes; requires a postprocessor and UI |
 | `--seed INT` | Override the diffusion seed |
+
+### Post-processing comparison
+
+With a postprocessor configured, `--postprocess-comparison-ui` changes the
+interactive canvas to show the original video on the left and the
+post-processed video on the right. The original is resized to the
+postprocessor's output resolution so both panes are directly comparable.
+
+```bash
+uv run --no-sync flashdreams-run-v2 cam2v-<model-config-name> \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --postprocess-preset <preset> \
+  --postprocess-comparison-ui
+```
+
+The mode requires `--ui` and a frame-preserving postprocessor. It intentionally
+doubles the delivered video width and may increase encode and transfer cost.
 
 ### Defaults
 

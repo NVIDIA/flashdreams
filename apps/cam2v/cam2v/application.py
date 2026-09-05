@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +16,17 @@ import torch
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoPostprocessStream,
+    VideoSpec,
+)
+from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .defaults import Cam2VApplicationDefaults, Cam2VConditioning
+from .postprocess_comparison import comparison_output_spec
 from .session import Cam2VSession, Cam2VSessionConfig
 
 
@@ -27,7 +35,7 @@ class Cam2VApplication(IApplication):
 
     The shared class owns command-line parsing, pipeline lifetime, session
     validation, and model-generation-loop construction. A concrete model
-    integration contributes a pipeline config and an input resolver through
+    integration contributes a runner config and an input resolver through
     :class:`Cam2VApplicationDefaults`.
     """
 
@@ -40,6 +48,8 @@ class Cam2VApplication(IApplication):
         self._use_ui = True
         self._input_values: dict[str, Any] | None = None
         self._pipeline: Any | None = None
+        self._postprocess = VideoPostprocessChainConfig()
+        self._postprocess_comparison_ui = False
 
     @property
     def pipeline_config(self) -> Any:
@@ -123,6 +133,44 @@ class Cam2VApplication(IApplication):
             default=None,
             help="Synchronize CUDA and log per-stage pipeline timings.",
         )
+        postprocess_presets = discover_postprocess_presets()
+        parser.add_argument(
+            "--postprocess-preset",
+            choices=("", *postprocess_presets),
+            default="",
+            help=(
+                "Optional generated-video post-processing preset. A configured "
+                "preset starts enabled and can be toggled in the UI."
+            ),
+        )
+        parser.add_argument(
+            "--postprocess-chunk-size",
+            type=int,
+            choices=(8, 16),
+            default=8,
+            help=(
+                "Steady post-processing window. Lingbot uses 8 so its 9/12-frame "
+                "model chunks always produce output. Default: %(default)s."
+            ),
+        )
+        parser.add_argument(
+            "--postprocess-compile",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "Compile post-processors for steady-state performance. Disable "
+                "to skip compiler autotuning during development."
+            ),
+        )
+        parser.add_argument(
+            "--postprocess-comparison-ui",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "Show original and post-processed frames side by side. Requires "
+                "--postprocess-preset and --ui."
+            ),
+        )
         parser.add_argument("--seed", type=int, default=None)
         self._configure_argument_parser(parser)
         args = parser.parse_args(list(commandline_args))
@@ -149,6 +197,12 @@ class Cam2VApplication(IApplication):
         self._total_blocks = args.total_blocks
         self._warmup_blocks = args.warmup_blocks
         self._use_ui = args.ui
+        self._postprocess = _resolve_postprocess_config(
+            preset=args.postprocess_preset,
+            chunk_size=args.postprocess_chunk_size,
+            compile_network=args.postprocess_compile,
+        )
+        self._postprocess_comparison_ui = args.postprocess_comparison_ui
         self._input_values = {
             "prompt": args.prompt,
             "prompt_path": args.prompt_path,
@@ -181,10 +235,15 @@ class Cam2VApplication(IApplication):
                 f"{type(self).__name__}.init() must run before create_session()."
             )
         self._validate_layout(session_desc)
+        input_spec = VideoSpec(
+            height=session_desc.video_height,
+            width=session_desc.video_width,
+            fps=session_desc.frames_per_second_for_step,
+        )
         resolved_values = {
             **input_values,
-            "pixel_height": session_desc.video_height,
-            "pixel_width": session_desc.video_width,
+            "pixel_height": input_spec.height,
+            "pixel_width": input_spec.width,
             "fps": session_desc.frames_per_second_for_step,
         }
         conditioning = self.defaults.input_resolver(resolved_values)
@@ -198,13 +257,42 @@ class Cam2VApplication(IApplication):
             pipeline = self._pipeline_config.setup().to(self._device).eval()
             self._pipeline = pipeline
         self._validate_frame_size(session_desc, pipeline)
+        output_spec = (
+            self._postprocess.output_spec(input_spec)
+            if self._postprocess.is_enabled()
+            else input_spec
+        )
+        if self._postprocess_comparison_ui:
+            output_spec = comparison_output_spec(
+                input_spec=input_spec,
+                postprocessed_spec=output_spec,
+            )
+        # The runtime opens the UI and output sink from this presentation contract.
+        session_desc = replace(
+            session_desc,
+            video_width=output_spec.width,
+            video_height=output_spec.height,
+        )
+        postprocess_stream = None
+        if self._postprocess.is_enabled():
+            postprocess_stream = VideoPostprocessStream(
+                postprocess=self._postprocess,
+                output_layout=session_desc.output_layout.value,
+                fps=session_desc.frames_per_second_for_step,
+                per_view=False,
+                world_size=_distributed_world_size(),
+            )
+            postprocess_stream.prepare(input_spec)
         return Cam2VSession(
             pipeline=pipeline,
+            postprocess_stream=postprocess_stream,
             session_desc=session_desc,
             config=Cam2VSessionConfig(
                 conditioning=conditioning,
                 total_blocks=self._total_blocks,
                 device=torch.device(self._device),
+                model_video_width=input_spec.width,
+                model_video_height=input_spec.height,
                 first_frame_dtype=self.defaults.first_frame_dtype,
                 first_frame_interpolation=self.defaults.first_frame_interpolation,
                 generate_step=self.defaults.generate_step,
@@ -212,6 +300,8 @@ class Cam2VApplication(IApplication):
                 warmup_blocks=self._warmup_blocks,
                 log_model_timing=self.defaults.log_model_timing,
                 install_hint=self.defaults.install_hint,
+                postprocess_enabled=self._postprocess.is_enabled(),
+                postprocess_comparison=self._postprocess_comparison_ui,
             ),
             use_ui=self._use_ui,
         )
@@ -239,6 +329,12 @@ class Cam2VApplication(IApplication):
             raise ValueError("--warmup-blocks must be >= 0.")
         if args.world_scale is not None and args.world_scale < 0:
             raise ValueError("--world-scale must be >= 0 when set.")
+        if args.postprocess_comparison_ui and not args.ui:
+            raise ValueError("--postprocess-comparison-ui requires --ui.")
+        if args.postprocess_comparison_ui and not args.postprocess_preset:
+            raise ValueError(
+                "--postprocess-comparison-ui requires --postprocess-preset."
+            )
 
     def _validate_layout(self, session_desc: SessionDesc) -> None:
         """Reject output layouts that differ from the model's declared layout."""
@@ -265,6 +361,33 @@ class Cam2VApplication(IApplication):
                 f"Frame dimensions must be multiples of {ratio}, got "
                 f"{session_desc.video_width}x{session_desc.video_height}."
             )
+
+
+def _resolve_postprocess_config(
+    *,
+    preset: str,
+    chunk_size: int,
+    compile_network: bool,
+) -> VideoPostprocessChainConfig:
+    """Resolve a preset and apply Cam2V's low-latency processor options."""
+    selected = VideoPostprocessChainConfig(preset=preset).resolved_processors()
+    resolved = []
+    for processor in selected:
+        changes: dict[str, object] = {}
+        if hasattr(processor, "chunk_size"):
+            changes["chunk_size"] = chunk_size
+        if hasattr(processor, "compile_network"):
+            changes["compile_network"] = compile_network
+        if not compile_network and hasattr(processor, "use_cuda_graph"):
+            changes["use_cuda_graph"] = False
+        resolved.append(replace(processor, **changes) if changes else processor)
+    return VideoPostprocessChainConfig(processors=tuple(resolved))
+
+
+def _distributed_world_size() -> int:
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_world_size()
+    return 1
 
 
 __all__ = ["Cam2VApplication"]
