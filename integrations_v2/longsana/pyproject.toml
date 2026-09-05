@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-longsana"
+version = "0.1.0"
+description = "LongSana 2B constant-memory streaming T2V for FlashDreams Runtime V2."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-sana-wm",
+    "flashdreams-t2v",
+    "mediapy>=1.1",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-sana-wm = { workspace = true }
+flashdreams-t2v = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.entry-points."flashdreams.applications_v2"]
+"t2v-longsana-2b-480p" = "longsana.apps.t2v.adapter:create_app"
+
+[tool.setuptools]
+packages = ["longsana", "longsana.apps", "longsana.apps.t2v", "longsana.impl"]
+
+[tool.setuptools.package-dir]
+longsana = "."
+
+[tool.setuptools.package-data]
+longsana = ["resources/*.yaml"]
+
+[tool.uv]
+managed = true
