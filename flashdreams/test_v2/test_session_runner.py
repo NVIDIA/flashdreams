@@ -120,8 +120,9 @@ def test_presentation_clock_uses_recent_model_fps() -> None:
 
     assert clock.is_due(now=2.0, generation=0)
     clock.mark_advanced(now=2.0)
-    assert not clock.is_due(now=2.067, generation=0)
-    assert clock.is_due(now=2.068, generation=0)
+    frame_interval = 1.0 / _presentation_fps(12 / 0.9)
+    assert not clock.is_due(now=2.0 + frame_interval * 0.99, generation=0)
+    assert clock.is_due(now=2.0 + frame_interval * 1.01, generation=0)
 
 
 def test_presentation_clock_uses_complete_model_and_postprocess_time() -> None:
@@ -195,8 +196,9 @@ def test_presentation_clock_paces_backlog_after_observing_cadence() -> None:
     _observe_model_step(clock, 2.2, 12, 1.2)
     clock.mark_advanced(now=3.0)
 
-    assert not clock.is_due(now=3.01, generation=0, backlog=True)
-    assert clock.is_due(now=3.091, generation=0, backlog=True)
+    frame_interval = 1.0 / _presentation_fps(12 / 1.2)
+    assert not clock.is_due(now=3.0 + frame_interval * 0.99, generation=0, backlog=True)
+    assert clock.is_due(now=3.0 + frame_interval * 1.01, generation=0, backlog=True)
 
 
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:
