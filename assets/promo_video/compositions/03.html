@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .chart-scene {
+        position: absolute;
+        inset: 0;
+      }
+
+      .copy {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        width: 1300px;
+        z-index: 25;
+        padding: 18px 26px;
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .headline {
+        font-size: 65px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+      }
+
+      .subtitle {
+        margin-top: 10px;
+        color: var(--fg-dim);
+        font-size: 37.5px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+      }
+
+      .body {
+        color: var(--fg-dim);
+        font-size: 40px;
+        font-weight: 750;
+        line-height: 1.18;
+        max-width: 640px;
+        transform: translateY(-240px);
+      }
+
+      .typing-cursor {
+        display: inline-block;
+        margin-left: 6px;
+        color: var(--green);
+        font-weight: 800;
+      }
+
+      .speedup-callout {
+        position: absolute;
+        left: calc(50% + 200px);
+        top: 176px;
+        width: 400px;
+        text-align: center;
+        font-size: 40px;
+        font-weight: 850;
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+        color: var(--fg);
+        z-index: 10;
+      }
+
+      .speedup-factor {
+        color: var(--green);
+      }
+
+      .model-caption {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 24px;
+        text-align: center;
+        color: var(--fg);
+        font-size: 52px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        z-index: 10;
+      }
+
+      .chart {
+        position: absolute;
+        inset: 20px;
+        border-radius: 28px;
+        border: 1px solid var(--card-border);
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .axis {
+        position: absolute;
+        left: 140px;
+        right: 140px;
+        bottom: 260px;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.45);
+      }
+
+      .bar-group {
+        position: absolute;
+        bottom: 260px;
+        width: 360px;
+        height: 560px;
+      }
+
+      .g1 { left: 220px; }
+      .g2 { left: 760px; }
+      .g3 { left: 1300px; }
+
+      .bar {
+        position: absolute;
+        bottom: 0;
+        width: 74px;
+        border-radius: 10px 10px 0 0;
+        transform-origin: bottom center;
+      }
+
+      .series-a {
+        left: 20px;
+        background: linear-gradient(180deg, #f6b35e 0%, #e59a42 45%, #d9822b 100%);
+      }
+      .series-b {
+        left: 142px;
+        background: linear-gradient(180deg, #6b8dc4 0%, #5278ad 45%, #3b5d96 100%);
+      }
+      .series-fd {
+        left: 264px;
+        background: linear-gradient(180deg, #a9df40 0%, #8fc933 45%, var(--green) 100%);
+      }
+
+      /* LingBot chart custom order: Official (orange) -> LightX2V (blue) -> FlashDreams (green) */
+      #lingbot .series-a { left: 20px; }
+      #lingbot .series-b { left: 142px; }
+
+      .h511 { height: 511px; } .h432 { height: 432px; } .h344 { height: 344px; }
+      .h374 { height: 374px; } .h350 { height: 350px; } .h203 { height: 203px; }
+      .h362 { height: 362px; } .h251 { height: 251px; } .h171 { height: 171px; }
+      .h740 { height: 370px; } .h1950 { height: 520px; } .h629 { height: 315px; }
+      .h717 { height: 359px; } .h1113 { height: 485px; } .h449 { height: 225px; }
+      .h602 { height: 301px; } .h1032 { height: 452px; } .h394 { height: 197px; }
+      .h1290 { height: 520px; } .h1140 { height: 460px; } .h1040 { height: 419px; }
+      .h578 { height: 233px; } .h481 { height: 194px; } .h441 { height: 178px; }
+      .h534 { height: 215px; } .h429 { height: 173px; } .h382 { height: 154px; }
+
+      .device {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -62px;
+        text-align: center;
+        color: var(--fg);
+        font-size: 42px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+      }
+
+      .legend {
+        position: absolute;
+        left: 50%;
+        width: 1200px;
+        transform: translateX(-50%);
+        top: 96px;
+        display: grid;
+        grid-template-columns: repeat(3, 400px);
+        align-items: center;
+        font-size: 56px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+      }
+
+      .legend > span {
+        display: block;
+        text-align: center;
+      }
+
+      .legend-fastvideo { color: #f6b35e; }
+      .legend-official { color: #6b8dc4; }
+      .legend-flashdreams { color: var(--green); }
+
+      .bar-value {
+        position: absolute;
+        width: 74px;
+        left: 0;
+        text-align: center;
+        bottom: calc(100% + 10px);
+        font-size: 28px;
+        font-weight: 850;
+        color: var(--fg);
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene-benchmarks" data-duration="12.48" data-width="1920" data-height="1080">
+      <div id="lingbot" class="clip chart-scene" data-start="0" data-duration="3.6" data-track-index="1">
+        <div class="copy">
+          <div class="headline">Best-in-class Inference Speed</div>
+          <div class="subtitle">designed for autoregressive models</div>
+        </div>
+        <div class="chart">
+          <div class="legend">
+            <span class="legend-fastvideo">Official</span>
+            <span class="legend-official">LightX2V</span>
+            <span class="legend-flashdreams">FlashDreams</span>
+          </div>
+          <div class="speedup-callout"><span class="speedup-factor">3.10x faster</span></div>
+          <div class="axis"></div>
+          <div class="bar-group g1">
+            <div class="bar series-a h1950"><div class="bar-value">1950</div></div>
+            <div class="bar series-b h740"><div class="bar-value">740</div></div>
+            <div class="bar series-fd h629"><div class="bar-value">629</div></div>
+            <div class="device">H100</div>
+          </div>
+          <div class="bar-group g2">
+            <div class="bar series-a h1113"><div class="bar-value">1113</div></div>
+            <div class="bar series-b h717"><div class="bar-value">717</div></div>
+            <div class="bar series-fd h449"><div class="bar-value">449</div></div>
+            <div class="device">GB200</div>
+          </div>
+          <div class="bar-group g3">
+            <div class="bar series-a h1032"><div class="bar-value">1032</div></div>
+            <div class="bar series-b h602"><div class="bar-value">602</div></div>
+            <div class="bar series-fd h394"><div class="bar-value">394</div></div>
+            <div class="device">GB300</div>
+          </div>
+          <div class="model-caption">LingBot-World DiT runtime (ms)</div>
+        </div>
+      </div>
+
+      <div id="self-forcing" class="clip chart-scene" data-start="3.6" data-duration="3.25" data-track-index="1">
+        <div class="copy">
+          <div class="headline">Best-in-class Inference Speed</div>
+          <div class="subtitle">designed for autoregressive models</div>
+        </div>
+        <div class="chart">
+          <div class="legend">
+            <span class="legend-fastvideo">FastVideo</span>
+            <span class="legend-official">Official</span>
+            <span class="legend-flashdreams">FlashDreams</span>
+          </div>
+          <div class="speedup-callout"><span class="speedup-factor">2.12x faster</span></div>
+          <div class="axis"></div>
+          <div class="bar-group g1">
+            <div class="bar series-a h511"><div class="bar-value">511</div></div>
+            <div class="bar series-b h432"><div class="bar-value">432</div></div>
+            <div class="bar series-fd h344"><div class="bar-value">344</div></div>
+            <div class="device">H100</div>
+          </div>
+          <div class="bar-group g2">
+            <div class="bar series-a h374"><div class="bar-value">374</div></div>
+            <div class="bar series-b h350"><div class="bar-value">350</div></div>
+            <div class="bar series-fd h203"><div class="bar-value">203</div></div>
+            <div class="device">GB200</div>
+          </div>
+          <div class="bar-group g3">
+            <div class="bar series-a h362"><div class="bar-value">362</div></div>
+            <div class="bar series-b h251"><div class="bar-value">251</div></div>
+            <div class="bar series-fd h171"><div class="bar-value">171</div></div>
+            <div class="device">GB300</div>
+          </div>
+          <div class="model-caption">Self-Forcing DiT runtime (ms)</div>
+        </div>
+      </div>
+
+      <div id="wan21" class="clip chart-scene" data-start="6.85" data-duration="5.63" data-track-index="1">
+        <div class="copy">
+          <div class="headline">Best-in-class Inference Speed</div>
+          <div class="subtitle">
+            <span id="wan-typing-text"></span><span id="wan-typing-cursor" class="typing-cursor">|</span>
+          </div>
+        </div>
+        <div class="chart">
+          <div class="legend">
+            <span class="legend-fastvideo">FastVideo</span>
+            <span class="legend-official">Official</span>
+            <span class="legend-flashdreams">FlashDreams</span>
+          </div>
+          <div class="speedup-callout"><span class="speedup-factor">1.40x faster</span></div>
+          <div class="axis"></div>
+          <div class="bar-group g1">
+            <div class="bar series-a h1290"><div class="bar-value">1290</div></div>
+            <div class="bar series-b h1140"><div class="bar-value">1140</div></div>
+            <div class="bar series-fd h1040"><div class="bar-value">1040</div></div>
+            <div class="device">H100</div>
+          </div>
+          <div class="bar-group g2">
+            <div class="bar series-a h578"><div class="bar-value">578</div></div>
+            <div class="bar series-b h481"><div class="bar-value">481</div></div>
+            <div class="bar series-fd h441"><div class="bar-value">441</div></div>
+            <div class="device">GB200</div>
+          </div>
+          <div class="bar-group g3">
+            <div class="bar series-a h534"><div class="bar-value">534</div></div>
+            <div class="bar series-b h429"><div class="bar-value">429</div></div>
+            <div class="bar series-fd h382"><div class="bar-value">382</div></div>
+            <div class="device">GB300</div>
+          </div>
+          <div class="model-caption">Wan2.1 per-step DiT runtime (ms)</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const lineText = "Built from the ground up\nfor autoregressive generation";
+      const BAR_MAX_HEIGHT = 520;
+
+      function applyProportionalBarHeights() {
+        const charts = Array.from(document.querySelectorAll(".chart"));
+        charts.forEach((chart) => {
+          const bars = Array.from(chart.querySelectorAll(".bar"));
+          const values = bars
+            .map((bar) => Number(bar.querySelector(".bar-value")?.textContent || 0))
+            .filter((value) => Number.isFinite(value) && value > 0);
+
+          if (!values.length) {
+            return;
+          }
+
+          const chartMaxValue = Math.max(...values);
+          bars.forEach((bar) => {
+            const value = Number(bar.querySelector(".bar-value")?.textContent || 0);
+            if (!Number.isFinite(value) || value <= 0) {
+              return;
+            }
+            bar.style.height = `${(value / chartMaxValue) * BAR_MAX_HEIGHT}px`;
+          });
+        });
+      }
+
+      applyProportionalBarHeights();
+
+      function addTypingAndHighlight({
+        sceneSelector,
+        textId,
+        cursorId,
+        typingText = lineText,
+        startAt,
+        typingDuration,
+        animateCopy = false,
+      }) {
+        if (animateCopy) {
+          tl.fromTo(
+            `${sceneSelector} .copy`,
+            { clipPath: "inset(0 100% 0 0)" },
+            {
+              clipPath: "inset(0 0% 0 0)",
+              duration: 0.9,
+              ease: "power2.out",
+            },
+            startAt
+          );
+        }
+
+        const textNode = document.getElementById(textId);
+        const cursor = document.getElementById(cursorId);
+        const hasTypingTargets = Boolean(textNode && cursor);
+        const highlightStart = hasTypingTargets
+          ? startAt + typingDuration + 0.12
+          : startAt + 0.22;
+
+        if (hasTypingTargets) {
+          const state = { chars: 0 };
+
+          tl.to(
+            state,
+            {
+              chars: typingText.length,
+              duration: typingDuration,
+              ease: "none",
+              onUpdate: () => {
+                textNode.innerHTML = typingText
+                  .slice(0, Math.floor(state.chars))
+                  .replace(/\n/g, "<br />");
+              },
+            },
+            startAt
+          );
+
+          tl.to(
+            cursor,
+            {
+              opacity: 0,
+              duration: 0.22,
+              repeat: 8,
+              yoyo: true,
+              ease: "none",
+            },
+            startAt
+          );
+        }
+
+        tl.to(
+          `${sceneSelector} .series-fd`,
+          {
+            boxShadow:
+              "0 0 24px rgba(158, 251, 47, 0.95), 0 0 58px rgba(118, 185, 0, 0.78), inset 0 0 18px rgba(255, 255, 255, 0.22)",
+            duration: 0.34,
+            repeat: 3,
+            yoyo: true,
+            ease: "power1.inOut",
+            stagger: 0.06,
+          },
+          highlightStart
+        );
+
+        tl.to(
+          [
+            `${sceneSelector} .legend-flashdreams`,
+            `${sceneSelector} .series-fd .bar-value`,
+            `${sceneSelector} .speedup-factor`,
+          ],
+          {
+            textShadow: "0 0 22px rgba(118, 185, 0, 0.95)",
+            color: "#9efb2f",
+            duration: 0.42,
+            repeat: 3,
+            yoyo: true,
+            ease: "power1.inOut",
+          },
+          highlightStart
+        );
+      }
+
+      addTypingAndHighlight({
+        sceneSelector: "#lingbot",
+        textId: "lb-typing-text",
+        cursorId: "lb-typing-cursor",
+        startAt: 0.35,
+        typingDuration: 1.45,
+        animateCopy: true,
+      });
+      addTypingAndHighlight({
+        sceneSelector: "#self-forcing",
+        textId: "sf-typing-text",
+        cursorId: "sf-typing-cursor",
+        startAt: 3.60,
+        typingDuration: 1.45,
+        animateCopy: false,
+      });
+      addTypingAndHighlight({
+        sceneSelector: "#wan21",
+        textId: "wan-typing-text",
+        cursorId: "wan-typing-cursor",
+        typingText: "naturally supports bidirectional models as single-rollout autoregressive",
+        startAt: 7.2,
+        typingDuration: 1.0,
+        animateCopy: false,
+      });
+      window.__timelines["scene-benchmarks"] = tl;
+    </script>
+  </body>
+</html>
