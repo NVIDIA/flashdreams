@@ -29,6 +29,7 @@ from longsana.impl.constants import (
     DEFAULT_VIDEO_FPS,
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
+    MAX_ROLLOUT_BLOCKS,
 )
 
 LONGSANA_T2V_DEFAULTS = T2VApplicationDefaults(
@@ -56,6 +57,15 @@ class LongSanaT2VApplication(T2VApplication):
                 pipeline_config=pipeline_config,
             )
         super().__init__(defaults=defaults)
+
+    def _validate_total_blocks(self, total_blocks: int) -> None:
+        """Reject rollouts that exceed the released absolute RoPE table."""
+        super()._validate_total_blocks(total_blocks)
+        if total_blocks > MAX_ROLLOUT_BLOCKS:
+            raise ValueError(
+                "LongSana supports at most "
+                f"{MAX_ROLLOUT_BLOCKS} blocks, got {total_blocks}."
+            )
 
     def _validate_frame_size(self, session_desc: SessionDesc, pipeline: Any) -> None:
         """Require the native 832 by 480 release dimensions."""

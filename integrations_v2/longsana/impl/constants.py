@@ -32,6 +32,14 @@ FIRST_LATENT_BLOCK_FRAMES = 11
 LATENT_BLOCK_FRAMES = 10
 """Steady-state number of latent frames generated per AR block."""
 
+MAX_ROPE_POSITION = 1024
+"""Largest absolute latent position supported by the released RoPE table."""
+
+MAX_ROLLOUT_BLOCKS = (
+    1 + (MAX_ROPE_POSITION - FIRST_LATENT_BLOCK_FRAMES) // LATENT_BLOCK_FRAMES
+)
+"""Maximum complete rollout that fits the released absolute RoPE table."""
+
 MOTION_SCORE = 10
 """Motion-score suffix used during LongSana self-forcing post-training."""
 

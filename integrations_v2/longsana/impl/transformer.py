@@ -41,6 +41,7 @@ from longsana.impl.constants import (
     FIRST_LATENT_BLOCK_FRAMES,
     LATENT_BLOCK_FRAMES,
     LONGSANA_CHECKPOINT_PATH,
+    MAX_ROPE_POSITION,
 )
 from longsana.impl.model import (
     LongSanaBlockState,
@@ -102,10 +103,18 @@ class LongSanaTransformerCache(TransformerAutoregressiveCache):
                 f"Expected LongSana AR step {self.next_index}, "
                 f"got {autoregressive_index}."
             )
-        self.active_index = autoregressive_index
-        self.active_frames = (
+        active_frames = (
             self.first_block_frames if autoregressive_index == 0 else self.block_frames
         )
+        end_frame = self.start_frame + active_frames
+        if end_frame > MAX_ROPE_POSITION:
+            raise ValueError(
+                "LongSana rollout exceeds the released "
+                f"{MAX_ROPE_POSITION}-position RoPE table: "
+                f"block {autoregressive_index} ends at latent frame {end_frame}."
+            )
+        self.active_index = autoregressive_index
+        self.active_frames = active_frames
 
     def finalize(self, autoregressive_index: int) -> None:
         """Advance absolute positions after the clean-timestep cache update."""
@@ -167,28 +176,16 @@ class LongSanaTransformer(Transformer[LongSanaTransformerCache]):
         self.config = config
         self._dummy = nn.Parameter(torch.empty(0, dtype=config.dtype))
         self._model_built = False
-        self._active_autoregressive_index = 0
 
     @property
     def latent_shape(self) -> tuple[int, ...]:
-        """Return the raw Wan latent shape for the selected AR block."""
-        frames = (
-            self.config.first_block_frames
-            if self._active_autoregressive_index == 0
-            else self.config.block_frames
-        )
+        """Return the nominal first-block shape used by the diffusion interface."""
         return (
-            frames,
+            self.config.first_block_frames,
             self.config.network.spec.latent_channels,
             self.config.latent_height,
             self.config.latent_width,
         )
-
-    def select_autoregressive_index(self, autoregressive_index: int) -> None:
-        """Select the block shape before Runtime V2 allocates initial noise."""
-        if autoregressive_index < 0:
-            raise ValueError("LongSana autoregressive_index must be non-negative.")
-        self._active_autoregressive_index = autoregressive_index
 
     def initialize_autoregressive_cache(
         self,
@@ -215,8 +212,13 @@ class LongSanaTransformer(Transformer[LongSanaTransformerCache]):
         input: Any = None,
     ) -> Tensor:
         """Draw upstream B/C/T/H/W noise and expose it as Runtime V2 T/C/H/W."""
-        del cache, input
-        frames, channels, height, width = latent_shape
+        del input
+        if cache.active_index is None or cache.active_frames <= 0:
+            raise RuntimeError(
+                "LongSana cache must start a block before drawing noise."
+            )
+        _, channels, height, width = latent_shape
+        frames = cache.active_frames
         noise = torch.randn(
             (channels, frames, height, width),
             device=self.device,

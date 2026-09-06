@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import torch
-
 from longsana.config import PIPELINE_LONGSANA_2B_480P
 from longsana.impl.transformer import LongSanaTransformerCache
 

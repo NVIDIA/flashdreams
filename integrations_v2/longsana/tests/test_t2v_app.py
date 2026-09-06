@@ -18,12 +18,10 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
-from t2v.testing import FakeT2VPipelineConfig
-
 from longsana.apps.t2v.adapter import (
     LONGSANA_T2V_DEFAULTS,
     LongSanaT2VApplication,
@@ -32,7 +30,9 @@ from longsana.impl.constants import (
     DEFAULT_VIDEO_FPS,
     DEFAULT_VIDEO_HEIGHT,
     DEFAULT_VIDEO_WIDTH,
+    MAX_ROLLOUT_BLOCKS,
 )
+from t2v.testing import FakeT2VPipelineConfig
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -73,6 +73,39 @@ def test_application_rejects_non_native_resolution() -> None:
 
     with pytest.raises(ValueError, match="requires 832x480"):
         app.create_session(requested)
+
+
+def test_application_accepts_maximum_rope_bounded_rollout() -> None:
+    """Accept the last complete rollout that fits the absolute RoPE table."""
+    app = LongSanaT2VApplication(pipeline_config=FakeT2VPipelineConfig())
+
+    app.init(
+        [
+            "--prompt",
+            "A red panda walks through a bamboo forest.",
+            "--device",
+            "cpu",
+            "--total-blocks",
+            str(MAX_ROLLOUT_BLOCKS),
+        ]
+    )
+
+
+def test_application_rejects_rollout_beyond_rope_table() -> None:
+    """Fail before model setup rather than after a long partial generation."""
+    app = LongSanaT2VApplication(pipeline_config=FakeT2VPipelineConfig())
+
+    with pytest.raises(ValueError, match="at most 102 blocks"):
+        app.init(
+            [
+                "--prompt",
+                "A red panda walks through a bamboo forest.",
+                "--device",
+                "cpu",
+                "--total-blocks",
+                str(MAX_ROLLOUT_BLOCKS + 1),
+            ]
+        )
 
 
 def test_application_entry_point_is_registered() -> None:

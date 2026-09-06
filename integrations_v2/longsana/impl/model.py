@@ -23,9 +23,6 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-
-from flashdreams.infra.config import InstantiateConfig
 from sana_wm.impl.stage1_model import (
     RMSNorm,
     SanaWMStage1Spec,
@@ -33,6 +30,10 @@ from sana_wm.impl.stage1_model import (
     TextEmbedder,
     TimestepEmbedder,
 )
+from torch import Tensor
+
+from flashdreams.infra.config import InstantiateConfig
+from longsana.impl.constants import MAX_ROPE_POSITION
 
 LONGSANA_SPEC = SanaWMStage1Spec(
     latent_channels=16,
@@ -502,7 +503,7 @@ def causal_wan_rope(
     height: int,
     width: int,
     device: torch.device,
-    max_sequence_length: int = 1024,
+    max_sequence_length: int = MAX_ROPE_POSITION,
 ) -> Tensor:
     """Build upstream-compatible complex128 Wan RoPE at absolute frame positions."""
     end_frame = start_frame + frames
@@ -512,7 +513,8 @@ def causal_wan_rope(
         )
     if max(end_frame, height, width) > max_sequence_length:
         raise ValueError(
-            "LongSana RoPE position exceeds the released 1024-position table: "
+            "LongSana RoPE position exceeds the released "
+            f"{MAX_ROPE_POSITION}-position table: "
             f"end_frame={end_frame}, height={height}, width={width}."
         )
 

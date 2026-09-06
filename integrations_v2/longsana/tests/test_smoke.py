@@ -17,13 +17,8 @@
 
 from __future__ import annotations
 
-import torch
-from torch import Tensor
 import pytest
-
-from flashdreams.infra.diffusion.model import DiffusionModel
-from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoderConfig
+import torch
 from longsana.config import LONGSANA_CONFIGS, PIPELINE_LONGSANA_2B_480P
 from longsana.impl.constants import (
     DEFAULT_DENOISING_TIMESTEPS,
@@ -31,6 +26,7 @@ from longsana.impl.constants import (
     LATENT_BLOCK_FRAMES,
     LONGSANA_REVISION,
     LONGSANA_TEXT_CONFIG_PATH,
+    MAX_ROPE_POSITION,
     SANA_VIDEO_REVISION,
 )
 from longsana.impl.model import (
@@ -52,6 +48,11 @@ from longsana.impl.transformer import (
 )
 from sana_wm.impl.stage1_model import SanaWMStage1Spec
 from sana_wm.impl.transformer import _load_inference_config
+from torch import Tensor
+
+from flashdreams.infra.diffusion.model import DiffusionModel
+from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
+from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoderConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -275,8 +276,8 @@ def test_initial_noise_exposes_tchw_but_preserves_upstream_rng_order() -> None:
         block_frames=2,
     ).setup()
     assert isinstance(transformer, LongSanaTransformer)
-    transformer.select_autoregressive_index(0)
     cache = transformer.initialize_autoregressive_cache()
+    cache.start(0)
 
     actual_rng = torch.Generator().manual_seed(42)
     actual = transformer.initial_noise(
@@ -294,6 +295,41 @@ def test_initial_noise_exposes_tchw_but_preserves_upstream_rng_order() -> None:
 
     assert actual.shape == (3, spec.latent_channels, 4, 4)
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_initial_noise_uses_each_sessions_active_block_shape() -> None:
+    """Keep first and steady block lengths isolated across interleaved sessions."""
+    spec = _small_spec()
+    transformer = LongSanaTransformerConfig(
+        network=LongSanaNetworkConfig(spec=spec),
+        dtype=torch.float32,
+        latent_height=4,
+        latent_width=4,
+        first_block_frames=3,
+        block_frames=2,
+    ).setup()
+    assert isinstance(transformer, LongSanaTransformer)
+    first_session = transformer.initialize_autoregressive_cache()
+    steady_session = transformer.initialize_autoregressive_cache()
+
+    steady_session.start(0)
+    steady_session.finalize(0)
+    steady_session.start(1)
+    first_session.start(0)
+
+    steady = transformer.initial_noise(
+        latent_shape=transformer.latent_shape,
+        rng=torch.Generator().manual_seed(1),
+        cache=steady_session,
+    )
+    first = transformer.initial_noise(
+        latent_shape=transformer.latent_shape,
+        rng=torch.Generator().manual_seed(2),
+        cache=first_session,
+    )
+
+    assert steady.shape == (2, spec.latent_channels, 4, 4)
+    assert first.shape == (3, spec.latent_channels, 4, 4)
 
 
 def test_transformer_cache_tracks_release_block_boundaries() -> None:
@@ -315,6 +351,20 @@ def test_transformer_cache_tracks_release_block_boundaries() -> None:
     assert cache.active_frames == LATENT_BLOCK_FRAMES
     cache.finalize(1)
     assert cache.start_frame == FIRST_LATENT_BLOCK_FRAMES + LATENT_BLOCK_FRAMES
+
+
+def test_transformer_cache_rejects_rope_overflow_before_generation() -> None:
+    """Protect direct pipeline callers from exceeding absolute RoPE positions."""
+    cache = LongSanaTransformerCache(
+        start_frame=MAX_ROPE_POSITION - LATENT_BLOCK_FRAMES + 1,
+        next_index=1,
+    )
+
+    with pytest.raises(ValueError, match="exceeds.*RoPE table"):
+        cache.start(1)
+
+    assert cache.active_index is None
+    assert cache.active_frames == 0
 
 
 def test_generic_scheduler_would_not_preserve_longsana_rng_layout() -> None:

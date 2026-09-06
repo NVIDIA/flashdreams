@@ -23,11 +23,11 @@ import torch
 from torch import Tensor
 from tqdm import tqdm
 
+from flashdreams.infra.diffusion.scheduler import FlowPredictor
 from flashdreams.infra.diffusion.scheduler.fm import (
     FlowMatchScheduler,
     FlowMatchSchedulerConfig,
 )
-from flashdreams.infra.diffusion.scheduler import FlowPredictor
 
 
 @dataclass(kw_only=True)

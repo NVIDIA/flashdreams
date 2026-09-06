@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import torch
+from sana_wm.impl.conditioning import SanaWMTextPromptEncoderConfig
 
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.recipes.wan.autoencoder.vae import WanVAEDecoderConfig
@@ -29,7 +30,6 @@ from longsana.impl.constants import (
 from longsana.impl.pipeline import LongSanaPipelineConfig
 from longsana.impl.scheduler import LongSanaFlowMatchSchedulerConfig
 from longsana.impl.transformer import LongSanaTransformerConfig
-from sana_wm.impl.conditioning import SanaWMTextPromptEncoderConfig
 
 PIPELINE_LONGSANA_2B_480P = LongSanaPipelineConfig(
     name="longsana-2b-480p",

@@ -21,7 +21,11 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 import torch
-from torch import Tensor
+from sana_wm.impl.conditioning import (
+    SanaWMTextPromptEncoder,
+    SanaWMTextPromptEncoderConfig,
+    SanaWMTextPromptRequest,
+)
 
 from flashdreams.infra.pipeline import (
     StreamInferencePipeline,
@@ -35,11 +39,6 @@ from longsana.impl.constants import (
 from longsana.impl.transformer import (
     LongSanaConditioning,
     LongSanaTransformer,
-)
-from sana_wm.impl.conditioning import (
-    SanaWMTextPromptEncoder,
-    SanaWMTextPromptEncoderConfig,
-    SanaWMTextPromptRequest,
 )
 
 
@@ -114,24 +113,6 @@ class LongSanaPipeline(StreamInferencePipeline):
         )
         return super().initialize_cache(
             transformer_context={"conditioning": conditioning},
-        )
-
-    @torch.no_grad()
-    def generate(
-        self,
-        autoregressive_index: int,
-        cache: StreamInferencePipelineCache,
-        input: Any = None,
-    ) -> Tensor:
-        """Select LongSana's first/steady block shape and generate one chunk."""
-        transformer = self.diffusion_model.transformer
-        if not isinstance(transformer, LongSanaTransformer):
-            raise TypeError("LongSanaPipeline requires LongSanaTransformer.")
-        transformer.select_autoregressive_index(autoregressive_index)
-        return super().generate(
-            autoregressive_index=autoregressive_index,
-            cache=cache,
-            input=input,
         )
 
     def close(self) -> None:

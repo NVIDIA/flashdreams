@@ -57,7 +57,9 @@ configuration), and absolute temporal RoPE positions advance across blocks.
 
 ## Benchmark and validation
 
-See [VALIDATION.md](VALIDATION.md) for measured results and qualitative review.
+See [VALIDATION.md](VALIDATION.md) for measured results and qualitative review,
+and [ACCELERATION.md](ACCELERATION.md) for a staged `flashdreams.accelerated`
+optimization scope.
 
 Run the checked-in diverse-prompt suite:
 

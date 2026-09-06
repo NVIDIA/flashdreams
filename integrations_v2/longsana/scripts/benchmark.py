@@ -6,19 +6,18 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import platform
 import statistics
 import subprocess
 import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import mediapy as media
 import torch
-
 from longsana.config import PIPELINE_LONGSANA_2B_480P
 from longsana.impl.constants import DEFAULT_VIDEO_FPS
 from longsana.impl.transformer import LongSanaTransformerCache
