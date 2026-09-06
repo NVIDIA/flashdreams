@@ -42,18 +42,16 @@ OmniDreams is a HDMap-conditioned world model for single-view and multi-view
 driving generation, with presets that balance visual fidelity and runtime
 throughput.
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/teaser.mp4" type="video/mp4">
-       Your browser does not support the video tag.
-     </video>
-   </div>
-   <p class="model-footnote">
-     Teaser video source:
-     <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
-   </p>
+   .. image:: /_static/model_clips/omnidreams/omnidreams-teaser.avif
+      :alt: OmniDreams teaser clip.
+      :class: model-video-player
+
+.. rst-class:: model-footnote
+
+Teaser video source:
+`OmniDreams project page <https://research.nvidia.com/labs/sil/projects/omnidreams-blog/>`_.
 
 Requirements
 ------------
@@ -136,20 +134,14 @@ Some generated samples from the above commands:
    <div class="model-video-grid zoomable">
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="OmniDreams sample clip for example data UUID 239560dc.">
        <div class="model-video-overlay">
          example_data_uuid: "239560dc-33d1-11ef-9720-00044bcbccac"
        </div>
      </div>
      <div class="model-video-card">
        <!-- <div class="model-video-placeholder">Video placeholder</div> -->
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.avif" alt="OmniDreams sample clip for example data UUID 24b84744.">
        <div class="model-video-overlay">
          example_data_uuid: "24b84744-4156-11ef-b27d-00044bf655de"
        </div>
@@ -348,14 +340,11 @@ Here, ``<server-ip>`` is the server IP address you are connecting to
 
 Once successfully connected, the browser-based UI looks like this:
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-  <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-webrtc-recording-0529.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
-  </div>
+   .. image:: /_static/model_clips/omnidreams/omnidreams-webrtc-recording-0529.avif
+      :alt: OmniDreams browser UI recording.
+      :class: model-video-player
 
 .. note::
 

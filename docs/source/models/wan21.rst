@@ -100,19 +100,13 @@ Some generated samples from the above commands:
 
    <div class="model-video-grid zoomable">
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-t2v-1.3b-480p.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/wan21/wan21-t2v-1.3b-480p.avif" alt="Wan 2.1 text-to-video sample clip.">
        <div class="model-video-overlay">
          prompt: "Two anthropomorphic cats in comfy boxing gear and bright gloves fight intensely on a spotlighted stage."
        </div>
      </div>
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/wan21/wan21-i2v-14b-480p.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/wan21/wan21-i2v-14b-480p.avif" alt="Wan 2.1 image-to-video sample clip.">
        <div class="model-video-overlay">
          prompt: "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
          <br/>
