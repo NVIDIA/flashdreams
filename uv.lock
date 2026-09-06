@@ -32,6 +32,7 @@ members = [
     "flashdreams-imgui-ui-demo",
     "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
+    "flashdreams-longsana",
     "flashdreams-null-model",
     "flashdreams-omnidreams",
     "flashdreams-red-screen",
@@ -1373,6 +1374,32 @@ requires-dist = [
     { name = "flashdreams-cam2v", editable = "apps/cam2v" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-longsana"
+version = "0.1.0"
+source = { editable = "integrations_v2/longsana" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-sana-wm" },
+    { name = "flashdreams-t2v" },
+    { name = "mediapy" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-sana-wm", editable = "integrations_v2/sana_wm" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
+    { name = "mediapy", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
 
