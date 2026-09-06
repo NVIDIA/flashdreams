@@ -81,6 +81,19 @@ jobs:
       - name: Run CPU unit tests
         run: uv run --no-sync pytest -m ci_cpu -v
 
+      # Forces an authenticated HF round-trip for the README's headline
+      # recipes. Skipped on event contexts where the secret isn't exposed
+      # (e.g. external fork PRs).
+      - name: Verify HF inference assets
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "${HF_TOKEN}" ]; then
+            echo "::warning::HF_TOKEN not set; skipping HF inference asset verification"
+            exit 0
+          fi
+          uv run --no-sync python flashdreams/tests/check_hf_inference_assets.py
+
       # Documentation is built and deployed by `.github/workflows/doc.yml`.
 
   gpu:
