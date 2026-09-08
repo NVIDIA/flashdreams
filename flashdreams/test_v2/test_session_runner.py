@@ -185,8 +185,7 @@ def test_presentation_clock_allows_backlog_before_paced_deadline() -> None:
     assert clock.is_due(now=1.033, generation=0)
 
 
-def test_presentation_clock_paces_backlog_after_observing_cadence() -> None:
-    """Avoid a queued postprocessed chunk turning the current chunk into a burst."""
+def test_presentation_clock_backlog_overrides_observed_cadence() -> None:
     clock = _PresentationClock(
         frames_per_second=16,
         maximum_frames_per_second=60,
@@ -197,8 +196,14 @@ def test_presentation_clock_paces_backlog_after_observing_cadence() -> None:
     clock.mark_advanced(now=3.0)
 
     frame_interval = 1.0 / _presentation_fps(12 / 1.2)
-    assert not clock.is_due(now=3.0 + frame_interval * 0.99, generation=0, backlog=True)
-    assert clock.is_due(now=3.0 + frame_interval * 1.01, generation=0, backlog=True)
+    early = 3.0 + frame_interval * 0.25
+    assert not clock.is_due(now=early, generation=0)
+    assert clock.is_due(now=early, generation=0, backlog=True)
+    clock.mark_advanced(now=early, backlog=True)
+
+    min_interval = 1.0 / 60.0
+    assert not clock.is_due(now=early + min_interval * 0.99, generation=0)
+    assert clock.is_due(now=early + min_interval * 1.01, generation=0)
 
 
 def test_presentation_clock_limits_estimate_to_recent_two_seconds() -> None:

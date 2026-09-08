@@ -56,7 +56,6 @@ class _PresentationClock:
             window_seconds=_MODEL_FPS_WINDOW_SECONDS
         )
         self._has_completion_baseline = False
-        self._has_observed_cadence = False
         self._last_completion_at: float | None = None
         self._lock = threading.Lock()
 
@@ -116,23 +115,22 @@ class _PresentationClock:
                 ),
                 self._minimum_frame_interval,
             )
-            self._has_observed_cadence = True
 
     def is_due(self, now: float, generation: int, *, backlog: bool = False) -> bool:
-        """Return whether the next model frame may be selected."""
+        """Return whether the next model frame may be selected.
+
+        A full chunk queue drains immediately. Cadence only paces the current
+        chunk after that queue has space again.
+        """
         with self._lock:
             if generation != self._generation:
                 self._reset_generation(generation)
-            return (
-                (backlog and not self._has_observed_cadence)
-                or self._next_frame_at is None
-                or now >= self._next_frame_at
-            )
+            return backlog or self._next_frame_at is None or now >= self._next_frame_at
 
     def mark_advanced(self, now: float, *, backlog: bool = False) -> None:
         """Record one selected frame without catching up after a long stall."""
         with self._lock:
-            if backlog and not self._has_observed_cadence:
+            if backlog:
                 self._next_frame_at = now + self._minimum_frame_interval
                 return
             frame_interval = self._present_frame_interval
@@ -148,7 +146,6 @@ class _PresentationClock:
         self._next_frame_at = None
         self._model_frame_rate.reset()
         self._has_completion_baseline = False
-        self._has_observed_cadence = False
         self._last_completion_at = None
 
 
