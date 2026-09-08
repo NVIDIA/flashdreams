@@ -71,6 +71,9 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
+# The same idea on the v2 API, kept separate while both exist: v2 applications
+# implement a different contract, so one binary could not resolve both.
+flashdreams-run-v2 = "flashdreams.runtime_v2.cli:entrypoint"
 flashdreams-benchmark = "tools.benchmarks.cli:main"
 
 [project.entry-points."flashdreams.postprocess_presets"]
@@ -110,13 +113,16 @@ examples = [
 # I/O dependencies the ``flashdreams-run`` CLI runners lazy-import
 # (image decoding for I2V first-frames, MP4 muxing for outputs). Kept
 # off the core install so a serving deployment that uses the bare
-# pipeline (e.g. ``integrations/lingbot``) doesn't pull in ffmpeg / opencv.
+# pipeline (e.g. ``integrations_v2/lingbot``) doesn't pull in ffmpeg / opencv.
 runners = [
     "mediapy>=1.1",
     "opencv-python-headless>=4.5",
     "scipy>=1.11",
 ]
 local-window = [
+    # Immediate Dear ImGui bindings used by ImGuiUILoop. SlangPy supplies the
+    # Vulkan renderer and CUDA-interoperable textures.
+    "imgui-bundle==1.92.801",
     "slangpy==0.42.0",
 ]
 
@@ -143,6 +149,7 @@ exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 [tool.setuptools.package-data]
 "flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
+"flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js"]
 
 [dependency-groups]
 # Default CUDA 13 profile. No source binding -- Linux falls through to

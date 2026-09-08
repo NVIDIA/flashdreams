@@ -1,101 +1,199 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Application session abstract interface."""
+"""Application sessions."""
 
+import queue
+import threading
 from abc import ABC, abstractmethod
+from functools import cached_property
+from typing import Any, final
 
+from flashdreams.api_v2.loop import IModelLoop, IUILoop
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
+)
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class ISession(ABC):
-    """One run of an application, and the state that run builds up.
+    """One application run with a model loop and a UI loop.
 
-    Created by :meth:`IApplication.create_session`. Holds the KV cache, game
-    state and anything else that must not carry into another run; anything shared
-    between runs belongs to the application. A session runs no loop of its own:
-    the runtime calls :meth:`step` once per step and decides when to stop.
-
-    Note:
-        Call order is :meth:`init`, then :meth:`step` per step from index zero.
-        :meth:`reset` can happen mid-run, after which the index starts again from
-        zero. :meth:`close` ends it.
+    Register the model loop in :meth:`init`. If no UI loop is registered,
+    the runtime uses :class:`BlitModelOutputToScreenLoop`.
     """
+
+    _registered_ui_loop: IUILoop[Any] | None = None
+    _registered_model_loop: IModelLoop[Any] | None = None
+    _registrations_frozen = False
+
+    @cached_property
+    def _shutdown_event(self) -> threading.Event:
+        """Return the event shared by all registered loops."""
+        return threading.Event()
+
+    @cached_property
+    def _failure_queue(self) -> queue.Queue[BaseException]:
+        """Return the failure queue shared by all registered loops."""
+        return queue.Queue()
+
+    @cached_property
+    def _presentation_manager(self) -> PresentationManager:
+        """Return this session's model frame buffer."""
+        return PresentationManager()
 
     @abstractmethod
     def init(self) -> None:
-        """Load the model and anything else this run needs.
+        """Initialize state and register this session's loops.
 
-        Must not do client I/O, since this can run before a client connects.
+        A model loop is required. Registering a UI loop is optional; without one
+        the runtime uses :class:`BlitModelOutputToScreenLoop`.
+
+        Raises:
+            RuntimeError: No model loop was registered by the time the runtime
+                asks for the loops.
         """
         ...
 
     @property
     @abstractmethod
     def session_desc(self) -> SessionDesc:
-        """Return the description used to create this session.
-
-        The runtime reads it before :meth:`init` runs, since it opens the client
-        window with it.
-        """
+        """Return the description used to configure the runtime."""
         ...
 
-    @abstractmethod
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
-        """Produce one result for ``step_index``.
+    @final
+    def register_ui_loop(
+        self,
+        loop_type: type[IUILoop[Any]],
+        *,
+        state: Any = None,
+        **kwargs: Any,
+    ) -> IUILoop[Any]:
+        """Create and register the UI loop, and return it.
+
+        Omit this call to use the default UI. The loop is paced at the session's
+        ``frames_per_second_for_ui``.
 
         Args:
-            step_index: Zero-based index of the step to produce.
-            events: User input events collected since the previous step.
-
-        Returns:
-            Result carrying ``step_index``.
-        """
-        ...
-
-    def step_ui(self, events: UserInputEvents) -> None:
-        """React to input at the UI rate, faster than :meth:`step`.
-
-        This exists so UI work is not held up by generation. ``run_session``
-        calls it on its I/O thread every tick, while :meth:`step` may still be
-        running, so a session implementing both must guard what they share. The
-        same events reach :meth:`step` in its next batch, so a session can
-        respond here and generate from them later.
-
-        It cannot produce output yet, so today it can only update state. The
-        default does nothing, and a session with nothing to do at this rate
-        leaves it alone.
-
-        Args:
-            events: User input events collected since the previous tick.
-        """
-        return
-
-    def reset(self) -> None:
-        """Reset per-generation state so the session can run again.
-
-        ``run_session`` calls this when a window reports a reset event, and then
-        steps from index zero again. A session that cannot start over should say
-        so rather than half-reset.
-
-        The next :meth:`step` still receives the batch the reset arrived in,
-        including the events before it, so a held key stays held across the
-        restart. Ignore the older events here if this session must not inherit
-        them.
+            loop_type: UI loop class to instantiate.
+            state: State the loop owns. Unlike a model loop, a UI loop is
+                allowed to hold none.
+            **kwargs: Passed to ``loop_type``.
 
         Raises:
-            NotImplementedError: The session does not support reuse.
+            RuntimeError: The runtime already took the loops, or a UI loop was
+                registered already.
+            TypeError: ``loop_type`` does not derive from :class:`IUILoop`.
         """
-        raise NotImplementedError(f"{type(self).__name__} does not support reset.")
+        if self._registrations_frozen:
+            raise RuntimeError("Loop registrations are already in use.")
+        if self._registered_ui_loop is not None:
+            raise RuntimeError("The session already registered a UI loop.")
+        if not issubclass(loop_type, IUILoop):
+            raise TypeError("The UI loop must derive from IUILoop.")
+        loop = loop_type(**kwargs)
+        loop.register_session_loop_objects(
+            state=state,
+            frequency=self.session_desc.frames_per_second_for_ui,
+            shutdown_event=self._shutdown_event,
+            failure_queue=self._failure_queue,
+        )
+        loop.register_session_ui_loop_objects(
+            session_desc=self.session_desc,
+            presentation_manager=self._presentation_manager,
+        )
+        self._registered_ui_loop = loop
+        return loop
+
+    @final
+    def register_model_loop(
+        self,
+        loop_type: type[IModelLoop[Any]],
+        *,
+        state: Any,
+        **kwargs: Any,
+    ) -> IModelLoop[Any]:
+        """Create and register the model loop, and return it.
+
+        The loop is paced at the session's ``frames_per_second_for_step``.
+
+        Args:
+            loop_type: Model loop class to instantiate.
+            state: State the loop owns. Required, since a model loop with no
+                state has nothing to generate from.
+            **kwargs: Passed to ``loop_type``.
+
+        Raises:
+            RuntimeError: The runtime already took the loops, or a model loop
+                was registered already.
+            TypeError: ``loop_type`` does not derive from :class:`IModelLoop`.
+        """
+        if self._registrations_frozen:
+            raise RuntimeError("Loop registrations are already in use.")
+        if self._registered_model_loop is not None:
+            raise RuntimeError("The session already registered a model loop.")
+        if not issubclass(loop_type, IModelLoop):
+            raise TypeError("The model loop must derive from IModelLoop.")
+        loop = loop_type(**kwargs)
+        loop.register_session_loop_objects(
+            state=state,
+            frequency=self.session_desc.frames_per_second_for_step,
+            shutdown_event=self._shutdown_event,
+            failure_queue=self._failure_queue,
+        )
+        self._registered_model_loop = loop
+        return loop
+
+    @property
+    @final
+    def ui_loop(self) -> IUILoop[Any]:
+        """Return the registered UI loop."""
+        if self._registered_ui_loop is None:
+            raise RuntimeError("The session has not registered a UI loop.")
+        return self._registered_ui_loop
+
+    @property
+    @final
+    def model_loop(self) -> IModelLoop[Any]:
+        """Return the registered model-generation loop."""
+        if self._registered_model_loop is None:
+            raise RuntimeError("The session has not registered a model loop.")
+        return self._registered_model_loop
 
     def close(self) -> None:
-        """Release whatever this run holds.
-
-        Runs even when :meth:`init` raised, so an implementation releases what it
-        managed to acquire and tolerates being called on a session that never
-        finished starting. Not abstract, and does nothing by default, so a session
-        with nothing to release does not implement it.
-        """
+        """Release resources owned by the session."""
         return
+
+    @final
+    def _take_loops(self) -> tuple[IUILoop[Any], IModelLoop[Any]]:
+        """Return both loops and stop further registration."""
+        ui_loop = self._registered_ui_loop
+        if ui_loop is None:
+            ui_loop = self.register_ui_loop(BlitModelOutputToScreenLoop)
+        model_loop = self._registered_model_loop
+        if model_loop is None:
+            raise RuntimeError("ISession.init() did not register a model loop.")
+        ui_loop._set_model_loop(model_loop)
+        self._registrations_frozen = True
+        return ui_loop, model_loop
+
+    @final
+    def _shutdown_registered_loops(self) -> list[BaseException]:
+        """Request shutdown, close every registered loop, and return errors."""
+        self._shutdown_event.set()
+        failures: list[BaseException] = []
+        for loop in (
+            self._registered_model_loop,
+            self._registered_ui_loop,
+        ):
+            if loop is None:
+                continue
+            try:
+                loop._shutdown()
+            except BaseException as error:
+                failures.append(error)
+        return failures
+
+
+__all__ = ["ISession"]

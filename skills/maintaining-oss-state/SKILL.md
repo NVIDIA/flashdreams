@@ -123,17 +123,17 @@ Rules:
 - External contributors add their **own** copyright line *above* the
   NVIDIA line — keep both. See `CONTRIBUTING.md:200-235`.
 - The Cosmos-Drive-Dreams files
-  (`integrations/omnidreams/omnidreams/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
+  (`integrations_v2/omnidreams/impl/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
   carry two `SPDX-FileCopyrightText` lines (NVIDIA + Cosmos-Drive-Dreams
   contributors). Mirror that pattern when redistributing other modified
   upstream Apache-2.0 source.
 
 ### What's exempt (handled by `REUSE.toml`)
 
-- Vendored upstream under `integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/**`
+- Vendored upstream under `integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/**`
   (carries its own BSD-3 / Zlib banners; `override` annotation in REUSE.toml).
 - Generated protobuf stubs under
-  `integrations/omnidreams/omnidreams/grpc/protos/*_pb2*` (regeneration
+  `integrations_v2/omnidreams/impl/grpc/protos/*_pb2*` (regeneration
   script is project-owned; aggregate annotation covers them).
 - Binary assets (`assets/**.png`, `.jpg`, `.jpeg`, `.webp`, `.mp4`,
   `.gif`, `.svg`) and lock files (`uv.lock`).
@@ -196,9 +196,9 @@ Two subtrees physically vendored into this repository carry
 different OSI-approved licenses; full texts are reproduced under
 LICENSES/:
 
-  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+  - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
         BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt)
-  - integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/
+  - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
 
@@ -352,7 +352,7 @@ pattern, PR #111) is heavier — it touches **six** places:
 
 1. **Physically place the source** under an `integrations/.../` subtree
    that signals it's third-party (e.g.,
-   `integrations/omnidreams/ludus-renderer/ludus_renderer/_cpp/cudaraster/`).
+   `integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/`).
    Keep the upstream banners verbatim in the file headers — don't
    replace them with NVIDIA SPDX headers.
 2. **Add the full license text** under `LICENSES/<SPDX>.txt`.

@@ -36,22 +36,22 @@ StateDictTransform = Callable[[Mapping[str, torch.Tensor]], dict[str, torch.Tens
 def legacy_to_blocks_keys(
     sd: Mapping[str, torch.Tensor],
 ) -> dict[str, torch.Tensor]:
-    """Re-key legacy ``decoder.<i>.*`` weights to ``decoder.blocks.<i>.*``.
+    """Re-key flat encoder and decoder weights to their ``blocks`` layouts.
 
-    The current :class:`~flashdreams.recipes.taehv.impl.Decoder` wraps
-    its ``Sequential`` in a ``blocks`` attribute, so older checkpoints
-    whose keys flatten to ``decoder.<idx>.*`` need rewriting to line up.
-    Keys already under ``decoder.blocks.`` (and keys outside the
-    ``decoder.`` subtree) pass through unchanged.
+    The current :class:`~flashdreams.recipes.taehv.impl.Encoder` and
+    :class:`~flashdreams.recipes.taehv.impl.Decoder` each wrap their
+    ``Sequential`` in a ``blocks`` attribute. Published checkpoints use
+    flat ``encoder.<idx>.*`` and ``decoder.<idx>.*`` keys. Keys already
+    under ``*.blocks.`` (and unrelated keys) pass through unchanged.
     """
-    return {
-        (
-            k.replace("decoder.", "decoder.blocks.", 1)
-            if k.startswith("decoder.") and not k.startswith("decoder.blocks.")
-            else k
-        ): v
-        for k, v in sd.items()
-    }
+    out: dict[str, torch.Tensor] = {}
+    for key, value in sd.items():
+        for prefix in ("encoder.", "decoder."):
+            if key.startswith(prefix) and not key.startswith(f"{prefix}blocks."):
+                key = key.replace(prefix, f"{prefix}blocks.", 1)
+                break
+        out[key] = value
+    return out
 
 
 def truncate_oversize_tgrow_weights(

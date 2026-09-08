@@ -12,15 +12,26 @@ from .output_sink import OutputSink
 class IClientWindow(InputSource, OutputSink, ABC):
     """Handle application input and output for one client window.
 
-    The runtime opens the window with the session's description, then reads input
-    and writes results until the run ends, and closes it then. A window stays open
-    across a session reset.
+    The runtime opens the window with a session's description, then reads input
+    and writes results until the run ends. A window stays open across a session
+    reset/replacement. A window may be opened/closed by the runtime during a session
+    reset/replacement.
 
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.
 
     One thread makes every call on a window, so an implementation needs no
-    locking of its own.
+    locking except when its backend delivers input from another thread.
 
     Created by the runtime, never by an application.
     """
+
+    # Optional to implement
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Show or hide the cursor for this client window."""
+        pass
+
+    # Optional to implement
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Release or capture pointer motion for this client window."""
+        pass

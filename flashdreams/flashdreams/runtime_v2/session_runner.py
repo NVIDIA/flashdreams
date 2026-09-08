@@ -1,279 +1,397 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Step loop connecting one session to one client window."""
+"""Run a session with a client window."""
 
 import logging
-import queue
+import math
 import threading
-from enum import Enum
+import time
+from dataclasses import dataclass
+from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
+from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
-from flashdreams.api_v2.user_input_event_data import UserInputEventData
+from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEventData,
-    ResetUserInputEventData,
-    UserInputEvent,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
-"""Logger for results a run could not present."""
+_MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
+_UI_READER_ID = 0
+_MODEL_READER_ID = 1
+
+_TRACE_METADATA_KEY = "trace_chunk_lifecycle"
+_TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
+_TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+_TRACE_PREFIX = "[runtime-v2-chunk-trace]"
 
 
-class WhenFull(Enum):
-    """What to do with a finished result when no room is left to hold it."""
+@dataclass(frozen=True, slots=True)
+class _ChunkTraceLog:
+    """Logger state restored after one traced session."""
 
-    BLOCK = "block"
-    """Hold generation back until the window catches up, presenting every result."""
-
-    DROP_OLDEST = "drop_oldest"
-    """Discard the oldest waiting result, skipping frames to keep latency down."""
+    handler: logging.FileHandler
+    previous_level: int
+    previous_propagate: bool
 
 
-def _contains(events: UserInputEvents, event_type: type[UserInputEventData]) -> bool:
-    """Return whether any event in ``events`` carries ``event_type`` data."""
-    return any(
-        isinstance(event.get_event_data(), event_type) for event in events.get_events()
-    )
+def _log_secondary_failure(message: str, error: BaseException) -> None:
+    """Log a cleanup failure that cannot replace an earlier exception."""
+    _LOGGER.error(message, exc_info=error)
 
 
 def run_session(
     session: ISession,
     window: IClientWindow,
     *,
+    metrics_output_sink: OutputSink | None = None,
     steps: int | None = None,
-    max_pending: int = 2,
-    when_full: WhenFull = WhenFull.BLOCK,
-) -> None:
-    """Drive one session against one client window.
+    timeout_seconds: float | None = None,
+) -> SessionDesc | None:
+    """Run a session's UI and model loops.
 
-    Runs on two threads. The calling thread initializes the session and calls
-    ``step`` for each index, with the input collected since the previous step. A
-    second thread owns the window: it opens it, ticks at
-    ``frames_per_second_for_ui`` to read input, call ``step_ui`` and write
-    whatever generation has finished, then closes it. A slow step therefore does
-    not hold up input or output. Only the I/O thread touches the window, which is
-    what a native window needs, and the window and session are always closed,
-    including on failure.
+    The calling UI thread handles the window and UI. A model thread runs the
+    model loop. Returns when the client closes the window, requests a new
+    session, when the UI finishes, or when either loop fails. While the model
+    is not running, an unfinished UI ticks regardless of presentation mode so
+    it can request another session.
 
-    The window ends the run by reporting a :class:`CloseUserInputEventData`, and
-    restarts it by reporting a :class:`ResetUserInputEventData`, which resets the
-    session and takes the step index back to zero. The window stays open. Nothing
-    from the abandoned generation is presented: each result carries the generation
-    it was produced for, so results already waiting and a step that was still
-    running when the reset arrived are both dropped rather than written.
-
-    Input is not split at a reset: the batch carrying it reaches the first step
-    afterwards whole, earlier events included. Events are edges, so a key held
-    down when the client restarts is still held after, and dropping the edge that
-    said so would lose that. A session that must not inherit what the abandoned
-    generation was given has to ignore events older than its reset itself.
-
-    Writing happens on the I/O thread, so a window slower than generation leaves
-    results waiting. ``max_pending`` bounds how many wait, and ``when_full`` says
-    what to do about the next one.
+    Both loops, the metrics sink, and the session are closed before this returns
+    or raises. The client window stays open only when a clean replacement was
+    requested; otherwise it is closed.
 
     Args:
-        session: Uninitialized session to drive.
-        window: Client window supplying input events and presenting results.
-        steps: Exact number of steps to run, counted across resets so a reset
-            cannot extend the run. ``None`` runs until the window reports a close,
-            which is what an interactive window does.
-        max_pending: How many finished results may wait to be written.
-        when_full: What to do with a result when ``max_pending`` are already
-            waiting.
+        session: Session to run.
+        window: Source of input and destination for UI output.
+        metrics_output_sink: Sink for model measurements, if requested. Receives
+            the model loop's results rather than the UI loop's.
+        steps: Maximum model steps before ending the session; ``None`` leaves
+            session completion to the UI or client window.
+        timeout_seconds: Maximum session runtime; ``None`` means session does not have a time-limit. Timeout expiry signals both registered loops to stop.
+
+    Returns:
+        The resolved description for a requested replacement session, or
+        ``None`` when the application run should end.
 
     Raises:
-        ValueError: ``steps`` is negative, or ``max_pending`` is not positive.
-
-    Note:
-        ``step`` and ``step_ui`` run at the same time, so a session implementing
-        both must guard what they share.
+        ValueError: ``steps`` is negative, or ``timeout_seconds`` is invalid.
+        BaseException: A loop's failure if one was queued, otherwise this
+            function's own, otherwise the first cleanup failure. The rest are
+            logged.
     """
     if steps is not None and steps < 0:
         raise ValueError(f"steps must be >= 0 or None, got {steps}.")
-    if max_pending <= 0:
-        raise ValueError(f"max_pending must be > 0, got {max_pending}.")
+    if timeout_seconds is not None and (
+        not math.isfinite(timeout_seconds) or timeout_seconds < 0
+    ):
+        raise ValueError("timeout_seconds must be finite and non-negative.")
 
-    # SessionDesc guarantees this is positive.
-    tick_seconds = 1.0 / session.session_desc.frames_per_second_for_ui
+    deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
 
+    event_buffer = EventBuffer()
+    model_thread_handle: threading.Thread | None = None
+    ui_loop: IUILoop[object] | None = None
+    model_loop: IModelLoop[object] | None = None
+    high_level_failures: BaseException | None = None
+    cleanup_failures: list[BaseException] = []
+    next_session_desc: SessionDesc | None = None
+    stop: threading.Event | None = None
+    presentation_manager = None
+    trace_log: _ChunkTraceLog | None = None
     try:
-        session.init()
-    except Exception:
-        # A partly initialized session still holds whatever it managed to load.
-        session.close()
-        raise
+        session_desc = session.session_desc
+        tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
+        stop = session._shutdown_event
+        presentation_manager = session._presentation_manager
+        trace_chunk_lifecycle = session_desc.metadata.get(_TRACE_METADATA_KEY) is True
+        presentation_manager.configure(
+            backpressure_mode=session_desc.backpressure_mode,
+            stop=stop,
+            put_timeout=tick_seconds,
+            trace_chunk_lifecycle=trace_chunk_lifecycle,
+            frames_per_second=session_desc.frames_per_second_for_step,
+            maximum_frames_per_second=session_desc.frames_per_second_for_ui,
+        )
 
-    # Backpressure is all here. Finished results wait here for the I/O thread to
-    # write, and once max_pending of them are waiting, generation blocks in
-    # add_pending_result, or drops the oldest result when asked to instead.
-    # Each result carries the generation it was produced for, so a reset can tell
-    # what belongs to the run the client abandoned from what belongs to the new one.
-    pending_results: queue.Queue[tuple[int, StepResult]] = queue.Queue(
-        maxsize=max_pending
-    )
-    generation = 0
-    # Only the I/O thread may read the window, so input waits here for the next step.
-    collected_events: list[UserInputEvent] = []
-    collected_events_lock = threading.Lock()
-    opened = threading.Event()
-    stop = threading.Event()
-    io_failure: list[Exception] = []
-    # What never reached the window, reported once the run is over.
-    dropped_for_space = 0
-    discarded_at_reset = 0
+        def collect_input() -> None:
+            event_buffer.append(window.get_user_input_events())
 
-    def present_pending_results() -> None:
-        """Write every waiting result to the window, oldest first.
-
-        Because each tick writes all of them, results only pile up when writing
-        itself is slower than generation, not merely because the UI rate is lower.
-        Results the client reset away from are dropped here rather than written,
-        which is also what frees the room they were holding.
-        """
-        nonlocal discarded_at_reset
-        while True:
-            try:
-                result_generation, result = pending_results.get_nowait()
-            except queue.Empty:
+        def run_ui_once(*, step_requested: bool = True) -> None:
+            """Process UI lifecycle control and run a requested UI step."""
+            nonlocal next_session_desc
+            if ui_loop is None:
                 return
-            if result_generation != generation:
-                discarded_at_reset += 1
-                continue
-            window.write(result)
+            events, generation = event_buffer.read(_UI_READER_ID)
+            result: StepResult | None = None
+            step_completed = False
+            try:
+                loop_result = ui_loop._begin_run(events, generation)
+                if loop_result.stop_requested:
+                    stop.set()
+                    return
 
-    def tick() -> None:
-        nonlocal generation
-        events = window.get_user_input_events()
-        with collected_events_lock:
-            collected_events.extend(events.get_events())
-            # Move on to the next generation from here, since this thread sees the
-            # reset first. Under the lock, so a step already picking up its input
-            # either belongs to the generation being abandoned or to the new one,
-            # never to neither.
-            if _contains(events, ResetUserInputEventData):
-                generation += 1
-        # Stop from here rather than waiting for the step loop to notice, so a
-        # slow step does not delay a client that has gone away.
-        if _contains(events, CloseUserInputEventData):
+                request = ui_loop.flush_ui_loop_requests()
+                if request is not None:
+                    if request.hide_cursor is not None:
+                        window.request_hide_cursor(request.hide_cursor)
+                    if request.lock_cursor_to_window is not None:
+                        window.request_lock_cursor_to_window(
+                            request.lock_cursor_to_window
+                        )
+                    if request.new_session is not None:
+                        next_session_desc = request.new_session
+                        stop.set()
+                        return
+                if loop_result.step_index is None or not step_requested:
+                    return
+                raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
+                if raw_result is not None and not isinstance(raw_result, StepResult):
+                    raise TypeError("A UI loop must return StepResult or None.")
+                result = raw_result
+                step_completed = True
+            finally:
+                ui_loop._finish_run(result, step_completed=step_completed)
+            if result is not None:
+                window.write(result)
+
+        def publish_model_results(
+            generation: int,
+            results: list[StepResult],
+            step_elapsed_s: float,
+        ) -> None:
+            presentation_manager.publish(
+                generation,
+                results,
+                step_elapsed_s=step_elapsed_s,
+            )
+            if metrics_output_sink is not None:
+                for result in results:
+                    metrics_output_sink.write(result)
+
+        def tick_ui() -> None:
+            # ensure that the HIGH PRIORITY presentation context is default for UI loop
+            with presentation_manager.presentation_context():
+                assert ui_loop is not None
+                assert model_loop is not None
+                generation = event_buffer.generation
+                model_advanced, _ = presentation_manager.advance(generation)
+                inference_state = model_loop.inference_state
+                if model_advanced:
+                    step_requested = True
+                elif inference_state is ModelInferenceState.RUNNING:
+                    step_requested = (
+                        session_desc.presentation_mode is PresentationMode.CONTINUOUS
+                    )
+                elif inference_state is ModelInferenceState.NOT_STARTED:
+                    step_requested = True
+                else:
+                    step_requested = (
+                        not presentation_manager.has_pending_frames()
+                        and session._failure_queue.empty()
+                    )
+                run_ui_once(step_requested=step_requested)
+
+        trace_log = (
+            _open_chunk_trace(session_desc.metadata.get(_TRACE_PATH_METADATA_KEY))
+            if trace_chunk_lifecycle
+            else None
+        )
+        if trace_chunk_lifecycle:
+            _TRACE_LOGGER.info(
+                "%s phase=session_config time_ns=%d backpressure=%s "
+                "presentation=%s chunk_buffer_capacity=%d step_fps=%d ui_fps=%d "
+                "width=%d height=%d trace_path=%s",
+                _TRACE_PREFIX,
+                time.monotonic_ns(),
+                session_desc.backpressure_mode.value,
+                session_desc.presentation_mode.value,
+                presentation_manager.buffered_chunk_capacity,
+                session_desc.frames_per_second_for_step,
+                session_desc.frames_per_second_for_ui,
+                session_desc.video_width,
+                session_desc.video_height,
+                trace_log.handler.baseFilename if trace_log is not None else "none",
+            )
+        session.init()
+        registered_ui, registered_model = session._take_loops()
+        ui_loop = registered_ui
+        model_loop = registered_model
+        event_buffer.register(_UI_READER_ID)
+        event_buffer.register(_MODEL_READER_ID)
+
+        window.open(session_desc)
+        if metrics_output_sink is not None:
+            metrics_output_sink.open(session_desc)
+        collect_input()
+        tick_ui()
+
+        if deadline is not None and time.monotonic() >= deadline:
             stop.set()
-        session.step_ui(events)
-        present_pending_results()
+        if not stop.is_set():
+            model_thread_handle = threading.Thread(
+                target=model_loop._run_model_loop,
+                kwargs={
+                    "event_buffer": event_buffer,
+                    "reader_id": _MODEL_READER_ID,
+                    "publish": publish_model_results,
+                    "max_steps": steps,
+                },
+                name=_MODEL_THREAD_NAME,
+            )
+            model_thread_handle.start()
+            next_tick_at = time.monotonic() + tick_seconds
 
-    def run_io() -> None:
+            def should_end_ui() -> bool:
+                if model_thread_handle.is_alive():
+                    return False
+                if presentation_manager.has_pending_frames():
+                    return False
+
+                if (
+                    session._failure_queue.empty()
+                    and steps is None
+                    and not ui_loop.is_finished()
+                ):
+                    # If there are no failures, no steps limit, and the UI is not finished,
+                    # the run should continue.
+                    return False
+                collect_input()
+                run_ui_once(step_requested=False)
+                return True
+
+            while not stop.is_set():
+                if deadline is not None and time.monotonic() >= deadline:
+                    stop.set()
+                    break
+                if should_end_ui():
+                    break
+                wait_seconds = max(0.0, next_tick_at - time.monotonic())
+                if deadline is not None:
+                    wait_seconds = min(
+                        wait_seconds,
+                        max(0.0, deadline - time.monotonic()),
+                    )
+                if stop.wait(wait_seconds):
+                    break
+                if deadline is not None and time.monotonic() >= deadline:
+                    stop.set()
+                    break
+                collect_input()
+                tick_ui()
+                event_buffer.collect_garbage()
+                next_tick_at += tick_seconds
+                completed_at = time.monotonic()
+                if next_tick_at <= completed_at:
+                    next_tick_at = completed_at + tick_seconds
+    except BaseException as error:
+        high_level_failures = error
+    finally:
+        if stop is not None:
+            stop.set()
+        if model_thread_handle is not None:
+            try:
+                model_thread_handle.join()
+            except BaseException as error:
+                cleanup_failures.append(error)
+
+        if presentation_manager is not None:
+            try:
+                presentation_manager.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
+        cleanup_failures.extend(session._shutdown_registered_loops())
         try:
-            window.open(session.session_desc)
-            # Collect once before generation starts, so the first step sees input
-            # the window already has.
-            tick()
-            opened.set()
-            # Stop as soon as the wait says to. Ticking once more would poll input
-            # the stopped run can no longer act on, and a reset in that poll would
-            # throw away the results it just finished.
-            while not stop.wait(tick_seconds):
-                tick()
-            # Present anything the final step produced after the last tick.
-            present_pending_results()
-        except Exception as error:
-            io_failure.append(error)
-        finally:
-            opened.set()
+            event_buffer.unregister(_UI_READER_ID)
+            event_buffer.unregister(_MODEL_READER_ID)
+            event_buffer.clear()
+        except BaseException as error:
+            cleanup_failures.append(error)
+
+        if metrics_output_sink is not None:
+            try:
+                metrics_output_sink.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
+        if next_session_desc is None:
             try:
                 window.close()
-            except Exception as error:
-                # Closing is where a sink finishes the writes it was holding, so
-                # swallowing this would report a run as complete when the output
-                # never landed. An open that raised part way through gets closed
-                # here too, since it still holds whatever it had acquired.
-                io_failure.append(error)
-
-    def take_collected_events() -> tuple[UserInputEvents, int]:
-        """Take the input waiting for the next step, and the generation it is for."""
-        with collected_events_lock:
-            events = UserInputEvents(list(collected_events))
-            collected_events.clear()
-            return events, generation
-
-    def add_pending_result(result_generation: int, result: StepResult) -> int:
-        """Hand one result to the I/O thread, applying ``when_full``.
-
-        This is where backpressure reaches generation, since no room for a result
-        is the only thing that ever slows this thread down.
-
-        Args:
-            result_generation: Generation this result was produced for.
-            result: Finished result to hand over.
-
-        Returns:
-            How many waiting results were dropped to make room.
-        """
-        pending = (result_generation, result)
-        if when_full is WhenFull.DROP_OLDEST:
-            # Keep the newest and lose the stale, so a client behind a slow window
-            # sees the present rather than catching up through the backlog.
-            dropped = 0
-            while True:
-                try:
-                    pending_results.put_nowait(pending)
-                    return dropped
-                except queue.Full:
-                    try:
-                        pending_results.get_nowait()
-                        dropped += 1
-                    except queue.Empty:
-                        continue
-        # Otherwise let the window set the pace: generation waits here until there
-        # is room, which is what an output that must keep every frame needs. Wait
-        # interruptibly, though, because once the I/O thread is gone nothing writes
-        # the waiting results and a plain put would never return.
-        while not (stop.is_set() or io_failure):
+            except BaseException as error:
+                cleanup_failures.append(error)
+        try:
+            session.close()
+        except BaseException as error:
+            cleanup_failures.append(error)
+        if trace_log is not None:
             try:
-                pending_results.put(pending, timeout=tick_seconds)
-                break
-            except queue.Full:
-                continue
-        return 0
+                _close_chunk_trace(trace_log)
+            except BaseException as error:
+                cleanup_failures.append(error)
 
-    io_thread = threading.Thread(target=run_io, name="flashdreams-io")
-    io_thread.start()
-    try:
-        opened.wait()
-        step_index = 0
-        # A caller passing steps gets exactly that many, which is what a test or a
-        # fixed-length output needs. Bounding on step_index would break that, since
-        # a reset takes it back to zero: each reset would extend the run, and
-        # enough of them would stop it ever ending.
-        steps_run = 0
-        while steps is None or steps_run < steps:
-            if io_failure or stop.is_set():
-                break
-            events, step_generation = take_collected_events()
-            if _contains(events, ResetUserInputEventData):
-                session.reset()
-                step_index = 0
-            dropped_for_space += add_pending_result(
-                step_generation, session.step(step_index, events)
-            )
-            step_index += 1
-            steps_run += 1
-    finally:
-        stop.set()
-        io_thread.join()
-        session.close()
+    loop_failures = (
+        None if session._failure_queue.empty() else session._failure_queue.get()
+    )
+    primary_failure = loop_failures or high_level_failures
+    if primary_failure is None and cleanup_failures:
+        primary_failure = cleanup_failures.pop(0)
 
-    # A log line is the only report of these: a caller cannot count them.
-    if dropped_for_space:
+    # A replacement may take ownership of the window only after every resource
+    # owned by the old session has been released successfully.
+    if next_session_desc is not None and primary_failure is not None:
+        try:
+            window.close()
+        except BaseException as error:
+            cleanup_failures.append(error)
+    for error in cleanup_failures:
+        _log_secondary_failure(
+            "Cleanup failed after the session had already failed.", error
+        )
+
+    if presentation_manager is not None and presentation_manager.dropped_for_space:
         _LOGGER.warning(
-            "Dropped %d results the window could not keep up with.", dropped_for_space
+            "Dropped %d model chunks the window could not keep up with.",
+            presentation_manager.dropped_for_space,
         )
-    if discarded_at_reset:
+    if presentation_manager is not None and presentation_manager.discarded_at_reset:
         _LOGGER.info(
-            "Discarded %d results generated before a reset.", discarded_at_reset
+            "Discarded %d model chunks generated before a reset.",
+            presentation_manager.discarded_at_reset,
         )
+    if primary_failure is not None:
+        raise primary_failure
+    return next_session_desc
 
-    if io_failure:
-        raise io_failure[0]
+
+def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:
+    """Open a line-buffered lifecycle trace for one session."""
+    if not isinstance(path_value, str | Path):
+        raise TypeError(
+            f"{_TRACE_PATH_METADATA_KEY} must be a filesystem path when tracing"
+        )
+    path = Path(path_value).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    # ponytail: this process-global logger assumes one active traced V2 session;
+    # pass a per-session sink through the loop contracts if concurrent sessions land.
+    previous_level = _TRACE_LOGGER.level
+    previous_propagate = _TRACE_LOGGER.propagate
+    _TRACE_LOGGER.addHandler(handler)
+    _TRACE_LOGGER.setLevel(logging.INFO)
+    _TRACE_LOGGER.propagate = False
+    return _ChunkTraceLog(handler, previous_level, previous_propagate)
+
+
+def _close_chunk_trace(trace_log: _ChunkTraceLog) -> None:
+    """Flush and close a session trace, restoring the shared logger."""
+    _TRACE_LOGGER.removeHandler(trace_log.handler)
+    try:
+        trace_log.handler.close()
+    finally:
+        _TRACE_LOGGER.setLevel(trace_log.previous_level)
+        _TRACE_LOGGER.propagate = trace_log.previous_propagate
+
+
+__all__ = ["run_session"]

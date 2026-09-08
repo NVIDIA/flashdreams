@@ -26,12 +26,18 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from tools.benchmarks import cli as benchmark_cli
-from tools.benchmarks import pai_bench_profile
+from tools.benchmarks import pai_bench_profile, strict_run
 from tools.benchmarks import quality as benchmark_quality
 from tools.benchmarks.harness import run_benchmark_suite
 from tools.benchmarks.metrics import (
+    is_runtime_benchmark_stats_record,
     records_from_log,
     records_from_stats_file,
     summarize_records,
@@ -51,11 +57,11 @@ pytestmark = pytest.mark.ci_cpu
 def test_built_in_scenarios_are_selectable() -> None:
     scenarios = built_in_scenarios()
 
-    scenario = scenarios["self-forcing-taehv-smoke"]
+    scenario = scenarios["self-forcing-v2-smoke"]
 
-    assert scenario.command[:2] == (
-        "flashdreams-run",
-        "self-forcing-wan2.1-t2v-1.3b-taehv",
+    assert scenario.command[4:6] == (
+        "flashdreams-run-v2",
+        "t2v-self-forcing-wan2.1-t2v-1.3b",
     )
     assert scenario.warmup_steps == 1
 
@@ -227,6 +233,46 @@ def test_runtime_benchmark_stats_records_group_samples_by_step(
     assert records[1].metrics["generated_fps"] == pytest.approx(15.0)
 
 
+def test_runtime_benchmark_stats_written_by_the_v2_sink_are_read(
+    tmp_path: Path,
+) -> None:
+    """The v2 sink writes this artifact too, so what it writes is read here.
+
+    A scenario on either API ends up in one report, which only works while both
+    sinks agree with this reader about what a stats file is.
+    """
+    stats_path = tmp_path / "stats_demo.json"
+    session_desc = SessionDesc(
+        output_layout=VideoTensorLayout.tchw,
+        frames_per_second_for_ui=60,
+        frames_per_second_for_step=16,
+        video_width=128,
+        video_height=64,
+    )
+    sink = MetricsOutputSink(stats_path)
+    sink.open(session_desc)
+    sink.write(
+        StepResult(
+            step_index=0,
+            output=torch.zeros((9, 3, 64, 128)),
+            frame_count=9,
+            output_layout=VideoTensorLayout.tchw,
+            metrics={"total_ms": 300.0},
+        )
+    )
+    sink.close()
+
+    records = records_from_stats_file(
+        stats_path, scenario_id="demo", source_root=tmp_path
+    )
+
+    assert len(records) == 1
+    assert is_runtime_benchmark_stats_record(records[0])
+    assert records[0].metrics["total_s"] == pytest.approx(0.3)
+    assert records[0].metrics["generated_frame_count"] == 9
+    assert records[0].metrics["generated_fps"] == pytest.approx(30.0)
+
+
 def test_runtime_benchmark_stats_summary_generated_fps_excludes_warmup(
     tmp_path: Path,
 ) -> None:
@@ -373,7 +419,7 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/lingbot",
+        "integrations_v2/lingbot",
         "flashdreams-run",
     )
     assert lingbot.command[5:7] == (
@@ -394,10 +440,10 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
         context=_render_context(tmp_path, scenario_id=lingbot.id)
     )
     assert "--output-dir" not in rendered
-    assert _command_value(rendered, "--output.path") == str(
+    assert Path(_command_value(rendered, "--output.path")) == (
         tmp_path / lingbot.id / "lingbot-world-fast-taehv-one-minute.mp4"
     )
-    assert _command_value(rendered, "--output.stats-path") == str(
+    assert Path(_command_value(rendered, "--output.stats-path")) == (
         tmp_path / lingbot.id / "stats_lingbot_world_fast_taehv_one_minute.json"
     )
 
@@ -407,7 +453,7 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/omnidreams",
+        "integrations_v2/omnidreams",
         "python",
         "-m",
         "tools.benchmarks.strict_run",
@@ -424,60 +470,6 @@ def test_shipped_one_minute_demo_scenarios_load(tmp_path: Path) -> None:
     assert "--pipeline.diffusion-model.seed" in omnidreams.command
     assert omnidreams.warmup_steps == 4
     assert omnidreams.requires_runtime_stats is True
-
-
-def test_shipped_omnidreams_demo_replay_scenarios_load() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    scenarios = load_scenario_file(
-        repo_root / "configs" / "omnidreams_demo_replay_benchmarks.json"
-    )
-
-    assert set(scenarios) == {
-        "omnidreams-sv-runner-baseline",
-        "omnidreams-sv-demo-replay",
-    }
-
-    baseline = scenarios["omnidreams-sv-runner-baseline"]
-    assert baseline.report_group is not None
-    assert baseline.report_group.id == "omnidreams-demo"
-    assert _command_value(baseline.command, "--total-blocks") == "226"
-    assert "omnidreams" in baseline.command
-    assert "omnidreams-perf" not in baseline.command
-    assert baseline.warmup_steps == 1
-    assert baseline.quality_baseline_compare is False
-
-    demo = scenarios["omnidreams-sv-demo-replay"]
-    assert demo.output_dir_arg is None
-    assert demo.command[:5] == (
-        "uv",
-        "run",
-        "--project",
-        "integrations/omnidreams",
-        "flashdreams-run",
-    )
-    assert demo.command[5:7] == ("omnidreams", "mp4")
-    assert "omnidreams-demo" not in demo.command
-    assert _command_value(demo.command, "--scenario.example-data") == "true"
-    assert _command_value(demo.command, "--scenario.total-blocks") == "226"
-    assert _command_value(demo.command, "--output.path") == (
-        "{output_dir}/omnidreams-sv-demo-replay.mp4"
-    )
-    assert _command_value(demo.command, "--output.stats-path") == (
-        "{output_dir}/stats_omnidreams_sv_demo_replay.json"
-    )
-    assert demo.warmup_steps == 4
-    assert demo.requires_runtime_stats is True
-    rendered = demo.rendered_command(
-        context=_render_context(repo_root, scenario_id=demo.id)
-    )
-    assert "--output-dir" not in rendered
-    assert _command_value(rendered, "--output.path") == str(
-        repo_root / demo.id / "omnidreams-sv-demo-replay.mp4"
-    )
-    assert "omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf" not in (
-        demo.command
-    )
-    assert demo.quality_baseline_compare is False
 
 
 def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
@@ -497,7 +489,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/omnidreams",
+        "integrations_v2/omnidreams",
         "python",
         "-m",
         "tools.benchmarks.strict_run",
@@ -527,7 +519,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/lingbot",
+        "integrations_v2/lingbot",
         "python",
         "-m",
         "tools.benchmarks.strict_run",
@@ -548,7 +540,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         context=_render_context(tmp_path, scenario_id=lingbot.id)
     )
     assert "--output-dir" not in rendered_lingbot
-    assert _command_value(rendered_lingbot, "--output.path") == str(
+    assert Path(_command_value(rendered_lingbot, "--output.path")) == (
         tmp_path / lingbot.id / "lingbot-world-fast-taehv-quality-smoke.mp4"
     )
     assert lingbot.report_group is not None
@@ -565,7 +557,7 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
         "uv",
         "run",
         "--project",
-        "integrations/lingbot",
+        "integrations_v2/lingbot",
         "flashdreams-run",
     )
     assert lingbot_review.command[5:7] == (
@@ -598,6 +590,142 @@ def test_shipped_deterministic_quality_scenarios_load(tmp_path: Path) -> None:
     assert omnidreams_review.warmup_steps == 4
     assert omnidreams_review.requires_runtime_stats is True
     assert omnidreams_review.quality_baseline_compare is False
+
+
+def test_shipped_v2_model_scenarios_load(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    scenarios = load_scenario_file(repo_root / "configs" / "v2_model_benchmarks.json")
+
+    for scenario in scenarios.values():
+        # A scenario declaring that it needs measurements fails the run without
+        # them, so every one asks the runner to write them, and seeds itself so
+        # that the clip beside them can be generated again.
+        assert scenario.output_dir_arg is None
+        assert scenario.requires_runtime_stats is True
+        assert "flashdreams-run-v2" in scenario.command
+        assert "--stats-path" in scenario.command
+        assert _command_value(scenario.command, "--seed") == "1"
+
+    # One prompt across every text-to-video model, or the clips are not
+    # comparable.
+    prompts = {
+        _command_value(scenario.command, "--prompt")
+        for scenario in scenarios.values()
+        if "t2v" in scenario.tags
+    }
+    assert len(prompts) == 1
+
+    quality = scenarios["t2v-self-forcing-quality-10s"]
+    assert quality.command[:9] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/self_forcing",
+        "python",
+        "-m",
+        "tools.benchmarks.strict_run",
+        "--entrypoint",
+        "flashdreams-run-v2",
+    )
+    assert _command_value(quality.command, "--total-blocks") == "14"
+    assert quality.env["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+    assert quality.quality_compare_region == "full"
+    assert quality.report_group is not None
+    assert quality.report_group.id == "t2v-self-forcing"
+    rendered = quality.rendered_command(
+        context=_render_context(tmp_path, scenario_id=quality.id)
+    )
+    assert "--output-dir" not in rendered
+    assert Path(_command_value(rendered, "--output-path")) == (
+        tmp_path / quality.id / f"{quality.id}.mp4"
+    )
+
+    one_minute = scenarios["t2v-self-forcing-one-minute"]
+    assert one_minute.command[:5] == (
+        "uv",
+        "run",
+        "--project",
+        "integrations_v2/self_forcing",
+        "flashdreams-run-v2",
+    )
+    assert _command_value(one_minute.command, "--total-blocks") == "81"
+    # What the PAI-Bench quality profiles select on.
+    assert "one-minute" in one_minute.tags
+    assert one_minute.quality_baseline_compare is False
+    # Timings rather than bitwise repeatability, so the deterministic algorithms
+    # the quality runs pay for are left off.
+    assert "CUBLAS_WORKSPACE_CONFIG" not in one_minute.env
+    assert one_minute.report_group is not None
+    assert one_minute.report_group.id == quality.report_group.id
+
+    for single_block_id in ("t2v-wan21-native-clip", "t2v-cosmos-predict2-native-clip"):
+        # Neither model reaches ten seconds, let alone a minute: one block is
+        # the whole clip, so there is no warmup step to drop either.
+        single_block = scenarios[single_block_id]
+        assert _command_value(single_block.command, "--total-blocks") == "1"
+        assert single_block.warmup_steps == 0
+        assert "pai-bench" in single_block.tags
+
+    cam2v_quality = scenarios["cam2v-lingbot-quality-10s"]
+    cam2v_one_minute = scenarios["cam2v-lingbot-one-minute"]
+    for cam2v in (cam2v_quality, cam2v_one_minute):
+        # A camera-to-video model is conditioned on a first frame its prompt
+        # belongs with, so it pins that example rather than taking the shared
+        # prompt, and the same example across both lengths.
+        assert "--prompt" not in cam2v.command
+        assert "--example-data" in cam2v.command
+        assert _command_value(cam2v.command, "--example-idx") == "0"
+        # The overlay draws live timing over the model output, which would land
+        # in the clip the comparison reads.
+        assert "--no-ui" in cam2v.command
+        assert cam2v.report_group is not None
+        assert cam2v.report_group.id == "cam2v-lingbot"
+
+    # The same block counts as the streaming text-to-video models, which reach
+    # the same lengths: three latent frames a block through a decoder
+    # compressing four to one is 9 frames then 12, at 16 frames per second.
+    assert _command_value(cam2v_quality.command, "--total-blocks") == "14"
+    assert cam2v_quality.env["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+    assert cam2v_quality.quality_compare_region == "full"
+    assert _command_value(cam2v_one_minute.command, "--total-blocks") == "81"
+    assert "one-minute" in cam2v_one_minute.tags
+    assert cam2v_one_minute.quality_baseline_compare is False
+    assert "CUBLAS_WORKSPACE_CONFIG" not in cam2v_one_minute.env
+
+
+def test_strict_run_can_launch_either_api() -> None:
+    """The v2 runner splits its own arguments at ``--``, so that separator has
+    to survive the one that ends this command's arguments."""
+    args = strict_run._parse_args(
+        [
+            "--entrypoint",
+            "flashdreams-run-v2",
+            "--",
+            "t2v-self-forcing-wan2.1-t2v-1.3b",
+            "--output-path",
+            "clip.mp4",
+            "--",
+            "--prompt",
+            "A cat surfing",
+        ]
+    )
+
+    assert args.entrypoint == "flashdreams-run-v2"
+    assert args.runner_args == [
+        "t2v-self-forcing-wan2.1-t2v-1.3b",
+        "--output-path",
+        "clip.mp4",
+        "--",
+        "--prompt",
+        "A cat surfing",
+    ]
+
+
+def test_strict_run_launches_the_v1_runner_unless_told_otherwise() -> None:
+    args = strict_run._parse_args(["--", "omnidreams", "mp4"])
+
+    assert args.entrypoint == "flashdreams-run"
+    assert args.runner_args == ["omnidreams", "mp4"]
 
 
 def test_run_benchmark_suite_writes_manifest_metrics_and_report(tmp_path: Path) -> None:
@@ -1453,7 +1581,7 @@ def test_quality_baseline_can_be_disabled_per_scenario(tmp_path: Path) -> None:
         "quality_baseline_compare is disabled for this scenario"
     )
     assert review_result["candidate_video"] == "scenarios/review-runner/review.mp4"
-    assert review_result["baseline_video"] == str(baseline_video.resolve())
+    assert Path(review_result["baseline_video"]) == baseline_video.resolve()
     assert "metrics_path" not in review_result
     assert "quality_score" not in scenario_manifest["metric_summary"]
     assert not (

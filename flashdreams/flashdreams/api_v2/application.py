@@ -27,6 +27,20 @@ class IApplication(ABC):
         """Parse application arguments and validate startup state."""
         ...
 
+    def session_desc(self) -> SessionDesc | None:
+        """Return the description of a session this application would generate.
+
+        A caller has to describe a session before there is one to describe, and
+        only the application knows what its model was trained for. Asked before
+        :meth:`init`, so describing a session costs nothing.
+
+        Returns:
+            The session to create when nobody asks for another, or ``None``,
+            the default, from an application that generates whatever it is
+            asked for. Its caller describes the session instead.
+        """
+        return None
+
     @abstractmethod
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one isolated, uninitialized session for ``session_desc``.

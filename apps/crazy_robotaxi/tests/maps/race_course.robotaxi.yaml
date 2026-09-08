@@ -1,0 +1,55 @@
+schema_version: 1
+id: race-course-test
+name: Race Course Test
+
+compiler:
+  sample_spacing_m: 1
+  ground_margin_m: 10
+  intersection_connector_samples: 8
+
+profiles:
+  street:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, forward]
+    speed_limit_mps: 12
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - {id: southwest, type: road_joint, pose: {x_m: -150, y_m: -100}}
+  - {id: south, type: road_joint, pose: {x_m: 0, y_m: -100}}
+  - {id: southeast, type: road_joint, pose: {x_m: 150, y_m: -100}}
+  - {id: east, type: road_joint, pose: {x_m: 150, y_m: 0}}
+  - {id: northeast, type: road_joint, pose: {x_m: 150, y_m: 100}}
+  - {id: north, type: road_joint, pose: {x_m: 0, y_m: 100}}
+  - {id: northwest, type: road_joint, pose: {x_m: -150, y_m: 100}}
+  - {id: west, type: road_joint, pose: {x_m: -150, y_m: 0}}
+
+roads:
+  - {id: south_west, from: southwest, to: south, profile: street}
+  - {id: south_east, from: south, to: southeast, profile: street}
+  - {id: east_south, from: southeast, to: east, profile: street}
+  - {id: east_north, from: east, to: northeast, profile: street}
+  - {id: north_east, from: northeast, to: north, profile: street}
+  - {id: north_west, from: north, to: northwest, profile: street}
+  - {id: west_north, from: northwest, to: west, profile: street}
+  - {id: west_south, from: west, to: southwest, profile: street}
+
+race_courses:
+  - id: test-loop
+    start: south_west
+    checkpoints: [southeast, east_north, north, west_south]
+    lap_count: 3
+    checkpoint_markers: true
+
+spawns:
+  - id: start
+    road: south_west
+    lane: 1
+    distance_m: 30
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: A car racing on a rectangular city loop.

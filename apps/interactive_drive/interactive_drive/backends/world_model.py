@@ -1,0 +1,553 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+from __future__ import annotations
+
+import hashlib
+import time
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+from loguru import logger
+from PIL import Image
+
+from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoPostprocessStream,
+)
+from flashdreams.infra.video_output import VideoOutputStream
+from interactive_drive.backends.base import RenderBackend
+from interactive_drive.config import (
+    BevConfig,
+    ChunkConfig,
+    RasterConfig,
+    VehicleConfig,
+)
+from interactive_drive.rasterizer import LudusConditionRasterizer
+from interactive_drive.types import (
+    FrameChunk,
+    PresentedFrame,
+    SceneBundle,
+    TrajectoryChunk,
+    VideoModelTimings,
+)
+
+_FIRST_STEADY_STATE_WARMUP_MESSAGE = "Optimizing world model..."
+_VIEW_NAMES = ["camera_front_wide_120fov"]
+
+
+class WorldModelRenderBackend(RenderBackend):
+    def __init__(
+        self,
+        pipeline: StreamInferencePipeline[Any, Any, Any],
+        chunk: ChunkConfig,
+        raster: RasterConfig,
+        bev: BevConfig | None = None,
+        vehicle: VehicleConfig | None = None,
+        postprocess: VideoPostprocessChainConfig | None = None,
+        debug_condition_frame_dir: Path | None = None,
+    ) -> None:
+        super().__init__(chunk=chunk, raster=raster)
+        self._debug_condition_frame_dir = debug_condition_frame_dir
+        vehicle = vehicle or VehicleConfig()
+        self._rasterizer = LudusConditionRasterizer(
+            raster,
+            bev=bev,
+            ego_dimensions_lwh=(
+                vehicle.aabb_length_m,
+                vehicle.aabb_width_m,
+                vehicle.aabb_height_m,
+            ),
+            max_chunk_frames=max(chunk.initial_chunk_frames, chunk.chunk_frames),
+        )
+        self._pipeline = pipeline
+        self._postprocess = postprocess or VideoPostprocessChainConfig()
+        self._postprocess_enabled = self._postprocess.is_enabled()
+        self._output_stream = self._new_output_stream()
+        self._cache: Any | None = None
+        self._step_index = 0
+        self._pending_finalization_index: int | None = None
+        self._scene: SceneBundle | None = None
+        self._next_chunk_count = 0
+        self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
+
+    @property
+    def can_prewarm(self) -> bool:
+        return True
+
+    @property
+    def optimizes_on_first_chunk(self) -> bool:
+        # First chunk triggers compile / CUDA-graph capture / Triton autotune,
+        # which can take minutes on the first launch.
+        return True
+
+    def warmup_model(self) -> None:
+        if self._chunk.initial_chunk_frames != 5:
+            raise ValueError(
+                "The flashdreams world-model path is locked to a 5-frame first chunk."
+            )
+        get_num_output_frames = getattr(self._pipeline, "get_num_output_frames", None)
+
+        if not callable(get_num_output_frames):
+            return
+        first_frames = int(get_num_output_frames(0))
+        steady_frames = int(get_num_output_frames(1))
+        if first_frames != self._chunk.initial_chunk_frames:
+            raise ValueError(
+                "Pipeline initial output size does not match the demo chunk: "
+                f"{first_frames} vs {self._chunk.initial_chunk_frames}."
+            )
+        if steady_frames != self._chunk.chunk_frames:
+            raise ValueError(
+                "Pipeline steady output size does not match the demo chunk: "
+                f"{steady_frames} vs {self._chunk.chunk_frames}."
+            )
+
+    def load_scene(self, scene: SceneBundle) -> None:
+        self._scene = scene
+        self._next_chunk_count = 0
+        self._debug_first_chunk_condition_frames = self._load_debug_condition_frames(
+            self._debug_condition_frame_dir
+        )
+        load_start = time.perf_counter()
+        self._rasterizer.load_scene(scene)
+        rasterizer_end = time.perf_counter()
+        logger.info(
+            "[world-model] load_scene "
+            f"rasterizer_ms={(rasterizer_end - load_start) * 1000.0:.1f} "
+            f"total_ms={(rasterizer_end - load_start) * 1000.0:.1f}",
+        )
+
+    def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        scene = self._require_scene()
+        chunk_start = time.perf_counter()
+        if self._debug_first_chunk_condition_frames is None:
+            raster_chunk = self._rasterizer.render_chunk(
+                rig_poses_world=trajectory.rig_poses_world,
+                timestamps_us=trajectory.timestamps_us,
+                physics_debug_frames=trajectory.physics_debug_frames,
+            )
+            raster_end = time.perf_counter()
+            condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
+            display_frames = raster_chunk.frames
+        else:
+            condition_frames = [
+                frame.copy() for frame in self._debug_first_chunk_condition_frames
+            ]
+            physx_frames = (
+                self._rasterizer.render_physx_debug_lazy_frames(
+                    trajectory.rig_poses_world,
+                    trajectory.timestamps_us,
+                    trajectory.physics_debug_frames,
+                )
+                if trajectory.physics_debug_frames
+                else ()
+            )
+            raster_end = time.perf_counter()
+            display_frames = tuple(
+                PresentedFrame(
+                    timestamp_us=int(timestamp_us),
+                    rgb_host_uint8=frame.copy(),
+                    depth_host_f32=None,
+                    rgb_native=None,
+                    depth_native=None,
+                    physx_debug=(
+                        trajectory.physics_debug_frames[index]
+                        if trajectory.physics_debug_frames
+                        else None
+                    ),
+                    physx_rgb_host_uint8=(
+                        physx_frames[index] if physx_frames else None
+                    ),
+                )
+                for index, (timestamp_us, frame) in enumerate(
+                    zip(
+                        trajectory.timestamps_us,
+                        self._debug_first_chunk_condition_frames,
+                        strict=True,
+                    )
+                )
+            )
+            logger.info(
+                "[world-model] first_chunk using official hdmap override "
+                f"dir={self._debug_condition_frame_dir}",
+            )
+        _log_prompt_handoff("first_chunk.start", scene)
+        model_frames = self._start_pipeline(
+            scene.initial_rgb, condition_frames, scene.prompt
+        )
+        model_end = time.perf_counter()
+        merged_frames = self._merge_frames(
+            display_frames,
+            model_frames,
+            annotate_first_transition=True,
+        )
+        merge_end = time.perf_counter()
+        logger.info(
+            "[world-model] first_chunk "
+            f"frames={len(trajectory.timestamps_us)} "
+            f"raster_ms={(raster_end - chunk_start) * 1000.0:.1f} "
+            f"model_ms={(model_end - raster_end) * 1000.0:.1f} "
+            f"merge_ms={(merge_end - model_end) * 1000.0:.1f} "
+            f"total_ms={(merge_end - chunk_start) * 1000.0:.1f}",
+        )
+        return FrameChunk(
+            frames=merged_frames,
+            boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
+            source_name="world_model",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
+        )
+
+    def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        self._require_scene()
+        chunk_start = time.perf_counter()
+        raster_chunk = self._rasterizer.render_chunk(
+            rig_poses_world=trajectory.rig_poses_world,
+            timestamps_us=trajectory.timestamps_us,
+            dynamic_actors=trajectory.dynamic_actors,
+            physics_debug_frames=trajectory.physics_debug_frames,
+        )
+        raster_end = time.perf_counter()
+        condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
+        model_frames = self._continue_pipeline(condition_frames)
+        model_end = time.perf_counter()
+        merged_frames = self._merge_frames(raster_chunk.frames, model_frames)
+        merge_end = time.perf_counter()
+        self._next_chunk_count += 1
+        total_ms = (merge_end - chunk_start) * 1000.0
+        if trajectory.physx_timings is not None:
+            timing = trajectory.physx_timings
+            physx_timing = (
+                f"physx_ms={timing.total_ms:.1f} "
+                # f"physx_sync_ms={timing.synchronize_ms:.1f} "
+                # f"physx_actor_update_ms={timing.actor_update_ms:.1f} "
+                # f"physx_solver_ms={timing.solver_ms:.1f} "
+                # f"physx_readback_ms={timing.readback_ms:.1f} "
+                # f"physx_bridge_ms={timing.bridge_ms:.1f} "
+                # f"physx_visible_actors={timing.max_visible_actors} "
+                # f"physx_detached_actors={timing.max_detached_actors} "
+            )
+        else:
+            physx_timing = (
+                f"physx_ms={trajectory.physx_elapsed_s * 1000.0:.1f} "
+                if trajectory.physx_elapsed_s is not None
+                else ""
+            )
+        if (
+            self._next_chunk_count <= 3
+            or self._next_chunk_count % 10 == 0
+            or total_ms > 500.0
+        ):
+            logger.info(
+                "[world-model] next_chunk "
+                f"index={self._next_chunk_count} "
+                f"frames={len(trajectory.timestamps_us)} "
+                f"{physx_timing}"
+                f"raster_ms={(raster_end - chunk_start) * 1000.0:.1f} "
+                f"model_ms={(model_end - raster_end) * 1000.0:.1f} "
+                f"merge_ms={(merge_end - model_end) * 1000.0:.1f} "
+                f"total_ms={total_ms:.1f}",
+            )
+        return FrameChunk(
+            frames=merged_frames,
+            boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
+            source_name="world_model",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=merge_end,
+            ),
+        )
+
+    def reset(self) -> None:
+        self._clear_pipeline(finalize_pending=False)
+        self._next_chunk_count = 0
+
+    def reset_scene_conditioning(self) -> None:
+        self._clear_pipeline(finalize_pending=False)
+        self._next_chunk_count = 0
+
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled and not self._postprocess.is_enabled():
+            raise RuntimeError(
+                "Cannot enable post-processing without --postprocess-preset."
+            )
+        if enabled == self._postprocess_enabled:
+            return
+        self._postprocess_enabled = enabled
+        self._output_stream.finish()
+        self._output_stream = self._new_output_stream()
+
+    def close(self) -> None:
+        self._clear_pipeline(finalize_pending=True, recreate_output_stream=False)
+        self._rasterizer.cleanup()
+
+    def _start_pipeline(
+        self,
+        initial_rgb: object,
+        condition_frames: Sequence[object],
+        prompt: str,
+    ) -> list[object]:
+        self._clear_pipeline(finalize_pending=False)
+        self._cache = self._initialize_cache(initial_rgb, prompt)
+        return self._step_pipeline(condition_frames)
+
+    def _continue_pipeline(self, condition_frames: Sequence[object]) -> list[object]:
+        if self._cache is None:
+            raise RuntimeError(
+                "render_first_chunk() must run before render_next_chunk()."
+            )
+        return self._step_pipeline(condition_frames)
+
+    def _step_pipeline(self, condition_frames: Sequence[object]) -> list[object]:
+        if self._cache is None:
+            raise RuntimeError("The stream pipeline cache has not been initialized.")
+        self._finalize_pending()
+        expected_frames = (
+            self._chunk.initial_chunk_frames
+            if self._step_index == 0
+            else self._chunk.chunk_frames
+        )
+        if len(condition_frames) != expected_frames:
+            raise ValueError(
+                "Condition chunk length does not match the demo chunk size: "
+                f"{len(condition_frames)} vs {expected_frames}."
+            )
+        step_index = self._step_index
+        video_chunk = self._pipeline.generate(
+            autoregressive_index=step_index,
+            cache=self._cache,
+            input=self._condition_tensor(condition_frames),
+        )
+        self._pending_finalization_index = step_index
+        result = self._output_stream.process(
+            video_chunk,
+            autoregressive_index=step_index,
+            metrics={},
+        )
+        if result.frame_count != expected_frames:
+            raise RuntimeError(
+                f"Expected {expected_frames} generated frames, "
+                f"got {result.frame_count}."
+            )
+        self._step_index += 1
+        model_frames = list(result.lazy_rgb_frames())
+        _synchronize_cuda_frame_event(model_frames)
+        return model_frames
+
+    def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
+        return self._pipeline.initialize_cache(
+            text=[[prompt]],
+            image=self._initial_rgb_tensor(initial_rgb),
+            view_names=_VIEW_NAMES,
+        )
+
+    def _finalize_pending(self) -> None:
+        if self._cache is None or self._pending_finalization_index is None:
+            return
+        self._pipeline.finalize(
+            autoregressive_index=self._pending_finalization_index,
+            cache=self._cache,
+        )
+        self._pending_finalization_index = None
+
+    def _clear_pipeline(
+        self,
+        *,
+        finalize_pending: bool,
+        recreate_output_stream: bool = True,
+    ) -> None:
+        if finalize_pending:
+            self._finalize_pending()
+        else:
+            self._pending_finalization_index = None
+        self._cache = None
+        self._step_index = 0
+        self._output_stream.finish()
+        if recreate_output_stream:
+            self._output_stream = self._new_output_stream()
+
+    def _new_output_stream(self) -> VideoOutputStream:
+        postprocess_stream = None
+        if self._postprocess_enabled:
+            postprocess_stream = VideoPostprocessStream(
+                postprocess=self._postprocess,
+                output_layout="bvtchw",
+                fps=self._chunk.fps,
+                per_view=False,
+                world_size=1,
+            )
+        return VideoOutputStream(
+            postprocess_stream=postprocess_stream,
+            output_layout="bvtchw",
+        )
+
+    def _initial_rgb_tensor(self, frame: object) -> torch.Tensor:
+        tensor = torch.from_numpy(_rgb_hwc_uint8(frame))
+        tensor = tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(0).unsqueeze(2)
+        return self._to_model_range(tensor)
+
+    def _condition_tensor(self, condition_frames: Sequence[object]) -> torch.Tensor:
+        cuda_video = _condition_cuda_video(condition_frames)
+        if cuda_video is not None:
+            tensor = cuda_video.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
+            return self._to_model_range(tensor)
+        video = np.stack([_rgb_hwc_uint8(frame) for frame in condition_frames], axis=0)
+        tensor = torch.from_numpy(np.ascontiguousarray(video))
+        tensor = tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
+        return self._to_model_range(tensor)
+
+    def _to_model_range(self, tensor: torch.Tensor) -> torch.Tensor:
+        tensor = tensor.to(device=self._pipeline.device, dtype=torch.bfloat16)
+        return tensor / 127.5 - 1.0
+
+    def _require_scene(self) -> SceneBundle:
+        if self._scene is None:
+            raise RuntimeError(
+                "warmup() must be called before rendering world-model chunks"
+            )
+        return self._scene
+
+    def _load_debug_condition_frames(
+        self, condition_dir: Path | None
+    ) -> tuple[np.ndarray, ...] | None:
+        if condition_dir is None:
+            return None
+        frames: list[np.ndarray] = []
+        for i in range(self._chunk.initial_chunk_frames):
+            path = condition_dir / f"hdmap_{i:02d}.png"
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"debug_condition_frame_dir is missing required file {path}"
+                )
+            with Image.open(path) as image:
+                rgb = image.convert("RGB")
+                if rgb.size != self._raster.resolution_wh:
+                    rgb = rgb.resize(
+                        self._raster.resolution_wh,
+                        resample=Image.Resampling.BILINEAR,
+                    )
+                frames.append(np.array(rgb, dtype=np.uint8))
+        return tuple(frames)
+
+    def _merge_frames(
+        self,
+        raster_frames: Sequence[PresentedFrame],
+        model_frames: Sequence[object],
+        *,
+        annotate_first_transition: bool = False,
+    ) -> tuple[PresentedFrame, ...]:
+        if len(raster_frames) != len(model_frames):
+            raise ValueError(
+                "World-model output frame count does not match the conditioning chunk size: "
+                f"{len(model_frames)} vs {len(raster_frames)}"
+            )
+
+        merged: list[PresentedFrame] = []
+        last_index = len(raster_frames) - 1
+        for index, (raster_frame, model_rgb) in enumerate(
+            zip(raster_frames, model_frames, strict=True)
+        ):
+            merged.append(
+                PresentedFrame(
+                    timestamp_us=raster_frame.timestamp_us,
+                    rgb_host_uint8=raster_frame.rgb_host_uint8,
+                    depth_host_f32=raster_frame.depth_host_f32,
+                    rgb_native=raster_frame.rgb_native,
+                    depth_native=raster_frame.depth_native,
+                    model_rgb_host_uint8=model_rgb,
+                    bev_host_uint8=raster_frame.bev_host_uint8,
+                    physx_debug=raster_frame.physx_debug,
+                    physx_rgb_host_uint8=raster_frame.physx_rgb_host_uint8,
+                    status_message=(
+                        _FIRST_STEADY_STATE_WARMUP_MESSAGE
+                        if annotate_first_transition and index == last_index
+                        else None
+                    ),
+                )
+            )
+        return tuple(merged)
+
+
+def _rgb_hwc_uint8(frame: object) -> np.ndarray:
+    return np.ascontiguousarray(
+        np.array(np.asarray(frame, dtype=np.uint8)[..., :3], copy=True)
+    )
+
+
+def _condition_cuda_video(
+    condition_frames: Sequence[object],
+) -> torch.Tensor | None:
+    tensors: list[torch.Tensor] = []
+    device: torch.device | None = None
+    for frame in condition_frames:
+        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
+        if not callable(to_cuda_tensor):
+            return None
+        try:
+            tensor = to_cuda_tensor()
+        except RuntimeError:
+            return None
+        if (
+            not torch.is_tensor(tensor)
+            or not tensor.is_cuda
+            or tensor.dtype != torch.uint8
+            or tensor.ndim != 3
+            or tensor.shape[-1] < 3
+        ):
+            return None
+        if device is None:
+            device = tensor.device
+        elif tensor.device != device:
+            return None
+
+        to_cuda_event = getattr(frame, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is not None:
+            torch.cuda.current_stream(tensor.device).wait_event(event)
+        rgb = tensor[..., :3]
+        tensors.append(rgb if rgb.is_contiguous() else rgb.contiguous())
+
+    if not tensors:
+        return None
+    return torch.stack(tensors, dim=0)
+
+
+def _synchronize_cuda_frame_event(frames: Sequence[object]) -> None:
+    for frame in frames:
+        to_cuda_event = getattr(frame, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is None:
+            continue
+        synchronize = getattr(event, "synchronize", None)
+        if callable(synchronize):
+            synchronize()
+
+
+def _log_prompt_handoff(stage: str, scene: SceneBundle) -> None:
+    prompt = scene.prompt
+    prompt_text = " ".join(prompt.split())
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+    logger.info(
+        "[world-model] prompt_handoff "
+        f"stage={stage!r} "
+        f"scene={scene.scene_path.name!r} "
+        f"prompt_sha256={prompt_hash!r} "
+        f"length={len(prompt)} "
+        f"text={prompt_text!r}",
+    )

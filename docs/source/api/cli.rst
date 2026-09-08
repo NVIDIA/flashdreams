@@ -32,20 +32,20 @@ Inspect one runner's full options:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --help
+   uv run flashdreams-run lingbot-world-fast --help
 
 Run a single-GPU inference (``run`` is the default mode):
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
+   uv run flashdreams-run lingbot-world-fast --total-blocks 7
 
-Launch a WebRTC demo from a versioned manifest:
+Launch the LingBot v2 Cam2V application:
 
 .. code-block:: bash
 
-   uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest configs/launch_manifest/lingbot_webrtc.yaml
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
@@ -57,13 +57,13 @@ Run a multi-GPU inference:
 .. code-block:: bash
 
    uv run torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
+       lingbot-world-fast --total-blocks 7
 
 Resolve config only (no model instantiation):
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --no-instantiate
+   uv run flashdreams-run lingbot-world-fast --no-instantiate
 
 Post-processing presets
 -----------------------
@@ -73,13 +73,27 @@ one with ``--postprocess.preset``:
 
 .. code-block:: bash
 
-   uv run flashdreams-run wan21-t2v-1.3b-480p \
+   uv run flashdreams-run lingbot-world-fast \
        --postprocess.preset rtx-super-resolution
 
 The ``rtx-super-resolution`` preset wraps NVIDIA VFX Python bindings for RTX
 Video Super Resolution. Install the optional dependency with
 ``uv pip install 'flashdreams[rtx-postprocess]'`` and run on a supported RTX GPU
 before selecting this preset.
+
+Native v2 applications receive their own arguments after ``--``. Interactive
+Drive exposes the equivalent setting with the hyphenated
+``--postprocess-preset`` option:
+
+.. code-block:: bash
+
+   uv run flashdreams-run-v2 interactive-drive --mode webrtc -- \
+       --postprocess-preset rtx-super-resolution
+
+The preset starts enabled and can be toggled between generated chunks with the
+Post-processing checkbox in the Interactive Drive HUD. Use
+``flashdreams-run-v2 interactive-drive -- --help`` to list the presets
+registered in the current environment.
 
 See also
 --------

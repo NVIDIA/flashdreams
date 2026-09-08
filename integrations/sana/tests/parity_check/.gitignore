@@ -1,9 +1,0 @@
-/Sana/
-/.venv/
-/outputs/
-__pycache__/
-*.pyc
-*.npy
-*.mp4
-*.json
-*.log

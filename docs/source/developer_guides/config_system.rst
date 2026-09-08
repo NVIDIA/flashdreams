@@ -121,7 +121,7 @@ For example, to list all existing configurable parameters for a model:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --help
+   uv run flashdreams-run lingbot-world-fast-taehv-window15-sink3 --help
 
 .. image:: /_static/diagrams/cli-screen-shot.png
    :alt: CLI helptext showing tyro dynamically parsing nested configuration arguments.
@@ -131,7 +131,7 @@ To run the model with a modified configuration:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv \
+   uv run flashdreams-run lingbot-world-fast-taehv-window15-sink3 \
        --pipeline.diffusion-model.transformer.use-cuda-graph True \
        --total-blocks 7
 

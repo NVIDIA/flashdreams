@@ -42,7 +42,7 @@ SANA-WM_streaming
 `NVlabs/Sana <https://github.com/NVlabs/Sana>`_ world model release. It
 produces video progressively across autoregressive chunks with a chunk-causal
 Stage-1 DiT, streaming LTX-2 refiner, and streaming VAE decode path.
-FlashDreams runs it through the ``sana-wm-streaming`` runner.
+FlashDreams exposes it through the ``cam2v-sana-wm-streaming`` application.
 
 The sibling full-sequence release has a separate model card:
 :doc:`sana_wm_bidirectional`.
@@ -70,66 +70,26 @@ Installation
    # from the repo root
    uv sync --package flashdreams-sana-wm --extra dev
 
-Running the method
-------------------
+Interactive Cam2V application
+-----------------------------
 
-Launch the ``sana-wm-streaming`` runner with a first-frame image, a prompt, and
-a camera trajectory:
-
-.. code-block:: bash
-
-   uv run flashdreams-run sana-wm-streaming \
-       --image-path <path to initial frame PNG> \
-       --prompt-path <path to prompt TXT> \
-       --camera-path <path to camera trajectory NPY> \
-       --intrinsics-path <path to intrinsics NPY> \
-       --num-frames 241 \
-       --output-dir outputs/sana_wm_streaming_bf16
-
-The first frame, prompt, camera, and intrinsics inputs must follow the same
-shape conventions as the ``SANA-WM_streaming`` release examples.
-
-The runner defaults to 3 latent frames per block and the distilled schedule
-``1000,960,889,727,0``. Requested frame counts are snapped to
-``8 * --num-frame-per-block * k + 1`` before inference.
-
-Optional inputs and knobs
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-- ``--intrinsics-path`` is optional. When omitted, intrinsics are derived from
-  the first-frame size.
-- ``--camera-path`` can be replaced by an ``--action`` DSL string:
-
-  .. code-block:: bash
-
-     uv run flashdreams-run sana-wm-streaming \
-         --image-path my_frame.png \
-         --prompt "a scene description; describe the world's own motion" \
-         --action "w-80,dw-40,w-80,aw-40" \
-         --num-frames 241 \
-         --output-dir outputs/mine_streaming
-
-  Action trajectories are fitted to the snapped frame count: shorter action
-  strings repeat, and longer action strings are truncated without materializing
-  frames beyond the requested output length.
-
-- ``--stage1-precision`` and ``--refiner-precision`` accept ``bf16``, ``fp8``,
-  or ``fp4`` when the selected hardware supports the requested precision.
-
-To inspect all supported CLI arguments and their default values, run:
+Launch the V2 application to drive SANA-WM with live keyboard controls. The
+model adapter passes controls through the SANA-WM action remapper and appends
+each generated block to the camera conditioning history.
 
 .. code-block:: bash
 
-   uv run flashdreams-run sana-wm-streaming --help
+   uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- \
+       --example-data
 
-What to expect
---------------
+The application uses the checkpoint fixed resolution of 1280x704 and ten
+24-frame blocks by default. Use ``--total-blocks`` after ``--`` to change the
+rollout length.
 
-- **Model checkpoint**: pulled from
-  ``huggingface.co/Efficient-Large-Model/SANA-WM_streaming`` on first run.
-- **First launch**: a few minutes for download and warmup; subsequent launches
-  reuse local caches.
-- **Outputs**: ``outputs/<output-dir>/sana-wm-streaming.mp4``.
+Use ``--example-data`` to download the official ``demo_0.png`` and paired prompt
+to the FlashDreams example-data cache. Explicit image and prompt arguments
+override those example inputs.
 
 Profiling benchmark
 -------------------

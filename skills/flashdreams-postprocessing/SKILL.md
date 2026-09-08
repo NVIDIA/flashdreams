@@ -7,7 +7,7 @@ description: Add or modify FlashDreams video post-processing processors, session
 
 Use this skill when adding a video post-processor or changing the runner
 post-processing stream. The reference implementation is
-`integrations/flashvsr/flashvsr/postprocess.py`.
+`integrations_v2/flashvsr/impl/postprocess.py`.
 
 ## Mental Model
 

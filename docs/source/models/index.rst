@@ -28,6 +28,7 @@ Models
    flashvsr
    hy_worldplay
    lingbot_world
+   waypoint
    sana_wm_streaming
    sana_wm_bidirectional
    wan21
@@ -126,6 +127,19 @@ uses, and the settings you can tune.
          </div>
 
       Camera-controllable image-to-video world model.
+
+   .. grid-item-card:: Waypoint 1.5
+      :class-card: fd-feature
+      :link: /models/waypoint
+      :link-type: doc
+
+      .. raw:: html
+
+         <video class="fd-card-video" autoplay muted loop playsinline preload="metadata">
+           <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
+         </video>
+
+      Interactive image-established world model controlled by keyboard and mouse.
 
    .. grid-item-card:: HY-WorldPlay
       :class-card: fd-feature
@@ -229,8 +243,12 @@ Examples:
 
 .. code-block:: bash
 
-   uv run flashdreams-run self-forcing-wan2.1-t2v-1.3b-taehv --total-blocks 7
-   uv run flashdreams-run lingbot-world-fast --example-data True --total-blocks 21
+   uv run --project integrations_v2/self_forcing flashdreams-run-v2 \
+       t2v-self-forcing-wan2.1-t2v-1.3b --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+       --prompt "A cat surfing." --total-blocks 7
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode mp4 --output-path outputs/lingbot.mp4 -- \
+       --example-data --total-blocks 21
 
 Adding your own model
 ~~~~~~~~~~~~~~~~~~~~~~

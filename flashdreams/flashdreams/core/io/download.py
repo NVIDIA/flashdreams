@@ -104,8 +104,9 @@ def download_to_cache(
     )
     tmp_path = Path(tmp_path_str)
     try:
+        request = urllib.request.Request(url, headers={"User-Agent": "FlashDreams/1.0"})
         with os.fdopen(tmp_fd, "wb") as out:
-            with urllib.request.urlopen(url, timeout=timeout) as resp:
+            with urllib.request.urlopen(request, timeout=timeout) as resp:
                 shutil.copyfileobj(resp, out)
         if validator is not None:
             # Run the caller-provided decoder check before publishing so

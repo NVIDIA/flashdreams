@@ -13,20 +13,44 @@ CPU-only tests for the v2 protocols themselves:
   window implementations, so it depends on no integration at all. It asserts the
   orderings and thread ownership the two-thread loop guarantees, not a particular
   interleaving.
+- `test_mp4_client_window.py` covers the window a run writing a file is driven
+  against: no input to report, one run through the loop to show every step
+  reaches the file, and the measurements it records beside the file when a run
+  asks for them.
+- `test_mp4_output_sink.py` covers the sink that writes an MP4, reading each file
+  back to check what was encoded. Its encoding tests are skipped when `ffmpeg` is
+  missing from `PATH`.
+- `test_client_window_factory.py` covers each way of watching a run answering for
+  itself: the window its arguments ask for, the usage error when they are
+  incomplete, and what it says about where the output went. The WebRTC tests are
+  skipped when the serving packages are missing, which is also why a run writing
+  a file does not import them.
+- [`apps/t2v/tests`](../../apps/t2v/tests) covers the reusable text-to-video
+  application, session, model loop, and stand-in model checks.
+- `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
+  the command line at `--`, choosing a window, describing the session to ask for,
+  and running one into a real MP4 with a stand-in for a model. An application
+  that describes no session of its own is run there too, since running more than
+  text-to-video is the point of the command.
+- `test_metrics_output_sink.py` covers the sink that records what a run
+  measured, which is a file another tool reads: what a benchmark expects of it
+  is checked against the reader itself in
+  `flashdreams/tests/test_benchmark_harness.py`.
 
 Application behaviour is tested by the application that owns it — see
-`integrations_v2/red_screen/red_screen/tests/`.
+`integrations_v2/red_screen/red_screen/tests/` and
+`integrations_v2/color_fade/color_fade/tests/`.
 
 Run commands from the repository root.
 
 ## Set up the test environment
 
 ```bash
-uv sync --package flashdreams-red-screen --package flashdreams-null-model --group test --inexact
+uv sync --package flashdreams-color-fade --package flashdreams-red-screen --package flashdreams-null-model --group test --inexact
 ```
 
-`test_client_window.py` imports the NULL model integration, and naming both
-integrations leaves the environment ready for their tests too. `--inexact`
+`test_client_window.py` imports the NULL model integration, and naming every
+integration leaves the environment ready for their tests too. `--inexact`
 matters: without it, `uv` makes the environment exact for the packages it was
 given and uninstalls the rest. `pytest` comes from the `test` group; do not use
 `--extra dev`, which pulls `transformer-engine` and compiles CUDA extensions from

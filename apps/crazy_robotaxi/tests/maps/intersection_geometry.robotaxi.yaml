@@ -1,0 +1,58 @@
+schema_version: 1
+id: intersection-geometry-test
+name: Intersection Geometry Test
+
+compiler:
+  sample_spacing_m: 1
+  ground_margin_m: 10
+  intersection_connector_samples: 8
+
+profiles:
+  arterial:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 14
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: SOLID_GROUP, color: YELLOW}
+      - {style: DASHED_SINGLE, color: WHITE}
+  street:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes: [backward, forward]
+    speed_limit_mps: 10
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - {id: center, type: intersection, pose: {x_m: 0, y_m: 0}}
+  - id: west_end
+    type: cul_de_sac
+    pose: {x_m: -120, y_m: 0}
+    culdesac_radius_m: 12
+  - id: east_end
+    type: cul_de_sac
+    pose: {x_m: 120, y_m: 20}
+    culdesac_radius_m: 12
+  - id: north_end
+    type: cul_de_sac
+    pose: {x_m: 10, y_m: 100}
+    culdesac_radius_m: 10
+
+roads:
+  - {id: west_road, from: west_end, to: center, profile: arterial}
+  - {id: east_road, from: center, to: east_end, profile: arterial}
+  - {id: north_road, from: center, to: north_end, profile: street}
+
+spawns:
+  - id: start
+    road: west_road
+    lane: 2
+    distance_m: 30
+    variants:
+      default:
+        image: package://omnidreams_game_engine/screenshot.jpg
+        prompt: A skewed three-way city intersection.

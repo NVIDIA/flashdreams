@@ -61,24 +61,23 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/self_forcing
+   uv sync --project integrations_v2/self_forcing
 
 Running the method
 ------------------
 
-To run Self-Forcing, launch one of the registered runner slugs. For
-example:
+To run Self-Forcing, launch its v2 T2V application:
 
 .. code-block:: bash
 
-   uv run --project integrations/self_forcing \
-       flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b \
+   uv run --project integrations_v2/self_forcing \
+       flashdreams-run-v2 \
+       t2v-self-forcing-wan2.1-t2v-1.3b \
+       --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
-       --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
-We provide the following variants:
+The package also exposes the following pipeline configs for direct use:
 
 .. list-table::
    :header-rows: 1
@@ -98,35 +97,31 @@ For multi-GPU inference, use:
 
 .. code-block:: bash
 
-   uv run --project integrations/self_forcing \
-       torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b \
+   uv run --project integrations_v2/self_forcing \
+       torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
+       t2v-self-forcing-wan2.1-t2v-1.3b \
+       --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
-       --pixel-height 480 --pixel-width 832 \
        --total-blocks 7
 
 To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/self_forcing \
-       flashdreams-run \
-       self-forcing-wan2.1-t2v-1.3b \
-       --help
+   uv run --project integrations_v2/self_forcing \
+       flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b -- --help
 
 What to expect
 --------------
 
-- **Default prompt**: omitting ``--prompt`` uses a Tokyo street-scene
-  default. Override with an inline string or a path to a ``.txt`` file.
+- **Prompt**: ``--prompt`` is required.
 - **Total blocks**: ``--total-blocks N`` runs ``N`` autoregressive
   chunks. Commands here use ``7`` for a fast demo; the config default
   is ``60`` for full rollouts. See
   :doc:`/developer_guides/inference_pipeline_overview` for what one
   chunk does end-to-end.
-- **Outputs**: ``outputs/<runner-slug>.mp4`` (16 FPS, 480×832 by
-  default) and ``outputs/stats_<runner-slug>.json``. Override with
-  ``--output-dir`` / ``--pixel-height`` / ``--pixel-width`` / ``--fps``.
+- **Outputs**: ``--output-path`` selects the MP4 destination. The application
+  emits 16 FPS at 832×480.
 
 Measured runtimes on H100 80GB with ``--total-blocks 7``:
 
@@ -203,9 +198,9 @@ under matched settings.
          This chart shows the DiT total runtime (4 denoising steps in milliseconds) at the 6th autoregressive rollout on a single GPU.
          For an apples-to-apples comparison, all implementations are forced to use cuDNN attention backend and <code>torch.compile</code> for DiT network.
          For profiling the official implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/parity_check/README.md">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing/tests/parity_check/README.md">this instruction</a>.
          For profiling the FastVideo implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing/tests/baseline_fastvideo/README.md">this instruction</a>.
        </p>
      </figcaption>
    </figure>

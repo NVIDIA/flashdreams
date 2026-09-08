@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-waypoint"
+version = "0.1.0"
+description = "Waypoint 1.5 world-model integration for FlashDreams v2."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams-action2v",
+    "flashdreams",
+    "pillow>=10",
+]
+
+[project.entry-points."flashdreams.applications_v2"]
+action2v-waypoint-1-5-1b = "waypoint.apps.action2v.adapter:create_app"
+
+[tool.uv.sources]
+flashdreams-action2v = { workspace = true }
+flashdreams = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+include-package-data = false
+packages = [
+    "waypoint",
+    "waypoint.apps",
+    "waypoint.apps.action2v",
+    "waypoint.impl",
+    "waypoint.impl.transformer",
+]
+
+[tool.setuptools.package-dir]
+waypoint = "."
+
+[tool.setuptools.package-data]
+"waypoint.apps.action2v" = ["assets/*.json"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+markers = [
+    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
+    "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
+    "manual: heavy or environment-specific test, opt-in only",
+]

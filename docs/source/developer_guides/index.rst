@@ -55,6 +55,13 @@ Developer Guides
       How to run command-backed local benchmarks that capture logs, MP4s,
       metrics, environment metadata, and an HTML report.
 
+   .. grid-item-card:: flashdreams.accelerated
+      :link: flashdreams_accelerated
+      :link-type: doc
+
+      The low-level quantization and optimized multi-head attention building
+      blocks used to accelerate streaming video models.
+
 Where these guides fit
 ----------------------
 
@@ -72,6 +79,7 @@ generated clip, see :doc:`/quickstart/index`.
    runner_slugs
    new_integration
    local_benchmarks
+   flashdreams_accelerated
 
 ..
    Temporarily commented out for internal development:

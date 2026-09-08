@@ -13,6 +13,7 @@ DRIVING_SUPPORTED_KEYS = frozenset(
 )
 WSAD_SUPPORTED_KEYS = frozenset({"w", "a", "s", "d"})
 KEY_ALIASES = {
+    " ": "space",
     "arrowup": "w",
     "arrowleft": "a",
     "arrowdown": "s",
@@ -59,8 +60,10 @@ class SparseInputSnapshot:
 
 
 def normalize_key(key: str) -> str:
-    normalized = key.strip().lower()
-    return KEY_ALIASES.get(normalized, normalized)
+    normalized = key.lower()
+    if normalized.strip() == "spacebar":
+        return "space"
+    return KEY_ALIASES.get(normalized, normalized.strip())
 
 
 @dataclass(slots=True)
@@ -69,6 +72,7 @@ class KeyboardState:
     supported_keys: frozenset[str] = DEFAULT_SUPPORTED_KEYS
     _press_order: dict[str, int] = field(default_factory=dict)
     _press_counter: int = 0
+    _pressed_sources: dict[str, set[str]] = field(default_factory=dict)
 
     def apply_event(self, *, event: str, key: str) -> bool:
         normalized_key = normalize_key(key)
@@ -76,14 +80,22 @@ class KeyboardState:
             return False
 
         normalized_event = event.strip().lower()
+        source_key = key.strip().lower()
         if normalized_event == "keydown":
+            self._pressed_sources.setdefault(normalized_key, set()).add(source_key)
             self.pressed_keys.add(normalized_key)
             self._press_counter += 1
             self._press_order[normalized_key] = self._press_counter
             return True
         if normalized_event == "keyup":
-            self.pressed_keys.discard(normalized_key)
-            self._press_order.pop(normalized_key, None)
+            sources = self._pressed_sources.get(normalized_key)
+            if sources is not None:
+                sources.discard(source_key)
+                if not sources:
+                    self._pressed_sources.pop(normalized_key, None)
+            if normalized_key not in self._pressed_sources:
+                self.pressed_keys.discard(normalized_key)
+                self._press_order.pop(normalized_key, None)
             return True
         return False
 

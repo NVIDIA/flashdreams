@@ -10,8 +10,14 @@ members = [
     "integrations/*",
     "integrations_v2/*",
     "apps/*",
-    # Nested sub-packages that the ``integrations/*`` glob does not reach.
-    "integrations/omnidreams/ludus-renderer",
+    # Nested sub-packages that the integration globs do not reach.
+    "integrations_v2/omnidreams/impl/ludus-renderer",
+]
+exclude = [
+    "apps/__init__.py",
+    "apps/README.md",
+    "integrations/omnidreams",
+    "integrations_v2/README.md",
 ]
 
 # Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
@@ -44,23 +50,35 @@ override-dependencies = [
 no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.pyright]
+exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
+ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 extraPaths = [
     "flashdreams",
     "apps",
-    "integrations/omnidreams",
-    "integrations/omnidreams/ludus-renderer",
-    "integrations/causal_forcing",
-    "integrations/cosmos_predict2",
-    "integrations/flashvsr",
-    "integrations/fastvideo_causal_wan22",
-    "integrations/hy_worldplay",
-    "integrations/lingbot",
     "integrations/minimax_h3",
-    "integrations/sana",
-    "integrations/self_forcing",
-    "integrations/wan21",
-    "integrations/wan22",
+    "apps/cam2v",
+    "apps/t2v",
+    "apps/crazy_robotaxi",
+    "apps/interactive_drive",
+    "apps/omnidreams_game_engine",
+    "apps/v2v",
+    "integrations_v2",
+    "integrations_v2/omnidreams/impl/ludus-renderer",
+    "integrations_v2/causal_forcing",
+    "integrations_v2/cosmos_predict2",
+    "integrations_v2/flashvsr",
+    "integrations_v2/fastvideo_causal_wan22",
+    "integrations_v2/hy_worldplay",
+    "integrations_v2/lingbot",
+    "integrations_v2/sana_wm",
+    "integrations_v2/self_forcing",
+    "integrations_v2/wan21",
+    "integrations_v2/wan22",
+    "integrations_v2/color_fade",
     "integrations_v2/null_model",
+    "integrations_v2/red_screen",
+    "integrations_v2/slangpy_ui_demo",
+    "integrations_v2/waypoint",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -74,36 +92,56 @@ python-version = "3.10"
 extra-paths = [
     "flashdreams",
     "apps",
-    "integrations/omnidreams",
-    "integrations/omnidreams/ludus-renderer",
-    "integrations/causal_forcing",
-    "integrations/cosmos_predict2",
-    "integrations/flashvsr",
-    "integrations/fastvideo_causal_wan22",
-    "integrations/hy_worldplay",
-    "integrations/lingbot",
     "integrations/minimax_h3",
-    "integrations/sana",
-    "integrations/self_forcing",
-    "integrations/wan21",
-    "integrations/wan22",
+    "apps/cam2v",
+    "apps/t2v",
+    "apps/action2v",
+    "apps/crazy_robotaxi",
+    "apps/interactive_drive",
+    "apps/omnidreams_game_engine",
+    "apps/v2v",
+    "integrations_v2",
+    "integrations_v2/omnidreams/impl/ludus-renderer",
+    "integrations_v2/causal_forcing",
+    "integrations_v2/cosmos_predict2",
+    "integrations_v2/flashvsr",
+    "integrations_v2/fastvideo_causal_wan22",
+    "integrations_v2/hy_worldplay",
+    "integrations_v2/lingbot",
+    "integrations_v2/sana_wm",
+    "integrations_v2/self_forcing",
+    "integrations_v2/wan21",
+    "integrations_v2/wan22",
+    "integrations_v2/color_fade",
     "integrations_v2/null_model",
+    "integrations_v2/red_screen",
+    "integrations_v2/slangpy_ui_demo",
+    "integrations_v2/waypoint",
 ]
 
 [tool.ty.src]
 # Auto-generated protobuf stubs trigger `conflicting-metaclass` errors due to
 # protobuf's EnumTypeWrapper pattern (known ty limitation).
-# The ``omnidreams.interactive_drive`` subpackage's flashdreams / slangpy /
-# numpy interop surface has known-untyped areas; exclude both the
-# subpackage source and its tests so workspace ``ty`` stays clean.
+# Interactive Drive's imported scene/simulation support has known-untyped
+# flashdreams / slangpy / numpy interop areas; keep it out of workspace ``ty``.
 # (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
     "**/protos/*pb2*",
-    "integrations/omnidreams/omnidreams/interactive_drive/**",
-    "integrations/omnidreams/tests/interactive_drive/**",
+    "apps/interactive_drive/interactive_drive/**",
+    # These map/archive parsers and numerical PhysX adapters intentionally
+    # accept dynamically shaped YAML, Arrow, and NumPy values. Keep the new
+    # V2 application, session, engine contracts, rollout, input, and renderer
+    # boundaries type-checked while isolating that data-oriented edge code.
+    "apps/omnidreams_game_engine/omnidreams_game_engine/game_map/**",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/math_utils.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/patterns.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/ply_io.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/scene_loader.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/components.py",
+    "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/game_physics.py",
     # Bench / parity-debugging scaffolding for the hy_worldplay integration;
     # not shipped product, mirrors the interactive_drive precedent above.
-    "integrations/hy_worldplay/tests/parity_check/**",
+    "integrations_v2/hy_worldplay/tests/parity_check/**",
 ]
 
 [tool.ty.rules]
@@ -137,6 +175,7 @@ markers = [
 # flashdreams/_pytest_plugins.
 test = [
     "pytest>=8.0",
+    "pytest-benchmark>=5.1",
     "pytest-asyncio>=0.23",
     "pytest-manual-marker>=2.0",
     "tomli>=2.0",
@@ -144,6 +183,7 @@ test = [
 ]
 lint = [
     "pre-commit>=4.3.0",
+    "ruff==0.12.7",
     "sphinx>=7.0",
     "ty>=0.0.39",
     {include-group = "test"},
@@ -176,4 +216,7 @@ docs-ci = [
     "safetensors>=0.4",
     "tqdm>=4.60",
     "transformers>=5.0,<6",
+]
+dev = [
+    "python-dotenv>=1.2.2",
 ]

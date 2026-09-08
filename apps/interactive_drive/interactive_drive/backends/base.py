@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+from interactive_drive.config import ChunkConfig, RasterConfig
+from interactive_drive.types import FrameChunk, SceneBundle, TrajectoryChunk
+
+
+class RenderBackend(ABC):
+    def __init__(self, chunk: ChunkConfig, raster: RasterConfig) -> None:
+        self._chunk = chunk
+        self._raster = raster
+
+    @property
+    def fps(self) -> int:
+        return self._chunk.fps
+
+    @property
+    def initial_chunk_frames(self) -> int:
+        return self._chunk.initial_chunk_frames
+
+    @property
+    def chunk_frames(self) -> int:
+        return self._chunk.chunk_frames
+
+    @property
+    def can_prewarm(self) -> bool:
+        """Whether :meth:`warmup_model` does its heavy build without a scene.
+
+        ``True`` lets the demo start loading the model immediately at
+        launch, overlapping warmup with the scene-selection wait. ``False``
+        means the build is deferred until the first :meth:`load_scene`
+        (e.g. the world model under ``--offload-text-encoder``, which must
+        precompute per-scene embeddings and free the one-shot encoders
+        before allocating the diffusion pipeline to keep peak VRAM low).
+        """
+        return True
+
+    @property
+    def optimizes_on_first_chunk(self) -> bool:
+        """Whether the first generated chunk pays a one-time optimization cost.
+
+        ``True`` for backends (e.g. the world model) whose first chunk after
+        warmup triggers torch.compile / CUDA-graph capture / Triton autotuning,
+        so the demo can show "Optimizing world model..." instead of "Loading
+        scene..." until it lands. ``False`` (the default, e.g. raster) skips
+        that phase text.
+        """
+        return False
+
+    @abstractmethod
+    def warmup_model(self) -> None:
+        """Load/compile the scene-independent model. Called once per process."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_scene(self, scene: SceneBundle) -> None:
+        """Bind one scene's geometry / conditioning. Called once per scene."""
+        raise NotImplementedError
+
+    def warmup(self, scene: SceneBundle) -> None:
+        """Load the model and a single scene in one call.
+
+        Convenience for callers that never switch scenes (the bare
+        ``--no-hud`` path and unit tests). The scene-switching pipeline
+        instead calls :meth:`warmup_model` once and :meth:`load_scene` per
+        scene so the model is not rebuilt on each scene change.
+        """
+        self.warmup_model()
+        self.load_scene(scene)
+
+    def reset(self) -> None:
+        """Reset the current rollout while keeping the current scene conditioning.
+
+        Backends with per-rollout state should override this. The default is
+        a no-op so pure raster backends do not need reset-specific code.
+        """
+        return
+
+    def reset_scene_conditioning(self) -> None:
+        """Reset all state that must not carry across scene/variant changes.
+
+        Manual resets should normally keep the same prompt/first-frame
+        embeddings. Scene switches must not, so the local video adapter calls
+        this before binding a newly selected scene.
+        """
+        self.reset()
+
+    def set_postprocess_enabled(self, enabled: bool) -> None:
+        """Enable or disable generated-video post-processing.
+
+        Pure raster backends have no generated-video post-process path, so the
+        default implementation intentionally does nothing.
+        """
+        del enabled
+
+    @abstractmethod
+    def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        raise NotImplementedError
+
+    @abstractmethod
+    def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        return

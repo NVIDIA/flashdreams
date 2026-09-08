@@ -239,6 +239,13 @@ invocation, the checkpoint source, and the per-implementation knobs.
 
       Camera-controllable image-to-video world model.
 
+   .. grid-item-card:: Waypoint 1.5
+      :class-card: fd-feature
+      :link: models/waypoint
+      :link-type: doc
+
+      Interactive image-established world model controlled by keyboard and mouse.
+
    .. grid-item-card:: SANA-WM_streaming
       :class-card: fd-feature
       :link: models/sana_wm_streaming

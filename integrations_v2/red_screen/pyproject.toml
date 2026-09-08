@@ -13,8 +13,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     # Integration packages depend on the public framework, never the reverse.
-    "flashdreams",
+    "flashdreams[serving]",
 ]
+
+[project.scripts]
+red-screen-webrtc = "red_screen.app:main"
 
 [tool.uv.sources]
 # Resolve the framework from this repository while developing the workspace.

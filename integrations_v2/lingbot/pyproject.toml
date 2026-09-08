@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-lingbot"
+version = "0.1.0"
+description = "Lingbot World Cam2V integration for FlashDreams v2."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-cam2v",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-cam2v = { workspace = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.entry-points."flashdreams.applications_v2"]
+"cam2v-lingbot" = "lingbot.apps.cam2v.adapter:create_app"
+"cam2v-lingbot-world-fast" = "lingbot.apps.cam2v.adapter:create_app_fast"
+"cam2v-lingbot-world-fast-taehv-window15-sink3" = "lingbot.apps.cam2v.adapter:create_app_fast_taehv_window15_sink3"
+"cam2v-lingbot-world-v2-14b-causal-fast" = "lingbot.apps.cam2v.adapter:create_app_v2_14b_causal_fast"
+"cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3" = "lingbot.apps.cam2v.adapter:create_app_v2_14b_causal_fast_taehv_window15_sink3"
+
+[tool.setuptools]
+packages = [
+    "lingbot",
+    "lingbot.apps",
+    "lingbot.apps.cam2v",
+    "lingbot.impl",
+    "lingbot.impl.encoder",
+    "lingbot.impl.transformer",
+    "lingbot.impl.transformer.impl",
+]
+
+[tool.setuptools.package-dir]
+lingbot = "."
+
+[tool.uv]
+managed = true

@@ -32,12 +32,12 @@ Run one scenario:
 .. code-block:: bash
 
    uv run flashdreams-benchmark \
-     --scenario self-forcing-taehv-smoke \
-     --output-dir artifacts/benchmarks/self-forcing-taehv
+     --scenario self-forcing-v2-smoke \
+     --output-dir artifacts/benchmarks/self-forcing-v2
 
-The scenario command still owns its runtime requirements. Public runner
-scenarios need the usual runner extras, host FFmpeg for MP4 writing, GPU access,
-and any checkpoints or input assets that runner would normally resolve.
+The scenario command still owns its runtime requirements. Model scenarios need
+host FFmpeg for MP4 writing, GPU access, and any checkpoints or input assets the
+application normally resolves.
 
 Artifacts
 ---------
@@ -79,15 +79,20 @@ separated segment of the scenario id.
      "schema_version": 1,
      "scenarios": [
        {
-         "id": "my-runner-smoke",
-         "name": "My runner smoke",
+         "id": "my-app-smoke",
+         "name": "My application smoke",
          "report_group": {
            "id": "my-model",
            "name": "My Model"
          },
          "command": [
-           "flashdreams-run",
-           "self-forcing-wan2.1-t2v-1.3b-taehv",
+           "flashdreams-run-v2",
+           "t2v-self-forcing-wan2.1-t2v-1.3b",
+           "--output-path",
+           "{output_dir}/clip.mp4",
+           "--",
+           "--prompt",
+           "A cat surfing.",
            "--total-blocks",
            "8"
          ],
@@ -102,7 +107,7 @@ Run it with:
 
    uv run flashdreams-benchmark \
      --scenario-file local_scenarios.json \
-     --scenario my-runner-smoke
+     --scenario my-app-smoke
 
 One-Minute Demo Suite
 ---------------------
@@ -131,27 +136,6 @@ one minute of MP4 output. Those runners stop early if the selected conditioned
 input stream is shorter than the requested duration. ``interactive-drive`` is
 left out of this shipped MP4 suite for now because its public CLI is a live
 presenter rather than a file-writing runner.
-
-Omnidreams Shared Demo Comparison
----------------------------------
-
-``configs/omnidreams_demo_replay_benchmarks.json`` contains a one-minute manual
-comparison between the legacy Omnidreams single-view runner and the experimental
-shared demo replay path:
-
-.. code-block:: bash
-
-   uv run flashdreams-benchmark \
-     --scenario-file configs/omnidreams_demo_replay_benchmarks.json \
-     --scenario omnidreams-sv-runner-baseline \
-     --scenario omnidreams-sv-demo-replay \
-     --output-dir artifacts/benchmarks/omnidreams-demo-replay-compare
-
-Use the generated report's MP4 links for side-by-side manual review. The legacy
-runner writes the stacked HDMap/RGB canvas while the shared demo writes generated
-RGB output, so this comparison intentionally disables automatic baseline quality
-scoring until those output layouts are aligned. Both scenarios use ``226``
-blocks, matching the shipped Omnidreams one-minute baseline.
 
 Quality Hooks
 -------------

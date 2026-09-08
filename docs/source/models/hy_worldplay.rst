@@ -46,43 +46,28 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/hy_worldplay
+   uv sync --project integrations_v2/hy_worldplay
 
 Running the method
 ------------------
 
-HY-WorldPlay WAN-5B is image-to-video only. Launch it via ``flashdreams-run``, passing a first-frame
-image (or ``--example-data``) and the distilled checkpoint:
+HY-WorldPlay WAN-5B is image-to-video only. Its model package binds the
+pipeline directly to the reusable Cam2V v2 application:
 
 .. code-block:: bash
 
-   uv run --project integrations/hy_worldplay \
-       flashdreams-run \
-       hy-worldplay-wan-i2v-5b \
-       --example-data True \
-       --num-chunk 8 \
-       --pose "w-31"
+   uv sync --package flashdreams-hy-worldplay --inexact
+   uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
-We provide the following variants:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 45 55
-
-   * - Method
-     - Description
-   * - ``hy-worldplay-wan-i2v-5b``
-     - Wan 2.2 TI2V-5B backbone with action + camera conditioning, PRoPE attention, and
-       reconstituted-context memory. Distilled, 4 steps, streaming autoregressive VAE.
-
-To inspect all supported CLI arguments and their default values, run:
+Use ``W``/``S`` to move, ``A``/``D`` to yaw, ``Q``/``E`` to strafe, and
+``I``/``K`` to pitch. The binding converts live camera poses to HY's
+latent-rate PRoPE, action, and memory inputs. Application arguments follow
+``--``; inspect them with:
 
 .. code-block:: bash
 
-   uv run --project integrations/hy_worldplay \
-       flashdreams-run \
-       hy-worldplay-wan-i2v-5b \
-       --help
+   uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay -- --help
 
 Some generated samples from the above commands:
 
@@ -151,7 +136,7 @@ under matched settings.
          704x1280, seed=0 on a single GB300. For an apples-to-apples comparison, both implementations are
          forced to use the cuDNN attention backend and torch.compile under matched runtime settings.
          For the official HY-WorldPlay implementation, see
-         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/hy_worldplay/tests/parity_check">this instruction</a>.
+         <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay/tests/parity_check">this instruction</a>.
        </p>
      </figcaption>
    </figure>

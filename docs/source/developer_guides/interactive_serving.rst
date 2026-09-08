@@ -63,9 +63,9 @@ Serving implementation references
 - ``flashdreams.serving.webrtc`` for the shared WebRTC server, session manager,
   runtime protocol, data-channel messages, packaged UI app factory, and
   distributed serve-loop helpers.
-- ``integrations/lingbot/lingbot/webrtc`` and
-  ``integrations/omnidreams/omnidreams/webrtc`` for concrete WebRTC demos built
-  on the shared serving stack.
+- ``apps/interactive_drive`` for the reusable OmniDreams application loops;
+  model-specific bindings live under
+  ``integrations_v2/omnidreams/apps/``.
 
 WebRTC demo shape
 -----------------

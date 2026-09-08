@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnidreams-game-engine"
+version = "0.1.0"
+description = "Model-thread game simulation and conditioning for FlashDreams V2"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "filelock>=3",
+    "flashdreams",
+    "flashdreams-interactive-drive-v2",
+    "ludus-renderer",
+    "numpy",
+    "pillow",
+    "pyarrow",
+    "pyyaml>=6",
+    "shapely>=2.0",
+    "torch",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-interactive-drive-v2 = { workspace = true }
+ludus-renderer = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-manual-marker>=2.0"]
+
+[tool.setuptools.packages.find]
+include = ["omnidreams_game_engine*"]
+
+[tool.setuptools.package-data]
+omnidreams_game_engine = ["screenshot.jpg"]
+
+[tool.uv]
+managed = true

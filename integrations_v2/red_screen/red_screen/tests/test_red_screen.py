@@ -12,12 +12,16 @@ from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.session_runner import WhenFull, run_session
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
+from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    KeyboardUserInputEventData,
-    UserInputEvent,
+    KeyboardInputState,
+    KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -80,6 +84,8 @@ def _session_desc(
 ) -> SessionDesc:
     return SessionDesc(
         output_layout=layout,
+        backpressure_mode=BackpressureMode.BLOCK,
+        presentation_mode=PresentationMode.ON_DEMAND,
         frames_per_second_for_ui=frames_per_second_for_ui,
         frames_per_second_for_step=1,
         video_width=_FRAME_SIZE,
@@ -90,22 +96,35 @@ def _session_desc(
 def _key_event(*, pressed: bool, key: str = _ACTIVATION_KEY) -> UserInputEvents:
     return UserInputEvents(
         [
-            UserInputEvent(
+            KeyboardUserInputEvent(
                 timestamp=uint64(0),
-                event_data=KeyboardUserInputEventData(key=key, pressed=pressed),
+                key=key,
+                state=(
+                    KeyboardInputState.PRESSED
+                    if pressed
+                    else KeyboardInputState.RELEASED
+                ),
             )
         ]
     )
 
 
 def _is_red(result: StepResult) -> bool:
-    return bool(
-        torch.all(result.output[:, 0] == 1.0) and torch.all(result.output[:, 1:] == 0.0)
-    )
+    # Frames carry [-1, 1], so full red is 1.0 and the other channels are -1.0.
+    output = result.read_output()
+    return bool(torch.all(output[:, 0] == 1.0) and torch.all(output[:, 1:] == -1.0))
 
 
 def _is_black(result: StepResult) -> bool:
-    return bool(torch.all(result.output == 0.0))
+    return bool(torch.all(result.read_output() == -1.0))
+
+
+def _step(session: ISession, step_index: int, events: UserInputEvents) -> StepResult:
+    results = session.model_loop.step(step_index, events)
+    assert isinstance(results, list)
+    result = results[0]
+    assert isinstance(result, StepResult)
+    return result
 
 
 def _run(
@@ -139,10 +158,10 @@ def test_red_screen_holds_red_between_key_edges() -> None:
     session = _new_session()
 
     frames = [
-        session.step(0, _key_event(pressed=True)),
-        session.step(1, UserInputEvents([])),
-        session.step(2, _key_event(pressed=False)),
-        session.step(3, UserInputEvents([])),
+        _step(session, 0, _key_event(pressed=True)),
+        _step(session, 1, UserInputEvents([])),
+        _step(session, 2, _key_event(pressed=False)),
+        _step(session, 3, UserInputEvents([])),
     ]
 
     assert [_is_red(frame) for frame in frames] == [True, True, False, False]
@@ -151,7 +170,38 @@ def test_red_screen_holds_red_between_key_edges() -> None:
 def test_red_screen_ignores_other_keys() -> None:
     session = _new_session()
 
-    assert _is_black(session.step(0, _key_event(pressed=True, key="q")))
+    assert _is_black(_step(session, 0, _key_event(pressed=True, key="q")))
+
+
+def test_red_screen_uses_last_event_to_adjust_color_intensity() -> None:
+    session = _new_session()
+
+    increased = _step(session, 0, _key_event(pressed=True, key="w"))
+    last_event_decreases = _step(
+        session,
+        1,
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=uint64(0),
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
+                ),
+                KeyboardUserInputEvent(
+                    timestamp=uint64(1),
+                    key="s",
+                    state=KeyboardInputState.PRESSED,
+                ),
+            ]
+        ),
+    )
+
+    increased_output = increased.read_output()
+    assert torch.allclose(
+        increased_output[:, 0],
+        torch.full_like(increased_output[:, 0], -0.8),
+    )
+    assert _is_black(last_event_decreases)
 
 
 def test_red_screen_starts_black_without_input() -> None:
@@ -178,11 +228,11 @@ def test_red_screen_turns_red_for_a_key_pressed_during_the_run() -> None:
     session = app.create_session(_session_desc(frames_per_second_for_ui=100))
     window = ScriptedClientWindow([UserInputEvents([]), _key_event(pressed=True)])
 
-    # Room for one result, so a step cannot start until a tick has presented the
-    # previous one, and every tick polls input before it presents. That makes the
-    # key reach a step rather than depending on how the threads are scheduled.
+    # The single-slot pending chunk queue means a step cannot start until a tick
+    # has presented the previous one. Every tick polls input before it presents,
+    # which makes the key reach a step deterministically.
     try:
-        run_session(session, window, steps=3, max_pending=1, when_full=WhenFull.BLOCK)
+        run_session(session, window, steps=3)
     finally:
         app.close()
 
@@ -195,8 +245,9 @@ def test_red_screen_frames_match_the_session_desc() -> None:
     window = _run(_key_event(pressed=True), steps=1)
 
     result = window.results[0]
-    assert result.output.shape == (1, 3, 1, _FRAME_SIZE, _FRAME_SIZE)
-    assert result.output.dtype is torch.float32
+    output = result.read_output()
+    assert output.shape == (1, 3, 1, _FRAME_SIZE, _FRAME_SIZE)
+    assert output.dtype is torch.float32
     assert result.frame_count == 1
     assert result.output_layout is VideoTensorLayout.bcthw
 
@@ -232,8 +283,8 @@ def test_reset_releases_the_held_key() -> None:
     app.init([])
     session = app.create_session(_session_desc())
     session.init()
-    assert _is_red(session.step(0, _key_event(pressed=True)))
+    assert _is_red(_step(session, 0, _key_event(pressed=True)))
 
-    session.reset()
+    session.model_loop.reset()
 
-    assert _is_black(session.step(0, UserInputEvents([])))
+    assert _is_black(_step(session, 0, UserInputEvents([])))

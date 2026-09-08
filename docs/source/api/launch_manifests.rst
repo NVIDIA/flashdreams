@@ -78,29 +78,25 @@ fails instead of silently launching a different preset:
 
 .. code-block:: bash
 
-   uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest configs/launch_manifest/lingbot_webrtc.yaml
+   uv run flashdreams-run <runner-slug> mp4 \
+       --manifest path/to/webrtc-launch.yaml
 
-Examples
---------
+V2 applications
+---------------
+
+Launch manifests configure ``flashdreams-run`` runners. V2 applications expose
+their runtime and application arguments directly through ``flashdreams-run-v2``
+instead. For LingBot:
 
 .. code-block:: bash
 
-   # WebRTC
-   uv run flashdreams-run lingbot-world-fast webrtc \
-       --manifest configs/launch_manifest/lingbot_webrtc.yaml
-
    # MP4 replay
-   uv run flashdreams-run lingbot-world-fast mp4 \
-       --manifest configs/launch_manifest/lingbot_mp4.yaml
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode mp4 --output-path outputs/lingbot-replay.mp4 -- --example-data
 
-   # Resolve an OmniDreams launch without loading the model
-   uv run flashdreams-run \
-       omnidreams webrtc \
-       --manifest configs/launch_manifest/omnidreams_webrtc.yaml \
-       --no-instantiate
+   # WebRTC
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
-OmniDreams local-window also accepts the existing
-``example_world_model*.yaml`` format directly as a compatibility input. New
-automation should use a versioned launch manifest whose
-``output.world_model_manifest_path`` references that model-specific file.
+See :doc:`/models/lingbot_world` and :doc:`/models/omnidreams` for their
+application-specific arguments.

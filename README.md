@@ -86,12 +86,13 @@ deactivates the default `cuda13` group automatically when `--group cuda12`
 is passed.
 
 Then launch your first model by following [the Get Started guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#run-your-first-model).
-For example, the offline Self-Forcing T2V quickstart command is:
+For example, the Self-Forcing T2V v2 application is:
 
 ```bash
-uv run --project integrations/self_forcing \
-    flashdreams-run self-forcing-wan2.1-t2v-1.3b \
-    --total-blocks 7
+uv run --project integrations_v2/self_forcing \
+    flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b \
+    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+    --prompt "A cat surfing." --total-blocks 7
 ```
 
 You can also install FlashDreams as a library from PyPI:
@@ -117,6 +118,7 @@ runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
 | [Self-Forcing](https://nvidia.github.io/flashdreams/main/models/self_forcing.html) | Streaming Wan2.1 T2V |
 | [OmniDreams](https://nvidia.github.io/flashdreams/main/models/omnidreams.html) | HDMap-conditioned driving world model |
 | [LingBot-World](https://nvidia.github.io/flashdreams/main/models/lingbot_world.html) | Camera-controllable I2V world model |
+| [Waypoint 1.5](https://nvidia.github.io/flashdreams/main/models/waypoint.html) | Interactive image-established keyboard/mouse-controlled world model |
 | [Wan2.1](https://nvidia.github.io/flashdreams/main/models/wan21.html) | Bidirectional T2V / I2V |
 | [Causal-Forcing](https://nvidia.github.io/flashdreams/main/models/causal_forcing.html) | Streaming Wan2.1 T2V / I2V |
 | [Causal Wan2.2](https://nvidia.github.io/flashdreams/main/models/causal_wan22.html) | FastVideo Causal Wan 2.2 14B MoE T2V |
@@ -129,6 +131,7 @@ to add your own.
 
 ## Developer guides
 
+- [Architecture](ARCHITECTURE.md)
 - [Inference pipeline overview](https://nvidia.github.io/flashdreams/main/developer_guides/inference_pipeline_overview.html)
 - [Config system](https://nvidia.github.io/flashdreams/main/developer_guides/config_system.html)
 - [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
@@ -181,10 +184,13 @@ If FlashDreams is useful in your research or product, please cite the project:
 }
 
 @misc{nvidia2026omnidreams,
-  title={OmniDreams: Real-Time Generative Closed-Loop Autonomous Vehicle Simulation Built on NVIDIA Cosmos},
-  author={Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Wang, Jialiang and Lucas, James and Wu, Jay and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Michal and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Ren, Xuanchi and Lu, Yifan and Gojcic, Zan and Wang, Zian},
-  year={2026},
-  note={Technical report},
-  howpublished={\url{https://research.nvidia.com/labs/sil/projects/omnidreams-blog/paper.pdf}}
+  title         = {{NVIDIA} {OmniDreams}: Real-Time Generative World Model for Closed-Loop Autonomous Vehicle Simulation},
+  author        = {Basant, Aarti and Kar, Amlan and Paschalidou, Despoina and Wei, Fangyin and Ferroni, Francesco and Garcia Cobo, Guillermo and Turki, Haithem and Ling, Huan and Seo, Jaewoo and Lucas, James and Wu, Jay Zhangjie and Wang, Jialiang and Lorraine, Jonathan and Gao, Jun and He, Kai and Tothova, Katarina and Xie, Kevin and Tyszkiewicz, Micha{\l} and Wu, Qi and de Lutio, Riccardo and Li, Ruilong and Fidler, Sanja and Kim, Seung Wook and Shen, Tianchang and Cao, Tianshi and Pfaff, Tobias and Lew, William and Wu, Xindi and Ren, Xuanchi and Lu, Yifan and Zhang, Yuxuan and Gojcic, Zan and Wang, Zian},
+  year          = {2026},
+  eprint        = {2606.03159},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV},
+  doi           = {10.48550/arXiv.2606.03159},
+  url           = {https://arxiv.org/abs/2606.03159},
 }
 ```

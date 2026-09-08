@@ -33,15 +33,15 @@ CUDA or PyTorch build mismatch
 
 **Likely cause:**
 
-The OmniDreams perf manifest uses native DiT and LightVAE acceleration with
-``native_dit_acceleration: required``. That path requires a source checkout,
+The OmniDreams perf application config uses native DiT and LightVAE
+acceleration with ``native_dit_acceleration="required"``. That path requires a source checkout,
 ``git``, a CUDA toolchain with ``nvcc`` matching the installed PyTorch build,
 and a Blackwell-class GPU (SM 12.0) or newer.
 
 **Fix or next step:**
 
 Start with the non-perf OmniDreams launch in :doc:`/models/omnidreams`. If you
-need the perf manifest, prepare the pinned third-party sources first:
+need the perf application, prepare the pinned third-party sources first:
 
 .. code-block:: bash
 
@@ -246,7 +246,7 @@ CLI overrides parse correctly:
 
 .. code-block:: bash
 
-   uv run flashdreams-run --no-instantiate self-forcing-wan2.1-t2v-1.3b-taehv
+   uv run flashdreams-run --no-instantiate lingbot-world-fast
 
 Remove the flag for a real generation run, or use ``--help`` on the runner
 slug to inspect all supported options.

@@ -12,12 +12,12 @@ on:
       - "flashdreams/pyproject.toml"
       - "flashdreams/flashdreams/core/**"
       - "flashdreams/flashdreams/infra/**"
-      - "flashdreams/flashdreams/runtime/**"
-      - "flashdreams/flashdreams/serving/**"
+      - "flashdreams/flashdreams/api_v2/**"
+      - "flashdreams/flashdreams/runtime_v2/**"
       - "flashdreams/flashdreams/recipes/taehv/**"
       - "flashdreams/flashdreams/recipes/wan/**"
-      - "flashdreams/tests/test_webrtc_*.py"
-      - "integrations/lingbot/**"
+      - "apps/cam2v/**"
+      - "integrations_v2/lingbot/**"
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   demo-runtime:
-    name: null and MP4
+    name: MP4
     runs-on: linux-amd64-gpu-rtxpro6000-latest-2
     timeout-minutes: 180
     defaults:
@@ -46,7 +46,7 @@ jobs:
       # not reject runners that have enough room for the streamed shards.
       FLASHDREAMS_MIN_CACHE_FREE_GB: "20"
       ARTIFACT_DIR: artifacts/lingbot_demo_runtime
-      PRESET_ID: lingbot-world-v2-14b-causal-fast-taehv-window15-sink3
+      APP_ID: cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3
       BLOCKS: "5"
       FPS: "16"
       WIDTH: "640"
@@ -99,7 +99,7 @@ jobs:
       - name: Verify GPU availability
         run: nvidia-smi
 
-      - name: Run LingBot demo modes
+      - name: Run LingBot v2 MP4 demo
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -113,7 +113,7 @@ jobs:
           : > "${status_file}"
 
           frun() {
-            uv run --no-sync --package flashdreams-lingbot flashdreams-run "$@"
+            uv run --no-sync --package flashdreams-lingbot flashdreams-run-v2 "$@"
           }
 
           run_demo() {
@@ -139,30 +139,28 @@ jobs:
             echo
             echo "| Mode | Expected blocks | Output |"
             echo "| --- | ---: | --- |"
-            echo "| null | ${BLOCKS} | none |"
             echo "| MP4 | ${BLOCKS} | lingbot-demo-replay.mp4 |"
             echo
             echo "## Command Status"
           } > "${summary}"
 
-          run_demo null \
-            frun "${PRESET_ID}" null \
-              --device cuda:0 \
-              --scenario.example-idx 0 \
-              --scenario.total-blocks "${BLOCKS}" \
-              --scenario.pixel-height "${HEIGHT}" \
-              --scenario.pixel-width "${WIDTH}" \
-              --output.fps "${FPS}"
-
           run_demo mp4 \
-            frun "${PRESET_ID}" mp4 \
+            frun "${APP_ID}" \
+              --mode mp4 \
+              --output-path "${output_dir}/lingbot-demo-replay.mp4" \
+              --pixel-height "${HEIGHT}" \
+              --pixel-width "${WIDTH}" \
+              --fps "${FPS}" \
+              --backpressure-mode block \
+              --presentation-mode on_demand \
+              -- \
               --device cuda:0 \
-              --scenario.example-idx 0 \
-              --scenario.total-blocks "${BLOCKS}" \
-              --scenario.pixel-height "${HEIGHT}" \
-              --scenario.pixel-width "${WIDTH}" \
-              --output.fps "${FPS}" \
-              --output.path "${output_dir}/lingbot-demo-replay.mp4"
+              --example-data \
+              --example-idx 0 \
+              --total-blocks "${BLOCKS}" \
+              --warmup-blocks 0 \
+              --sync-and-profile \
+              --no-ui
 
       - name: Validate LingBot demo artifacts
         run: |
@@ -264,25 +262,16 @@ jobs:
               }
           }
 
-          null_log="${log_dir}/null.log"
           mp4_log="${log_dir}/mp4.log"
 
-          assert_exit_zero null
           assert_exit_zero mp4
 
-          assert_clean_log "${null_log}"
           assert_clean_log "${mp4_log}"
-
-          assert_log_contains "${null_log}" "Streaming sharded safetensors checkpoint" "null streaming checkpoint load"
-          assert_log_contains "${null_log}" "Finished streaming .* safetensors shard" "null streamed checkpoint completion"
-          assert_log_contains "${null_log}" "AR 4 encode" "null final AR block"
-          assert_log_contains "${null_log}" "Lingbot runtime step 4 frames=" "null final replay step"
-          assert_log_not_contains "${null_log}" "Loading merged sharded checkpoint from cache|Saved merged sharded checkpoint" "merged safetensors cache usage"
 
           assert_log_contains "${mp4_log}" "Streaming sharded safetensors checkpoint" "MP4 streaming checkpoint load"
           assert_log_contains "${mp4_log}" "Finished streaming .* safetensors shard" "MP4 streamed checkpoint completion"
           assert_log_contains "${mp4_log}" "AR 4 encode" "MP4 final AR block"
-          assert_log_contains "${mp4_log}" "Lingbot runtime step 4 frames=" "MP4 final replay step"
+          assert_log_contains "${mp4_log}" "Cam2V AR 4" "MP4 final Cam2V block"
           assert_log_not_contains "${mp4_log}" "Loading merged sharded checkpoint from cache|Saved merged sharded checkpoint" "merged safetensors cache usage"
 
           validate_mp4 mp4 "${output_dir}/lingbot-demo-replay.mp4"
@@ -291,7 +280,7 @@ jobs:
             echo
             echo "## Validation"
             echo
-            echo "- Null and MP4 commands exited zero."
+            echo "- The v2 MP4 command exited zero."
             echo "- Logs contained expected streaming-checkpoint and final AR-step markers."
             echo "- Logs did not contain merged-safetensors cache markers."
             echo "- MP4 output was non-empty and passed ffprobe stream checks."

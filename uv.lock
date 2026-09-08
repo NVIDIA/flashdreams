@@ -19,12 +19,18 @@ conflicts = [[
 
 [manifest]
 members = [
+    "crazy-robotaxi",
     "flashdreams",
+    "flashdreams-action2v",
+    "flashdreams-cam2v",
     "flashdreams-causal-forcing",
+    "flashdreams-color-fade",
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
     "flashdreams-hy-worldplay",
+    "flashdreams-imgui-ui-demo",
+    "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
     "flashdreams-minimax-h3",
     "flashdreams-null-model",
@@ -32,10 +38,14 @@ members = [
     "flashdreams-red-screen",
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
+    "flashdreams-slangpy-ui-demo",
     "flashdreams-t2v",
+    "flashdreams-v2v",
     "flashdreams-wan21",
     "flashdreams-wan22",
+    "flashdreams-waypoint",
     "ludus-renderer",
+    "omnidreams-game-engine",
 ]
 overrides = [
     { name = "numpy", specifier = ">=1.24,<2.5" },
@@ -45,6 +55,7 @@ overrides = [
 ]
 
 [manifest.dependency-groups]
+dev = [{ name = "python-dotenv", specifier = ">=1.2.2" }]
 docs = [
     { name = "myst-parser", specifier = ">=4.0" },
     { name = "pydata-sphinx-theme", specifier = ">=0.18" },
@@ -68,7 +79,9 @@ lint = [
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "pytest-benchmark", specifier = ">=5.1" },
     { name = "pytest-manual-marker", specifier = ">=2.0" },
+    { name = "ruff", specifier = "==0.12.7" },
     { name = "sphinx", specifier = ">=7.0" },
     { name = "tomli", specifier = ">=2.0" },
     { name = "ty", specifier = ">=0.0.39" },
@@ -77,6 +90,7 @@ test = [
     { name = "imageio-ffmpeg", specifier = ">=0.5" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "pytest-benchmark", specifier = ">=5.1" },
     { name = "pytest-manual-marker", specifier = ">=2.0" },
     { name = "tomli", specifier = ">=2.0" },
 ]
@@ -662,6 +676,34 @@ wheels = [
 ]
 
 [[package]]
+name = "crazy-robotaxi"
+version = "0.1.0"
+source = { editable = "apps/crazy_robotaxi" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window"] },
+    { name = "omnidreams-game-engine" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-manual-marker" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window"], editable = "flashdreams" },
+    { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "torch" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "cryptography"
 version = "49.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1026,6 +1068,7 @@ examples = [
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 local-window = [
+    { name = "imgui-bundle" },
     { name = "slangpy" },
 ]
 rtx-postprocess = [
@@ -1067,6 +1110,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=3" },
     { name = "ftfy", specifier = ">=6.0" },
     { name = "huggingface-hub", specifier = ">=0.33" },
+    { name = "imgui-bundle", marker = "extra == 'local-window'", specifier = "==1.92.801" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "mediapy", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "mediapy", marker = "extra == 'examples'", specifier = ">=1.1" },
@@ -1111,9 +1155,31 @@ cuda13 = [
 ]
 
 [[package]]
+name = "flashdreams-action2v"
+version = "0.1.0"
+source = { editable = "apps/action2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
+
+[[package]]
+name = "flashdreams-cam2v"
+version = "0.1.0"
+source = { editable = "apps/cam2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "runners", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "runners", "serving"], editable = "flashdreams" }]
+
+[[package]]
 name = "flashdreams-causal-forcing"
 version = "0.1.0"
-source = { editable = "integrations/causal_forcing" }
+source = { editable = "integrations_v2/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1137,13 +1203,27 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "flashdreams-color-fade"
+version = "0.1.0"
+source = { editable = "integrations_v2/color_fade" }
+dependencies = [
+    { name = "flashdreams" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
+
+[[package]]
 name = "flashdreams-cosmos-predict2"
 version = "0.1.0"
-source = { editable = "integrations/cosmos_predict2" }
+source = { editable = "integrations_v2/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
     { name = "mediapy" },
+    { name = "torchvision", version = "0.26.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torchvision", version = "0.27.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torchvision", version = "0.27.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 
 [package.optional-dependencies]
@@ -1157,13 +1237,14 @@ requires-dist = [
     { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "torchvision", specifier = ">=0.24" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
 version = "0.1.0"
-source = { editable = "integrations/fastvideo_causal_wan22" }
+source = { editable = "integrations_v2/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1187,29 +1268,23 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-flashvsr"
 version = "0.1.0"
-source = { editable = "integrations/flashvsr" }
+source = { editable = "integrations_v2/flashvsr" }
 dependencies = [
     { name = "flashdreams" },
-    { name = "grpcio" },
-    { name = "mediapy" },
-    { name = "pillow" },
-    { name = "protobuf" },
+    { name = "flashdreams-v2v" },
+    { name = "ninja" },
 ]
 
 [package.optional-dependencies]
 dev = [
-    { name = "grpcio-tools" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "grpcio", specifier = ">=1.80" },
-    { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.80" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "pillow", specifier = ">=10" },
-    { name = "protobuf", specifier = ">=6.31.1" },
+    { name = "flashdreams-v2v", editable = "apps/v2v" },
+    { name = "ninja", specifier = ">=1.13.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
@@ -1217,15 +1292,12 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-hy-worldplay"
 version = "0.1.0"
-source = { editable = "integrations/hy_worldplay" }
+source = { editable = "integrations_v2/hy_worldplay" }
 dependencies = [
     { name = "diffusers" },
     { name = "flashdreams" },
+    { name = "flashdreams-cam2v" },
     { name = "flashdreams-wan22" },
-    { name = "imageio", extra = ["ffmpeg"] },
-    { name = "mediapy" },
-    { name = "moviepy" },
-    { name = "opencv-python-headless" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1240,29 +1312,50 @@ dev = [
 requires-dist = [
     { name = "diffusers", specifier = ">=0.34" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-wan22", editable = "integrations/wan22" },
-    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "moviepy", specifier = ">=1.0,<2" },
-    { name = "opencv-python-headless" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
+    { name = "flashdreams-wan22", editable = "integrations_v2/wan22" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
+name = "flashdreams-imgui-ui-demo"
+version = "0.1.0"
+source = { editable = "integrations_v2/imgui_ui_demo" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+
+[[package]]
+name = "flashdreams-interactive-drive-v2"
+version = "0.1.0"
+source = { editable = "apps/interactive_drive" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "huggingface-hub" },
+    { name = "ludus-renderer" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "huggingface-hub", specifier = ">=0.33" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
+    { name = "pillow", specifier = ">=10.0" },
+]
+
+[[package]]
 name = "flashdreams-lingbot"
 version = "0.1.0"
-source = { editable = "integrations/lingbot" }
+source = { editable = "integrations_v2/lingbot" }
 dependencies = [
-    { name = "aiohttp" },
-    { name = "aiortc" },
     { name = "flashdreams" },
-    { name = "mediapy" },
-    { name = "opencv-python-headless" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "flashdreams-cam2v" },
 ]
 
 [package.optional-dependencies]
@@ -1273,14 +1366,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9" },
-    { name = "aiortc", specifier = ">=1.9" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "mediapy", specifier = ">=1.1" },
-    { name = "opencv-python-headless", specifier = ">=4.5" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
 
@@ -1343,10 +1432,12 @@ requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 [[package]]
 name = "flashdreams-omnidreams"
 version = "0.1.0"
-source = { editable = "integrations/omnidreams" }
+source = { editable = "integrations_v2/omnidreams" }
 dependencies = [
+    { name = "crazy-robotaxi" },
     { name = "einops" },
     { name = "flashdreams", extra = ["serving"] },
+    { name = "flashdreams-interactive-drive-v2" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "huggingface-hub" },
@@ -1355,7 +1446,7 @@ dependencies = [
     { name = "mediapy" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "nvidia-cudnn-cu13", version = "9.23.2.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-cudnn-frontend" },
     { name = "opencv-python-headless" },
     { name = "pillow" },
@@ -1390,18 +1481,20 @@ rtx-postprocess = [
 
 [package.metadata]
 requires-dist = [
+    { name = "crazy-robotaxi", editable = "apps/crazy_robotaxi" },
     { name = "einops", specifier = ">=0.8" },
     { name = "flashdreams", extras = ["rtx-postprocess"], marker = "extra == 'rtx-postprocess'", editable = "flashdreams" },
     { name = "flashdreams", extras = ["serving"], editable = "flashdreams" },
+    { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
     { name = "flip-evaluator", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "grpcio", specifier = ">=1.50" },
     { name = "grpcio-tools", specifier = ">=1.50" },
     { name = "huggingface-hub", specifier = ">=0.24" },
     { name = "imageio", specifier = ">=2.20" },
-    { name = "ludus-renderer", editable = "integrations/omnidreams/ludus-renderer" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "numpy", specifier = ">=1.26" },
-    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'win32'", specifier = "==9.23.2.1" },
+    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'win32'", specifier = "==9.20.0.48" },
     { name = "nvidia-cudnn-frontend", specifier = "==1.22.1" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
     { name = "pillow", specifier = ">=10.0" },
@@ -1426,21 +1519,21 @@ name = "flashdreams-red-screen"
 version = "0.1.0"
 source = { editable = "integrations_v2/red_screen" }
 dependencies = [
-    { name = "flashdreams" },
+    { name = "flashdreams", extra = ["serving"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-sana-wm"
 version = "0.1.0"
-source = { editable = "integrations/sana" }
+source = { editable = "integrations_v2/sana_wm" }
 dependencies = [
     { name = "accelerate" },
     { name = "diffusers" },
     { name = "flashdreams" },
-    { name = "imageio", extra = ["ffmpeg"] },
+    { name = "flashdreams-cam2v" },
     { name = "pillow" },
     { name = "pyyaml" },
     { name = "safetensors" },
@@ -1461,7 +1554,7 @@ requires-dist = [
     { name = "accelerate", specifier = ">=1.0" },
     { name = "diffusers", specifier = ">=0.36" },
     { name = "flashdreams", editable = "flashdreams" },
-    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
+    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
     { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1475,7 +1568,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-self-forcing"
 version = "0.1.0"
-source = { editable = "integrations/self_forcing" }
+source = { editable = "integrations_v2/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1497,9 +1590,9 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "flashdreams-t2v"
+name = "flashdreams-slangpy-ui-demo"
 version = "0.1.0"
-source = { editable = "apps/t2v" }
+source = { editable = "integrations_v2/slangpy_ui_demo" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
 ]
@@ -1508,9 +1601,60 @@ dependencies = [
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
 
 [[package]]
+name = "flashdreams-t2v"
+version = "0.1.0"
+source = { editable = "apps/t2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "tomli" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-v2v"
+version = "0.1.0"
+source = { editable = "apps/v2v" }
+dependencies = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "imageio-ffmpeg" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
+    { name = "imageio-ffmpeg", specifier = ">=0.5" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "torch", specifier = ">=2.9" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "flashdreams-wan21"
 version = "0.1.0"
-source = { editable = "integrations/wan21" }
+source = { editable = "integrations_v2/wan21" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1536,7 +1680,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-wan22"
 version = "0.1.0"
-source = { editable = "integrations/wan22" }
+source = { editable = "integrations_v2/wan22" }
 dependencies = [
     { name = "flashdreams" },
     { name = "flashdreams-t2v" },
@@ -1555,6 +1699,30 @@ requires-dist = [
     { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "mediapy", specifier = ">=1.1" },
     { name = "opencv-python-headless", specifier = ">=4.5" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-waypoint"
+version = "0.1.0"
+source = { editable = "integrations_v2/waypoint" }
+dependencies = [
+    { name = "flashdreams" },
+    { name = "flashdreams-action2v" },
+    { name = "pillow" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-action2v", editable = "apps/action2v" },
+    { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
@@ -1922,12 +2090,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/49/fa/391e437a34e55095173dca5f24070d89cbc233ff85bf1c29c93248c6588d/imageio-2.37.3-py3-none-any.whl", hash = "sha256:46f5bb8522cd421c0f5ae104d8268f569d856b29eb1a13b92829d1970f32c9f0", size = 317646, upload-time = "2026-03-09T11:31:10.771Z" },
 ]
 
-[package.optional-dependencies]
-ffmpeg = [
-    { name = "imageio-ffmpeg" },
-    { name = "psutil" },
-]
-
 [[package]]
 name = "imageio-ffmpeg"
 version = "0.6.0"
@@ -1949,6 +2111,28 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6c/e6/7bf14eeb8f8b7251141944835abd42eb20a658d89084b7e1f3e5fe394090/imagesize-2.0.0.tar.gz", hash = "sha256:8e8358c4a05c304f1fccf7ff96f036e7243a189e9e42e90851993c558cfe9ee3", size = 1773045, upload-time = "2026-03-03T14:18:29.941Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/53/fb7122b71361a0d121b669dcf3d31244ef75badbbb724af388948de543e2/imagesize-2.0.0-py2.py3-none-any.whl", hash = "sha256:5667c5bbb57ab3f1fa4bc366f4fbc971db3d5ed011fd2715fd8001f782718d96", size = 9441, upload-time = "2026-03-03T14:18:27.892Z" },
+]
+
+[[package]]
+name = "imgui-bundle"
+version = "1.92.801"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/b9/4217165c5fa832dbe662c2d96f0810aa7280eb2cc3bcae2b7ac4260e3f08/imgui_bundle-1.92.801.tar.gz", hash = "sha256:7d790708affe7476969d397784b40eb91760a201ce752131e5bedf4d514e3a45", size = 48343289, upload-time = "2026-05-13T13:34:13.972Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/54/48e088ae9f70a52792e22bd4b00236a07792a66ff34ecac3ccdfc23b33b4/imgui_bundle-1.92.801-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:2f6090ca1258fb597d527242a4c6b0ee0fc38b7644ae31b2bdc7122352046405", size = 10156126, upload-time = "2026-05-13T13:32:48.285Z" },
+    { url = "https://files.pythonhosted.org/packages/43/6e/306b1f0feecc48e4bb1ae479e524247d32addde2e5b9513215a741bc7768/imgui_bundle-1.92.801-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:3ea4dc8c4f91cd13a6eff91e97a7dcd277ba647e57a0580c1eb58e6bbe4e92e0", size = 12233313, upload-time = "2026-05-13T13:32:51.203Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/50/8feddc76ffea856068d15c5a70cb990b75e70b646be76a8ce40637dcf406/imgui_bundle-1.92.801-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:51c9c60618b562ac2efc1f56f371414deb4bb2db14dda7dcf36a9fdd27a33fde", size = 13335463, upload-time = "2026-05-13T13:32:53.802Z" },
+    { url = "https://files.pythonhosted.org/packages/08/68/d3e3db2a9f9438312d1f81cad1a903e16f5d987a2d47f64c7e5f883bffaa/imgui_bundle-1.92.801-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:e15d0605a9fbf1e0dc619f882f7b87b622bbb3bb91a08232216436bf2ed3d153", size = 13288113, upload-time = "2026-05-13T13:32:56.61Z" },
+    { url = "https://files.pythonhosted.org/packages/53/a7/5ac88b47beee25c0004d7d9f70742abeef06243e1163c754819d1eddfda3/imgui_bundle-1.92.801-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:c8c7605350e6d319f3c508a1ed3574055f818723ec2feeacd3ebc41467c02b5f", size = 14195737, upload-time = "2026-05-13T13:33:00.086Z" },
+    { url = "https://files.pythonhosted.org/packages/76/0e/97093863b01cdf0b5f78d5ad3f0bd0558ddf523409856d14868221658edb/imgui_bundle-1.92.801-cp311-cp311-win_amd64.whl", hash = "sha256:05b6816dd8e01a369f3b3d6ebc9f29e1cab494ff3e3b972917bd28fcf2a48f59", size = 11217665, upload-time = "2026-05-13T13:33:03.293Z" },
+    { url = "https://files.pythonhosted.org/packages/85/62/3da068e35b811c32f50e01411c3aec5c79a588941f9a437835e499a5ec75/imgui_bundle-1.92.801-cp311-cp311-win_arm64.whl", hash = "sha256:f9514eb470b48ec3219c0f0b463c670820149a8a0c169225af70ce7f857ba19b", size = 10738854, upload-time = "2026-05-13T13:33:06.026Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/6e/6c3410fe48ff09e1a37d122e57177e1ea4a2eed0728f2650cb3f68cc2c84/imgui_bundle-1.92.801-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:bab99cc3f65febca9fdc58b62ebdd57a387ab5ae1b2923b9734ad23bfb5af8bd", size = 10160297, upload-time = "2026-05-13T13:33:09.037Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/fb/ade9538a47d8ace618cebd447de2d7c2c540a03eede908fb800f54ca9b76/imgui_bundle-1.92.801-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:a325c52ab7bf13db0be807c8bcdce333f6c8233ef230cdc2c216b42392e04f42", size = 12239382, upload-time = "2026-05-13T13:33:12.226Z" },
+    { url = "https://files.pythonhosted.org/packages/17/c4/4ff13f08b54c0acb804b549a130b9c35491be04aa333b8cd1cc5197d9738/imgui_bundle-1.92.801-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:236821210d1afad1db51a01a54149a346040866e288cf42429208693b63fc686", size = 13337854, upload-time = "2026-05-13T13:33:15.283Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/43/0429c1cd9b55912b67fa7dec8ce4bfeb18412a2a95e70f6e8449c93e241f/imgui_bundle-1.92.801-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:7ce5d9f5240fb37134d8f93bde3466d8b2dc1b7461166d8db7b4e88beeb9864a", size = 13292818, upload-time = "2026-05-13T13:33:18.461Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/51/ac98270731facf697f1dd867a8e5cec651651c487f1c8ceba888c695561b/imgui_bundle-1.92.801-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:bdba78cc0383648dbce5784131c7f3ebcf7c9be2114f33096c67d0987ed5ba2f", size = 14198585, upload-time = "2026-05-13T13:33:21.63Z" },
+    { url = "https://files.pythonhosted.org/packages/20/e8/2dd88ec1d8e4557b04b2393b545cbaa74138eaae03a394eb790ca19030cd/imgui_bundle-1.92.801-cp312-cp312-win_amd64.whl", hash = "sha256:266518a51510d5a37168a5ab156fb116424b141eb8fc21cbfd6f659b7245f40b", size = 11219820, upload-time = "2026-05-13T13:33:24.852Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/c8/2bef9dfab0a295bf95ca1104406e1337affd96b95749fc8da4dfd88844d8/imgui_bundle-1.92.801-cp312-cp312-win_arm64.whl", hash = "sha256:c199f36e85f2953ad1f618e18e68580b4c00dc8ec90a0d0823d22b1ee9a78621", size = 10730354, upload-time = "2026-05-13T13:33:27.697Z" },
 ]
 
 [[package]]
@@ -2152,7 +2336,7 @@ wheels = [
 [[package]]
 name = "ludus-renderer"
 version = "0.9.0"
-source = { editable = "integrations/omnidreams/ludus-renderer" }
+source = { editable = "integrations_v2/omnidreams/impl/ludus-renderer" }
 dependencies = [
     { name = "cmake" },
     { name = "ninja" },
@@ -2444,22 +2628,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/f0/0cfadd537c5470378b1b32bd859cf2824972174b51b873c9d95cfd7475a5/ml_dtypes-0.5.4-cp312-cp312-win_amd64.whl", hash = "sha256:c1a953995cccb9e25a4ae19e34316671e4e2edaebe4cf538229b1fc7109087b7", size = 212222, upload-time = "2025-11-17T22:31:53.742Z" },
     { url = "https://files.pythonhosted.org/packages/16/2e/9acc86985bfad8f2c2d30291b27cd2bb4c74cea08695bd540906ed744249/ml_dtypes-0.5.4-cp312-cp312-win_arm64.whl", hash = "sha256:9bad06436568442575beb2d03389aa7456c690a5b05892c471215bfd8cf39460", size = 160793, upload-time = "2025-11-17T22:31:55.358Z" },
 ]
-
-[[package]]
-name = "moviepy"
-version = "1.0.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "decorator" },
-    { name = "imageio" },
-    { name = "imageio-ffmpeg" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "proglog" },
-    { name = "requests" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/18/54/01a8c4e35c75ca9724d19a7e4de9dc23f0ceb8769102c7de056113af61c3/moviepy-1.0.3.tar.gz", hash = "sha256:2884e35d1788077db3ff89e763c5ba7bfddbd7ae9108c9bc809e7ba58fa433f5", size = 388311, upload-time = "2020-05-07T16:27:46.856Z" }
 
 [[package]]
 name = "mpmath"
@@ -2866,36 +3034,13 @@ wheels = [
 name = "nvidia-cudnn-cu13"
 version = "9.20.0.48"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12' and sys_platform != 'win32'",
-    "python_full_version == '3.11.*' and sys_platform != 'win32'",
-    "python_full_version < '3.11' and sys_platform != 'win32'",
-]
 dependencies = [
-    { name = "nvidia-cublas", marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "nvidia-cublas", marker = "sys_platform == 'win32' or extra == 'extra-11-flashdreams-dev' or extra != 'group-11-flashdreams-cuda12' or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/c5/83384d846b2fd17c44bd499b36c75a45ed4f095fbbb2252294e89cea5c5c/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:e31454ae00094b0c55319d9d15b6fa2fc50a9e1c0f5c8c80fb75258234e731e1", size = 444574296, upload-time = "2026-03-09T19:28:27.751Z" },
     { url = "https://files.pythonhosted.org/packages/6e/5e/edb9c0ae051602c3ccaffe424256463636d639e27d7f302dde9975ef9e7a/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0c45dd8eeb50b603f07995b1b300c62ffe6a1980482b82b3bcf94a4ca9d49304", size = 366173588, upload-time = "2026-03-09T19:29:34.474Z" },
     { url = "https://files.pythonhosted.org/packages/78/39/21507455b1bca8b5702a9e9fc6ce73735f216f558dac2c9ede58e4d456b8/nvidia_cudnn_cu13-9.20.0.48-py3-none-win_amd64.whl", hash = "sha256:af8139732b99c0118be65ea5aac97f0d46018f8c552889e49d2fb0c6261a4a24", size = 350712614, upload-time = "2026-03-09T19:31:11.398Z" },
-]
-
-[[package]]
-name = "nvidia-cudnn-cu13"
-version = "9.23.2.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version == '3.11.*' and sys_platform == 'win32'",
-    "python_full_version < '3.11' and sys_platform == 'win32'",
-]
-dependencies = [
-    { name = "nvidia-cublas", marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/0f/0234666bed78ecdc767be01b53710a01df2773194ea856ba143eb3e70490/nvidia_cudnn_cu13-9.23.2.1-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:d826a14b848a719ff744c19891b6bcbe0a62cc01cd1d426d7cfd759c67d8d7b8", size = 616916016, upload-time = "2026-06-16T03:54:17.416Z" },
-    { url = "https://files.pythonhosted.org/packages/5f/0f/f9434b616c38ffaf50b389f68e9b7b9977e35b964d8b7bded939369905bc/nvidia_cudnn_cu13-9.23.2.1-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0c38408c043d67ea8a3cbe61fe272c3cf5c7f5ec466adfe8ac63e91d4f11cdc7", size = 518553472, upload-time = "2026-06-16T04:43:30.541Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/21/1cd2f2789f624c5c4b1f934ca7872bfc372e95f9f6690fdfda7e2031d4e5/nvidia_cudnn_cu13-9.23.2.1-py3-none-win_amd64.whl", hash = "sha256:03d164905021b64acf429f55e1bbbc26be9151299c2b55e71293c5cf2f1a13e6", size = 403307118, upload-time = "2026-06-16T04:48:03.125Z" },
 ]
 
 [[package]]
@@ -3167,6 +3312,49 @@ name = "nvidia-vfx"
 version = "0.1.0.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/37/b4/58e1bbb8d6fc9ed786564d0878314ea2f2cd458c84861a5130927e431ff6/nvidia_vfx-0.1.0.1.tar.gz", hash = "sha256:8a26bae3a967a2ce29040f17ba9d75e106f3d0c68016d440a77ed9c7eb05daae", size = 2673, upload-time = "2026-03-09T19:29:40.556Z" }
+
+[[package]]
+name = "omnidreams-game-engine"
+version = "0.1.0"
+source = { editable = "apps/omnidreams_game_engine" }
+dependencies = [
+    { name = "filelock" },
+    { name = "flashdreams" },
+    { name = "flashdreams-interactive-drive-v2" },
+    { name = "ludus-renderer" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "pyyaml" },
+    { name = "shapely" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-manual-marker" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "filelock", specifier = ">=3" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
+    { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "shapely", specifier = ">=2.0" },
+    { name = "torch" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "onnx"
@@ -3442,18 +3630,6 @@ wheels = [
 ]
 
 [[package]]
-name = "proglog"
-version = "0.1.12"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/af/c108866c452eda1132f3d6b3cb6be2ae8430c97e9309f38ca9dbd430af37/proglog-0.1.12.tar.gz", hash = "sha256:361ee074721c277b89b75c061336cb8c5f287c92b043efa562ccf7866cda931c", size = 8794, upload-time = "2025-05-09T14:36:18.316Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/1b/f7ea6cde25621cd9236541c66ff018f4268012a534ec31032bcb187dc5e7/proglog-0.1.12-py3-none-any.whl", hash = "sha256:ccaafce51e80a81c65dc907a460c07ccb8ec1f78dc660cfd8f9ec3a22f01b84c", size = 6337, upload-time = "2025-05-09T14:36:16.798Z" },
-]
-
-[[package]]
 name = "prompt-toolkit"
 version = "3.0.52"
 source = { registry = "https://pypi.org/simple" }
@@ -3572,6 +3748,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cd/05/0a34433a064256a578f1783a10da6df098ceaa4a57bbeaa96a6c0352786b/pure_eval-0.2.3.tar.gz", hash = "sha256:5f4e983f40564c576c7c8635ae88db5956bb2229d7e9237d03b3c0b0190eaf42", size = 19752, upload-time = "2024-07-21T12:58:21.801Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8e/37/efad0257dc6e593a18957422533ff0f87ede7c9c6ea010a2177d738fb82f/pure_eval-0.2.3-py3-none-any.whl", hash = "sha256:1db8e35b67b3d218d818ae653e27f06c3aa420901fa7b081ca98cbedc874e0d0", size = 11842, upload-time = "2024-07-21T12:58:20.04Z" },
+]
+
+[[package]]
+name = "py-cpuinfo"
+version = "9.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/a8/d832f7293ebb21690860d2e01d8115e5ff6f2ae8bbdc953f0eb0fa4bd2c7/py-cpuinfo-9.0.0.tar.gz", hash = "sha256:3cdbbf3fac90dc6f118bfd64384f309edeadd902d7c8fb17f02ffa1fc3f49690", size = 104716, upload-time = "2022-10-25T20:38:06.303Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/a9/023730ba63db1e494a271cb018dcd361bd2c917ba7004c3e49d5daf795a2/py_cpuinfo-9.0.0-py3-none-any.whl", hash = "sha256:859625bc251f64e21f077d099d4162689c762b5d6a4c3c97553d56241c9674d5", size = 22335, upload-time = "2022-10-25T20:38:27.636Z" },
 ]
 
 [[package]]
@@ -3833,6 +4018,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-benchmark"
+version = "5.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "py-cpuinfo" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/34/9f732b76456d64faffbef6232f1f9dbec7a7c4999ff46282fa418bd1af66/pytest_benchmark-5.2.3.tar.gz", hash = "sha256:deb7317998a23c650fd4ff76e1230066a76cb45dcece0aca5607143c619e7779", size = 341340, upload-time = "2025-11-09T18:48:43.215Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/29/e756e715a48959f1c0045342088d7ca9762a2f509b945f362a316e9412b7/pytest_benchmark-5.2.3-py3-none-any.whl", hash = "sha256:bc839726ad20e99aaa0d11a127445457b4219bdb9e80a1afc4b51da7f96b0803", size = 45255, upload-time = "2025-11-09T18:48:39.765Z" },
+]
+
+[[package]]
 name = "pytest-manual-marker"
 version = "2.0.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3868,6 +4066,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0b/1a/cbbaf13b730abb0a16b964d984e19f2fe520c21a4dc664051359a3f5a9e7/python_discovery-1.4.2.tar.gz", hash = "sha256:8f3746c4b4968d22afbb97d36e1a0e5b66e6c0f297290f2e95f05b9b8bf18690", size = 70277, upload-time = "2026-06-11T16:10:42.383Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/82/a70006589557f267f15bd384c0642ad49f0d97b690c3a05b166b9dcbad3b/python_discovery-1.4.2-py3-none-any.whl", hash = "sha256:475803f53b7b2ed6e490e27373f9d8340f7d2eebf9acdaf645d7d714c97bb500", size = 33886, upload-time = "2026-06-11T16:10:41.192Z" },
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
 ]
 
 [[package]]
@@ -4030,6 +4237,31 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ae/f9/41dc953bbeb056c17d5f7a519f50fdf010bd0553be2d630bc69d1e022703/roman_numerals-4.1.0.tar.gz", hash = "sha256:1af8b147eb1405d5839e78aeb93131690495fe9da5c91856cb33ad55a7f1e5b2", size = 9077, upload-time = "2025-12-17T18:25:34.381Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/54/6f679c435d28e0a568d8e8a7c0a93a09010818634c3c3907fc98d8983770/roman_numerals-4.1.0-py3-none-any.whl", hash = "sha256:647ba99caddc2cc1e55a51e4360689115551bf4476d90e8162cf8c345fe233c7", size = 7676, upload-time = "2025-12-17T18:25:33.098Z" },
+]
+
+[[package]]
+name = "ruff"
+version = "0.12.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/81/0bd3594fa0f690466e41bd033bdcdf86cba8288345ac77ad4afbe5ec743a/ruff-0.12.7.tar.gz", hash = "sha256:1fc3193f238bc2d7968772c82831a4ff69252f673be371fb49663f0068b7ec71", size = 5197814, upload-time = "2025-07-29T22:32:35.877Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/d2/6cb35e9c85e7a91e8d22ab32ae07ac39cc34a71f1009a6f9e4a2a019e602/ruff-0.12.7-py3-none-linux_armv6l.whl", hash = "sha256:76e4f31529899b8c434c3c1dede98c4483b89590e15fb49f2d46183801565303", size = 11852189, upload-time = "2025-07-29T22:31:41.281Z" },
+    { url = "https://files.pythonhosted.org/packages/63/5b/a4136b9921aa84638f1a6be7fb086f8cad0fde538ba76bda3682f2599a2f/ruff-0.12.7-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:789b7a03e72507c54fb3ba6209e4bb36517b90f1a3569ea17084e3fd295500fb", size = 12519389, upload-time = "2025-07-29T22:31:54.265Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/c9/3e24a8472484269b6b1821794141f879c54645a111ded4b6f58f9ab0705f/ruff-0.12.7-py3-none-macosx_11_0_arm64.whl", hash = "sha256:2e1c2a3b8626339bb6369116e7030a4cf194ea48f49b64bb505732a7fce4f4e3", size = 11743384, upload-time = "2025-07-29T22:31:59.575Z" },
+    { url = "https://files.pythonhosted.org/packages/26/7c/458dd25deeb3452c43eaee853c0b17a1e84169f8021a26d500ead77964fd/ruff-0.12.7-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:32dec41817623d388e645612ec70d5757a6d9c035f3744a52c7b195a57e03860", size = 11943759, upload-time = "2025-07-29T22:32:01.95Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/8b/658798472ef260ca050e400ab96ef7e85c366c39cf3dfbef4d0a46a528b6/ruff-0.12.7-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:47ef751f722053a5df5fa48d412dbb54d41ab9b17875c6840a58ec63ff0c247c", size = 11654028, upload-time = "2025-07-29T22:32:04.367Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/86/9c2336f13b2a3326d06d39178fd3448dcc7025f82514d1b15816fe42bfe8/ruff-0.12.7-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:a828a5fc25a3efd3e1ff7b241fd392686c9386f20e5ac90aa9234a5faa12c423", size = 13225209, upload-time = "2025-07-29T22:32:06.952Z" },
+    { url = "https://files.pythonhosted.org/packages/76/69/df73f65f53d6c463b19b6b312fd2391dc36425d926ec237a7ed028a90fc1/ruff-0.12.7-py3-none-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", hash = "sha256:5726f59b171111fa6a69d82aef48f00b56598b03a22f0f4170664ff4d8298efb", size = 14182353, upload-time = "2025-07-29T22:32:10.053Z" },
+    { url = "https://files.pythonhosted.org/packages/58/1e/de6cda406d99fea84b66811c189b5ea139814b98125b052424b55d28a41c/ruff-0.12.7-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:74e6f5c04c4dd4aba223f4fe6e7104f79e0eebf7d307e4f9b18c18362124bccd", size = 13631555, upload-time = "2025-07-29T22:32:12.644Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/ae/625d46d5164a6cc9261945a5e89df24457dc8262539ace3ac36c40f0b51e/ruff-0.12.7-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:5d0bfe4e77fba61bf2ccadf8cf005d6133e3ce08793bbe870dd1c734f2699a3e", size = 12667556, upload-time = "2025-07-29T22:32:15.312Z" },
+    { url = "https://files.pythonhosted.org/packages/55/bf/9cb1ea5e3066779e42ade8d0cd3d3b0582a5720a814ae1586f85014656b6/ruff-0.12.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:06bfb01e1623bf7f59ea749a841da56f8f653d641bfd046edee32ede7ff6c606", size = 12939784, upload-time = "2025-07-29T22:32:17.69Z" },
+    { url = "https://files.pythonhosted.org/packages/55/7f/7ead2663be5627c04be83754c4f3096603bf5e99ed856c7cd29618c691bd/ruff-0.12.7-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:e41df94a957d50083fd09b916d6e89e497246698c3f3d5c681c8b3e7b9bb4ac8", size = 11771356, upload-time = "2025-07-29T22:32:20.134Z" },
+    { url = "https://files.pythonhosted.org/packages/17/40/a95352ea16edf78cd3a938085dccc55df692a4d8ba1b3af7accbe2c806b0/ruff-0.12.7-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:4000623300563c709458d0ce170c3d0d788c23a058912f28bbadc6f905d67afa", size = 11612124, upload-time = "2025-07-29T22:32:22.645Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/74/633b04871c669e23b8917877e812376827c06df866e1677f15abfadc95cb/ruff-0.12.7-py3-none-musllinux_1_2_i686.whl", hash = "sha256:69ffe0e5f9b2cf2b8e289a3f8945b402a1b19eff24ec389f45f23c42a3dd6fb5", size = 12479945, upload-time = "2025-07-29T22:32:24.765Z" },
+    { url = "https://files.pythonhosted.org/packages/be/34/c3ef2d7799c9778b835a76189c6f53c179d3bdebc8c65288c29032e03613/ruff-0.12.7-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:a07a5c8ffa2611a52732bdc67bf88e243abd84fe2d7f6daef3826b59abbfeda4", size = 12998677, upload-time = "2025-07-29T22:32:27.022Z" },
+    { url = "https://files.pythonhosted.org/packages/77/ab/aca2e756ad7b09b3d662a41773f3edcbd262872a4fc81f920dc1ffa44541/ruff-0.12.7-py3-none-win32.whl", hash = "sha256:c928f1b2ec59fb77dfdf70e0419408898b63998789cc98197e15f560b9e77f77", size = 11756687, upload-time = "2025-07-29T22:32:29.381Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/71/26d45a5042bc71db22ddd8252ca9d01e9ca454f230e2996bb04f16d72799/ruff-0.12.7-py3-none-win_amd64.whl", hash = "sha256:9c18f3d707ee9edf89da76131956aba1270c6348bfee8f6c647de841eac7194f", size = 12912365, upload-time = "2025-07-29T22:32:31.517Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/9b/0b8aa09817b63e78d94b4977f18b1fcaead3165a5ee49251c5d5c245bb2d/ruff-0.12.7-py3-none-win_arm64.whl", hash = "sha256:dfce05101dbd11833a0776716d5d1578641b7fddb537fe7fa956ab85d1769b69", size = 11982083, upload-time = "2025-07-29T22:32:33.881Z" },
 ]
 
 [[package]]
@@ -4700,7 +4932,7 @@ dependencies = [
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version < '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version >= '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (python_full_version >= '3.11' and sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (python_full_version < '3.11' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13') or (sys_platform == 'win32' and extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra != 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-cublas", marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "nvidia-cudnn-cu13", version = "9.20.0.48", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-11-flashdreams-dev') or (sys_platform == 'linux' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
+    { name = "nvidia-cudnn-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-11-flashdreams-dev') or (sys_platform == 'linux' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-cusparselt-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-11-flashdreams-dev') or (sys_platform == 'linux' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-nccl-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-11-flashdreams-dev') or (sys_platform == 'linux' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "nvidia-nvshmem-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-11-flashdreams-dev') or (sys_platform == 'linux' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },

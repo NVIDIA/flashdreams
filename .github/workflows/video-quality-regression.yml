@@ -46,7 +46,9 @@ jobs:
     env:
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-video-quality-venv
       UV_LINK_MODE: copy
-      UV_PYTHON: "3.10"
+      # imgui-bundle has Linux wheels for Python 3.11+, but not 3.10.
+      UV_PYTHON: "3.11"
+      UV_NO_BUILD_PACKAGE: imgui-bundle
     steps:
       - uses: actions/checkout@v4
 

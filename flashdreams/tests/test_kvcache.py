@@ -161,6 +161,26 @@ def test_reset_preserves_storage_and_restores_empty_bookkeeping() -> None:
     assert cache.size == 2
 
 
+@pytest.mark.ci_cpu
+def test_clone_and_overwrite_kv_preserve_storage_addresses() -> None:
+    """Text swaps can replace static K/V without invalidating CUDA graphs."""
+    cache = BlockKVCache.from_tensor(
+        torch.arange(8, dtype=torch.float32).reshape(1, 4, 1, 2),
+        torch.arange(8, 16, dtype=torch.float32).reshape(1, 4, 1, 2),
+        seq_dim=1,
+    )
+    key_pointer = cache._k.data_ptr()
+    value_pointer = cache._v.data_ptr()
+    keys, values = cache.clone_kv()
+
+    cache.overwrite_kv_(keys + 10.0, values + 20.0)
+
+    assert cache._k.data_ptr() == key_pointer
+    assert cache._v.data_ptr() == value_pointer
+    torch.testing.assert_close(cache.cached_k(), keys + 10.0)
+    torch.testing.assert_close(cache.cached_v(), values + 20.0)
+
+
 @pytest.fixture
 def device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")

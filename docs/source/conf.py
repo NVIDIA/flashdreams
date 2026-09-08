@@ -42,6 +42,7 @@ warningiserror = True
 # like `[Project governance](#project-governance)` resolve when MD is
 # included via `.. include:: ... :parser: myst_parser.sphinx_`.
 myst_heading_anchors = 3
+myst_enable_extensions = ["dollarmath"]
 
 extensions = [
     "sphinx.ext.napoleon",
@@ -227,6 +228,10 @@ autodoc_mock_imports = [
     "mediapy",
     "cv2",
     "triton",
+    # Declared by `flashdreams` but not installed, since the docs build uses
+    # `uv pip install --no-deps`. Without it, autodoc cannot import the recipes
+    # that build their CLI with it.
+    "tyro",
     # Mocked rather than installed: with no torch source binding active
     # under the docs-ci sync, uv can't disambiguate between the PyPI,
     # +cu128, and +cu130 lock candidates.

@@ -104,7 +104,7 @@ The runner handles CLI-facing I/O and runtime loops.
    )
 
 
-You can use the existing integrations under the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the `LingBot-World <https://github.com/NVIDIA/flashdreams/tree/main/integrations/lingbot>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in your own projects.
+You can use the existing integrations under the `integrations_v2/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2>`_ directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the `OmniDreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in your own projects.
 
 Registering your method
 -----------------------
