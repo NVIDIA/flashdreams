@@ -17,6 +17,92 @@ from safetensors.torch import save_file as save_safetensors_file
 pytestmark = pytest.mark.ci_cpu
 
 
+@pytest.mark.parametrize("sharded", [False, True])
+def test_scoped_model_load_is_strict_and_ignores_unselected_shards(tmp_path, sharded):
+    """Select codec components without opening unrelated weight shards."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    model = torch.nn.Module()
+    model.decoder = torch.nn.Linear(2, 2, bias=False)
+    expected = torch.arange(4, dtype=torch.float32).reshape(2, 2)
+    shard = tmp_path / "decoder.safetensors"
+    if sharded:
+        save_safetensors_file({"decoder.weight": expected}, shard)
+        checkpoint = tmp_path / "model.safetensors.index.json"
+        checkpoint.write_text(
+            json.dumps(
+                {
+                    "weight_map": {
+                        "decoder.weight": shard.name,
+                        "encoder.weight": "absent-unused-shard.safetensors",
+                    }
+                }
+            )
+        )
+    else:
+        checkpoint = shard
+        save_safetensors_file(
+            {"decoder.weight": expected, "encoder.weight": torch.zeros(1)}, shard
+        )
+    checkpoint_load.load_checkpoint(
+        str(checkpoint), model=model, include_prefixes=("decoder.",)
+    )
+    torch.testing.assert_close(model.decoder.weight, expected)
+    with pytest.raises(RuntimeError, match="match"):
+        checkpoint_load.load_checkpoint(
+            str(checkpoint), model=model, include_prefixes=("encoder.",)
+        )
+    with pytest.raises(RuntimeError, match="match"):
+        checkpoint_load.load_checkpoint(str(checkpoint), model=model)
+
+
+def test_scoped_remote_load_filters_before_downloading(monkeypatch, tmp_path):
+    """Download only selected shards from a Hub index."""
+    module = importlib.import_module("flashdreams.core.checkpoint.load")
+    index = tmp_path / "model.safetensors.index.json"
+    index.write_text(
+        json.dumps(
+            {
+                "weight_map": {
+                    "decoder.weight": "wanted.safetensors",
+                    "encoder.weight": "unwanted.safetensors",
+                }
+            }
+        )
+    )
+    shard = tmp_path / "wanted.safetensors"
+    save_safetensors_file({"decoder.weight": torch.ones(2, 2)}, shard)
+    monkeypatch.setattr(module, "hf_hub_download", lambda **kwargs: str(index))
+    monkeypatch.setattr(
+        module, "_preflight_checkpoint_cache_requirement", lambda **kwargs: None
+    )
+    monkeypatch.setattr(module, "_preflight_hf_cache", lambda **kwargs: 0)
+    downloaded = []
+
+    def fetch(**kwargs):
+        downloaded.extend(kwargs["shard_files"])
+        return {"wanted.safetensors": str(shard)}
+
+    monkeypatch.setattr(module, "_parallel_hf_hub_download_shards", fetch)
+    model = torch.nn.Module()
+    model.decoder = torch.nn.Linear(2, 2, bias=False)
+    module.load_checkpoint(
+        "https://huggingface.co/example/model/blob/abc/model.safetensors.index.json",
+        model=model,
+        include_prefixes=("decoder.",),
+    )
+    assert downloaded == ["wanted.safetensors"]
+
+
+@pytest.mark.parametrize("prefixes", [(), ("",), ("decoder",)])
+def test_scoped_load_rejects_ambiguous_prefixes(prefixes):
+    from flashdreams.core.checkpoint.load import load_checkpoint
+
+    with pytest.raises(ValueError, match="prefixes"):
+        load_checkpoint(
+            "unused.safetensors", model=torch.nn.Linear(2, 2), include_prefixes=prefixes
+        )
+
+
 def test_local_safetensors_uses_file_backed_loader(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

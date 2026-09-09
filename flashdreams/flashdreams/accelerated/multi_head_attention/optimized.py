@@ -24,8 +24,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 import torch
-from torch import Tensor, nn
-
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
 )
@@ -37,9 +35,9 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEScope,
     RoPEStyle,
 )
-from flashdreams.accelerated.multi_head_attention.cudnn import (
-    native_cudnn_fp8_sdpa,
-    torch_cudnn_sdpa,
+from flashdreams.accelerated.multi_head_attention.sdpa import (
+    SDPABackend,
+    scaled_dot_product_attention,
 )
 from flashdreams.accelerated.multi_head_attention.triton import (
     flash_attention_2,
@@ -57,16 +55,7 @@ from flashdreams.accelerated.quantization.quantizer import (
 )
 from flashdreams.core.attention import BlockKVCache
 from flashdreams.core.attention.rope_kernel import apply_rotary_pos_emb
-
-
-class SDPABackend(str, Enum):
-    """Scaled-dot-product attention implementation."""
-
-    CUDNN = "cudnn"
-    """Use Torch cuDNN for FP16/BF16 and native cuDNN Frontend for FP8."""
-
-    FA2 = "fa2"
-    """Use Triton FlashAttention2 (FA2)."""
+from torch import Tensor, nn
 
 
 class QKVFusionOption(str, Enum):
@@ -160,6 +149,8 @@ class OptimizedImplConfig:
             )
         if not isinstance(self.use_tma, bool):
             raise TypeError(f"use_tma must be a bool; got {self.use_tma!r}")
+        if self.sdpa_backend is SDPABackend.TORCH and self.quantization.quantized_sdpa:
+            raise ValueError("Torch SDPA does not support quantized SDPA")
 
 
 class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
@@ -315,6 +306,11 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             WeightGranularity.PER_OUT_CHANNEL,
             dtype,
         )
+
+    @torch.no_grad()
+    def refresh_derived_weights(self) -> None:
+        """Refresh fused and quantized projections after in-place weight edits."""
+        self._refresh_derived_weights()
 
     @torch.no_grad()
     def _refresh_derived_weights(self, *args: object) -> None:
@@ -535,7 +531,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
     def forward(
         self,
         x: Tensor,
-        kv_cache: BlockKVCache,
+        kv_cache: BlockKVCache | None = None,
         rope_freqs: Tensor | None = None,
     ) -> Tensor:
         """Apply self- or cross-attention using the configured cache lifecycle.
@@ -546,7 +542,8 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
 
         Args:
             x: Query tokens shaped ``[..., L, Q]``.
-            kv_cache: Prepared rolling cache for self-attention or precomputed
+            kv_cache: ``None`` for cacheless self-attention, or prepared rolling
+                cache for self-attention or precomputed
                 static cache for cross-attention.
             rope_freqs: Optional positional data. Before-cache RoPE expects the
                 current chunk. After-cache RoPE expects positions covering the
@@ -556,27 +553,37 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         Returns:
             Output-projected tokens with the same shape and dtype as ``x``.
         """
-        query_rope_freqs, key_rope_freqs = self._slice_rope_freqs(
-            rope_freqs, kv_cache, x.shape[-2]
-        )
-        if self.attention_type is AttentionType.SELF_ATTENTION:
-            query = self._update_kv_and_compute_query(x, kv_cache, query_rope_freqs)
+        if kv_cache is None:
+            if self.attention_type is not AttentionType.SELF_ATTENTION:
+                raise ValueError("cross-attention requires a K/V cache")
+            self._validate_tokens(x, self.attention_config.query_dim, "x")
+            if self.qkv_fusion_option is QKVFusionOption.FULL:
+                query, key, value = self._project_qkv(x)
+                query = self._apply_qk_norm(query, self.query_norm)
+                key = self._apply_qk_norm(key, self.key_norm)
+            else:
+                query = self._project_query(x)
+                key, value = self._project_kv(x)
+            if rope_freqs is not None:
+                query = self._apply_rope(query, rope_freqs)
+                key = self._apply_rope(key, rope_freqs)
         else:
-            query = self._compute_query(x, query_rope_freqs)
-            self._validate_cache(kv_cache, x)
-
-        # ``cached_k/v`` expose only the valid prefix while a rolling cache fills,
-        # and the complete fixed-size buffer after it reaches steady state.
-        key = kv_cache.cached_k()
-        if (
-            self.attention_config.rope_config is not None
-            and self.attention_config.rope_config.scope is RoPEScope.AFTER_KV_CACHE
-            and key_rope_freqs is not None
-        ):
-            # The shared RoPE kernel is in-place; keep cache storage unrotated so
-            # rolling positions can be applied again on the next attention call.
-            key = self._apply_rope(key.to(x.dtype, copy=True), key_rope_freqs)
-        value = kv_cache.cached_v()
+            query_rope_freqs, key_rope_freqs = self._slice_rope_freqs(
+                rope_freqs, kv_cache, x.shape[-2]
+            )
+            if self.attention_type is AttentionType.SELF_ATTENTION:
+                query = self._update_kv_and_compute_query(x, kv_cache, query_rope_freqs)
+            else:
+                query = self._compute_query(x, query_rope_freqs)
+                self._validate_cache(kv_cache, x)
+            key = kv_cache.cached_k()
+            if (
+                self.attention_config.rope_config is not None
+                and self.attention_config.rope_config.scope is RoPEScope.AFTER_KV_CACHE
+                and key_rope_freqs is not None
+            ):
+                key = self._apply_rope(key.to(x.dtype, copy=True), key_rope_freqs)
+            value = kv_cache.cached_v()
         if self.optimized_impl_config.quantization.quantized_sdpa:
             query = query.to(torch.float8_e4m3fn)
             key = key.to(torch.float8_e4m3fn)
@@ -730,33 +737,14 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         Returns:
             Attention output with shape ``[B, L, H, D]``.
         """
-        if self.sdpa_backend is SDPABackend.CUDNN:
-            # The module and Triton kernel use token-major ``[B, L/S, H, D]``.
-            # PyTorch SDPA instead interprets its two middle axes as ``[H, L/S]``.
-            # These transposes change only shape/stride metadata.
-            query = query.transpose(1, 2)
-            key = key.transpose(1, 2)
-            value = value.transpose(1, 2)
-
-            # PyTorch's public dispatcher rejects FP8 inputs, so use a cuDNN
-            # Frontend FP8 graph for e4m3 attention.
-            if query.dtype is torch.float8_e4m3fn:
-                output = native_cudnn_fp8_sdpa(query, key, value)
-            else:
-                output = torch_cudnn_sdpa(query, key, value)
-
-            # Restore the module-wide ``[B, L, H, D]`` contract for head merging.
-            output = output.transpose(1, 2)
-            return output if output_dtype is None else output.to(output_dtype)
-
-        attention = (
-            flash_attention_2_tma
-            if self.use_tma and is_tma_flash_attention_supported(query, key, value)
-            else flash_attention_2
+        return scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            backend=self.sdpa_backend,
+            use_tma=self.use_tma,
+            output_dtype=output_dtype,
         )
-        if output_dtype is None:
-            return attention(query, key, value)
-        return attention(query, key, value, output_dtype=output_dtype)
 
     def _apply_rope(self, x: Tensor, rope_freqs: Tensor) -> Tensor:
         """Apply the shared RoPE kernel to token-major head features.
@@ -771,12 +759,24 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         rope_config = self.attention_config.rope_config
         if rope_config is None:
             return x
-        return apply_rotary_pos_emb(
-            x,
+        if rope_freqs.ndim != 4:
+            raise ValueError("rope_freqs must have shape [L, 1, 1, rotary_dim]")
+        rotary_dim = rope_freqs.shape[-1]
+        if rotary_dim <= 0 or rotary_dim % 2 or rotary_dim > x.shape[-1]:
+            raise ValueError(
+                "RoPE width must be positive, even and no larger than head_dim"
+            )
+        if tuple(rope_freqs.shape) != (x.shape[1], 1, 1, rotary_dim):
+            raise ValueError("rope_freqs must have shape [L, 1, 1, rotary_dim]")
+        if rope_freqs.device != x.device:
+            raise RuntimeError("rope_freqs and x must be on the same device")
+        apply_rotary_pos_emb(
+            x[..., :rotary_dim],
             rope_freqs,
             interleaved=rope_config.style is RoPEStyle.INTERLEAVED,
             inplace=True,
         )
+        return x
 
     # ------------------------ Validation ------------------------ #
 
@@ -787,7 +787,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             device: Device used by attention inputs and cache storage.
 
         Raises:
-            RuntimeError: The CUDA device predates Hopper.
+            RuntimeError: The device predates Ampere, or FP8 requires Hopper.
         """
         device = torch.device(device)
         if device.type != "cuda":
@@ -797,9 +797,19 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         )
         if self._validated_cuda_device_index == device_index:
             return
-        if torch.cuda.get_device_capability(device_index)[0] < 9:
+        quantization = self.optimized_impl_config.quantization
+        fp8 = (torch.float8_e4m3fn, torch.float8_e5m2)
+        needs_hopper = (
+            quantization.quantized_sdpa
+            or quantization.projection in fp8
+            or quantization.output_projection in fp8
+        )
+        if torch.cuda.get_device_capability(device_index)[0] < (
+            9 if needs_hopper else 8
+        ):
             raise RuntimeError(
-                "OptimizedMultiHeadAttention requires compute capability 9.0 or newer"
+                "OptimizedMultiHeadAttention requires compute capability "
+                + ("9.0 for FP8" if needs_hopper else "8.0 or newer")
             )
         self._validated_cuda_device_index = device_index
 
@@ -813,7 +823,8 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
 
         Raises:
             ValueError: ``x`` lacks sequence/feature axes or has the wrong width.
-            RuntimeError: ``x`` is not CUDA FP16/BF16 or the GPU predates Hopper.
+            RuntimeError: ``x`` is not CUDA FP16/BF16 or the device does not
+                support the configured precision.
         """
         if x.ndim < 2:
             raise ValueError(
@@ -974,7 +985,18 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         if self.attention_config.rope_config is not None and rope_freqs is not None:
             # RoPE coefficients cover this ``L``-token chunk and broadcast across
             # flattened batches and ``H`` heads inside the shared kernel.
-            expected_rope_shape = (x.shape[-2], 1, 1, self.attention_config.head_dim)
+            if rope_freqs.ndim != 4:
+                raise ValueError("rope_freqs must have shape [L, 1, 1, rotary_dim]")
+            rotary_dim = rope_freqs.shape[-1]
+            if (
+                rotary_dim <= 0
+                or rotary_dim % 2
+                or rotary_dim > self.attention_config.head_dim
+            ):
+                raise ValueError(
+                    "RoPE width must be positive, even and no larger than head_dim"
+                )
+            expected_rope_shape = (x.shape[-2], 1, 1, rotary_dim)
             if tuple(rope_freqs.shape) != expected_rope_shape:
                 raise ValueError(
                     f"rope_freqs must have shape {expected_rope_shape}; "
@@ -1151,11 +1173,11 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
 
 
 __all__ = [
+    "OptimizedImplConfig",
+    "OptimizedMultiHeadAttention",
     "QKVFusionOption",
     "QuantizationOption",
     "SDPABackend",
-    "OptimizedImplConfig",
-    "OptimizedMultiHeadAttention",
     "flash_attention_2",
     "flash_attention_2_tma",
     "is_tma_flash_attention_supported",

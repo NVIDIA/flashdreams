@@ -13,6 +13,7 @@ from flashdreams.infra.acceleration.encoder_lifecycle import (
     move_tensors_to_cpu,
     release_one_shot_encoder_references,
     run_one_shot_encoder_stage,
+    run_one_shot_stage,
     setup_one_shot_encoder,
 )
 from flashdreams.infra.acceleration.frame_prefetch import (
@@ -57,6 +58,7 @@ __all__ = [
     "release_one_shot_encoder_references",
     "run_prewarm_sequence",
     "run_one_shot_encoder_stage",
+    "run_one_shot_stage",
     "run_timed_prewarm",
     "setup_one_shot_encoder",
 ]

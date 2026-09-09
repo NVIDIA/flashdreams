@@ -3,7 +3,7 @@
 
 """One text-to-video rollout: a prompt in, a chunk of frames per step out."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from flashdreams.api_v2.loop import IModelLoop
@@ -24,6 +24,9 @@ class T2VModelState:
     total_blocks: int
     image: Any = None
     """Optional first-frame tensor for image-conditioned generation."""
+
+    cache_init_kwargs: dict[str, Any] = field(default_factory=dict)
+    """Integration-specific request inputs reused when resetting the cache."""
 
     blocks_generated: int = 0
     cache: Any = None
@@ -91,6 +94,7 @@ class T2VSession(ISession):
         total_blocks: int,
         *,
         image: Any = None,
+        cache_init_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """
         Args:
@@ -101,12 +105,20 @@ class T2VSession(ISession):
                 against what the model can produce.
             total_blocks: Blocks this rollout generates before it is finished.
             image: Optional first-frame tensor retained across session resets.
+            cache_init_kwargs: Additional request inputs, excluding standard
+                ``text``, ``image``, ``height``, and ``width`` arguments.
         """
         self._pipeline = pipeline
         self._prompt = prompt
         self._session_desc = session_desc
         self._total_blocks = total_blocks
         self._image = image
+        self._cache_init_kwargs = dict(cache_init_kwargs or {})
+        reserved = {"text", "image", "height", "width"} & self._cache_init_kwargs.keys()
+        if reserved:
+            raise ValueError(
+                f"Cache inputs cannot override framework arguments: {sorted(reserved)}"
+            )
 
     def init(self) -> None:
         """Encode the prompt and prepare the rollout's cache.
@@ -119,6 +131,7 @@ class T2VSession(ISession):
             session_desc=self._session_desc,
             total_blocks=self._total_blocks,
             image=self._image,
+            cache_init_kwargs=dict(self._cache_init_kwargs),
         )
         if state.prompt is not None:
             state.cache = _new_cache(state)
@@ -139,10 +152,16 @@ def _new_cache(state: T2VModelState) -> Any:
     """Encode the prompt into a cache for one rollout."""
     if state.prompt is None:
         raise RuntimeError("Cannot initialize a text-to-video cache without a prompt.")
+    reserved = {"text", "image", "height", "width"} & state.cache_init_kwargs.keys()
+    if reserved:
+        raise ValueError(
+            f"Cache inputs cannot override framework arguments: {sorted(reserved)}"
+        )
     if state.image is not None:
         return state.pipeline.initialize_cache(
             text=[state.prompt],
             image=state.image,
+            **state.cache_init_kwargs,
         )
     ratio = state.pipeline.decoder.spatial_compression_ratio
     return state.pipeline.initialize_cache(
@@ -150,4 +169,5 @@ def _new_cache(state: T2VModelState) -> Any:
         image=None,
         height=state.session_desc.video_height // ratio,
         width=state.session_desc.video_width // ratio,
+        **state.cache_init_kwargs,
     )
