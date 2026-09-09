@@ -1564,8 +1564,6 @@ name = "flashdreams-swiftvr"
 version = "0.1.0"
 source = { editable = "integrations_v2/swiftvr" }
 dependencies = [
-    { name = "accelerate" },
-    { name = "diffusers" },
     { name = "flashdreams" },
     { name = "flashdreams-v2v" },
     { name = "safetensors" },
@@ -1578,8 +1576,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = ">=1.0" },
-    { name = "diffusers", specifier = ">=0.38,<0.39" },
     { name = "flashdreams", editable = "flashdreams" },
     { name = "flashdreams-v2v", editable = "apps/v2v" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

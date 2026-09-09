@@ -14,13 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Minimal SwiftVR streaming inference runtime.
-
-The ReAE and causal streaming protocol are adapted from SwiftVR commit
-``5ca168cef6ca7200f135fdfea85e5e13d12c5b53``. The WAN transformer itself is
-provided by the installed Diffusers package and receives SwiftVR attention via
-:mod:`swiftvr.impl.attention`.
-"""
+"""Minimal SwiftVR streaming inference runtime on FlashDreams WAN components."""
 
 from __future__ import annotations
 
@@ -29,22 +23,56 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from diffusers import WanTransformer3DModel
 from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 from torch import Tensor, nn
 
+from flashdreams.core.attention import RotaryPositionEmbedding3D
+from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
-from swiftvr.impl.attention import prepare_transformer
+from flashdreams.recipes.wan import (
+    WanDiTNetwork,
+    WanDiTNetworkTI2V5BConfig,
+    wan_dit_state_dict_from_diffusers,
+)
+from flashdreams.recipes.wan.transformer.impl.modules import Block
+from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkCache
+from swiftvr.impl.attention import SwiftVRBlock, prepare_transformer
 
+_TRANSFORMER_CHECKPOINT = "transformer/diffusion_pytorch_model.safetensors"
+_TRANSFORMER_CHECKPOINT_INDEX = f"{_TRANSFORMER_CHECKPOINT}.index.json"
 _CHECKPOINT_PATTERNS = (
     "reae.safetensors",
     "prompt_embedding.safetensors",
-    "transformer/config.json",
     "transformer/*.safetensors",
+    _TRANSFORMER_CHECKPOINT_INDEX,
 )
 _INFERENCE_TIMESTEP = 1000.0
-_ROPE_EXTEND_MARGIN = 256
+
+
+class SwiftVRDiTNetwork(WanDiTNetwork):
+    """FlashDreams TI2V-5B WAN network specialized with SwiftVR blocks."""
+
+    attention_window: tuple[int, int]
+
+    def __init__(
+        self,
+        config: WanDiTNetworkTI2V5BConfig,
+        attention_window: tuple[int, int],
+    ) -> None:
+        object.__setattr__(self, "attention_window", attention_window)
+        super().__init__(config)
+
+    def _build_block(self, layer_idx: int) -> Block:
+        return SwiftVRBlock(
+            dim=self.dim,
+            ffn_dim=self.ffn_dim,
+            num_heads=self.num_heads,
+            cross_attn_norm=self.cross_attn_norm,
+            eps=self.eps,
+            window=self.attention_window,
+            shifted=bool(layer_idx % 2),
+        )
 
 
 def _convolution(input_channels: int, output_channels: int, **kwargs: Any) -> nn.Conv2d:
@@ -298,144 +326,85 @@ class _StreamingAutoencoder:
         return decoded
 
 
-def _extend_rope(rope: Any, required_length: int) -> None:
-    cosine, sine = rope.freqs_cos, rope.freqs_sin
-    old_length = cosine.shape[0]
-    if required_length <= old_length:
-        return
-    if old_length < 2:
-        raise RuntimeError(f"Cannot extend SwiftVR RoPE cache of length {old_length}.")
-    with torch.no_grad():
-        cosine64 = cosine.to(torch.float64)
-        sine64 = sine.to(torch.float64)
-        cosine_delta = cosine64[1:2] * cosine64[0:1] + sine64[1:2] * sine64[0:1]
-        sine_delta = sine64[1:2] * cosine64[0:1] - cosine64[1:2] * sine64[0:1]
-        start = torch.atan2(sine64[0:1], cosine64[0:1])
-        step = torch.atan2(sine_delta, cosine_delta)
-        positions = torch.arange(
-            old_length,
-            required_length,
-            device=cosine.device,
-            dtype=torch.float64,
-        ).view(-1, 1)
-        angles = start + positions * step
-        rope.freqs_cos = torch.cat(
-            [cosine, torch.cos(angles).to(cosine.dtype)], dim=0
-        ).contiguous()
-        rope.freqs_sin = torch.cat(
-            [sine, torch.sin(angles).to(sine.dtype)], dim=0
-        ).contiguous()
-
-
 def _rope_with_offset(
-    rope: Any,
+    transformer: SwiftVRDiTNetwork,
     frames: int,
     height: int,
     width: int,
     time_offset: int,
-) -> tuple[Tensor, Tensor]:
-    required_length = max(time_offset + frames, height, width)
-    if required_length > rope.freqs_cos.shape[0]:
-        _extend_rope(rope, required_length + _ROPE_EXTEND_MARGIN)
-    splits = (rope.t_dim, rope.h_dim, rope.w_dim)
-    cosine = rope.freqs_cos.split(splits, dim=1)
-    sine = rope.freqs_sin.split(splits, dim=1)
-
-    def grid(parts: tuple[Tensor, ...]) -> Tensor:
-        time = parts[0][time_offset : time_offset + frames].view(frames, 1, 1, -1)
-        vertical = parts[1][:height].view(1, height, 1, -1)
-        horizontal = parts[2][:width].view(1, 1, width, -1)
-        return torch.cat(
-            [
-                time.expand(frames, height, width, -1),
-                vertical.expand(frames, height, width, -1),
-                horizontal.expand(frames, height, width, -1),
-            ],
-            dim=-1,
-        ).reshape(1, frames * height * width, 1, -1)
-
-    return grid(cosine), grid(sine)
+) -> Tensor:
+    rope = RotaryPositionEmbedding3D(
+        head_dim=transformer.dim // transformer.num_heads,
+        len_t=1,
+        len_h=height,
+        len_w=width,
+        interleaved=True,
+        device=transformer.patch_embedding.weight.device,
+    )
+    return torch.cat(
+        [rope.shift_t(time_offset + frame) for frame in range(frames)], dim=0
+    ).contiguous()
 
 
 def _condition(
-    transformer: Any,
+    transformer: SwiftVRDiTNetwork,
     prompt: Tensor,
     batch: int,
     device: torch.device,
     dtype: torch.dtype,
-) -> tuple[Tensor, Tensor, Tensor]:
+) -> WanDiTNetworkCache:
     prompt = prompt.to(device=device, dtype=dtype)
     if prompt.ndim == 2:
         prompt = prompt.unsqueeze(0).expand(batch, -1, -1)
-    timestep = torch.full(
-        (batch,), _INFERENCE_TIMESTEP, device=device, dtype=torch.float32
+    return transformer.initialize_cache(
+        chunk_size=1,
+        window_size=1,
+        sink_size=0,
+        text_embeddings=prompt,
     )
-    embedding, projection, encoder, image = transformer.condition_embedder(
-        timestep, prompt, None
-    )
-    projection = projection.unflatten(1, (6, -1))
-    if image is not None:
-        encoder = torch.cat([image, encoder], dim=1)
-    return embedding, projection, encoder
 
 
 def _transformer_chunk(
-    transformer: Any,
+    transformer: SwiftVRDiTNetwork,
     tensor: Tensor,
-    condition: tuple[Tensor, Tensor, Tensor],
+    condition: WanDiTNetworkCache,
     *,
     time_offset: int,
 ) -> Tensor:
-    embedding, projection, encoder = condition
-    patch_time, patch_height, patch_width = transformer.config.patch_size
+    patch_time, patch_height, patch_width = transformer.patch_size
     batch, _, frames, height, width = tensor.shape
     frames //= patch_time
     height //= patch_height
     width //= patch_width
-    rope = _rope_with_offset(transformer.rope, frames, height, width, time_offset)
-    hidden = transformer.patch_embedding(tensor).flatten(2).transpose(1, 2)
-    shape = (frames, height, width)
-    for block in transformer.blocks:
-        underlying = getattr(block, "_orig_mod", block)
-        underlying.attn1._swiftvr_shape = shape
-    for block in transformer.blocks:
-        hidden = block(hidden, encoder, projection, rope)
-    if embedding.ndim == 3:
-        shift, scale = (
-            transformer.scale_shift_table.unsqueeze(0) + embedding.unsqueeze(2)
-        ).chunk(2, dim=2)
-        shift, scale = shift.squeeze(2), scale.squeeze(2)
-    else:
-        shift, scale = (transformer.scale_shift_table + embedding.unsqueeze(1)).chunk(
-            2, dim=1
-        )
-    hidden = (
-        transformer.norm_out(hidden.float()) * (1 + scale.to(hidden.device))
-        + shift.to(hidden.device)
-    ).type_as(hidden)
-    hidden = transformer.proj_out(hidden)
-    hidden = hidden.reshape(
-        batch,
-        frames,
-        height,
-        width,
-        patch_time,
-        patch_height,
-        patch_width,
-        -1,
-    ).permute(0, 7, 1, 4, 2, 5, 3, 6)
-    return hidden.flatten(6, 7).flatten(4, 5).flatten(2, 3)
+    rope_freqs = _rope_with_offset(transformer, frames, height, width, time_offset)
+    hidden = transformer.patchify_and_maybe_split_cp(tensor.permute(0, 2, 1, 3, 4))
+    timestep = torch.full(
+        (batch,), _INFERENCE_TIMESTEP, device=tensor.device, dtype=torch.float32
+    )
+    hidden = transformer(
+        hidden,
+        timestep,
+        condition,
+        rope_freqs,
+        eager_mode=False,
+        block_extra_kwargs={"shape": (frames, height, width)},
+    )
+    return transformer.unpatchify_and_maybe_gather_cp(height, width, hidden).permute(
+        0, 2, 1, 3, 4
+    )
 
 
 class _StreamingTransformer:
-    def __init__(self, transformer: Any, prompt: Tensor, overlap: int) -> None:
+    def __init__(
+        self, transformer: SwiftVRDiTNetwork, prompt: Tensor, overlap: int
+    ) -> None:
         self.transformer = transformer
         self.prompt = prompt
         self.overlap = overlap
         self.previous_input: Tensor | None = None
         self.previous_output: Tensor | None = None
         self.time_offset = 0
-        self.condition: tuple[Tensor, Tensor, Tensor] | None = None
+        self.condition: WanDiTNetworkCache | None = None
 
     @torch.inference_mode()
     def denoise(self, tensor: Tensor) -> Tensor:
@@ -546,7 +515,7 @@ class SwiftVRPipeline:
     def __init__(
         self,
         autoencoder: RestorationAutoencoder,
-        transformer: Any,
+        transformer: SwiftVRDiTNetwork,
         prompt_embedding: Tensor,
         *,
         device: torch.device,
@@ -570,24 +539,35 @@ class SwiftVRPipeline:
         compile_blocks: bool,
     ) -> "SwiftVRPipeline":
         """Load and prepare one SwiftVR checkpoint."""
+        resolved_device = torch.device(device)
+        if resolved_device.type != "cuda":
+            raise ValueError("SwiftVR's FlashDreams WAN runtime requires CUDA.")
         checkpoint_root = _resolve_checkpoint(checkpoint, revision=revision)
         autoencoder = RestorationAutoencoder()
         autoencoder.load_state_dict(
             load_file(str(checkpoint_root / "reae.safetensors"), device="cpu"),
             strict=True,
         )
-        transformer: Any = WanTransformer3DModel.from_pretrained(
-            checkpoint_root,
-            subfolder="transformer",
-            local_files_only=True,
-            torch_dtype=dtype,
+        with torch.device("meta"):
+            transformer = SwiftVRDiTNetwork(
+                WanDiTNetworkTI2V5BConfig(), attention_window
+            )
+        transformer.load_state_dict(
+            wan_dit_state_dict_from_diffusers(
+                load_checkpoint(
+                    str(_transformer_checkpoint(checkpoint_root)),
+                    map_location="cpu",
+                )
+            ),
+            strict=True,
+            assign=True,
         )
+        transformer.update_parameters_after_loading_checkpoint()
         prompt = load_file(
             str(checkpoint_root / "prompt_embedding.safetensors"), device="cpu"
         )["prompt_emb"][0]
-        resolved_device = torch.device(device)
         autoencoder.to(device=resolved_device, dtype=dtype).eval()
-        transformer.to(device=resolved_device, dtype=dtype).eval()
+        transformer.to(device=resolved_device, dtype=dtype).eval().requires_grad_(False)
         prompt = prompt.to(device=resolved_device, dtype=dtype)
         if resolved_device.type == "cuda":
             torch.backends.cuda.matmul.allow_tf32 = True
@@ -617,6 +597,18 @@ class SwiftVRPipeline:
         )
 
 
+def _transformer_checkpoint(checkpoint_root: Path) -> Path:
+    for relative_path in (_TRANSFORMER_CHECKPOINT, _TRANSFORMER_CHECKPOINT_INDEX):
+        path = checkpoint_root / relative_path
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        "SwiftVR transformer checkpoint not found; expected "
+        f"{_TRANSFORMER_CHECKPOINT!r} or {_TRANSFORMER_CHECKPOINT_INDEX!r} "
+        f"under {checkpoint_root}."
+    )
+
+
 def _resolve_checkpoint(checkpoint: str, *, revision: str | None) -> Path:
     local = Path(checkpoint).expanduser()
     if local.is_dir():
@@ -636,4 +628,9 @@ def _resolve_checkpoint(checkpoint: str, *, revision: str | None) -> Path:
     )
 
 
-__all__ = ["RestorationAutoencoder", "SwiftVRPipeline", "SwiftVRStream"]
+__all__ = [
+    "RestorationAutoencoder",
+    "SwiftVRDiTNetwork",
+    "SwiftVRPipeline",
+    "SwiftVRStream",
+]

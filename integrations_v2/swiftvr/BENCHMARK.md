@@ -11,6 +11,10 @@ NVIDIA GB300 (256 GB), driver 595.71.05, CUDA 13.2, Torch 2.12.1+cu130,
 Diffusers 0.38.0, BF16, PyTorch SDPA, 24-frame chunks, no DiT overlap, and no
 `torch.compile`.
 
+These throughput numbers predate the native FlashDreams WAN migration described
+below; they remain the Diffusers-backed baseline rather than a remeasurement of
+the current runtime.
+
 ## Correctness
 
 - The adapted ReAE has the same 128 state-dict keys and tensor shapes as
@@ -21,7 +25,70 @@ Diffusers 0.38.0, BF16, PyTorch SDPA, 24-frame chunks, no DiT overlap, and no
 - The V2V MP4 runs retained all 120 input frames, including SwiftVR's delayed
   three-frame causal head and padded tail.
 
+### Native FlashDreams WAN parity
+
+Measured 2026-09-09 on the native migration based on `e4fa831b`. The legacy
+reference was captured from that same commit before replacing Diffusers. Both
+paths used snapshot `743ed253`, its prompt embedding, eager BF16 SDPA, and ran
+sequentially on one NVIDIA RTX PRO 6000 Blackwell Server Edition (driver
+595.80, CUDA 13.0, Torch 2.12.1+cu130).
+
+Each fixture was constructed as
+`torch.linspace(-1, 1, 48*T*H*W).reshape(1, 48, T, H, W).bfloat16()` and passed
+through `_condition` and `_transformer_chunk` at timestep 1000. The checkpoint
+remap covered all 825 tensors with no missing, unexpected, or shape-mismatched
+keys.
+
+| Latent fixture | Temporal offset | Max absolute error | Mean absolute error | RMSE |
+| --- | ---: | ---: | ---: | ---: |
+| `1x48x1x8x8` | 7 | 0.01367 | 0.003047 | 0.003916 |
+| `1x48x2x34x66` | 3 | 0.01929 | 0.003011 | 0.003885 |
+
+The second fixture patchifies to `2x17x33`, exercising distinct unshifted
+(`[0, 16, 17]`) and shifted (`[0, 8, 17]`) window starts, overlap ownership,
+and nonzero temporal RoPE. Peak CUDA allocation on that comparison fell from
+12.16 GiB for the Diffusers path to 9.69 GiB for the native path. A nine-frame
+streaming smoke test also retained all frames at the requested output shape,
+and decoding the shifted fixture through the shared ReAE yielded 0.00076 mean
+absolute RGB error (0.01172 max, 0.999995 cosine similarity). A one-block
+compiled/eager smoke test passed within 0.00782 max absolute error.
+
+The regression limits for reruns are 0.05 max and 0.01 mean absolute latent
+error. The captured legacy tensors were saved as
+`/tmp/swiftvr-diffusers-transformer-reference.pt` and
+`/tmp/swiftvr-diffusers-shifted-reference.pt`; they are run artifacts and are
+not tracked. The dependency-free CPU contracts, including the complete
+825-key synthetic remap bijection, run with:
+
+```bash
+uv run --package flashdreams-swiftvr --extra dev \
+  pytest integrations_v2/swiftvr/tests/test_model.py -m ci_cpu -q
+```
+
 ## Throughput
+
+### Matched 704p x2 comparison
+
+Both implementations were measured on the RTX PRO 6000 environment above with
+the same checkpoint, BF16 dtype, eager execution, and direct in-memory
+eight-frame chunks at 1280x704 input and 2560x1408 output.
+
+| Implementation | Median chunk | Median throughput | Slowest chunk | Peak CUDA allocated |
+| --- | ---: | ---: | ---: | ---: |
+| Diffusers | 354.12 ms | 22.59 FPS | 22.55 FPS | 20.92 GiB |
+| FlashDreams native | 300.67 ms | 26.61 FPS | 26.59 FPS | 18.45 GiB |
+
+The native path delivered 1.178x throughput (+17.8%) with 15.1% lower latency
+and 2.46 GiB less peak allocation. Two warmup calls and the first chunk of a
+fresh stream were discarded before five measured chunks. This isolates SwiftVR
+processing and excludes source decode and output encode.
+
+Timing the matching `1x48x2x88x160` latent through the DiT alone attributed the
+gain to the WAN migration: Diffusers took 252.20 ms versus 199.26 ms native,
+for 1.266x throughput and 21.0% lower latency. DiT peak allocation fell from
+12.58 GiB to 10.11 GiB. Each DiT measurement used two warmups and seven samples.
+
+### Diffusers-backed historical baseline
 
 The model was prewarmed before recording five 24-frame chunks. Steady metrics
 exclude the first chunk and final flush.

@@ -12,9 +12,6 @@ description = "SwiftVR real-time streaming video restoration for FlashDreams."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "accelerate>=1.0",
-    # SwiftVR installs a custom processor on Diffusers' WAN internals.
-    "diffusers>=0.38,<0.39",
     "flashdreams",
     "flashdreams-v2v",
     "safetensors>=0.4",

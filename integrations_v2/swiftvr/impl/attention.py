@@ -14,23 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SwiftVR mask-free shifted-window attention for Diffusers WAN models.
-
-Adapted from SwiftVR commit ``5ca168cef6ca7200f135fdfea85e5e13d12c5b53``.
-The model topology and checkpoint loading remain in Diffusers; this module only
-installs SwiftVR's inference-time spatial window processor.
-"""
+"""SwiftVR mask-free shifted-window attention for FlashDreams WAN blocks."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MethodType
-from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
-from diffusers.models.transformers.transformer_wan import WanAttention
-from torch import Tensor, nn
+from torch import Tensor
+
+from flashdreams.core.attention.rope import apply_rope_freqs
+from flashdreams.recipes.wan.transformer.impl.modules import (
+    Block,
+    BlockCache,
+    SelfAttention,
+)
 
 
 def _axis_starts(
@@ -140,31 +139,6 @@ def _window_metadata(
     return cached
 
 
-def _apply_rotary_in_place(x: Tensor, cosine: Tensor, sine: Tensor) -> Tensor:
-    cosine = cosine[..., 0::2].to(dtype=x.dtype)
-    sine = sine[..., 1::2].to(dtype=x.dtype)
-    pairs = x.view(*x.shape[:-1], -1, 2)
-    even, odd = pairs[..., 0], pairs[..., 1]
-    temporary = even * sine
-    even.mul_(cosine)
-    even.addcmul_(odd, sine, value=-1)
-    odd.mul_(cosine)
-    odd.add_(temporary)
-    return x
-
-
-def _qkv(
-    attention: WanAttention, hidden_states: Tensor
-) -> tuple[Tensor, Tensor, Tensor]:
-    if getattr(attention, "fused_projections", False):
-        return attention.to_qkv(hidden_states).chunk(3, dim=-1)
-    return (
-        attention.to_q(hidden_states),
-        attention.to_k(hidden_states),
-        attention.to_v(hidden_states),
-    )
-
-
 def _release_input_storage(tensor: Tensor) -> None:
     """Release a consumed CUDA temporary retained by the caller's frame."""
     try:
@@ -187,63 +161,70 @@ def _infer_local_shape(
     )
 
 
-class ShiftedWindowAttentionProcessor:
-    """Mask-free 2D spatial shifted-window self-attention."""
+class ShiftedWindowSelfAttention(SelfAttention):
+    """FlashDreams WAN projections with SwiftVR's spatial window attention."""
 
-    def __init__(self, window: tuple[int, int] = (16, 16)) -> None:
+    def __init__(
+        self,
+        *,
+        query_dim: int,
+        n_heads: int,
+        head_dim: int,
+        eps: float,
+        window: tuple[int, int],
+        shifted: bool,
+    ) -> None:
         if min(window) <= 0:
             raise ValueError(
                 f"SwiftVR attention window must be positive, got {window}."
             )
+        super().__init__(
+            query_dim=query_dim,
+            n_heads=n_heads,
+            head_dim=head_dim,
+            eps=eps,
+        )
         self.window = window
+        self.shifted = shifted
 
-    def __call__(
+    def forward(
         self,
-        attention: WanAttention,
         hidden_states: Tensor,
-        encoder_hidden_states: Tensor | None = None,
-        attention_mask: Tensor | None = None,
-        rotary_emb: tuple[Tensor, Tensor] | None = None,
+        *,
+        rope_freqs: Tensor,
+        shape: tuple[int, int, int],
     ) -> Tensor:
-        if encoder_hidden_states is not None or attention.is_cross_attention:
-            raise RuntimeError("SwiftVR window attention only supports self-attention.")
-        if attention_mask is not None:
-            raise RuntimeError("SwiftVR window attention does not accept a mask.")
-        global_shape = getattr(attention, "_swiftvr_shape", None)
-        if global_shape is None:
-            raise RuntimeError("SwiftVR attention shape was not initialized.")
-
+        """Apply mask-free window attention to one latent chunk."""
         batch, tokens, _ = hidden_states.shape
-        frames, height, width = _infer_local_shape(global_shape, tokens)
+        frames, height, width = _infer_local_shape(shape, tokens)
         window_height = min(self.window[0], height)
         window_width = min(self.window[1], width)
-        shifted = bool(getattr(attention, "_swiftvr_shifted", False))
         metadata = _window_metadata(
             frames,
             height,
             width,
             window_height,
             window_width,
-            shifted=shifted,
+            shifted=self.shifted,
             device=hidden_states.device,
         )
-        heads = attention.heads
-        head_dim = attention.inner_dim // heads
 
-        query, key, value = _qkv(attention, hidden_states)
+        query = self.norm_q(self.q(hidden_states)).unflatten(
+            2, (self.n_heads, self.head_dim)
+        )
+        key = self.norm_k(self.k(hidden_states)).unflatten(
+            2, (self.n_heads, self.head_dim)
+        )
+        value = self.v(hidden_states).unflatten(2, (self.n_heads, self.head_dim))
         _release_input_storage(hidden_states)
-        query = attention.norm_q(query).unflatten(2, (heads, head_dim))
-        key = attention.norm_k(key).unflatten(2, (heads, head_dim))
-        value = value.unflatten(2, (heads, head_dim))
+        query = apply_rope_freqs(query, rope_freqs, interleaved=True)
+        key = apply_rope_freqs(key, rope_freqs, interleaved=True)
         value = torch.index_select(value, 1, metadata.flat_indices).view(
             batch * metadata.window_count,
             metadata.tokens_per_window,
-            heads,
-            head_dim,
+            self.n_heads,
+            self.head_dim,
         )
-        if rotary_emb is not None:
-            query = _apply_rotary_in_place(query, *rotary_emb)
-            key = _apply_rotary_in_place(key, *rotary_emb)
         query = torch.index_select(query, 1, metadata.flat_indices).view_as(value)
         key = torch.index_select(key, 1, metadata.flat_indices).view_as(value)
 
@@ -255,80 +236,99 @@ class ShiftedWindowAttentionProcessor:
             is_causal=False,
         ).transpose(1, 2)
         output = output.reshape(
-            batch, metadata.window_count * metadata.tokens_per_window, heads, head_dim
+            batch, metadata.window_count * metadata.tokens_per_window, -1
         )
         output = torch.index_select(output, 1, metadata.owner_positions)
-        output = output.reshape(batch, tokens, heads * head_dim)
-        output = attention.to_out[0](output)
-        if attention.training and isinstance(attention.to_out[1], nn.Dropout):
-            output = attention.to_out[1](output)
-        return output
+        return self.o(output.reshape(batch, tokens, -1))
 
 
-def _swiftvr_block_forward(
-    block: Any,
-    hidden_states: Tensor,
-    encoder_hidden_states: Tensor,
-    timestep_projection: Tensor,
-    rotary_embedding: tuple[Tensor, Tensor],
-) -> Tensor:
-    """Apply a WAN block with SwiftVR's inference-time BF16 operation order."""
-    hidden_dtype = hidden_states.dtype
-    if timestep_projection.ndim == 4:
-        modulation = (
-            block.scale_shift_table.unsqueeze(0) + timestep_projection.float()
-        ).to(hidden_dtype)
-        values = modulation.chunk(6, dim=2)
-        shift, scale, gate, cross_shift, cross_scale, cross_gate = (
-            value.squeeze(2) for value in values
+class SwiftVRBlock(Block):
+    """FlashDreams WAN block with SwiftVR shifted-window self-attention."""
+
+    self_attn: ShiftedWindowSelfAttention
+
+    def __init__(
+        self,
+        *,
+        dim: int,
+        ffn_dim: int,
+        num_heads: int,
+        cross_attn_norm: bool,
+        eps: float,
+        window: tuple[int, int],
+        shifted: bool,
+    ) -> None:
+        super().__init__(
+            dim=dim,
+            ffn_dim=ffn_dim,
+            num_heads=num_heads,
+            cross_attn_norm=cross_attn_norm,
+            eps=eps,
         )
-    else:
-        modulation = (block.scale_shift_table + timestep_projection.float()).to(
-            hidden_dtype
+        self.self_attn = ShiftedWindowSelfAttention(
+            query_dim=dim,
+            n_heads=num_heads,
+            head_dim=dim // num_heads,
+            eps=eps,
+            window=window,
+            shifted=shifted,
         )
+
+    def forward(  # type: ignore[override]
+        self,
+        x: Tensor,
+        e: Tensor,
+        cache: BlockCache,
+        rope_freqs: Tensor,
+        shape: tuple[int, int, int],
+    ) -> Tensor:
+        """Apply a WAN block in SwiftVR's inference-time operation order."""
+        assert self._parameters_updated_after_loading_checkpoint, (
+            "Call update_parameters_after_loading_checkpoint() before inference."
+        )
+        hidden_dtype = x.dtype
+        modulation = (self.modulation + e.float()).to(hidden_dtype)
         shift, scale, gate, cross_shift, cross_scale, cross_gate = modulation.chunk(
-            6, dim=1
+            6, dim=-2
         )
-    attention_output = block.attn1(
-        block.norm1(hidden_states).mul_(1 + scale).add_(shift),
-        None,
-        None,
-        rotary_embedding,
-    )
-    hidden_states.addcmul_(attention_output, gate)
-    attention_output = block.attn2(
-        block.norm2(hidden_states), encoder_hidden_states, None, None
-    )
-    hidden_states.add_(attention_output)
-    feed_forward_output = block.ffn(
-        block.norm3(hidden_states).mul_(1 + cross_scale).add_(cross_shift)
-    )
-    hidden_states.addcmul_(feed_forward_output, cross_gate)
-    return hidden_states
+        attention_output = self.self_attn(
+            self.norm1(x).mul_(1 + scale).add_(shift),
+            rope_freqs=rope_freqs,
+            shape=shape,
+        )
+        x.addcmul_(attention_output, gate)
+        attention_output = self.cross_attn(self.norm3(x), kv_cache=cache.cross_attn)
+        x.add_(attention_output)
+        feed_forward_output = self.ffn(
+            self.norm2(x).mul_(1 + cross_scale).add_(cross_shift)
+        )
+        x.addcmul_(feed_forward_output, cross_gate)
+        return x
 
 
 def prepare_transformer(
-    transformer: Any,
+    transformer: torch.nn.Module,
     *,
     window: tuple[int, int] = (16, 16),
     compile_blocks: bool = False,
 ) -> None:
-    """Install SwiftVR attention, fuse projections, and optionally compile blocks."""
-    processor = ShiftedWindowAttentionProcessor(window)
+    """Validate SwiftVR blocks and optionally compile them."""
     blocks = getattr(transformer, "blocks")
-    for index, block in enumerate(blocks):
-        block.attn1._swiftvr_shifted = bool(index % 2)
-        block.forward = MethodType(_swiftvr_block_forward, block)
-    for module in transformer.modules():
-        if isinstance(module, WanAttention):
-            module.fuse_projections()
-            if not module.is_cross_attention:
-                cast(Any, module).set_processor(processor)
+    for block in blocks:
+        if not isinstance(block, SwiftVRBlock):
+            raise TypeError(f"Expected SwiftVRBlock, got {type(block).__name__}.")
+        block.self_attn.window = window
     _WINDOW_CACHE.clear()
     if compile_blocks:
-        for index, block in enumerate(blocks):
-            blocks[index] = torch.compile(block, mode="default", fullgraph=False)
+        for block in blocks:
+            block.forward = torch.compile(  # type: ignore[method-assign]
+                block.forward, mode="default", fullgraph=False
+            )
     transformer.eval()
 
 
-__all__ = ["ShiftedWindowAttentionProcessor", "prepare_transformer"]
+__all__ = [
+    "ShiftedWindowSelfAttention",
+    "SwiftVRBlock",
+    "prepare_transformer",
+]

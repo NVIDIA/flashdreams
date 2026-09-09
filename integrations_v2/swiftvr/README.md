@@ -8,7 +8,9 @@ SPDX-License-Identifier: Apache-2.0
 [SwiftVR](https://github.com/H-oliday/SwiftVR) real-time, one-step streaming
 video restoration packaged as a FlashDreams postprocessor. The integration
 uses the upstream ReAE streaming protocol and mask-free shifted-window
-attention with Diffusers' WAN checkpoint loader.
+attention on FlashDreams' native WAN transformer components. Upstream
+Diffusers-format weights are remapped at load time; Diffusers is not a runtime
+dependency.
 
 The heavyweight checkpoint is loaded and prewarmed by the first session, then
 stays resident across replacement sessions. Each session owns only its causal
@@ -43,7 +45,10 @@ postprocessor = SwiftVRPostProcessorConfig(
 Set `checkpoint` to a local directory for offline use. `chunk_size` must be a
 multiple of four. `dit_overlap=0` is the upstream throughput path;
 `dit_overlap=1` trades speed for latent overlap blending. `compile_blocks` is
-off by default because it adds a long one-time compilation phase.
+off by default because it adds a long one-time compilation phase. Loading the
+upstream FP32 transformer remaps roughly 19 GiB of weights in host memory before
+moving them to the selected CUDA dtype; both single-file and standard sharded
+safetensors checkpoints are accepted.
 
 ## End-to-end V2V demo
 

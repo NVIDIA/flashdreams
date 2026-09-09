@@ -33,6 +33,9 @@ from flashdreams.recipes.wan.pipeline import (
     WanInferencePipelineCache,
     WanInferencePipelineConfig,
 )
+from flashdreams.recipes.wan.transformer.checkpoint import (
+    wan_dit_state_dict_from_diffusers,
+)
 from flashdreams.recipes.wan.transformer.constants import NEGATIVE_PROMPT
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
@@ -75,4 +78,5 @@ __all__ = [
     "WanVAEEncoder",
     "WanVAEEncoderConfig",
     "wan22_ti2v_5b_vae_state_dict_transform",
+    "wan_dit_state_dict_from_diffusers",
 ]
