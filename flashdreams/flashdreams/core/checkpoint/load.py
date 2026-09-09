@@ -765,12 +765,17 @@ def _copy_checkpoint_tensor(destination: torch.Tensor, source: torch.Tensor) -> 
 def _stream_safetensors_into_model(
     model: torch.nn.Module,
     path: str,
+    include_prefixes: tuple[str, ...] | None = None,
 ) -> torch.nn.Module:
     """Copy a safetensors checkpoint into a model with bounded host residency."""
     model_state = model.state_dict()
 
     with safe_open(path, framework="pt", device="cpu") as source:
-        checkpoint_keys = set(source.keys())
+        checkpoint_keys = {
+            key
+            for key in source.keys()
+            if include_prefixes is None or key.startswith(include_prefixes)
+        }
         model_keys = set(model_state)
         missing = sorted(model_keys - checkpoint_keys)
         unexpected = sorted(checkpoint_keys - model_keys)
@@ -941,6 +946,7 @@ def _stream_sharded_safetensors_index_into_model(
     *,
     model: torch.nn.Module,
     checkpoint_min_free_gb: float | None,
+    include_prefixes: tuple[str, ...] | None = None,
 ) -> torch.nn.Module | None:
     """Stream a safetensors index checkpoint into ``model`` without merging."""
     if checkpoint_path.startswith("s3://"):
@@ -991,6 +997,7 @@ def _stream_sharded_safetensors_index_into_model(
                 f"Invalid or empty weight_map in safetensors index: {index_local}"
             )
 
+        weight_map = _select_checkpoint_prefixes(weight_map, model, include_prefixes)
         unique_shards = sorted(set(weight_map.values()))
         shard_to_path = _parallel_hf_hub_download_shards(
             repo_id=repo_id,
@@ -1022,6 +1029,7 @@ def _stream_sharded_safetensors_index_into_model(
         raise ValueError(
             f"Invalid or empty weight_map in safetensors index: {checkpoint_path}"
         )
+    weight_map = _select_checkpoint_prefixes(weight_map, model, include_prefixes)
     base_dir = os.path.dirname(os.path.abspath(checkpoint_path))
 
     def resolve_shard_path(shard_file: str) -> str:
@@ -1032,6 +1040,29 @@ def _stream_sharded_safetensors_index_into_model(
         weight_map=weight_map,
         resolve_shard_path=resolve_shard_path,
     )
+
+
+def _select_checkpoint_prefixes(
+    weight_map: dict[str, str],
+    model: torch.nn.Module,
+    include_prefixes: tuple[str, ...] | None,
+) -> dict[str, str]:
+    """Select and validate component keys before downloading their shards."""
+    if include_prefixes is None:
+        return weight_map
+    selected = {
+        name: shard
+        for name, shard in weight_map.items()
+        if name.startswith(include_prefixes)
+    }
+    model_keys = set(model.state_dict())
+    if set(selected) != model_keys:
+        raise RuntimeError(
+            "Selected checkpoint components do not match model: "
+            f"missing={sorted(model_keys - selected.keys())[:20]}, "
+            f"unexpected={sorted(selected.keys() - model_keys)[:20]}"
+        )
+    return selected
 
 
 def _resolve_streamable_safetensors_path(
@@ -1126,6 +1157,8 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
     checkpoint_min_free_gb: float | None = None,
+    *,
+    include_prefixes: tuple[str, ...] | None = None,
 ) -> dict[str, torch.Tensor]: ...
 
 
@@ -1139,6 +1172,8 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
     checkpoint_min_free_gb: float | None = None,
+    *,
+    include_prefixes: tuple[str, ...] | None = None,
 ) -> torch.nn.Module: ...
 
 
@@ -1151,6 +1186,8 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
     checkpoint_min_free_gb: float | None = None,
+    *,
+    include_prefixes: tuple[str, ...] | None = None,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
     """Load checkpoints from S3, local disk, or Hugging Face.
 
@@ -1172,6 +1209,9 @@ def load_checkpoint(
         checkpoint_min_free_gb: Optional first-run free-space requirement in
             GiB for Hugging Face checkpoint downloads. The
             ``FLASHDREAMS_MIN_CACHE_FREE_GB`` environment override still wins.
+        include_prefixes: Explicit component prefixes, including trailing dots.
+            Selected keys keep their names and must exactly match ``model``.
+            Only local/Hugging Face safetensors model loads support selection.
 
     Returns:
         State dict if ``model`` is ``None``, otherwise ``model`` with weights
@@ -1186,6 +1226,26 @@ def load_checkpoint(
       >>> state = load_checkpoint("s3://bucket/foo.safetensors")
       >>> model = load_checkpoint("s3://bucket/dcp_dir/", model=my_model)
     """
+    if include_prefixes is not None:
+        if not include_prefixes or any(
+            not prefix or not prefix.endswith(".") for prefix in include_prefixes
+        ):
+            raise ValueError(
+                "include_prefixes must contain nonempty module prefixes ending in '.'"
+            )
+        if (
+            model is None
+            or checkpoint_path.startswith("s3://")
+            or not (
+                _is_sharded_safetensors_index_checkpoint(checkpoint_path)
+                or _get_checkpoint_extension(checkpoint_path) == ".safetensors"
+            )
+            or checkpoint_type == "distributed"
+        ):
+            raise ValueError(
+                "Prefix selection requires a model and local/Hugging Face safetensors"
+            )
+
     # Auto-detect checkpoint type
     if checkpoint_type == "auto":
         if _is_sharded_safetensors_index_checkpoint(checkpoint_path):
@@ -1204,6 +1264,7 @@ def load_checkpoint(
                     checkpoint_path,
                     model=model,
                     checkpoint_min_free_gb=checkpoint_min_free_gb,
+                    include_prefixes=include_prefixes,
                 )
                 if streamed_model is not None:
                     logger.info(f"Streamed checkpoint into model: {checkpoint_path}")
@@ -1214,7 +1275,7 @@ def load_checkpoint(
                 checkpoint_min_free_gb=checkpoint_min_free_gb,
             )
             if stream_path is not None:
-                _stream_safetensors_into_model(model, stream_path)
+                _stream_safetensors_into_model(model, stream_path, include_prefixes)
                 logger.info(f"Streamed checkpoint into model: {checkpoint_path}")
                 return model
         state_dict = load_single_checkpoint(

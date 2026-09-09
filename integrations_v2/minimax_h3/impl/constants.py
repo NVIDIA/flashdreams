@@ -20,6 +20,8 @@ from __future__ import annotations
 import math
 
 MODEL_ID = "MiniMaxAI/MiniMax-H3"
+MODEL_REVISION = "42ed227ee7df40d41602854ae760620d6eb651fe"
+"""Pinned checkpoint and preprocessing revision shared by all native components."""
 FPS = 24
 MIN_DURATION = 5.0
 MAX_DURATION = 15.0

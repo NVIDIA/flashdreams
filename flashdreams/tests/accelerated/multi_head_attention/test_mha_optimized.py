@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import pytest
 import torch
-from torch import Tensor
-
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -43,6 +41,7 @@ from flashdreams.accelerated.quantization.quantizer import (
     DTYPE_MAX,
 )
 from flashdreams.core.attention import BlockKVCache
+from torch import Tensor
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -577,7 +576,7 @@ def test_mha_optimized_quantized_projections_match_torch(
 )
 @pytest.mark.parametrize("rope_scope", tuple(RoPEScope), ids=lambda value: value.value)
 @pytest.mark.parametrize(
-    "sdpa_backend", tuple(SDPABackend), ids=lambda value: value.value
+    "sdpa_backend", (SDPABackend.CUDNN, SDPABackend.FA2), ids=lambda value: value.value
 )
 @pytest.mark.parametrize("use_tma", (False, True), ids=("no-tma", "tma"))
 @torch.inference_mode()
@@ -629,6 +628,45 @@ def test_mha_optimized_quantized_sdpa_matches_torch(
             cuda_device,
             tolerance,
         )
+
+
+@torch.inference_mode()
+@pytest.mark.parametrize("fusion", (QKVFusionOption.NONE, QKVFusionOption.FULL))
+@pytest.mark.parametrize("rotary_dim", (48, 96, 128))
+def test_cacheless_partial_rope_on_ampere(
+    cuda_device: torch.device,
+    fusion: QKVFusionOption,
+    rotary_dim: int,
+) -> None:
+    """Compare cacheless native attention without Hopper-only features."""
+    if torch.cuda.get_device_capability(cuda_device)[0] < 8:
+        pytest.skip("Ampere or newer required")
+    config = AttentionConfig(
+        query_dim=128,
+        n_heads=2,
+        head_dim=128,
+        rope_config=RoPEConfig(style=RoPEStyle.SPLIT),
+    )
+    reference = _TorchMHA(AttentionType.SELF_ATTENTION, config)
+    actual = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        config,
+        OptimizedImplConfig(
+            qkv_fusion_option=fusion,
+            sdpa_backend=SDPABackend.TORCH,
+            use_tma=False,
+        ),
+    )
+    actual.load_state_dict(reference.state_dict(), strict=True)
+    reference.to(device=cuda_device, dtype=torch.bfloat16).eval()
+    actual.to(device=cuda_device, dtype=torch.bfloat16).eval()
+    x = torch.randn(1, 7, 128, device=cuda_device, dtype=torch.bfloat16)
+    half = torch.randn(7, 1, 1, rotary_dim // 2, device=cuda_device)
+    frequencies = torch.cat((half, half), dim=-1)
+    _assert_close(
+        actual(x, rope_freqs=frequencies), reference(x, rope_freqs=frequencies)
+    )
+    _assert_close(actual(x), reference(x))
 
 
 @torch.inference_mode()

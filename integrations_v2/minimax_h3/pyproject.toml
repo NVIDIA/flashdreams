@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-minimax-h3"
+version = "0.1.0"
+description = "Native MiniMax H3 inference on the FlashDreams v2 API."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams", "flashdreams-t2v", "accelerate>=1.12", "av>=16",
+    "huggingface-hub>=0.33", "numpy>=1.24,<2.5", "pillow>=11",
+    "safetensors>=0.4", "torch>=2.9",
+    "transformers @ git+https://github.com/huggingface/transformers.git@d1123114da1ab4395198146f4f84dae7fe8b693e",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-t2v = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "tomli>=2.0"]
+
+[project.entry-points."flashdreams.applications_v2"]
+"t2v-minimax-h3-t2va" = "minimax_h3.apps.t2v.adapter:create_app"
+"t2v-minimax-h3-fl2va" = "minimax_h3.apps.t2v.adapter:create_app_fl2va"
+"t2v-minimax-h3-ref2va" = "minimax_h3.apps.t2v.adapter:create_app_ref2va"
+
+[tool.setuptools]
+packages = ["minimax_h3", "minimax_h3.impl", "minimax_h3.apps", "minimax_h3.apps.t2v"]
+
+[tool.setuptools.package-dir]
+minimax_h3 = "."
+
+[tool.uv]
+managed = true

@@ -20,9 +20,6 @@ from __future__ import annotations
 from abc import abstractmethod
 
 import torch
-import torch.nn.functional as F
-from torch import Tensor, nn
-
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -31,7 +28,11 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEScope,
     RoPEStyle,
 )
+from flashdreams.accelerated.multi_head_attention.sdpa import (
+    scaled_dot_product_attention,
+)
 from flashdreams.core.attention import BlockKVCache
+from torch import Tensor, nn
 
 
 class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
@@ -178,14 +179,15 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
     def forward(
         self,
         x: Tensor,
-        kv_cache: BlockKVCache,
+        kv_cache: BlockKVCache | None = None,
         rope_freqs: Tensor | None = None,
     ) -> Tensor:
         """Apply self- or cross-attention using the configured cache lifecycle.
 
         Args:
             x: Query tokens, shape ``[..., L, query_dim]``.
-            kv_cache: Prepared rolling cache for self-attention or precomputed
+            kv_cache: ``None`` for cacheless self-attention, or prepared rolling
+                cache for self-attention or precomputed
                 static cache for cross-attention.
             rope_freqs: Optional positional data. Before-cache RoPE expects the
                 current chunk. After-cache RoPE expects positions covering the
@@ -195,6 +197,17 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         Returns:
             Output-projected tokens with the same shape as ``x``.
         """
+        if kv_cache is None:
+            if self.attention_type is not AttentionType.SELF_ATTENTION:
+                raise ValueError("cross-attention requires a K/V cache")
+            query = self._project_query(x)
+            key, value = self._project_kv(x)
+            if rope_freqs is not None:
+                query = self._apply_rope(query, rope_freqs)
+                key = self._apply_rope(key, rope_freqs)
+            output = self._output_projection(self._attention(query, key, value))
+            return output.reshape(x.shape[:-2] + output.shape[-2:])
+
         query_rope_freqs, key_rope_freqs = self._slice_rope_freqs(
             rope_freqs, kv_cache, x.shape[-2]
         )
@@ -467,12 +480,17 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         """
         if self.attention_config.rope_config is None:
             return x
-        if x.shape[-1] % 2 != 0:
-            raise ValueError(f"RoPE requires an even head_dim; got {x.shape[-1]}")
+        if rope_freqs.ndim != 4:
+            raise ValueError("rope_freqs must have shape [L, 1, 1, rotary_dim]")
+        rotary_dim = rope_freqs.shape[-1]
+        if rotary_dim <= 0 or rotary_dim % 2 or rotary_dim > x.shape[-1]:
+            raise ValueError(
+                "RoPE width must be positive, even and no larger than head_dim"
+            )
 
         # RoPE lookup shape is ``[L, 1, 1, D]`` for an input shaped
         # ``[..., L, H, D]``.
-        expected_shape = (x.shape[-3], 1, 1, x.shape[-1])
+        expected_shape = (x.shape[-3], 1, 1, rotary_dim)
         if tuple(rope_freqs.shape) != expected_shape:
             raise ValueError(
                 f"rope_freqs must have shape {expected_shape}; "
@@ -482,8 +500,9 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         # Broadcast positions over leading dimensions and heads:
         # ``[L, 1, 1, D] -> [..., L, 1, D]``.
         freqs = rope_freqs[:, 0, 0, :].reshape(
-            (1,) * (x.ndim - 3) + (x.shape[-3], 1, x.shape[-1])
+            (1,) * (x.ndim - 3) + (x.shape[-3], 1, rotary_dim)
         )
+        prefix, tail = x[..., :rotary_dim], x[..., rotary_dim:]
 
         # Materialize rotation coefficients in activation precision so the
         # elementwise rotation neither promotes projected tensors nor cache data.
@@ -491,14 +510,16 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         sin_freqs = torch.sin(freqs).to(dtype=x.dtype)
         if self.attention_config.rope_config.style is RoPEStyle.INTERLEAVED:
             # Rotate adjacent feature pairs; shape stays ``[..., L, H, D]``.
-            rotated = torch.stack((-x[..., 1::2], x[..., 0::2]), dim=-1).flatten(-2)
+            rotated = torch.stack(
+                (-prefix[..., 1::2], prefix[..., 0::2]), dim=-1
+            ).flatten(-2)
         else:
             # Rotate matching half-split features; shape stays ``[..., L, H, D]``.
-            first, second = x.chunk(2, dim=-1)
+            first, second = prefix.chunk(2, dim=-1)
             rotated = torch.cat((-second, first), dim=-1)
 
         # Apply the elementwise complex rotation: ``[..., L, H, D]``.
-        return x * cos_freqs + rotated * sin_freqs
+        return torch.cat((prefix * cos_freqs + rotated * sin_freqs, tail), dim=-1)
 
     def _attention(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
         """Apply non-causal scaled dot-product attention over visible K/V.
@@ -514,23 +535,7 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         # Move heads before tokens for SDPA:
         # Q ``[..., L, H, D] -> [..., H, L, D]`` and
         # K/V ``[..., S, H, D] -> [..., H, S, D]``.
-        query_heads = query.transpose(-3, -2)
-        key_heads = key.transpose(-3, -2)
-        value_heads = value.transpose(-3, -2)
-
-        # Let PyTorch dispatch the available SDPA backend so the reference works
-        # on CPU and CUDA. Cache visibility defines the allowed context, while
-        # zero dropout and a non-causal mask make inference deterministic.
-        output = F.scaled_dot_product_attention(
-            query_heads,
-            key_heads,
-            value_heads,
-            dropout_p=0.0,
-            is_causal=False,
-        )
-
-        # Restore token-major layout: ``[..., H, L, D] -> [..., L, H, D]``.
-        return output.transpose(-3, -2)
+        return scaled_dot_product_attention(query, key, value)
 
     def _output_projection(self, x: Tensor) -> Tensor:
         """Concatenate attention heads and project back to query features.

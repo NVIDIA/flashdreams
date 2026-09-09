@@ -22,6 +22,33 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
+
+def test_request_kwargs_survive_reset_and_cannot_override_standard_fields():
+    from t2v.session import T2VSession
+
+    pipeline = _stand_in()
+    session = T2VSession(
+        pipeline,
+        _PROMPT,
+        _session_desc(),
+        1,
+        cache_init_kwargs={"reference_paths": ("first", "last")},
+    )
+    session.init()
+    session.model_loop.reset()
+    assert len(pipeline.caches) == 2
+    assert pipeline.caches[0]["reference_paths"] == ("first", "last")
+    assert pipeline.caches[1]["reference_paths"] == ("first", "last")
+    with pytest.raises(ValueError, match="framework arguments"):
+        T2VSession(
+            pipeline,
+            _PROMPT,
+            _session_desc(),
+            1,
+            cache_init_kwargs={"text": ["override"]},
+        )
+
+
 _WIDTH = 128
 """Frame width the stand-in generates. Not square, so a transposed frame cannot
 pass unnoticed, and a whole number of latents across."""

@@ -15,6 +15,10 @@ LICENSES/:
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
 
+The MiniMax/HuggingFace H3 codec and conditioning ports under
+integrations_v2/minimax_h3/impl/ retain their upstream Apache-2.0
+attribution (see LICENSES/Apache-2.0.txt).
+
 Third-party software attributions, source-level redistribution
 disclosures, and the full per-dependency license inventory are
 documented in THIRD-PARTY-NOTICES at the repository root.

@@ -20,6 +20,14 @@ from flashdreams.infra.diffusion.scheduler.base import (
     Scheduler,
     SchedulerConfig,
 )
+from flashdreams.infra.diffusion.scheduler.data_flow_euler import (
+    DataFlowEulerScheduler,
+    DataFlowEulerSchedulerConfig,
+)
+from flashdreams.infra.diffusion.scheduler.synchronized import (
+    StepScheduler,
+    sample_synchronized,
+)
 from flashdreams.infra.diffusion.scheduler.fm import (
     FlowMatchScheduler,
     FlowMatchSchedulerConfig,
@@ -34,6 +42,10 @@ from flashdreams.infra.diffusion.scheduler.fm_unipc import (
 )
 
 __all__ = [
+    "DataFlowEulerScheduler",
+    "DataFlowEulerSchedulerConfig",
+    "StepScheduler",
+    "sample_synchronized",
     "FlowPredictor",
     "Scheduler",
     "SchedulerConfig",

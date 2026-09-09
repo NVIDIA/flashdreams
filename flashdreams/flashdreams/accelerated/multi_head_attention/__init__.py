@@ -271,7 +271,7 @@ class MultiHeadAttention(nn.Module, ABC, Generic[KVCacheT]):
     def forward(
         self,
         x: Tensor,
-        kv_cache: KVCacheT,
+        kv_cache: KVCacheT | None = None,
         rope_freqs: Tensor | None = None,
     ) -> Tensor:
         """Apply the configured attention type to ``x`` and ``kv_cache``.
@@ -281,7 +281,8 @@ class MultiHeadAttention(nn.Module, ABC, Generic[KVCacheT]):
 
         Args:
             x: Query tokens, shape ``[..., L, query_dim]``.
-            kv_cache: Streaming cache for self-attention or precomputed static
+            kv_cache: ``None`` for cacheless bidirectional self-attention,
+                streaming cache for self-attention or precomputed static
                 cache for cross-attention. A streaming cache must already be in
                 its current-chunk update phase.
             rope_freqs: Optional positional data. Before-cache RoPE expects the

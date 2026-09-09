@@ -916,8 +916,8 @@ wheels = [
 
 [[package]]
 name = "diffusers"
-version = "0.40.0.dev0"
-source = { git = "https://github.com/huggingface/diffusers.git?rev=175fe6b2419a01db9c2ceabd01ec37d2c0305fc2#175fe6b2419a01db9c2ceabd01ec37d2c0305fc2" }
+version = "0.40.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
     { name = "httpx" },
@@ -929,6 +929,10 @@ dependencies = [
     { name = "regex" },
     { name = "requests" },
     { name = "safetensors" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/59/32/b9c6a198812e2a7d2c2828a850dba384306f9af285eac23e35e89d5b008a/diffusers-0.40.0.tar.gz", hash = "sha256:49f112ce52ff6d332ab68afec01f79a53e6489b42cb69104444c98b4a2f64af8", size = 4886420, upload-time = "2026-08-20T14:30:40.923Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/df/ffb593ebed2a068d2d6be44261283f39a6b809c0fcdfdcafbd448cbeec77/diffusers-0.40.0-py3-none-any.whl", hash = "sha256:5b5da7c3ddb62152fa4afc577f02e050af688c797375c34fb2d01006da3f3541", size = 5911654, upload-time = "2026-08-20T14:30:38.422Z" },
 ]
 
 [[package]]
@@ -1376,18 +1380,17 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-minimax-h3"
 version = "0.1.0"
-source = { editable = "integrations/minimax_h3" }
+source = { editable = "integrations_v2/minimax_h3" }
 dependencies = [
     { name = "accelerate" },
     { name = "av" },
-    { name = "diffusers" },
     { name = "flashdreams" },
+    { name = "flashdreams-t2v" },
     { name = "huggingface-hub" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "pillow" },
     { name = "safetensors" },
-    { name = "sentencepiece" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'win32' and extra == 'extra-11-flashdreams-dev') or (sys_platform != 'win32' and extra != 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1404,14 +1407,13 @@ dev = [
 requires-dist = [
     { name = "accelerate", specifier = ">=1.12" },
     { name = "av", specifier = ">=16" },
-    { name = "diffusers", git = "https://github.com/huggingface/diffusers.git?rev=175fe6b2419a01db9c2ceabd01ec37d2c0305fc2" },
     { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-t2v", editable = "apps/t2v" },
     { name = "huggingface-hub", specifier = ">=0.33" },
     { name = "numpy", specifier = ">=1.24,<2.5" },
     { name = "pillow", specifier = ">=11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "safetensors", specifier = ">=0.4" },
-    { name = "sentencepiece", specifier = ">=0.2" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "torch", specifier = ">=2.9" },
     { name = "transformers", git = "https://github.com/huggingface/transformers.git?rev=d1123114da1ab4395198146f4f84dae7fe8b693e" },

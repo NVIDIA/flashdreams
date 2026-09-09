@@ -180,6 +180,15 @@ class T2VApplication(IApplication):
         if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
             raise ValueError("A session prompt must be non-empty text.")
         self._validate_frame_size(session_desc, pipeline)
+        cache_kwargs = self._cache_initialization_kwargs(session_desc)
+        if cache_kwargs:
+            return self.session_type(
+                pipeline,
+                prompt,
+                session_desc,
+                config.total_blocks,
+                cache_init_kwargs=cache_kwargs,
+            )
         return self.session_type(pipeline, prompt, session_desc, config.total_blocks)
 
     def close(self) -> None:
@@ -192,6 +201,13 @@ class T2VApplication(IApplication):
             close()
 
     ## Integration hooks
+
+    def _cache_initialization_kwargs(self, session_desc: SessionDesc) -> dict[str, Any]:
+        """Return model-specific request inputs retained across session resets.
+
+        Standard text, image, height, and width inputs remain framework-owned.
+        """
+        return {}
 
     def _configure_argument_parser(self, parser: argparse.ArgumentParser) -> None:
         """Add arguments this integration takes beyond the shared ones."""

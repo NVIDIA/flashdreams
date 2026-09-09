@@ -20,8 +20,6 @@ from __future__ import annotations
 import pytest
 import torch
 import torch.nn.functional as F
-from torch import Tensor, nn
-
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -31,8 +29,90 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEStyle,
 )
 from flashdreams.accelerated.multi_head_attention.torch import TorchMultiHeadAttention
+from torch import Tensor, nn
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.mark.parametrize("rope_style", tuple(RoPEStyle))
+def test_cacheless_partial_rope_matches_manual_attention(rope_style: RoPEStyle) -> None:
+    """Preserve unrotated features and cacheless full-sequence semantics."""
+    module = _IdentityMHA(rope_style)
+    x = torch.arange(24, dtype=torch.float32).reshape(2, 3, 4) / 10
+    frequencies = torch.tensor([0.1, 0.4, 0.9]).reshape(3, 1, 1, 1).expand(3, 1, 1, 2)
+    heads = x.unsqueeze(2)
+    rotated = torch.cat(
+        (
+            _apply_rope(heads[..., :2], frequencies, rope_style),
+            heads[..., 2:],
+        ),
+        dim=-1,
+    )
+    actual_rotated = module._apply_rope(heads, frequencies)
+    torch.testing.assert_close(actual_rotated, rotated)
+    assert torch.equal(actual_rotated[..., 2:], heads[..., 2:])
+    expected = (
+        F.scaled_dot_product_attention(
+            rotated.transpose(1, 2),
+            rotated.transpose(1, 2),
+            heads.transpose(1, 2),
+        )
+        .transpose(1, 2)
+        .flatten(-2)
+    )
+    torch.testing.assert_close(module(x, rope_freqs=frequencies), expected)
+    torch.testing.assert_close(
+        module(x),
+        F.scaled_dot_product_attention(
+            heads.transpose(1, 2),
+            heads.transpose(1, 2),
+            heads.transpose(1, 2),
+        )
+        .transpose(1, 2)
+        .flatten(-2),
+    )
+
+
+def test_cacheless_cross_attention_rejected() -> None:
+    module = _IdentityMHA(RoPEStyle.SPLIT, AttentionType.CROSS_ATTENTION)
+    with pytest.raises(ValueError, match="requires a K/V cache"):
+        module(torch.zeros(1, 2, 4))
+
+
+def test_partial_rope_rounds_coefficients_before_half_precision_products() -> None:
+    """Preserve video-VAE coefficient precision and the untouched feature tail."""
+    module = _IdentityMHA(RoPEStyle.SPLIT)
+    x = torch.tensor([0.17, -0.41, 0.83, 0.32], dtype=torch.float16).reshape(1, 1, 1, 4)
+    freqs = torch.tensor([0.71, 0.71]).reshape(1, 1, 1, 2)
+    prefix = x[..., :2]
+    rotated = torch.cat((-prefix[..., 1:], prefix[..., :1]), dim=-1)
+    expected = prefix * freqs.cos().half() + rotated * freqs.sin().half()
+    actual = module._apply_rope(x, freqs)
+    assert torch.equal(actual[..., :2], expected)
+    assert torch.equal(actual[..., 2:], x[..., 2:])
+
+
+def test_projected_causal_sdpa_matches_torch() -> None:
+    """Keep causal audio attention and FP32 computation on the shared path."""
+    from flashdreams.accelerated.multi_head_attention.sdpa import (
+        SDPABackend,
+        scaled_dot_product_attention,
+    )
+
+    query = torch.randn(2, 5, 3, 8)
+    expected = F.scaled_dot_product_attention(
+        query.transpose(1, 2),
+        query.transpose(1, 2),
+        query.transpose(1, 2),
+        is_causal=True,
+    ).transpose(1, 2)
+    torch.testing.assert_close(
+        scaled_dot_product_attention(query, query, query, is_causal=True), expected
+    )
+    with pytest.raises(ValueError, match="causal attention requires"):
+        scaled_dot_product_attention(
+            query, query, query, is_causal=True, backend=SDPABackend.FA2
+        )
 
 
 class _IdentityMHA(TorchMultiHeadAttention):

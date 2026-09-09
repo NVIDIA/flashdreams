@@ -134,14 +134,14 @@ def move_tensors_to_cpu(value: Any, *, torch_module: Any | None = None) -> Any:
     return value
 
 
-def run_one_shot_encoder_stage(
+def run_one_shot_stage(
     stage: Callable[[], Any],
     *,
     release: Callable[[], Any] | None = None,
     cpu_result: bool = True,
     torch_module: Any | None = None,
 ) -> Any:
-    """Run an encoder-only stage under ``no_grad`` and release encoders after it."""
+    """Run a stage under ``no_grad`` and release owned modules even on failure."""
     torch = torch_module if torch_module is not None else _maybe_import_torch()
     no_grad = getattr(torch, "no_grad", None)
     context = no_grad() if callable(no_grad) else nullcontext()
@@ -155,6 +155,10 @@ def run_one_shot_encoder_stage(
         if release is not None:
             release_result = release()
             del release_result
+
+
+run_one_shot_encoder_stage = run_one_shot_stage
+"""Backward-compatible name for encoder-only callers."""
 
 
 def _maybe_import_torch() -> Any | None:

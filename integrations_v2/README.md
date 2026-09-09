@@ -35,6 +35,8 @@ follows is already done for you.
   `apps/v2v` video-to-video application.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
+- `minimax_h3` — native joint video/audio inference with video-only T2VA,
+  first/last-keyframe, and ordered-reference bindings to `apps/t2v`.
 
 ## The layout
 
