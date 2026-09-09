@@ -18,17 +18,18 @@ temporal state.
 
 ## Use as a postprocessor
 
-Install the workspace package and select one preset:
+Install the workspace package and select either the 2x or 4x preset:
 
 ```bash
 uv sync --package flashdreams-swiftvr --inexact
 uv run --no-sync flashdreams-run-v2 <application> \
-  --postprocess-preset swiftvr-4x
+  --postprocess-preset swiftvr-2x
 ```
 
-The `swiftvr-4x` preset accepts RGB video in any FlashDreams-supported tensor
-layout and returns the same number of frames at four times the input width and
-height. The checkpoint downloads from `H-oliday/SwiftVR` on first use.
+The `swiftvr-2x` and `swiftvr-4x` presets accept RGB video in any
+FlashDreams-supported tensor layout and return the same number of frames at two
+or four times the input dimensions. The checkpoint downloads from
+`H-oliday/SwiftVR` on first use.
 
 Programmatic configuration stays small:
 
@@ -60,19 +61,19 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --video-path input.mp4
 ```
 
-For a reproducible QHD throughput run, use a 640x360, 30 FPS input and collect
-runtime stats after prewarming:
+The V2V binding uses the 2x preset. For a reproducible 704p run, use a
+1280x704, 30 FPS input and collect runtime stats after prewarming:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
-  --output-path artifacts/swiftvr-qhd.mp4 \
-  --stats-path artifacts/swiftvr-qhd.json -- \
-  --video-path input-640x360-30fps.mp4
+  --output-path artifacts/swiftvr-1408p.mp4 \
+  --stats-path artifacts/swiftvr-1408p.json -- \
+  --video-path input-1280x704-30fps.mp4
 ```
 
-The output is 2560x1440 at the source frame rate. Compare it visually against
+The output is 2560x1408 at the source frame rate. Compare it visually against
 the source or a same-resolution reference, and report speed only from complete
-steady-state 24-frame chunks; checkpoint loading and prewarm are intentionally
+steady-state 8-frame chunks; checkpoint loading and prewarm are intentionally
 outside those samples.
 
 ## Validation

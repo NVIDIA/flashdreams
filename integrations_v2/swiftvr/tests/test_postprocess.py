@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import swiftvr.impl.postprocess as postprocess
 import pytest
+import swiftvr.impl.postprocess as postprocess
 import torch
 from swiftvr.impl.postprocess import SwiftVRPostProcessorConfig
 

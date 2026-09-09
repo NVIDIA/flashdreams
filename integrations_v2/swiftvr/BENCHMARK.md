@@ -27,11 +27,11 @@ the current runtime.
 
 ### Native FlashDreams WAN parity
 
-Measured 2026-09-09 on the native migration based on `e4fa831b`. The legacy
-reference was captured from that same commit before replacing Diffusers. Both
-paths used snapshot `743ed253`, its prompt embedding, eager BF16 SDPA, and ran
-sequentially on one NVIDIA RTX PRO 6000 Blackwell Server Edition (driver
-595.80, CUDA 13.0, Torch 2.12.1+cu130).
+Measured 2026-09-09 while migrating the integration from Diffusers to native
+FlashDreams WAN components. The legacy reference was captured immediately
+before replacing Diffusers. Both paths used snapshot `743ed253`, its prompt
+embedding, eager BF16 SDPA, and ran sequentially on one NVIDIA RTX PRO 6000
+Blackwell Server Edition (driver 595.80, CUDA 13.0, Torch 2.12.1+cu130).
 
 Each fixture was constructed as
 `torch.linspace(-1, 1, 48*T*H*W).reshape(1, 48, T, H, W).bfloat16()` and passed

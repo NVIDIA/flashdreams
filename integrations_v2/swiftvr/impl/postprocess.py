@@ -323,8 +323,12 @@ def _resolve_dtype(name: _DTypeName) -> torch.dtype:
 POSTPROCESS_PRESET_SWIFTVR_4X = SwiftVRPostProcessorConfig()
 """Default upstream-compatible SwiftVR 4x post-processing preset."""
 
+POSTPROCESS_PRESET_SWIFTVR_2X = SwiftVRPostProcessorConfig(scale=2, chunk_size=8)
+"""SwiftVR 2x preset with an 8-frame streaming chunk."""
+
 
 __all__ = [
+    "POSTPROCESS_PRESET_SWIFTVR_2X",
     "POSTPROCESS_PRESET_SWIFTVR_4X",
     "SwiftVRPostProcessor",
     "SwiftVRPostProcessorConfig",

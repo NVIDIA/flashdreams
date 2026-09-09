@@ -31,6 +31,7 @@ dev = ["pytest>=8.0"]
 "v2v-swiftvr" = "swiftvr.apps.v2v.adapter:create_app"
 
 [project.entry-points."flashdreams.postprocess_presets"]
+"swiftvr-2x" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_2X"
 "swiftvr-4x" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_4X"
 
 [tool.setuptools]

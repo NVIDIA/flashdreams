@@ -73,13 +73,6 @@ Optional integration: integrations_v2/flashvsr
 ninja                  Apache-2.0   https://github.com/ninja-build/ninja
 
 ================================================================================
-Optional integration: integrations_v2/swiftvr
-================================================================================
-
-accelerate              Apache-2.0   https://github.com/huggingface/accelerate
-diffusers              Apache-2.0   https://github.com/huggingface/diffusers
-
-================================================================================
 Optional integration: integrations_v2/omnidreams
 ================================================================================
 
@@ -183,9 +176,10 @@ License:  Zlib (see LICENSES/Zlib.txt)
 Upstream: https://lodev.org/lodepng/
 
 LodePNG is a PNG codec implementation embedded by the upstream
-cudaraster framework. The inline notice in lodepng.h preserves the upstream
-copyright notice as required by the Zlib license; LICENSES/Zlib.txt reproduces
-the license text in full.
+cudaraster framework. It is one of the non-NVIDIA sources physically
+redistributed in this repository. The inline notice in lodepng.h
+preserves the upstream copyright notice as required by the Zlib
+license; LICENSES/Zlib.txt reproduces the license text in full.
 
 --------------------------------------------------------------------------------
 SwiftVR streaming inference
@@ -199,7 +193,7 @@ Upstream: https://github.com/H-oliday/SwiftVR
 The restoration-aware autoencoder, causal streaming protocol, and mask-free
 shifted-window attention are adapted from upstream commit
 5ca168cef6ca7200f135fdfea85e5e13d12c5b53. FlashDreams replaces upstream's
-file-oriented runner with its VideoPostProcessor contract and reuses the
-installed Diffusers WAN model implementation for checkpoint loading.
+file-oriented runner with its VideoPostProcessor contract, native WAN
+transformer components, and a loader for the upstream Diffusers-format weights.
 
 ================================================================================

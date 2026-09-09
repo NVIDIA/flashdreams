@@ -29,14 +29,18 @@ pytestmark = pytest.mark.ci_cpu
 def test_entry_point_binds_swiftvr_defaults() -> None:
     application = cast(Any, create_app())
 
-    assert application.defaults.model_name == "swiftvr-4x"
-    assert application.defaults.first_chunk_size == 24
-    assert application.defaults.steady_chunk_size == 24
-    assert application.defaults.processor.scale == 4
+    assert application.defaults.model_name == "swiftvr-2x"
+    assert application.defaults.first_chunk_size == 8
+    assert application.defaults.steady_chunk_size == 8
+    assert application.defaults.processor.scale == 2
 
 
 def test_postprocess_preset_is_discoverable() -> None:
     preset = resolve_postprocess_preset("swiftvr-4x")
+    twice = resolve_postprocess_preset("swiftvr-2x")
 
     assert isinstance(preset, SwiftVRPostProcessorConfig)
     assert preset.scale == 4
+    assert isinstance(twice, SwiftVRPostProcessorConfig)
+    assert twice.scale == 2
+    assert twice.chunk_size == 8
