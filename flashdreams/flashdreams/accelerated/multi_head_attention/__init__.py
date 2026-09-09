@@ -24,9 +24,13 @@ from enum import Enum
 from typing import Generic, TypeVar
 
 from torch import Tensor, nn
+from torch.nn.attention.flex_attention import BlockMask
 
 KVCacheT = TypeVar("KVCacheT")
 """Backend-owned K/V cache type passed to attention."""
+
+AttentionMask = Tensor | BlockMask
+"""Dense or block-sparse visibility mask supplied to attention."""
 
 
 class AttentionType(str, Enum):
@@ -37,6 +41,16 @@ class AttentionType(str, Enum):
 
     CROSS_ATTENTION = "cross_attention"
     """Query a precomputed static K/V cache without updating it."""
+
+
+class MoTRoute(str, Enum):
+    """Homogeneous model-of-thought pathway selected for one attention call."""
+
+    UNDERSTANDING = "understanding"
+    """Use the understanding pathway."""
+
+    GENERATION = "generation"
+    """Use the generation pathway."""
 
 
 class QKNormScope(str, Enum):
@@ -98,7 +112,10 @@ class AttentionConfig:
     """Input and output token width."""
 
     n_heads: int = 8
-    """Number of query, key, and value heads."""
+    """Number of query heads."""
+
+    n_kv_heads: int | None = None
+    """Number of key/value heads; ``None`` uses ``n_heads``."""
 
     head_dim: int = 64
     """Feature width of each attention head."""
@@ -117,8 +134,14 @@ class AttentionConfig:
 
     @property
     def inner_dim(self) -> int:
-        """Return the concatenated width of all attention heads."""
+        """Return the concatenated width of all query heads."""
         return self.n_heads * self.head_dim
+
+    @property
+    def kv_inner_dim(self) -> int:
+        """Return the concatenated width of all key/value heads."""
+        assert self.n_kv_heads is not None
+        return self.n_kv_heads * self.head_dim
 
     def __post_init__(self) -> None:
         """Validate and normalize attention configuration values."""
@@ -129,6 +152,14 @@ class AttentionConfig:
             raise ValueError(f"context_dim must be positive; got {context_dim}")
         if self.n_heads <= 0:
             raise ValueError(f"n_heads must be positive; got {self.n_heads}")
+        n_kv_heads = self.n_heads if self.n_kv_heads is None else self.n_kv_heads
+        if n_kv_heads <= 0:
+            raise ValueError(f"n_kv_heads must be positive; got {n_kv_heads}")
+        if self.n_heads % n_kv_heads:
+            raise ValueError(
+                "n_heads must be divisible by n_kv_heads; "
+                f"got {self.n_heads} and {n_kv_heads}"
+            )
         if self.head_dim <= 0:
             raise ValueError(f"head_dim must be positive; got {self.head_dim}")
         if not isinstance(self.qk_norm_scope, QKNormScope):
@@ -146,6 +177,7 @@ class AttentionConfig:
                 f"rope_config must be a RoPEConfig or None; got {self.rope_config!r}"
             )
         object.__setattr__(self, "context_dim", context_dim)
+        object.__setattr__(self, "n_kv_heads", n_kv_heads)
 
 
 class MultiHeadAttention(nn.Module, ABC, Generic[KVCacheT]):
@@ -273,6 +305,8 @@ class MultiHeadAttention(nn.Module, ABC, Generic[KVCacheT]):
         x: Tensor,
         kv_cache: KVCacheT,
         rope_freqs: Tensor | None = None,
+        *,
+        attn_mask: AttentionMask | None = None,
     ) -> Tensor:
         """Apply the configured attention type to ``x`` and ``kv_cache``.
 
@@ -289,6 +323,8 @@ class MultiHeadAttention(nn.Module, ABC, Generic[KVCacheT]):
                 cache-relative positions for all visible keys and selects the
                 current query positions from the cache write interval. Ignored
                 when ``rope_config`` is ``None``.
+            attn_mask: Optional dense or block-sparse visibility mask. Backend
+                implementations define which representation they support.
 
         Returns:
             Attention result with shape ``[..., L, query_dim]``.
@@ -297,7 +333,9 @@ class MultiHeadAttention(nn.Module, ABC, Generic[KVCacheT]):
 
 __all__ = [
     "AttentionConfig",
+    "AttentionMask",
     "AttentionType",
+    "MoTRoute",
     "MultiHeadAttention",
     "QKNormScope",
     "RoPEConfig",

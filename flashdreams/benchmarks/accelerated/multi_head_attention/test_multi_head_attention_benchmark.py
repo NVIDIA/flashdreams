@@ -34,10 +34,9 @@ import torch
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
-from torch import Tensor
-
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
+    AttentionMask,
     AttentionType,
     QKNormScope,
     RoPEConfig,
@@ -53,6 +52,7 @@ from flashdreams.accelerated.multi_head_attention.optimized import (
     is_tma_flash_attention_supported,
 )
 from flashdreams.accelerated.multi_head_attention.torch import TorchMultiHeadAttention
+from torch import Tensor
 
 pytestmark = [
     pytest.mark.manual,
@@ -249,12 +249,12 @@ class _TorchMultiHeadAttention(TorchMultiHeadAttention):
         )
         self.k_proj = torch.nn.Linear(
             self.attention_config.context_dim,
-            self.attention_config.inner_dim,
+            self.attention_config.kv_inner_dim,
             bias=qkv_bias,
         )
         self.v_proj = torch.nn.Linear(
             self.attention_config.context_dim,
-            self.attention_config.inner_dim,
+            self.attention_config.kv_inner_dim,
             bias=qkv_bias,
         )
         self.output_proj = torch.nn.Linear(
@@ -393,6 +393,7 @@ class _OptimizedMultiHeadAttention(OptimizedMultiHeadAttention):
         key: Tensor,
         value: Tensor,
         *,
+        attn_mask: AttentionMask | None = None,
         output_dtype: torch.dtype | None = None,
     ) -> Tensor:
         """Record the effective backend selected by the first attention call."""
@@ -402,7 +403,13 @@ class _OptimizedMultiHeadAttention(OptimizedMultiHeadAttention):
                 and self.use_tma
                 and is_tma_flash_attention_supported(query, key, value)
             )
-        return super()._attention(query, key, value, output_dtype=output_dtype)
+        return super()._attention(
+            query,
+            key,
+            value,
+            attn_mask=attn_mask,
+            output_dtype=output_dtype,
+        )
 
 
 _Attention = _TorchMultiHeadAttention | _OptimizedMultiHeadAttention
