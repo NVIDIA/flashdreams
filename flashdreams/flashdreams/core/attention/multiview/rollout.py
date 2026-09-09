@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
@@ -211,8 +212,14 @@ class ChunkRollout:
             raw_schedule.pop()
         if not raw_schedule:
             raise ValueError("the denoising schedule needs at least one nonzero sigma.")
+        if any(not math.isfinite(sigma) or sigma <= 0 for sigma in raw_schedule):
+            raise ValueError("every denoising sigma must be finite and positive.")
         if any(current <= following for current, following in pairwise(raw_schedule)):
             raise ValueError("the denoising schedule must be strictly decreasing.")
+        if history_frames is not None and history_frames < 1:
+            raise ValueError("history_frames must be positive when supplied.")
+        if token_frames is not None and token_frames < 1:
+            raise ValueError("token_frames must be positive when supplied.")
 
         committed = plan.committed_frames
         kept = committed if history_frames is None else min(history_frames, committed)
@@ -224,17 +231,18 @@ class ChunkRollout:
         control_ranges = tuple(window) if streaming and window else None
 
         self._model = model
-        self._state = model.prepare_rollout(
-            geometry=geometry,
-            controls=controls,
-            text_ids=text_ids,
-            condition_tokens=condition_tokens,
-            fps=fps,
-            history_slots=history_slots,
-            control_ranges=control_ranges,
-            control_slot_frames=geometry.frames_per_chunk if streaming else None,
-            use_block_mask=use_block_mask,
-        )
+        with torch.no_grad():
+            self._state = model.prepare_rollout(
+                geometry=geometry,
+                controls=controls,
+                text_ids=text_ids,
+                condition_tokens=condition_tokens,
+                fps=fps,
+                history_slots=history_slots,
+                control_ranges=control_ranges,
+                control_slot_frames=(geometry.frames_per_chunk if streaming else None),
+                use_block_mask=use_block_mask,
+            )
         self._geometry = geometry
         self._fps = fps
         self._seed = seed
