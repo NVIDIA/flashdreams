@@ -156,6 +156,6 @@ uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
   path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
 ```
 
-Spawn variants can define both a full `prompt` for normal play and a shorter
+Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-map-context`; dynamic road and motion
 clauses are appended only to the latter.

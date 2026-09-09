@@ -51,3 +51,4 @@ spawns:
     distance_m: 30
     image: package://omnidreams_game_engine/screenshot.jpg
     prompt: A car racing on a rectangular city loop.
+    prompt_context: A forward-facing view from a car on a city road.

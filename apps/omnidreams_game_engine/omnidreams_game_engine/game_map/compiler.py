@@ -409,7 +409,12 @@ def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
     }
 
 
-def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
+def _write_archive(
+    path: Path,
+    game_map: ResolvedGameMap,
+    *,
+    use_prompt_context: bool,
+) -> None:
     spawn = game_map.default_spawn
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
@@ -424,7 +429,12 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
             "mesh_ground.ply",
             save_mesh_vf(game_map.ground_vertices, game_map.ground_faces),
         )
-        archive.writestr("prompt.txt", spawn.prompt)
+        archive.writestr(
+            "prompt.txt",
+            spawn.prompt_context or spawn.prompt
+            if use_prompt_context
+            else spawn.prompt,
+        )
         if spawn.image is None:
             _write_image_array(
                 archive,
@@ -456,6 +466,7 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
 def compile_game_map(
     path: Path,
     *,
+    use_prompt_context: bool = False,
     cache_root: Path | None = None,
     force: bool = False,
 ) -> CompiledGameMap:
@@ -464,7 +475,8 @@ def compile_game_map(
     digest = _digest(game_map)
     root = _cache_root() if cache_root is None else Path(cache_root)
     output_dir = root / digest
-    archive_path = output_dir / f"{game_map.map_id}.usdz"
+    context_suffix = "-context" if use_prompt_context else ""
+    archive_path = output_dir / f"{game_map.map_id}{context_suffix}.usdz"
     lock = FileLock(str(root / f"{digest}.lock"))
     root.mkdir(parents=True, exist_ok=True)
     with lock:
@@ -484,7 +496,11 @@ def compile_game_map(
         os.close(file_descriptor)
         temporary = Path(temporary_name)
         try:
-            _write_archive(temporary, game_map)
+            _write_archive(
+                temporary,
+                game_map,
+                use_prompt_context=use_prompt_context,
+            )
             temporary.replace(archive_path)
         finally:
             temporary.unlink(missing_ok=True)

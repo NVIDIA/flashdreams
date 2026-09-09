@@ -20,12 +20,17 @@ class SceneRequest:
 
     map_path: Path
     camera_name: str = "camera_front_wide_120fov"
+    use_prompt_context: bool = False
     force_recompile: bool = False
 
 
 def load_scene(request: SceneRequest, raster: RasterConfig) -> SceneDefinition:
     """Compile an authored map if necessary and load its runtime scene."""
-    compiled = compile_game_map(request.map_path, force=request.force_recompile)
+    compiled = compile_game_map(
+        request.map_path,
+        use_prompt_context=request.use_prompt_context,
+        force=request.force_recompile,
+    )
     return load_scene_bundle(
         scene_path=compiled.archive_path,
         camera_name=request.camera_name,
