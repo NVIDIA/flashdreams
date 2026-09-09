@@ -20,6 +20,8 @@ from __future__ import annotations
 import pytest
 import torch
 import torch.nn.functional as F
+from torch import Tensor, nn
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -32,7 +34,6 @@ from flashdreams.accelerated.multi_head_attention.reference import (
     reference_masked_attention,
 )
 from flashdreams.accelerated.multi_head_attention.torch import TorchMultiHeadAttention
-from torch import Tensor, nn
 
 pytestmark = pytest.mark.ci_cpu
 

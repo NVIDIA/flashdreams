@@ -23,8 +23,12 @@ from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import cast
 
 import torch
+from torch import Tensor, nn
+from torch.nn.attention.flex_attention import BlockMask, flex_attention
+
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
 )
@@ -57,8 +61,6 @@ from flashdreams.accelerated.quantization.quantizer import (
 )
 from flashdreams.core.attention import BlockKVCache
 from flashdreams.core.attention.rope_kernel import apply_rotary_pos_emb
-from torch import Tensor, nn
-from torch.nn.attention.flex_attention import BlockMask, flex_attention
 
 
 class SDPABackend(str, Enum):
@@ -77,7 +79,7 @@ class SDPABackend(str, Enum):
 @functools.cache
 def _compiled_flex_attention() -> Callable[..., Tensor]:
     """Return one compiled FlexAttention callable."""
-    return torch.compile(flex_attention)
+    return torch.compile(cast(Callable[..., Tensor], flex_attention))
 
 
 class QKVFusionOption(str, Enum):
@@ -493,10 +495,12 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         # Keep ``[B, S, H, D]`` as the public cache shape: ``BlockKVCache``
         # rolls and slices axis 1, and both attention backends accept that logical
         # order.
+        kv_heads = self.attention_config.n_kv_heads
+        assert kv_heads is not None
         cache_shape = (
             batch_size,
             sink_size + window_size,
-            self.attention_config.n_kv_heads,
+            kv_heads,
             self.attention_config.head_dim,
         )
         self._validate_cuda_device(device)
@@ -1219,11 +1223,11 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             qkv = self.fused_qkv(x, Granularity.SLICE, out_dtype=x.dtype)
         query, key, value = torch.split(
             qkv,
-            (
+            [
                 self.attention_config.inner_dim,
                 self.attention_config.kv_inner_dim,
                 self.attention_config.kv_inner_dim,
-            ),
+            ],
             dim=-1,
         )
         query = query.reshape(
@@ -1232,10 +1236,12 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             self.attention_config.n_heads,
             self.attention_config.head_dim,
         )
+        kv_heads = self.attention_config.n_kv_heads
+        assert kv_heads is not None
         kv_shape = (
             -1,
             x.shape[-2],
-            self.attention_config.n_kv_heads,
+            kv_heads,
             self.attention_config.head_dim,
         )
         return query, key.reshape(kv_shape), value.reshape(kv_shape)

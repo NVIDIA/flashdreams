@@ -27,7 +27,7 @@ import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import BlockMask
 
-from flashdreams.core.attention.multiview.cache import TokenWindow
+from flashdreams.core.attention.kvcache import TokenWindow
 from flashdreams.core.attention.multiview.packing import (
     ClipGeometry,
     MemoryLayout,

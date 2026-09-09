@@ -21,7 +21,10 @@ from enum import Enum
 from typing import Literal
 
 import torch
-from einops import rearrange, repeat
+from einops import rearrange
+from torch import Tensor, nn
+from torch.distributed import ProcessGroup
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -37,10 +40,11 @@ from flashdreams.accelerated.multi_head_attention.optimized import (
     SDPABackend,
 )
 from flashdreams.core.attention import BlockKVCache, ContextParallelAttention
-from flashdreams.core.attention.multiview import pack_cross_view_attention
+from flashdreams.core.attention.multiview import (
+    pack_cross_view_attention,
+    unpack_cross_view_attention,
+)
 from flashdreams.core.attention.rope import apply_rope_freqs
-from torch import Tensor, nn
-from torch.distributed import ProcessGroup
 
 
 class AttentionBackend(str, Enum):
@@ -1075,19 +1079,9 @@ class Block(nn.Module):
                 normed_x_cv, "b v (t hw) d -> b v t hw d", t=T, hw=HW
             )
             x_cv, x_context = pack_cross_view_attention(view_tokens)
-            if self.cross_view_attn.is_context_parallel_enabled():
-                # CP-enabled: views are split across GPUs in rank order
-                # (e.g. 4 views on 2 GPUs -> [0,1] and [2,3]).
-                if V == 1:
-                    # CP size == num views: ring attention gathers all K/V,
-                    # so local context stays unexpanded.
-                    x_context = x_cv
-                else:
-                    # CP size < num views: gather each GPU's local views first.
-                    x_context = repeat(x_cv, "b t v hw d -> b t v2 (v hw) d", v2=V)
             cross_view_attn_kv_cache = self.cross_view_attn.compute_kv(x_context)
             cv_out = self.cross_view_attn(x_cv, kv_cache=cross_view_attn_kv_cache)
-            cv_out = rearrange(cv_out, "b t v hw d -> b v (t hw) d")
+            cv_out = unpack_cross_view_attention(cv_out)
             x = x + cv_out
 
         # Cross-attention

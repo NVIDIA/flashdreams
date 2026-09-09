@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import pytest
 import torch
+from torch import Tensor, nn
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionMask,
@@ -27,7 +29,6 @@ from flashdreams.accelerated.multi_head_attention import (
     MultiHeadAttention,
 )
 from flashdreams.accelerated.multi_head_attention.mot import MoTMultiHeadAttention
-from torch import Tensor, nn
 
 pytestmark = pytest.mark.ci_cpu
 

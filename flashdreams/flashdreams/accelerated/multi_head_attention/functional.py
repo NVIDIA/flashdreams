@@ -20,18 +20,20 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
+from typing import cast
 
 import torch
 import torch.nn.functional as F
-from flashdreams.accelerated.multi_head_attention import AttentionMask
 from torch import Tensor
 from torch.nn.attention.flex_attention import BlockMask, flex_attention
+
+from flashdreams.accelerated.multi_head_attention import AttentionMask
 
 
 @functools.cache
 def compiled_flex_attention(*, dynamic: bool | None = None) -> Callable[..., Tensor]:
     """Return the compiled FlexAttention kernel for one shape policy."""
-    return torch.compile(flex_attention, dynamic=dynamic)
+    return torch.compile(cast(Callable[..., Tensor], flex_attention), dynamic=dynamic)
 
 
 def cudnn_attention() -> AbstractContextManager[None]:

@@ -54,8 +54,9 @@ def reference_masked_attention(
 
     scores = torch.matmul(query, key.transpose(-1, -2))
     scores = scores * query.shape[-1] ** -0.5
-    scores = scores.masked_fill(~mask[None, None], torch.finfo(scores.dtype).min)
-    return torch.matmul(torch.softmax(scores, dim=-1), value)
+    scores = scores.masked_fill(~mask[None, None], -torch.inf)
+    weights = torch.softmax(scores, dim=-1).nan_to_num()
+    return torch.matmul(weights, value)
 
 
 __all__ = ["reference_masked_attention"]

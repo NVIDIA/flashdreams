@@ -21,6 +21,8 @@ from abc import abstractmethod
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor, nn
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionMask,
@@ -31,7 +33,6 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEStyle,
 )
 from flashdreams.core.attention import BlockKVCache
-from torch import Tensor, nn
 
 
 class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
@@ -125,10 +126,12 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         """
         # BlockKVCache rolls sequence dimension 1 while preserving independent
         # batch and head axes for SDPA.
+        kv_heads = self.attention_config.n_kv_heads
+        assert kv_heads is not None
         cache_shape = (
             batch_size,
             sink_size + window_size,
-            self.attention_config.n_kv_heads,
+            kv_heads,
             self.attention_config.head_dim,
         )
         return BlockKVCache(

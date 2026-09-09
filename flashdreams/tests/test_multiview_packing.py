@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+
 from flashdreams.core.attention.multiview.mask import (
     ROLE_CLEAN_TARGET,
     ROLE_CONTROL,
@@ -36,6 +37,7 @@ from flashdreams.core.attention.multiview.packing import (
     build_memory_layout,
     causal_steps,
     pack_cross_view_attention,
+    unpack_cross_view_attention,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -74,6 +76,26 @@ def test_pack_cross_view_attention_validates_layout() -> None:
         pack_cross_view_attention(torch.zeros(1, 2, 3, 4))
     with pytest.raises(ValueError, match="empty axis"):
         pack_cross_view_attention(torch.zeros(1, 4, 0, 3, 8))
+
+
+def test_cross_view_attention_layout_round_trips_to_view_major_tokens() -> None:
+    """Restore attention output to the layout expected by a multi-view block."""
+    tokens = torch.arange(2 * 4 * 3 * 5 * 7).reshape(2, 4, 3, 5, 7)
+
+    query, _context = pack_cross_view_attention(tokens)
+
+    assert torch.equal(
+        unpack_cross_view_attention(query),
+        tokens.reshape(2, 4, 15, 7),
+    )
+
+
+def test_unpack_cross_view_attention_validates_layout() -> None:
+    """Refuse tensors that cannot be per-frame, per-view attention output."""
+    with pytest.raises(ValueError, match=r"\[B, T, V, S, D\]"):
+        unpack_cross_view_attention(torch.zeros(1, 2, 3, 4))
+    with pytest.raises(ValueError, match="empty axis"):
+        unpack_cross_view_attention(torch.zeros(1, 0, 4, 3, 8))
 
 
 def index_of(stream: StreamFields, role: int, frame: int, view: int) -> int:
@@ -508,9 +530,17 @@ def test_a_clean_query_reads_its_own_step_and_a_current_one_does_not() -> None:
     # The asymmetry the replay exists for. Frame 1 is in memory as clean history
     # at the same causal step the chunk generating frame 1 would occupy.
     memory = build_memory_layout(CLIP, history_frame_ranges=[(1, 2)])
-    same_step = {"chunk_start": 1, "chunk_frames": 1, "text_tokens": 1}
-    noisy = build_chunk_metadata(CLIP, memory, **same_step)
-    clean = build_chunk_metadata(CLIP, memory, **same_step, pass_kind="clean")
+    noisy = build_chunk_metadata(
+        CLIP, memory, chunk_start=1, chunk_frames=1, text_tokens=1
+    )
+    clean = build_chunk_metadata(
+        CLIP,
+        memory,
+        chunk_start=1,
+        chunk_frames=1,
+        text_tokens=1,
+        pass_kind="clean",
+    )
 
     history = index_of(noisy.kv, ROLE_CLEAN_TARGET, frame=1, view=0)
     q = 0

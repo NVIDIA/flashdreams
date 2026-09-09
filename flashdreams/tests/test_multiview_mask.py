@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+
 from flashdreams.core.attention.multiview.mask import (
     ROLE_CLEAN_TARGET,
     ROLE_CONTROL,

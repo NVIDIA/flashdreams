@@ -19,12 +19,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from torch import Tensor, nn
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionMask,
     MoTRoute,
     MultiHeadAttention,
 )
-from torch import Tensor, nn
 
 
 class MoTMultiHeadAttention(nn.Module):

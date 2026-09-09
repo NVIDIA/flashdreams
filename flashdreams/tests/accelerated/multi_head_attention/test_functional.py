@@ -21,6 +21,8 @@ from contextlib import nullcontext
 
 import pytest
 import torch
+from torch.nn.attention.flex_attention import create_block_mask
+
 from flashdreams.accelerated.multi_head_attention.functional import (
     backend_for,
     masked_attention,
@@ -28,7 +30,6 @@ from flashdreams.accelerated.multi_head_attention.functional import (
 from flashdreams.accelerated.multi_head_attention.reference import (
     reference_masked_attention,
 )
-from torch.nn.attention.flex_attention import create_block_mask
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -56,6 +57,19 @@ def test_dense_attention_matches_the_explicit_reference() -> None:
     expected = reference_masked_attention(query, key, value, mask)
 
     torch.testing.assert_close(actual, expected)
+
+
+def test_reference_attention_zeros_fully_masked_queries() -> None:
+    """Match SDPA when a query has no visible key instead of averaging values."""
+    query, key, value = _qkv()
+    mask = _mask()
+    mask[2] = False
+
+    actual = masked_attention(query, key, value, mask)
+    expected = reference_masked_attention(query, key, value, mask)
+
+    torch.testing.assert_close(actual, expected)
+    assert torch.equal(expected[:, :, 2], torch.zeros_like(expected[:, :, 2]))
 
 
 @pytest.mark.parametrize("enable_gqa", [False, True])

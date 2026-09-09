@@ -21,6 +21,9 @@ from collections.abc import Sequence
 
 import pytest
 import torch
+from torch import Tensor
+from torch.nn.attention.flex_attention import BlockMask
+
 from flashdreams.core.attention.multiview import (
     ChunkMask,
     ChunkRollout,
@@ -31,8 +34,6 @@ from flashdreams.core.attention.multiview import (
     build_memory_layout,
     run_rollout,
 )
-from torch import Tensor
-from torch.nn.attention.flex_attention import BlockMask
 
 pytestmark = pytest.mark.ci_cpu
 

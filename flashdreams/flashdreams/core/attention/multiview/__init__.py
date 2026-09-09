@@ -15,7 +15,7 @@
 
 """Attention metadata, packing, and position IDs for multi-view inference."""
 
-from flashdreams.core.attention.multiview.cache import (
+from flashdreams.core.attention.kvcache import (
     FixedSlotKVCache,
     LayerKV,
     SlotRegion,
@@ -51,6 +51,7 @@ from flashdreams.core.attention.multiview.packing import (
     control_window,
     pack_cross_view_attention,
     text_stream,
+    unpack_cross_view_attention,
 )
 from flashdreams.core.attention.multiview.rollout import (
     ChunkMask,
@@ -114,6 +115,7 @@ __all__ = [
     "run_rollout",
     "temporal_positions",
     "text_stream",
+    "unpack_cross_view_attention",
     "visibility",
     "visibility_mask_mod",
     "vision_temporal_offset",

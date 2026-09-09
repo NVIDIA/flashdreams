@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import pytest
 import torch
-from flashdreams.core.attention.multiview.cache import (
+
+from flashdreams.core.attention.kvcache import (
     FixedSlotKVCache,
     LayerKV,
     SlotRegion,

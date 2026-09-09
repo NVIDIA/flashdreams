@@ -34,6 +34,8 @@ import torch
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
+from torch import Tensor
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionMask,
@@ -52,7 +54,6 @@ from flashdreams.accelerated.multi_head_attention.optimized import (
     is_tma_flash_attention_supported,
 )
 from flashdreams.accelerated.multi_head_attention.torch import TorchMultiHeadAttention
-from torch import Tensor
 
 pytestmark = [
     pytest.mark.manual,

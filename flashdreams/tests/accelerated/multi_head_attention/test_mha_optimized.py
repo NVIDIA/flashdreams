@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import pytest
 import torch
+from torch import Tensor
+from torch.nn.attention.flex_attention import create_block_mask
+
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -41,8 +44,6 @@ from flashdreams.accelerated.quantization.quantizer import (
     DTYPE_MAX,
 )
 from flashdreams.core.attention import BlockKVCache
-from torch import Tensor
-from torch.nn.attention.flex_attention import create_block_mask
 
 pytestmark = pytest.mark.ci_gpu
 

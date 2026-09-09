@@ -165,6 +165,32 @@ def pack_cross_view_attention(tokens: Tensor) -> tuple[Tensor, Tensor]:
     return query, context
 
 
+def unpack_cross_view_attention(tokens: Tensor) -> Tensor:
+    """Restore cross-view attention output to view-major flattened tokens.
+
+    Args:
+        tokens: Per-view attention output shaped ``[B, T, V, S, D]``.
+
+    Returns:
+        View-major tokens shaped ``[B, V, T*S, D]``.
+
+    Raises:
+        ValueError: ``tokens`` is not five-dimensional or has an empty axis.
+    """
+    if tokens.ndim != 5:
+        raise ValueError(
+            "cross-view output must have shape [B, T, V, S, D]; "
+            f"got {tuple(tokens.shape)}."
+        )
+    if any(size < 1 for size in tokens.shape):
+        raise ValueError(
+            f"cross-view output cannot have an empty axis; got {tuple(tokens.shape)}."
+        )
+
+    batch, frames, views, spatial, width = tokens.shape
+    return tokens.movedim(2, 1).reshape(batch, views, frames * spatial, width)
+
+
 def causal_steps(frame_id: Tensor, frames_per_chunk: int) -> Tensor:
     """Map frame indexes to the ``[1, C, C, ...]`` causal partition.
 

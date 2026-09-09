@@ -237,6 +237,50 @@ def test_optimized_attention_selects_after_cache_rope() -> None:
     assert attention.attention_config.rope_config.scope is RoPEScope.AFTER_KV_CACHE
 
 
+def test_multiview_block_uses_shared_cross_view_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise four-view attention through the shared pack/unpack contract."""
+
+    def cpu_sdpa(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.nn.functional.scaled_dot_product_attention(query, key, value)
+
+    block = Block(
+        x_dim=16,
+        context_dim=8,
+        num_heads=1,
+        enable_cross_view_attn=True,
+    )
+    monkeypatch.setattr(
+        transformer_modules, "apply_rope_freqs", lambda tensor, _: tensor
+    )
+    for attention in (block.self_attn, block.cross_attn, block.cross_view_attn):
+        monkeypatch.setattr(attention.attn_op, "_impl", cpu_sdpa)
+
+    cache = block.initialize_cache(
+        chunk_size=6,
+        window_size=12,
+        sink_size=0,
+        context=torch.randn(1, 4, 5, 8),
+    )
+    cache.before_update(0)
+    output = block(
+        torch.randn(1, 4, 2, 3, 16),
+        torch.randn(1, 16),
+        cache,
+        torch.zeros(6, 1, 1, 16),
+        view_embedding_proj=torch.randn(1, 4, 9 * 16),
+    )
+
+    assert output.shape == (1, 4, 2, 3, 16)
+    assert cache.self_attn.cached_k().shape[0] == 4
+    cache.after_update(0)
+
+
 def test_optimized_attention_caches_cuda_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

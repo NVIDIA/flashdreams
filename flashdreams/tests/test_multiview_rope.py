@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+
 from flashdreams.core.attention.multiview.packing import (
     ClipGeometry,
     build_chunk_metadata,
