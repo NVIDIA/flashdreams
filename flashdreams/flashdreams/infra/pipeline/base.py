@@ -202,6 +202,7 @@ class StreamInferencePipeline(
             StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
         ],
         input: Any = None,
+        decode: bool = True,
     ) -> Tensor:
         """Generate one chunk for this AR step.
 
@@ -213,10 +214,21 @@ class StreamInferencePipeline(
                 is configured, must be ``None`` otherwise. Use
                 ``NullEncoderConfig`` to pass an already-encoded tensor
                 straight through.
+            decode: When ``False``, skip the VAE decode (latent -> RGB) and
+                return ``clean_latent`` even if a decoder is configured. Used
+                by latent/token-streaming modes where the client re-decodes and
+                the server-side RGB is discarded, so the decode is pure waste.
+                The AR/generation cache (``final_state``, ``clean_latent``) is
+                unaffected -- it is captured before decode -- so the next chunk
+                is bit-identical. NOTE: the decoder's own streaming cache
+                (``decoder_cache``) is not advanced when decode is skipped, so a
+                session must not skip decode for some chunks and resume it for
+                others (skip for the whole rollout).
 
         Returns:
-            Decoded tensor (e.g. RGB video) when a decoder is configured;
-            otherwise the unpatchified clean latent from the diffusion model.
+            Decoded tensor (e.g. RGB video) when a decoder is configured and
+            ``decode`` is True; otherwise the unpatchified clean latent from the
+            diffusion model.
         """
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
@@ -258,7 +270,7 @@ class StreamInferencePipeline(
         if events is not None:
             events.record("diffuse")
 
-        if self.decoder is not None:
+        if decode and self.decoder is not None:
             assert cache.decoder_cache is not None  # invariant: paired with decoder
             output = self.decoder(
                 input=clean_latent,
@@ -266,6 +278,9 @@ class StreamInferencePipeline(
                 cache=cache.decoder_cache,
             )
         else:
+            # No decoder configured, or decode intentionally skipped (latent/
+            # token mode): return the clean latent. The decoder streaming cache
+            # is deliberately left un-advanced -- see the ``decode`` arg note.
             output = clean_latent
 
         if events is not None:

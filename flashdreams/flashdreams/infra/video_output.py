@@ -142,7 +142,10 @@ class VideoStepResult:
 
     chunk_index: int
     num_frames: int
-    video_chunk: Tensor
+    # ``None`` in latent/token-streaming mode, where the server skips the VAE
+    # decode and sends the latent instead; the RGB frame helpers below then do
+    # not apply (the client decodes). All video/pixel paths keep a real tensor.
+    video_chunk: Tensor | None
     stats: dict[str, float] | None = None
     layout: VideoTensorLayout | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

@@ -402,7 +402,8 @@ class OmnidreamsPipeline(
         autoregressive_index: int,
         cache: OmnidreamsPipelineCache,
         hdmap: Tensor,
-    ) -> Tensor:
+        decode: bool = True,
+    ) -> Tensor | None:
         """Generate one decoded video chunk.
 
         Args:
@@ -410,9 +411,15 @@ class OmnidreamsPipeline(
             cache: Per-rollout cache from ``initialize_cache``.
             hdmap: Per-AR-step HDMap pixels ``[B, V, T, 3, H, W]`` in
                 ``[-1, 1]``. ``T`` must equal ``get_num_frames(autoregressive_index)``.
+            decode: When ``False`` skip the VAE decode (latent/token mode). The
+                latent is still generated and gathered onto ``cache.clean_latent``
+                (what the token stream sends); only the discarded RGB decode is
+                skipped. Returns ``None`` in that case.
 
         Returns:
-            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]``.
+            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]`` when
+            ``decode`` is True; otherwise ``None`` (the latent is on
+            ``cache.clean_latent``).
         """
         hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=self.V_group)
 
@@ -420,14 +427,18 @@ class OmnidreamsPipeline(
             autoregressive_index=autoregressive_index,
             cache=cache,
             input=hdmap,
+            decode=decode,
         )
 
-        output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)
+        # Always gather the latent the token stream consumes. Only gather the
+        # decoded RGB when we actually decoded (else ``output`` is the latent and
+        # is discarded by the caller in latent/token mode).
+        rgb = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group) if decode else None
         if cache.clean_latent is not None:
             cache.clean_latent = cat_outputs_cp(
                 cache.clean_latent, seq_dim=1, cp_group=self.V_group
             )
-        return output
+        return rgb
 
     def get_num_frames(self, autoregressive_index: int) -> int:
         """Number of decoded video frames produced at this AR step."""

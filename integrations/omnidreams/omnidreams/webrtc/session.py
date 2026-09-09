@@ -521,6 +521,9 @@ class OmnidreamsInferenceRuntime:
         self._postprocess_stream: VideoPostprocessStream | None = None
         self._postprocess_preset = self.config.postprocess.preset
         self._closed = False
+        # Per-session latch: skip the server VAE decode while a token-stream WS is
+        # attached (client re-decodes); set/cleared by the manager, read per chunk.
+        self._latent_only = False
         # Desired per-chunk sync+profile state; applied at each chunk boundary
         # (see generate_chunk). Matches the omnidreams pipeline default (on).
         self._profiling_enabled: bool = True
@@ -546,6 +549,10 @@ class OmnidreamsInferenceRuntime:
             master_rank=self.MASTER_RANK,
         )
         self.rank_coordinator.register_distributed_ops(self)
+
+    # decode-skip: manager sets this while a token-stream WS is attached.
+    def set_latent_only(self, value: bool) -> None:
+        self._latent_only = value
 
     @property
     def is_master(self) -> bool:
@@ -584,6 +591,8 @@ class OmnidreamsInferenceRuntime:
             raise OmnidreamsRuntimeError("Runtime is closed.")
         if self._wrapper is None:
             raise OmnidreamsRuntimeError("Runtime is not initialized.")
+        # decode-skip: reused runtime � never leak a prior token session's latch.
+        self._latent_only = False
         await self._run_on_runtime_thread(
             self._reset_rollout_sync_all_ranks,
             session_input,
@@ -1064,6 +1073,8 @@ class OmnidreamsInferenceRuntime:
         camera_names = [self.config.camera_name]
         camera_poses_per_view = {self.config.camera_name: camera_poses}
         serve_hdmaps = self.config.debug_serve_hdmaps
+        # decode-skip: token/SAS mode skips the server VAE decode (client re-decodes).
+        decode = not self._latent_only
         if self._state is None:
             output = self._wrapper.start_generation(
                 text_prompts=self._text_prompts,
@@ -1073,6 +1084,7 @@ class OmnidreamsInferenceRuntime:
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
                 skip_video_generation=serve_hdmaps,
+                decode=decode,
             )
             self._state = output.state
         else:
@@ -1082,6 +1094,7 @@ class OmnidreamsInferenceRuntime:
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
                 skip_video_generation=serve_hdmaps,
+                decode=decode,
             )
             self._state = output.state
 
@@ -1093,12 +1106,19 @@ class OmnidreamsInferenceRuntime:
 
         if serve_hdmaps:
             video_chunk = output.condition_frames
+        elif not decode:
+            # decode-skip: no server RGB (client re-decodes); latent goes via metadata.
+            video_chunk = None
         elif output.rgb_frames is None:
             raise OmnidreamsRuntimeError("Omnidreams WebRTC received no RGB frames.")
         else:
             video_chunk = output.rgb_frames
 
-        if not serve_hdmaps and self._postprocess_stream is not None:
+        if (
+            not serve_hdmaps
+            and video_chunk is not None
+            and self._postprocess_stream is not None
+        ):
             video_chunk = self._postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=self.autoregressive_index,
@@ -1110,6 +1130,8 @@ class OmnidreamsInferenceRuntime:
             layout="bvtchw",
             stats=None,
             sync_device=self._device,
+            # decode-skip: no tensor to count from when decode is skipped.
+            num_frames=None if video_chunk is not None else num_frames,
             metadata=(
                 {"latent_chunk": output.latent_frames}
                 if (not serve_hdmaps and output.latent_frames is not None)
@@ -1174,6 +1196,17 @@ class OmnidreamsWebRTCSessionManager(
             )
             return {}
         return {"vae_model": descriptor}
+
+    # decode-skip: latch decode-off on the runtime for the token-WS lifetime;
+    # cleared in finally (incl. on attach failure) so pixel sessions still decode.
+    async def attach_token_stream_ws(
+        self, ws: Any, codec_id: str | None = None
+    ) -> None:
+        self._runtime.set_latent_only(True)
+        try:
+            await super().attach_token_stream_ws(ws, codec_id)
+        finally:
+            self._runtime.set_latent_only(False)
 
     def _chunk_done_extra(self) -> dict[str, Any]:
         return {

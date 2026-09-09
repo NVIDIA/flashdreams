@@ -54,14 +54,23 @@ class _FakePipeline:
         return SimpleNamespace(
             image_shape=tuple(image.shape),
             autoregressive_index=None,
+            clean_latent=None,
         )
 
     def generate(
-        self, *, autoregressive_index: int, hdmap: torch.Tensor, cache: object
-    ) -> torch.Tensor:
+        self,
+        *,
+        autoregressive_index: int,
+        hdmap: torch.Tensor,
+        cache: object,
+        decode: bool = True,
+    ) -> torch.Tensor | None:
         # Mirror StreamInferencePipeline behavior: generate() records the latest AR
         # index on the cache so callers can derive the next step.
         cache.autoregressive_index = autoregressive_index  # ty:ignore[unresolved-attribute]
+        if not decode:
+            # Latent/token mode: real pipeline returns None (latent on the cache).
+            return None
         # Return model-range tensor in [-1, 1] so wrapper conversion can be validated.
         return torch.linspace(
             -1.0,

@@ -22,22 +22,44 @@ class WebRTCStepResult(VideoStepResult):
 def make_webrtc_step_result(
     *,
     chunk_index: int,
-    video_chunk: torch.Tensor,
+    video_chunk: torch.Tensor | None,
     layout: VideoTensorLayout,
     stats: dict[str, float] | None = None,
     sync_device: torch.device | str | None = None,
     metadata: Mapping[str, Any] | None = None,
+    num_frames: int | None = None,
 ) -> WebRTCStepResult:
-    """Package a generated chunk for WebRTC without forcing a host copy."""
+    """Package a generated chunk for WebRTC without forcing a host copy.
+
+    ``video_chunk`` may be ``None`` in latent/token-streaming mode, where the
+    server skips the VAE decode and sends the latent (via ``metadata``) instead.
+    In that case ``num_frames`` must be supplied explicitly (it cannot be
+    inferred from a missing tensor); it is available from the runtime's
+    ``peek_next_chunk_num_frames`` (decoder config, not decoder state).
+    """
     if sync_device is not None:
         device = torch.device(sync_device)
         if device.type == "cuda":
             torch.cuda.current_stream(device).synchronize()
 
+    if video_chunk is None:
+        if num_frames is None:
+            raise ValueError(
+                "make_webrtc_step_result: num_frames is required when "
+                "video_chunk is None (latent/token mode)."
+            )
+        resolved_frames = num_frames
+    else:
+        resolved_frames = (
+            num_frames
+            if num_frames is not None
+            else infer_video_num_frames(video_chunk, layout=layout)
+        )
+
     return WebRTCStepResult(
         chunk_index=chunk_index,
-        num_frames=infer_video_num_frames(video_chunk, layout=layout),
-        video_chunk=video_chunk.detach(),
+        num_frames=resolved_frames,
+        video_chunk=video_chunk.detach() if video_chunk is not None else None,
         stats=stats,
         layout=layout,
         metadata=dict(metadata or {}),

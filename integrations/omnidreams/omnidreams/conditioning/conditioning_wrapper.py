@@ -388,6 +388,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         frame_timestamps_us: list[int],
         skip_video_generation: bool = False,
         dynamic_actor_pool: CubePool | None = None,
+        decode: bool = True,
     ) -> GenerationOutput:
         """Render initial condition frames and start video generation.
 
@@ -450,8 +451,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
             autoregressive_index=0,
             hdmap=condition,
             cache=pipeline_cache,
+            decode=decode,
         )
-        rgb_frames = self._to_uint8(rgb_frames).contiguous()
+        # Latent/token mode (decode=False): the pipeline returns None and the
+        # latent is on pipeline_cache.clean_latent (surfaced as latent_frames).
+        rgb_frames = self._to_uint8(rgb_frames).contiguous() if decode else None
 
         state = OmnidreamsConditioningState(
             renderer=renderer,
@@ -478,6 +482,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         dynamic_actor_pool: CubePool | None = None,
         skip_video_generation: bool = False,
         text_prompts: list[TextPrompt] | None = None,
+        decode: bool = True,
     ) -> GenerationOutput:
         """Render condition frames and continue video generation.
 
@@ -543,8 +548,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
                 autoregressive_index=block_idx,
                 hdmap=condition,
                 cache=state.pipeline_cache,
+                decode=decode,
             )
-            rgb_frames = self._to_uint8(rgb_frames).contiguous()
+            # Latent/token mode (decode=False): pipeline returns None; the latent
+            # is on state.pipeline_cache.clean_latent (surfaced as latent_frames).
+            rgb_frames = self._to_uint8(rgb_frames).contiguous() if decode else None
 
         new_state = OmnidreamsConditioningState(
             renderer=renderer,
