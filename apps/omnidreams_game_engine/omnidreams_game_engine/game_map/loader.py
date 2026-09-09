@@ -2723,7 +2723,7 @@ def _spawn(
     lane_by_id: dict[str, _LaneBuild],
 ) -> GameMapSpawn:
     required = {"id", "road", "lane", "distance_m", "prompt"}
-    unknown = set(raw) - (required | {"image"})
+    unknown = set(raw) - (required | {"image", "prompt_context"})
     missing = required - set(raw)
     if missing or unknown:
         raise GameMapError(
@@ -2754,7 +2754,7 @@ def _spawn(
     alpha = (distance - cumulative[segment]) / max(float(lengths[segment]), 1.0e-9)
     position = points[segment] + alpha * (points[segment + 1] - points[segment])
     direction = points[segment + 1] - points[segment]
-    image, prompt = _parse_spawn_conditioning(raw, source_path)
+    image, prompt, prompt_context = _parse_spawn_conditioning(raw, source_path)
     return GameMapSpawn(
         spawn_id=spawn_id,
         lane_id=lane_id,
@@ -2763,6 +2763,7 @@ def _spawn(
         yaw_rad=math.atan2(float(direction[1]), float(direction[0])),
         image=image,
         prompt=prompt,
+        prompt_context=prompt_context,
     )
 
 
