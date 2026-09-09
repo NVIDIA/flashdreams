@@ -243,7 +243,7 @@ def _parse_spawn_image_paths(
         if not spawn_id or spawn_id in spawn_ids:
             raise GameMapError(f"Spawn id {spawn_id!r} is empty or duplicated")
         spawn_ids.add(spawn_id)
-        image, _ = _parse_spawn_conditioning(raw, source_path)
+        image, _, _ = _parse_spawn_conditioning(raw, source_path)
         result.append(
             (
                 spawn_id,

@@ -49,6 +49,7 @@ def test_scene_forwards_context_selection_to_map_compiler(
 
     assert compiler_options == [
         {
+            "spawn_id": None,
             "use_prompt_context": use_prompt_context,
             "force": False,
         }
