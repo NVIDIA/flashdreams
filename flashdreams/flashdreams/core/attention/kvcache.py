@@ -23,6 +23,13 @@ import torch
 from torch import Tensor
 from typing_extensions import Self
 
+from flashdreams.core.attention.multiview.cache import (
+    FixedSlotKVCache,
+    LayerKV,
+    SlotRegion,
+    TokenWindow,
+)
+
 
 @dataclass
 class BlockKVCache:
@@ -385,3 +392,12 @@ class BlockKVCache:
             )
         self._k.copy_(k)
         self._v.copy_(v)
+
+
+__all__ = [
+    "BlockKVCache",
+    "FixedSlotKVCache",
+    "LayerKV",
+    "SlotRegion",
+    "TokenWindow",
+]
