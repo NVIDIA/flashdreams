@@ -38,6 +38,7 @@ members = [
     "flashdreams-sana-wm",
     "flashdreams-self-forcing",
     "flashdreams-slangpy-ui-demo",
+    "flashdreams-swiftvr",
     "flashdreams-t2v",
     "flashdreams-v2v",
     "flashdreams-wan21",
@@ -1557,6 +1558,34 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+
+[[package]]
+name = "flashdreams-swiftvr"
+version = "0.1.0"
+source = { editable = "integrations_v2/swiftvr" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "diffusers" },
+    { name = "flashdreams" },
+    { name = "flashdreams-v2v" },
+    { name = "safetensors" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", specifier = ">=1.0" },
+    { name = "diffusers", specifier = ">=0.38,<0.39" },
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams-v2v", editable = "apps/v2v" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "safetensors", specifier = ">=0.4" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-t2v"
