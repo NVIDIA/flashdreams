@@ -24,6 +24,7 @@ from aiortc import (
 )
 from loguru import logger
 
+from flashdreams.serving.debug import FD_DEBUG
 from flashdreams.serving.realtime.input import KeyboardResampler
 from flashdreams.serving.token_stream import TokenFrameEmitter, TokenStreamConfig
 from flashdreams.serving.webrtc.encoders import (
@@ -911,6 +912,7 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         return
                     continue
                 t_after_gen = loop.time()
+                _metric_nvenc_ms = 0.0
                 if managed_session.token_emitter is not None:
                     latent = result.metadata.get("latent_chunk")
                     if latent is not None:
@@ -928,7 +930,41 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                         force_keyframe=False,
                     )
                     enqueued = delivery.num_frames
+                    _metric_nvenc_ms = float(getattr(delivery, "encode_ms", 0.0))
                 t_after_enqueue = loop.time()
+                if FD_DEBUG:
+                    # Pure-primitive per-chunk telemetry line (instrumentation only;
+                    # see serving/debug.py). Stage timings (encode/diffuse/vae_decode/
+                    # finalize) and VRAM are already in the pipeline AR line; this adds
+                    # the primitives not otherwise logged: stream mode, wire bytes, and
+                    # the codec sub-timings (SAS quantize on the server, NVENC on pixel).
+                    # No derived rates -- FPS / bits-per-sec are computed off the CSV later.
+                    _emitter = managed_session.token_emitter
+                    if _emitter is not None:
+                        _mode = getattr(_emitter._codec, "codec_id", "token")
+                        _wire_bytes = _emitter.last_wire_bytes
+                        _sas_encode_ms = _emitter.last_encode_ms
+                    else:
+                        _mode = "pixel"
+                        _wire_bytes = -1  # NA here (pixel wire size not exposed server-side)
+                        _sas_encode_ms = 0.0
+                    logger.info(
+                        "METRIC chunk={} mode={} sas={} frames={} wire_bytes={} "
+                        "gen_ms={:.6f} enqueue_ms={:.6f} sas_encode_ms={:.6f} nvenc_ms={:.6f} "
+                        "t_before={:.6f} t_after={:.6f} t_enqueue={:.6f}",
+                        result.chunk_index,
+                        _mode,
+                        "Y" if str(_mode).startswith("sas") else "N",
+                        result.num_frames,
+                        _wire_bytes,
+                        (t_after_gen - t_before_gen) * 1e3,
+                        (t_after_enqueue - t_after_gen) * 1e3,
+                        _sas_encode_ms,
+                        _metric_nvenc_ms,
+                        t_before_gen,
+                        t_after_gen,
+                        t_after_enqueue,
+                    )
 
                 gen_ms = (t_after_gen - t_before_gen) * 1e3
                 enqueue_ms = (t_after_enqueue - t_after_gen) * 1e3

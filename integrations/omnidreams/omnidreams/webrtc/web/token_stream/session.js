@@ -33,6 +33,11 @@ import { TokenStreamSocket } from "./network/token_socket.js"
 import { RenderLoop } from "./render/render_loop.js"
 import { VaeDecoder } from "./gpu/vae_decoder.js"
 
+// Debug/telemetry gate (see flashdreams/serving/debug.py for the server side).
+// Add ?debug to the URL to enable latent capture-for-download and the extra
+// per-chunk instrumentation. Off by default so production pays no memory cost.
+const FD_DEBUG = new URLSearchParams(location.search).has("debug")
+
 const noop = () => {}
 
 export class TokenStreamSession {
@@ -74,6 +79,18 @@ export class TokenStreamSession {
     this._pendingChunks = new Map()
     // chunkId -> wire payload bytes accumulated for the chunk (telemetry).
     this._chunkBytes = new Map()
+    this._lastPresentT = null // wall time of the last presented chunk (client FPS)
+    // chunkId -> accumulated pure SAS-unpack (dequantize) time for the chunk (ms).
+    this._chunkUnpackMs = new Map()
+
+    // --- Latent capture (download-for-offline) --------------------------------
+    // Buffer every frame's latent as it streams in, so the user can download all
+    // latents generated so far. For the raw_f16 codec we keep the EXACT fp16 wire
+    // bytes (byte-identical, .npy dtype '<f2'); for other codecs we fall back to
+    // the decoded latent values as float32 ('<f4', lossy for SAS). Capped so a
+    // long session can't exhaust memory.
+    this._cap = { on: FD_DEBUG, frames: [], dtype: null, frameShape: null, truncated: false }
+    this._capMaxFrames = 20000 // ~2500 chunks safety cap
   }
 
   /** Open the socket and begin consuming token frames. Idempotent. */
@@ -179,6 +196,7 @@ export class TokenStreamSession {
     }
 
     let latent
+    const unpackT0 = performance.now()
     try {
       latent = this._decoder.decode(frame.payload, frame.codecParams)
     } catch (error) {
@@ -191,6 +209,17 @@ export class TokenStreamSession {
       }
       return
     }
+
+    // Pure primitive: accumulate the SAS-unpack (dequantize) time for this chunk.
+    if (FD_DEBUG) {
+      this._chunkUnpackMs.set(
+        frame.chunkId,
+        (this._chunkUnpackMs.get(frame.chunkId) || 0) + (performance.now() - unpackT0)
+      )
+    }
+
+    // Latent capture for offline download (buffers as frames arrive).
+    if (this._cap.on) this._recordLatent(frame, latent)
 
     let frames = this._pendingChunks.get(frame.chunkId)
     if (!frames) {
@@ -216,7 +245,7 @@ export class TokenStreamSession {
       decodedFloats += latent?.length ?? 0
     }
     this._log(
-      `token chunk ${chunkId}: ${latentFrames.length} frames, ${codecId} decoded floats=${decodedFloats} (VAE decode pending)`,
+      `token chunk ${chunkId}: ${latentFrames.length} frames, ${codecId}, ${decodedFloats} latent floats -> VAE decode`,
       { source: "client" }
     )
 
@@ -245,16 +274,34 @@ export class TokenStreamSession {
     try {
       const t0 = performance.now()
       const rgb = await this._vaeDecoder.decode(latentFrames)
-      const decodeMs = performance.now() - t0
+      // Pre-existing telemetry: wall time around decode(), and decode-capacity FPS.
+      let decodeMs = performance.now() - t0
       this._renderLoop.enqueue({ chunkId, frames: rgb.frames ?? [rgb] })
-      // Client GPU load (telemetry panel): RGB frames produced per second of
-      // decode time, the per-chunk decode latency, and the compressed wire bytes
-      // for this chunk. decodeMs is ~pure decode (the decoder's internal queue is
-      // empty at steady state) and excludes network receive and the canvas blit.
       const outFrames = rgb.frames?.length ?? 1
+      let clientFps = decodeMs > 0 ? (outFrames * 1000) / decodeMs : null
+      const _extra = {}
+      if (FD_DEBUG) {
+        // --- added instrumentation only (see flashdreams/serving/debug.py) ---
+        // Prefer the decoder's PURE GPU decode time; the wall time above also
+        // includes the _chain queue wait under pileup, which inflates the panel.
+        if (Number.isFinite(rgb.decodeMs)) decodeMs = rgb.decodeMs
+        // Real display FPS = frames presented per wall-clock second across chunk
+        // arrivals (gen-bound), NOT frames/decode-time (= decode capacity).
+        const nowT = performance.now()
+        clientFps = null
+        if (this._lastPresentT != null) {
+          const dWall = (nowT - this._lastPresentT) / 1000
+          if (dWall > 0) clientFps = outFrames / dWall
+        }
+        this._lastPresentT = nowT
+        // Per-chunk SAS-unpack (dequantize) time (0 for raw).
+        _extra.sasUnpackMs = this._chunkUnpackMs.get(chunkId) || 0
+        this._chunkUnpackMs.delete(chunkId)
+      }
       this._onMetrics({
-        clientFps: decodeMs > 0 ? (outFrames * 1000) / decodeMs : null,
+        clientFps,
         clientLatencyMs: decodeMs,
+        ..._extra,
         payloadBits,
       })
     } catch (error) {
@@ -265,5 +312,98 @@ export class TokenStreamSession {
       // Ack anyway so a decode failure does not deadlock the stream.
       this._socket?.sendAck(chunkId)
     }
+  }
+
+  // --- Latent capture / download -------------------------------------------
+
+  /** Buffer one frame's latent for later download. */
+  _recordLatent(frame, latent) {
+    const cap = this._cap
+    if (cap.frames.length >= this._capMaxFrames) {
+      cap.truncated = true
+      return
+    }
+    const codecId = this._sessionHeader?.codec?.id
+    if (codecId === "raw_f16" && frame.payload != null) {
+      // Exact fp16 wire bytes (little-endian half). .npy dtype '<f2'.
+      if (!cap.dtype) cap.dtype = "<f2"
+      const u8 =
+        frame.payload instanceof Uint8Array
+          ? frame.payload
+          : new Uint8Array(frame.payload)
+      cap.frames.push(u8.slice()) // copy so the socket buffer can be reused
+    } else {
+      // Non-raw codec (e.g. SAS): keep decoded latent values as float32 ('<f4').
+      if (!cap.dtype) cap.dtype = "<f4"
+      cap.frames.push(Float32Array.from(latent))
+    }
+    if (!cap.frameShape && Array.isArray(this._sessionHeader?.latent_shape)) {
+      cap.frameShape = this._sessionHeader.latent_shape.slice()
+    }
+  }
+
+  /** Frames buffered so far + byte size (for the UI). */
+  latentCaptureStats() {
+    let bytes = 0
+    for (const f of this._cap.frames) bytes += f.byteLength
+    return { frames: this._cap.frames.length, bytes, truncated: this._cap.truncated }
+  }
+
+  /**
+   * Serialize all captured latents into a single NumPy .npy file (loadable with
+   * ``np.load``). Shape is ``[frames, ...latent_shape]``; dtype is ``<f2`` for
+   * the exact-fp16 raw codec, else ``<f4``. Returns ``null`` if nothing buffered.
+   */
+  exportLatentsNpy() {
+    const cap = this._cap
+    if (!cap.frames.length) return null
+    const dtype = cap.dtype || "<f4"
+    const elemBytes = dtype === "<f2" ? 2 : 4
+    const nframes = cap.frames.length
+    let dataBytes = 0
+    for (const f of cap.frames) dataBytes += f.byteLength
+    const perFrameElems = dataBytes / elemBytes / nframes
+    let shape
+    if (cap.frameShape && cap.frameShape.reduce((a, b) => a * b, 1) === perFrameElems) {
+      shape = [nframes, ...cap.frameShape]
+    } else {
+      shape = [nframes, Math.round(perFrameElems)]
+    }
+    const data = new Uint8Array(dataBytes)
+    let off = 0
+    for (const f of cap.frames) {
+      const u8 =
+        f instanceof Uint8Array ? f : new Uint8Array(f.buffer, f.byteOffset, f.byteLength)
+      data.set(u8, off)
+      off += u8.byteLength
+    }
+    const header = this._npyHeader(dtype, shape)
+    const blob = new Blob([header, data], { type: "application/octet-stream" })
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+    return {
+      blob,
+      filename: `latents_${ts}.npy`,
+      frames: nframes,
+      bytes: header.byteLength + dataBytes,
+      dtype,
+      shape,
+      truncated: cap.truncated,
+    }
+  }
+
+  /** Build a NumPy v1.0 .npy header (64-byte aligned) for dtype + shape. */
+  _npyHeader(dtype, shape) {
+    const shapeStr = shape.length === 1 ? `(${shape[0]},)` : `(${shape.join(", ")})`
+    let dict = `{'descr': '${dtype}', 'fortran_order': False, 'shape': ${shapeStr}, }`
+    const unpadded = 10 + dict.length + 1 // 8 magic+ver, 2 len, +1 trailing \n
+    const pad = (64 - (unpadded % 64)) % 64
+    dict = dict + " ".repeat(pad) + "\n"
+    const dictBytes = new TextEncoder().encode(dict)
+    const out = new Uint8Array(10 + dictBytes.byteLength)
+    out.set([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 0x01, 0x00], 0) // \x93NUMPY v1.0
+    out[8] = dictBytes.byteLength & 0xff
+    out[9] = (dictBytes.byteLength >> 8) & 0xff
+    out.set(dictBytes, 10)
+    return out
   }
 }

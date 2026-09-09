@@ -103,7 +103,13 @@ export class VaeDecoder {
   }
 
   async _decodeOne(latentFrames) {
+    // Pure GPU decode time (the ONNX/WebGPU run). Measured here, inside the
+    // serialized _chain step, so it excludes the queue-wait that decode() adds
+    // when chunks pile up (startup bursts / slow client). This is the value
+    // reported as client decode / HW time, so it stays accurate under pileup.
+    const t0 = performance.now()
     const rgb = await this._run(this._assembleLatent(latentFrames))
+    const decodeMs = performance.now() - t0
     const frames = applyDisplayTransform({
       data: rgb.data,
       frames: this._out.frames,
@@ -111,7 +117,7 @@ export class VaeDecoder {
       height: this._out.height,
       width: this._out.width,
     })
-    return { frames, width: this._out.width, height: this._out.height }
+    return { frames, width: this._out.width, height: this._out.height, decodeMs }
   }
 
   async _selectPrecision(descriptor) {

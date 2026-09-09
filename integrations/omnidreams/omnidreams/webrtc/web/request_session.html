@@ -66,6 +66,12 @@ SPDX-License-Identifier: Apache-2.0
           <span>Flow</span>
           <strong id="flowText">waiting</strong>
         </div>
+        <button id="downloadLatentsButton" class="connectButton" type="button" disabled
+                style="display:none"
+                title="Download every latent generated so far as a NumPy .npy file. Raw fp16 token mode = exact latents; SAS modes are lossy. Debug-only (?debug).">
+          &#8595; Download latents (.npy)
+        </button>
+        <div class="flowLine" style="display:none"><span>Latents</span><strong id="latentCount">0 frames</strong></div>
       </section>
 
       <section class="controlCard overlayPanel" aria-label="Controls">

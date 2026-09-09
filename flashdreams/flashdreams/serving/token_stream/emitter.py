@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import TYPE_CHECKING, Protocol
 
 from loguru import logger
 
+from flashdreams.serving.debug import FD_DEBUG
 from flashdreams.serving.token_stream import framing
 
 if TYPE_CHECKING:
@@ -49,6 +51,10 @@ class TokenFrameEmitter:
     ) -> None:
         self._ws = ws
         self._codec = codec
+        # Pure-primitive per-chunk telemetry (read by the manager's METRIC log):
+        # wire bytes sent and pure codec-encode (SAS quantize) time for the chunk.
+        self.last_wire_bytes = 0
+        self.last_encode_ms = 0.0
         self._fps = fps
         self._extra_header = extra_header or {}
         self._flow = asyncio.Semaphore(flow_window_size)
@@ -94,8 +100,13 @@ class TokenFrameEmitter:
         self._inflight.add(chunk_index)
 
         total = int(latent.shape[0])
+        wire_bytes = 0
+        encode_ns = 0
         for frame_idx in range(total):
+            _t = time.perf_counter_ns() if FD_DEBUG else None
             result = self._codec.encode_frame(latent[frame_idx])
+            if FD_DEBUG:  # per-chunk SAS-encode timing (see serving/debug.py)
+                encode_ns += time.perf_counter_ns() - _t
             frame = framing.pack_frame(
                 chunk_id=chunk_index,
                 frame_idx=frame_idx,
@@ -105,7 +116,13 @@ class TokenFrameEmitter:
                 is_keyframe=(is_keyframe and frame_idx == 0),
                 is_last_in_chunk=(frame_idx == total - 1),
             )
+            if FD_DEBUG:
+                wire_bytes += len(frame)
             await self._ws.send_bytes(frame)
+        if FD_DEBUG:
+            # Record this chunk's pure primitives for the manager's METRIC log line.
+            self.last_wire_bytes = wire_bytes
+            self.last_encode_ms = encode_ns / 1e6
         return total
 
     def handle_ack(self, chunk_id: int) -> None:

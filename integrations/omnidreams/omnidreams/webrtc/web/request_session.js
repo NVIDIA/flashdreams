@@ -4,7 +4,14 @@
 import { detectWebGPU } from "./token_stream/webgpu.js"
 import { TokenStreamSession } from "./token_stream/session.js"
 
+// Debug/telemetry gate (see flashdreams/serving/debug.py for the server side).
+// The latent .npy download is an offline-analysis aid; add ?debug to the URL to
+// reveal and enable it. Hidden and inert by default.
+const FD_DEBUG = new URLSearchParams(location.search).has("debug")
+
 const connectButton = document.getElementById("connectButton")
+const downloadLatentsButton = document.getElementById("downloadLatentsButton")
+const latentCountEl = document.getElementById("latentCount")
 const statusText = document.getElementById("statusText")
 const flowText = document.getElementById("flowText")
 const eventLog = document.getElementById("eventLog")
@@ -54,6 +61,9 @@ let disconnecting = false
 let heldKeySequence = 0
 let postprocessControlAvailable = false
 let tokenStreamSession = null
+// Kept after stopTokenStream() so its buffered latents remain downloadable right
+// after the stream stops; cleared when a new session is connected.
+let lastTokenSessionForDownload = null
 // True while the token render loop owns idleCanvas, so the idle animation
 // yields the canvas instead of overdrawing decoded frames.
 let tokenRenderActive = false
@@ -691,15 +701,22 @@ async function pollWebRtcStats() {
         framesDecoded: Number(video.framesDecoded),
         totalDecodeTime: Number(video.totalDecodeTime), // cumulative seconds
         bytesReceived: Number(video.bytesReceived),
+        t: performance.now(),
       }
       if (statsPrev && Number.isFinite(now.framesDecoded)) {
         const dFrames = now.framesDecoded - statsPrev.framesDecoded
         const dDecode = now.totalDecodeTime - statsPrev.totalDecodeTime
         const dBytes = now.bytesReceived - statsPrev.bytesReceived
+        const dWall = (now.t - statsPrev.t) / 1000 // wall-clock seconds between polls
         if (dFrames > 0) {
-          // client GPU load = frames decoded per second of decode time
+          // client FPS = actual frames displayed per wall-clock second (real rate,
+          // gen-bound ~13). NOT frames/decode-time -- H.264 decode is sub-ms, which
+          // produced absurd values.
+          if (dWall > 0) {
+            metrics.clientFps = dFrames / dWall
+          }
+          // client decode latency per chunk (real; tiny for H.264 decode)
           if (dDecode > 0) {
-            metrics.clientFps = dFrames / dDecode
             metrics.clientLatencyMs = (dDecode * 1000 * FRAMES_PER_CHUNK) / dFrames
           }
           // wire bits per chunk = bytes*8 scaled from frames to one chunk
@@ -806,6 +823,8 @@ function stopHeartbeat() {
 
 function stopTokenStream() {
   if (tokenStreamSession) {
+    // Keep the reference so the buffered latents stay downloadable after stop.
+    lastTokenSessionForDownload = tokenStreamSession
     tokenStreamSession.stop()
     tokenStreamSession = null
   }
@@ -868,11 +887,28 @@ async function maybeStartTokenStream(webgpu) {
       if (Number.isFinite(m.clientLatencyMs)) metrics.clientLatencyMs = m.clientLatencyMs
       if (Number.isFinite(m.payloadBits)) metrics.payloadBits = m.payloadBits
       renderMetrics()
+      updateLatentCount()
     },
   })
   tokenStreamSession.start()
   tokenRenderActive = true
+  // Latents are now being captured for this token session: enable the download.
+  lastTokenSessionForDownload = null
+  if (downloadLatentsButton) downloadLatentsButton.disabled = false
+  updateLatentCount()
   logEvent("token stream started", { source: "client" })
+}
+
+// Reflect how many latent frames have been buffered so far in the Latents panel.
+function updateLatentCount() {
+  if (!FD_DEBUG) return
+  const sess = tokenStreamSession || lastTokenSessionForDownload
+  const st = sess && sess.latentCaptureStats ? sess.latentCaptureStats() : null
+  if (latentCountEl) {
+    latentCountEl.textContent = st
+      ? `${st.frames} frames � ${(st.bytes / 1048576).toFixed(1)} MB${st.truncated ? " (capped)" : ""}`
+      : "0 frames"
+  }
 }
 
 function disconnectSession({ notify = true } = {}) {
@@ -1128,8 +1164,45 @@ function initialize() {
 }
 
 connectButton.addEventListener("click", () => {
+  // Reset the latent-download state for the new session.
+  lastTokenSessionForDownload = null
+  if (downloadLatentsButton) downloadLatentsButton.disabled = true
+  updateLatentCount()
   void connectSession()
 })
+
+// Download all latents buffered so far as a single NumPy .npy file.
+// Debug-only: revealed and wired only when ?debug is in the URL.
+if (FD_DEBUG && downloadLatentsButton) {
+  downloadLatentsButton.style.display = ""
+  if (latentCountEl && latentCountEl.parentElement) {
+    latentCountEl.parentElement.style.display = ""
+  }
+  downloadLatentsButton.addEventListener("click", () => {
+    const sess = tokenStreamSession || lastTokenSessionForDownload
+    const out = sess && sess.exportLatentsNpy ? sess.exportLatentsNpy() : null
+    if (!out) {
+      logEvent("no latents captured yet � connect a token/SAS session first", {
+        source: "client",
+      })
+      return
+    }
+    const url = URL.createObjectURL(out.blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = out.filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 4000)
+    logEvent(
+      `downloaded ${out.frames} latent frames (${out.dtype}, shape ${JSON.stringify(
+        out.shape
+      )}${out.truncated ? ", capped" : ""}) ? ${out.filename}`,
+      { source: "client" }
+    )
+  })
+}
 remoteVideo.addEventListener("loadedmetadata", updateMetricsFromVideo)
 
 // Telemetry info note: toggle the hidden definitions panel on click; dismiss it
