@@ -31,10 +31,49 @@ from flashdreams.infra.postprocess import (
     VideoSpec,
     to_bvtchw,
 )
-from swiftvr.impl.pipeline import SwiftVRPipeline, SwiftVRStream
+from swiftvr.impl.pipeline import SwiftVRPipeline
 
 _DTypeName = Literal["bfloat16", "float16", "float32"]
 _SWIFTVR_REVISION = "743ed2530c550764905400f38eb6cc41af5abc80"
+
+
+class SwiftVRStream:
+    """Per-video driver for an isolated SwiftVR pipeline cache."""
+
+    def __init__(
+        self,
+        pipeline: SwiftVRPipeline,
+        *,
+        output_height: int,
+        output_width: int,
+        overlap: int,
+    ) -> None:
+        self.pipeline = pipeline
+        self.output_height = output_height
+        self.output_width = output_width
+        self.cache = pipeline.initialize_cache(
+            output_height=output_height,
+            output_width=output_width,
+            overlap=overlap,
+        )
+        self.autoregressive_index = 0
+
+    @torch.inference_mode()
+    def step(self, frames_uint8: Tensor) -> Tensor | None:
+        """Process ``[T,H,W,3]`` uint8 frames."""
+        output = self.pipeline.generate(
+            self.autoregressive_index,
+            self.cache,
+            frames_uint8,
+        )
+        self.pipeline.finalize(self.autoregressive_index, self.cache)
+        self.autoregressive_index += 1
+        return output
+
+    @torch.inference_mode()
+    def flush(self) -> Tensor | None:
+        """Flush the final encoder temporal group."""
+        return self.pipeline.flush(self.cache)
 
 
 @dataclass(kw_only=True)
@@ -142,7 +181,8 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
         if not self.config.prewarm or spec in self._warmed_specs:
             return
         output = self.config.output_spec(spec)
-        stream = pipeline.start_stream(
+        stream = SwiftVRStream(
+            pipeline,
             output_height=output.height,
             output_width=output.width,
             overlap=self.config.dit_overlap,
@@ -240,7 +280,8 @@ class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
     def _ensure_stream(self) -> SwiftVRStream:
         if self._stream is None:
             output = self._processor.config.output_spec(self._spec)
-            self._stream = self._processor.pipeline().start_stream(
+            self._stream = SwiftVRStream(
+                self._processor.pipeline(),
                 output_height=output.height,
                 output_width=output.width,
                 overlap=self._processor.config.dit_overlap,
@@ -333,4 +374,5 @@ __all__ = [
     "POSTPROCESS_PRESET_SWIFTVR_4X",
     "SwiftVRPostProcessor",
     "SwiftVRPostProcessorConfig",
+    "SwiftVRStream",
 ]

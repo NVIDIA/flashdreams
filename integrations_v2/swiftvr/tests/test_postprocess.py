@@ -64,9 +64,23 @@ class _FakePipeline:
         self.device = torch.device("cpu")
         self.starts: list[dict[str, int]] = []
 
-    def start_stream(self, **kwargs: int) -> _FakeStream:
+    def initialize_cache(self, **kwargs: int) -> _FakeStream:
         self.starts.append(kwargs)
         return _FakeStream(kwargs["output_height"], kwargs["output_width"])
+
+    def generate(
+        self,
+        autoregressive_index: int,
+        cache: _FakeStream,
+        frames: torch.Tensor,
+    ) -> torch.Tensor | None:
+        return cache.step(frames)
+
+    def finalize(self, autoregressive_index: int, cache: _FakeStream) -> None:
+        pass
+
+    def flush(self, cache: _FakeStream) -> torch.Tensor | None:
+        return cache.flush()
 
 
 def _install_fake_pipeline(monkeypatch: pytest.MonkeyPatch) -> list[_FakePipeline]:

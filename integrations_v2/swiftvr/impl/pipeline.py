@@ -239,64 +239,9 @@ class SwiftVRPipeline(
         torch.backends.cudnn.allow_tf32 = True
         return pipeline
 
-    def start_stream(
-        self,
-        *,
-        output_height: int,
-        output_width: int,
-        overlap: int,
-    ) -> "SwiftVRStream":
-        """Create a compatibility stream facade over a typed pipeline cache."""
-        return SwiftVRStream(
-            self,
-            output_height=output_height,
-            output_width=output_width,
-            overlap=overlap,
-        )
-
-
-class SwiftVRStream:
-    """Thin per-video driver for the typed SwiftVR pipeline cache."""
-
-    def __init__(
-        self,
-        pipeline: SwiftVRPipeline,
-        *,
-        output_height: int,
-        output_width: int,
-        overlap: int,
-    ) -> None:
-        self.pipeline = pipeline
-        self.output_height = output_height
-        self.output_width = output_width
-        self.cache = pipeline.initialize_cache(
-            output_height=output_height,
-            output_width=output_width,
-            overlap=overlap,
-        )
-        self.autoregressive_index = 0
-
-    @torch.inference_mode()
-    def step(self, frames_uint8: Tensor) -> Tensor | None:
-        """Process ``[T,H,W,3]`` uint8 frames."""
-        output = self.pipeline.generate(
-            self.autoregressive_index,
-            self.cache,
-            frames_uint8,
-        )
-        self.pipeline.finalize(self.autoregressive_index, self.cache)
-        self.autoregressive_index += 1
-        return output
-
-    @torch.inference_mode()
-    def flush(self) -> Tensor | None:
-        """Flush the final encoder temporal group."""
-        return self.pipeline.flush(self.cache)
-
 
 __all__ = [
     "SwiftVRPipeline",
     "SwiftVRPipelineCache",
     "SwiftVRPipelineConfig",
-    "SwiftVRStream",
 ]
