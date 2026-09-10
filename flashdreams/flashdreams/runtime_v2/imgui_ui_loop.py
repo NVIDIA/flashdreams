@@ -32,6 +32,7 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         renderer: _UIRenderer | None = None,
         width: int | None = None,
         height: int | None = None,
+        cuda_device: str | None = None,
     ) -> None:
         """Configure an ImGui loop without eagerly creating GPU resources."""
         if renderer is None:
@@ -39,7 +40,11 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
                 raise ValueError(
                     "width and height are required when renderer is not supplied."
                 )
-            renderer = _ImGuiUIRenderer(width=width, height=height)
+            renderer = _ImGuiUIRenderer(
+                width=width,
+                height=height,
+                cuda_device=cuda_device,
+            )
         self.renderer = renderer
 
     @abstractmethod

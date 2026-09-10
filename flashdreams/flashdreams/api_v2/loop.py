@@ -269,8 +269,9 @@ class IModelLoop(ILoop[StateT], ABC):
     """Loop that generates model results on the model thread.
 
     :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
-    channel, with every channel reporting the same ``frame_count``. Returning a
-    bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    channel, with every channel reporting the same ``frame_count``. An empty
+    list means the step produced no presentable output. Returning a bare
+    :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
     @abstractmethod
@@ -343,7 +344,8 @@ class IModelLoop(ILoop[StateT], ABC):
                     step_completed = True
                 finally:
                     self._finish_run(result, step_completed=step_completed)
-                publish(generation, result, step_elapsed_s)
+                if result:
+                    publish(generation, result, step_elapsed_s)
                 steps_run += 1
         except BaseException as error:
             self._failure_queue.put(error)

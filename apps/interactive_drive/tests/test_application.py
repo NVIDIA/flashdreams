@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections import deque
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -26,10 +27,16 @@ from interactive_drive import (
     InteractiveDriveUILoop,
     download_default_scene,
 )
+from interactive_drive.backends.world_model import WorldModelRenderBackend
 from interactive_drive.input.keyboard import command_from_snapshot
-from interactive_drive.types import ControlSnapshot
+from interactive_drive.types import ControlSnapshot, PresentedFrame
 
-from flashdreams.runtime_v2.session_desc import BackpressureMode, PresentationMode
+from flashdreams.infra.postprocess import (
+    VideoPostprocessChainConfig,
+    VideoPostProcessorConfig,
+    VideoSpec,
+)
+from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -38,6 +45,19 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@dataclass(kw_only=True)
+class _FakePostProcessorConfig(VideoPostProcessorConfig):
+    device: str = "cuda"
+    scale: int = 2
+
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        return replace(
+            input_spec,
+            width=input_spec.width * self.scale,
+            height=input_spec.height * self.scale,
+        )
 
 
 class _FakeUI:
@@ -184,13 +204,16 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
         app=SimpleNamespace(
             chunk=SimpleNamespace(frame_interval_us=33_333),
             vehicle=object(),
+            postprocess=VideoPostprocessChainConfig(),
+            postprocess_device="cuda:0",
+            world_model_device="cuda:0",
         ),
     )
     physics_world: Any = object()
     state = InteractiveDriveModelState(
         backend_factory=lambda _: backend,
         config=config,
-        desc=SimpleNamespace(output_layout="tchw"),
+        desc=SimpleNamespace(output_layout="tchw", video_width=1, video_height=1),
         scene_loader=lambda *args: object(),
         scene=object(),
         vehicle=vehicle,
@@ -211,7 +234,7 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     monkeypatch.setattr(
         core_module,
         "_frame_chunk_tensor",
-        lambda frame_chunk, view_mode: torch.zeros((2, 3, 1, 1)),
+        lambda frame_chunk, view_mode, **_: torch.zeros((2, 3, 1, 1)),
     )
     monkeypatch.setattr(core_module, "_telemetry_status", lambda *args: "ready")
     monkeypatch.setattr(
@@ -232,6 +255,49 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     assert elapsed == [pytest.approx(123.0)]
     assert trajectory_calls[0]["physics_world"] is physics_world
     assert trajectory_calls[0]["capture_physics_debug"] is True
+
+
+def test_world_model_preserves_frame_order_across_buffered_startup() -> None:
+    backend = object.__new__(WorldModelRenderBackend)
+    backend._pending_raster_frames = deque()
+    backend._first_transition_frame = None
+    backend._cache = None
+    backend._pending_finalization_index = None
+
+    def raster_frames(start: int, count: int) -> tuple[PresentedFrame, ...]:
+        return tuple(
+            PresentedFrame(
+                timestamp_us=index,
+                rgb_host_uint8=np.zeros((1, 1, 3), dtype=np.uint8),
+                depth_host_f32=None,
+            )
+            for index in range(start, start + count)
+        )
+
+    assert (
+        backend._merge_frames(raster_frames(0, 5), (), annotate_first_transition=True)
+        == ()
+    )
+
+    first_models = [object() for _ in range(5)]
+    first = backend._merge_frames(raster_frames(5, 8), first_models)
+    assert [frame.timestamp_us for frame in first] == list(range(5))
+    assert [frame.model_rgb_host_uint8 for frame in first] == first_models
+    assert first[-1].status_message == "Optimizing world model..."
+
+    steady_models = [object() for _ in range(8)]
+    steady = backend._merge_frames(raster_frames(13, 8), steady_models)
+    assert [frame.timestamp_us for frame in steady] == list(range(5, 13))
+    assert [frame.model_rgb_host_uint8 for frame in steady] == steady_models
+
+    tail_models = [object() for _ in range(8)]
+    backend._output_stream = SimpleNamespace(
+        finish=lambda: SimpleNamespace(lazy_rgb_frames=lambda: tail_models)
+    )
+    tail = backend.finish()
+    assert [frame.timestamp_us for frame in tail] == list(range(13, 21))
+    assert [frame.model_rgb_host_uint8 for frame in tail] == tail_models
+    assert not backend._pending_raster_frames
 
 
 def test_drive_telemetry_publishes_frame_chunk_size(
@@ -350,11 +416,17 @@ def test_world_model_accepts_postprocess_preset(
         "discover_postprocess_presets",
         lambda: {"example-preset": object()},
     )
+    monkeypatch.setattr(
+        core_module,
+        "resolve_postprocess_preset",
+        lambda _: _FakePostProcessorConfig(),
+    )
     app = InteractiveDriveApplication(
         defaults=InteractiveDriveApplicationDefaults(
             pipeline_config=cast(Any, object()),
         ),
     )
+    initial_desc = app.session_desc()
 
     app.init(
         [
@@ -362,16 +434,56 @@ def test_world_model_accepts_postprocess_preset(
             str(scene),
             "--postprocess-preset",
             "example-preset",
+            "--postprocess-device",
+            "cuda:1",
         ]
     )
 
     assert app._config is not None
     assert isinstance(app._config, InteractiveDriveConfig)
-    assert app._config.app.postprocess.preset == "example-preset"
-    session = app.create_session(app.session_desc())
+    assert app._config.app.postprocess_preset == "example-preset"
+    assert app._config.app.postprocess_device == "cuda:1"
+    (processor,) = app._config.app.postprocess.processors
+    assert isinstance(processor, _FakePostProcessorConfig)
+    assert processor.device == "cuda:1"
+    assert (app.session_desc().video_width, app.session_desc().video_height) == (
+        2560,
+        1408,
+    )
+    session = app.create_session(initial_desc)
+    assert (session.session_desc.video_width, session.session_desc.video_height) == (
+        2560,
+        1408,
+    )
     session.init()
     assert isinstance(session.ui_loop, InteractiveDriveUILoop)
     assert session.ui_loop.state.show_postprocess_toggle
+    assert session.ui_loop.renderer._cuda_device == torch.device("cuda:1")
+
+
+def test_runtime_controls_display_launch_configuration() -> None:
+    state = app_module.InteractiveDriveUIState(
+        model_loop=cast(Any, object()),
+        title="Interactive Drive",
+        prompt="Drive",
+        scene_options=(),
+        world_model_device="cuda:1",
+        raster_device="cuda:1",
+        postprocess_preset="swiftvr-2x",
+        postprocess_device="cuda:0",
+    )
+    loop = InteractiveDriveUILoop(width=1280, height=704)
+    loop.state = state
+    ui = _FakeUI()
+
+    loop._draw_runtime_config(ui)
+
+    assert ui.text_lines == [
+        "World model GPU  cuda:1",
+        "Ludus raster GPU cuda:1",
+        "Postprocessor   swiftvr-2x",
+        "Postprocess GPU cuda:0",
+    ]
 
 
 def test_default_scene_uses_original_hugging_face_location(tmp_path: Path) -> None:
@@ -614,6 +726,38 @@ def test_frame_view_selects_rgb_hdmap_and_physx_streams() -> None:
     physx_view = core_module._frame_chunk_tensor(chunk, "physx")
     assert physx_view[0, 0, 0, 0] == 33
     assert physx_view[0, 0, 0, 1] == 11
+    assert core_module._frame_chunk_tensor(chunk, "rgb", output_size=(4, 6)).shape == (
+        1,
+        3,
+        4,
+        6,
+    )
+
+
+def test_frame_view_keeps_lazy_model_output_as_a_tensor() -> None:
+    class _TensorBackedFrame:
+        def to_cuda_tensor(self) -> torch.Tensor:
+            return torch.full((2, 3, 3), 23, dtype=torch.uint8)
+
+        def __array__(self, *_args: object, **_kwargs: object) -> np.ndarray:
+            raise AssertionError("tensor-backed model frames must not become NumPy")
+
+    chunk = cast(
+        Any,
+        SimpleNamespace(
+            frames=[
+                SimpleNamespace(
+                    rgb_host_uint8=np.zeros((2, 3, 3), dtype=np.uint8),
+                    model_rgb_host_uint8=_TensorBackedFrame(),
+                )
+            ]
+        ),
+    )
+
+    output = core_module._frame_chunk_tensor(chunk, "rgb")
+
+    assert tuple(output.shape) == (1, 3, 2, 3)
+    assert output[0, 0, 0, 0] == 23
 
 
 def test_interactive_drive_discovers_scenes_and_weather_variants(

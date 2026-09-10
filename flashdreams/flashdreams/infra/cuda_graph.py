@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Callable, Optional
 
 import torch
@@ -69,8 +70,8 @@ class CUDAGraphWrapper:
     as a ``dict[int, Tensor]``) and recursing in would break the in-place
     semantics. Pass any per-call-varying tensor as its own arg.
 
-    A change in the staged-tensor signature drops the graph and restarts
-    warmup. ``reset`` does the same explicitly — call it when external
+    A change in the staged-tensor shape, dtype, or device drops the graph and
+    restarts warmup. ``reset`` does the same explicitly — call it when external
     state (e.g. a fresh streaming cache) is swapped out.
 
     Compatibility with ``torch.compile``: a compiled ``fn`` is fine, but
@@ -133,6 +134,7 @@ class CUDAGraphWrapper:
                 isinstance(fresh, torch.Tensor)
                 and slot.shape == fresh.shape
                 and slot.dtype == fresh.dtype
+                and slot.device == fresh.device
             )
         return not isinstance(fresh, torch.Tensor)
 
@@ -219,37 +221,53 @@ class CUDAGraphWrapper:
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         args, kwargs = self._stage(args, kwargs)
 
-        if self._graph is not None:
-            self._graph.replay()
-            # Clone: the next replay would overwrite the static output buffers.
+        cuda_devices = {
+            value.device
+            for value in (*args, *kwargs.values())
+            if isinstance(value, torch.Tensor) and value.is_cuda
+        }
+        if len(cuda_devices) > 1:
+            raise ValueError(
+                "CUDAGraphWrapper cannot capture tensors on multiple devices: "
+                f"{sorted(map(str, cuda_devices))}"
+            )
+        device = next(iter(cuda_devices), None)
+        device_context = (
+            torch.cuda.device(device) if device is not None else nullcontext()
+        )
+
+        with device_context:
+            if self._graph is not None:
+                self._graph.replay()
+                # Clone: the next replay would overwrite the static output buffers.
+                return self._clone_output()
+
+            if self._warmup_remaining > 0:
+                self._warmup_remaining -= 1
+                return self.fn(*args, **kwargs)
+
+            # Capture: trace one full forward against the static buffers.
+            # cudaStreamBeginCapture only records kernels — it does not execute
+            # them — so the static outputs and in-place cache updates are no-ops
+            # here. Replay once immediately to actually compute the output and
+            # advance the cache.
+            #
+            # Keep the graph local until capture and the first replay both
+            # succeed. If capture fails and the caller catches the exception, a
+            # stored-but-invalid CUDAGraph would make the next call fail with
+            # "replay without a preceding successful capture", hiding the real
+            # capture error.
+            graph = torch.cuda.CUDAGraph()
+            # The default PyTorch/CUDA capture mode is global: CUDA work in any
+            # other host thread can invalidate capture. Interactive-drive uses a
+            # UI-thread presenter that can enqueue CUDA interop work while the
+            # model worker captures/replays graph-backed stages, so keep capture
+            # restrictions local to the worker thread.
+            with torch.cuda.graph(graph, capture_error_mode=self.capture_error_mode):
+                out = self.fn(*args, **kwargs)
+            out_leaves, out_spec = tree_flatten(out)
+            graph.replay()
+            self._graph = graph
+            self._out_spec = out_spec
+            self._static_out_leaves = out_leaves
             return self._clone_output()
-
-        if self._warmup_remaining > 0:
-            self._warmup_remaining -= 1
-            return self.fn(*args, **kwargs)
-
-        # Capture: trace one full forward against the static buffers.
-        # cudaStreamBeginCapture only records kernels — it does not execute
-        # them — so the static outputs and in-place cache updates are no-ops
-        # here. Replay once immediately to actually compute the output and
-        # advance the cache.
-        #
-        # Keep the graph local until capture and the first replay both
-        # succeed. If capture fails and the caller catches the exception, a
-        # stored-but-invalid CUDAGraph would make the next call fail with
-        # "replay without a preceding successful capture", hiding the real
-        # capture error.
-        graph = torch.cuda.CUDAGraph()
-        # The default PyTorch/CUDA capture mode is global: CUDA work in any
-        # other host thread can invalidate capture. Interactive-drive uses a
-        # UI-thread presenter that can enqueue CUDA interop work while the
-        # model worker captures/replays graph-backed stages, so keep capture
-        # restrictions local to the worker thread.
-        with torch.cuda.graph(graph, capture_error_mode=self.capture_error_mode):
-            out = self.fn(*args, **kwargs)
-        out_leaves, out_spec = tree_flatten(out)
-        graph.replay()
-        self._graph = graph
-        self._out_spec = out_spec
-        self._static_out_leaves = out_leaves
-        return self._clone_output()

@@ -303,6 +303,51 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
     assert model_loop.inference_state is ModelInferenceState.FINISHED
 
 
+def test_model_loop_does_not_publish_buffered_steps() -> None:
+    class BufferedModelLoop(IModelLoop[None]):
+        """Buffer the first model step before emitting output."""
+
+        def step(
+            self,
+            step_index: int,
+            events: UserInputEvents,
+        ) -> list[StepResult]:
+            del events
+            if step_index == 0:
+                return []
+            return [
+                StepResult(
+                    step_index=step_index,
+                    output=torch.zeros((1, 3, 1, 1, 1)),
+                    frame_count=1,
+                    output_layout=VideoTensorLayout.bcthw,
+                )
+            ]
+
+    failure_queue: queue.Queue[BaseException] = queue.Queue()
+    model_loop = BufferedModelLoop()
+    model_loop.register_session_loop_objects(
+        state=None,
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=failure_queue,
+    )
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+    published: list[list[StepResult]] = []
+
+    model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda _generation, results, _elapsed: published.append(results),
+        max_steps=2,
+    )
+
+    assert failure_queue.empty()
+    assert len(published) == 1
+    assert published[0][0].step_index == 1
+
+
 class CallLog:
     """Record calls made from either thread, with the thread that made them."""
 

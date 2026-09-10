@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,8 @@ class WorldModelRenderBackend(RenderBackend):
         self._cache: Any | None = None
         self._step_index = 0
         self._pending_finalization_index: int | None = None
+        self._pending_raster_frames: deque[PresentedFrame] = deque()
+        self._first_transition_frame: PresentedFrame | None = None
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
@@ -291,6 +294,8 @@ class WorldModelRenderBackend(RenderBackend):
             return
         self._postprocess_enabled = enabled
         self._output_stream.finish()
+        self._pending_raster_frames.clear()
+        self._first_transition_frame = None
         self._output_stream = self._new_output_stream()
 
     def close(self) -> None:
@@ -299,6 +304,20 @@ class WorldModelRenderBackend(RenderBackend):
 
     def finalize(self) -> dict[str, float] | None:
         return self._finalize_pending()
+
+    def finish(self) -> tuple[PresentedFrame, ...]:
+        """Flush delayed post-processing output for a finite rollout."""
+        self._finalize_pending()
+        result = self._output_stream.finish()
+        model_frames = [] if result is None else list(result.lazy_rgb_frames())
+        _synchronize_cuda_frame_event(model_frames)
+        merged_frames = self._merge_frames((), model_frames)
+        if self._pending_raster_frames:
+            raise RuntimeError(
+                "Post-processing finished without emitting "
+                f"{len(self._pending_raster_frames)} buffered frames."
+            )
+        return merged_frames
 
     def _start_pipeline(
         self,
@@ -332,41 +351,38 @@ class WorldModelRenderBackend(RenderBackend):
                 f"{len(condition_frames)} vs {expected_frames}."
             )
         step_index = self._step_index
-        video_chunk = self._pipeline.generate(
-            autoregressive_index=step_index,
-            cache=self._cache,
-            input=self._condition_tensor(condition_frames),
-        )
+        with torch.cuda.device(self._pipeline.device):
+            video_chunk = self._pipeline.generate(
+                autoregressive_index=step_index,
+                cache=self._cache,
+                input=self._condition_tensor(condition_frames),
+            )
         self._pending_finalization_index = step_index
         result = self._output_stream.process(
             video_chunk,
             autoregressive_index=step_index,
             metrics={},
         )
-        if result.frame_count != expected_frames:
-            raise RuntimeError(
-                f"Expected {expected_frames} generated frames, "
-                f"got {result.frame_count}."
-            )
         self._step_index += 1
         model_frames = list(result.lazy_rgb_frames())
-        _synchronize_cuda_frame_event(model_frames)
         return model_frames
 
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
-        return self._pipeline.initialize_cache(
-            text=[[prompt]],
-            image=self._initial_rgb_tensor(initial_rgb),
-            view_names=_VIEW_NAMES,
-        )
+        with torch.cuda.device(self._pipeline.device):
+            return self._pipeline.initialize_cache(
+                text=[[prompt]],
+                image=self._initial_rgb_tensor(initial_rgb),
+                view_names=_VIEW_NAMES,
+            )
 
     def _finalize_pending(self) -> dict[str, float] | None:
         if self._cache is None or self._pending_finalization_index is None:
             return {}
-        metrics = self._pipeline.finalize(
-            autoregressive_index=self._pending_finalization_index,
-            cache=self._cache,
-        )
+        with torch.cuda.device(self._pipeline.device):
+            metrics = self._pipeline.finalize(
+                autoregressive_index=self._pending_finalization_index,
+                cache=self._cache,
+            )
         self._pending_finalization_index = None
         return metrics
 
@@ -383,6 +399,8 @@ class WorldModelRenderBackend(RenderBackend):
         self._cache = None
         self._step_index = 0
         self._output_stream.finish()
+        self._pending_raster_frames.clear()
+        self._first_transition_frame = None
         if recreate_output_stream:
             self._output_stream = self._new_output_stream()
 
@@ -456,17 +474,18 @@ class WorldModelRenderBackend(RenderBackend):
         *,
         annotate_first_transition: bool = False,
     ) -> tuple[PresentedFrame, ...]:
-        if len(raster_frames) != len(model_frames):
+        self._pending_raster_frames.extend(raster_frames)
+        if annotate_first_transition and raster_frames:
+            self._first_transition_frame = raster_frames[-1]
+        if len(model_frames) > len(self._pending_raster_frames):
             raise ValueError(
-                "World-model output frame count does not match the conditioning chunk size: "
-                f"{len(model_frames)} vs {len(raster_frames)}"
+                "World-model output exceeds the buffered conditioning frames: "
+                f"{len(model_frames)} vs {len(self._pending_raster_frames)}"
             )
 
         merged: list[PresentedFrame] = []
-        last_index = len(raster_frames) - 1
-        for index, (raster_frame, model_rgb) in enumerate(
-            zip(raster_frames, model_frames, strict=True)
-        ):
+        for model_rgb in model_frames:
+            raster_frame = self._pending_raster_frames.popleft()
             merged.append(
                 PresentedFrame(
                     timestamp_us=raster_frame.timestamp_us,
@@ -480,11 +499,13 @@ class WorldModelRenderBackend(RenderBackend):
                     physx_rgb_host_uint8=raster_frame.physx_rgb_host_uint8,
                     status_message=(
                         _FIRST_STEADY_STATE_WARMUP_MESSAGE
-                        if annotate_first_transition and index == last_index
+                        if raster_frame is self._first_transition_frame
                         else None
                     ),
                 )
             )
+            if raster_frame is self._first_transition_frame:
+                self._first_transition_frame = None
         return tuple(merged)
 
 

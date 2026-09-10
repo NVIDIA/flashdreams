@@ -121,7 +121,7 @@ class _LudusConditionRasterizerImpl:
         self._bev = bev
         self._ego_dimensions_lwh = ego_dimensions_lwh
         self._max_chunk_frames = int(max_chunk_frames)
-        self._device = torch.device("cuda:0")
+        self._device = torch.device(raster.device)
         self._use_cuda_frames = not env_truthy(DISABLE_CUDA_INTEROP_ENV)
         if self._use_cuda_frames:
             logger.info(
@@ -133,7 +133,7 @@ class _LudusConditionRasterizerImpl:
                 "using host raster frames",
             )
 
-        logger.info("[rasterizer] ludus_backend=cuda")
+        logger.info(f"[rasterizer] ludus_backend=cuda device={self._device}")
         self.ctx = LudusCudaTimestampedContext(device=self._device)
         self.ctx.set_depth_scaling(True)
         self.ctx.set_msaa_samples(4)

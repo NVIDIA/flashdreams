@@ -77,7 +77,9 @@ optional and follow the `--` separator:
 | `--no-ui` | Present model output directly without creating the HUD or rendering its BEV minimap. |
 | `--game-mode` | Enable the speed limit and collisions with scene actors and static map geometry. |
 | `--postprocess-preset NAME` | Start with a registered video post-processing preset enabled. Default: none. |
+| `--postprocess-device DEVICE` | Select the postprocessor device independently. Default: `cuda:0`. |
 | `--world-model-device DEVICE` | Select the model device. Default: `cuda:0`. |
+| `--raster-device DEVICE` | Select the Ludus raster device independently. Default: `cuda:0`. |
 | `--world-model-seed N` | Pin the seed used for each rollout. |
 | `--world-model-debug-condition-frame-dir PATH` | Override first-chunk condition frames for debugging. |
 
@@ -110,6 +112,37 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams-perf --mode native-window
 ```
 
 The HUD's view button cycles through **RGB → HDMAP → PHYSX**.
+
+### SwiftVR on two GPUs
+
+Install OmniDreams, Interactive Drive, and the SwiftVR package from PR #606:
+
+```bash
+uv sync --package flashdreams-omnidreams --package flashdreams-swiftvr \
+    --extra interactive-drive --inexact
+```
+
+The world model and Ludus rasterizer can share one GPU while SwiftVR runs on
+another. This example assigns OmniDreams and Ludus to `cuda:1`, assigns the
+SwiftVR 2x postprocessor to `cuda:0`, and generates 832x464 frames before
+upscaling them to 1664x928:
+
+```bash
+uv run --no-sync flashdreams-run-v2 \
+    interactive-drive-omnidreams-optimized-gb300 \
+    --mode webrtc --host 0.0.0.0 --port 8089 -- \
+    --width 832 --height 464 \
+    --world-model-device cuda:1 --raster-device cuda:1 \
+    --postprocess-preset swiftvr-2x --postprocess-device cuda:0
+```
+
+Use `swiftvr-4x` for the PR #606 4x preset. CUDA ordinals are assigned after
+`CUDA_VISIBLE_DEVICES` is applied, so set that environment variable explicitly
+when physical GPU placement matters. The HUD displays the fixed launch-time
+device and preset choices; its **Post-processing** checkbox enables or bypasses
+the configured processor without reloading either model. Presentation stays on
+the selected postprocessor GPU in both modes, so toggling does not change the
+Vulkan/CUDA interop device.
 
 When `--postprocess-preset` is set, the preset starts enabled and the HUD's
 **Post-processing** checkbox can toggle it between generated chunks. Without a

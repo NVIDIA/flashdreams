@@ -16,13 +16,17 @@ from typing import Any, Literal
 import numpy as np
 import torch
 from torch import Tensor
+from torch.nn import functional as F
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
-from flashdreams.infra.postprocess import VideoPostprocessChainConfig
-from flashdreams.plugins.registry import discover_postprocess_presets
+from flashdreams.infra.postprocess import VideoPostprocessChainConfig, VideoSpec
+from flashdreams.plugins.registry import (
+    discover_postprocess_presets,
+    resolve_postprocess_preset,
+)
 from flashdreams.runtime.keyboard import normalize_key
 from flashdreams.runtime_v2.session_desc import BackpressureMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -302,21 +306,34 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         )
         state.first_chunk = False
         state.blocks_generated += 1
-        output = _frame_chunk_tensor(chunk, state.view_mode)
+        finished = self.is_finished()
+        if finished:
+            chunk = replace(
+                chunk,
+                frames=(*chunk.frames, *state.backend.finish()),
+            )
+        output = _frame_chunk_tensor(
+            chunk,
+            state.view_mode,
+            output_size=(state.desc.video_height, state.desc.video_width),
+            output_device=_output_cuda_device(state.config.app),
+        )
         state._notify(
             "Rollout complete."
-            if self.is_finished()
+            if finished
             else _telemetry_status(state.vehicle, state.blocks_generated)
         )
-        results = [
-            StepResult(
-                step_index=step_index,
-                output=output,
-                frame_count=int(output.shape[0]),
-                output_layout=state.desc.output_layout,
-                metrics=finalize_metrics,
+        results = []
+        if output.shape[0]:
+            results.append(
+                StepResult(
+                    step_index=step_index,
+                    output=output,
+                    frame_count=int(output.shape[0]),
+                    output_layout=state.desc.output_layout,
+                    metrics=finalize_metrics,
+                )
             )
-        ]
         bev_output = self._bev_chunk_tensor(chunk)
         if bev_output is not None:
             results.append(
@@ -445,6 +462,7 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._default_fps = defaults.fps
         self._default_width = defaults.width
         self._default_height = defaults.height
+        self._initial_session_video_size = (defaults.width, defaults.height)
         self._backend_factory = partial(
             _build_backend,
             pipeline_config=defaults.pipeline_config,
@@ -499,7 +517,17 @@ class _InteractiveDriveApplicationBase(IApplication):
                 "A configured preset starts enabled and can be toggled in the HUD."
             ),
         )
+        parser.add_argument(
+            "--postprocess-device",
+            default="cuda:0",
+            help="CUDA device for the selected postprocessor. Defaults to cuda:0.",
+        )
         parser.add_argument("--world-model-device", default="cuda:0")
+        parser.add_argument(
+            "--raster-device",
+            default="cuda:0",
+            help="CUDA device for Ludus rasterization. Defaults to cuda:0.",
+        )
         parser.add_argument("--world-model-seed", type=int)
         parser.add_argument(
             "--world-model-debug-condition-frame-dir",
@@ -516,7 +544,15 @@ class _InteractiveDriveApplicationBase(IApplication):
         if args.fps <= 0 or args.width <= 0 or args.height <= 0:
             raise ValueError("--fps, --width, and --height must be > 0.")
         chunk = ChunkConfig(fps=args.fps)
-        raster = RasterConfig(width=args.width, height=args.height)
+        raster = RasterConfig(
+            width=args.width,
+            height=args.height,
+            device=args.raster_device,
+        )
+        postprocess = _postprocess_config(
+            preset=args.postprocess_preset,
+            device=args.postprocess_device,
+        )
         app_config = AppConfig(
             scene_path=scene,
             game_mode=args.game_mode,
@@ -526,13 +562,13 @@ class _InteractiveDriveApplicationBase(IApplication):
             chunk=chunk,
             raster=raster,
             world_model_device=args.world_model_device,
+            postprocess_preset=args.postprocess_preset,
+            postprocess_device=args.postprocess_device,
             world_model_seed=args.world_model_seed,
             world_model_debug_condition_frame_dir=(
                 args.world_model_debug_condition_frame_dir
             ),
-            postprocess=VideoPostprocessChainConfig(
-                preset=args.postprocess_preset,
-            ),
+            postprocess=postprocess,
             bev=BevConfig(enabled=False),
             vehicle=VehicleConfig(),
         )
@@ -542,11 +578,18 @@ class _InteractiveDriveApplicationBase(IApplication):
             view_mode=args.view,
             no_ui=args.no_ui,
         )
+        output_spec = postprocess.output_spec(
+            VideoSpec(
+                width=app_config.raster.width,
+                height=app_config.raster.height,
+                fps=app_config.chunk.fps,
+            )
+        )
         self._desc = replace(
             self._desc,
             frames_per_second_for_step=app_config.chunk.fps,
-            video_width=app_config.raster.width,
-            video_height=app_config.raster.height,
+            video_width=output_spec.width,
+            video_height=output_spec.height,
         )
 
     def session_desc(self) -> SessionDesc:
@@ -568,11 +611,9 @@ def _build_backend(
             seed=(42 if config.world_model_seed is None else config.world_model_seed)
         ),
     )
-    pipeline = (
-        resolved_pipeline_config.setup()
-        .to(torch.device(config.world_model_device))
-        .eval()
-    )
+    world_model_device = torch.device(config.world_model_device)
+    with torch.cuda.device(world_model_device):
+        pipeline = resolved_pipeline_config.setup().to(world_model_device).eval()
     if config.world_model_seed is None:
         pipeline.diffusion_model.config.seed = None
     return WorldModelRenderBackend(
@@ -583,6 +624,42 @@ def _build_backend(
         vehicle=config.vehicle,
         postprocess=config.postprocess,
         debug_condition_frame_dir=config.world_model_debug_condition_frame_dir,
+    )
+
+
+def _postprocess_config(
+    *,
+    preset: str,
+    device: str,
+) -> VideoPostprocessChainConfig:
+    """Resolve a preset and override only its launch-time CUDA device."""
+    if not preset:
+        return VideoPostprocessChainConfig()
+    processor = resolve_postprocess_preset(preset)
+    configured_device: str | int = device
+    if isinstance(getattr(processor, "device", None), int):
+        try:
+            configured_device = int(device.removeprefix("cuda:"))
+        except ValueError as error:
+            raise ValueError(
+                f"Postprocess preset {preset!r} requires a CUDA device ordinal, "
+                f"got {device!r}."
+            ) from error
+    elif not hasattr(processor, "device"):
+        raise ValueError(
+            f"Postprocess preset {preset!r} does not expose a selectable device."
+        )
+    return VideoPostprocessChainConfig(
+        processors=(replace(processor, device=configured_device),)
+    )
+
+
+def _output_cuda_device(config: AppConfig) -> str:
+    """Keep bypassed and processed frames on the UI presentation GPU."""
+    return (
+        config.postprocess_device
+        if config.postprocess.is_enabled()
+        else config.world_model_device
     )
 
 
@@ -615,7 +692,14 @@ def _gamepad_button_pressed(event: GamepadUserInputEvent, index: int) -> bool:
     return len(event.buttons) > index and event.buttons[index] > 0.5
 
 
-def _frame_chunk_tensor(chunk: FrameChunk, view_mode: ViewMode) -> Tensor:
+def _frame_chunk_tensor(
+    chunk: FrameChunk,
+    view_mode: ViewMode,
+    *,
+    output_size: tuple[int, int] | None = None,
+    output_device: str | torch.device | None = None,
+) -> Tensor:
+    """Convert an emitted frame chunk to TCHW at the session resolution."""
     frames: list[Tensor] = []
     for frame in chunk.frames:
         if view_mode == "physx":
@@ -643,6 +727,14 @@ def _frame_chunk_tensor(chunk: FrameChunk, view_mode: ViewMode) -> Tensor:
                 if frame.model_rgb_host_uint8 is not None
                 else frame.rgb_host_uint8
             )
+            tensor = _cuda_frame_tensor(value)
+            if tensor is not None:
+                if tensor.ndim != 3 or tensor.shape[-1] < 3:
+                    raise ValueError(
+                        f"Expected HWC frame, received shape {tuple(tensor.shape)}"
+                    )
+                frames.append(tensor[..., :3].permute(2, 0, 1))
+                continue
             array = np.asarray(value)
         tensor = torch.from_numpy(np.ascontiguousarray(array))
         if tensor.ndim != 3:
@@ -651,8 +743,42 @@ def _frame_chunk_tensor(chunk: FrameChunk, view_mode: ViewMode) -> Tensor:
             )
         frames.append(tensor.permute(2, 0, 1))
     if not frames:
-        raise ValueError("The world-model backend returned an empty frame chunk.")
-    return torch.stack(frames)
+        if output_size is None:
+            raise ValueError("The world-model backend returned an empty frame chunk.")
+        return torch.empty((0, 3, *output_size), dtype=torch.uint8)
+    output = torch.stack(frames)
+    if output_size is not None and output.shape[-2:] != output_size:
+        output = (
+            F.interpolate(
+                output.float(),
+                size=output_size,
+                mode="bilinear",
+                align_corners=False,
+            )
+            .round_()
+            .clamp_(0, 255)
+            .to(torch.uint8)
+        )
+    return (
+        output.to(device=output_device, non_blocking=True) if output_device else output
+    )
+
+
+def _cuda_frame_tensor(value: object) -> Tensor | None:
+    """Return a lazy frame tensor without synchronously copying it to the host."""
+    to_cuda_tensor = getattr(value, "to_cuda_tensor", None)
+    try:
+        tensor = to_cuda_tensor() if callable(to_cuda_tensor) else None
+    except RuntimeError:
+        return None
+    if not torch.is_tensor(tensor):
+        return None
+    if tensor.is_cuda:
+        to_cuda_event = getattr(value, "to_cuda_event", None)
+        event = to_cuda_event() if callable(to_cuda_event) else None
+        if event is not None:
+            torch.cuda.current_stream(tensor.device).wait_event(event)
+    return tensor
 
 
 def _telemetry_status(vehicle: VehicleState, blocks: int) -> str:
