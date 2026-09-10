@@ -9,11 +9,13 @@ import queue
 import threading
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
+import cam2v.application as cam2v_application
 import cam2v.session as cam2v_session
 import cam2v.ui as cam2v_ui
 import pytest
@@ -25,6 +27,7 @@ from cam2v import (
     Cam2VConditioning,
     Cam2VModelLoop,
     Cam2VModelState,
+    Cam2VPostprocessComparisonSlangPyUILoop,
     Cam2VSession,
     Cam2VSessionConfig,
     Cam2VSlangPyUILoop,
@@ -38,6 +41,8 @@ from cam2v.dummy import DummyCam2VPipelineConfig
 from cam2v.dummy import create_app as create_dummy_app
 from numpy import uint64
 
+import flashdreams.plugins.registry as registry_module
+from flashdreams.infra.postprocess import VideoPostProcessorConfig, VideoSpec
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -58,6 +63,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -263,6 +269,48 @@ def _input_test_model_loop(
     return model_loop, state, pipeline
 
 
+def test_model_loop_reset_restores_existing_generation_state() -> None:
+    """Keep the reset behavior that Cam2V already exposed on origin/main."""
+    model_loop, state, _ = _input_test_model_loop()
+    postprocess_stream = Mock()
+    state.postprocess_stream = postprocess_stream
+    state.blocks_generated = 3
+    state.frames_generated = 6
+    state.input_timeline.next_window(2)
+    assert state.keyboard_track.on_edge(timestamp_s=1.0, action="keydown", key="w")
+    state.pose_integrator.integrate_chunk(
+        segments=[(0.0, 1.0, frozenset({"w"}))],
+        frame_times=[1.0],
+    )
+    state.steady_started_at = 1.0
+    state.steady_frames_generated = 6
+    state._recent_model_frame_rate_tracker.observe(
+        completed_at=1.0,
+        frame_count=6,
+        elapsed_s=1.0,
+    )
+    state.comparison_pending_generated_frames = torch.ones((1, 3, 1, 1))
+
+    model_loop.reset()
+
+    postprocess_stream.reset.assert_called_once_with()
+    assert state.cache is None
+    assert state.blocks_generated == 0
+    assert state.frames_generated == 0
+    assert state.input_timeline.next_window_start_s == 0.0
+    assert state.keyboard_track.pending_event_count == 0
+    assert state.pose_integrator.current_pose().tolist() == [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    assert state.steady_started_at is None
+    assert state.steady_frames_generated == 0
+    assert state._recent_model_frame_rate_tracker.snapshot().frames_per_second() == 0.0
+    assert state.comparison_pending_generated_frames is None
+
+
 def test_model_loop_logs_each_ar_step_wall_timing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -289,6 +337,223 @@ def test_model_loop_logs_each_ar_step_wall_timing(
     assert frame_count == 2
     assert wall_ms > 0.0
     assert chunk_fps == pytest.approx(2_000.0 / wall_ms)
+
+
+def test_model_loop_waits_for_postprocessing_in_presentation_timing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Base presentation cadence on completed model and processor work."""
+    model_loop, state, _ = _input_test_model_loop()
+
+    class _PostprocessStream:
+        @staticmethod
+        def process(
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            return output + 1
+
+    postprocess_stream: Any = _PostprocessStream()
+    state.postprocess_stream = postprocess_stream
+    state.postprocess_enabled = True
+    synchronized: list[torch.Tensor] = []
+    monkeypatch.setattr(cam2v_session, "_synchronize_output", synchronized.append)
+    elapsed = iter((1.0, 2.0, 4.0))
+    monkeypatch.setattr(cam2v_session.time, "perf_counter", lambda: next(elapsed))
+
+    result = model_loop.step(0, UserInputEvents([]))[0]
+
+    assert len(synchronized) == 2
+    assert torch.equal(synchronized[1], torch.ones((2, 3, 1, 1)))
+    assert result.metrics["model_step_wall_s"] == 1.0
+    assert result.metrics["postprocess_step_wall_s"] == 2.0
+    assert result.metrics["model_loop_wall_s"] == 3.0
+
+
+def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled() -> (
+    None
+):
+    """Advance the resident postprocessor while presenting the generated frames."""
+    model_loop, state, _ = _input_test_model_loop()
+    state.session_desc = replace(state.session_desc, video_width=2, video_height=2)
+
+    class _PostprocessStream:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def process(
+            self,
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            self.calls += 1
+            return output + 1
+
+    postprocess_stream: Any = _PostprocessStream()
+    state.postprocess_stream = postprocess_stream
+    state.postprocess_enabled = False
+
+    result = model_loop.step(0, UserInputEvents([]))[0]
+
+    assert postprocess_stream.calls == 1
+    assert torch.equal(result.read_output(), torch.zeros((2, 3, 2, 2)))
+    assert result_to_rgb24_tensor(result, state.session_desc).shape == (2, 2, 2, 3)
+    assert result.metrics["postprocess_enabled"] == 0
+    assert result.metrics["postprocess_output_frames"] == 2
+
+
+@pytest.mark.parametrize(
+    ("layout", "shape"),
+    (
+        (VideoTensorLayout.tchw, (2, 3, 1, 1)),
+        (VideoTensorLayout.btchw, (1, 2, 3, 1, 1)),
+        (VideoTensorLayout.bcthw, (1, 3, 2, 1, 1)),
+        (VideoTensorLayout.bvtchw, (1, 1, 2, 3, 1, 1)),
+    ),
+)
+def test_raw_presentation_resize_preserves_supported_video_layouts(
+    layout: VideoTensorLayout,
+    shape: tuple[int, ...],
+) -> None:
+    """Keep raw fallback frames compatible with every declared output layout."""
+    frames = torch.zeros(shape)
+
+    resized = cam2v_session._resize_raw_for_presentation(
+        frames,
+        layout=layout,
+        height=2,
+        width=2,
+    )
+
+    assert resized.shape[:-2] == frames.shape[:-2]
+    assert resized.shape[-2:] == (2, 2)
+
+
+def test_model_loop_flushes_postprocessing_even_when_presentation_is_disabled() -> None:
+    """Drain a completed processor without presenting its final tail."""
+    model_loop, state, _ = _input_test_model_loop()
+
+    class _PostprocessStream:
+        def __init__(self) -> None:
+            self.finish_calls = 0
+
+        @staticmethod
+        def process(
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del autoregressive_index
+            return output + 1
+
+        def finish(self) -> torch.Tensor:
+            self.finish_calls += 1
+            return torch.full((1, 3, 1, 1), 2.0)
+
+    postprocess_stream: Any = _PostprocessStream()
+    state.postprocess_stream = postprocess_stream
+    state.postprocess_enabled = False
+    state.blocks_generated = state.config.total_blocks - 1
+
+    result = model_loop.step(0, UserInputEvents([]))[0]
+
+    assert postprocess_stream.finish_calls == 1
+    assert torch.equal(result.read_output(), torch.zeros((2, 3, 1, 1)))
+    assert result.metrics["postprocess_output_frames"] == 3
+
+
+def test_model_loop_pairs_original_and_postprocessed_frames_for_comparison() -> None:
+    """Pair delayed postprocessor output with the oldest generated frames."""
+    model_loop, state, _ = _input_test_model_loop()
+
+    def generate_step(
+        pipeline: object,
+        step_index: int,
+        cache: object,
+        camera_input: CameraControlInput,
+    ) -> torch.Tensor:
+        del pipeline, cache, camera_input
+        return torch.full((2, 3, 1, 1), float(step_index))
+
+    class _DelayedPostprocessStream:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def process(
+            self,
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del output, autoregressive_index
+            self.calls += 1
+            frame_count = 1 if self.calls == 1 else 3
+            return torch.full((frame_count, 3, 2, 2), float(self.calls + 9))
+
+    state.config = replace(
+        state.config,
+        generate_step=generate_step,
+        postprocess_comparison=True,
+    )
+    postprocess_stream: Any = _DelayedPostprocessStream()
+    state.postprocess_stream = postprocess_stream
+
+    first = model_loop.step(0, UserInputEvents([]))[0].read_output()
+    second = model_loop.step(1, UserInputEvents([]))[0].read_output()
+
+    assert first.shape == (1, 3, 2, 4)
+    assert torch.equal(first[:, :, :, :2], torch.zeros((1, 3, 2, 2)))
+    assert torch.equal(first[:, :, :, 2:], torch.full((1, 3, 2, 2), 10.0))
+    assert second.shape == (3, 3, 2, 4)
+    assert torch.equal(second[:, 0, 0, 0], torch.tensor([0.0, 1.0, 1.0]))
+    assert torch.equal(second[:, :, :, 2:], torch.full((3, 3, 2, 2), 11.0))
+    assert state.comparison_pending_generated_frames is None
+
+
+def test_model_loop_includes_the_postprocess_tail_in_a_comparison() -> None:
+    """Pair final postprocessor tail frames with the remaining original frames."""
+    model_loop, state, _ = _input_test_model_loop()
+
+    class _TailPostprocessStream:
+        def __init__(self) -> None:
+            self.finish_calls = 0
+
+        @staticmethod
+        def process(
+            output: torch.Tensor,
+            *,
+            autoregressive_index: int,
+        ) -> torch.Tensor:
+            del output, autoregressive_index
+            return torch.full((1, 3, 2, 2), 1.0)
+
+        def finish(self) -> torch.Tensor:
+            self.finish_calls += 1
+            return torch.full((1, 3, 2, 2), 2.0)
+
+    postprocess_stream: Any = _TailPostprocessStream()
+    state.config = replace(
+        state.config,
+        total_blocks=1,
+        postprocess_comparison=True,
+    )
+    state.postprocess_stream = postprocess_stream
+
+    result = model_loop.step(0, UserInputEvents([]))[0]
+    output = result.read_output()
+
+    assert postprocess_stream.finish_calls == 1
+    assert output.shape == (2, 3, 2, 4)
+    assert torch.equal(output[:, :, :, :2], torch.zeros((2, 3, 2, 2)))
+    expected_postprocessed = (
+        torch.tensor([1.0, 2.0]).view(2, 1, 1, 1).expand(2, 3, 2, 2)
+    )
+    assert torch.equal(output[:, :, :, 2:], expected_postprocessed)
+    assert state.comparison_pending_generated_frames is None
 
 
 def test_keyboard_resampler_keeps_an_aliased_key_held_until_all_sources_release() -> (
@@ -365,6 +630,46 @@ def test_slangpy_continuous_redraw_expires_recent_model_rate(
     assert "Recent model rate (2 s): 0.00 FPS" in (
         widget.text for widget in state.status_widgets
     )
+
+
+def test_slangpy_ui_loop_reset_restores_existing_ui_state() -> None:
+    """Clear Cam2V's transient UI state without changing the PP selection."""
+    renderer = Mock()
+    ui_loop = Cam2VSlangPyUILoop(renderer=renderer)
+    state = Cam2VUIState(
+        total_blocks=4,
+        target_fps=16,
+        warmup_blocks=0,
+        show_postprocess_toggle=True,
+        postprocess_enabled=True,
+    )
+    ui_loop.register_session_loop_objects(
+        state=state,
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.held_keys.add("w")
+    assert state._keyboard_state.apply_event(event="keydown", key="w")
+    state.update_status(
+        Cam2VUIStatus(
+            completed_blocks=1,
+            frames_generated=2,
+            chunk_fps=2.0,
+            recent_model_rate_snapshot=None,
+            model_step_wall_s=1.0,
+        )
+    )
+    state.frames_presented = 2
+
+    ui_loop.reset()
+
+    renderer.reset.assert_called_once_with()
+    assert not state.held_keys
+    assert state._keyboard_state.snapshot() == frozenset()
+    assert state.status is None
+    assert state.frames_presented == 0
+    assert state.postprocess_enabled
 
 
 def test_model_loop_preserves_a_quick_tap_after_wall_clock_stall() -> None:
@@ -458,7 +763,13 @@ def test_model_loop_normalizes_browser_arrow_keys() -> None:
 
 def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     """Keep immediate input display in UI-loop-owned state."""
-    state = Cam2VUIState(total_blocks=4, target_fps=16, warmup_blocks=1)
+    state = Cam2VUIState(
+        total_blocks=4,
+        target_fps=16,
+        warmup_blocks=1,
+        show_postprocess_toggle=True,
+        postprocess_enabled=True,
+    )
     presentation_manager = PresentationManager()
     presentation_manager.configure(
         backpressure_mode=BackpressureMode.BLOCK,
@@ -481,6 +792,13 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
         screen=object(),
         Window=Mock(return_value=object()),
         Text=Mock(side_effect=lambda parent, text: SimpleNamespace(text=text)),
+        CheckBox=Mock(
+            side_effect=lambda parent, label, value, callback: SimpleNamespace(
+                label=label,
+                value=value,
+                callback=callback,
+            )
+        ),
     )
     renderer = Mock()
 
@@ -504,6 +822,11 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
         session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=presentation_manager,
     )
+    model_loop, model_state, _ = _input_test_model_loop()
+    postprocess_stream: Any = SimpleNamespace()
+    model_state.postprocess_stream = postprocess_stream
+    model_state.postprocess_enabled = True
+    ui_loop._set_model_loop(model_loop)
     pressed = UserInputEvents(
         [
             KeyboardUserInputEvent(
@@ -536,6 +859,14 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     assert any(line.startswith("Recent model rate (2 s):") for line in displayed)
     assert state.active_keys_widget is not None
     assert state.active_keys_widget.text == "Active keys: W"
+    assert state.postprocess_checkbox is not None
+    assert state.postprocess_checkbox.label == "Post-processing"
+    assert state.postprocess_checkbox.value is True
+
+    state.postprocess_checkbox.callback(False)
+    model_loop._run_message_batch()
+    assert state.postprocess_enabled is False
+    assert model_state.postprocess_enabled is False
 
     ui_loop.step(
         1,
@@ -715,6 +1046,130 @@ def test_application_overrides_shared_pipeline_profiling() -> None:
 
     assert app.pipeline_config.enable_sync_and_profile is True
     assert pipeline_config.enable_sync_and_profile is False
+
+
+@dataclass(kw_only=True)
+class _ChunkedPostprocessorConfig(VideoPostProcessorConfig):
+    chunk_size: int = 16
+    compile_network: bool = True
+    use_cuda_graph: bool = True
+
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        return VideoSpec(
+            height=input_spec.height * 2,
+            width=input_spec.width * 2,
+            fps=input_spec.fps,
+            channels=input_spec.channels,
+        )
+
+
+@pytest.mark.parametrize(
+    ("comparison_ui", "presentation_width"),
+    ((False, 16), (True, 32)),
+)
+def test_application_prepares_a_postprocess_stream_for_each_session(
+    monkeypatch: pytest.MonkeyPatch,
+    comparison_ui: bool,
+    presentation_width: int,
+) -> None:
+    """Prepare each session's stream before its first generated chunk."""
+    registered = _ChunkedPostprocessorConfig()
+    monkeypatch.setattr(
+        cam2v_application,
+        "discover_postprocess_presets",
+        lambda: {"example-preset": registered},
+    )
+    monkeypatch.setattr(
+        registry_module,
+        "resolve_postprocess_preset",
+        lambda name: registered,
+    )
+    prepared: list[VideoSpec] = []
+    monkeypatch.setattr(
+        cam2v_application.VideoPostprocessStream,
+        "prepare",
+        lambda self, spec: prepared.append(spec),
+    )
+    app = Cam2VApplication(
+        defaults=Cam2VApplicationDefaults(
+            pipeline_config=_PipelineConfig(),
+            input_resolver=lambda values: _conditioning(),
+            total_blocks=2,
+            pixel_width=8,
+            pixel_height=4,
+            first_frame_dtype=torch.float32,
+            first_frame_interpolation="nearest",
+            device="cpu",
+        )
+    )
+    arguments = [
+        "--postprocess-preset",
+        "example-preset",
+        "--no-postprocess-compile",
+    ]
+    if comparison_ui:
+        arguments.append("--postprocess-comparison-ui")
+    app.init(arguments)
+
+    first = app.create_session(app.session_desc())
+    second = app.create_session(app.session_desc())
+
+    assert prepared == [
+        VideoSpec(height=4, width=8, fps=16),
+        VideoSpec(height=4, width=8, fps=16),
+    ]
+    assert isinstance(first, Cam2VSession)
+    assert isinstance(second, Cam2VSession)
+    assert first._postprocess_stream is not None
+    assert second._postprocess_stream is not None
+    assert first._postprocess_stream is not second._postprocess_stream
+    assert first.session_desc.video_width == presentation_width
+    assert first.session_desc.video_height == 8
+    assert second.session_desc.video_width == presentation_width
+    assert second.session_desc.video_height == 8
+    assert first.session_desc.metadata == {}
+    assert second.session_desc.metadata == {}
+    assert second._config.model_video_width == 8
+    assert second._config.model_video_height == 4
+    assert first._config.model_video_width == 8
+    assert first._config.model_video_height == 4
+    (resolved,) = app._postprocess.processors
+    assert isinstance(resolved, _ChunkedPostprocessorConfig)
+    assert resolved.chunk_size == 8
+    assert resolved.compile_network is False
+    assert resolved.use_cuda_graph is False
+    assert registered.chunk_size == 16
+    assert first._config.postprocess_comparison is comparison_ui
+    first.init()
+    if comparison_ui:
+        assert isinstance(first.ui_loop, Cam2VPostprocessComparisonSlangPyUILoop)
+        assert first.ui_loop.comparison_label == (
+            "Original (left, upscaled) | Post-processed (right)"
+        )
+        assert not first.ui_loop.state.show_postprocess_toggle
+    else:
+        assert isinstance(first.ui_loop, Cam2VSlangPyUILoop)
+    app.close()
+
+
+def test_postprocess_comparison_ui_requires_postprocessor_and_ui() -> None:
+    """Reject a comparison request that cannot produce a visible pair."""
+    app = Cam2VApplication(
+        defaults=Cam2VApplicationDefaults(
+            pipeline_config=_PipelineConfig(),
+            input_resolver=lambda values: _conditioning(),
+            total_blocks=1,
+            pixel_width=1,
+            pixel_height=1,
+            first_frame_dtype=torch.float32,
+            first_frame_interpolation="linear",
+        )
+    )
+
+    with pytest.raises(ValueError, match="--postprocess-preset"):
+        app.init(["--postprocess-comparison-ui"])
+    with pytest.raises(ValueError, match="--ui"):
+        app.init(["--postprocess-comparison-ui", "--no-ui"])
 
 
 def test_defaults_reject_invalid_timing_configuration() -> None:

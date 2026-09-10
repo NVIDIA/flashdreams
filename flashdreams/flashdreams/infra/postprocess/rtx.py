@@ -203,6 +203,15 @@ class _RTXVideoSuperResolutionPostProcessorSession(VideoPostProcessorSession):
         }
         return [VideoChunk(tensor=output, layout="bvtchw", metadata=metadata)]
 
+    def reset(self) -> None:
+        """Reopen the session for another rollout without reloading VFX.
+
+        ``nvidia-vfx`` does not expose ``NvVFX_ResetState``. Keep the loaded
+        ``VideoSuperRes`` instance so application-lifetime reuse does not pay
+        another ``load()``. End-of-stream ``flush()`` still closes the effect.
+        """
+        self._closed = False
+
     def flush(self) -> list[VideoChunk]:
         """Close the VFX effect and emit no tail frames."""
         if not self._closed:
