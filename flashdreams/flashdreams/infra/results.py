@@ -16,7 +16,7 @@ from flashdreams.infra.postprocess import VideoTensorLayout
 from flashdreams.infra.time import TimeWindow
 
 if TYPE_CHECKING:
-    from flashdreams.infra.video_output import LazyRGBFrame
+    from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -99,7 +99,7 @@ class StepResult:
         batch_index: int = 0,
         view_index: int = 0,
         record_cuda_event: bool = True,
-    ) -> list[LazyRGBFrame]:
+    ) -> list[LazyCudaFrame]:
         """Expose this video result as lazy per-frame RGB handles."""
         from flashdreams.infra.video_output import lazy_rgb_frames_from_video_tensor
 
