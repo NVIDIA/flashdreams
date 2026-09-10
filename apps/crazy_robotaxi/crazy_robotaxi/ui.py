@@ -23,7 +23,7 @@ import re
 import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field, is_dataclass, replace
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Literal
@@ -38,6 +38,22 @@ from omnidreams_game_engine.types import CameraCalibration
 from PIL import Image
 from torch import Tensor
 
+from crazy_robotaxi.controls import (
+    BoundActionState,
+    ControlDevice,
+    ControlsConfig,
+    ControlsDocument,
+    ControlsError,
+    DeviceControls,
+    GamepadButtonStyle,
+    InputBinding,
+    binding_display,
+    canonical_key,
+    capture_binding,
+    control_label,
+    controls_fields,
+    update_binding,
+)
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import (
     HighScoreEntry,
@@ -45,6 +61,7 @@ from crazy_robotaxi.high_scores import (
     format_race_time_us,
     validate_player_name,
 )
+from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -96,12 +113,24 @@ _SETTINGS_NOTICE_DURATION_S = 5.0
 
 _RESTART_REQUIRED_NOTICE = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
 _NATIVE_DIT_DISABLED_NOTICE = "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+_SAVED_NOTICE_RGBA = (0.45, 0.9, 0.45, 1.0)
+_RESTART_NOTICE_RGBA = (1.0, 0.32, 0.28, 1.0)
+_NATIVE_DIT_NOTICE_RGBA = (1.0, 0.62, 0.18, 1.0)
 _AUTO_CARD_FLAGS = (
     "no_title_bar",
     "always_auto_resize",
     "no_scrollbar",
     "no_scroll_with_mouse",
 )
+
+_MENU_BACK_CONTROLS = replace(
+    ControlsConfig(),
+    gamepad=replace(
+        ControlsConfig().gamepad,
+        return_to_menu=(InputBinding("button", 1), None),
+    ),
+)
+"""Fixed menu navigation bindings, separate from gameplay controls."""
 
 
 def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
@@ -146,9 +175,6 @@ _TAXI_ACCENT_RGB = (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
 _RACE_ACCENT_RGB = (118.0 / 255.0, 185.0 / 255.0, 0.0)
 _OPTION_ENABLED_RGB = (0.25, 0.85, 0.25)
 
-_PROFILE_DRIVE_KEYS = frozenset(
-    {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
-)
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
 _LOGGER = logging.getLogger(__name__)
@@ -189,6 +215,18 @@ class TaxiHudFrame:
     """Chunk-lifecycle correlation fields for input diagnosis."""
 
 
+@dataclass(frozen=True, slots=True)
+class _BindingCapture:
+    """One binding slot waiting for a matching input event."""
+
+    device: ControlDevice
+    action: str
+    slot: int
+    baseline: (
+        frozenset[str] | GamepadUserInputEvent | GameWheelUserInputEvent | None
+    ) = None
+
+
 @dataclass(slots=True)
 class TaxiHudState:
     """Mutable Dear ImGui state owned exclusively by the V2 UI thread."""
@@ -214,6 +252,9 @@ class TaxiHudState:
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
 
+    live_edit: LiveEditConfig = field(default_factory=LiveEditConfig)
+    """Live-edit availability used by the Controls editor."""
+
     native_dit_disabled_for_live_edit: bool = False
     """Whether this launch forced native DiT acceleration off."""
 
@@ -222,6 +263,17 @@ class TaxiHudState:
 
     settings_document: SettingsDocument | None = None
     """User-authored settings backing the reusable Options screen."""
+
+    controls: ControlsConfig = ControlsConfig()
+    """Process-start bindings used by gameplay and active HUD labels."""
+
+    gamepad_button_style: GamepadButtonStyle = "Xbox"
+    """Gamepad button names displayed on the Controls screen."""
+
+    control_documents: dict[ControlDevice, ControlsDocument] = field(
+        default_factory=dict
+    )
+    """Saved per-device documents backing the Controls editor."""
 
     map_options: tuple[GameMapOption, ...] = ()
     """Lightweight authored-map choices supplied by the application."""
@@ -286,7 +338,9 @@ class TaxiHudState:
     _loading_started_at_s: float = field(default_factory=time.monotonic)
     """Monotonic timestamp used to make startup progress visibly live."""
 
-    _menu_stage: Literal["mode", "map", "course", "options", "loading", "game"] = "mode"
+    _menu_stage: Literal[
+        "mode", "map", "course", "controls", "options", "loading", "game"
+    ] = "mode"
     """Current startup screen owned by the UI thread."""
 
     _options_return_stage: Literal["mode", "map", "course"] = "mode"
@@ -303,6 +357,42 @@ class TaxiHudState:
 
     _options_error: str = ""
     """Most recent field or save validation error."""
+
+    _controls_device: ControlDevice | None = None
+    """Device page selected from the Controls landing screen."""
+
+    _controls_draft: DeviceControls | None = None
+    """Isolated device draft discarded unless Save succeeds."""
+
+    _controls_capture: _BindingCapture | None = None
+    """Binding slot currently waiting for device input."""
+
+    _controls_error: str = ""
+    """Most recent binding or controls-save error."""
+
+    _controls_notice: str = ""
+    """Most recent controls save outcome shown on the device page."""
+
+    _controls_notice_expires_at_s: float = 0.0
+    """Monotonic deadline for the controls save confirmation."""
+
+    _latest_gamepad_event: GamepadUserInputEvent | None = None
+    """Latest gamepad snapshot used as a neutral capture baseline."""
+
+    _latest_wheel_event: GameWheelUserInputEvent | None = None
+    """Latest wheel snapshot used as a neutral capture baseline."""
+
+    _active_control_device: ControlDevice = "keyboard"
+    """Input device currently taking precedence for driving and HUD hints."""
+
+    _pressed_keys: set[str] = field(default_factory=set)
+    """Keyboard keys currently held for safe binding capture."""
+
+    _control_action_state: BoundActionState = field(init=False)
+    """UI-thread rising-edge detector using process-start bindings."""
+
+    _menu_back_action_state: BoundActionState = field(init=False)
+    """UI-thread rising-edge detector for fixed menu navigation bindings."""
 
     _selection_preview_pixels: dict[Path, npt.NDArray[np.uint8] | None] = field(
         default_factory=dict
@@ -357,6 +447,11 @@ class TaxiHudState:
     _gameplay_font: Any | None = None
     """Droid Sans face used for prominent gameplay feedback."""
 
+    def __post_init__(self) -> None:
+        """Initialize input state from the process-start bindings."""
+        self._control_action_state = BoundActionState(self.controls)
+        self._menu_back_action_state = BoundActionState(_MENU_BACK_CONTROLS)
+
     def publish(self, frames: Sequence[TaxiHudFrame]) -> None:
         """Publish immutable model-frame state to the UI-owned lookup."""
         for frame in frames:
@@ -373,6 +468,7 @@ class TaxiHudState:
             "mode",
             "map",
             "course",
+            "controls",
             "options",
         }:
             return None
@@ -420,20 +516,64 @@ class TaxiHudState:
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
         received = events.get_events()
-        if any(_is_escape_press(event) for event in received):
-            self._handle_escape()
-        if any(_is_control_tooltip_toggle(event) for event in received):
-            self.show_control_tooltips = not self.show_control_tooltips
+        for event in received:
+            if isinstance(event, FocusUserInputEvent) and not event.focused:
+                self._pressed_keys.clear()
+            elif isinstance(event, KeyboardUserInputEvent):
+                key = canonical_key(str(event.key))
+                if event.state is KeyboardInputState.PRESSED:
+                    self._pressed_keys.add(key)
+                else:
+                    self._pressed_keys.discard(key)
+        capturing = self._controls_capture is not None
+        if capturing:
+            self._consume_binding_capture(received)
+        else:
+            actions = self._control_action_state.apply(events)
+            menu_actions = self._menu_back_action_state.apply(events)
+            if (self._menu_stage == "game" and "return_to_menu" in actions) or (
+                self._menu_stage != "game" and "return_to_menu" in menu_actions
+            ):
+                self._handle_escape()
+            if "toggle_hints" in actions:
+                self.show_control_tooltips = not self.show_control_tooltips
+        for event in received:
+            if isinstance(event, GamepadUserInputEvent):
+                if event.action == "state":
+                    self._latest_gamepad_event = event
+                    self._active_control_device = "gamepad"
+                else:
+                    self._latest_gamepad_event = None
+                    self._active_control_device = "keyboard"
+            elif isinstance(event, GameWheelUserInputEvent):
+                if event.action == "state":
+                    self._latest_wheel_event = event
+                    self._active_control_device = "wheel"
+                else:
+                    self._latest_wheel_event = None
+                    self._active_control_device = "keyboard"
         if not self.profile_input_latency:
             return
+        profile_keys = {
+            str(binding.code)
+            for action in (
+                "drive_forward",
+                "reverse",
+                "steer_left",
+                "steer_right",
+                "handbrake",
+            )
+            for binding in getattr(self.controls.keyboard, action)
+            if binding is not None
+        }
         for event in received:
             recognized = False
             if isinstance(event, FocusUserInputEvent) and not event.focused:
                 self._profile_pressed.clear()
                 recognized = True
             elif isinstance(event, KeyboardUserInputEvent):
-                key = _normalize_profile_key(str(event.key))
-                if key not in _PROFILE_DRIVE_KEYS:
+                key = canonical_key(str(event.key))
+                if key not in profile_keys:
                     continue
                 recognized = True
                 if event.state is KeyboardInputState.PRESSED:
@@ -557,9 +697,23 @@ class TaxiHudState:
             return
         self._continue_after_mode_selection()
 
+    def _menu_back_display(self) -> str:
+        """Return the fixed keyboard and styled gamepad menu-back hint."""
+        gamepad = binding_display(
+            "gamepad", InputBinding("button", 1), self.gamepad_button_style
+        )
+        return f"ESC / {gamepad}"
+
     def _handle_escape(self) -> None:
         model_loop = self.model_loop
-        if self._menu_stage == "options":
+        if self._menu_stage == "controls":
+            if self._controls_capture is not None:
+                self._controls_capture = None
+            elif self._controls_device is not None:
+                self._discard_controls_device()
+            else:
+                self._menu_stage = "mode"
+        elif self._menu_stage == "options":
             self._discard_options()
         elif self._menu_stage == "game":
             self.reset()
@@ -737,6 +891,199 @@ class TaxiHudState:
         self._options_error = ""
         self._menu_stage = "options"
 
+    def _open_controls(self) -> None:
+        """Open the device-selection page without carrying stale editor state."""
+        self._controls_device = None
+        self._controls_draft = None
+        self._controls_capture = None
+        self._controls_error = ""
+        self._controls_notice = ""
+        self._menu_stage = "controls"
+
+    def _open_controls_device(self, device: ControlDevice) -> None:
+        """Open a fresh draft for one device document."""
+        document = self.control_documents.get(device)
+        if document is None:
+            self._controls_error = f"NO {device.upper()} CONTROLS DOCUMENT"
+            return
+        self._controls_device = device
+        self._controls_draft = document.settings
+        self._controls_capture = None
+        self._controls_error = ""
+        self._controls_notice = ""
+
+    def _discard_controls_device(self) -> None:
+        """Discard the current device draft and return to device selection."""
+        self._controls_device = None
+        self._controls_draft = None
+        self._controls_capture = None
+        self._controls_error = ""
+        self._controls_notice = ""
+
+    def _start_binding_capture(self, action: str, slot: int) -> None:
+        """Wait for the selected device's next deliberate input."""
+        device = self._controls_device
+        if device is None:
+            return
+        baseline: (
+            frozenset[str] | GamepadUserInputEvent | GameWheelUserInputEvent | None
+        )
+        if device == "keyboard":
+            baseline = frozenset(self._pressed_keys)
+        elif device == "gamepad":
+            baseline = self._latest_gamepad_event
+        else:
+            baseline = self._latest_wheel_event
+        self._controls_capture = _BindingCapture(device, action, slot, baseline)
+        self._controls_error = ""
+
+    def _consume_binding_capture(self, received: Sequence[object]) -> None:
+        """Apply the first matching input or a fixed capture command."""
+        capture = self._controls_capture
+        draft = self._controls_draft
+        if capture is None or draft is None:
+            return
+        item = next(
+            item for item in controls_fields(draft) if item.name == capture.action
+        )
+        for event in received:
+            if isinstance(event, KeyboardUserInputEvent):
+                key = canonical_key(str(event.key))
+                if event.state is KeyboardInputState.RELEASED:
+                    if capture.device == "keyboard" and isinstance(
+                        capture.baseline, frozenset
+                    ):
+                        capture = _BindingCapture(
+                            capture.device,
+                            capture.action,
+                            capture.slot,
+                            capture.baseline - {key},
+                        )
+                        self._controls_capture = capture
+                    continue
+                if key in {"backspace", "delete"}:
+                    self._controls_draft = update_binding(
+                        draft, capture.action, capture.slot, None
+                    )
+                    self._controls_capture = None
+                    return
+                if (
+                    capture.device == "keyboard"
+                    and isinstance(capture.baseline, frozenset)
+                    and key in capture.baseline
+                ):
+                    continue
+            if capture.device == "gamepad" and isinstance(event, GamepadUserInputEvent):
+                if event.action != "state":
+                    continue
+                if not isinstance(capture.baseline, GamepadUserInputEvent) or (
+                    event.index != capture.baseline.index
+                    or event.controller_id != capture.baseline.controller_id
+                ):
+                    capture = _BindingCapture(
+                        capture.device, capture.action, capture.slot, event
+                    )
+                    self._controls_capture = capture
+                    continue
+            elif capture.device == "wheel" and isinstance(
+                event, GameWheelUserInputEvent
+            ):
+                if event.action != "state":
+                    continue
+                if not isinstance(capture.baseline, GameWheelUserInputEvent) or (
+                    event.index != capture.baseline.index
+                    or event.controller_id != capture.baseline.controller_id
+                ):
+                    capture = _BindingCapture(
+                        capture.device, capture.action, capture.slot, event
+                    )
+                    self._controls_capture = capture
+                    continue
+            baseline = (
+                capture.baseline
+                if isinstance(
+                    capture.baseline,
+                    (GamepadUserInputEvent, GameWheelUserInputEvent),
+                )
+                else None
+            )
+            binding = capture_binding(
+                capture.device,
+                item.metadata["kind"],
+                event,
+                baseline,
+            )
+            if binding is None:
+                if _capture_event_is_neutral(event) and isinstance(
+                    event, (GamepadUserInputEvent, GameWheelUserInputEvent)
+                ):
+                    capture = _BindingCapture(
+                        capture.device, capture.action, capture.slot, event
+                    )
+                    self._controls_capture = capture
+                continue
+            self._controls_draft = update_binding(
+                draft, capture.action, capture.slot, binding
+            )
+            self._controls_capture = None
+            return
+
+    def _clear_binding_capture(self) -> None:
+        """Clear the binding slot currently being captured."""
+        capture = self._controls_capture
+        draft = self._controls_draft
+        if capture is None or draft is None:
+            return
+        self._controls_draft = update_binding(draft, capture.action, capture.slot, None)
+        self._controls_capture = None
+
+    def _save_controls(self) -> None:
+        """Save the current device draft without leaving its page."""
+        device = self._controls_device
+        draft = self._controls_draft
+        document = None if device is None else self.control_documents.get(device)
+        if document is None or draft is None:
+            return
+        try:
+            document.save(draft)
+        except (OSError, ControlsError, ValueError) as exc:
+            self._controls_error = str(exc)
+            return
+        self._controls_draft = document.settings
+        self._controls_error = ""
+        self._controls_notice = f"SAVED {document.path}"
+        self._controls_notice_expires_at_s = (
+            time.monotonic() + _SETTINGS_NOTICE_DURATION_S
+        )
+        self._refresh_restart_notice()
+
+    def _control_restart_paths(
+        self, device: ControlDevice, settings: DeviceControls
+    ) -> tuple[str, ...]:
+        """Return changed device actions relative to process-start controls."""
+        active = self.controls.for_device(device)
+        return tuple(
+            f"controls.{device}.{item.name}"
+            for item in controls_fields(settings)
+            if getattr(active, item.name) != getattr(settings, item.name)
+        )
+
+    def _refresh_restart_notice(self) -> None:
+        """Rebuild the saved-state restart warning across settings and controls."""
+        paths: list[str] = []
+        document = self.settings_document
+        if document is not None and self._restart_baseline_settings is not None:
+            paths.extend(
+                restart_required_settings(
+                    self._restart_baseline_settings,
+                    document.settings,
+                )
+            )
+        for device, control_document in self.control_documents.items():
+            paths.extend(self._control_restart_paths(device, control_document.settings))
+        self._settings_requiring_restart = tuple(paths)
+        self._settings_restart_notice = _RESTART_REQUIRED_NOTICE if paths else ""
+
     def _discard_options(self) -> None:
         self._options_draft = None
         self._options_error = ""
@@ -747,8 +1094,6 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
-        baseline = self._restart_baseline_settings or document.settings
-        restart_settings = restart_required_settings(baseline, draft)
         try:
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
@@ -765,10 +1110,7 @@ class TaxiHudState:
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S
         )
-        self._settings_restart_notice = (
-            _RESTART_REQUIRED_NOTICE if restart_settings else ""
-        )
-        self._settings_requiring_restart = restart_settings
+        self._refresh_restart_notice()
         self._options_draft = clone_settings(document.settings)
         self._options_error = ""
 
@@ -778,14 +1120,14 @@ class TaxiHudState:
                 imgui,
                 self._settings_restart_notice,
                 font_size=max(10.0, 11.0 * scale),
-                color=(0.82, 0.68, 0.34, 1.0),
+                color=_RESTART_NOTICE_RGBA,
             )
         if self.native_dit_disabled_for_live_edit:
             _centered_imgui_text(
                 imgui,
                 _NATIVE_DIT_DISABLED_NOTICE,
                 font_size=max(10.0, 11.0 * scale),
-                color=(0.82, 0.68, 0.34, 1.0),
+                color=_NATIVE_DIT_NOTICE_RGBA,
             )
         if (
             self._settings_restart_notice
@@ -797,7 +1139,7 @@ class TaxiHudState:
                 "SETTINGS REQUIRING RESTART: "
                 + ", ".join(self._settings_requiring_restart),
                 font_size=max(10.0, 11.0 * scale),
-                color=(0.82, 0.68, 0.34, 1.0),
+                color=_RESTART_NOTICE_RGBA,
             )
 
     def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
@@ -863,6 +1205,9 @@ class TaxiHudState:
     ) -> None:
         """Draw one immediate Dear ImGui HUD frame."""
         self._bev_rect = None
+        if self._menu_stage == "controls":
+            self._draw_controls(imgui)
+            return
         if self._menu_stage == "options":
             self._draw_options(imgui)
             return
@@ -1160,23 +1505,106 @@ class TaxiHudState:
         )
 
     def _draw_control_tooltips(self, imgui: Any) -> None:
-        """Draw the dismissible keyboard controls along the bottom of the HUD."""
+        """Draw controls for the device currently driving the game."""
         if not self.show_control_tooltips:
             return
-        self._draw_status_strip(
-            imgui,
-            "WASD / ARROWS  DRIVE  ·  SPACE  HANDBRAKE",
-            color_rgb=(0.82, 0.82, 0.86),
-            top=max(14.0, float(self.height) - 72.0),
-            font_size=14.0,
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
+
+        def display(slots: tuple[InputBinding | None, InputBinding | None]) -> str:
+            return _binding_slots_display(device, slots, self.gamepad_button_style)
+
+        if device == "keyboard":
+            keyboard = self.controls.keyboard
+            driving_entries = (
+                ("FORWARD", display(keyboard.drive_forward)),
+                ("BRAKE / REVERSE", display(keyboard.reverse)),
+                ("STEER LEFT", display(keyboard.steer_left)),
+                ("STEER RIGHT", display(keyboard.steer_right)),
+            )
+        else:
+            controller = (
+                self.controls.gamepad if device == "gamepad" else self.controls.wheel
+            )
+            driving_entries = (
+                ("THROTTLE", display(controller.throttle)),
+                ("BRAKE / REVERSE", display(controller.brake)),
+                ("STEER", display(controller.steer)),
+            )
+        entries = (
+            *driving_entries,
+            ("HANDBRAKE", display(controls.handbrake)),
+            ("RESTART", display(controls.restart)),
+            ("RETURN TO MENU", display(controls.return_to_menu)),
+            ("HIDE CONTROLS", display(controls.toggle_hints)),
         )
-        self._draw_status_strip(
-            imgui,
-            "R  RESTART  ·  ESC  MAP  ·  H  HIDE CONTROLS",
-            color_rgb=(0.72, 0.72, 0.76),
-            top=max(14.0, float(self.height) - 38.0),
-            font_size=13.0,
+        action_width = max(
+            _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries
         )
+        binding_width = max(
+            _point_xy(imgui.calc_text_size(binding))[0] for _action, binding in entries
+        )
+        wide_width = _table_content_width(
+            imgui, action_width, binding_width, action_width, binding_width
+        )
+        pair_count = 2 if wide_width <= max(1.0, float(self.width) - 28.0) else 1
+        content_width = _table_content_width(
+            imgui, *((action_width, binding_width) * pair_count)
+        )
+        _prepare_window(
+            imgui,
+            position=(float(self.width) / 2.0, float(self.height) - 14.0),
+            size=None,
+            alpha=0.94,
+            pivot=(0.5, 1.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(imgui, "Controls", extra_flags=_AUTO_CARD_FLAGS)
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "CONTROLS",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=18.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            imgui.separator()
+            if imgui.begin_table(
+                "##gameplay-control-hints",
+                pair_count * 2,
+                flags=imgui.TableFlags_.no_saved_settings,
+                outer_size=imgui.ImVec2(content_width, 0.0),
+            ):
+                try:
+                    for pair in range(pair_count):
+                        imgui.table_setup_column(
+                            f"ACTION##{pair}",
+                            imgui.TableColumnFlags_.width_fixed,
+                            action_width,
+                        )
+                        imgui.table_setup_column(
+                            f"BINDING##{pair}",
+                            imgui.TableColumnFlags_.width_fixed,
+                            binding_width,
+                        )
+                    for index, (action, binding) in enumerate(entries):
+                        pair = index % pair_count
+                        if pair == 0:
+                            imgui.table_next_row(min_row_height=0.0)
+                        imgui.table_set_column_index(pair * 2)
+                        imgui.text(action)
+                        imgui.table_set_column_index(pair * 2 + 1)
+                        _colored_imgui_text(imgui, binding, (*_TAXI_ACCENT_RGB, 1.0))
+                finally:
+                    imgui.end_table()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
 
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
@@ -1192,6 +1620,7 @@ class TaxiHudState:
         self._latest_input_latency_ms = None
         self._latest_committed_frame = None
         self._name_input = ""
+        self._active_control_device = "keyboard"
 
     def _clear_presented_game(self) -> None:
         """Discard frame-aligned HUD and BEV resources from the previous game."""
@@ -1348,15 +1777,21 @@ class TaxiHudState:
             ):
                 self._settings_notice = ""
             if self._settings_notice:
-                imgui.text(self._settings_notice)
+                _colored_imgui_text(imgui, self._settings_notice, _SAVED_NOTICE_RGBA)
             if restart_settings:
-                imgui.text(_RESTART_REQUIRED_NOTICE)
+                _colored_imgui_text(
+                    imgui, _RESTART_REQUIRED_NOTICE, _RESTART_NOTICE_RGBA
+                )
                 if _SHOW_RESTART_REQUIRED_SETTINGS:
-                    imgui.text(
-                        "SETTINGS REQUIRING RESTART: " + ", ".join(restart_settings)
+                    _colored_imgui_text(
+                        imgui,
+                        "SETTINGS REQUIRING RESTART: " + ", ".join(restart_settings),
+                        _RESTART_NOTICE_RGBA,
                     )
             if _settings_disable_native_dit(draft):
-                imgui.text(_NATIVE_DIT_DISABLED_NOTICE)
+                _colored_imgui_text(
+                    imgui, _NATIVE_DIT_DISABLED_NOTICE, _NATIVE_DIT_NOTICE_RGBA
+                )
             if self._options_error:
                 imgui.text(f"ERROR  {self._options_error}")
             self._remember_menu_scroll_chrome(
@@ -1558,6 +1993,308 @@ class TaxiHudState:
                 )
         return max(widths)
 
+    def _draw_controls(self, imgui: Any) -> None:
+        """Draw device selection or the selected device's binding editor."""
+        if self._controls_device is None:
+            self._draw_controls_landing(imgui)
+        else:
+            self._draw_controls_device(imgui)
+
+    def _draw_controls_landing(self, imgui: Any) -> None:
+        """Draw the non-scrolling device selector."""
+        _draw_arcade_backdrop(imgui, self.width, self.height)
+        _prepare_window(
+            imgui,
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
+            alpha=0.98,
+            pivot=(0.5, 0.5),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        button_width = max(
+            _button_content_width(imgui, label)
+            for label in ("KEYBOARD", "GAMEPAD", "WHEEL", "BACK")
+        )
+        visible = _begin_window(
+            imgui,
+            "Crazy Robotaxi - Controls",
+            extra_flags=_AUTO_CARD_FLAGS,
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "CONTROLS",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=36.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            _centered_imgui_text(
+                imgui,
+                "CHOOSE AN INPUT DEVICE",
+                font_size=15.0,
+                color=(0.62, 0.62, 0.68, 1.0),
+            )
+            imgui.separator()
+            for device in ("keyboard", "gamepad", "wheel"):
+                label = device.upper()
+                if _centered_imgui_button(
+                    imgui, label, imgui.ImVec2(button_width, 42.0)
+                ):
+                    self._open_controls_device(device)
+                    return
+            imgui.separator()
+            if _centered_imgui_button(imgui, "BACK", imgui.ImVec2(button_width, 42.0)):
+                self._menu_stage = "mode"
+                return
+            _centered_imgui_text(
+                imgui,
+                f"{self._menu_back_display()} - BACK",
+                font_size=13.0,
+                color=(0.58, 0.58, 0.64, 1.0),
+            )
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _draw_controls_device(self, imgui: Any) -> None:
+        """Draw a two-slot binding editor for the selected device."""
+        device = self._controls_device
+        draft = self._controls_draft
+        document = None if device is None else self.control_documents.get(device)
+        if device is None or draft is None or document is None:
+            self._discard_controls_device()
+            return
+        items = controls_fields(draft)
+        list_max_height = self._menu_scroll_max_height("controls")
+        _draw_arcade_backdrop(imgui, self.width, self.height)
+        _prepare_window(
+            imgui,
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
+            alpha=0.98,
+            pivot=(0.5, 0.5),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        action_labels = tuple(self._control_action_label(item) for item in items)
+        action_width = max(
+            _point_xy(imgui.calc_text_size(label))[0]
+            for label in ("ACTION", *action_labels)
+        )
+        binding_labels = tuple(
+            binding_display(device, binding, self.gamepad_button_style)
+            for item in items
+            for binding in getattr(draft, item.name)
+        )
+        binding_width = max(
+            _button_content_width(imgui, label)
+            for label in ("PRIMARY", "SECONDARY", *binding_labels)
+        )
+        content_width = _table_content_width(
+            imgui, action_width, binding_width, binding_width
+        )
+        item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
+        save_width = _button_content_width(imgui, "SAVE")
+        exit_label = "EXIT WITHOUT SAVING" if draft != document.settings else "EXIT"
+        exit_width = _button_content_width(imgui, "EXIT WITHOUT SAVING")
+        reset_width = _button_content_width(imgui, "RESET TO DEFAULTS")
+        content_width = max(
+            content_width,
+            _point_xy(imgui.calc_text_size(f"CONFIG  {document.path}"))[0],
+            save_width + exit_width + reset_width + 2.0 * item_spacing_x,
+        )
+        region_width = self._menu_scroll_region_width(
+            imgui, f"controls-{device}", content_width
+        )
+        visible = _begin_window(
+            imgui,
+            f"Crazy Robotaxi - {device.title()} Controls",
+            extra_flags=_AUTO_CARD_FLAGS,
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                f"{device.upper()} CONTROLS",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=32.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            imgui.text(f"CONFIG  {document.path}")
+            imgui.separator()
+            list_visible = _begin_auto_sized_scroll_region(
+                imgui,
+                f"##controls-{device}-list",
+                width=region_width,
+                max_height=list_max_height,
+            )
+            list_scroll_max_y = 0.0
+            list_content_height = 0.0
+            try:
+                if list_visible:
+                    table_flags = (
+                        imgui.TableFlags_.row_bg
+                        | imgui.TableFlags_.borders_inner_h
+                        | imgui.TableFlags_.no_saved_settings
+                        | imgui.TableFlags_.sizing_stretch_prop
+                    )
+                    if imgui.begin_table(
+                        f"##controls-{device}-table",
+                        3,
+                        flags=table_flags,
+                        outer_size=imgui.ImVec2(content_width, 0.0),
+                    ):
+                        try:
+                            imgui.table_setup_column(
+                                "ACTION",
+                                imgui.TableColumnFlags_.width_fixed,
+                                action_width,
+                            )
+                            imgui.table_setup_column(
+                                "PRIMARY",
+                                imgui.TableColumnFlags_.width_fixed,
+                                binding_width,
+                            )
+                            imgui.table_setup_column(
+                                "SECONDARY",
+                                imgui.TableColumnFlags_.width_fixed,
+                                binding_width,
+                            )
+                            imgui.table_headers_row()
+                            for item, action_label in zip(items, action_labels):
+                                imgui.table_next_row(min_row_height=38.0)
+                                imgui.table_set_column_index(0)
+                                row_y = float(imgui.get_cursor_pos_y())
+                                label_height = _point_xy(
+                                    imgui.calc_text_size(action_label)
+                                )[1]
+                                imgui.set_cursor_pos_y(
+                                    row_y + max(0.0, (34.0 - label_height) / 2.0)
+                                )
+                                imgui.text(action_label)
+                                imgui.set_cursor_pos_y(row_y)
+                                slots = getattr(draft, item.name)
+                                for slot, binding in enumerate(slots):
+                                    imgui.table_set_column_index(slot + 1)
+                                    label = binding_display(
+                                        device, binding, self.gamepad_button_style
+                                    )
+                                    if imgui.button(
+                                        f"{label}##{device}-{item.name}-{slot}",
+                                        imgui.ImVec2(binding_width, 34.0),
+                                    ):
+                                        self._start_binding_capture(item.name, slot)
+                        finally:
+                            imgui.end_table()
+                    list_scroll_max_y = float(imgui.get_scroll_max_y())
+                    list_content_height = _current_window_content_height(imgui)
+            finally:
+                imgui.end_child()
+            list_height = _point_xy(imgui.get_item_rect_size())[1]
+            imgui.separator()
+            if imgui.button("SAVE", imgui.ImVec2(save_width, 38.0)):
+                self._save_controls()
+            imgui.same_line()
+            if imgui.button(exit_label, imgui.ImVec2(exit_width, 38.0)):
+                self._discard_controls_device()
+                return
+            imgui.same_line()
+            if imgui.button("RESET TO DEFAULTS", imgui.ImVec2(reset_width, 38.0)):
+                self._controls_draft = document.defaults
+                self._controls_capture = None
+                self._controls_error = ""
+                self._controls_notice = ""
+            self._draw_controls_notices(imgui, device, self._controls_draft or draft)
+            self._remember_menu_scroll_chrome(imgui, "controls", list_height)
+            self._remember_menu_scrollbar(
+                "controls",
+                f"controls-{device}",
+                list_content_height,
+                list_scroll_max_y,
+            )
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _control_action_label(self, item: Any) -> str:
+        """Return an action label including live-edit availability."""
+        label = control_label(item)
+        feature = item.metadata.get("feature")
+        if feature is None:
+            return label
+        enabled = getattr(self.live_edit, feature).enabled
+        return f"{label}  [{'ENABLED' if enabled else 'NOT ENABLED'}]"
+
+    def _draw_controls_notices(
+        self,
+        imgui: Any,
+        device: ControlDevice,
+        draft: DeviceControls,
+    ) -> None:
+        """Draw capture, save, error, and draft restart feedback."""
+        capture = self._controls_capture
+        if capture is not None:
+            item = next(
+                item for item in controls_fields(draft) if item.name == capture.action
+            )
+            prompt = (
+                "MOVE THE CONTROL LEFT"
+                if item.metadata["kind"] == "steering"
+                else f"PRESS A {capture.device.upper()} CONTROL"
+            )
+            _centered_imgui_text(
+                imgui, prompt, font_size=13.0, color=(0.9, 0.78, 0.34, 1.0)
+            )
+            clear_width = _button_content_width(imgui, "CLEAR")
+            cancel_width = _button_content_width(imgui, "CANCEL")
+            if imgui.button("CLEAR", imgui.ImVec2(clear_width, 34.0)):
+                self._clear_binding_capture()
+            imgui.same_line()
+            if imgui.button("CANCEL", imgui.ImVec2(cancel_width, 34.0)):
+                self._controls_capture = None
+        if self._controls_error:
+            _centered_imgui_text(
+                imgui,
+                self._controls_error,
+                font_size=13.0,
+                color=(1.0, 0.45, 0.35, 1.0),
+            )
+        if (
+            self._controls_notice
+            and time.monotonic() < self._controls_notice_expires_at_s
+        ):
+            _centered_imgui_text(
+                imgui,
+                self._controls_notice,
+                font_size=13.0,
+                color=_SAVED_NOTICE_RGBA,
+            )
+        elif self._controls_notice:
+            self._controls_notice = ""
+        restart_paths = self._control_restart_paths(device, draft)
+        if restart_paths:
+            _centered_imgui_text(
+                imgui,
+                _RESTART_REQUIRED_NOTICE,
+                font_size=13.0,
+                color=_RESTART_NOTICE_RGBA,
+            )
+            if _SHOW_RESTART_REQUIRED_SETTINGS:
+                _centered_imgui_text(
+                    imgui,
+                    "SETTINGS REQUIRING RESTART: " + ", ".join(restart_paths),
+                    font_size=13.0,
+                    color=_RESTART_NOTICE_RGBA,
+                )
+
     def _draw_mode_selection(self, imgui: Any) -> None:
         scale = min(
             1.0,
@@ -1577,9 +2314,9 @@ class TaxiHudState:
         )
         description_font_size = max(12.0, 13.0 * scale)
         button_labels = (
-            ("TAXI", "RACE", "OPTIONS")
+            ("TAXI", "RACE", "CONTROLS", "OPTIONS", "EXIT")
             if self.settings_document is not None
-            else ("TAXI", "RACE")
+            else ("TAXI", "RACE", "CONTROLS", "EXIT")
         )
         button_width = max(
             _overlay_text_size(
@@ -1617,7 +2354,9 @@ class TaxiHudState:
             )
             imgui.separator()
             button_height = max(38.0, 54.0 * scale)
-            if imgui.button("TAXI", imgui.ImVec2(button_width, button_height)):
+            if _centered_imgui_button(
+                imgui, "TAXI", imgui.ImVec2(button_width, button_height)
+            ):
                 self._select_mode("taxi")
             _centered_imgui_text(
                 imgui,
@@ -1632,7 +2371,9 @@ class TaxiHudState:
             ):
                 imgui.push_style_color(color, imgui.ImVec4(*_RACE_ACCENT_RGB, alpha))
             try:
-                if imgui.button("RACE", imgui.ImVec2(button_width, button_height)):
+                if _centered_imgui_button(
+                    imgui, "RACE", imgui.ImVec2(button_width, button_height)
+                ):
                     self._select_mode("race")
             finally:
                 imgui.pop_style_color(3)
@@ -1643,15 +2384,27 @@ class TaxiHudState:
                 color=(0.72, 0.72, 0.76, 1.0),
             )
             imgui.separator()
-            if self.settings_document is not None and imgui.button(
-                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            if _centered_imgui_button(
+                imgui, "CONTROLS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._open_controls()
+                return
+            if self.settings_document is not None and _centered_imgui_button(
+                imgui,
+                "OPTIONS",
+                imgui.ImVec2(button_width, max(34.0, 42.0 * scale)),
             ):
                 self._open_options()
+                return
+            if _centered_imgui_button(
+                imgui, "EXIT", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._handle_escape()
                 return
             self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
-                "ESC  EXIT",
+                f"{self._menu_back_display()} - EXIT",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -1744,6 +2497,7 @@ class TaxiHudState:
                 self.width,
                 self._menu_scroll_region_width(imgui, "map", list_width),
             )
+            list_cursor_x = _center_imgui_item(imgui, region_width)
             list_visible = _begin_auto_sized_scroll_region(
                 imgui,
                 "##map-options",
@@ -1797,17 +2551,18 @@ class TaxiHudState:
                     list_content_height = _current_window_content_height(imgui)
             finally:
                 imgui.end_child()
+                imgui.set_cursor_pos_x(list_cursor_x)
             list_height = _point_xy(imgui.get_item_rect_size())[1]
             imgui.separator()
-            if imgui.button(
-                "BACK", imgui.ImVec2(region_width, max(34.0, 42.0 * scale))
+            if _centered_imgui_button(
+                imgui, "BACK", imgui.ImVec2(region_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
                 return
             _centered_imgui_text(
                 imgui,
-                "ESC  BACK",
+                f"{self._menu_back_display()} - BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -1913,6 +2668,7 @@ class TaxiHudState:
                 self.width,
                 self._menu_scroll_region_width(imgui, "course", list_width),
             )
+            list_cursor_x = _center_imgui_item(imgui, region_width)
             list_visible = _begin_auto_sized_scroll_region(
                 imgui,
                 "##course-options",
@@ -1974,17 +2730,18 @@ class TaxiHudState:
                     list_content_height = _current_window_content_height(imgui)
             finally:
                 imgui.end_child()
+                imgui.set_cursor_pos_x(list_cursor_x)
             list_height = _point_xy(imgui.get_item_rect_size())[1]
             imgui.separator()
-            if imgui.button(
-                "BACK", imgui.ImVec2(region_width, max(34.0, 42.0 * scale))
+            if _centered_imgui_button(
+                imgui, "BACK", imgui.ImVec2(region_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_map_option = None
                 self._menu_stage = "map"
                 return
             _centered_imgui_text(
                 imgui,
-                "ESC  BACK",
+                f"{self._menu_back_display()} - BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2350,14 +3107,16 @@ class TaxiHudState:
         if not self.profile_input_latency:
             return
         pressed = self._profile_pressed
+        keyboard = self.controls.keyboard
         input_state = "  ".join(
-            f"{label} [{'X' if bool(keys & pressed) else ' '}]"
-            for label, keys in (
-                ("W", {"w", "up"}),
-                ("A", {"a", "left"}),
-                ("S", {"s", "down"}),
-                ("D", {"d", "right"}),
-                ("SPACE", {"space"}),
+            f"{_binding_slots_display('keyboard', slots)} "
+            f"[{'X' if bool(_binding_key_codes(slots) & pressed) else ' '}]"
+            for slots in (
+                keyboard.drive_forward,
+                keyboard.steer_left,
+                keyboard.reverse,
+                keyboard.steer_right,
+                keyboard.handbrake,
             )
         )
         latency = self._latest_input_latency_ms
@@ -2388,9 +3147,17 @@ class TaxiHudState:
             if awaiting_name
             else ("RACE COMPLETE" if race else "GAME OVER")
         )
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
+        terminal_controls = (
+            f"{_binding_slots_display(device, controls.restart, self.gamepad_button_style)} "
+            "- RESTART   |   "
+            f"{_binding_slots_display(device, controls.return_to_menu, self.gamepad_button_style)} "
+            "- MENU"
+        )
         content_width = max(
             _point_xy(imgui.calc_text_size(headline))[0],
-            _point_xy(imgui.calc_text_size("R  RESTART   ·   ESC  MAP"))[0],
+            _point_xy(imgui.calc_text_size(terminal_controls))[0],
             _point_xy(imgui.calc_text_size("ENTER DRIVER NAME"))[0],
             *(
                 sum(
@@ -2476,7 +3243,7 @@ class TaxiHudState:
                 self._request_restart()
             _centered_imgui_text(
                 imgui,
-                "R  RESTART   ·   ESC  MAP",
+                terminal_controls,
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
             )
@@ -2716,7 +3483,7 @@ def _input_event_trace_fields(event: object) -> dict[str, object]:
     if isinstance(event, KeyboardUserInputEvent):
         return {
             "source": "keyboard",
-            "key": _normalize_profile_key(str(event.key)),
+            "key": canonical_key(str(event.key)),
             "state": event.state.value,
         }
     if isinstance(event, FocusUserInputEvent):
@@ -2788,22 +3555,55 @@ def build_hud_frames(
     return tuple(frames)
 
 
-def _is_escape_press(event: object) -> bool:
-    """Return whether an input event is a pressed Escape key."""
-    return (
-        isinstance(event, KeyboardUserInputEvent)
-        and event.state is KeyboardInputState.PRESSED
-        and str(event.key).strip().lower() in {"esc", "escape"}
+def _binding_slots_display(
+    device: ControlDevice,
+    slots: tuple[InputBinding | None, InputBinding | None],
+    gamepad_button_style: GamepadButtonStyle = "Xbox",
+) -> str:
+    """Join configured slots for compact gameplay labels."""
+    labels = tuple(
+        binding_display(device, binding, gamepad_button_style)
+        for binding in slots
+        if binding is not None
     )
+    return " / ".join(labels) if labels else "UNBOUND"
 
 
-def _is_control_tooltip_toggle(event: object) -> bool:
-    """Return whether an input event is a pressed H key."""
-    return (
-        isinstance(event, KeyboardUserInputEvent)
-        and event.state is KeyboardInputState.PRESSED
-        and str(event.key).strip().lower() == "h"
-    )
+def _binding_key_codes(
+    slots: tuple[InputBinding | None, InputBinding | None],
+) -> set[str]:
+    """Return canonical keyboard codes from a pair of binding slots."""
+    return {
+        str(binding.code)
+        for binding in slots
+        if binding is not None and binding.kind == "key"
+    }
+
+
+def _capture_event_is_neutral(event: object) -> bool:
+    """Return whether a controller snapshot has no active capturable input."""
+    if isinstance(event, GamepadUserInputEvent):
+        return (
+            event.action == "state"
+            and all(abs(value) < 0.5 for value in event.axes)
+            and all(value < 0.5 for value in event.buttons)
+            and not any(event.pressed)
+        )
+    if isinstance(event, GameWheelUserInputEvent):
+        return (
+            event.action == "state"
+            and all(
+                abs(value) < 0.5
+                for value in (
+                    event.steering,
+                    event.throttle,
+                    event.brake,
+                    event.clutch,
+                )
+            )
+            and not any(event.buttons)
+        )
+    return False
 
 
 def _draw_arcade_backdrop(imgui: Any, width: int, height: int) -> None:
@@ -2914,19 +3714,6 @@ def _begin_window(
     if isinstance(result, tuple):
         return bool(result[0])
     return bool(result)
-
-
-def _normalize_profile_key(key: str) -> str:
-    if key == " ":
-        return "space"
-    normalized = key.strip().lower()
-    return {
-        "arrowup": "up",
-        "arrowdown": "down",
-        "arrowleft": "left",
-        "arrowright": "right",
-        "spacebar": "space",
-    }.get(normalized, normalized)
 
 
 def _point_xy(value: Any) -> tuple[float, float]:
@@ -3116,6 +3903,33 @@ def _centered_imgui_text(
         if color is not None:
             imgui.pop_style_color()
         imgui.pop_font()
+
+
+def _colored_imgui_text(
+    imgui: Any,
+    text: str,
+    color: tuple[float, float, float, float],
+) -> None:
+    """Draw one left-aligned ImGui text item in an explicit color."""
+    imgui.push_style_color(imgui.Col_.text, imgui.ImVec4(*color))
+    try:
+        imgui.text(text)
+    finally:
+        imgui.pop_style_color()
+
+
+def _center_imgui_item(imgui: Any, width: float) -> float:
+    """Center the next item and return the cursor position to restore."""
+    cursor_x = float(imgui.get_cursor_pos_x())
+    available_width = _point_xy(imgui.get_content_region_avail())[0]
+    imgui.set_cursor_pos_x(cursor_x + max(0.0, (available_width - float(width)) * 0.5))
+    return cursor_x
+
+
+def _centered_imgui_button(imgui: Any, label: str, size: Any) -> bool:
+    """Draw one button centered in the current content region."""
+    _center_imgui_item(imgui, _point_xy(size)[0])
+    return bool(imgui.button(label, size))
 
 
 def _draw_overlay_text(
