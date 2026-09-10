@@ -69,9 +69,9 @@ model.
 
 ## Options and user configuration
 
-The mode menu has an **OPTIONS** button. The Options screen is generated from
-the same typed settings tree used at startup, with pages for game, model,
-renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
+The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is
+generated from the same typed settings tree used at startup, with pages for
+game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
 atomically updates the user YAML without leaving the screen. **EXIT** returns
 to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
 dirty. **RESET TO DEFAULTS** resets the draft. Presentation settings apply when
@@ -92,6 +92,7 @@ For example:
 ```yaml
 schema_version: 1
 game:
+  gamepad_button_style: PlayStation
   taxi:
     seed: 1234
     rules:
@@ -116,35 +117,56 @@ rain or snow items automatically enable weather editing.
 
 ## Controls
 
+Open **CONTROLS** from the mode menu, then choose **KEYBOARD**, **GAMEPAD**, or
+**WHEEL**. Each gameplay action has primary and secondary binding slots. Select
+a slot and press the desired key or device control. `Escape` cancels capture;
+`Backspace`, `Delete`, or **CLEAR** unbinds the slot. Reusing an existing binding
+swaps it with the previous slot. **SAVE** writes the current device without
+leaving its page, and **RESET TO DEFAULTS** affects only that device.
+
+Bindings are stored as three independent sparse YAML documents under
+`$XDG_CONFIG_HOME/crazy-robotaxi/controls/`, or
+`~/.config/crazy-robotaxi/controls/` when `XDG_CONFIG_HOME` is unset:
+`keyboard.yaml`, `gamepad.yaml`, and `wheel.yaml`. Use the CLI-only
+`--controls-dir PATH` option to select another directory. Control changes take
+effect after restarting the current application process.
+
 ### Keyboard
 
 | Control | Action |
 | --- | --- |
 | `W` or Up Arrow | Drive forward |
-| `S` or Down Arrow | Reverse |
+| `S` or Down Arrow | Brake, then reverse after stopping |
 | `A` or Left Arrow | Steer left |
 | `D` or Right Arrow | Steer right |
 | `Space` | Apply the handbrake and cancel throttle |
 | `R` | Restart the current game |
 | `H` | Hide or show the HUD control tooltips |
-| `Escape` | Return to the previous menu, then exit from the mode screen |
-| `Enter` | Submit the focused leaderboard name |
+| `Escape` | Return to the previous menu, then exit from the mode screen (fixed) |
+| `Enter` | Submit the focused leaderboard name (fixed) |
 
 Menu choices and leaderboard buttons can also be clicked with the mouse.
 
 ### Controller
 
+The Gamepad Controls screen uses one button-label convention at a time. Set
+`game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
+the Options screen or user-authored settings YAML. Xbox labels are the default.
+
 | Control | Action |
 | --- | --- |
 | Left stick | Steer |
-| Right trigger (`RT` / `R2` / `ZR`) | Throttle |
-| Left trigger (`LT` / `L2` / `ZL`) | Brake |
-| `R` / `RB` / `R1` (hold) | Select reverse gear |
-| Start / Menu / Plus | Restart the current game |
+| Right trigger (`RT` by default) | Throttle |
+| Left trigger (`LT` by default) | Brake, then reverse after stopping |
+| Menu button | Restart the current game |
 | Steering wheel and pedals | Use normalized steering, throttle, and brake input |
 
 A connected gamepad or wheel takes precedence over keyboard driving input.
-Gamepads do not currently control menus, the handbrake, or live-edit actions.
+Menu navigation remains mouse and keyboard controlled. Gamepad and wheel
+handbrake, control-hint, and live-edit actions are supported but unbound by
+default. Wheel bindings use the semantic steering, throttle, brake, clutch, and
+button values supplied by the runtime; physical device calibration remains a
+runtime concern.
 
 ## Race mode
 
