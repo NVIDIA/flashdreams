@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any, Literal
 
@@ -26,6 +26,7 @@ import torch
 from flashvsr.impl.corrector import ColorCorrectorImplementation
 from flashvsr.impl.encoder import FlashVSREncoder
 from torch import Tensor
+from typing_extensions import Self
 
 from flashdreams.infra.acceleration.prewarm import (
     cuda_graph_prewarm_steps,
@@ -96,6 +97,10 @@ class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
     tail_policy: _TailPolicy = "replicate_pad"
     """How to handle final partial chunks. ``replicate_pad`` preserves all
     frames; ``drop`` favors speed and fixed-size chunks."""
+
+    def with_device(self, device: str | torch.device) -> Self:
+        """Return a resource-clean config for ``device``."""
+        return replace(self, device=str(torch.device(device)))
 
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         """Return FlashVSR's 128-aligned spatial output specification."""

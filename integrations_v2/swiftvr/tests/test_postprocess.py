@@ -178,6 +178,19 @@ def test_swiftvr_reports_exact_scaled_output_spec() -> None:
     assert output == VideoSpec(height=1440, width=2560, fps=30)
 
 
+def test_swiftvr_device_placement_returns_a_resource_clean_copy() -> None:
+    original = SwiftVRPostProcessorConfig(device="cuda:0")
+    original_processor = original.setup()
+
+    configured = original.with_device("cuda:1")
+
+    assert configured is not original
+    assert configured.device == "cuda:1"
+    assert configured.setup() is not original_processor
+    assert original.device == "cuda:0"
+    assert original.setup() is original_processor
+
+
 def test_swiftvr_rejects_empty_input_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_pipeline(monkeypatch)
     session = (

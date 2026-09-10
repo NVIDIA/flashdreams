@@ -17,11 +17,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 import torch
 from torch import Tensor
+from typing_extensions import Self
 
 from flashdreams.infra.postprocess import (
     VideoChunk,
@@ -116,6 +117,10 @@ class SwiftVRPostProcessorConfig(VideoPostProcessorConfig):
     _processor: "SwiftVRPostProcessor | None" = field(
         default=None, init=False, repr=False, compare=False
     )
+
+    def with_device(self, device: str | torch.device) -> Self:
+        """Return a resource-clean config for ``device``."""
+        return replace(self, device=str(torch.device(device)))
 
     def __post_init__(self) -> None:
         if self.scale <= 0:

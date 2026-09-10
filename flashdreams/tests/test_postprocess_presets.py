@@ -17,10 +17,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
+import torch
 from flashvsr.impl.postprocess import FlashVSRPostProcessorConfig
+from typing_extensions import Self
 
 from flashdreams.infra.postprocess import (
     RTXVideoSuperResolutionPostProcessorConfig,
@@ -40,6 +42,14 @@ class _ExamplePostProcessorConfig(VideoPostProcessorConfig):
     _target: type[object] = field(default_factory=lambda: object)
 
 
+@dataclass(kw_only=True)
+class _DevicePostProcessorConfig(_ExamplePostProcessorConfig):
+    device: str = "cuda:0"
+
+    def with_device(self, device: str | torch.device) -> Self:
+        return replace(self, device=str(torch.device(device)))
+
+
 def test_discover_postprocess_presets_includes_flashvsr_entries() -> None:
     presets = discover_postprocess_presets()
 
@@ -54,6 +64,43 @@ def test_discover_postprocess_presets_includes_flashvsr_entries() -> None:
 def test_resolve_postprocess_preset_rejects_unknown_name() -> None:
     with pytest.raises(ValueError, match="Unknown postprocess preset"):
         resolve_postprocess_preset("not-a-real-preset")
+
+
+def test_chain_from_preset_binds_a_copy_to_the_selected_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registered = _DevicePostProcessorConfig()
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.resolve_postprocess_preset",
+        lambda name: registered,
+    )
+
+    chain = VideoPostprocessChainConfig.from_preset(
+        "example-preset",
+        device="cuda:1",
+    )
+
+    (configured,) = chain.processors
+    assert isinstance(configured, _DevicePostProcessorConfig)
+    assert configured is not registered
+    assert configured.device == "cuda:1"
+    assert registered.device == "cuda:0"
+    assert chain.preset == ""
+
+
+def test_chain_from_preset_rejects_a_processor_without_device_placement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.resolve_postprocess_preset",
+        lambda name: _ExamplePostProcessorConfig(),
+    )
+
+    with pytest.raises(ValueError, match="does not support explicit device"):
+        VideoPostprocessChainConfig.from_preset(
+            "example-preset",
+            device="cuda:1",
+        )
 
 
 def test_chain_config_appends_preset_after_explicit_processors() -> None:

@@ -23,10 +23,7 @@ from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig, VideoSpec
-from flashdreams.plugins.registry import (
-    discover_postprocess_presets,
-    resolve_postprocess_preset,
-)
+from flashdreams.plugins.registry import discover_postprocess_presets
 from flashdreams.runtime.keyboard import normalize_key
 from flashdreams.runtime_v2.session_desc import BackpressureMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -549,7 +546,7 @@ class _InteractiveDriveApplicationBase(IApplication):
             height=args.height,
             device=args.raster_device,
         )
-        postprocess = _postprocess_config(
+        postprocess = VideoPostprocessChainConfig.from_preset(
             preset=args.postprocess_preset,
             device=args.postprocess_device,
         )
@@ -624,33 +621,6 @@ def _build_backend(
         vehicle=config.vehicle,
         postprocess=config.postprocess,
         debug_condition_frame_dir=config.world_model_debug_condition_frame_dir,
-    )
-
-
-def _postprocess_config(
-    *,
-    preset: str,
-    device: str,
-) -> VideoPostprocessChainConfig:
-    """Resolve a preset and override only its launch-time CUDA device."""
-    if not preset:
-        return VideoPostprocessChainConfig()
-    processor = resolve_postprocess_preset(preset)
-    configured_device: str | int = device
-    if isinstance(getattr(processor, "device", None), int):
-        try:
-            configured_device = int(device.removeprefix("cuda:"))
-        except ValueError as error:
-            raise ValueError(
-                f"Postprocess preset {preset!r} requires a CUDA device ordinal, "
-                f"got {device!r}."
-            ) from error
-    elif not hasattr(processor, "device"):
-        raise ValueError(
-            f"Postprocess preset {preset!r} does not expose a selectable device."
-        )
-    return VideoPostprocessChainConfig(
-        processors=(replace(processor, device=configured_device),)
     )
 
 

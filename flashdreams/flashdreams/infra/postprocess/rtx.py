@@ -17,12 +17,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import import_module
 from typing import Any, Literal, get_args
 
 import torch
 from torch import Tensor
+from typing_extensions import Self
 
 from flashdreams.infra.postprocess.base import (
     VideoChunk,
@@ -104,6 +105,16 @@ class RTXVideoSuperResolutionPostProcessorConfig(VideoPostProcessorConfig):
 
     use_current_stream: bool = True
     """Pass the current PyTorch CUDA stream pointer to ``VideoSuperRes.run``."""
+
+    def with_device(self, device: str | torch.device) -> Self:
+        """Return a clean config for an explicitly indexed CUDA device."""
+        resolved = torch.device(device)
+        if resolved.type != "cuda" or resolved.index is None:
+            raise ValueError(
+                "RTX Video Super Resolution requires an explicitly indexed "
+                f"CUDA device such as 'cuda:0'; got {str(resolved)!r}."
+            )
+        return replace(self, device=resolved.index)
 
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         """Return the RGB stream specification produced by RTX VSR."""

@@ -53,6 +53,11 @@ config or processor factory.
 
    Override:
    - `output_spec()` when spatial size, channels, or timing changes.
+   - `with_device()` when callers may place the processor independently. Return
+     `dataclasses.replace(self, device=...)`; never mutate or return `self`,
+     because registered preset configs are cached and may retain a loaded
+     processor. Backends that use a native ordinal should validate and convert
+     the requested `torch.device` in this method.
    - `requires_all_ranks()` when the processor must run on nonzero ranks under
      `torchrun`.
    - `validate_execution()` to reject unsupported distributed or shape modes
@@ -113,6 +118,21 @@ config or processor factory.
    ```
 
    Users select it with `--postprocess.preset my-postprocessor-v1`.
+
+   V2 applications that also expose device placement should resolve both at
+   launch time through the shared factory:
+
+   ```python
+   postprocess = VideoPostprocessChainConfig.from_preset(
+       args.postprocess_preset,
+       device=args.postprocess_device,
+   )
+   ```
+
+   This materializes a clean configured processor once, before `setup()` or
+   `prepare()` can load model resources. Keep output-channel selection and
+   application metadata pairing in the application; the session runner cannot
+   infer those semantics from an ordered list of model results.
 
 ## Runner Interaction
 

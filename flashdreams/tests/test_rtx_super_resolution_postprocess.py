@@ -41,6 +41,24 @@ def test_rtx_super_resolution_output_spec_uses_scale() -> None:
     assert spec == VideoSpec(height=1080, width=1920, fps=24, channels=3)
 
 
+def test_rtx_super_resolution_device_placement_uses_nvvfx_ordinal() -> None:
+    original = RTXVideoSuperResolutionPostProcessorConfig(device=0)
+
+    configured = original.with_device("cuda:3")
+
+    assert configured is not original
+    assert configured.device == 3
+    assert original.device == 0
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_rtx_super_resolution_device_placement_requires_indexed_cuda(
+    device: str,
+) -> None:
+    with pytest.raises(ValueError, match="explicitly indexed CUDA device"):
+        RTXVideoSuperResolutionPostProcessorConfig().with_device(device)
+
+
 def test_rtx_super_resolution_output_spec_uses_explicit_dimensions() -> None:
     config = RTXVideoSuperResolutionPostProcessorConfig(
         output_height=720,

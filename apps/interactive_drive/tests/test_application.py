@@ -52,6 +52,9 @@ class _FakePostProcessorConfig(VideoPostProcessorConfig):
     device: str = "cuda"
     scale: int = 2
 
+    def with_device(self, device: str | torch.device) -> "_FakePostProcessorConfig":
+        return replace(self, device=str(torch.device(device)))
+
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         return replace(
             input_spec,
@@ -422,8 +425,7 @@ def test_world_model_accepts_postprocess_preset(
         lambda: {"example-preset": object()},
     )
     monkeypatch.setattr(
-        core_module,
-        "resolve_postprocess_preset",
+        "flashdreams.plugins.registry.resolve_postprocess_preset",
         lambda _: _FakePostProcessorConfig(),
     )
     app = InteractiveDriveApplication(

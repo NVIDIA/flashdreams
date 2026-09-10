@@ -24,6 +24,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 import torch
 from torch import Tensor
+from typing_extensions import Self
 
 from flashdreams.infra.config import InstantiateConfig, PrintableConfig
 
@@ -74,6 +75,18 @@ class VideoPostProcessorConfig(InstantiateConfig):
     _target: type["VideoPostProcessor"] = field(
         default_factory=lambda: VideoPostProcessor
     )
+
+    def with_device(self, device: str | torch.device) -> Self:
+        """Return a resource-clean copy configured for ``device``.
+
+        Device-selectable implementations must override this method. They must
+        return a new config rather than mutate or return ``self`` because preset
+        configs are cached and may retain application-lifetime processor state.
+        """
+        del device
+        raise ValueError(
+            f"{type(self).__name__} does not support explicit device placement."
+        )
 
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         """Return the stream specification produced from ``input_spec``.
@@ -172,6 +185,26 @@ class VideoPostprocessChainConfig(PrintableConfig):
     ``flashdreams.postprocess_presets`` entry-point group (for example
     ``flashvsr-v1.1-sparse-2.0`` when the FlashVSR integration is
     installed). Empty means no preset is appended."""
+
+    @classmethod
+    def from_preset(
+        cls,
+        preset: str,
+        *,
+        device: str | torch.device,
+    ) -> Self:
+        """Resolve ``preset`` into a new config bound to ``device``.
+
+        An empty preset returns a disabled chain. A selected preset is copied
+        before placement so the registry's cached config is never mutated and
+        cannot carry a model loaded on another device into this application.
+        """
+        if not preset:
+            return cls()
+        from flashdreams.plugins.registry import resolve_postprocess_preset
+
+        processor = resolve_postprocess_preset(preset).with_device(device)
+        return cls(processors=(processor,))
 
     def resolved_processors(self) -> tuple[VideoPostProcessorConfig, ...]:
         """Return :attr:`processors` plus any preset selected by name."""
