@@ -22,22 +22,6 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 SPDX-License-Identifier = "Apache-2.0"
 
-# --- SwiftVR inference code, redistributed and modified under Apache-2.0. ---
-[[annotations]]
-path = [
-    "integrations_v2/swiftvr/impl/attention.py",
-    "integrations_v2/swiftvr/impl/pipeline.py",
-    "integrations_v2/swiftvr/impl/decoder/**",
-    "integrations_v2/swiftvr/impl/encoder/**",
-    "integrations_v2/swiftvr/impl/transformer/**",
-]
-precedence = "aggregate"
-SPDX-FileCopyrightText = [
-    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
-    "Copyright (c) 2026 SwiftVR Authors.",
-]
-SPDX-License-Identifier = "Apache-2.0"
-
 # --- Documentation files (CC-BY-4.0 is the standard choice for prose;
 #     keeping Apache-2.0 here for parity with the rest of the project so
 #     code snippets quoted in docs match the source license). ---
