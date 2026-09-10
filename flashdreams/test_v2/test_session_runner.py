@@ -303,7 +303,11 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
     assert model_loop.inference_state is ModelInferenceState.FINISHED
 
 
-def test_model_loop_does_not_publish_buffered_steps() -> None:
+def test_model_loop_accumulates_buffered_step_time_before_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+
     class BufferedModelLoop(IModelLoop[None]):
         """Buffer the first model step before emitting output."""
 
@@ -312,7 +316,9 @@ def test_model_loop_does_not_publish_buffered_steps() -> None:
             step_index: int,
             events: UserInputEvents,
         ) -> list[StepResult]:
+            nonlocal now
             del events
+            now += (0.4, 0.6)[step_index]
             if step_index == 0:
                 return []
             return [
@@ -324,6 +330,7 @@ def test_model_loop_does_not_publish_buffered_steps() -> None:
                 )
             ]
 
+    monkeypatch.setattr("flashdreams.api_v2.loop.time.monotonic", lambda: now)
     failure_queue: queue.Queue[BaseException] = queue.Queue()
     model_loop = BufferedModelLoop()
     model_loop.register_session_loop_objects(
@@ -334,18 +341,84 @@ def test_model_loop_does_not_publish_buffered_steps() -> None:
     )
     event_buffer = EventBuffer()
     event_buffer.register(0)
-    published: list[list[StepResult]] = []
+    published: list[tuple[list[StepResult], float]] = []
 
     model_loop._run_model_loop(
         event_buffer=event_buffer,
         reader_id=0,
-        publish=lambda _generation, results, _elapsed: published.append(results),
+        publish=lambda _generation, results, elapsed: published.append(
+            (results, elapsed)
+        ),
         max_steps=2,
     )
 
     assert failure_queue.empty()
     assert len(published) == 1
-    assert published[0][0].step_index == 1
+    assert published[0][0][0].step_index == 1
+    assert published[0][1] == pytest.approx(1.0)
+
+
+def test_model_loop_discards_buffered_step_time_after_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+    calls = 0
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+
+    class ResetBufferedModelLoop(IModelLoop[None]):
+        def step(
+            self,
+            step_index: int,
+            events: UserInputEvents,
+        ) -> list[StepResult]:
+            nonlocal calls, now
+            del events
+            calls += 1
+            now += 0.4 if calls == 1 else 0.6
+            if calls == 1:
+                event_buffer.append(
+                    UserInputEvents([ResetUserInputEvent(timestamp=uint64(0))])
+                )
+                return []
+            return [
+                StepResult(
+                    step_index=step_index,
+                    output=torch.zeros((1, 3, 1, 1, 1)),
+                    frame_count=1,
+                    output_layout=VideoTensorLayout.bcthw,
+                )
+            ]
+
+        def reset(self) -> None:
+            pass
+
+    monkeypatch.setattr("flashdreams.api_v2.loop.time.monotonic", lambda: now)
+    failure_queue: queue.Queue[BaseException] = queue.Queue()
+    model_loop = ResetBufferedModelLoop()
+    model_loop.register_session_loop_objects(
+        state=None,
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=failure_queue,
+    )
+    published: list[tuple[int, list[StepResult], float]] = []
+
+    model_loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda generation, results, elapsed: published.append(
+            (generation, results, elapsed)
+        ),
+        max_steps=2,
+    )
+
+    assert failure_queue.empty()
+    assert len(published) == 1
+    generation, results, elapsed = published[0]
+    assert generation == 1
+    assert results[0].step_index == 0
+    assert elapsed == pytest.approx(0.6)
 
 
 class CallLog:
