@@ -218,6 +218,31 @@ def test_v2_ability_keys_are_consumed_on_pressed_edges() -> None:
     assert gameplay.obstacles.spawns == 1
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
+        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)),
+        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)),
+        LiveEditConfig(map_context=LiveEditMapContextConfig(enabled=True)),
+    ],
+)
+def test_prompt_live_edit_requires_python_dit(config: LiveEditConfig) -> None:
+    assert config.requires_python_dit
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)),
+        LiveEditConfig(items=LiveEditItemsConfig(enabled=True)),
+        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0)),
+    ],
+)
+def test_pixel_live_edit_keeps_native_dit_compatible(config: LiveEditConfig) -> None:
+    assert not config.requires_python_dit
+
+
 def test_nitro_boosts_and_expires_on_game_time() -> None:
     config = LiveEditItemsConfig(
         enabled=True,

@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
@@ -29,6 +29,7 @@ from crazy_robotaxi.rules import (
     TaxiSessionState,
     project_taxi_markers_to_camera,
 )
+from crazy_robotaxi.settings import SettingsDocument
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
     CrazyRobotaxiImGuiUILoop,
@@ -37,6 +38,7 @@ from crazy_robotaxi.ui import (
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
+from omnidreams.config import OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
 from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
@@ -52,6 +54,11 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@dataclass(frozen=True)
+class _SettingsPipeline:
+    name: str = "test-preset"
 
 
 def _calibration() -> CameraCalibration:
@@ -155,6 +162,7 @@ class _FakeFontAtlas:
 
 class _FakeImGui:
     Cond_ = SimpleNamespace(always=1)
+    ChildFlags_ = SimpleNamespace(auto_resize_y=1, always_auto_resize=2)
     WindowFlags_ = SimpleNamespace(
         no_move=1,
         no_resize=2,
@@ -162,7 +170,10 @@ class _FakeImGui:
         no_saved_settings=8,
         no_title_bar=16,
         no_background=32,
-        horizontal_scrollbar=64,
+        always_auto_resize=64,
+        no_scrollbar=128,
+        no_scroll_with_mouse=256,
+        horizontal_scrollbar=512,
     )
     InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
     StyleVar_ = SimpleNamespace(
@@ -184,6 +195,7 @@ class _FakeImGui:
         button=8,
         button_hovered=9,
         button_active=10,
+        check_mark=11,
     )
     TableFlags_ = SimpleNamespace(
         row_bg=1,
@@ -199,26 +211,39 @@ class _FakeImGui:
     def __init__(self) -> None:
         self.windows: dict[str, list[str]] = {}
         self.text_fonts: list[tuple[str, object, float]] = []
+        self.text_positions: list[tuple[str, float]] = []
         self.dummies: list[tuple[float, float]] = []
         self.current_window: str | None = None
         self.next_window_position = (0.0, 0.0)
         self.next_window_size = (640.0, 360.0)
         self.cursor_x = 8.0
+        self.cursor_y = 8.0
         self.input_value = ""
+        self.input_values: dict[str, str] = {}
+        self.multiline_inputs: list[tuple[str, str, tuple[float, float], int]] = []
+        self.multiline_input_positions: dict[str, float] = {}
+        self.checkbox_values: dict[str, bool] = {}
+        self.combo_indices: dict[str, int] = {}
         self.submit_input = False
         self.click_submit = False
         self.clicked_buttons: set[str] = set()
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
         self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
+        self.disabled_depth = 0
+        self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
         self.window_sizes: dict[str, tuple[float, float]] = {}
         self.child_sizes: dict[str, tuple[float, float]] = {}
         self.child_window_flags: dict[str, int] = {}
+        self._child_size_stack: list[tuple[float, float]] = []
+        self.current_child_size: tuple[float, float] | None = None
+        self.last_item_rect_size = (0.0, 0.0)
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
         self.table_column_counts: dict[str, int] = {}
+        self.table_flags: dict[str, int] = {}
         self.table_outer_sizes: dict[str, tuple[float, float]] = {}
         self.table_column_indices: dict[str, list[int]] = {}
         self.highlighted_rows: list[int] = []
@@ -228,6 +253,8 @@ class _FakeImGui:
         self.current_font = self.default_font
         self.current_font_size = 14.0
         self.font_stack: list[tuple[object, float]] = []
+        self.pushed_style_vars: list[tuple[int, object]] = []
+        self.pushed_style_colors: list[tuple[int, object]] = []
         self.fonts = _FakeFontAtlas()
         self.io = SimpleNamespace(fonts=self.fonts)
 
@@ -256,10 +283,6 @@ class _FakeImGui:
     def get_io(self) -> SimpleNamespace:
         return self.io
 
-    @staticmethod
-    def get_style() -> SimpleNamespace:
-        return SimpleNamespace(window_padding=(28.0, 24.0))
-
     def push_font(self, font: object, size: float) -> None:
         self.font_stack.append((self.current_font, self.current_font_size))
         if font is not None:
@@ -270,13 +293,13 @@ class _FakeImGui:
         self.current_font, self.current_font_size = self.font_stack.pop()
 
     def push_style_var(self, style_var: int, value: object) -> None:
-        del style_var, value
+        self.pushed_style_vars.append((style_var, value))
 
     def pop_style_var(self, count: int = 1) -> None:
         del count
 
     def push_style_color(self, color: int, value: object) -> None:
-        del color, value
+        self.pushed_style_colors.append((color, value))
 
     def pop_style_color(self, count: int = 1) -> None:
         del count
@@ -287,13 +310,16 @@ class _FakeImGui:
     def get_window_draw_list(self) -> _FakeDrawList:
         return self.background_draw_list
 
-    def set_next_window_pos(self, position, condition) -> None:
+    def set_next_window_pos(self, position, condition, pivot=None) -> None:
         self.next_window_position = position
-        del condition
+        del condition, pivot
 
     def set_next_window_size(self, size, condition) -> None:
         self.next_window_size = size
         del condition
+
+    def set_next_window_size_constraints(self, size_min, size_max) -> None:
+        del size_min, size_max
 
     def set_next_window_bg_alpha(self, alpha) -> None:
         del alpha
@@ -312,21 +338,62 @@ class _FakeImGui:
         self,
         child_id: str,
         size: tuple[float, float],
+        *,
         child_flags: int = 0,
         window_flags: int = 0,
     ) -> bool:
         del child_flags
         self.child_sizes[child_id] = size
         self.child_window_flags[child_id] = window_flags
+        self._child_size_stack.append(size)
+        self.current_child_size = size
         return True
 
     def end_child(self) -> None:
-        return
+        assert self._child_size_stack
+        width, height = self._child_size_stack.pop()
+        if height <= 0.0:
+            height = 100.0
+        self.last_item_rect_size = (width, height)
+        self.current_child_size = (
+            self._child_size_stack[-1] if self._child_size_stack else None
+        )
+
+    def get_item_rect_size(self) -> tuple[float, float]:
+        return self.last_item_rect_size
+
+    def get_item_rect_max(self) -> tuple[float, float]:
+        window_x, window_y = self.get_window_pos()
+        content_bottom = 100.0 if self.current_child_size is not None else 300.0
+        return (window_x, window_y + content_bottom)
+
+    @staticmethod
+    def get_style() -> SimpleNamespace:
+        return SimpleNamespace(
+            window_padding=(28.0, 24.0),
+            item_spacing=(10.0, 10.0),
+            frame_padding=(10.0, 8.0),
+            cell_padding=(4.0, 2.0),
+            scrollbar_size=14.0,
+            display_safe_area_padding=(3.0, 3.0),
+        )
+
+    def get_frame_height(self) -> float:
+        return self.current_font_size + 16.0
+
+    @staticmethod
+    def get_scroll_max_y() -> float:
+        return 0.0
+
+    @staticmethod
+    def get_scroll_y() -> float:
+        return 0.0
 
     def text(self, value: str) -> None:
         assert self.current_window is not None
         self.windows[self.current_window].append(value)
         self.text_fonts.append((value, self.current_font, self.current_font_size))
+        self.text_positions.append((value, self.cursor_y))
         if self.current_table is not None:
             rows = self.tables[self.current_table]
             while len(rows[-1]) <= self.current_table_column:
@@ -345,7 +412,21 @@ class _FakeImGui:
     def set_cursor_pos_x(self, value: float) -> None:
         self.cursor_x = value
 
+    def get_cursor_pos_y(self) -> float:
+        return self.cursor_y
+
+    def set_cursor_pos_y(self, value: float) -> None:
+        self.cursor_y = value
+
     def get_content_region_avail(self) -> tuple[float, float]:
+        if self.current_child_size is not None:
+            child_width, child_height = self.current_child_size
+            return (
+                child_width
+                if child_width > 0.0
+                else max(1.0, float(self.next_window_size[0]) - 56.0),
+                child_height,
+            )
         return (
             max(1.0, float(self.next_window_size[0]) - 56.0),
             max(1.0, float(self.next_window_size[1]) - 48.0),
@@ -369,12 +450,43 @@ class _FakeImGui:
         del width
 
     def input_text(self, label: str, value: str, *, flags: int):
-        del label, value, flags
+        del flags
+        if label in self.input_values:
+            return True, self.input_values[label]
+        del label, value
         return self.submit_input, self.input_value
+
+    def input_text_multiline(
+        self,
+        label: str,
+        value: str,
+        size: tuple[float, float],
+        *,
+        flags: int,
+    ) -> tuple[bool, str]:
+        self.multiline_inputs.append((label, value, size, flags))
+        self.multiline_input_positions[label] = self.cursor_y
+        if label in self.input_values:
+            return True, self.input_values[label]
+        return False, value
+
+    def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
+        if label in self.checkbox_values:
+            return True, self.checkbox_values[label]
+        return False, value
+
+    def combo(self, label: str, index: int, options: list[str]) -> tuple[bool, int]:
+        del options
+        if label in self.combo_indices:
+            return True, self.combo_indices[label]
+        return False, index
 
     def button(self, label: str, size: tuple[float, float] | None = None) -> bool:
         self.buttons.append(label)
         self.button_sizes.append((label, size))
+        if self.disabled_depth:
+            self.disabled_buttons.append(label)
+            return False
         submit = self.click_submit and label in {"SAVE SCORE", "SAVE TIME"}
         return submit or label in self.clicked_buttons
 
@@ -388,9 +500,12 @@ class _FakeImGui:
         self.images.append((key, pixels, size))
 
     def begin_disabled(self) -> None:
-        return
+        self.disabled_depth += 1
 
     def end_disabled(self) -> None:
+        self.disabled_depth -= 1
+
+    def same_line(self) -> None:
         return
 
     def begin_table(
@@ -401,11 +516,11 @@ class _FakeImGui:
         flags: int,
         outer_size: tuple[float, float],
     ) -> bool:
-        del flags
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
         self.table_column_counts[table_id] = columns
+        self.table_flags[table_id] = flags
         self.table_outer_sizes[table_id] = outer_size
         self.table_column_indices[table_id] = []
         return True
@@ -865,6 +980,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
     ]
     assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
+    assert "H  HIDE CONTROLS" in " ".join(overlay_text)
     assert "mph" in overlay_text
     assert any(
         name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
@@ -939,12 +1055,112 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
     assert lines[1].startswith("ELAPSED  ")
 
 
-@pytest.mark.parametrize(
-    ("option_count", "expected_columns"),
-    ((0, 1), (1, 1), (2, 2), (3, 2), (4, 2), (5, 3), (6, 3), (7, 3)),
-)
-def test_selection_grid_column_count(option_count: int, expected_columns: int) -> None:
-    assert _selection_grid_columns(option_count) == expected_columns
+def test_two_map_selections_render_in_one_grid_row() -> None:
+    preview_path = Path("map-preview.jpg")
+    maps = tuple(
+        GameMapOption(
+            map_id=f"map-{index}",
+            name=f"Map {index}",
+            path=Path(f"map-{index}.robotaxi.yaml"),
+            preview_image_path=preview_path,
+        )
+        for index in range(2)
+    )
+    state = TaxiHudState(1280, 720, _calibration(), map_options=maps)
+    state._selection_preview_pixels[preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert imgui.table_column_counts["##map-grid"] == 2
+    assert len(imgui.tables["##map-grid"]) == 1
+
+
+def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
+    map_preview_path = Path("map-preview.jpg")
+    course_preview_path = Path("course-preview.jpg")
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml"),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+                preview_image_path=course_preview_path,
+            ),
+        ),
+        preview_image_path=map_preview_path,
+    )
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        native_dit_disabled_for_live_edit=True,
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+        map_options=(option,),
+    )
+    state._selection_preview_pixels = {
+        map_preview_path: np.zeros((90, 160, 3), dtype=np.uint8),
+        course_preview_path: np.zeros((100, 200, 3), dtype=np.uint8),
+    }
+    state._settings_restart_notice = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+    state._selected_game_mode = "race"
+    state._menu_stage = "map"
+    state.draw(imgui)
+    state._selected_map_option = option
+    state._menu_stage = "course"
+    state.draw(imgui)
+
+    [(path, _size, droid_sans)] = imgui.fonts.loaded
+    assert path.endswith("DroidSans.ttf")
+    text_fonts = {text: font for text, font, _size in imgui.text_fonts}
+    assert text_fonts["CRAZY ROBOTAXI"] is droid_sans
+    assert text_fonts["SELECT MAP"] is droid_sans
+    assert text_fonts["SELECT RACE COURSE"] is droid_sans
+    for title in (
+        "Crazy Robotaxi - Select Game Mode",
+        "Crazy Robotaxi - Select Map",
+        "Crazy Robotaxi - Select Race Course",
+    ):
+        flags = imgui.window_flags[title]
+        assert flags & imgui.WindowFlags_.no_title_bar
+        assert flags & imgui.WindowFlags_.always_auto_resize
+        assert flags & imgui.WindowFlags_.no_scrollbar
+        assert flags & imgui.WindowFlags_.no_scroll_with_mouse
+    button_sizes = dict(imgui.button_sizes)
+    assert button_sizes["TAXI"] == button_sizes["RACE"]
+    for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
+        size = button_sizes[label]
+        assert size is not None and size[0] > 0.0
+    assert [key for key, _pixels, _size in imgui.images] == [
+        "selection-preview:map-preview.jpg",
+        "selection-preview:course-preview.jpg",
+    ]
+    map_button_size = button_sizes["Test City##map-0"]
+    course_button_size = button_sizes["DOWNTOWN SPRINT##course-0"]
+    assert map_button_size is not None
+    assert course_button_size is not None
+    assert imgui.child_sizes["##map-options"][0] == map_button_size[0]
+    assert imgui.child_sizes["##course-options"][0] == course_button_size[0]
+    assert imgui.buttons.count("OPTIONS") == 1
+    for title in (
+        "Crazy Robotaxi - Select Map",
+        "Crazy Robotaxi - Select Race Course",
+    ):
+        lines = imgui.windows[title]
+        assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" not in lines
+        assert "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" not in lines
+    assert [command for command, _args in imgui.background_draw_list.commands].count(
+        "rect_filled"
+    ) == 3
 
 
 def test_race_map_grid_uses_filtered_positions_for_layout() -> None:
@@ -974,11 +1190,12 @@ def test_race_map_grid_uses_filtered_positions_for_layout() -> None:
 def test_three_column_selection_grids_preserve_natural_width(
     viewport_width: int,
 ) -> None:
+    preview_path = Path("preview.jpg")
     courses = tuple(
         GameRaceCourseOption(
             f"course-{index}",
             f"spawn-{index}",
-            Path(f"course-{index}.jpg"),
+            preview_path,
         )
         for index in range(5)
     )
@@ -988,22 +1205,14 @@ def test_three_column_selection_grids_preserve_natural_width(
             name=f"Map {index}",
             path=Path(f"map-{index}.robotaxi.yaml"),
             race_courses=courses,
-            preview_image_path=Path(f"map-{index}.jpg"),
+            preview_image_path=preview_path,
         )
         for index in range(5)
     )
     state = TaxiHudState(viewport_width, 720, _calibration(), map_options=options)
-    state._selection_preview_pixels = {
-        path: np.zeros((90, 160, 3), dtype=np.uint8)
-        for option in options
-        for path in (option.preview_image_path,)
-        if path is not None
-    } | {
-        path: np.zeros((90, 160, 3), dtype=np.uint8)
-        for course in courses
-        for path in (course.preview_image_path,)
-        if path is not None
-    }
+    state._selection_preview_pixels[preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
     imgui = _FakeImGui()
 
     state._selected_game_mode = "taxi"
@@ -1031,9 +1240,133 @@ def test_three_column_selection_grids_preserve_natural_width(
             assert not horizontal_scroll
 
 
-def test_selection_menus_use_arcade_card_layout() -> None:
+def test_map_and_course_selections_use_three_column_grids() -> None:
     map_preview_path = Path("map-preview.jpg")
+    maps = tuple(
+        GameMapOption(
+            map_id=f"map-{index}",
+            name=f"Map {index}",
+            path=Path(f"map-{index}.robotaxi.yaml"),
+            race_courses=(
+                GameRaceCourseOption(
+                    course_id="course-0",
+                    spawn_id="race-start",
+                ),
+            ),
+            preview_image_path=map_preview_path,
+        )
+        for index in range(6)
+    )
+    state = TaxiHudState(1280, 720, _calibration(), map_options=maps)
+    state._selection_preview_pixels[map_preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
+    state._selected_game_mode = "race"
+    state._menu_stage = "map"
+    map_imgui = _FakeImGui()
+
+    state.draw(map_imgui)
+
+    assert map_imgui.table_column_counts["##map-grid"] == 3
+    assert (
+        map_imgui.table_flags["##map-grid"] & map_imgui.TableFlags_.sizing_stretch_same
+    )
+    assert len(map_imgui.tables["##map-grid"]) == 2
+    map_button_sizes = dict(map_imgui.button_sizes)
+    map_button_size = map_button_sizes["Map 0##map-0"]
+    assert map_button_size is not None
+    assert len(map_imgui.images) == 6
+
     course_preview_path = Path("course-preview.jpg")
+    course_option = GameMapOption(
+        map_id="course-map",
+        name="Course Map",
+        path=Path("course-map.robotaxi.yaml"),
+        race_courses=tuple(
+            GameRaceCourseOption(
+                course_id=f"course-{index}",
+                spawn_id=f"race-start-{index}",
+                preview_image_path=course_preview_path,
+            )
+            for index in range(7)
+        ),
+    )
+    state._selection_preview_pixels[course_preview_path] = np.zeros(
+        (90, 160, 3), dtype=np.uint8
+    )
+    state._selected_map_option = course_option
+    state._menu_stage = "course"
+    course_imgui = _FakeImGui()
+
+    state.draw(course_imgui)
+
+    assert course_imgui.table_column_counts["##course-grid"] == 3
+    assert (
+        course_imgui.table_flags["##course-grid"]
+        & course_imgui.TableFlags_.sizing_stretch_same
+    )
+    assert len(course_imgui.tables["##course-grid"]) == 3
+    course_button_sizes = dict(course_imgui.button_sizes)
+    course_button_size = course_button_sizes["COURSE 0##course-0"]
+    assert course_button_size is not None
+    assert len(course_imgui.images) == 7
+
+
+def test_missing_selection_thumbnail_keeps_text_button(tmp_path: Path) -> None:
+    missing_thumbnail = tmp_path / "missing.png"
+    option = GameMapOption(
+        map_id="text-only",
+        name="Text Only",
+        path=Path("text-only.robotaxi.yaml"),
+        preview_image_path=missing_thumbnail,
+    )
+    state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert "Text Only##map-0" in imgui.buttons
+    assert not imgui.images
+    assert state._selection_preview_pixels[missing_thumbnail] is None
+
+
+def test_selection_thumbnail_size_does_not_depend_on_choice_count() -> None:
+    first_path = Path("first-preview.jpg")
+    second_path = Path("second-preview.jpg")
+    first = GameMapOption(
+        map_id="first",
+        name="First",
+        path=Path("first.robotaxi.yaml"),
+        preview_image_path=first_path,
+    )
+    second = GameMapOption(
+        map_id="second",
+        name="Second",
+        path=Path("second.robotaxi.yaml"),
+        preview_image_path=second_path,
+    )
+    state = TaxiHudState(640, 360, _calibration(), map_options=(first,))
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    preview = np.zeros((600, 300, 3), dtype=np.uint8)
+    state._selection_preview_pixels = {
+        first_path: preview,
+        second_path: preview,
+    }
+
+    one_choice = _FakeImGui()
+    state.draw(one_choice)
+    state.map_options = (first, second)
+    two_choices = _FakeImGui()
+    state.draw(two_choices)
+
+    assert one_choice.images[0][2] == two_choices.images[0][2]
+    assert two_choices.images[0][2] == two_choices.images[1][2]
+
+
+def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
@@ -1042,58 +1375,8 @@ def test_selection_menus_use_arcade_card_layout() -> None:
             GameRaceCourseOption(
                 course_id="downtown-sprint",
                 spawn_id="race-start",
-                preview_image_path=course_preview_path,
             ),
         ),
-        preview_image_path=map_preview_path,
-    )
-    state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
-    state._selection_preview_pixels = {
-        map_preview_path: np.zeros((90, 160, 3), dtype=np.uint8),
-        course_preview_path: np.zeros((100, 200, 3), dtype=np.uint8),
-    }
-    imgui = _FakeImGui()
-
-    state.draw(imgui)
-    state._selected_game_mode = "race"
-    state._menu_stage = "map"
-    state.draw(imgui)
-    state._selected_map_option = option
-    state._menu_stage = "course"
-    state.draw(imgui)
-
-    [(path, _size, droid_sans)] = imgui.fonts.loaded
-    assert path.endswith("DroidSans.ttf")
-    text_fonts = {text: font for text, font, _size in imgui.text_fonts}
-    assert text_fonts["CRAZY ROBOTAXI"] is droid_sans
-    assert text_fonts["SELECT MAP"] is droid_sans
-    assert text_fonts["SELECT RACE COURSE"] is droid_sans
-    for title in (
-        "Crazy Robotaxi — Select Game Mode",
-        "Crazy Robotaxi — Select Map",
-        "Crazy Robotaxi — Select Race Course",
-    ):
-        assert imgui.window_flags[title] & imgui.WindowFlags_.no_title_bar
-    button_sizes = dict(imgui.button_sizes)
-    assert button_sizes["TAXI"] == button_sizes["RACE"]
-    for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
-        size = button_sizes[label]
-        assert size is not None and size[0] > 0.0
-    assert [key for key, _pixels, _size in imgui.images] == [
-        "selection-preview:map-preview.jpg",
-        "selection-preview:course-preview.jpg",
-    ]
-    assert [command for command, _args in imgui.background_draw_list.commands].count(
-        "rect_filled"
-    ) == 3
-
-
-def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
-    option = GameMapOption(
-        map_id="test-city",
-        name="Test City",
-        path=Path("test-city.robotaxi.yaml"),
-        race_courses=(GameRaceCourseOption("downtown-sprint", "race-start"),),
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
     model_loop = _SelectionLoop()
@@ -1110,7 +1393,7 @@ def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
     state.draw(imgui)
 
     assert state._menu_stage == "map"
-    assert "Crazy Robotaxi — Select Game Mode" in imgui.windows
+    assert "Crazy Robotaxi - Select Game Mode" in imgui.windows
     imgui.clicked_buttons = {"Test City##map-0"}
     state.draw(imgui)
 
@@ -1126,7 +1409,12 @@ def test_race_menu_selects_map_then_course() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml"),
-        race_courses=(GameRaceCourseOption("downtown-sprint", "race-start"),),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
     model_loop = _SelectionLoop()
@@ -1163,7 +1451,12 @@ def test_complete_cli_selection_skips_all_selection_screens() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml").resolve(),
-        race_courses=(GameRaceCourseOption("downtown-sprint", "race-start"),),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(
         640,
@@ -1201,7 +1494,12 @@ def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
         map_id="test-city",
         name="Test City",
         path=Path("test-city.robotaxi.yaml").resolve(),
-        race_courses=(GameRaceCourseOption("downtown-sprint", "race-start"),),
+        race_courses=(
+            GameRaceCourseOption(
+                course_id="downtown-sprint",
+                spawn_id="race-start",
+            ),
+        ),
     )
     state = TaxiHudState(
         640,
@@ -1267,6 +1565,29 @@ def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
     assert ui_loop.is_finished()
     model_loop._run_message_batch()
     assert model_loop.state.exit_requested
+
+
+def test_h_toggles_gameplay_control_tooltips() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="h",
+        state=KeyboardInputState.RELEASED,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="H",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    state.consume_input_events(UserInputEvents([released]))
+    assert state.show_control_tooltips
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_control_tooltips
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state.show_control_tooltips
 
 
 def test_input_latency_profile_correlates_ui_event_with_model_frame() -> None:
@@ -1497,6 +1818,11 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
     assert imgui.highlighted_rows == [2]
     assert "PLAY AGAIN" in imgui.buttons
     assert "R  RESTART   ·   ESC  MAP" in imgui.windows["Game Over"]
+    results_flags = imgui.window_flags["Game Over"]
+    assert results_flags & imgui.WindowFlags_.always_auto_resize
+    assert results_flags & imgui.WindowFlags_.no_scrollbar
+    assert results_flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert imgui.table_flags["##leaderboard"] & imgui.TableFlags_.scroll_y
 
 
 def test_race_results_card_formats_times() -> None:
@@ -1563,3 +1889,509 @@ def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -
     model_loop._run_message_batch()
 
     assert model_loop.state.restart_count == 1
+
+
+def _settings_document(path: Path) -> SettingsDocument:
+    return SettingsDocument.load(
+        path,
+        pipeline_config=_SettingsPipeline(),
+        width=640,
+        height=360,
+    )
+
+
+def _perf_settings_document(path: Path) -> SettingsDocument:
+    return SettingsDocument.load(
+        path,
+        pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        width=640,
+        height=360,
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_stage"),
+    [("mode", "options"), ("map", "map"), ("course", "course")],
+)
+def test_options_can_only_open_from_mode_selection(
+    tmp_path: Path,
+    stage: Literal["mode", "map", "course"],
+    expected_stage: Literal["options", "map", "course"],
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._menu_stage = stage
+
+    state._open_options()
+
+    assert state._menu_stage == expected_stage
+    if stage == "mode":
+        assert state._options_return_stage == "mode"
+
+
+def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    labels = {label for label, _size in imgui.button_sizes}
+    options_flags = imgui.window_flags["Crazy Robotaxi - Options"]
+    assert options_flags & imgui.WindowFlags_.always_auto_resize
+    assert options_flags & imgui.WindowFlags_.no_scrollbar
+    assert options_flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert "##options-categories" in imgui.child_sizes
+    assert "##options-fields" in imgui.child_sizes
+    assert "GAME##options-category-game" in labels
+    assert "LAUNCH##options-category-launch" not in labels
+    assert "SAVE" in labels
+    assert "EXIT" in labels
+    assert "EXIT WITHOUT SAVING" not in labels
+    assert "RESET TO DEFAULTS" in labels
+
+
+def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_perf_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    click_imgui = _FakeImGui()
+    click_imgui.clicked_buttons.add("MODEL##options-category-model")
+
+    state.draw(click_imgui)
+
+    assert state._options_category == "model"
+    model_imgui = _FakeImGui()
+    state.draw(model_imgui)
+    lines = model_imgui.windows["Crazy Robotaxi - Options"]
+    assert "Device:" in lines
+    assert not any("READ ONLY" in line for line in lines)
+    assert lines.index("PIPELINE") < lines.index("DIFFUSION MODEL")
+    assert lines.index("DIFFUSION MODEL") < lines.index("Seed:")
+    assert lines.index("Seed:") < lines.index("TRANSFORMER")
+    assert lines.index("TRANSFORMER") < lines.index("Dtype:")
+
+
+def test_options_booleans_use_compact_native_green_checkboxes(
+    tmp_path: Path,
+) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    native_check_colors = [
+        color
+        for style, color in imgui.pushed_style_colors
+        if style == imgui.Col_.check_mark
+    ]
+    assert native_check_colors and set(native_check_colors) == {(0.25, 0.85, 0.25, 1.0)}
+    compact_padding = [
+        value
+        for style, value in imgui.pushed_style_vars
+        if style == imgui.StyleVar_.frame_padding and value == (10.0, 4.0)
+    ]
+    assert len(compact_padding) == 3
+
+
+def test_options_text_fields_wrap_without_resizing_the_submenu(
+    tmp_path: Path,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+
+    def draw_device(value: str) -> _FakeImGui:
+        state = TaxiHudState(
+            1280,
+            720,
+            _calibration(),
+            settings_document=document,
+        )
+        state._open_options()
+        state._options_category = "model"
+        assert state._options_draft is not None
+        state._options_draft = document.update(
+            state._options_draft,
+            ("model", "device"),
+            value,
+        )
+        imgui = _FakeImGui()
+        state.draw(imgui)
+        return imgui
+
+    short = draw_device("cuda")
+    wrapped = draw_device("wrapped words " * 20)
+    unbreakable = draw_device("/" + "long-path-segment" * 20)
+
+    assert {
+        short.child_sizes["##options-fields"][0],
+        wrapped.child_sizes["##options-fields"][0],
+        unbreakable.child_sizes["##options-fields"][0],
+    } == {short.child_sizes["##options-fields"][0]}
+    short_field = next(
+        item for item in short.multiline_inputs if item[0] == "##model.device"
+    )
+    wrapped_field = next(
+        item for item in wrapped.multiline_inputs if item[0] == "##model.device"
+    )
+    path_field = next(
+        item for item in unbreakable.multiline_inputs if item[0] == "##model.device"
+    )
+    assert wrapped_field[2][1] > short_field[2][1]
+    wrapped_label_y = next(y for text, y in wrapped.text_positions if text == "Device:")
+    assert wrapped_label_y == pytest.approx(
+        wrapped.multiline_input_positions["##model.device"]
+        + (wrapped_field[2][1] - wrapped.calc_text_size("Device:").y) / 2.0
+    )
+    scroll_id = "##model.device-horizontal-scroll"
+    assert scroll_id not in wrapped.child_sizes
+    assert unbreakable.child_sizes[scroll_id][0] < path_field[2][0]
+    assert (
+        unbreakable.child_window_flags[scroll_id]
+        & unbreakable.WindowFlags_.horizontal_scrollbar
+    )
+
+
+def test_options_reset_to_defaults_remains_unsaved_until_save(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "schema_version: 1\n"
+        "presentation:\n"
+        "  show_fps: true\n"
+        "live_edit:\n"
+        "  weather:\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
+    document = _perf_settings_document(config_path)
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        show_fps=True,
+        native_dit_disabled_for_live_edit=True,
+        settings_document=document,
+    )
+    state._open_options()
+    reset_imgui = _FakeImGui()
+    reset_imgui.clicked_buttons.add("RESET TO DEFAULTS")
+
+    state.draw(reset_imgui)
+
+    assert state._options_draft == document.defaults
+    assert document.settings.presentation.show_fps
+    assert state.show_fps
+    assert "show_fps: true" in config_path.read_text(encoding="utf-8")
+
+    unsaved_imgui = _FakeImGui()
+    state.draw(unsaved_imgui)
+    unsaved_labels = {label for label, _size in unsaved_imgui.button_sizes}
+    assert "EXIT WITHOUT SAVING" in unsaved_labels
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        not in unsaved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+    save_imgui = _FakeImGui()
+    save_imgui.clicked_buttons.add("SAVE")
+    state.draw(save_imgui)
+
+    assert document.settings == document.defaults
+    assert not state.show_fps
+    assert "presentation:" not in config_path.read_text(encoding="utf-8")
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        not in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+
+def test_options_save_persists_and_applies_presentation_setting(
+    tmp_path: Path,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.clicked_buttons.add("SAVE")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "options"
+    assert state.show_fps
+    assert "show_fps: true" in document.path.read_text(encoding="utf-8")
+    assert state._settings_notice == f"SAVED {document.path}"
+    assert not state._settings_restart_notice
+    options_lines = imgui.windows["Crazy Robotaxi - Options"]
+    assert "Show Fps:" in options_lines
+    assert not any("RESTART REQUIRED" in line for line in options_lines)
+
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    saved_labels = {label for label, _size in saved_imgui.button_sizes}
+    assert state._settings_notice in saved_imgui.windows["Crazy Robotaxi - Options"]
+    assert "EXIT" in saved_labels
+    assert "EXIT WITHOUT SAVING" not in saved_labels
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
+    assert state._menu_stage == "mode"
+
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    assert state._settings_notice not in menu_lines
+    assert not any("RESTART REQUIRED" in line for line in menu_lines)
+
+
+def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.clicked_buttons.add("EXIT WITHOUT SAVING")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "mode"
+    assert not state.show_fps
+    assert not document.path.exists()
+    labels = {label for label, _size in imgui.button_sizes}
+    assert "EXIT WITHOUT SAVING" in labels
+    assert "EXIT" not in labels
+
+
+def test_options_save_notice_expires_five_seconds_after_latest_save(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr("crazy_robotaxi.ui.time.monotonic", lambda: now[0])
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+
+    first_save = _FakeImGui()
+    first_save.clicked_buttons.add("SAVE")
+    state.draw(first_save)
+
+    now[0] = 104.0
+    second_save = _FakeImGui()
+    second_save.clicked_buttons.add("SAVE")
+    state.draw(second_save)
+
+    now[0] = 105.0
+    visible_imgui = _FakeImGui()
+    state.draw(visible_imgui)
+    assert state._settings_notice in visible_imgui.windows["Crazy Robotaxi - Options"]
+
+    now[0] = 109.0
+    expired_imgui = _FakeImGui()
+    state.draw(expired_imgui)
+    assert not state._settings_notice
+    assert not any(
+        line.startswith("SAVED ")
+        for line in expired_imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+
+def test_options_identifies_restart_required_changes(tmp_path: Path) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "runtime"
+    imgui = _FakeImGui()
+    imgui.input_values["##runtime.prewarm_blocks"] = "9"
+
+    state.draw(imgui)
+
+    assert (
+        "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+        in imgui.windows["Crazy Robotaxi - Options"]
+    )
+    assert not any(
+        line.startswith("SETTINGS REQUIRING RESTART:")
+        for line in imgui.windows["Crazy Robotaxi - Options"]
+    )
+    assert "Prewarm Blocks:" in imgui.windows["Crazy Robotaxi - Options"]
+
+    imgui.clicked_buttons.add("SAVE")
+    state.draw(imgui)
+
+    assert state._menu_stage == "options"
+    assert state._settings_notice == f"SAVED {document.path}"
+    assert (
+        state._settings_restart_notice == "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+    )
+    assert state._settings_requiring_restart == ("runtime.prewarm_blocks",)
+
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    assert state._settings_notice in saved_imgui.windows["Crazy Robotaxi - Options"]
+    assert (
+        state._settings_restart_notice
+        in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+    saved_labels = {label for label, _size in saved_imgui.button_sizes}
+    assert "EXIT" in saved_labels
+    assert "EXIT WITHOUT SAVING" not in saved_labels
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    assert state._settings_notice not in menu_lines
+    assert state._settings_restart_notice in menu_lines
+    assert not any(
+        line.startswith("SETTINGS REQUIRING RESTART:") for line in menu_lines
+    )
+
+
+def test_options_can_show_code_only_restart_setting_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "crazy_robotaxi.ui._SHOW_RESTART_REQUIRED_SETTINGS",
+        True,
+    )
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "runtime"
+    imgui = _FakeImGui()
+    imgui.input_values["##runtime.prewarm_blocks"] = "9"
+
+    state.draw(imgui)
+
+    assert (
+        "SETTINGS REQUIRING RESTART: runtime.prewarm_blocks"
+        in imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+
+def test_native_dit_notices_reflect_menu_context(
+    tmp_path: Path,
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        native_dit_disabled_for_live_edit=True,
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    notice = "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    assert notice in menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+
+    state._open_options()
+    options_imgui = _FakeImGui()
+    state.draw(options_imgui)
+    options_lines = options_imgui.windows["Crazy Robotaxi - Options"]
+    assert notice not in options_lines
+
+
+def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
+    tmp_path: Path,
+) -> None:
+    document = _perf_settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "live_edit"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##live_edit.weather.enabled"] = True
+
+    state.draw(imgui)
+
+    pending_lines = imgui.windows["Crazy Robotaxi - Options"]
+    assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" in pending_lines
+    assert "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" in pending_lines
+
+    reverted_imgui = _FakeImGui()
+    reverted_imgui.checkbox_values["##live_edit.weather.enabled"] = False
+    state.draw(reverted_imgui)
+    reverted_lines = reverted_imgui.windows["Crazy Robotaxi - Options"]
+    assert "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT" not in reverted_lines
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES" not in reverted_lines
+    )
+
+    save_imgui = _FakeImGui()
+    save_imgui.checkbox_values["##live_edit.weather.enabled"] = True
+    save_imgui.clicked_buttons.add("SAVE")
+    state.draw(save_imgui)
+
+    assert state._menu_stage == "options"
+    saved_imgui = _FakeImGui()
+    state.draw(saved_imgui)
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        in saved_imgui.windows["Crazy Robotaxi - Options"]
+    )
+
+    exit_imgui = _FakeImGui()
+    exit_imgui.clicked_buttons.add("EXIT")
+    state.draw(exit_imgui)
+    menu_imgui = _FakeImGui()
+    state.draw(menu_imgui)
+    assert (
+        "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+        not in menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    )

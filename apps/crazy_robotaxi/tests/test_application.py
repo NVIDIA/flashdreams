@@ -15,10 +15,18 @@ import torch
 from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
+    _configure_live_edit_pipeline,
     _fit_bev_renderer_to_ui,
 )
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
+from crazy_robotaxi.live_edit.config import (
+    LiveEditCoinsConfig,
+    LiveEditConfig,
+    LiveEditObstacleConfig,
+    LiveEditStyleConfig,
+    LiveEditWeatherConfig,
+)
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
@@ -202,6 +210,10 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert raceway.race_courses[0].preview_image_path is not None
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
+    assert (
+        ui_loop.state.native_dit_disabled_for_live_edit
+        is session._config.native_dit_disabled_for_live_edit
+    )
     assert session._config.renderer.bev.width == 234
     assert session._config.renderer.bev.height == 234
 
@@ -248,9 +260,9 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
         ]
     )
     assert app._config is not None
-    assert app._config.cli_game_mode == "race"
-    assert app._config.cli_map_path == _DEMO_RACE_MAP.resolve()
-    assert app._config.cli_race_course_id == "grand-prix"
+    assert app._config.initial_game_mode == "race"
+    assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
+    assert app._config.initial_race_course_id == "grand-prix"
 
     session = app.create_session(app.session_desc())
     session.init()
@@ -261,7 +273,85 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.game_selected
     assert model_loop.state.config.game_mode == "race"
     assert model_loop.state.config.race_course_id == "grand-prix"
-    assert model_loop.state.config.scene_request.spawn_id == "race_start"
+
+
+def test_user_config_overrides_model_and_game_without_selecting_menus(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """\
+model:
+  device: cpu
+  pipeline:
+    diffusion_model:
+      seed: 5678
+game:
+  taxi:
+    seed: 1234
+runtime:
+  prewarm_blocks: 0
+""",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(["--config", str(config_path)])
+
+    assert app._config is not None
+    assert app._config.initial_game_mode is None
+    assert app._config.initial_map_path is None
+    assert app._config.initial_race_course_id is None
+    assert app._config.model_preset_name == _STUB_PIPELINE_CONFIG.name
+    assert app._config.device == "cpu"
+    assert app._config.game.seed == 1234
+    pipeline_config = app._pipeline_config
+    assert pipeline_config is not None
+    assert pipeline_config.diffusion_model.seed == 5678
+    assert app.session_desc().video_width == 1280
+    assert app.session_desc().video_height == 704
+
+
+def test_explicit_cli_overrides_user_config_without_rewriting_it(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """\
+model:
+  device: cuda
+presentation:
+  show_fps: false
+runtime:
+  prewarm_blocks: 7
+""",
+        encoding="utf-8",
+    )
+    app = _application()
+
+    app.init(
+        [
+            "--config",
+            str(config_path),
+            "--device",
+            "cpu",
+            "--show-fps",
+            "--prewarm-blocks",
+            "0",
+        ]
+    )
+
+    assert app._config is not None
+    assert app._config.device == "cpu"
+    assert app._config.show_fps
+    assert app._config.prewarm_blocks == 0
+    document = app._config.settings_document
+    assert document is not None
+    assert document.settings.model.device == "cuda"
+    assert not document.settings.presentation.show_fps
+    assert document.settings.runtime.prewarm_blocks == 7
+    assert document.cli_overrides[("model", "device")] == "cpu"
+    assert document.cli_overrides[("presentation", "show_fps")] is True
 
 
 def test_pressed_r_requests_a_v2_game_restart() -> None:
@@ -499,6 +589,54 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
     session._pipeline_factory()
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
+
+
+@pytest.mark.parametrize(
+    ("live_edit", "expected_native_dit"),
+    [
+        (LiveEditConfig(style=LiveEditStyleConfig(enabled=True)), "disabled"),
+        (LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)), "disabled"),
+        (
+            LiveEditConfig(
+                obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)
+            ),
+            "disabled",
+        ),
+        (LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)), "required"),
+        (
+            LiveEditConfig(
+                obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0)
+            ),
+            "required",
+        ),
+    ],
+)
+def test_live_edit_disables_native_dit_only_when_required(
+    live_edit: LiveEditConfig,
+    expected_native_dit: str,
+) -> None:
+    transformer = replace(
+        cast(
+            _StubTransformerConfig,
+            _STUB_PIPELINE_CONFIG.diffusion_model.transformer,
+        ),
+        native_dit_acceleration="required",
+    )
+    pipeline = replace(
+        _STUB_PIPELINE_CONFIG,
+        diffusion_model=replace(
+            _STUB_PIPELINE_CONFIG.diffusion_model,
+            transformer=transformer,
+        ),
+    )
+
+    configured = _configure_live_edit_pipeline(pipeline, live_edit)
+
+    assert (
+        configured.diffusion_model.transformer.native_dit_acceleration
+        == expected_native_dit
+    )
+    assert configured.encoder == pipeline.encoder
 
 
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
