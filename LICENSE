@@ -19,8 +19,9 @@ FlashDreams is open-source software. Its licensing posture is:
         is licensed under the Zlib license. Full text:
         LICENSES/Zlib.txt.
 
-  * Portions of integrations_v2/swiftvr/impl/attention.py and model.py
-    are adapted from SwiftVR and remain licensed under Apache-2.0.
+  * Portions of integrations_v2/swiftvr/impl/{attention.py,autoencoder.py,
+    pipeline.py,decoder/,encoder/,transformer/} are adapted from SwiftVR and
+    remain licensed under Apache-2.0.
     The full text is available at LICENSES/Apache-2.0.txt and the
     redistribution is detailed in THIRD-PARTY-NOTICES.
 

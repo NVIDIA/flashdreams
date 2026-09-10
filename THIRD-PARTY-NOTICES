@@ -185,7 +185,8 @@ license; LICENSES/Zlib.txt reproduces the license text in full.
 SwiftVR streaming inference
 --------------------------------------------------------------------------------
 
-Path:     integrations_v2/swiftvr/impl/{attention.py, model.py}
+Path:     integrations_v2/swiftvr/impl/{attention.py, autoencoder.py, pipeline.py,
+          decoder/, encoder/, transformer/}
 License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
           Copyright (c) 2026 SwiftVR Authors.
 Upstream: https://github.com/H-oliday/SwiftVR

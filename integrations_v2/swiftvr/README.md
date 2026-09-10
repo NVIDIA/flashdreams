@@ -12,6 +12,11 @@ attention on FlashDreams' native WAN transformer components. Upstream
 Diffusers-format weights are remapped at load time; Diffusers is not a runtime
 dependency.
 
+Like FlashVSR, the runtime is a typed `StreamInferencePipeline` composed from
+separate streaming encoder, WAN transformer, and streaming decoder components.
+Their mutable temporal state lives in per-stream caches while the heavyweight
+weights remain resident on the pipeline.
+
 The heavyweight checkpoint is loaded and prewarmed by the first session, then
 stays resident across replacement sessions. Each session owns only its causal
 temporal state.

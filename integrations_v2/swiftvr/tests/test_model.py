@@ -1,15 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU contracts for the FlashDreams-native SwiftVR transformer."""
+"""CPU contracts for the FlashDreams-native SwiftVR pipeline."""
 
-from typing import cast
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import torch
+from swiftvr.config import build_swiftvr_pipeline
 from swiftvr.impl.attention import SwiftVRBlock, _axis_starts
-from swiftvr.impl.model import SwiftVRDiTNetwork, SwiftVRPipeline
+from swiftvr.impl.autoencoder import split_reae_state_dict
+from swiftvr.impl.decoder import SwiftVRDecoderConfig
+from swiftvr.impl.decoder.network import SwiftVRDecoderNetwork
+from swiftvr.impl.encoder import SwiftVREncoderConfig
+from swiftvr.impl.encoder.network import SwiftVREncoderNetwork
+from swiftvr.impl.pipeline import SwiftVRPipeline, SwiftVRPipelineConfig
+from swiftvr.impl.transformer import SwiftVRTransformerConfig
+from swiftvr.impl.transformer.network import (
+    SwiftVRDiTNetwork,
+    SwiftVRDiTNetworkConfig,
+)
 
+from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.recipes.wan import wan_dit_state_dict_from_diffusers
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
@@ -17,6 +31,87 @@ from flashdreams.recipes.wan.transformer.impl.network import (
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_pipeline_config_follows_stream_inference_component_contracts(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "reae.safetensors").touch()
+    (tmp_path / "prompt_embedding.safetensors").touch()
+    transformer_dir = tmp_path / "transformer"
+    transformer_dir.mkdir()
+    (transformer_dir / "diffusion_pytorch_model.safetensors").touch()
+
+    config = build_swiftvr_pipeline(
+        checkpoint=str(tmp_path),
+        revision=None,
+        attention_window=(8, 12),
+        chunk_size=24,
+    )
+
+    assert isinstance(config, SwiftVRPipelineConfig)
+    assert config._target is SwiftVRPipeline
+    assert issubclass(SwiftVRPipeline, StreamInferencePipeline)
+    assert isinstance(config.encoder, SwiftVREncoderConfig)
+    assert isinstance(config.diffusion_model.transformer, SwiftVRTransformerConfig)
+    assert isinstance(config.decoder, SwiftVRDecoderConfig)
+    assert config.diffusion_model.transformer.network.attention_window == (8, 12)
+    assert config.diffusion_model.transformer.latent_frames == 6
+
+
+def test_pipeline_cache_uses_reae_latent_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def capture_initialize_cache(
+        _self: StreamInferencePipeline,
+        transformer_context: dict[str, Any] | None = None,
+        encoder_context: dict[str, Any] | None = None,
+        decoder_context: dict[str, Any] | None = None,
+    ) -> Any:
+        captured.update(
+            transformer=transformer_context,
+            encoder=encoder_context,
+            decoder=decoder_context,
+        )
+        return None
+
+    monkeypatch.setattr(
+        StreamInferencePipeline,
+        "initialize_cache",
+        capture_initialize_cache,
+    )
+    pipeline = object.__new__(SwiftVRPipeline)
+    torch.nn.Module.__init__(pipeline)
+    pipeline.encoder = cast(Any, SimpleNamespace(spatial_compression_ratio=16))
+    pipeline.register_buffer("prompt_embedding", torch.zeros(1), persistent=False)
+
+    pipeline.initialize_cache(output_height=65, output_width=97, overlap=1)
+
+    transformer_context = captured["transformer"]
+    assert transformer_context["height"] == 6
+    assert transformer_context["width"] == 8
+    assert transformer_context["prompt_embedding"] is pipeline.prompt_embedding
+    assert transformer_context["overlap"] == 1
+
+
+def test_reae_checkpoint_splits_bijectively_across_components() -> None:
+    with torch.device("meta"):
+        encoder = SwiftVREncoderNetwork()
+        decoder = SwiftVRDecoderNetwork()
+    combined = {
+        **{f"encoder.{key}": value for key, value in encoder.state_dict().items()},
+        **{f"decoder.{key}": value for key, value in decoder.state_dict().items()},
+    }
+
+    encoder_state, decoder_state = split_reae_state_dict(combined)
+
+    assert len(combined) == 128
+    assert len(encoder_state) == 64
+    assert len(decoder_state) == 64
+    assert set(encoder_state) == set(encoder.state_dict())
+    assert set(decoder_state) == set(decoder.state_dict())
 
 
 def _diffusers_checkpoint_key(native_key: str) -> str:
@@ -55,7 +150,7 @@ def test_swiftvr_preserves_native_wan_checkpoint_layout() -> None:
     config = WanDiTNetworkTI2V5BConfig()
     with torch.device("meta"):
         native = WanDiTNetwork(config)
-        swiftvr = SwiftVRDiTNetwork(config, (16, 16))
+        swiftvr = SwiftVRDiTNetwork(SwiftVRDiTNetworkConfig())
 
     native_shapes = {
         key: tuple(value.shape) for key, value in native.state_dict().items()

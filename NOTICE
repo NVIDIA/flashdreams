@@ -13,7 +13,8 @@ full texts are reproduced under LICENSES/:
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
-  - integrations_v2/swiftvr/impl/{attention.py,model.py}
+  - integrations_v2/swiftvr/impl/{attention.py,autoencoder.py,pipeline.py,
+    decoder/,encoder/,transformer/}
         Apache-2.0    (see LICENSES/Apache-2.0.txt)
 
 Third-party software attributions, source-level redistribution

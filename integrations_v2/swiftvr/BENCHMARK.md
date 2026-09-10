@@ -35,9 +35,9 @@ Blackwell Server Edition (driver 595.80, CUDA 13.0, Torch 2.12.1+cu130).
 
 Each fixture was constructed as
 `torch.linspace(-1, 1, 48*T*H*W).reshape(1, 48, T, H, W).bfloat16()` and passed
-through `_condition` and `_transformer_chunk` at timestep 1000. The checkpoint
-remap covered all 825 tensors with no missing, unexpected, or shape-mismatched
-keys.
+through the prompt-cache and transformer flow-prediction path at timestep 1000.
+The checkpoint remap covered all 825 tensors with no missing, unexpected, or
+shape-mismatched keys.
 
 | Latent fixture | Temporal offset | Max absolute error | Mean absolute error | RMSE |
 | --- | ---: | ---: | ---: | ---: |
@@ -64,6 +64,24 @@ not tracked. The dependency-free CPU contracts, including the complete
 uv run --package flashdreams-swiftvr --extra dev \
   pytest integrations_v2/swiftvr/tests/test_model.py -m ci_cpu -q
 ```
+
+### Pipeline component parity
+
+Measured 2026-09-10 while splitting the resident runtime into typed streaming
+encoder, transformer, and decoder components. The candidate was compared with
+a frozen run from pre-refactor commit `7c136801` using snapshot `743ed253`, BF16,
+128x128 output, and both zero- and one-latent DiT overlap. Preprocessing,
+encoder latents, restored latents, cold/steady/flush decoder chunks, and the
+concatenated 17-frame output were bit-for-bit identical. A one-frame input tail
+remained buffered until flush in both implementations.
+
+The full 30-block `torch.compile` path was also checked against eager output.
+The concatenated result stayed within the same regression limits (`0.02344`
+max and `0.00143` mean absolute error), with no graph breaks. A fresh compiler
+cache took 22.20 seconds for the two-latent-frame shape and another 5.49 seconds
+for the one-latent-frame flush shape; subsequent small-fixture chunks took
+20.96-23.55 ms. These timings validate compilation behavior and are not a
+704p throughput measurement.
 
 ## Throughput
 

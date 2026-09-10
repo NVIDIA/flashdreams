@@ -40,6 +40,9 @@ packages = [
     "swiftvr.apps",
     "swiftvr.apps.v2v",
     "swiftvr.impl",
+    "swiftvr.impl.decoder",
+    "swiftvr.impl.encoder",
+    "swiftvr.impl.transformer",
 ]
 
 [tool.setuptools.package-dir]

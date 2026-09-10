@@ -31,7 +31,7 @@ from flashdreams.infra.postprocess import (
     VideoSpec,
     to_bvtchw,
 )
-from swiftvr.impl.model import SwiftVRPipeline, SwiftVRStream
+from swiftvr.impl.pipeline import SwiftVRPipeline, SwiftVRStream
 
 _DTypeName = Literal["bfloat16", "float16", "float32"]
 _SWIFTVR_REVISION = "743ed2530c550764905400f38eb6cc41af5abc80"
@@ -309,6 +309,7 @@ def _load_swiftvr_pipeline(config: SwiftVRPostProcessorConfig) -> SwiftVRPipelin
         dtype=_resolve_dtype(config.dtype),
         attention_window=config.attention_window,
         compile_blocks=config.compile_blocks,
+        chunk_size=config.chunk_size,
     )
 
 

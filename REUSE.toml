@@ -26,7 +26,11 @@ SPDX-License-Identifier = "Apache-2.0"
 [[annotations]]
 path = [
     "integrations_v2/swiftvr/impl/attention.py",
-    "integrations_v2/swiftvr/impl/model.py",
+    "integrations_v2/swiftvr/impl/autoencoder.py",
+    "integrations_v2/swiftvr/impl/pipeline.py",
+    "integrations_v2/swiftvr/impl/decoder/**",
+    "integrations_v2/swiftvr/impl/encoder/**",
+    "integrations_v2/swiftvr/impl/transformer/**",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = [
