@@ -7,7 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 
 [SwiftVR](https://github.com/H-oliday/SwiftVR) real-time, one-step streaming
 video restoration packaged as a FlashDreams postprocessor. The integration
-uses the upstream ReAE streaming protocol and mask-free shifted-window
+uses FlashDreams' shared TAEHV encoder/decoder building blocks and decoder cache
+with the upstream ReAE temporal-growth layer, plus mask-free shifted-window
 attention on FlashDreams' native WAN transformer components. Upstream
 Diffusers-format weights are remapped at load time; Diffusers is not a runtime
 dependency.

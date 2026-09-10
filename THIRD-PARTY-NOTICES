@@ -185,14 +185,14 @@ license; LICENSES/Zlib.txt reproduces the license text in full.
 SwiftVR streaming inference
 --------------------------------------------------------------------------------
 
-Path:     integrations_v2/swiftvr/impl/{attention.py, autoencoder.py, pipeline.py,
+Path:     integrations_v2/swiftvr/impl/{attention.py, pipeline.py,
           decoder/, encoder/, transformer/}
 License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
           Copyright (c) 2026 SwiftVR Authors.
 Upstream: https://github.com/H-oliday/SwiftVR
 
-The restoration-aware autoencoder, causal streaming protocol, and mask-free
-shifted-window attention are adapted from upstream commit
+The restoration-aware temporal-growth layer, causal streaming adapters, and
+mask-free shifted-window attention are adapted from upstream commit
 5ca168cef6ca7200f135fdfea85e5e13d12c5b53. FlashDreams replaces upstream's
 file-oriented runner with its VideoPostProcessor contract, native WAN
 transformer components, and a loader for the upstream Diffusers-format weights.

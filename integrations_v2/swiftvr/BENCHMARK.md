@@ -17,8 +17,9 @@ the current runtime.
 
 ## Correctness
 
-- The adapted ReAE has the same 128 state-dict keys and tensor shapes as
-  upstream.
+- The shared TAEHV-backed ReAE has the same 128 state-dict keys and tensor
+  shapes as upstream; only SwiftVR's Conv3d temporal-growth layer remains
+  model-specific.
 - A weighted nine-frame streaming run at 64x36 input / 128x72 output matched
   the upstream SwiftVR output exactly: max absolute error, mean absolute error,
   and RMSE were all `0.0`.
@@ -75,13 +76,18 @@ encoder latents, restored latents, cold/steady/flush decoder chunks, and the
 concatenated 17-frame output were bit-for-bit identical. A one-frame input tail
 remained buffered until flush in both implementations.
 
-The full 30-block `torch.compile` path was also checked against eager output.
-The concatenated result stayed within the same regression limits (`0.02344`
-max and `0.00143` mean absolute error), with no graph breaks. A fresh compiler
-cache took 22.20 seconds for the two-latent-frame shape and another 5.49 seconds
-for the one-latent-frame flush shape; subsequent small-fixture chunks took
-20.96-23.55 ms. These timings validate compilation behavior and are not a
-704p throughput measurement.
+The later shared-TAEHV refactor was checked against a frozen baseline from
+commit `330d7f0d`. Standalone encoder cold/steady/tail/flush results, standalone
+decoder cold/steady/tail results, and every full-pipeline stage for both overlap
+modes remained bit-for-bit identical through the final 17 RGB frames.
+
+The full 30-block `torch.compile` path was rechecked after that refactor. The
+concatenated result stayed within the same regression limits (`0.02344` max and
+`0.00133` mean absolute error), with all 30 blocks compiled and no graph breaks.
+A fresh compiler cache took 22.02 seconds for the two-latent-frame shape and
+another 5.47 seconds for the one-latent-frame flush shape; subsequent
+small-fixture chunks took 22.13-26.52 ms. These timings validate compilation
+behavior and are not a 704p throughput measurement.
 
 ## Throughput
 

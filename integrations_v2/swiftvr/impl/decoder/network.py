@@ -6,19 +6,15 @@
 
 from __future__ import annotations
 
+import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from swiftvr.impl.autoencoder import MemoryBlock, convolution
+from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
+from flashdreams.recipes.taehv.impl import TAEHV, TGrow
 
 
-class _Clamp(nn.Module):
-    def forward(self, tensor: Tensor) -> Tensor:
-        """Soft-clamp autoencoder latents."""
-        return (tensor / 3).tanh() * 3
-
-
-class _TemporalGrow(nn.Module):
+class SwiftVRTemporalGrow(nn.Module):
     """Expand the temporal axis through nearest interpolation and projection."""
 
     def __init__(self, channels: int, stride: int) -> None:
@@ -57,33 +53,29 @@ class _TemporalGrow(nn.Module):
         )
 
 
-class SwiftVRDecoderNetwork(nn.Sequential):
-    """Decoder half of SwiftVR's restoration-aware autoencoder."""
+class SwiftVRTAEHV(TAEHV):
+    """Shared TAEHV configured for SwiftVR's ReAE checkpoint."""
 
-    patch_size = 2
-    frames_to_trim = 3
-
-    def __init__(self) -> None:
-        first, second, third, fourth = (512, 256, 128, 64)
+    def __init__(self, checkpoint_path: str | None) -> None:
         super().__init__(
-            _Clamp(),
-            convolution(48, first),
-            nn.ReLU(inplace=True),
-            *[MemoryBlock(first, first) for _ in range(3)],
-            nn.Upsample(scale_factor=2),
-            _TemporalGrow(first, 1),
-            convolution(first, second, bias=False),
-            *[MemoryBlock(second, second) for _ in range(3)],
-            nn.Upsample(scale_factor=2),
-            _TemporalGrow(second, 2),
-            convolution(second, third, bias=False),
-            *[MemoryBlock(third, third) for _ in range(3)],
-            nn.Upsample(scale_factor=2),
-            _TemporalGrow(third, 2),
-            convolution(third, fourth, bias=False),
-            nn.ReLU(inplace=True),
-            convolution(fourth, 12),
+            checkpoint_path=None,
+            model_type="wan22",
+            channels=(512, 256, 128, 64),
+            use_cuda_graph=False,
+            use_compile=False,
         )
+        with torch.device("meta"):
+            for index, block in enumerate(self.decoder.blocks):
+                if isinstance(block, TGrow):
+                    self.decoder.blocks[index] = SwiftVRTemporalGrow(
+                        int(block.conv.in_channels), block.stride
+                    )
+
+        if checkpoint_path is not None:
+            self.load_from_checkpoint(
+                checkpoint_path,
+                state_dict_transform=legacy_to_blocks_keys,
+            )
 
 
-__all__ = ["SwiftVRDecoderNetwork"]
+__all__ = ["SwiftVRTAEHV", "SwiftVRTemporalGrow"]

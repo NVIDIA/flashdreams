@@ -11,11 +11,13 @@ import pytest
 import torch
 from swiftvr.config import build_swiftvr_pipeline
 from swiftvr.impl.attention import SwiftVRBlock, _axis_starts
-from swiftvr.impl.autoencoder import split_reae_state_dict
 from swiftvr.impl.decoder import SwiftVRDecoderConfig
-from swiftvr.impl.decoder.network import SwiftVRDecoderNetwork
-from swiftvr.impl.encoder import SwiftVREncoderConfig
-from swiftvr.impl.encoder.network import SwiftVREncoderNetwork
+from swiftvr.impl.decoder.network import SwiftVRTAEHV, SwiftVRTemporalGrow
+from swiftvr.impl.encoder import (
+    SwiftVREncoder,
+    SwiftVREncoderConfig,
+    _encode_complete_groups,
+)
 from swiftvr.impl.pipeline import SwiftVRPipeline, SwiftVRPipelineConfig
 from swiftvr.impl.transformer import SwiftVRTransformerConfig
 from swiftvr.impl.transformer.network import (
@@ -24,6 +26,9 @@ from swiftvr.impl.transformer.network import (
 )
 
 from flashdreams.infra.pipeline import StreamInferencePipeline
+from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
+from flashdreams.recipes.taehv.impl import TAEHV, MemBlock, TGrow, TPool
+from flashdreams.recipes.taehv.impl import Encoder as TAEHVEncoder
 from flashdreams.recipes.wan import wan_dit_state_dict_from_diffusers
 from flashdreams.recipes.wan.transformer.impl.network import (
     WanDiTNetwork,
@@ -96,22 +101,83 @@ def test_pipeline_cache_uses_reae_latent_resolution(
     assert transformer_context["overlap"] == 1
 
 
-def test_reae_checkpoint_splits_bijectively_across_components() -> None:
-    with torch.device("meta"):
-        encoder = SwiftVREncoderNetwork()
-        decoder = SwiftVRDecoderNetwork()
-    combined = {
+def test_reae_checkpoint_maps_bijectively_to_shared_taehv_components() -> None:
+    encoder = SwiftVREncoder(SwiftVREncoderConfig(dtype=torch.float32)).network
+    decoder = SwiftVRTAEHV(None)
+    stock_decoder = TAEHV(
+        checkpoint_path=None,
+        model_type="wan22",
+        channels=(512, 256, 128, 64),
+        use_cuda_graph=False,
+    )
+    model = {
         **{f"encoder.{key}": value for key, value in encoder.state_dict().items()},
-        **{f"decoder.{key}": value for key, value in decoder.state_dict().items()},
+        **decoder.state_dict(),
+    }
+    checkpoint = {
+        key.replace(".blocks.", ".", 1): value for key, value in model.items()
+    }
+    transformed = legacy_to_blocks_keys(checkpoint)
+    encoder_state = {
+        key.removeprefix("encoder."): value
+        for key, value in transformed.items()
+        if key.startswith("encoder.")
     }
 
-    encoder_state, decoder_state = split_reae_state_dict(combined)
-
-    assert len(combined) == 128
+    assert len(checkpoint) == len(transformed) == 128
     assert len(encoder_state) == 64
-    assert len(decoder_state) == 64
+    assert type(encoder) is TAEHVEncoder
     assert set(encoder_state) == set(encoder.state_dict())
-    assert set(decoder_state) == set(decoder.state_dict())
+    assert set(transformed) == set(model)
+    assert all(model[key].shape == transformed[key].shape for key in transformed)
+    assert sum(isinstance(block, MemBlock) for block in encoder.blocks) == 9
+    assert sum(isinstance(block, TPool) for block in encoder.blocks) == 3
+    assert (
+        sum(isinstance(block, SwiftVRTemporalGrow) for block in decoder.decoder.blocks)
+        == 3
+    )
+    assert not any(isinstance(block, TGrow) for block in decoder.decoder.blocks)
+    assert [
+        index
+        for index, (stock, candidate) in enumerate(
+            zip(stock_decoder.decoder.blocks, decoder.decoder.blocks, strict=True)
+        )
+        if type(stock) is not type(candidate)
+    ] == [7, 13, 19]
+    assert tuple(model["decoder.blocks.7.proj.weight"].shape) == (512, 512, 1, 1)
+    assert tuple(model["decoder.blocks.13.conv3d.weight"].shape) == (
+        256,
+        256,
+        3,
+        1,
+        1,
+    )
+    assert tuple(model["decoder.blocks.19.conv3d.weight"].shape) == (
+        128,
+        128,
+        3,
+        1,
+        1,
+    )
+
+
+def test_reae_complete_group_adapter_preserves_stream_boundaries() -> None:
+    torch.manual_seed(0)
+    network = TAEHVEncoder(48, 3, 2, torch.nn.ReLU(inplace=True)).eval()
+    video = torch.randn(1, 8, 12, 16, 16)
+
+    whole = _encode_complete_groups(network, video, {})
+    state: dict[int, torch.Tensor] = {}
+    chunked = torch.cat(
+        [
+            _encode_complete_groups(network, video[:, :4], state),
+            _encode_complete_groups(network, video[:, 4:], state),
+        ],
+        dim=1,
+    )
+
+    assert len(state) == 9
+    torch.testing.assert_close(chunked, whole)
 
 
 def _diffusers_checkpoint_key(native_key: str) -> str:

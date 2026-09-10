@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, nn
 
 from flashdreams.core.checkpoint.load import load_checkpoint
 from flashdreams.infra.encoder import (
@@ -19,8 +19,35 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCache,
 )
-from swiftvr.impl.autoencoder import apply_with_boundaries, split_reae_state_dict
-from swiftvr.impl.encoder.network import SwiftVREncoderNetwork
+from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
+from flashdreams.recipes.taehv.impl import Encoder as TAEHVEncoder
+from flashdreams.recipes.taehv.impl import MemBlock
+
+
+def _encode_complete_groups(
+    network: TAEHVEncoder,
+    tensor: Tensor,
+    state: dict[int, Tensor],
+) -> Tensor:
+    """Run a complete ReAE temporal group through the shared TAEHV blocks."""
+    batch, time, channels, height, width = tensor.shape
+    assert time > 0 and time % 4 == 0
+
+    # ponytail: This fast path requires complete four-frame groups; use
+    # TAEHVEncoder.forward with TAEHVEncoderCache if that contract changes.
+    tensor = tensor.reshape(batch * time, channels, height, width)
+    for block in network.blocks:
+        if isinstance(block, MemBlock):
+            _, channels, height, width = tensor.shape
+            key = id(block)
+            if key not in state:
+                state[key] = tensor.new_zeros(batch, 1, channels, height, width)
+            tensor = block.cache_step(tensor, state, batch)
+        else:
+            tensor = block(tensor)
+
+    _, channels, height, width = tensor.shape
+    return tensor.reshape(batch, -1, channels, height, width)
 
 
 @dataclass(kw_only=True)
@@ -44,7 +71,7 @@ class SwiftVREncoderCache(StreamingEncoderCache):
     output_width: int
     pad_height: int
     pad_width: int
-    state: dict[str, Tensor | None] | None = None
+    state: dict[int, Tensor] = field(default_factory=dict)
     tail: Tensor | None = None
 
 
@@ -52,15 +79,26 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
     """Resize input frames and stream them through the ReAE encoder."""
 
     spatial_compression_ratio = 16
+    patch_size = 2
 
     def __init__(self, config: SwiftVREncoderConfig) -> None:
         super().__init__(config)
         self.config: SwiftVREncoderConfig = config
-        self.network = SwiftVREncoderNetwork()
+        self.network = TAEHVEncoder(
+            latent_channels=48,
+            image_channels=3,
+            patch_size=self.patch_size,
+            act_func=nn.ReLU(inplace=True),
+        )
         if config.checkpoint_path is not None:
-            encoder_state, _ = split_reae_state_dict(
+            state_dict = legacy_to_blocks_keys(
                 load_checkpoint(config.checkpoint_path, map_location="cpu")
             )
+            encoder_state = {
+                key.removeprefix("encoder."): value
+                for key, value in state_dict.items()
+                if key.startswith("encoder.")
+            }
             self.network.load_state_dict(encoder_state, strict=True)
         self.network.to(dtype=config.dtype).eval().requires_grad_(False)
 
@@ -124,13 +162,13 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
         batch, time, channels, height, width = tensor.shape
         tensor = F.pixel_unshuffle(
             tensor.reshape(batch * time, channels, height, width),
-            self.network.patch_size,
+            self.patch_size,
         ).reshape(
             batch,
             time,
             -1,
-            height // self.network.patch_size,
-            width // self.network.patch_size,
+            height // self.patch_size,
+            width // self.patch_size,
         )
         if cache.tail is not None:
             tensor = torch.cat([cache.tail, tensor], dim=1)
@@ -142,8 +180,7 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
             cache.tail = None
         if tensor.shape[1] == 0:
             return None
-        encoded, cache.state = apply_with_boundaries(self.network, tensor, cache.state)
-        return encoded
+        return _encode_complete_groups(self.network, tensor, cache.state)
 
     def flush(self, cache: SwiftVREncoderCache) -> Tensor | None:
         """Replicate-pad and encode the final partial temporal group."""
@@ -156,8 +193,7 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
             tensor = torch.cat(
                 [tensor, tensor[:, -1:].expand(-1, padding, -1, -1, -1)], dim=1
             )
-        encoded, cache.state = apply_with_boundaries(self.network, tensor, cache.state)
-        return encoded
+        return _encode_complete_groups(self.network, tensor, cache.state)
 
 
 __all__ = [
