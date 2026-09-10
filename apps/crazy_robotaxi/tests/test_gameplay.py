@@ -124,6 +124,14 @@ def test_direct_steering_preserves_keyboard_arcade_response() -> None:
     )
 
 
+def test_collected_coins_add_to_overall_taxi_score() -> None:
+    controller = _controller()
+
+    controller.collect_coins(3)
+
+    assert controller.snapshot(_state()).score == 300
+
+
 def test_fare_and_game_over_flow_reaches_v2_name_entry(tmp_path: Path) -> None:
     store = HighScoreStore(tmp_path / "scores.csv")
     controller = _controller(
