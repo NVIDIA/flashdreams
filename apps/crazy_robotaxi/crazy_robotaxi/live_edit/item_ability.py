@@ -17,11 +17,10 @@ pickups and both trigger paths share one set of state-machine rules:
   hint (chosen over queueing: a queued weather landing seconds later, with
   no visible cause, reads as a glitch; the ignore matches the V-key
   semantics exactly and keeps the state machine free of deferred intents).
-  Re-picking the active weather refreshes its timed-weather timer.
-- ``mystery`` boxes grant a random timed skin burst (seeded RNG knob picks
-  which skin; ``mystery_burst_chunks`` overrides the global skin duration
-  per activation, so the box grants a burst even in hold-forever mode). A
-  burst during a key-held skin behaves like a K cycle: switch, fresh timer.
+  Re-picking the active weather keeps that weather selected.
+- ``mystery`` boxes select a random skin (the seeded RNG knob picks which
+  skin). The selected style stays active until another pickup or manual cycle
+  changes it.
 - ``nitro`` items are the exception to the boundary rule: the effect is a
   timed speed boost inside the app-authoritative physics tick
   (:class:`~.nitro_ability.NitroAbility`), physics-only with no world-model
@@ -239,7 +238,6 @@ def _course_config(config: LiveEditItemsConfig) -> LiveEditCoinsConfig:
         hover_height_m=config.hover_height_m,
         coin_diameter_m=config.item_diameter_m,
         pickup_radius_m=config.pickup_radius_m,
-        points_per_coin=0,
         max_render_distance_m=config.max_render_distance_m,
         fade_start_distance_m=config.fade_start_distance_m,
         max_visible_sprites=16,
@@ -301,11 +299,11 @@ class ItemEffects:
     def _apply_mystery(self) -> str:
         style = self._style
         names = getattr(style, "skin_names", ())
-        request = getattr(style, "request_skin_burst", None)
+        request = getattr(style, "request_skin", None)
         if request is None or not names:
             return "? NO SKINS"
         rolled = self._rng.choice(list(names))
-        granted = request(rolled, self._config.mystery_burst_chunks)
+        granted = request(rolled)
         if granted is None:
             return "? NO SKINS"
-        return f"? {granted.upper()} BURST!"
+        return f"? {granted.upper()}!"
