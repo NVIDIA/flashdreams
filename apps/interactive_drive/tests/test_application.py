@@ -257,7 +257,9 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     assert trajectory_calls[0]["capture_physics_debug"] is True
 
 
-def test_world_model_preserves_frame_order_across_buffered_startup() -> None:
+def test_world_model_preserves_frame_order_across_buffered_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = object.__new__(WorldModelRenderBackend)
     backend._pending_raster_frames = deque()
     backend._first_transition_frame = None
@@ -291,8 +293,11 @@ def test_world_model_preserves_frame_order_across_buffered_startup() -> None:
     assert [frame.model_rgb_host_uint8 for frame in steady] == steady_models
 
     tail_models = [object() for _ in range(8)]
-    backend._output_stream = SimpleNamespace(
-        finish=lambda: SimpleNamespace(lazy_rgb_frames=lambda: tail_models)
+    tail_tensor = torch.zeros((1, 1, 8, 3, 1, 1))
+    backend._postprocess_stream = SimpleNamespace(finish=lambda: tail_tensor)
+    monkeypatch.setattr(
+        "interactive_drive.backends.world_model.lazy_rgb_frames_from_video_tensor",
+        lambda _output, **_: tail_models,
     )
     tail = backend.finish()
     assert [frame.timestamp_us for frame in tail] == list(range(13, 21))
