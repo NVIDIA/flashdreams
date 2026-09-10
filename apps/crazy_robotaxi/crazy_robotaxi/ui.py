@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, Literal
@@ -52,6 +53,18 @@ from crazy_robotaxi.rules import (
     project_target_pose_to_bev,
     project_target_pose_to_bev_edge,
 )
+from crazy_robotaxi.settings import (
+    CrazyRobotaxiUserSettings,
+    SettingsDocument,
+    SettingsError,
+    clone_settings,
+    format_editor_value,
+    iter_setting_fields,
+    parse_editor_value,
+    restart_required_settings,
+    setting_choices,
+    setting_value,
+)
 from crazy_robotaxi.world_overlay import (
     draw_waypoints as draw_waypoint_markers,
 )
@@ -75,6 +88,51 @@ _MAX_BUFFERED_HUD_FRAMES = 64
 _MAX_BUFFERED_INPUT_EVENTS = 64
 """Maximum diagnostic event receipts retained before model-frame correlation."""
 
+_SHOW_RESTART_REQUIRED_SETTINGS = False
+"""Whether to show the code-only restart diagnostics in the Options UI."""
+
+_SETTINGS_NOTICE_DURATION_S = 5.0
+"""Number of seconds to show an Options save confirmation."""
+
+_RESTART_REQUIRED_NOTICE = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
+_NATIVE_DIT_DISABLED_NOTICE = "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
+_AUTO_CARD_FLAGS = (
+    "no_title_bar",
+    "always_auto_resize",
+    "no_scrollbar",
+    "no_scroll_with_mouse",
+)
+
+
+def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
+    if not settings.live_edit.requires_python_dit:
+        return False
+    transformer = settings.model.pipeline.diffusion_model.transformer
+    native_mode = getattr(transformer, "native_dit_acceleration", "disabled")
+    return native_mode not in {"disabled", None, False}
+
+
+def _selection_grid_columns(option_count: int) -> int:
+    """Return the requested map/course grid column count."""
+    if option_count <= 1:
+        return 1
+    return 2 if option_count <= 4 else 3
+
+
+def _selection_region_width(
+    imgui: Any,
+    viewport_width: int,
+    content_width: float,
+) -> float:
+    """Constrain a selection list to the viewport, not its underlying grid."""
+    window_padding_x = _point_xy(imgui.get_style().window_padding)[0]
+    available_width = max(
+        1.0,
+        float(viewport_width) - 28.0 - 2.0 * window_padding_x,
+    )
+    return min(content_width, available_width)
+
+
 _VIDEO_FPS_WINDOW_SECONDS = 2.0
 """Rolling window used to smooth the generated-video frame-rate estimate."""
 
@@ -86,6 +144,7 @@ _MPS_TO_MPH = 2.2369362920544
 
 _TAXI_ACCENT_RGB = (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
 _RACE_ACCENT_RGB = (118.0 / 255.0, 185.0 / 255.0, 0.0)
+_OPTION_ENABLED_RGB = (0.25, 0.85, 0.25)
 
 _PROFILE_DRIVE_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
@@ -93,34 +152,6 @@ _PROFILE_DRIVE_KEYS = frozenset(
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
 _LOGGER = logging.getLogger(__name__)
-
-
-def _selection_grid_columns(option_count: int) -> int:
-    """Return the requested map/course grid column count."""
-    if option_count <= 1:
-        return 1
-    return 2 if option_count <= 4 else 3
-
-
-def _selection_card_widths(
-    imgui: Any,
-    viewport_width: int,
-    natural_grid_width: float,
-    *other_content_widths: float,
-) -> tuple[float, float, float]:
-    """Fit a selection card to the viewport without shrinking its grid."""
-    window_padding_x = _point_xy(imgui.get_style().window_padding)[0]
-    natural_content_width = max(natural_grid_width, *other_content_widths)
-    window_width = min(
-        max(1.0, float(viewport_width) - 28.0),
-        natural_content_width + 2.0 * window_padding_x,
-    )
-    visible_content_width = max(1.0, window_width - 2.0 * window_padding_x)
-    return (
-        window_width,
-        visible_content_width,
-        max(natural_grid_width, visible_content_width),
-    )
 
 
 def bev_display_extent(video_width: int, video_height: int) -> tuple[int, int]:
@@ -180,17 +211,29 @@ class TaxiHudState:
     show_fps: bool = False
     """Whether to display the measured generated-video frame rate."""
 
+    hud_enabled: bool = True
+    """Whether gameplay HUD overlays are visible."""
+
+    native_dit_disabled_for_live_edit: bool = False
+    """Whether this launch forced native DiT acceleration off."""
+
+    show_control_tooltips: bool = True
+    """Whether to display keyboard control hints during gameplay."""
+
+    settings_document: SettingsDocument | None = None
+    """User-authored settings backing the reusable Options screen."""
+
     map_options: tuple[GameMapOption, ...] = ()
     """Lightweight authored-map choices supplied by the application."""
 
     initial_game_mode: GameMode | None = None
-    """Mode selected explicitly by CLI, skipping the mode screen."""
+    """Configured mode that skips the mode screen."""
 
     initial_map_path: Path | None = None
-    """Map selected explicitly by CLI, skipping the map screen."""
+    """Configured map that skips the map screen."""
 
     initial_race_course_id: str | None = None
-    """Race course selected explicitly by CLI, skipping the course screen."""
+    """Configured race course that skips the course screen."""
 
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
@@ -243,19 +286,52 @@ class TaxiHudState:
     _loading_started_at_s: float = field(default_factory=time.monotonic)
     """Monotonic timestamp used to make startup progress visibly live."""
 
-    _menu_stage: Literal["mode", "map", "course", "loading", "game"] = "mode"
+    _menu_stage: Literal["mode", "map", "course", "options", "loading", "game"] = "mode"
     """Current startup screen owned by the UI thread."""
+
+    _options_return_stage: Literal["mode", "map", "course"] = "mode"
+    """Menu restored after saving or discarding an Options draft."""
+
+    _options_category: str = "game"
+    """Selected top-level settings page."""
+
+    _options_draft: CrazyRobotaxiUserSettings | None = None
+    """Isolated settings draft discarded unless Save succeeds."""
+
+    _restart_baseline_settings: CrazyRobotaxiUserSettings | None = None
+    """Saved settings active when this application session began."""
+
+    _options_error: str = ""
+    """Most recent field or save validation error."""
+
+    _selection_preview_pixels: dict[Path, npt.NDArray[np.uint8] | None] = field(
+        default_factory=dict
+    )
+    """Decoded menu thumbnails cached by resolved authored-image path."""
+
+    _menu_scroll_chrome_heights: dict[str, float] = field(default_factory=dict)
+    """Measured non-list height surrounding each scrollable menu region."""
+
+    _menu_scrollbars: dict[str, bool] = field(default_factory=dict)
+    """Whether each constrained menu region currently needs a vertical scrollbar."""
+
+    _settings_notice: str = ""
+    """Most recent save outcome displayed temporarily in Options."""
+
+    _settings_notice_expires_at_s: float = 0.0
+    """Monotonic deadline for the Options save confirmation."""
+
+    _settings_restart_notice: str = ""
+    """Restart warning displayed separately when saved settings need it."""
+
+    _settings_requiring_restart: tuple[str, ...] = ()
+    """Developer-only detail supporting the future session-policy audit."""
 
     _selected_game_mode: GameMode | None = None
     """Mode chosen on the first screen while the map screen is visible."""
 
     _selected_map_option: GameMapOption | None = None
     """Map chosen before the separate race-course screen."""
-
-    _selection_preview_pixels: dict[Path, npt.NDArray[np.uint8] | None] = field(
-        default_factory=dict
-    )
-    """Decoded menu thumbnails cached by resolved authored-image path."""
 
     _profile_pressed: set[str] = field(default_factory=set)
     """Normalized drive keys currently held according to UI-thread events."""
@@ -297,6 +373,7 @@ class TaxiHudState:
             "mode",
             "map",
             "course",
+            "options",
         }:
             return None
         selected = self._frames.get(int(frame.data_ptr()))
@@ -345,6 +422,8 @@ class TaxiHudState:
         received = events.get_events()
         if any(_is_escape_press(event) for event in received):
             self._handle_escape()
+        if any(_is_control_tooltip_toggle(event) for event in received):
+            self.show_control_tooltips = not self.show_control_tooltips
         if not self.profile_input_latency:
             return
         for event in received:
@@ -462,7 +541,7 @@ class TaxiHudState:
         self._menu_stage = "loading"
 
     def initialize_selection(self) -> None:
-        """Skip selection screens whose values were supplied explicitly by CLI."""
+        """Skip selection screens whose launch values were configured."""
         selected_path = self.initial_map_path
         if selected_path is not None:
             resolved = selected_path.expanduser().resolve()
@@ -480,7 +559,9 @@ class TaxiHudState:
 
     def _handle_escape(self) -> None:
         model_loop = self.model_loop
-        if self._menu_stage == "game":
+        if self._menu_stage == "options":
+            self._discard_options()
+        elif self._menu_stage == "game":
             self.reset()
             self._selected_map_option = None
             self._menu_stage = "map"
@@ -565,7 +646,6 @@ class TaxiHudState:
         image_path: Path | None,
         available_width: float,
         scale: float,
-        max_height: float | None = None,
     ) -> None:
         if image_path is None:
             return
@@ -585,9 +665,6 @@ class TaxiHudState:
         if preview_width <= 0.0 or image_width <= 0 or image_height <= 0:
             return
         preview_height = preview_width * image_height / image_width
-        if max_height is not None and preview_height > max_height:
-            preview_height = max_height
-            preview_width = preview_height * image_width / image_height
         if preview_height <= 0.0:
             return
         cursor_x = float(imgui.get_cursor_pos_x())
@@ -601,8 +678,132 @@ class TaxiHudState:
         )
         imgui.set_cursor_pos_x(cursor_x)
 
+    def _menu_scroll_max_height(self, menu: str) -> float | None:
+        """Return the display space left after a menu's measured non-list UI."""
+        chrome_height = self._menu_scroll_chrome_heights.get(menu)
+        if chrome_height is None:
+            return None
+        return max(1.0, float(self.height) - chrome_height)
+
+    def _remember_menu_scroll_chrome(
+        self,
+        imgui: Any,
+        menu: str,
+        scroll_region_height: float,
+    ) -> None:
+        """Measure the menu UI surrounding its scrollable region."""
+        style = imgui.get_style()
+        window_padding_y = _point_xy(style.window_padding)[1]
+        safe_area_padding_y = _point_xy(style.display_safe_area_padding)[1]
+        content_height = _current_window_content_height(imgui) + window_padding_y
+        self._menu_scroll_chrome_heights[menu] = max(
+            0.0,
+            content_height - scroll_region_height + 2.0 * safe_area_padding_y,
+        )
+
+    def _menu_scroll_region_width(
+        self,
+        imgui: Any,
+        region: str,
+        content_width: float,
+    ) -> float:
+        """Reserve scrollbar width only while a menu region is vertically clipped."""
+        if not self._menu_scrollbars.get(region, False):
+            return content_width
+        return content_width + float(imgui.get_style().scrollbar_size)
+
+    def _remember_menu_scrollbar(
+        self,
+        menu: str,
+        region: str,
+        content_height: float,
+        scroll_max_y: float,
+    ) -> None:
+        """Remember whether content exceeds the measured menu height budget."""
+        max_height = self._menu_scroll_max_height(menu)
+        self._menu_scrollbars[region] = scroll_max_y > 0.0 or (
+            max_height is not None and content_height > max_height
+        )
+
+    def _open_options(self) -> None:
+        document = self.settings_document
+        stage = self._menu_stage
+        if document is None or stage != "mode":
+            return
+        self._options_return_stage = "mode"
+        if self._restart_baseline_settings is None:
+            self._restart_baseline_settings = clone_settings(document.settings)
+        self._options_draft = clone_settings(document.settings)
+        self._options_error = ""
+        self._menu_stage = "options"
+
+    def _discard_options(self) -> None:
+        self._options_draft = None
+        self._options_error = ""
+        self._menu_stage = self._options_return_stage
+
+    def _save_options(self) -> None:
+        document = self.settings_document
+        draft = self._options_draft
+        if document is None or draft is None:
+            return
+        baseline = self._restart_baseline_settings or document.settings
+        restart_settings = restart_required_settings(baseline, draft)
+        try:
+            document.save(draft)
+        except (OSError, SettingsError, ValueError) as exc:
+            self._options_error = str(exc)
+            return
+        overrides = document.cli_overrides
+        if ("presentation", "hud_enabled") not in overrides:
+            self.hud_enabled = draft.presentation.hud_enabled
+        if ("presentation", "show_fps") not in overrides:
+            self.show_fps = draft.presentation.show_fps
+        if ("presentation", "show_control_hints") not in overrides:
+            self.show_control_tooltips = draft.presentation.show_control_hints
+        self._settings_notice = f"SAVED {document.path}"
+        self._settings_notice_expires_at_s = (
+            time.monotonic() + _SETTINGS_NOTICE_DURATION_S
+        )
+        self._settings_restart_notice = (
+            _RESTART_REQUIRED_NOTICE if restart_settings else ""
+        )
+        self._settings_requiring_restart = restart_settings
+        self._options_draft = clone_settings(document.settings)
+        self._options_error = ""
+
+    def _draw_settings_notices(self, imgui: Any, scale: float) -> None:
+        if self._settings_restart_notice:
+            _centered_imgui_text(
+                imgui,
+                self._settings_restart_notice,
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
+        if self.native_dit_disabled_for_live_edit:
+            _centered_imgui_text(
+                imgui,
+                _NATIVE_DIT_DISABLED_NOTICE,
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
+        if (
+            self._settings_restart_notice
+            and _SHOW_RESTART_REQUIRED_SETTINGS
+            and self._settings_requiring_restart
+        ):
+            _centered_imgui_text(
+                imgui,
+                "SETTINGS REQUIRING RESTART: "
+                + ", ".join(self._settings_requiring_restart),
+                font_size=max(10.0, 11.0 * scale),
+                color=(0.82, 0.68, 0.34, 1.0),
+            )
+
     def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
         """Draw cached world-marker projections aligned with ``frame``."""
+        if not self.hud_enabled:
+            return
         calibration = self.calibration
         if calibration is None:
             return
@@ -662,6 +863,9 @@ class TaxiHudState:
     ) -> None:
         """Draw one immediate Dear ImGui HUD frame."""
         self._bev_rect = None
+        if self._menu_stage == "options":
+            self._draw_options(imgui)
+            return
         self._draw_fps_counter(imgui)
         if self._menu_stage == "mode":
             self._draw_mode_selection(imgui)
@@ -683,6 +887,8 @@ class TaxiHudState:
                 size=(360.0, 104.0),
                 lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
             )
+            return
+        if not self.hud_enabled:
             return
 
         snapshot = hud_frame.snapshot
@@ -716,6 +922,7 @@ class TaxiHudState:
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
             self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
 
@@ -797,10 +1004,10 @@ class TaxiHudState:
         color_rgb: tuple[float, float, float],
         top: float,
         outline: bool = False,
+        font_size: float = 22.0,
     ) -> None:
         """Draw centered arcade status text without creating an ImGui window."""
         draw_list = imgui.get_background_draw_list()
-        font_size = 22.0
         text_width, text_height = _overlay_text_size(imgui, label, font_size)
         available_width = max(1.0, float(self.width) - 28.0)
         if text_width > available_width:
@@ -951,6 +1158,25 @@ class TaxiHudState:
             lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
         )
 
+    def _draw_control_tooltips(self, imgui: Any) -> None:
+        """Draw the dismissible keyboard controls along the bottom of the HUD."""
+        if not self.show_control_tooltips:
+            return
+        self._draw_status_strip(
+            imgui,
+            "WASD / ARROWS  DRIVE  ·  SPACE  HANDBRAKE",
+            color_rgb=(0.82, 0.82, 0.86),
+            top=max(14.0, float(self.height) - 72.0),
+            font_size=14.0,
+        )
+        self._draw_status_strip(
+            imgui,
+            "R  RESTART  ·  ESC  MAP  ·  H  HIDE CONTROLS",
+            color_rgb=(0.72, 0.72, 0.76),
+            top=max(14.0, float(self.height) - 38.0),
+            font_size=13.0,
+        )
+
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
         self._exit_requested = False
@@ -981,27 +1207,396 @@ class TaxiHudState:
         self._presented_frame_times_s.clear()
         self._video_fps = 0.0
 
-    def _draw_mode_selection(self, imgui: Any) -> None:
-        window_width = max(1.0, min(500.0, float(self.width) - 28.0))
-        window_height = max(1.0, min(390.0, float(self.height) - 28.0))
-        scale = min(1.0, window_width / 500.0, window_height / 390.0)
+    def _draw_options(self, imgui: Any) -> None:
+        document = self.settings_document
+        draft = self._options_draft
+        if document is None or draft is None:
+            self._discard_options()
+            return
+        categories = tuple(iter_setting_fields(draft))
+        category_name = self._options_category
+        list_max_height = self._menu_scroll_max_height("options")
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
-            position=(
-                max(14.0, (self.width - window_width) / 2.0),
-                max(14.0, (self.height - window_height) / 2.0),
-            ),
-            size=(window_width, window_height),
-            alpha=0.97,
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
+            alpha=0.98,
+            pivot=(0.5, 0.5),
         )
         style_var_count, style_color_count = _push_arcade_card_style(
             imgui, _TAXI_ACCENT_RGB
         )
+        category_width = max(
+            _button_content_width(
+                imgui,
+                item.name.replace("_", " ").upper(),
+            )
+            for item, _annotation in categories
+        )
+        category = getattr(draft, category_name, draft.game)
+        natural_fields_width = self._settings_tree_content_width(
+            imgui,
+            category,
+            (category_name,),
+        )
+        save_width = _button_content_width(imgui, "SAVE")
+        exit_width = _button_content_width(imgui, "EXIT WITHOUT SAVING")
+        reset_width = _button_content_width(imgui, "RESET TO DEFAULTS")
+        item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
+        menu_content_width = max(
+            _point_xy(imgui.calc_text_size(f"CONFIG  {document.path}"))[0],
+            save_width + exit_width + reset_width + 2.0 * item_spacing_x,
+        )
+        fields_width = max(
+            natural_fields_width,
+            menu_content_width - category_width - item_spacing_x,
+        )
+        category_region_width = self._menu_scroll_region_width(
+            imgui,
+            "options-categories",
+            category_width,
+        )
+        fields_region_width = self._menu_scroll_region_width(
+            imgui,
+            "options-fields",
+            fields_width,
+        )
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Select Game Mode",
-            extra_flags=("no_title_bar",),
+            "Crazy Robotaxi - Options",
+            extra_flags=_AUTO_CARD_FLAGS,
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "OPTIONS",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=32.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            imgui.text(f"CONFIG  {document.path}")
+            imgui.separator()
+            category_visible = _begin_auto_sized_scroll_region(
+                imgui,
+                "##options-categories",
+                width=category_region_width,
+                max_height=list_max_height,
+            )
+            category_scroll_max_y = 0.0
+            category_content_height = 0.0
+            try:
+                if category_visible:
+                    for item, _ in categories:
+                        label = item.name.replace("_", " ").upper()
+                        if imgui.button(
+                            f"{label}##options-category-{item.name}",
+                            imgui.ImVec2(category_width, 34.0),
+                        ):
+                            self._options_category = item.name
+                    category_scroll_max_y = float(imgui.get_scroll_max_y())
+                    category_content_height = _current_window_content_height(imgui)
+            finally:
+                imgui.end_child()
+            category_height = _point_xy(imgui.get_item_rect_size())[1]
+            imgui.same_line()
+            content_visible = _begin_auto_sized_scroll_region(
+                imgui,
+                "##options-fields",
+                width=fields_region_width,
+                max_height=list_max_height,
+            )
+            fields_scroll_max_y = 0.0
+            fields_content_height = 0.0
+            try:
+                if content_visible:
+                    self._draw_settings_tree(
+                        imgui,
+                        category,
+                        (category_name,),
+                        fields_width,
+                    )
+                    fields_scroll_max_y = float(imgui.get_scroll_max_y())
+                    fields_content_height = _current_window_content_height(imgui)
+            finally:
+                imgui.end_child()
+            fields_height = _point_xy(imgui.get_item_rect_size())[1]
+            draft = self._options_draft or draft
+            imgui.separator()
+            baseline = self._restart_baseline_settings or document.settings
+            restart_settings = restart_required_settings(baseline, draft)
+            has_unsaved_changes = draft != document.settings
+            if imgui.button("SAVE", imgui.ImVec2(save_width, 38.0)):
+                self._save_options()
+                return
+            imgui.same_line()
+            exit_label = "EXIT WITHOUT SAVING" if has_unsaved_changes else "EXIT"
+            if imgui.button(exit_label, imgui.ImVec2(exit_width, 38.0)):
+                self._discard_options()
+                return
+            imgui.same_line()
+            if imgui.button("RESET TO DEFAULTS", imgui.ImVec2(reset_width, 38.0)):
+                self._options_draft = clone_settings(document.defaults)
+                self._options_error = ""
+                return
+            if (
+                self._settings_notice
+                and time.monotonic() >= self._settings_notice_expires_at_s
+            ):
+                self._settings_notice = ""
+            if self._settings_notice:
+                imgui.text(self._settings_notice)
+            if restart_settings:
+                imgui.text(_RESTART_REQUIRED_NOTICE)
+                if _SHOW_RESTART_REQUIRED_SETTINGS:
+                    imgui.text(
+                        "SETTINGS REQUIRING RESTART: " + ", ".join(restart_settings)
+                    )
+            if _settings_disable_native_dit(draft):
+                imgui.text(_NATIVE_DIT_DISABLED_NOTICE)
+            if self._options_error:
+                imgui.text(f"ERROR  {self._options_error}")
+            self._remember_menu_scroll_chrome(
+                imgui,
+                "options",
+                max(category_height, fields_height),
+            )
+            self._remember_menu_scrollbar(
+                "options",
+                "options-categories",
+                category_content_height,
+                category_scroll_max_y,
+            )
+            self._remember_menu_scrollbar(
+                "options",
+                "options-fields",
+                fields_content_height,
+                fields_scroll_max_y,
+            )
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _draw_settings_tree(
+        self,
+        imgui: Any,
+        value: object,
+        path: tuple[str, ...],
+        content_width: float,
+    ) -> None:
+        document = self.settings_document
+        draft = self._options_draft
+        if document is None or draft is None:
+            return
+        ordered_fields = sorted(
+            iter_setting_fields(value, path),
+            key=lambda entry: is_dataclass(getattr(value, entry[0].name))
+            and not isinstance(getattr(value, entry[0].name), type),
+        )
+        for item, annotation in ordered_fields:
+            draft = self._options_draft
+            if draft is None:
+                return
+            value = setting_value(draft, path)
+            item_path = (*path, item.name)
+            current = getattr(value, item.name)
+            if is_dataclass(current) and not isinstance(current, type):
+                imgui.separator()
+                imgui.text(item.name.replace("_", " ").upper())
+                self._draw_settings_tree(imgui, current, item_path, content_width)
+                continue
+            label = item.name.replace("_", " ").title()
+            label_text = f"{label}:"
+            label_width, label_height = _point_xy(imgui.calc_text_size(label_text))
+            item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
+            editor_width = max(1.0, content_width - label_width - item_spacing_x)
+            choices = setting_choices(annotation)
+            editor_layout = (
+                _wrapped_editor_layout(
+                    imgui,
+                    format_editor_value(current),
+                    editor_width,
+                )
+                if not choices and type(current) is not bool
+                else None
+            )
+            field_height = (
+                editor_layout[3]
+                if editor_layout is not None
+                else (
+                    float(imgui.get_font_size())
+                    + _point_xy(imgui.get_style().frame_padding)[1]
+                    if type(current) is bool
+                    else float(imgui.get_frame_height())
+                )
+            )
+            row_y = float(imgui.get_cursor_pos_y())
+            imgui.set_cursor_pos_y(
+                row_y + max(0.0, (field_height - label_height) / 2.0)
+            )
+            imgui.text(label_text)
+            imgui.same_line()
+            imgui.set_cursor_pos_y(row_y)
+            imgui.set_next_item_width(editor_width)
+            widget_id = f"##{'.'.join(item_path)}"
+            changed = False
+            edited = current
+            if choices:
+                index = choices.index(current) if current in choices else 0
+                choice_labels = [
+                    "<MENU>" if choice is None else str(choice) for choice in choices
+                ]
+                changed, index = imgui.combo(
+                    widget_id,
+                    index,
+                    choice_labels,
+                )
+                edited = choices[index]
+            elif type(current) is bool:
+                frame_padding_x, frame_padding_y = _point_xy(
+                    imgui.get_style().frame_padding
+                )
+                imgui.push_style_var(
+                    imgui.StyleVar_.frame_padding,
+                    imgui.ImVec2(frame_padding_x, frame_padding_y / 2.0),
+                )
+                imgui.push_style_color(
+                    imgui.Col_.check_mark,
+                    imgui.ImVec4(*_OPTION_ENABLED_RGB, 1.0),
+                )
+                try:
+                    changed, edited = imgui.checkbox(widget_id, current)
+                finally:
+                    imgui.pop_style_color()
+                    imgui.pop_style_var()
+            else:
+                changed, text = _wrapped_input_text(
+                    imgui,
+                    widget_id,
+                    format_editor_value(current),
+                    editor_width,
+                    editor_layout,
+                )
+                if changed:
+                    try:
+                        edited = parse_editor_value(
+                            text,
+                            annotation,
+                            current,
+                            item_path,
+                            base_dir=document.path.parent,
+                        )
+                    except SettingsError as exc:
+                        self._options_error = str(exc)
+                        changed = False
+            if changed:
+                try:
+                    self._options_draft = document.update(draft, item_path, edited)
+                    self._options_error = ""
+                    draft = self._options_draft
+                    value = setting_value(draft, path)
+                except (SettingsError, TypeError, ValueError) as exc:
+                    self._options_error = str(exc)
+            if any(
+                item_path[: len(override_path)] == override_path
+                for override_path in document.cli_overrides
+            ):
+                imgui.text(
+                    "COMMAND-LINE OVERRIDE ACTIVE; SAVED VALUE APPLIES WITHOUT IT"
+                )
+
+    def _settings_tree_content_width(
+        self,
+        imgui: Any,
+        value: object,
+        path: tuple[str, ...],
+    ) -> float:
+        """Measure every line rendered by one Options category."""
+        document = self.settings_document
+        if document is None:
+            return 1.0
+        item_spacing_x = _point_xy(imgui.get_style().item_spacing)[0]
+        widths = [1.0]
+        for item, annotation in iter_setting_fields(value, path):
+            item_path = (*path, item.name)
+            current = getattr(value, item.name)
+            if is_dataclass(current) and not isinstance(current, type):
+                widths.append(
+                    _point_xy(
+                        imgui.calc_text_size(item.name.replace("_", " ").upper())
+                    )[0]
+                )
+                widths.append(
+                    self._settings_tree_content_width(
+                        imgui,
+                        current,
+                        item_path,
+                    )
+                )
+                continue
+            label = item.name.replace("_", " ").title()
+            label_width = _point_xy(imgui.calc_text_size(f"{label}:"))[0]
+            widths.append(
+                label_width
+                + item_spacing_x
+                + _settings_widget_content_width(imgui, current, annotation)
+            )
+            if any(
+                item_path[: len(override_path)] == override_path
+                for override_path in document.cli_overrides
+            ):
+                widths.append(
+                    _point_xy(
+                        imgui.calc_text_size(
+                            "COMMAND-LINE OVERRIDE ACTIVE; SAVED VALUE APPLIES WITHOUT IT"
+                        )
+                    )[0]
+                )
+        return max(widths)
+
+    def _draw_mode_selection(self, imgui: Any) -> None:
+        scale = min(
+            1.0,
+            max(1.0, float(self.width) - 28.0) / 500.0,
+            max(1.0, float(self.height) - 28.0) / 445.0,
+        )
+        _draw_arcade_backdrop(imgui, self.width, self.height)
+        _prepare_window(
+            imgui,
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
+            alpha=0.97,
+            pivot=(0.5, 0.5),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        description_font_size = max(12.0, 13.0 * scale)
+        button_labels = (
+            ("TAXI", "RACE", "OPTIONS")
+            if self.settings_document is not None
+            else ("TAXI", "RACE")
+        )
+        button_width = max(
+            _overlay_text_size(
+                imgui,
+                "PICK UP PASSENGERS. DROP THEM OFF TO SCORE POINTS.",
+                description_font_size,
+            )[0],
+            _overlay_text_size(
+                imgui,
+                "CHASE THE FASTEST TRACK TIME.",
+                description_font_size,
+            )[0],
+            *(_button_content_width(imgui, label) for label in button_labels),
+        )
+        visible = _begin_window(
+            imgui,
+            "Crazy Robotaxi - Select Game Mode",
+            extra_flags=_AUTO_CARD_FLAGS,
         )
         try:
             if not visible:
@@ -1020,14 +1615,13 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            button_width = _point_xy(imgui.get_content_region_avail())[0]
             button_height = max(38.0, 54.0 * scale)
             if imgui.button("TAXI", imgui.ImVec2(button_width, button_height)):
                 self._select_mode("taxi")
             _centered_imgui_text(
                 imgui,
                 "PICK UP PASSENGERS. DROP THEM OFF TO SCORE POINTS.",
-                font_size=max(12.0, 13.0 * scale),
+                font_size=description_font_size,
                 color=(0.72, 0.72, 0.76, 1.0),
             )
             for color, alpha in (
@@ -1044,10 +1638,16 @@ class TaxiHudState:
             _centered_imgui_text(
                 imgui,
                 "CHASE THE FASTEST TRACK TIME.",
-                font_size=max(12.0, 13.0 * scale),
+                font_size=description_font_size,
                 color=(0.72, 0.72, 0.76, 1.0),
             )
             imgui.separator()
+            if self.settings_document is not None and imgui.button(
+                "OPTIONS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            ):
+                self._open_options()
+                return
+            self._draw_settings_notices(imgui, scale)
             _centered_imgui_text(
                 imgui,
                 "ESC  EXIT",
@@ -1064,66 +1664,26 @@ class TaxiHudState:
         if mode is None:
             self._menu_stage = "mode"
             return
-        available_window_width = max(1.0, float(self.width) - 28.0)
-        window_height = max(1.0, min(560.0, float(self.height) - 28.0))
-        scale = min(1.0, available_window_width / 620.0, window_height / 560.0)
-        accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
-        button_height = max(36.0, 48.0 * scale)
-        visible_options = tuple(
-            (index, option)
-            for index, option in enumerate(self.map_options)
-            if mode != "race" or option.race_course_ids
-        )
-        cell_width = max(
+        list_max_height = self._menu_scroll_max_height("map")
+        scale = min(
             1.0,
-            *(
-                _point_xy(imgui.calc_text_size(option.name))[0] + 20.0
-                for _index, option in visible_options
-            ),
-            *(
-                260.0 * scale
-                for _index, option in visible_options
-                if option.preview_image_path is not None
-            ),
-            *(
-                (_point_xy(imgui.calc_text_size("NO COMPATIBLE MAPS FOUND"))[0],)
-                if not visible_options
-                else ()
-            ),
+            max(1.0, float(self.width) - 28.0) / 620.0,
+            max(1.0, float(self.height) - 28.0) / 560.0,
         )
-        column_count = _selection_grid_columns(len(visible_options))
-        natural_grid_width = cell_width * column_count
+        accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
         _draw_arcade_backdrop(imgui, self.width, self.height)
         style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
-        window_width, list_width, table_width = _selection_card_widths(
-            imgui,
-            self.width,
-            natural_grid_width,
-            _overlay_text_size(
-                imgui,
-                "SELECT MAP",
-                max(24.0, 38.0 * scale),
-                font=self._gameplay_overlay_font(imgui),
-            )[0],
-            _overlay_text_size(
-                imgui,
-                "RACE MODE" if mode == "race" else "TAXI MODE",
-                max(13.0, 15.0 * scale),
-            )[0],
-        )
         _prepare_window(
             imgui,
-            position=(
-                max(14.0, (self.width - window_width) / 2.0),
-                max(14.0, (self.height - window_height) / 2.0),
-            ),
-            size=(window_width, window_height),
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
             alpha=0.97,
+            pivot=(0.5, 0.5),
         )
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Select Map",
-            extra_flags=("no_title_bar",),
+            "Crazy Robotaxi - Select Map",
+            extra_flags=_AUTO_CARD_FLAGS,
         )
         try:
             if not visible:
@@ -1142,22 +1702,58 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            list_height = max(
-                60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
+            button_height = max(36.0, 48.0 * scale)
+            empty_font_size = max(13.0, 15.0 * scale)
+            visible_options = tuple(
+                (index, option)
+                for index, option in enumerate(self.map_options)
+                if mode != "race" or option.race_course_ids
             )
-            list_visible = imgui.begin_child(
-                "##map-options",
-                imgui.ImVec2(list_width, list_height),
-                0,
-                (
-                    int(imgui.WindowFlags_.horizontal_scrollbar)
-                    if table_width > list_width
-                    else 0
+            cell_width = max(
+                1.0,
+                *(
+                    _button_content_width(imgui, option.name)
+                    for _index, option in visible_options
+                ),
+                *(
+                    260.0 * scale
+                    for _index, option in visible_options
+                    if option.preview_image_path is not None
+                ),
+                *(
+                    (
+                        _overlay_text_size(
+                            imgui,
+                            "NO COMPATIBLE MAPS FOUND",
+                            empty_font_size,
+                        )[0],
+                    )
+                    if not visible_options
+                    else ()
                 ),
             )
+            column_count = _selection_grid_columns(len(visible_options))
+            list_width = (
+                _table_content_width(imgui, *([cell_width] * column_count))
+                if visible_options
+                else cell_width
+            )
+            region_width = _selection_region_width(
+                imgui,
+                self.width,
+                self._menu_scroll_region_width(imgui, "map", list_width),
+            )
+            list_visible = _begin_auto_sized_scroll_region(
+                imgui,
+                "##map-options",
+                width=region_width,
+                max_height=list_max_height,
+                horizontal_scroll=list_width > region_width,
+            )
+            list_scroll_max_y = 0.0
+            list_content_height = 0.0
             try:
                 if list_visible:
-                    available_height = _point_xy(imgui.get_content_region_avail())[1]
                     if visible_options and imgui.begin_table(
                         "##map-grid",
                         column_count,
@@ -1165,7 +1761,7 @@ class TaxiHudState:
                             imgui.TableFlags_.no_saved_settings
                             | imgui.TableFlags_.sizing_stretch_same
                         ),
-                        outer_size=imgui.ImVec2(table_width, 0.0),
+                        outer_size=imgui.ImVec2(list_width, 0.0),
                     ):
                         try:
                             for position, (index, option) in enumerate(visible_options):
@@ -1181,10 +1777,6 @@ class TaxiHudState:
                                     option.preview_image_path,
                                     item_width,
                                     scale,
-                                    max(
-                                        0.0,
-                                        available_height - button_height - 10.0,
-                                    ),
                                 )
                                 if imgui.button(
                                     f"{option.name}##map-{index}",
@@ -1197,15 +1789,17 @@ class TaxiHudState:
                         _centered_imgui_text(
                             imgui,
                             "NO COMPATIBLE MAPS FOUND",
-                            font_size=max(13.0, 15.0 * scale),
+                            font_size=empty_font_size,
                             color=(0.62, 0.62, 0.68, 1.0),
                         )
+                    list_scroll_max_y = float(imgui.get_scroll_max_y())
+                    list_content_height = _current_window_content_height(imgui)
             finally:
                 imgui.end_child()
+            list_height = _point_xy(imgui.get_item_rect_size())[1]
             imgui.separator()
-            button_width = _point_xy(imgui.get_content_region_avail())[0]
             if imgui.button(
-                "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+                "BACK", imgui.ImVec2(region_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_game_mode = None
                 self._menu_stage = "mode"
@@ -1215,6 +1809,13 @@ class TaxiHudState:
                 "ESC  BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
+            )
+            self._remember_menu_scroll_chrome(imgui, "map", list_height)
+            self._remember_menu_scrollbar(
+                "map",
+                "map",
+                list_content_height,
+                list_scroll_max_y,
             )
         finally:
             imgui.end()
@@ -1229,62 +1830,27 @@ class TaxiHudState:
         if option is None:
             self._menu_stage = "map"
             return
-        available_window_width = max(1.0, float(self.width) - 28.0)
-        window_height = max(1.0, min(420.0, float(self.height) - 28.0))
-        scale = min(1.0, available_window_width / 620.0, window_height / 420.0)
-        button_height = max(36.0, 48.0 * scale)
-        cell_width = max(
+        list_max_height = self._menu_scroll_max_height("course")
+        scale = min(
             1.0,
-            *(
-                _point_xy(
-                    imgui.calc_text_size(
-                        course.course_id.replace("-", " ").replace("_", " ").upper()
-                    )
-                )[0]
-                + 20.0
-                for course in option.race_courses
-            ),
-            *(
-                260.0 * scale
-                for course in option.race_courses
-                if course.preview_image_path is not None
-            ),
+            max(1.0, float(self.width) - 28.0) / 620.0,
+            max(1.0, float(self.height) - 28.0) / 420.0,
         )
-        column_count = _selection_grid_columns(len(option.race_courses))
-        natural_grid_width = cell_width * column_count
         _draw_arcade_backdrop(imgui, self.width, self.height)
         style_var_count, style_color_count = _push_arcade_card_style(
             imgui, _RACE_ACCENT_RGB
         )
-        window_width, list_width, table_width = _selection_card_widths(
-            imgui,
-            self.width,
-            natural_grid_width,
-            _overlay_text_size(
-                imgui,
-                "SELECT RACE COURSE",
-                max(22.0, 36.0 * scale),
-                font=self._gameplay_overlay_font(imgui),
-            )[0],
-            _overlay_text_size(
-                imgui,
-                option.name.upper(),
-                max(13.0, 15.0 * scale),
-            )[0],
-        )
         _prepare_window(
             imgui,
-            position=(
-                max(14.0, (self.width - window_width) / 2.0),
-                max(14.0, (self.height - window_height) / 2.0),
-            ),
-            size=(window_width, window_height),
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
             alpha=0.97,
+            pivot=(0.5, 0.5),
         )
         visible = _begin_window(
             imgui,
-            "Crazy Robotaxi — Select Race Course",
-            extra_flags=("no_title_bar",),
+            "Crazy Robotaxi - Select Race Course",
+            extra_flags=_AUTO_CARD_FLAGS,
         )
         try:
             if not visible:
@@ -1303,33 +1869,71 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            list_height = max(
-                60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
-            )
-            list_visible = imgui.begin_child(
-                "##course-options",
-                imgui.ImVec2(list_width, list_height),
-                0,
-                (
-                    int(imgui.WindowFlags_.horizontal_scrollbar)
-                    if table_width > list_width
-                    else 0
+            button_height = max(36.0, 48.0 * scale)
+            empty_font_size = max(13.0, 15.0 * scale)
+            courses = option.race_courses
+            cell_width = max(
+                1.0,
+                *(
+                    _button_content_width(
+                        imgui,
+                        course.course_id.replace("-", " ").replace("_", " ").upper(),
+                    )
+                    for course in courses
+                ),
+                *(
+                    260.0 * scale
+                    for course in courses
+                    if course.preview_image_path is not None
+                ),
+                *(
+                    (
+                        _overlay_text_size(
+                            imgui,
+                            "NO RACE COURSES FOUND",
+                            empty_font_size,
+                        )[0],
+                    )
+                    if not courses
+                    else ()
                 ),
             )
+            column_count = _selection_grid_columns(len(courses))
+            list_width = (
+                _table_content_width(
+                    imgui,
+                    *([cell_width] * column_count),
+                )
+                if courses
+                else cell_width
+            )
+            region_width = _selection_region_width(
+                imgui,
+                self.width,
+                self._menu_scroll_region_width(imgui, "course", list_width),
+            )
+            list_visible = _begin_auto_sized_scroll_region(
+                imgui,
+                "##course-options",
+                width=region_width,
+                max_height=list_max_height,
+                horizontal_scroll=list_width > region_width,
+            )
+            list_scroll_max_y = 0.0
+            list_content_height = 0.0
             try:
                 if list_visible:
-                    available_height = _point_xy(imgui.get_content_region_avail())[1]
-                    if imgui.begin_table(
+                    if courses and imgui.begin_table(
                         "##course-grid",
                         column_count,
                         flags=(
                             imgui.TableFlags_.no_saved_settings
                             | imgui.TableFlags_.sizing_stretch_same
                         ),
-                        outer_size=imgui.ImVec2(table_width, 0.0),
+                        outer_size=imgui.ImVec2(list_width, 0.0),
                     ):
                         try:
-                            for course_index, course in enumerate(option.race_courses):
+                            for course_index, course in enumerate(courses):
                                 column = course_index % column_count
                                 if column == 0:
                                     imgui.table_next_row(min_row_height=0.0)
@@ -1342,10 +1946,6 @@ class TaxiHudState:
                                     course.preview_image_path,
                                     item_width,
                                     scale,
-                                    max(
-                                        0.0,
-                                        available_height - button_height - 10.0,
-                                    ),
                                 )
                                 label = (
                                     course.course_id.replace("-", " ")
@@ -1362,12 +1962,21 @@ class TaxiHudState:
                                     )
                         finally:
                             imgui.end_table()
+                    elif not courses:
+                        _centered_imgui_text(
+                            imgui,
+                            "NO RACE COURSES FOUND",
+                            font_size=empty_font_size,
+                            color=(0.62, 0.62, 0.68, 1.0),
+                        )
+                    list_scroll_max_y = float(imgui.get_scroll_max_y())
+                    list_content_height = _current_window_content_height(imgui)
             finally:
                 imgui.end_child()
+            list_height = _point_xy(imgui.get_item_rect_size())[1]
             imgui.separator()
-            button_width = _point_xy(imgui.get_content_region_avail())[0]
             if imgui.button(
-                "BACK", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+                "BACK", imgui.ImVec2(region_width, max(34.0, 42.0 * scale))
             ):
                 self._selected_map_option = None
                 self._menu_stage = "map"
@@ -1377,6 +1986,13 @@ class TaxiHudState:
                 "ESC  BACK",
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
+            )
+            self._remember_menu_scroll_chrome(imgui, "course", list_height)
+            self._remember_menu_scrollbar(
+                "course",
+                "course",
+                list_content_height,
+                list_scroll_max_y,
             )
         finally:
             imgui.end()
@@ -1766,31 +2382,52 @@ class TaxiHudState:
             return
         race = isinstance(snapshot, RaceGameSnapshot)
         accent_rgb = _RACE_ACCENT_RGB if race else _TAXI_ACCENT_RGB
-        margin = 16.0
-        card_width = max(1.0, min(620.0, float(self.width) - 2.0 * margin))
-        card_height = max(1.0, min(540.0, float(self.height) - 2.0 * margin))
-        card_left = (float(self.width) - card_width) * 0.5
-        card_top = (float(self.height) - card_height) * 0.5
-        scale = min(1.0, card_width / 620.0, card_height / 540.0)
+        headline = (
+            ("NEW BEST TIME" if race else "NEW HIGH SCORE")
+            if awaiting_name
+            else ("RACE COMPLETE" if race else "GAME OVER")
+        )
+        content_width = max(
+            _point_xy(imgui.calc_text_size(headline))[0],
+            _point_xy(imgui.calc_text_size("R  RESTART   ·   ESC  MAP"))[0],
+            _point_xy(imgui.calc_text_size("ENTER DRIVER NAME"))[0],
+            *(
+                sum(
+                    _point_xy(imgui.calc_text_size(value))[0]
+                    for value in (
+                        f"#{rank}",
+                        entry.name,
+                        (
+                            format_race_time_us(entry.elapsed_time_us)
+                            if isinstance(entry, RaceTimeEntry)
+                            else f"{entry.score}"
+                        ),
+                    )
+                )
+                + 96.0
+                for rank, entry in enumerate(snapshot.leaderboard, start=1)
+            ),
+        )
+        scale = min(
+            1.0,
+            max(1.0, float(self.width) - 32.0) / 620.0,
+            max(1.0, float(self.height) - 32.0) / 540.0,
+        )
 
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
             imgui,
-            position=(card_left, card_top),
-            size=(card_width, card_height),
+            position=(float(self.width) / 2.0, float(self.height) / 2.0),
+            size=None,
             alpha=0.97,
+            pivot=(0.5, 0.5),
         )
         style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
-        visible = _begin_window(imgui, "Game Over", extra_flags=("no_title_bar",))
+        visible = _begin_window(imgui, "Game Over", extra_flags=_AUTO_CARD_FLAGS)
         try:
             if not visible:
                 return
             imgui.dummy(imgui.ImVec2(0.0, max(2.0, 8.0 * scale)))
-            headline = (
-                ("NEW BEST TIME" if race else "NEW HIGH SCORE")
-                if awaiting_name
-                else ("RACE COMPLETE" if race else "GAME OVER")
-            )
             _centered_imgui_text(
                 imgui,
                 headline,
@@ -1823,14 +2460,17 @@ class TaxiHudState:
                 )
             imgui.separator()
             if awaiting_name:
-                self._draw_terminal_name_entry(imgui, race, accent_rgb, scale)
+                self._draw_terminal_name_entry(
+                    imgui, race, accent_rgb, scale, content_width
+                )
             else:
-                self._draw_terminal_leaderboard(imgui, snapshot, race, accent_rgb)
+                self._draw_terminal_leaderboard(
+                    imgui, snapshot, race, accent_rgb, content_width
+                )
             imgui.separator()
-            action_width = _point_xy(imgui.get_content_region_avail())[0]
             if imgui.button(
                 "PLAY AGAIN",
-                imgui.ImVec2(action_width, max(34.0, 44.0 * scale)),
+                imgui.ImVec2(content_width, max(34.0, 44.0 * scale)),
             ):
                 self._request_restart()
             _centered_imgui_text(
@@ -1850,6 +2490,7 @@ class TaxiHudState:
         race: bool,
         accent_rgb: tuple[float, float, float],
         scale: float,
+        content_width: float,
     ) -> None:
         """Draw terminal name entry and submission feedback."""
         _centered_imgui_text(
@@ -1857,7 +2498,7 @@ class TaxiHudState:
             "ENTER DRIVER NAME",
             font_size=max(13.0, 16.0 * scale),
         )
-        imgui.set_next_item_width(-1.0)
+        imgui.set_next_item_width(content_width)
         disabled = self._submission_pending
         if disabled:
             imgui.begin_disabled()
@@ -1867,10 +2508,9 @@ class TaxiHudState:
                 self._name_input,
                 flags=imgui.InputTextFlags_.enter_returns_true,
             )
-            submit_width = _point_xy(imgui.get_content_region_avail())[0]
             clicked = imgui.button(
                 "SAVE TIME" if race else "SAVE SCORE",
-                imgui.ImVec2(submit_width, max(32.0, 40.0 * scale)),
+                imgui.ImVec2(content_width, max(32.0, 40.0 * scale)),
             )
         finally:
             if disabled:
@@ -1896,6 +2536,7 @@ class TaxiHudState:
         snapshot: TaxiGameSnapshot | RaceGameSnapshot,
         race: bool,
         accent_rgb: tuple[float, float, float],
+        content_width: float,
     ) -> None:
         """Draw the ranked terminal results table."""
         _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
@@ -1908,8 +2549,7 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             return
-        available_height = _point_xy(imgui.get_content_region_avail())[1]
-        table_height = max(90.0, min(250.0, available_height - 92.0))
+        table_height = max(90.0, min(250.0, float(self.height) - 290.0))
         table_flags = (
             imgui.TableFlags_.row_bg
             | imgui.TableFlags_.borders_inner_h
@@ -1921,7 +2561,7 @@ class TaxiHudState:
             "##leaderboard",
             3,
             flags=table_flags,
-            outer_size=imgui.ImVec2(0.0, table_height),
+            outer_size=imgui.ImVec2(content_width, table_height),
         ):
             return
         try:
@@ -2156,6 +2796,15 @@ def _is_escape_press(event: object) -> bool:
     )
 
 
+def _is_control_tooltip_toggle(event: object) -> bool:
+    """Return whether an input event is a pressed H key."""
+    return (
+        isinstance(event, KeyboardUserInputEvent)
+        and event.state is KeyboardInputState.PRESSED
+        and str(event.key).strip().lower() == "h"
+    )
+
+
 def _draw_arcade_backdrop(imgui: Any, width: int, height: int) -> None:
     draw_list = imgui.get_background_draw_list()
     draw_list.add_rect_filled(
@@ -2200,13 +2849,45 @@ def _prepare_window(
     imgui: Any,
     *,
     position: tuple[float, float],
-    size: tuple[float, float],
+    size: tuple[float, float] | None,
     alpha: float = 0.72,
+    pivot: tuple[float, float] = (0.0, 0.0),
 ) -> None:
     """Set deterministic overlay geometry for the next ImGui window."""
-    imgui.set_next_window_pos(imgui.ImVec2(*position), imgui.Cond_.always)
-    imgui.set_next_window_size(imgui.ImVec2(*size), imgui.Cond_.always)
+    imgui.set_next_window_pos(
+        imgui.ImVec2(*position),
+        imgui.Cond_.always,
+        imgui.ImVec2(*pivot),
+    )
+    if size is not None:
+        imgui.set_next_window_size(imgui.ImVec2(*size), imgui.Cond_.always)
     imgui.set_next_window_bg_alpha(alpha)
+
+
+def _begin_auto_sized_scroll_region(
+    imgui: Any,
+    child_id: str,
+    *,
+    width: float,
+    max_height: float | None,
+    horizontal_scroll: bool = False,
+) -> bool:
+    """Size a scrollable child to its content until it reaches its height limit."""
+    if max_height is not None:
+        imgui.set_next_window_size_constraints(
+            imgui.ImVec2(width, 0.0),
+            imgui.ImVec2(width, max_height),
+        )
+    return imgui.begin_child(
+        child_id,
+        imgui.ImVec2(width, 0.0),
+        child_flags=(
+            imgui.ChildFlags_.auto_resize_y | imgui.ChildFlags_.always_auto_resize
+        ),
+        window_flags=(
+            int(imgui.WindowFlags_.horizontal_scrollbar) if horizontal_scroll else 0
+        ),
+    )
 
 
 def _begin_window(
@@ -2215,7 +2896,7 @@ def _begin_window(
     *,
     extra_flags: Sequence[str] = (),
 ) -> bool:
-    """Begin a fixed HUD window and normalize ImGui's binding return form."""
+    """Begin a non-scrolling HUD window and normalize the binding result."""
     flags = 0
     window_flags = imgui.WindowFlags_
     for name in (
@@ -2223,6 +2904,8 @@ def _begin_window(
         "no_resize",
         "no_collapse",
         "no_saved_settings",
+        "no_scrollbar",
+        "no_scroll_with_mouse",
         *extra_flags,
     ):
         flags |= int(getattr(window_flags, name))
@@ -2250,6 +2933,136 @@ def _point_xy(value: Any) -> tuple[float, float]:
     if hasattr(value, "x") and hasattr(value, "y"):
         return float(value.x), float(value.y)
     return float(value[0]), float(value[1])
+
+
+def _button_content_width(imgui: Any, label: str) -> float:
+    """Return the width required by a button label and current frame padding."""
+    visible_label = label.split("##", 1)[0]
+    text_width = _point_xy(imgui.calc_text_size(visible_label))[0]
+    frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
+    return text_width + 2.0 * frame_padding_x
+
+
+def _settings_widget_content_width(
+    imgui: Any,
+    current: object,
+    annotation: Any,
+) -> float:
+    """Return the width required by one Options editor and its current values."""
+    frame_height = float(imgui.get_frame_height())
+    if type(current) is bool:
+        return frame_height
+    choices = setting_choices(annotation)
+    if not choices:
+        return frame_height
+    labels = tuple("<MENU>" if choice is None else str(choice) for choice in choices)
+    text_width = max(_point_xy(imgui.calc_text_size(label))[0] for label in labels)
+    frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
+    return text_width + 2.0 * frame_padding_x + frame_height
+
+
+def _wrapped_input_text(
+    imgui: Any,
+    widget_id: str,
+    value: str,
+    display_width: float,
+    layout: tuple[str, float, float, float] | None = None,
+) -> tuple[bool, str]:
+    """Draw a height-fitting text editor without letting it resize its menu."""
+    display_value, underlying_width, editor_height, field_height = (
+        layout
+        if layout is not None
+        else _wrapped_editor_layout(imgui, value, display_width)
+    )
+    if underlying_width > display_width:
+        visible = imgui.begin_child(
+            f"{widget_id}-horizontal-scroll",
+            imgui.ImVec2(display_width, field_height),
+            window_flags=imgui.WindowFlags_.horizontal_scrollbar,
+        )
+        try:
+            if not visible:
+                return False, value
+            changed, edited = imgui.input_text_multiline(
+                widget_id,
+                display_value,
+                imgui.ImVec2(underlying_width, editor_height),
+                flags=0,
+            )
+        finally:
+            imgui.end_child()
+    else:
+        changed, edited = imgui.input_text_multiline(
+            widget_id,
+            display_value,
+            imgui.ImVec2(display_width, editor_height),
+            flags=0,
+        )
+    return changed, edited.replace("\r", "").replace("\n", "")
+
+
+def _wrapped_editor_layout(
+    imgui: Any,
+    value: str,
+    display_width: float,
+) -> tuple[str, float, float, float]:
+    """Wrap at whitespace and retain over-wide tokens for horizontal scrolling."""
+    frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
+    wrap_width = max(1.0, display_width - 2.0 * frame_padding_x)
+    words = re.findall(r"\S+", value)
+    longest_word_width = max(
+        (_point_xy(imgui.calc_text_size(word))[0] for word in words),
+        default=0.0,
+    )
+    underlying_width = max(
+        display_width,
+        longest_word_width + 2.0 * frame_padding_x,
+    )
+    wrapped: list[str] = []
+    line_count = 1
+    for explicit_line_index, explicit_line in enumerate(value.split("\n")):
+        if explicit_line_index:
+            wrapped.append("\n")
+            line_count += 1
+        line_width = 0.0
+        line_has_word = False
+        for token in re.findall(r"\s+|\S+", explicit_line):
+            token_width = _point_xy(imgui.calc_text_size(token))[0]
+            if (
+                not token.isspace()
+                and line_has_word
+                and line_width + token_width > wrap_width
+            ):
+                wrapped.append("\n")
+                line_count += 1
+                line_width = 0.0
+            wrapped.append(token)
+            line_width += token_width
+            line_has_word = line_has_word or not token.isspace()
+    frame_padding_y = _point_xy(imgui.get_style().frame_padding)[1]
+    editor_height = max(
+        float(imgui.get_frame_height()),
+        line_count * float(imgui.get_font_size()) + 2.0 * frame_padding_y,
+    )
+    field_height = editor_height + (
+        float(imgui.get_style().scrollbar_size)
+        if underlying_width > display_width
+        else 0.0
+    )
+    return "".join(wrapped), underlying_width, editor_height, field_height
+
+
+def _table_content_width(imgui: Any, *column_widths: float) -> float:
+    """Return table width including padding between adjacent columns."""
+    cell_padding_x = _point_xy(imgui.get_style().cell_padding)[0]
+    return sum(column_widths) + 2.0 * cell_padding_x * max(0, len(column_widths) - 1)
+
+
+def _current_window_content_height(imgui: Any) -> float:
+    """Return the natural bottom edge of the current window's content."""
+    item_bottom = _point_xy(imgui.get_item_rect_max())[1]
+    window_top = _point_xy(imgui.get_window_pos())[1]
+    return item_bottom - window_top + float(imgui.get_scroll_y())
 
 
 def _imgui_color(

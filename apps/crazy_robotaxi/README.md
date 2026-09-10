@@ -67,6 +67,53 @@ Run the application with `-- --help` to list all game options. Restarting a
 game rebuilds its simulation and autoregressive cache without reloading the
 model.
 
+## Options and user configuration
+
+The mode menu has an **OPTIONS** button. The Options screen is generated from
+the same typed settings tree used at startup, with pages for game, model,
+renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
+atomically updates the user YAML without leaving the screen. **EXIT** returns
+to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
+dirty. **RESET TO DEFAULTS** resets the draft. Presentation settings apply when
+saved; the screen displays **RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT**
+when other changes need a new process.
+
+By default, settings are loaded from
+`$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
+`~/.config/crazy-robotaxi/config.yaml` when `XDG_CONFIG_HOME` is unset. The file
+is created only after the first save. Use `--config PATH` to select another
+user-authored file. YAML values are sparse overrides on the selected runner's
+defaults, and retained comments survive Options saves. Explicit application CLI
+arguments override YAML for the current run without rewriting the saved value;
+the Options screen labels affected fields.
+
+For example:
+
+```yaml
+schema_version: 1
+game:
+  taxi:
+    seed: 1234
+    rules:
+      global_time_s: 90.0
+model:
+  pipeline:
+    diffusion_model:
+      seed: 5678
+presentation:
+  show_fps: true
+live_edit:
+  weather:
+    enabled: true
+```
+
+Mode, map, and race-course selections are intentionally CLI-only and do not
+appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
+`--race-course` skips their corresponding startup menus; omitted selections
+remain in the normal menu flow. Model diffusion and gameplay seeds are
+independent. Selecting mystery items automatically enables style editing, while
+rain or snow items automatically enable weather editing.
+
 ## Controls
 
 ### Keyboard
@@ -79,6 +126,7 @@ model.
 | `D` or Right Arrow | Steer right |
 | `Space` | Apply the handbrake and cancel throttle |
 | `R` | Restart the current game |
+| `H` | Hide or show the HUD control tooltips |
 | `Escape` | Return to the previous menu, then exit from the mode screen |
 | `Enter` | Submit the focused leaderboard name |
 
@@ -129,18 +177,22 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
-and `O` spawns a crossing obstacle. Style mode downloads its additional model
-assets on first use and caches them under `artifacts/crazy_robotaxi/live_edit`.
+and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
+in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
+change while a non-base style is active. Style mode downloads its additional
+model assets on first use and caches them under
+`artifacts/crazy_robotaxi/live_edit`.
+
 Map context appends authored road and landmark descriptions plus topology,
 curve, and vehicle-motion clauses to the active prompt. Complete combined
 prompts are encoded and retained lazily, so the first visit to a new context
 may pause briefly and maps with many unique contexts retain more GPU memory.
 
-Prompt editing requires the Python transformer. When map context is enabled,
-the application disables only native DiT acceleration and otherwise preserves
-the selected preset, including its scheduler, seed, native VAE, and finalize
-settings. Style/weather without map context and obstacle guidance still require
-a compatible non-native DiT configuration.
+Style, weather, and guided obstacles need the Python transformer hooks. When
+one of those features is enabled, the application automatically disables native
+DiT acceleration and logs the reason. Native VAE acceleration and the remaining
+performance configuration stay enabled; pixel-only features such as coins,
+items, and unguided obstacles keep native DiT acceleration.
 
 ## Authored maps
 

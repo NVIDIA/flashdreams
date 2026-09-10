@@ -582,10 +582,16 @@ class CrazyRobotaxiSession(ISession):
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
+            hud_enabled=self._config.hud_enabled,
+            native_dit_disabled_for_live_edit=(
+                self._config.native_dit_disabled_for_live_edit
+            ),
+            show_control_tooltips=self._config.show_control_hints,
+            settings_document=self._config.settings_document,
             map_options=self._map_options,
-            initial_game_mode=self._config.cli_game_mode,
-            initial_map_path=self._config.cli_map_path,
-            initial_race_course_id=self._config.cli_race_course_id,
+            initial_game_mode=self._config.initial_game_mode,
+            initial_map_path=self._config.initial_map_path,
+            initial_race_course_id=self._config.initial_race_course_id,
         )
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiImGuiUILoop,

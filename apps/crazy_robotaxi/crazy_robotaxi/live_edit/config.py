@@ -797,6 +797,16 @@ class LiveEditConfig:
             or self.map_context.enabled
         )
 
+    @property
+    def requires_python_dit(self) -> bool:
+        """Return whether enabled abilities need the Python transformer path."""
+        return (
+            self.style.enabled
+            or self.weather.enabled
+            or (self.obstacle.enabled and self.obstacle.guide_scale > 0.0)
+            or self.map_context.enabled
+        )
+
     def __post_init__(self) -> None:
         """Validate presenter-filter values at configuration time."""
         if self.sharpen_amount < 0.0:
