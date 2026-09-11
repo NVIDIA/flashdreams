@@ -152,3 +152,18 @@ def test_load_nullable_torch_dtype(tmp_path: Path) -> None:
     assert (
         document.settings.model.pipeline.quantization.projection is torch.float8_e4m3fn
     )
+
+
+def test_save_rejects_runtime_invalid_taxi_rules(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    document = _load(path)
+    draft = document.update(
+        document.settings,
+        ("game", "taxi", "rules", "pickup_grid_spacing_m"),
+        0.0,
+    )
+
+    with pytest.raises(SettingsError, match="pickup_grid_spacing_m must be positive"):
+        document.save(draft)
+
+    assert not path.exists()
