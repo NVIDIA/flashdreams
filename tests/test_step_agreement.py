@@ -328,8 +328,9 @@ def _worker(rank, scenario, rendezvous, output):
     ],
 )
 def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
+    # ponytail: CPU CI is Linux-only; package this worker before testing elsewhere.
     processes = [
-        mp.get_context("spawn").Process(
+        mp.get_context("fork").Process(
             target=_worker,
             args=(rank, scenario, str(tmp_path / "rendezvous"), str(tmp_path)),
         )
