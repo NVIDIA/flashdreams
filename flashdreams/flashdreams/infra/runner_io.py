@@ -147,6 +147,51 @@ def read_video_rgb(
     return media.read_video(str(path))[..., :3]
 
 
+def read_video_window_rgb(
+    path: str | Path,
+    *,
+    start_frame: int = 0,
+    frame_count: int | None = None,
+    install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
+) -> np.ndarray:
+    """Read ``[start_frame, start_frame + frame_count)`` of an RGB video.
+
+    Decodes frame-by-frame via ``mediapy.VideoReader`` and stops the ffmpeg
+    subprocess as soon as the window is filled, instead of decoding and
+    resizing the whole file before slicing. Frames before ``start_frame`` are
+    still decoded (ffmpeg has no cheap random-access seek exposed here), but
+    everything past the window is skipped, which is where most of the cost
+    goes for a long clip and a short window (e.g. a single opening frame).
+
+    ``frame_count=None`` reads to end of file, matching :func:`read_video_rgb`.
+    """
+    if start_frame < 0:
+        raise ValueError(f"start_frame must be >= 0, got {start_frame}.")
+    if frame_count is not None and frame_count < 0:
+        raise ValueError(f"frame_count must be >= 0, got {frame_count}.")
+    media = _import_mediapy("Loading videos", install_hint=install_hint)
+    frames: list[np.ndarray] = []
+    with media.VideoReader(str(path)) as reader:
+        frames_iter = iter(reader)
+        wanted = None if frame_count is None else start_frame + frame_count
+        index = 0
+        while wanted is None or index < wanted:
+            frame = next(frames_iter, None)
+            if frame is None:
+                break
+            if index >= start_frame:
+                frames.append(frame[..., :3])
+            index += 1
+    if frame_count is not None and len(frames) < frame_count:
+        raise ValueError(
+            f"{path} has {index} frames, fewer than "
+            f"{start_frame + frame_count} needed from frame {start_frame}."
+        )
+    return (
+        np.stack(frames, axis=0) if frames else np.empty((0, 0, 0, 3), dtype=np.uint8)
+    )
+
+
 def read_video_fps(
     path: str | Path,
     *,
@@ -165,13 +210,13 @@ def read_first_frame_rgb(
 ) -> np.ndarray:
     """Read an image or the first frame of a video as ``[H, W, 3]``."""
     path = Path(path)
-    media = _import_mediapy("Loading first-frame assets", install_hint=install_hint)
     if path.suffix.lower() in image_suffixes:
+        media = _import_mediapy("Loading first-frame assets", install_hint=install_hint)
         return media.read_image(str(path))[..., :3]
-    video = media.read_video(str(path))
+    video = read_video_window_rgb(path, frame_count=1, install_hint=install_hint)
     if video.shape[0] == 0:
         raise ValueError(f"video has no frames: {path}")
-    return video[0, ..., :3]
+    return video[0]
 
 
 def resize_rgb_image(
@@ -271,10 +316,26 @@ def load_video_tensor(
     device: torch.device,
     dtype: torch.dtype,
     interpolation: ResizeInterpolation = "default",
+    start_frame: int = 0,
+    frame_count: int | None = None,
     install_hint: str = DEFAULT_RUNNER_INSTALL_HINT,
 ) -> torch.Tensor:
-    """Load, resize, and normalize an RGB video."""
-    video = read_video_rgb(path, install_hint=install_hint)
+    """Load, resize, and normalize an RGB video.
+
+    ``start_frame``/``frame_count`` window the read at decode time (see
+    :func:`read_video_window_rgb`) instead of decoding the whole file and
+    slicing after; both default to reading the whole file, matching prior
+    behavior for callers that don't pass them.
+    """
+    if start_frame == 0 and frame_count is None:
+        video = read_video_rgb(path, install_hint=install_hint)
+    else:
+        video = read_video_window_rgb(
+            path,
+            start_frame=start_frame,
+            frame_count=frame_count,
+            install_hint=install_hint,
+        )
     video = resize_rgb_video(
         video,
         pixel_height=pixel_height,

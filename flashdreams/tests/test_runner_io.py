@@ -222,13 +222,23 @@ def test_read_first_frame_rgb_rejects_empty_video(
 ) -> None:
     fake_media = types.ModuleType("mediapy")
 
-    def read_video(path: str) -> np.ndarray:
-        return np.empty((0, 2, 2, 3), dtype=np.uint8)
+    class FakeVideoReader:
+        def __init__(self, path: str) -> None:
+            self.path = path
 
-    setattr(fake_media, "read_video", read_video)
+        def __enter__(self) -> "FakeVideoReader":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def __iter__(self):
+            return iter(())
+
+    setattr(fake_media, "VideoReader", FakeVideoReader)
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
 
-    with pytest.raises(ValueError, match="video has no frames"):
+    with pytest.raises(ValueError, match="fewer than 1 needed"):
         read_first_frame_rgb(Path("empty.mp4"))
 
 
