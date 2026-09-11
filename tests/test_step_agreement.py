@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from numpy import uint64
 import pytest
 import torch
 import torch.distributed as dist
@@ -171,7 +172,7 @@ class _Window(IClientWindow):
             self.session.scenario == "unfinished_ui"
             and self.session.post_inference_ui_steps >= 2
         ):
-            return UserInputEvents([CloseUserInputEvent(timestamp=0)])
+            return UserInputEvents([CloseUserInputEvent(timestamp=uint64(0))])
         if self.session.scenario == "window_failure":
             raise ValueError("injected window failure")
         if (
@@ -180,7 +181,7 @@ class _Window(IClientWindow):
         ):
             raise ValueError("injected active window failure")
         if self.session.scenario == "close_before_start":
-            return UserInputEvents([CloseUserInputEvent(timestamp=0)])
+            return UserInputEvents([CloseUserInputEvent(timestamp=uint64(0))])
         if (
             self.session.scenario == "reset"
             and self.session.generated.is_set()
@@ -189,9 +190,9 @@ class _Window(IClientWindow):
             self.session.reset_sent.set()
             return UserInputEvents(
                 [
-                    ResetUserInputEvent(timestamp=1),
+                    ResetUserInputEvent(timestamp=uint64(1)),
                     KeyboardUserInputEvent(
-                        timestamp=2, key="w", state=KeyboardInputState.PRESSED
+                        timestamp=uint64(2), key="w", state=KeyboardInputState.PRESSED
                     ),
                 ]
             )
