@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import torch
 from crazy_robotaxi.settings import SettingsDocument, SettingsError
 
 pytestmark = pytest.mark.ci_cpu
@@ -20,9 +21,15 @@ class _Diffusion:
 
 
 @dataclass(frozen=True)
+class _Quantization:
+    projection: torch.dtype | None = None
+
+
+@dataclass(frozen=True)
 class _Pipeline:
     name: str
     diffusion_model: _Diffusion = _Diffusion()
+    quantization: _Quantization = _Quantization()
 
 
 def _load(path: Path) -> SettingsDocument:
@@ -99,3 +106,49 @@ presentation:
     assert "hud_enabled: false" in saved
     assert "runtime:" not in saved
     assert not tuple(tmp_path.glob(".config.yaml.*.tmp"))
+
+
+def test_save_retains_quoted_string_override(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text('model:\n  device: "cpu"\n', encoding="utf-8")
+    document = _load(path)
+
+    document.save(
+        document.update(
+            document.settings,
+            ("presentation", "show_fps"),
+            True,
+        )
+    )
+
+    assert _load(path).settings.model.device == "cpu"
+
+
+def test_load_can_append_style_skin(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    skins = "\n".join(
+        f"      - {{name: skin-{index}, prompt: prompt-{index}}}" for index in range(5)
+    )
+    path.write_text(
+        f"live_edit:\n  style:\n    skins:\n{skins}\n",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+
+    assert document.settings.live_edit.style.skins[-1].name == "skin-4"
+    assert document.settings.live_edit.style.skins[-1].prompt == "prompt-4"
+
+
+def test_load_nullable_torch_dtype(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "model:\n  pipeline:\n    quantization:\n      projection: float8_e4m3fn\n",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+
+    assert (
+        document.settings.model.pipeline.quantization.projection is torch.float8_e4m3fn
+    )
