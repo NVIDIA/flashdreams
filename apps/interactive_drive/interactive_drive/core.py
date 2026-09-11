@@ -20,6 +20,7 @@ from torch.nn import functional as F
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig, VideoSpec
@@ -697,8 +698,13 @@ def _frame_chunk_tensor(
                 if frame.model_rgb_host_uint8 is not None
                 else frame.rgb_host_uint8
             )
-            tensor = _cuda_frame_tensor(value)
-            if tensor is not None:
+            tensor: Tensor | None = None
+            if isinstance(value, LazyCudaFrame):
+                try:
+                    tensor = value.to_cuda_tensor()
+                except RuntimeError:
+                    pass
+            if torch.is_tensor(tensor):
                 if tensor.ndim != 3 or tensor.shape[-1] < 3:
                     raise ValueError(
                         f"Expected HWC frame, received shape {tuple(tensor.shape)}"
@@ -732,23 +738,6 @@ def _frame_chunk_tensor(
     return (
         output.to(device=output_device, non_blocking=True) if output_device else output
     )
-
-
-def _cuda_frame_tensor(value: object) -> Tensor | None:
-    """Return a lazy frame tensor without synchronously copying it to the host."""
-    to_cuda_tensor = getattr(value, "to_cuda_tensor", None)
-    try:
-        tensor = to_cuda_tensor() if callable(to_cuda_tensor) else None
-    except RuntimeError:
-        return None
-    if not torch.is_tensor(tensor):
-        return None
-    if tensor.is_cuda:
-        to_cuda_event = getattr(value, "to_cuda_event", None)
-        event = to_cuda_event() if callable(to_cuda_event) else None
-        if event is not None:
-            torch.cuda.current_stream(tensor.device).wait_event(event)
-    return tensor
 
 
 def _telemetry_status(vehicle: VehicleState, blocks: int) -> str:

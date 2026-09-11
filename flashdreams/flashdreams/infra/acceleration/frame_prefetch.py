@@ -89,7 +89,7 @@ class LazyCudaFrame:
     ) -> None:
         self._frames_hwc_uint8: Any | None = frames_hwc_uint8
         self._frame_index = int(frame_index)
-        self._source_event = source_event
+        self._source_event: Any | None = source_event
         self._host: np.ndarray | None = None
         self._prefetch: CudaHostPrefetch | None = None
         self._lost_source_message = lost_source_message
@@ -129,10 +129,40 @@ class LazyCudaFrame:
             self._frames_hwc_uint8 = None
         return self._host
 
-    def to_cuda_tensor(self) -> Any:
+    def to_cuda_tensor(self, *, consumer_stream: Any | None = None) -> Any:
+        """Return the frame tensor ready for work on ``consumer_stream``.
+
+        Args:
+            consumer_stream: CUDA stream that will consume the frame. ``None``
+                uses the current stream on the frame's device.
+
+        Returns:
+            Indexed frame tensor with producer ordering and allocator ownership
+            registered on the consumer stream.
+
+        Raises:
+            RuntimeError: The frame was materialized on the host, or the
+                consumer stream belongs to another CUDA device.
+        """
         if self._frames_hwc_uint8 is None:
             raise RuntimeError(self._already_materialized_message)
-        return self._frames_hwc_uint8[self._frame_index]
+        tensor = self._frames_hwc_uint8[self._frame_index]
+        if not getattr(tensor, "is_cuda", False):
+            return tensor
+
+        if consumer_stream is None:
+            import torch
+
+            consumer_stream = torch.cuda.current_stream(tensor.device)
+        if _device_index(consumer_stream.device) != _device_index(tensor.device):
+            raise RuntimeError(
+                "Lazy CUDA frame and consumer stream must use the same device: "
+                f"{tensor.device} vs {consumer_stream.device}."
+            )
+        if self._source_event is not None:
+            consumer_stream.wait_event(self._source_event)
+        tensor.record_stream(consumer_stream)
+        return tensor
 
     def to_cuda_event(self) -> object | None:
         if self._frames_hwc_uint8 is None:

@@ -28,6 +28,7 @@ import numpy as np
 from loguru import logger
 
 from flashdreams.demo.local_input import SlangPyLocalInputHandler
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 
 
 @dataclass(slots=True)
@@ -436,11 +437,14 @@ class _CudaRGBInterop:
         self._copy_stream = torch.cuda.Stream(device=self._cuda_device)
         self._next_buffer_index = 0
 
-    def as_cuda_rgb_frame(self, frame: object) -> _CudaRGBFrame | None:
+    def as_cuda_rgb_frame(self, frame: object) -> Any | None:
         """Return a device-compatible CUDA RGB view when available."""
-        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
         try:
-            tensor = to_cuda_tensor() if callable(to_cuda_tensor) else frame
+            tensor = (
+                frame.to_cuda_tensor(consumer_stream=self._copy_stream)
+                if isinstance(frame, LazyCudaFrame)
+                else frame
+            )
         except RuntimeError:
             return None
         if not self._torch.is_tensor(tensor):
@@ -454,11 +458,9 @@ class _CudaRGBInterop:
             return None
         if self._device_index(tensor.device) != self._device_index(self._cuda_device):
             return None
-        to_cuda_event = getattr(frame, "to_cuda_event", None)
-        source_event = to_cuda_event() if callable(to_cuda_event) else None
-        return _CudaRGBFrame(tensor=tensor.detach(), source_event=source_event)
+        return tensor.detach()
 
-    def enqueue_rgb_to_shared_rgba(self, frame: _CudaRGBFrame) -> bool:
+    def enqueue_rgb_to_shared_rgba(self, frame: Any) -> bool:
         """Enqueue one RGB-to-RGBA copy without synchronizing the host."""
         shared_buffer = self._acquire_buffer()
         if shared_buffer is None:
@@ -466,15 +468,12 @@ class _CudaRGBInterop:
         rgba = shared_buffer.rgba_tensor
         if rgba is None:
             raise RuntimeError("Shared RGBA buffer was not mapped into CUDA.")
-        if frame.source_event is not None:
-            self._copy_stream.wait_event(frame.source_event)
         with self._torch.cuda.stream(self._copy_stream):
-            rgb = frame.tensor
+            rgb = frame
             if not rgb.is_contiguous():
                 rgb = rgb.contiguous()
             rgba[..., :3].copy_(rgb, non_blocking=True)
             rgba[..., 3].fill_(255)
-            rgb.record_stream(self._copy_stream)
             rgba.record_stream(self._copy_stream)
             done = self._torch.cuda.Event()
             done.record(self._copy_stream)
@@ -521,14 +520,6 @@ class _CudaRGBInterop:
     def _device_index(device: Any) -> int:
         index = device.index
         return 0 if index is None else int(index)
-
-
-class _CudaRGBFrame:
-    """CUDA RGB tensor plus its producer-completion event."""
-
-    def __init__(self, *, tensor: Any, source_event: Any | None) -> None:
-        self.tensor = tensor
-        self.source_event = source_event
 
 
 class _SharedRGBABuffer:

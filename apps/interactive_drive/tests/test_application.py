@@ -31,6 +31,7 @@ from interactive_drive.backends.world_model import WorldModelRenderBackend
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.types import ControlSnapshot, PresentedFrame
 
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostProcessorConfig,
@@ -741,13 +742,47 @@ def test_frame_view_selects_rgb_hdmap_and_physx_streams() -> None:
     )
 
 
-def test_frame_view_keeps_lazy_model_output_as_a_tensor() -> None:
-    class _TensorBackedFrame:
-        def to_cuda_tensor(self) -> torch.Tensor:
-            return torch.full((2, 3, 3), 23, dtype=torch.uint8)
+def test_frame_view_delegates_cuda_readiness_to_lazy_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+    event = object()
 
-        def __array__(self, *_args: object, **_kwargs: object) -> np.ndarray:
-            raise AssertionError("tensor-backed model frames must not become NumPy")
+    class _CudaTensor:
+        is_cuda = True
+        device = torch.device("cuda:1")
+        ndim = 3
+        shape = (2, 3, 3)
+
+        def __getitem__(self, _index: object) -> "_CudaTensor":
+            return self
+
+        def permute(self, *_dims: int) -> torch.Tensor:
+            return torch.full((3, 2, 3), 23, dtype=torch.uint8)
+
+        def record_stream(self, stream: object) -> None:
+            calls.append(("record", stream))
+
+    class _CudaStream:
+        device = torch.device("cuda:1")
+
+        def wait_event(self, source_event: object) -> None:
+            calls.append(("wait", source_event))
+
+    tensor = _CudaTensor()
+    stream = _CudaStream()
+    frame = LazyCudaFrame(
+        [tensor],
+        0,
+        source_event=event,
+    )
+    real_is_tensor = torch.is_tensor
+    monkeypatch.setattr(
+        torch,
+        "is_tensor",
+        lambda value: value is tensor or real_is_tensor(value),
+    )
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda _device: stream)
 
     chunk = cast(
         Any,
@@ -755,7 +790,7 @@ def test_frame_view_keeps_lazy_model_output_as_a_tensor() -> None:
             frames=[
                 SimpleNamespace(
                     rgb_host_uint8=np.zeros((2, 3, 3), dtype=np.uint8),
-                    model_rgb_host_uint8=_TensorBackedFrame(),
+                    model_rgb_host_uint8=frame,
                 )
             ]
         ),
@@ -765,6 +800,7 @@ def test_frame_view_keeps_lazy_model_output_as_a_tensor() -> None:
 
     assert tuple(output.shape) == (1, 3, 2, 3)
     assert output[0, 0, 0, 0] == 23
+    assert calls == [("wait", event), ("record", stream)]
 
 
 def test_interactive_drive_discovers_scenes_and_weather_variants(

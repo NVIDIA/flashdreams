@@ -532,11 +532,10 @@ def _condition_cuda_video(
     tensors: list[torch.Tensor] = []
     device: torch.device | None = None
     for frame in condition_frames:
-        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
-        if not callable(to_cuda_tensor):
+        if not isinstance(frame, LazyCudaFrame):
             return None
         try:
-            tensor = to_cuda_tensor()
+            tensor = frame.to_cuda_tensor()
         except RuntimeError:
             return None
         if (
@@ -551,11 +550,6 @@ def _condition_cuda_video(
             device = tensor.device
         elif tensor.device != device:
             return None
-
-        to_cuda_event = getattr(frame, "to_cuda_event", None)
-        event = to_cuda_event() if callable(to_cuda_event) else None
-        if event is not None:
-            torch.cuda.current_stream(tensor.device).wait_event(event)
         rgb = tensor[..., :3]
         tensors.append(rgb if rgb.is_contiguous() else rgb.contiguous())
 
