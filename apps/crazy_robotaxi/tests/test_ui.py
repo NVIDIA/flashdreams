@@ -1825,6 +1825,24 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
     assert imgui.table_flags["##leaderboard"] & imgui.TableFlags_.scroll_y
 
 
+def test_hidden_gameplay_hud_still_draws_results() -> None:
+    state = TaxiHudState(640, 540, _calibration(), hud_enabled=False)
+    video = torch.zeros(1, 3, 540, 640)
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(session_state="leaderboard"),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert "Game Over" in imgui.windows
+
+
 def test_race_results_card_formats_times() -> None:
     state = TaxiHudState(640, 540, _calibration())
     video = torch.zeros(1, 3, 540, 640)

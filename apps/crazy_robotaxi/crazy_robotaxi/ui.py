@@ -888,10 +888,11 @@ class TaxiHudState:
                 lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
             )
             return
+        snapshot = hud_frame.snapshot
         if not self.hud_enabled:
+            self._draw_terminal(imgui, snapshot)
             return
 
-        snapshot = hud_frame.snapshot
         if isinstance(snapshot, RaceGameSnapshot) and snapshot.session_state in {
             "awaiting_start",
             "racing",
