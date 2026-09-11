@@ -324,16 +324,6 @@ def test_flashvsr_postprocessor_reports_aligned_output_spec() -> None:
     assert output == VideoSpec(height=768, width=1280, fps=24)
 
 
-def test_flashvsr_device_placement_returns_a_copy() -> None:
-    original = FlashVSRPostProcessorConfig(device="cuda:0")
-
-    configured = original.with_device("cuda:1")
-
-    assert configured is not original
-    assert configured.device == "cuda:1"
-    assert original.device == "cuda:0"
-
-
 def test_flashvsr_postprocess_preserves_input_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

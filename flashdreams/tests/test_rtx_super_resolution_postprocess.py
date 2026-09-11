@@ -41,22 +41,15 @@ def test_rtx_super_resolution_output_spec_uses_scale() -> None:
     assert spec == VideoSpec(height=1080, width=1920, fps=24, channels=3)
 
 
-def test_rtx_super_resolution_device_placement_uses_nvvfx_ordinal() -> None:
-    original = RTXVideoSuperResolutionPostProcessorConfig(device=0)
-
-    configured = original.with_device("cuda:3")
-
-    assert configured is not original
-    assert configured.device == 3
-    assert original.device == 0
-
-
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_rtx_super_resolution_device_placement_requires_indexed_cuda(
+def test_rtx_super_resolution_requires_indexed_cuda_device(
     device: str,
 ) -> None:
+    config = RTXVideoSuperResolutionPostProcessorConfig()
+    config.device = device
+
     with pytest.raises(ValueError, match="explicitly indexed CUDA device"):
-        RTXVideoSuperResolutionPostProcessorConfig().with_device(device)
+        config.setup().start(VideoSpec(height=2, width=3))
 
 
 def test_rtx_super_resolution_output_spec_uses_explicit_dimensions() -> None:
@@ -154,6 +147,7 @@ def test_rtx_super_resolution_processes_frames_with_fake_backend(
     )
 
     config = RTXVideoSuperResolutionPostProcessorConfig(scale=2.0)
+    config.device = "cuda:3"
     session = config.setup().start(VideoSpec(height=2, width=3, fps=12))
     video = torch.linspace(-1.0, 1.0, 2 * 3 * 2 * 3).reshape(2, 3, 2, 3)
 
@@ -171,7 +165,7 @@ def test_rtx_super_resolution_processes_frames_with_fake_backend(
     assert outputs[0].metadata["source"] == "rtx_video_super_resolution"
     assert len(created) == 1
     assert created[0].quality == "HIGH"
-    assert created[0].device == 0
+    assert created[0].device == 3
     assert created[0].output_height == 4
     assert created[0].output_width == 6
     assert created[0].calls == [((3, 2, 3), False, 0), ((3, 2, 3), False, 0)]

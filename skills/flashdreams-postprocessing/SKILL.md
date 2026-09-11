@@ -53,15 +53,16 @@ config or processor factory.
 
    Override:
    - `output_spec()` when spatial size, channels, or timing changes.
-   - `with_device()` when callers may place the processor independently. Return
-     `dataclasses.replace(self, device=...)`; never mutate or return `self`,
-     because registered preset configs are cached and may retain a loaded
-     processor. Backends that use a native ordinal should validate and convert
-     the requested `torch.device` in this method.
    - `requires_all_ranks()` when the processor must run on nonzero ranks under
      `torchrun`.
    - `validate_execution()` to reject unsupported distributed or shape modes
      early.
+
+   Every config inherits `device` from `VideoPostProcessorConfig`. Consumers
+   copy cached preset configs, assign `device` before `setup()`, and keep it
+   fixed for the processor's lifetime. Backends that need a native device
+   representation convert the shared string when they construct their runtime
+   resources. Never mutate the preset object returned by the registry.
 
 3. Define the processor factory:
 
@@ -129,10 +130,11 @@ config or processor factory.
    )
    ```
 
-   This materializes a clean configured processor once, before `setup()` or
-   `prepare()` can load model resources. Keep output-channel selection and
-   application metadata pairing in the application; the session runner cannot
-   infer those semantics from an ordered list of model results.
+   This copies the registered preset, assigns its shared `device` field, and
+   stores it before `setup()` or `prepare()` can load model resources. Keep
+   output-channel selection and application metadata pairing in the
+   application; the session runner cannot infer those semantics from an
+   ordered list of model results.
 
 ## Runner Interaction
 

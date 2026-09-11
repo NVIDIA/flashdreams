@@ -17,13 +17,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from importlib import import_module
 from typing import Any, Literal, get_args
 
 import torch
 from torch import Tensor
-from typing_extensions import Self
 
 from flashdreams.infra.postprocess.base import (
     VideoChunk,
@@ -94,8 +93,8 @@ class RTXVideoSuperResolutionPostProcessorConfig(VideoPostProcessorConfig):
     quality: RTXVideoSuperResolutionQuality = "HIGH"
     """RTX Video Super Resolution quality mode."""
 
-    device: int = 0
-    """CUDA device index passed to ``nvvfx.VideoSuperRes``."""
+    device: str = "cuda:0"
+    """Execution device; NVIDIA VFX requires an explicit CUDA index."""
 
     clamp_input: bool = True
     """Clamp incoming FlashDreams frames to ``[-1, 1]`` before VFX conversion."""
@@ -105,16 +104,6 @@ class RTXVideoSuperResolutionPostProcessorConfig(VideoPostProcessorConfig):
 
     use_current_stream: bool = True
     """Pass the current PyTorch CUDA stream pointer to ``VideoSuperRes.run``."""
-
-    def with_device(self, device: str | torch.device) -> Self:
-        """Return a clean config for an explicitly indexed CUDA device."""
-        resolved = torch.device(device)
-        if resolved.type != "cuda" or resolved.index is None:
-            raise ValueError(
-                "RTX Video Super Resolution requires an explicitly indexed "
-                f"CUDA device such as 'cuda:0'; got {str(resolved)!r}."
-            )
-        return replace(self, device=resolved.index)
 
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         """Return the RGB stream specification produced by RTX VSR."""
@@ -182,6 +171,7 @@ class _RTXVideoSuperResolutionPostProcessorSession(VideoPostProcessorSession):
         self, config: RTXVideoSuperResolutionPostProcessorConfig, spec: VideoSpec
     ) -> None:
         self._config = config
+        self._device_ordinal = _nvvfx_device_ordinal(config.device)
         self._input_spec = spec
         self._output_spec = config.output_spec(spec)
         self._effect: Any | None = None
@@ -255,7 +245,7 @@ class _RTXVideoSuperResolutionPostProcessorSession(VideoPostProcessorSession):
         video_super_res = _load_video_super_res_class()
         effect = video_super_res(
             quality=_resolve_quality(video_super_res, self._config.quality),
-            device=self._config.device,
+            device=self._device_ordinal,
         )
         effect.output_width = self._output_spec.width
         effect.output_height = self._output_spec.height
@@ -265,7 +255,7 @@ class _RTXVideoSuperResolutionPostProcessorSession(VideoPostProcessorSession):
 
     def _run_vsr(self, canonical: Tensor, effect: Any) -> Tensor:
         batch, views, frames, _, _, _ = canonical.shape
-        device = _torch_device_for_nvvfx_device(self._config.device)
+        device = _torch_device_for_nvvfx_device(self._device_ordinal)
         stream_ptr = _current_cuda_stream_ptr(
             device=device,
             enabled=self._config.use_current_stream,
@@ -354,6 +344,16 @@ def _resolve_quality(video_super_res: Any, quality: str) -> Any:
             f"Unsupported RTX Video Super Resolution quality {quality!r}. "
             f"Supported values: {available}."
         ) from exc
+
+
+def _nvvfx_device_ordinal(device: str) -> int:
+    resolved = torch.device(device)
+    if resolved.type != "cuda" or resolved.index is None:
+        raise ValueError(
+            "RTX Video Super Resolution requires an explicitly indexed "
+            f"CUDA device such as 'cuda:0'; got {str(resolved)!r}."
+        )
+    return resolved.index
 
 
 def _torch_device_for_nvvfx_device(device: int) -> torch.device:

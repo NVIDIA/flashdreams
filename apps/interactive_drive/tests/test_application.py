@@ -50,11 +50,7 @@ pytestmark = pytest.mark.ci_cpu
 
 @dataclass(kw_only=True)
 class _FakePostProcessorConfig(VideoPostProcessorConfig):
-    device: str = "cuda"
     scale: int = 2
-
-    def with_device(self, device: str | torch.device) -> "_FakePostProcessorConfig":
-        return replace(self, device=str(torch.device(device)))
 
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         return replace(
