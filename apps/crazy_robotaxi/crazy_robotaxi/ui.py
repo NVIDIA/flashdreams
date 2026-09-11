@@ -3323,7 +3323,6 @@ class TaxiHudState:
         entries = _terminal_leaderboard_entries(snapshot)
         leaderboard_column_widths = _leaderboard_column_widths(imgui, entries, race)
         terminal_region = "terminal-name" if awaiting_name else "terminal"
-        leaderboard_max_height = self._menu_scroll_max_height(terminal_region)
         leaderboard_width = max(
             sum(leaderboard_column_widths) + float(imgui.get_style().scrollbar_size),
             float(self.width) * 0.5,
@@ -3385,6 +3384,40 @@ class TaxiHudState:
                     color=(*accent_rgb, 1.0),
                 )
             imgui.separator()
+            _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
+            style = imgui.get_style()
+            lower_item_heights: list[float] = []
+            if awaiting_name:
+                lower_item_heights.extend(
+                    (
+                        max(13.0, 16.0 * scale),
+                        float(imgui.get_frame_height()),
+                        max(32.0, 40.0 * scale),
+                    )
+                )
+                if self._validation_message:
+                    lower_item_heights.append(max(12.0, 13.0 * scale))
+            lower_item_heights.extend(
+                (max(34.0, 44.0 * scale), max(12.0, 13.0 * scale))
+            )
+            lower_height = (
+                sum(lower_item_heights)
+                + _point_xy(style.item_spacing)[1] * (len(lower_item_heights) + 2)
+                + _point_xy(style.window_padding)[1]
+                + 2.0 * _point_xy(style.display_safe_area_padding)[1]
+            )
+            available_height = max(
+                1.0,
+                float(self.height)
+                - _current_window_content_height(imgui)
+                - lower_height,
+            )
+            measured_height = self._menu_scroll_max_height(terminal_region)
+            leaderboard_max_height = (
+                available_height
+                if measured_height is None
+                else min(available_height, measured_height)
+            )
             leaderboard_height = self._draw_terminal_leaderboard(
                 imgui,
                 entries,
@@ -3488,7 +3521,6 @@ class TaxiHudState:
         max_height: float | None,
     ) -> float:
         """Draw the ranked terminal results table."""
-        _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
         if not entries:
             _centered_imgui_text(
                 imgui,

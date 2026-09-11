@@ -2532,9 +2532,35 @@ def test_terminal_shows_pending_result_before_name_is_saved(
     state.draw(imgui)
 
     assert imgui.tables["##leaderboard"] == expected_rows
-    assert imgui.table_outer_sizes["##leaderboard"][1] == 44.0
+    assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
     assert save_label in imgui.buttons
     assert imgui.highlighted_rows == [1]
+
+
+def test_terminal_first_frame_constrains_leaderboard_to_viewport() -> None:
+    state = TaxiHudState(320, 180, _calibration())
+    video = torch.zeros(1, 3, 180, 320)
+    entries = tuple(
+        HighScoreEntry(f"DRIVER {index}", 10_000 - index, "") for index in range(10)
+    )
+    state.publish(
+        build_hud_frames(
+            video,
+            (
+                replace(
+                    _snapshot(session_state="leaderboard"),
+                    leaderboard=entries,
+                ),
+            ),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
 
 
 @pytest.mark.parametrize(
