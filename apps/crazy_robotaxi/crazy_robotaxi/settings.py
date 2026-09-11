@@ -236,7 +236,7 @@ class SettingsDocument:
             key: value for key, value in document.items() if key != "schema_version"
         }
         settings = _overlay_dataclass(base, values, (), base_dir=config_path.parent)
-        settings = _normalize_settings(settings)
+        settings = normalize_settings(settings)
         _validate_settings(settings)
         return cls(
             path=config_path,
@@ -258,7 +258,7 @@ class SettingsDocument:
 
     def save(self, settings: CrazyRobotaxiUserSettings) -> None:
         """Validate and atomically save sparse overrides while retaining comments."""
-        settings = _normalize_settings(settings)
+        settings = normalize_settings(settings)
         _validate_settings(settings)
         desired = CommentedMap()
         desired["schema_version"] = 1
@@ -285,7 +285,7 @@ class SettingsDocument:
         self.settings = settings
 
 
-def _normalize_settings(
+def normalize_settings(
     settings: CrazyRobotaxiUserSettings,
 ) -> CrazyRobotaxiUserSettings:
     """Apply declared feature dependencies without mutating preset literals."""
@@ -770,6 +770,7 @@ __all__ = [
     "default_config_path",
     "format_editor_value",
     "iter_setting_fields",
+    "normalize_settings",
     "parse_editor_value",
     "restart_required_settings",
     "setting_choices",

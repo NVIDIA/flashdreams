@@ -39,6 +39,7 @@ from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
     SettingsDocument,
     default_config_path,
+    normalize_settings,
 )
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
@@ -412,7 +413,7 @@ class CrazyRobotaxiApplication(IApplication):
             runtime=runtime,
             diagnostics=diagnostics,
         )
-        return settings, overrides
+        return normalize_settings(settings), overrides
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create one session after validating its fixed model geometry."""
