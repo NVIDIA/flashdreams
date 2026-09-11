@@ -1670,7 +1670,7 @@ def test_a_step_that_presents_nothing_records_no_metrics() -> None:
             self._log.record("session.init")
             self.register_model_loop(SilentModelLoop, state=self)
 
-    class RecordingMetricsSink:
+    class RecordingMetricsSink(MetricsOutputSink):
         def __init__(self) -> None:
             self.results: list[StepResult] = []
 
