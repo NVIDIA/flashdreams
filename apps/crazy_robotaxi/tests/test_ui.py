@@ -266,6 +266,7 @@ class _FakeImGui:
         self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.window_positions: dict[str, tuple[float, float]] = {}
         self.window_sizes: dict[str, tuple[float, float]] = {}
         self.child_sizes: dict[str, tuple[float, float]] = {}
         self.child_window_flags: dict[str, int] = {}
@@ -361,6 +362,7 @@ class _FakeImGui:
         self.current_window = title
         self.windows.setdefault(title, [])
         self.window_flags[title] = flags
+        self.window_positions[title] = self.next_window_position
         self.window_sizes[title] = self.next_window_size
         return True
 
@@ -1068,6 +1070,37 @@ def test_current_prompt_overlay_preserves_room_for_gameplay_hud() -> None:
 
     assert prompt_offset + 160.0 + 44.0 <= state.height
     assert imgui.windows["Current Prompt"][-1] == "..."
+
+
+def test_current_prompt_offsets_left_live_edit_overlays() -> None:
+    video = torch.zeros(1, 3, 360, 320)
+    live_edit = LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True))
+    status = LiveEditHudStatus(coins_enabled=True, coins_collected=3)
+    state = TaxiHudState(
+        320,
+        360,
+        _calibration(),
+        show_current_prompt=True,
+        live_edit=live_edit,
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            live_edit_statuses=(status,),
+            current_prompt="A taxi driving through a wide city boulevard.",
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    prompt_bottom = 14.0 + imgui.window_sizes["Current Prompt"][1]
+    assert imgui.window_positions["Coin Counter"] == (14.0, prompt_bottom + 8.0)
+    assert imgui.window_positions["Live Edit"] == (14.0, prompt_bottom + 88.0)
 
 
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
