@@ -718,16 +718,19 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
 
 def test_hud_frames_preserve_frame_aligned_live_edit_status() -> None:
     video = torch.zeros(2, 3, 96, 160)
-    status = LiveEditHudStatus(skin_name="comic", coins_enabled=True)
+    statuses = (
+        LiveEditHudStatus(skin_name="comic", coins_enabled=True, coins_collected=0),
+        LiveEditHudStatus(skin_name="comic", coins_enabled=True, coins_collected=1),
+    )
 
     frames = build_hud_frames(
         video,
         (_snapshot(), _snapshot()),
         np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
-        live_edit_status=status,
+        live_edit_statuses=statuses,
     )
 
-    assert [frame.live_edit_status for frame in frames] == [status, status]
+    assert tuple(frame.live_edit_status for frame in frames) == statuses
 
 
 def test_live_edit_card_dispatches_enabled_actions() -> None:

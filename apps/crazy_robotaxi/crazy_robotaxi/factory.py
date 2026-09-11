@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -89,7 +88,9 @@ def build_taxi_engine(
         physics_step_fn=step_taxi_physics_world,
         include_initial_state_in_first_chunk=True,
     )
-    coin_collected: Callable[[int], None] | None = None
+    frame_advance = (
+        None if live_edit_gameplay is None else live_edit_gameplay.advance_frame
+    )
     if game_mode == "race":
         courses = scene.game_map.race_courses
         if not courses:
@@ -116,6 +117,7 @@ def build_taxi_engine(
                 course,
                 simulation.current_state,
                 RaceTimeStore(race_times_path),
+                frame_advance=frame_advance,
             )
         )
     else:
@@ -128,15 +130,11 @@ def build_taxi_engine(
             config=game_config,
             initial_camera=scene.selected_camera,
             vicinity_resolver=GameMapVicinityResolver(scene.game_map),
+            frame_advance=frame_advance,
         )
         rules = TaxiGameRules(controller)
-        coin_collected = controller.collect_coins
     if live_edit_gameplay is not None:
-        rules = LiveEditGameRules(
-            rules,
-            live_edit_gameplay,
-            coin_collected=coin_collected,
-        )
+        rules = LiveEditGameRules(rules, live_edit_gameplay)
     renderer = LudusConditionRenderer(raster, bev, device=device)
     renderer.load_scene(scene)
     engine = GameEngine(

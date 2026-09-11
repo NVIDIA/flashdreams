@@ -347,7 +347,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         autoregressive_index = -1
         simulation_timestamps_us: tuple[int, ...] | None = None
         cache_finalize_returned_ns: int | None = None
-        live_edit_status: LiveEditHudStatus | None = None
+        live_edit_statuses: tuple[LiveEditHudStatus, ...] | None = None
         if snapshot.session_state in active_states:
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
@@ -418,7 +418,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             if live_edit is not None and live_edit.style is not None:
                 live_edit.style.after_v2_chunk()
             if live_edit is not None:
-                live_edit_status = live_edit.hud_status()
+                live_edit_statuses = live_edit.hud_statuses()
             state.blocks_generated += 1
             video = generated.video_bvtchw[0, 0]
             expected_shape = (
@@ -475,7 +475,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             autoregressive_index=autoregressive_index,
             simulation_timestamps_us=simulation_timestamps_us,
             cache_finalize_returned_ns=cache_finalize_returned_ns,
-            live_edit_status=live_edit_status,
+            live_edit_statuses=live_edit_statuses,
         )
         invoke_async(
             state.ui_loop,

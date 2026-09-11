@@ -245,24 +245,27 @@ def test_style_and_weather_items_request_persistent_selections() -> None:
     assert requests == [("style", "comic"), ("weather", "rain")]
 
 
-def test_live_edit_rules_award_coins_before_taxi_snapshots() -> None:
-    awarded: list[int] = []
+def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
+    completed: list[int] = []
 
     def advance_inner(_trajectory: object, _frame_interval_s: float) -> GameUpdate:
-        return GameUpdate(frames=(sum(awarded),))
+        return GameUpdate(frames=("frame",))
 
     inner = SimpleNamespace(is_running=True, advance_frames=advance_inner)
-    gameplay = SimpleNamespace(advance=lambda _trajectory: (("actor",), 2))
+    gameplay = SimpleNamespace(
+        begin_advance=lambda _trajectory: ("actor",),
+        complete_advance=completed.append,
+    )
     rules = LiveEditGameRules(
         cast(GameRules, inner),
         cast(LiveEditGameplay, gameplay),
-        coin_collected=lambda count: awarded.append(count * 100),
     )
 
     update = rules.advance_frames(cast(Any, object()), 0.1)
 
-    assert update.frames == (200,)
+    assert update.frames == ("frame",)
     assert update.dynamic_actors == ("actor",)
+    assert completed == [1]
 
 
 @pytest.mark.parametrize(
@@ -310,6 +313,7 @@ def test_nitro_boosts_and_expires_on_game_time() -> None:
         nitro.boosted_vehicle(VehicleConfig(max_speed_mps=20.0)).max_speed_mps == 20.0
     )
     assert not nitro.active
+    assert nitro.consume_frame_seconds(2) == pytest.approx((0.1, 0.0))
 
 
 def test_v2_live_edit_camera_uses_generated_frame_size() -> None:
@@ -499,10 +503,14 @@ def test_map_state_is_applied_at_the_post_simulation_model_boundary() -> None:
     gameplay.coins = None
     gameplay.items = None
     gameplay.effects = None
+    gameplay.nitro = None
     gameplay.obstacles = None
     gameplay.guidance = None
+    gameplay._frame_statuses = []
 
-    gameplay.advance(SimpleNamespace(boundary_state_after_chunk=state))
+    gameplay.begin_advance(
+        SimpleNamespace(boundary_state_after_chunk=state, vehicle_states=(state,))
+    )
     gameplay.prepare_model_step(None, None, None, 0)
 
     assert calls == [("update", state), "apply"]

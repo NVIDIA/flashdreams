@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -601,6 +602,7 @@ class TaxiGameController:
         initial_camera: CameraCalibration | None = None,
         high_score_store: HighScoreStore | None = None,
         vicinity_resolver: GameMapVicinityResolver | None = None,
+        frame_advance: Callable[[VehicleState, bool], int] | None = None,
     ) -> None:
         self._config = config
         rng_seed = None if config.seed is None else _stable_seed(scene_id, config.seed)
@@ -637,6 +639,7 @@ class TaxiGameController:
         self._high_score_store = high_score_store or HighScoreStore(
             config.high_scores_path
         )
+        self._frame_advance = frame_advance
         existing_scores = self._high_score_store.read()
         self._high_score = existing_scores[0].score if existing_scores else None
         self._leaderboard: tuple[HighScoreEntry, ...] = ()
@@ -715,9 +718,16 @@ class TaxiGameController:
             x_m = vehicle_state.x_m
             y_m = vehicle_state.y_m
             yaw_rad = vehicle_state.yaw_rad
-            if self._session_state != "playing":
+            is_playing = self._session_state == "playing"
+            coins_collected = (
+                0
+                if self._frame_advance is None
+                else self._frame_advance(vehicle_state, is_playing)
+            )
+            if not is_playing:
                 snapshots.append(self._snapshot_for_pose(x_m, y_m, yaw_rad))
                 continue
+            self.collect_coins(coins_collected)
             self._advance_banner(frame_interval_s)
             if self._phase == "seeking_pickup":
                 pickup_index = self._collected_pickup_index(x_m, y_m)

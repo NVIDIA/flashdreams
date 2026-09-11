@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -179,6 +178,10 @@ class LiveEditGameplay:
             output_height=scene.initial_rgb.shape[0],
         )
         self._frame_index = 0
+        self._frame_statuses: list[LiveEditHudStatus] = []
+        self._nitro_seconds_by_frame: tuple[float, ...] = ()
+        self._nitro_activated_during_advance = False
+        self._obstacle_count_for_advance: int | None = None
         self._presentation_enabled = any(
             (
                 config.style.enabled,
@@ -271,7 +274,7 @@ class LiveEditGameplay:
             raise ValueError(f"Unknown live-edit action: {action}")
 
     def hud_status(self) -> LiveEditHudStatus:
-        """Snapshot presentation state after the current model chunk."""
+        """Return a snapshot of the current live-edit presentation state."""
         style = self.style
         coins = self.coins
         nitro = self.nitro
@@ -297,22 +300,71 @@ class LiveEditGameplay:
             obstacle_count=None if obstacles is None else len(obstacles.events),
         )
 
-    def advance(self, trajectory: TrajectoryChunk) -> tuple[tuple[Any, ...], int]:
-        """Advance pickups and obstacles after one physics trajectory."""
+    def hud_statuses(self) -> tuple[LiveEditHudStatus, ...]:
+        """Return frame-aligned HUD state with the applied prompt selection."""
+        current = self.hud_status()
+        return tuple(
+            replace(
+                status,
+                skin_name=current.skin_name,
+                weather_name=current.weather_name,
+            )
+            for status in self._frame_statuses
+        )
+
+    def begin_advance(self, trajectory: TrajectoryChunk) -> tuple[Any, ...]:
+        """Prepare one trajectory for frame-by-frame gameplay updates."""
+        self._frame_statuses.clear()
+        self._nitro_activated_during_advance = False
+        self._nitro_seconds_by_frame = (
+            ()
+            if self.nitro is None
+            else self.nitro.consume_frame_seconds(len(trajectory.vehicle_states))
+        )
         if self.style is not None:
             self.style.update_map_context(trajectory.boundary_state_after_chunk)
-        coins_collected = (
-            0
-            if self.coins is None
-            else self.coins.advance_frames(trajectory.vehicle_states)
-        )
-        if self.items is not None and self.effects is not None:
-            for item_type in self.items.advance_frames(trajectory.vehicle_states):
-                self.items.flash(self.effects.apply(item_type))
-        actors = (
-            () if self.obstacles is None else self.obstacles.advance_frames(trajectory)
-        )
-        return actors, coins_collected
+        if self.obstacles is None:
+            self._obstacle_count_for_advance = None
+            return ()
+        active_ids = {event.entity_id for event in self.obstacles.events}
+        actors = self.obstacles.advance_frames(trajectory)
+        active_ids.update(actor.entity_id for actor in actors)
+        self._obstacle_count_for_advance = len(active_ids)
+        return actors
+
+    def advance_frame(self, vehicle_state: VehicleState, active: bool) -> int:
+        """Advance pickups and capture HUD state for one simulated frame."""
+        coins_collected = 0
+        if active:
+            if self.coins is not None:
+                coins_collected = self.coins.advance_frames((vehicle_state,))
+            if self.items is not None and self.effects is not None:
+                for item_type in self.items.advance_frames((vehicle_state,)):
+                    self.items.flash(self.effects.apply(item_type))
+                    self._nitro_activated_during_advance |= item_type == "nitro"
+        status = self.hud_status()
+        if self.nitro is not None:
+            index = len(self._frame_statuses)
+            remaining_s = (
+                self.nitro.seconds_remaining
+                if self._nitro_activated_during_advance
+                else self._nitro_seconds_by_frame[index]
+            )
+            status = replace(
+                status,
+                nitro_seconds_remaining=remaining_s if remaining_s > 0.0 else None,
+            )
+        status = replace(status, obstacle_count=self._obstacle_count_for_advance)
+        self._frame_statuses.append(status)
+        return coins_collected
+
+    def complete_advance(self, frame_count: int) -> None:
+        """Validate that live-edit state was captured for every game frame."""
+        if len(self._frame_statuses) != frame_count:
+            raise ValueError(
+                "Live-edit HUD states do not align with game frames: "
+                f"got {len(self._frame_statuses)} states for {frame_count} frames"
+            )
 
     def postprocess_video(self, video: Tensor, step: Any) -> Tensor:
         """Composite frame-aligned collectibles on device."""
@@ -429,12 +481,9 @@ class LiveEditGameRules:
         self,
         inner: GameRules,
         gameplay: LiveEditGameplay,
-        *,
-        coin_collected: Callable[[int], None] | None = None,
     ) -> None:
         self.inner = inner
         self.gameplay = gameplay
-        self._coin_collected = coin_collected
 
     @property
     def is_running(self) -> bool:
@@ -446,10 +495,9 @@ class LiveEditGameRules:
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> GameUpdate:
-        dynamic_actors, coins_collected = self.gameplay.advance(trajectory)
-        if coins_collected and self._coin_collected is not None:
-            self._coin_collected(coins_collected)
+        dynamic_actors = self.gameplay.begin_advance(trajectory)
         update = self.inner.advance_frames(trajectory, frame_interval_s)
+        self.gameplay.complete_advance(len(update.frames))
         return GameUpdate(
             frames=update.frames,
             dynamic_actors=(*update.dynamic_actors, *dynamic_actors),
