@@ -693,6 +693,30 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
 
+def test_live_edit_item_cli_enables_required_abilities(tmp_path: Path) -> None:
+    app = _application()
+    arguments = [
+        "--config",
+        str(tmp_path / "config.yaml"),
+        "--live-edit-items",
+        "--live-edit-item-types",
+        "rain,mystery",
+        "--no-live-edit-style",
+        "--no-live-edit-weather",
+    ]
+
+    with patch(
+        "crazy_robotaxi.application.resolve_live_edit_assets",
+        side_effect=lambda config: config,
+    ):
+        app.init(arguments)
+
+    assert app._config is not None
+    assert app._config.live_edit.items.enabled
+    assert app._config.live_edit.style.enabled
+    assert app._config.live_edit.weather.enabled
+
+
 def test_bev_render_fit_preserves_authored_aspect_ratio_and_smaller_sources() -> None:
     raster = RasterConfig()
     wide = RendererSettings(raster=raster, bev=BevConfig(width=800, height=400))
