@@ -167,8 +167,8 @@ def read_video_window_rgb(
     """
     if start_frame < 0:
         raise ValueError(f"start_frame must be >= 0, got {start_frame}.")
-    if frame_count is not None and frame_count < 0:
-        raise ValueError(f"frame_count must be >= 0, got {frame_count}.")
+    if frame_count is not None and frame_count < 1:
+        raise ValueError(f"frame_count must be >= 1, got {frame_count}.")
     media = _import_mediapy("Loading videos", install_hint=install_hint)
     frames: list[np.ndarray] = []
     with media.VideoReader(str(path)) as reader:
@@ -187,9 +187,11 @@ def read_video_window_rgb(
             f"{path} has {index} frames, fewer than "
             f"{start_frame + frame_count} needed from frame {start_frame}."
         )
-    return (
-        np.stack(frames, axis=0) if frames else np.empty((0, 0, 0, 3), dtype=np.uint8)
-    )
+    if not frames:
+        raise ValueError(
+            f"{path} has {index} frames, none at or after frame {start_frame}."
+        )
+    return np.stack(frames, axis=0)
 
 
 def read_video_fps(

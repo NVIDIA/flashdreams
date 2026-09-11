@@ -34,6 +34,7 @@ from flashdreams.infra.runner_io import (
     load_first_frame_tensor,
     read_first_frame_rgb,
     read_video_fps,
+    read_video_window_rgb,
     resolve_input_path,
     resolve_prompt_value,
     runner_artifact_path,
@@ -217,26 +218,84 @@ def test_video_tensor_to_uint8_rejects_multi_batch_btchw() -> None:
         video_tensor_to_uint8(video, layout="btchw")
 
 
-def test_read_first_frame_rgb_rejects_empty_video(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_media = types.ModuleType("mediapy")
+def _install_fake_video_reader(
+    monkeypatch: pytest.MonkeyPatch, total_frames: int
+) -> list[int]:
+    """Stand in for ``mediapy.VideoReader`` with ``total_frames`` RGBA frames.
+
+    Frame ``i`` is filled with the value ``i``. Returns the list of frame
+    indices handed out, so a test can check how far decoding actually went.
+    """
+    decoded: list[int] = []
 
     class FakeVideoReader:
         def __init__(self, path: str) -> None:
             self.path = path
 
-        def __enter__(self) -> "FakeVideoReader":
+        def __enter__(self) -> FakeVideoReader:
             return self
 
         def __exit__(self, *_: object) -> None:
             return None
 
         def __iter__(self):
-            return iter(())
+            for index in range(total_frames):
+                decoded.append(index)
+                yield np.full((2, 2, 4), index, dtype=np.uint8)
 
+    fake_media = types.ModuleType("mediapy")
     setattr(fake_media, "VideoReader", FakeVideoReader)
     monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+    return decoded
+
+
+def test_read_video_window_rgb_returns_window_and_stops_decoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decoded = _install_fake_video_reader(monkeypatch, total_frames=10)
+
+    video = read_video_window_rgb(Path("clip.mp4"), start_frame=3, frame_count=4)
+
+    assert video.shape == (4, 2, 2, 3)
+    assert video[:, 0, 0, 0].tolist() == [3, 4, 5, 6]
+    assert decoded == [0, 1, 2, 3, 4, 5, 6]
+
+
+def test_read_video_window_rgb_reads_to_end_without_frame_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decoded = _install_fake_video_reader(monkeypatch, total_frames=5)
+
+    video = read_video_window_rgb(Path("clip.mp4"), start_frame=2)
+
+    assert video[:, 0, 0, 0].tolist() == [2, 3, 4]
+    assert decoded == [0, 1, 2, 3, 4]
+
+
+def test_read_video_window_rgb_rejects_short_video(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_video_reader(monkeypatch, total_frames=5)
+
+    with pytest.raises(ValueError, match="has 5 frames, fewer than 7 needed"):
+        read_video_window_rgb(Path("clip.mp4"), start_frame=3, frame_count=4)
+
+
+def test_read_video_window_rgb_rejects_empty_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_video_reader(monkeypatch, total_frames=5)
+
+    with pytest.raises(ValueError, match="frame_count must be >= 1"):
+        read_video_window_rgb(Path("clip.mp4"), frame_count=0)
+    with pytest.raises(ValueError, match="none at or after frame 5"):
+        read_video_window_rgb(Path("clip.mp4"), start_frame=5)
+
+
+def test_read_first_frame_rgb_rejects_empty_video(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_video_reader(monkeypatch, total_frames=0)
 
     with pytest.raises(ValueError, match="fewer than 1 needed"):
         read_first_frame_rgb(Path("empty.mp4"))
