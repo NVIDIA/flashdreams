@@ -11,27 +11,29 @@ down here rather than notice it on eight GPUs.
 
 from __future__ import annotations
 
+from datetime import timedelta
+from unittest.mock import call, patch
+
 import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from datetime import timedelta
-from unittest.mock import patch
 
 from flashdreams.core.distributed.context_parallel import (
     build_shard,
     gather_tokens,
     local_query_range,
 )
-from flashdreams.core.distributed.tensor_parallel import (
-    ColumnParallelLinear,
-    RowParallelLinear,
-)
 from flashdreams.core.distributed.parallel import (
     ParallelContext,
     balanced_ranges,
+    build_context,
     init_parallel,
     plan_mesh,
+)
+from flashdreams.core.distributed.tensor_parallel import (
+    ColumnParallelLinear,
+    RowParallelLinear,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -261,3 +263,55 @@ def test_single_rank_initialization_validates_the_requested_mesh(monkeypatch) ->
     assert init_parallel(head_groups=4) == ParallelContext.single()
     with pytest.raises(ValueError, match="rectangular"):
         init_parallel(2, head_groups=4)
+
+
+@pytest.mark.parametrize(("device", "backend"), [("cpu", "gloo"), ("cuda:1", "nccl")])
+@pytest.mark.parametrize("world_backend", ["gloo", "nccl", "cpu:gloo,cuda:nccl"])
+@pytest.mark.parametrize("reuse_world", [False, True])
+def test_mesh_axis_backends_follow_device(
+    device, backend, world_backend, reuse_world, monkeypatch
+) -> None:
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "get_world_size", lambda: 4)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: device != "cpu")
+    with (
+        patch.object(dist, "get_backend", return_value=world_backend),
+        patch.object(dist, "init_process_group") as initialize,
+        patch.object(dist, "destroy_process_group") as destroy,
+        patch.object(torch.cuda, "set_device"),
+    ):
+        for rank in range(4):
+            with (
+                patch.object(dist, "get_rank", return_value=rank),
+                patch.object(
+                    dist, "new_group", side_effect=[object() for _ in range(4)]
+                ) as groups,
+            ):
+                ctx = (
+                    init_parallel(2, head_groups=8)
+                    if reuse_world
+                    else build_context(2, 2, torch.device(device))
+                )
+                assert ctx.rank == rank
+                assert ctx.device == torch.device(device)
+                assert groups.call_args_list == [
+                    call([0, 1], backend=backend),
+                    call([2, 3], backend=backend),
+                    call([0, 2], backend=backend),
+                    call([1, 3], backend=backend),
+                ]
+        initialize.assert_not_called()
+        destroy.assert_not_called()
+
+
+def test_mesh_rejects_unsupported_device_before_creating_groups() -> None:
+    with (
+        patch.object(dist, "get_world_size", return_value=4),
+        patch.object(dist, "get_rank", return_value=0),
+        patch.object(dist, "new_group") as groups,
+    ):
+        with pytest.raises(ValueError, match="CPU or CUDA"):
+            build_context(2, 2, torch.device("meta"))
+        groups.assert_not_called()

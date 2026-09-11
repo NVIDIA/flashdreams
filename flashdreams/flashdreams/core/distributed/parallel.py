@@ -147,6 +147,8 @@ def init_parallel(
 
     Pass the model's key/value head count as ``head_groups``. Without a
     launcher or initialized process group, return a single-process context.
+    Axis groups use NCCL for CUDA or Gloo for CPU, independently of the
+    reused world's backend. The caller retains ownership of that world.
     """
     world_size = (
         dist.get_world_size() if dist.is_initialized() else _env_int("WORLD_SIZE", 1)
@@ -170,6 +172,9 @@ def build_context(tp_size: int, cp_size: int, device: torch.device) -> ParallelC
     order, which :func:`torch.distributed.new_group` requires -- it is a
     collective, and a rank that skipped the groups it is not in would deadlock
     against the ranks that did not.
+
+    All ranks must select the same device type: CUDA uses NCCL axes and CPU
+    uses Gloo axes, without replacing the initialized world.
     """
     world_size = dist.get_world_size()
     rank = dist.get_rank()
@@ -177,19 +182,22 @@ def build_context(tp_size: int, cp_size: int, device: torch.device) -> ParallelC
         raise ValueError(
             f"a {tp_size}x{cp_size} mesh does not cover {world_size} ranks."
         )
+    if device.type not in ("cpu", "cuda"):
+        raise ValueError(f"mesh device must be CPU or CUDA, got {device}.")
+    backend = "nccl" if device.type == "cuda" else "gloo"
     tp_rank, cp_rank = rank % tp_size, rank // tp_size
 
     tp_group = None
     for index in range(cp_size):
         members = list(range(index * tp_size, (index + 1) * tp_size))
-        group = dist.new_group(members)
+        group = dist.new_group(members, backend=backend)
         if index == cp_rank:
             tp_group = group
 
     cp_group = None
     for index in range(tp_size):
         members = list(range(index, world_size, tp_size))
-        group = dist.new_group(members)
+        group = dist.new_group(members, backend=backend)
         if index == tp_rank:
             cp_group = group
 
