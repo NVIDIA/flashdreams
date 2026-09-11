@@ -202,6 +202,7 @@ The runtime coordinates model threads over a separate Gloo process group:
 | Step admission | Check preparation, completion, and cancellation on every rank. | A preparation error fails the run on every rank. |
 | Model execution | Execute the admitted step and its TP/CP collectives. | A later UI stop cannot make a rank skip this step. |
 | Publication | Rank zero publishes frames; workers can return an empty list. | Workers do not enter presentation backpressure. |
+| Session result | After model threads stop, exchange failure state and broadcast rank zero's terminal or replacement result. | Workers wait while rank zero keeps an unfinished UI alive; replacement sessions start together. |
 | Cleanup | Join the model thread, release loops and sinks, then release the control group. | No collective is introduced during error cleanup. |
 
 This belongs to the runtime: `is_finished` is a local predicate, and `reset`
@@ -224,10 +225,10 @@ the Slurm time limit remain necessary for a lost process or a GPU kernel that
 never returns; arbitrary model code cannot be made deadlock-free by a Python
 thread join.
 
-`tests/test_step_agreement.py` exercises these boundaries with real Gloo
-processes and bounded joins, including close before startup, stop after
-admission, reset/input replication, worker completion, repeat sessions, and
-injected initialization, UI, preparation, and model-step failures.
+The step-agreement tests exercise these boundaries with real Gloo processes and
+bounded joins, including close before startup, stop after admission, reset/input
+replication, worker completion, unfinished post-inference UI, replacement
+sessions, repeat sessions, and injected failures.
 
 ## Where the threads meet
 
@@ -268,10 +269,11 @@ then raises. Failures that happen during that cleanup are logged rather than
 raised over the top of the failure that caused them, so a run always reports the
 thing that actually went wrong.
 
-A run ends normally in one of two ways: the client closes the window, or the
-model loop reports itself finished and the last frames are shown. Both matter,
-because one of the two windows has no client to close it — a run writing an MP4
-depends entirely on the session knowing when it is done.
+A run ends normally when the client closes the window or the UI reports itself
+finished after model output drains. Model completion alone does not end an
+unfinished interactive UI, so rank zero may keep post-inference controls alive.
+The default file-output UI finishes after its last frame, preserving automatic
+termination for non-interactive runs.
 
 ## Not built yet
 

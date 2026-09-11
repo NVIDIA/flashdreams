@@ -110,8 +110,10 @@ Before each step the runtime checks cancellation, broadcasts rank zero's
 input batch and reset generation, then checks preparation and cancellation
 again. Admission commits every rank to the step; a later UI stop is handled
 at the following boundary. Input events must be pickleable and come from
-trusted ranks in the same job. The model thread alone uses the control group,
-and the UI thread joins it before releasing that group.
+trusted ranks in the same job. Model threads use the control group through the
+last model boundary. After they stop, each calling thread exchanges failure
+state and rank zero broadcasts the terminal or replacement result. Workers can
+wait there while rank zero keeps an unfinished UI alive.
 
 Control waits have a five-minute timeout. A process supervisor such as
 `torchrun` must terminate peers after a rank exits with an error; a Slurm

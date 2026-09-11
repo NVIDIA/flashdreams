@@ -141,8 +141,11 @@ def init_parallel(
     world_size = (
         dist.get_world_size() if dist.is_initialized() else _env_int("WORLD_SIZE", 1)
     )
+    cuda_available = torch.cuda.is_available()
     local_rank = _env_int("LOCAL_RANK", 0)
-    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    if cuda_available and os.environ.get("LOCAL_RANK") in (None, ""):
+        local_rank = torch.cuda.current_device()
+    device = torch.device(f"cuda:{local_rank}" if cuda_available else "cpu")
     tp_size, cp_size = plan_mesh(world_size, tensor_parallel, head_groups=head_groups)
     if device.type == "cuda":
         torch.cuda.set_device(device)

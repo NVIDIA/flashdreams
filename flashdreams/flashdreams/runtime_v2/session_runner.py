@@ -153,11 +153,7 @@ def run_session(
                             request.lock_cursor_to_window
                         )
                     if request.new_session is not None:
-                        # ponytail: A distributed replacement ends the run; add a
-                        # post-model control decision before handing it to every rank.
-                        next_session_desc = (
-                            None if agreement is not None else request.new_session
-                        )
+                        next_session_desc = request.new_session
                         stop.set()
                         return
                 if loop_result.step_index is None or not step_requested:
@@ -272,13 +268,12 @@ def run_session(
                     return False
 
                 if (
-                    agreement is None
+                    window is not None
                     and session._failure_queue.empty()
                     and steps is None
                     and not ui_loop.is_finished()
                 ):
-                    # If there are no failures, no steps limit, and the UI is not finished,
-                    # the run should continue.
+                    # The presenting rank owns the post-inference UI lifetime.
                     return False
                 collect_input()
                 run_ui_once(step_requested=False)
@@ -318,6 +313,21 @@ def run_session(
                 model_thread_handle.join()
             except BaseException as error:
                 cleanup_failures.append(error)
+        if agreement is not None and model_thread_handle is not None:
+            failed = (
+                high_level_failures is not None
+                or not session._failure_queue.empty()
+                or bool(cleanup_failures)
+            )
+            try:
+                next_session_desc = agreement.resolve_session(
+                    next_session_desc, failed=failed
+                )
+            except BaseException as error:
+                if failed:
+                    cleanup_failures.append(error)
+                else:
+                    high_level_failures = error
 
         if presentation_manager is not None:
             try:
