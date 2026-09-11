@@ -72,7 +72,11 @@ def test_shutdown_synchronizes_successful_run_before_destroy(
     )
     monkeypatch.setattr(distributed.dist, "get_backend", lambda: "gloo")
     monkeypatch.setattr(distributed.dist, "destroy_process_group", destroy)
-    monkeypatch.setattr(distributed.torch.cuda, "current_device", lambda: 3)
+    monkeypatch.setattr(
+        distributed.torch.cuda,
+        "current_device",
+        lambda: pytest.fail("Gloo shutdown must not initialize CUDA"),
+    )
     monkeypatch.setattr(
         distributed.atexit,
         "unregister",
@@ -82,7 +86,7 @@ def test_shutdown_synchronizes_successful_run_before_destroy(
     distributed.shutdown(synchronize=True)
 
     assert calls == [
-        ("barrier", {"device_ids": [3]}),
+        ("barrier", {"device_ids": None}),
         "destroy",
         ("unregister", distributed._safe_destroy_pg),
     ]

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -51,6 +52,8 @@ pytestmark = pytest.mark.ci_cpu
 class _Model(IModelLoop):
     def _model_thread(self):
         assert threading.current_thread().name == "flashdreams-model-generation-thread"
+        if self.state.scenario == "device_binding":
+            assert self.state.bound_devices == [str(self.state.ctx.device)]
 
     def is_finished(self):
         self._model_thread()
@@ -117,6 +120,7 @@ class _Session(ISession):
         self.generated = threading.Event()
         self.reset_sent = threading.Event()
         self.session_closes = 0
+        self.bound_devices = []
 
     @property
     def parallel_context(self):
@@ -159,6 +163,11 @@ class _Window(IClientWindow):
         self._main_thread()
         if self.session.scenario == "window_failure":
             raise ValueError("injected window failure")
+        if (
+            self.session.scenario == "active_window_failure"
+            and self.session.generated.is_set()
+        ):
+            raise ValueError("injected active window failure")
         if self.session.scenario == "close_before_start":
             return UserInputEvents([CloseUserInputEvent(timestamp=0)])
         if (
@@ -198,6 +207,8 @@ def _worker(rank, scenario, rendezvous, output):
     records = []
     try:
         ctx = build_context(1, 2, torch.device("cpu"))
+        if scenario == "device_binding":
+            ctx = replace(ctx, device=torch.device(f"cuda:{rank}"))
         for _ in range(2 if scenario == "repeat" else 1):
             session = _Session(ctx, scenario)
             window = _Window(session) if ctx.is_main else None
@@ -218,8 +229,17 @@ def _worker(rank, scenario, rendezvous, output):
                 return admitted
 
             failure = None
+
+            def bind_device(device):
+                assert (
+                    threading.current_thread().name
+                    == "flashdreams-model-generation-thread"
+                )
+                session.bound_devices.append(str(device))
+
             try:
                 with (
+                    patch.object(torch.cuda, "set_device", bind_device),
                     patch.object(StepAgreement, "ready", ready),
                     patch.object(
                         session_runner,
@@ -251,6 +271,7 @@ def _worker(rank, scenario, rendezvous, output):
                     "session_closes": session.session_closes,
                     "failure": failure,
                     "writes": 0 if window is None else window.writes,
+                    "bound_devices": session.bound_devices,
                 }
             )
         Path(output, f"rank{rank}.json").write_text(json.dumps(records))
@@ -273,6 +294,8 @@ def _worker(rank, scenario, rendezvous, output):
         "step_failure",
         "init_failure",
         "window_failure",
+        "active_window_failure",
+        "device_binding",
         "repeat",
     ],
 )
@@ -303,15 +326,26 @@ def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
     for leader, worker in zip(*results, strict=True):
         assert leader["session_closes"] == worker["session_closes"] == 1
         assert worker["writes"] == 0
+        if scenario == "active_window_failure":
+            assert "injected active window failure" in leader["failure"]
+            assert leader["indices"] == worker["indices"]
+            assert leader["indices"]
+            continue
         if scenario.endswith("failure"):
             assert leader["failure"] is not None
             assert worker["failure"] is not None
             failing_rank = (
-                leader if scenario in ("init_failure", "window_failure") else worker
+                leader
+                if scenario
+                in ("init_failure", "window_failure", "active_window_failure")
+                else worker
             )
             assert "injected" in failing_rank["failure"]
             continue
         assert leader["failure"] is worker["failure"] is None
+        if scenario == "device_binding":
+            assert leader["bound_devices"] == ["cuda:0"]
+            assert worker["bound_devices"] == ["cuda:1"]
         assert leader["indices"] == worker["indices"]
         assert leader["model_closes"] == worker["model_closes"] == 1
         if scenario in ("zero_steps", "close_before_start", "stop_during_pacing"):

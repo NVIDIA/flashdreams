@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
+import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -319,6 +320,7 @@ class IModelLoop(ILoop[StateT], ABC):
         publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
         agreement: StepAgreement | None = None,
+        device: torch.device | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
 
@@ -329,11 +331,14 @@ class IModelLoop(ILoop[StateT], ABC):
                 seconds spent in :meth:`step`.
             max_steps: Maximum steps; ``None`` runs until stopped.
             agreement: Runtime-owned admission and input synchronization for a mesh.
+            device: Mesh device to bind on this model thread before running hooks.
         """
         steps_run = 0
         last_run_started: float | None = None
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
+            if device is not None and device.type == "cuda":
+                torch.cuda.set_device(device)
             while True:
                 stopping = self._shutdown_event.is_set() or (
                     max_steps is not None and steps_run >= max_steps
