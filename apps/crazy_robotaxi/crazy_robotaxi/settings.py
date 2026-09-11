@@ -331,6 +331,10 @@ def _validate_settings(settings: CrazyRobotaxiUserSettings) -> None:
         raise SettingsError("minimum fare time must not exceed maximum fare time")
     if rules.global_time_s <= 0:
         raise SettingsError("game.taxi.rules.global_time_s must be positive")
+    try:
+        settings.game.taxi.game_config(default_high_scores_path=Path())
+    except ValueError as exc:
+        raise SettingsError(f"game.taxi is invalid: {exc}") from exc
 
 
 def _overlay_dataclass(
