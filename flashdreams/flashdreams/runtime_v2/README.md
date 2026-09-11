@@ -89,12 +89,30 @@ exactly one tensor rank. Shard after loading and before moving weights to CUDA.
 and `local_query_range` for uneven token counts. Existing equal-sized
 `split_inputs_cp` and `cat_outputs_cp` callers retain their contracts.
 
-Construct `StepAgreement` on every rank during session initialization. Each
-model loop calls `agree` once per iteration, applies rank zero's action, and
-calls `announce_stop` when closing. Its Gloo group is separate from model
-collectives; it cannot recover a failure inside a model collective. Worker
-loops return `[]` to publish no frames. Only the presenting rank decodes and
-writes output.
+Expose the mesh through `ISession.parallel_context`; it must be available
+before `session.init`. `run_session` owns step admission and input
+synchronization. Model hooks stay local: `is_finished` reports completion,
+`reset` discards model state, and `close` releases resources. They do not
+broadcast lifecycle decisions or perform cleanup barriers.
+
+Only rank zero creates a window or metrics sink. Programmatic worker calls
+pass `None` as the window; the CLI selects this from the launcher rank.
+Workers return `[]` from model steps to skip presentation. The integration
+can skip decoding on those ranks while retaining its model shard.
+
+Before each step the runtime checks cancellation, broadcasts rank zero's
+input batch and reset generation, then checks preparation and cancellation
+again. Admission commits every rank to the step; a later UI stop is handled
+at the following boundary. Input events must be pickleable and come from
+trusted ranks in the same job. The model thread alone uses the control group,
+and the UI thread joins it before releasing that group.
+
+Control waits have a five-minute timeout. A process supervisor such as
+`torchrun` must terminate peers after a rank exits with an error; a Slurm
+time limit bounds kernel or process failures that cannot unwind. Cleanup
+performs no collective that could hide the original failure. See
+[ARCHITECTURE.md](../../../ARCHITECTURE.md#many-gpu-sessions) for the process
+and thread model, and `tests/test_step_agreement.py` for fault-injection checks.
 
 ## The command line
 
