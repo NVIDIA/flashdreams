@@ -1319,8 +1319,16 @@ class TaxiHudState:
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if active:
             self._draw_speed(imgui, hud_frame.speed_mps)
-            self._draw_coin_counter(imgui, hud_frame.live_edit_status)
-            self._draw_live_edit_card(imgui, hud_frame.live_edit_status)
+            self._draw_coin_counter(
+                imgui,
+                hud_frame.live_edit_status,
+                top_offset=prompt_offset,
+            )
+            self._draw_live_edit_card(
+                imgui,
+                hud_frame.live_edit_status,
+                top_offset=prompt_offset,
+            )
             self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
@@ -1620,6 +1628,8 @@ class TaxiHudState:
         self,
         imgui: Any,
         status: LiveEditHudStatus | None,
+        *,
+        top_offset: float = 0.0,
     ) -> None:
         """Draw frame-aligned live-edit status and action buttons."""
         if status is None or not self.live_edit.any_enabled:
@@ -1649,7 +1659,7 @@ class TaxiHudState:
         )
         _prepare_window(
             imgui,
-            position=(14.0, 94.0),
+            position=(14.0, 94.0 + top_offset),
             size=None,
             alpha=0.94,
             pivot=(0.0, 0.0),
@@ -1698,13 +1708,15 @@ class TaxiHudState:
         self,
         imgui: Any,
         status: LiveEditHudStatus | None,
+        *,
+        top_offset: float = 0.0,
     ) -> None:
         """Draw collected coins in the upper-left while coins are available."""
         if status is None or not status.coins_enabled:
             return
         _prepare_window(
             imgui,
-            position=(14.0, 14.0),
+            position=(14.0, 14.0 + top_offset),
             size=None,
             alpha=0.94,
             pivot=(0.0, 0.0),
