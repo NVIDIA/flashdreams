@@ -11,7 +11,7 @@ import os
 import tempfile
 import types
 from collections.abc import Mapping, Sequence
-from dataclasses import Field, dataclass, fields, is_dataclass, replace
+from dataclasses import MISSING, Field, dataclass, fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Union, cast, get_args, get_origin, get_type_hints
@@ -398,10 +398,56 @@ def _convert_value(
             path,
             base_dir=base_dir,
         )
+    if isinstance(expected, type) and is_dataclass(expected):
+        if not isinstance(raw, Mapping) or not all(
+            isinstance(name, str) for name in raw
+        ):
+            raise SettingsError(f"{context} must be a mapping with string keys")
+        raw_values = cast(Mapping[str, object], raw)
+        configurable = {
+            item.name: item
+            for item in fields(expected)
+            if item.init
+            and item.name != "_target"
+            and (*path, item.name) not in _NON_USER_SETTING_PATHS
+        }
+        unknown = sorted(set(raw_values) - set(configurable))
+        if unknown:
+            raise SettingsError(f"{context} has unknown keys: {', '.join(unknown)}")
+        missing = sorted(
+            name
+            for name, item in configurable.items()
+            if name not in raw_values
+            and item.default is MISSING
+            and item.default_factory is MISSING
+        )
+        if missing:
+            raise SettingsError(f"{context} is missing keys: {', '.join(missing)}")
+        hints = get_type_hints(expected)
+        updates: dict[str, object] = {}
+        for name, value in raw_values.items():
+            item = configurable[name]
+            if item.default is not MISSING:
+                default = item.default
+            elif item.default_factory is not MISSING:
+                default = item.default_factory()
+            else:
+                default = None
+            updates[name] = _convert_value(
+                value,
+                hints.get(name, type(default)),
+                default,
+                (*path, name),
+                base_dir=base_dir,
+            )
+        try:
+            return cast(Any, expected)(**updates)
+        except (TypeError, ValueError) as exc:
+            raise SettingsError(f"{context} is invalid: {exc}") from exc
     if origin is Literal:
         if raw not in arguments:
             raise SettingsError(f"{context} must be one of {arguments}")
-        return raw
+        return str(raw) if isinstance(raw, str) else raw
     if expected is Path or isinstance(current, Path):
         if not isinstance(raw, str):
             raise SettingsError(f"{context} must be a path string")
@@ -409,7 +455,7 @@ def _convert_value(
         return (
             candidate if candidate.is_absolute() else (base_dir / candidate).resolve()
         )
-    if isinstance(current, torch.dtype):
+    if expected is torch.dtype or isinstance(current, torch.dtype):
         if not isinstance(raw, str) or not hasattr(torch, raw.removeprefix("torch.")):
             raise SettingsError(f"{context} must name a torch dtype")
         value = getattr(torch, raw.removeprefix("torch."))
@@ -428,7 +474,11 @@ def _convert_value(
             item_types = (item_types[0],) * len(raw)
         elif len(item_types) != len(raw):
             raise SettingsError(f"{context} must contain {len(item_types)} values")
-        current_values = cast(Sequence[object], current)
+        current_values = (
+            cast(Sequence[object], current)
+            if isinstance(current, (list, tuple))
+            else ()
+        )
         converted = [
             _convert_value(
                 value,
@@ -485,7 +535,7 @@ def _convert_value(
     if expected is str:
         if not isinstance(raw, str):
             raise SettingsError(f"{context} must be a string")
-        return raw
+        return str(raw)
     if isinstance(expected, type) and issubclass(expected, Enum):
         try:
             return expected(raw)
