@@ -1341,12 +1341,28 @@ class TaxiHudState:
         )
         lines = tuple(line.rstrip() for line in wrapped.splitlines()) or ("",)
         font_size = float(imgui.get_font_size())
-        panel_height = (
+        natural_height = (
             float(imgui.get_frame_height())
             + 2.0 * window_padding[1]
             + len(lines) * font_size
             + max(0, len(lines) - 1) * item_spacing_y
         )
+        prompt_gap = 8.0
+        event_top = 160.0
+        event_height = _overlay_text_size(imgui, "M", 44.0)[1]
+        max_panel_height = float(self.height) - prompt_gap - event_top - event_height
+        if max_panel_height <= 0.0:
+            return 0.0
+        panel_height = min(natural_height, max_panel_height)
+        if panel_height < natural_height:
+            fixed_height = float(imgui.get_frame_height()) + 2.0 * window_padding[1]
+            line_stride = font_size + item_spacing_y
+            visible_line_count = max(
+                1,
+                int((panel_height - fixed_height + item_spacing_y) / line_stride),
+            )
+            lines = lines[:visible_line_count]
+            lines = (*lines[:-1], "...")
         self._draw_text_window(
             imgui,
             "Current Prompt",
@@ -1354,7 +1370,7 @@ class TaxiHudState:
             size=(panel_width, panel_height),
             lines=lines,
         )
-        return panel_height + 8.0
+        return panel_height + prompt_gap
 
     def _draw_taxi_status(
         self,
