@@ -287,7 +287,7 @@ class FlashVSRPipeline(
             ``[-1, 1]``. ``T_out`` matches the unpadded input frame count.
 
         Note:
-            With ``enable_sync_and_profile=True``, this method contributes
+            With ``FLASHDREAMS_SYNC_AND_PROFILE=1``, this method contributes
             ``pad``, ``bicubic``, ``projector``, ``dit_concat``, ``denoise``,
             ``decoder``, and ``color`` events. The inherited
             :meth:`StreamInferencePipeline.finalize` appends ``finalize`` and

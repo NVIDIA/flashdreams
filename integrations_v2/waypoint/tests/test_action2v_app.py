@@ -357,8 +357,6 @@ def test_live_session_emits_seed_then_exactly_four_frames_per_action() -> None:
     assert first.metrics == {
         "diffuse_ms": 1.25,
         "finalize_ms": 0.25,
-        "autoregressive_index": 1,
-        "generated_frames": 4,
     }
     assert not loop.is_finished()
 

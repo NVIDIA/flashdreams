@@ -11,7 +11,7 @@ new file mode 100644
 +per-chunk forwards (projector / DiT / decoder / color) so we can dump a
 +per-chunk JSON whose schema matches what
 +``flashdreams.flashvsr.FlashVSRPipeline.finalize`` writes when
-+``enable_sync_and_profile=True``.
++``FLASHDREAMS_SYNC_AND_PROFILE=1``.
 +
 +We do NOT replicate the upstream chunk loop; we monkey-patch the four
 +stage forwards on the live pipeline / module and call ``pipe(...)`` once.

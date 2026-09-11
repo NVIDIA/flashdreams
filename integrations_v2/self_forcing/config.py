@@ -37,8 +37,6 @@ CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoi
 # Official Self-Forcing Wan 2.1 1.3B T2V pipeline config.
 PIPELINE_WAN21_T2V_1PT3B = WanInferencePipelineConfig(
     name="self-forcing-wan2.1-t2v-1.3b",
-    # Warning: This will slow down the e2e latency.
-    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(

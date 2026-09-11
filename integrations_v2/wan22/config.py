@@ -61,7 +61,6 @@ WAN22_TI2V_5B_DIT_DIFFUSERS_PATH = (
 
 PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
     name="wan22-ti2v-5b",
-    enable_sync_and_profile=True,
     # Streaming I2V control encoder over the 5B VAE: AR step 0 encodes the
     # first frame into latent 0 with a one-hot stamp mask; later steps emit
     # a zero mask so the in-network ``stamp_image_latent`` blend is identity.

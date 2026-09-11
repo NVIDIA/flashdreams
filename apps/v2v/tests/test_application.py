@@ -57,17 +57,25 @@ class _FakeProcessorSession:
     flushed: bool = False
     """Whether end-of-stream flushing has run."""
 
+    finalize_metrics: dict[str, float] | None = None
+
     def prepare(self) -> None:
         self.prepared = True
 
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         self.inputs.append(chunk)
+        self.finalize_metrics = {"total_ms": float(len(self.inputs))}
         output = chunk.tensor.repeat_interleave(2, dim=-2).repeat_interleave(2, dim=-1)
         return [VideoChunk(tensor=output.unsqueeze(0), layout="btchw")]
 
     def flush(self) -> list[VideoChunk]:
         self.flushed = True
         return []
+
+    def pull_finalize_metrics(self) -> dict[str, float] | None:
+        metrics = self.finalize_metrics
+        self.finalize_metrics = None
+        return metrics
 
 
 @dataclass(slots=True)
@@ -214,8 +222,10 @@ def test_model_loop_transforms_cold_and_steady_chunks() -> None:
     assert cold.read_output().shape == (1, 3, 13, 128, 256)
     assert cold.output_layout is VideoTensorLayout.bcthw
     assert cold.frame_count == 13
+    assert cold.metrics == {"total_ms": 1.0}
     assert steady.read_output().shape == (1, 3, 16, 128, 256)
     assert steady.frame_count == 16
+    assert steady.metrics == {"total_ms": 2.0}
     assert model_loop.is_finished()
     assert processor_sessions[0].prepared
     assert processor_sessions[0].flushed

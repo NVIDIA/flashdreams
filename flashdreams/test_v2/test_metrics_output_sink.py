@@ -5,12 +5,11 @@
 
 What matters is that a benchmark can read what is written: the file says what
 artifact it is, every step is accounted for, and a measurement means the same
-thing whichever model reported it. What the reader expects of the file is
+thing whenever the runtime reports it. What the reader expects of the file is
 tested against ``tools.benchmarks.metrics`` itself.
 """
 
 import json
-import math
 from pathlib import Path
 from typing import Any
 
@@ -85,22 +84,6 @@ def test_a_run_is_recorded_as_the_artifact_the_benchmark_looks_for(
     assert payload["schema_version"] == 1
 
 
-def test_every_step_is_recorded_with_the_video_it_generated(tmp_path: Path) -> None:
-    """A report divides one by the other to say how fast a model generated video."""
-    payload = _write_run(
-        tmp_path / "stats_run.json",
-        [
-            _result(0, {"total_ms": 30.0}, frames=9),
-            _result(1, {"total_ms": 20.0}, frames=12),
-        ],
-    )
-
-    assert payload["steps"] == [
-        {"step_index": 0, "frame_count": 9, "sample_count": 1},
-        {"step_index": 1, "frame_count": 12, "sample_count": 1},
-    ]
-
-
 def test_what_was_being_generated_is_recorded_alongside_the_timings(
     tmp_path: Path,
 ) -> None:
@@ -132,6 +115,7 @@ def test_a_measurement_in_milliseconds_is_recorded_in_seconds(tmp_path: Path) ->
             "unit": "s",
             "category": "timing",
             "step_index": 0,
+            "result_index": 0,
             "metadata": {"frame_count": _FRAMES},
         }
     ]
@@ -158,27 +142,6 @@ def test_a_measurement_is_labelled_with_what_its_name_says_it_is(
         unit,
         category,
     )
-
-
-@pytest.mark.parametrize(
-    "metrics",
-    [
-        {"total_ms": math.nan},
-        {"finished": True},
-        {"   ": 1.0},
-    ],
-)
-def test_a_measurement_a_report_could_not_average_is_left_out(
-    tmp_path: Path, metrics: dict[str, float | int]
-) -> None:
-    """A pipeline reporting one of these is reporting something other than a
-    measurement, and a report reading it would carry the nonsense forward."""
-    payload = _write_run(tmp_path / "stats_run.json", [_result(0, metrics)])
-
-    assert payload["samples"] == []
-    assert payload["steps"] == [
-        {"step_index": 0, "frame_count": _FRAMES, "sample_count": 0}
-    ]
 
 
 ## Writing the file

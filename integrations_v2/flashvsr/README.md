@@ -113,9 +113,7 @@ automatically by the model adapter.
   the target resolution.
 - `color_corrector_implementation`: `"cuda"` (default; AdaIN-only
   hand-rolled kernel) or `"torch"` (pure-torch wavelet + AdaIN reference).
-- `enable_sync_and_profile`: per-AR-step CUDA-event profiling. Adds one
-  `cuda.synchronize()` per step.
-
+- Set `FLASHDREAMS_SYNC_AND_PROFILE=1` for per-AR-step CUDA-event profiling.
 ## Files
 
 | Path | Purpose |

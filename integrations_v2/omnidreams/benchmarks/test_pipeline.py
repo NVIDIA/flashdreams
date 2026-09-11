@@ -111,7 +111,6 @@ def _run_full_pipeline_benchmark(
         text_encoder=None,
         image_encoder=None,
         synthetic_text_max_length=_TEXT_TOKENS,
-        enable_sync_and_profile=False,
         diffusion_model={
             "seed": _SEED,
             "transformer": {

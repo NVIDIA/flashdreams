@@ -188,10 +188,7 @@ class V2VModelLoop(IModelLoop[V2VModelState]):
                 output=output,
                 frame_count=frame_count,
                 output_layout=state.session_desc.output_layout,
-                metrics={
-                    "input_frames": size,
-                    "output_frames": frame_count,
-                },
+                metrics=state.processor_session.pull_finalize_metrics(),
             )
         ]
 

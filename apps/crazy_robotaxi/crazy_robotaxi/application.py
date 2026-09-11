@@ -256,10 +256,6 @@ class CrazyRobotaxiApplication(IApplication):
                 pipeline_config,
                 diffusion_model={"seed": int(game_settings.taxi.seed)},
             )
-        pipeline_config = derive_config(
-            pipeline_config,
-            enable_sync_and_profile=bool(engine_settings.world_model.profile_pipeline),
-        )
         game_settings = replace(
             game_settings, live_edit=resolve_live_edit_assets(game_settings.live_edit)
         )
@@ -565,7 +561,7 @@ def _parser(
     parser.add_argument(
         "--profile-pipeline",
         action="store_true",
-        help="synchronize each chunk and emit diagnostic GPU stage timings",
+        help="emit diagnostic model-loop timings and realtime-budget warnings",
     )
     parser.add_argument(
         "--prewarm-blocks",

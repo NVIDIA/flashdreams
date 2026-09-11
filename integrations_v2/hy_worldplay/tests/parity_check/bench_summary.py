@@ -209,7 +209,7 @@ def _render_report(
             "finalize / total_ms / mem_*_gib via flashdreams's "
             "``EventProfiler``. Native goes through the built-in "
             "``StreamInferencePipeline`` profiler "
-            "(``enable_sync_and_profile=True``); vendor uses the "
+            "(``FLASHDREAMS_SYNC_AND_PROFILE=1``); vendor uses the "
             "monkey-patched ``WanPipeline`` wrapper in "
             "``vendor_profile_patch.py`` (no ``encode`` stage on vendor "
             "since upstream's chunk loop excludes the one-time first-frame "

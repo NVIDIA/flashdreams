@@ -147,9 +147,10 @@ logs filling the terminal.
 
 Copy the scenarios closest to the new model's behaviour, point `--project` and
 the application slug at its integration, and keep the prompt and the seed: a
-comparison where each model gets its own prompt compares prompts. Keep
-`--stats-path` too, which is what records the runtime metrics the report reads.
-Tag a scenario `one-minute` or `pai-bench` for PAI-Bench to score it.
+comparison where each model gets its own prompt compares prompts. Keep the
+`--stats-path` too: it enables pipeline timings and records the metrics the
+report reads. Tag a scenario `one-minute` or `pai-bench` for PAI-Bench to score
+it.
 
 A model conditioned on more than a prompt cannot take the shared one, since the
 prompt belongs with its first frame. Fix that conditioning instead, the way

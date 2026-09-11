@@ -446,7 +446,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         (["--profile-pipeline"], True),
     ],
 )
-def test_pipeline_profiling_is_an_app_local_opt_in(
+def test_diagnostics_flag_does_not_enable_pipeline_profiling(
     arguments: list[str],
     expected: bool,
 ) -> None:
@@ -461,10 +461,8 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
 
     assert configured == []
     session._pipeline_factory()
-    assert configured[0].enable_sync_and_profile is expected
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
-    assert OMNIDREAMS_PIPELINE_CONFIG.enable_sync_and_profile
 
 
 def test_model_adapters_keep_their_packaged_pipeline_configs() -> None:
@@ -605,7 +603,6 @@ def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
     assert transformer.native_dit_acceleration == "required"
     assert transformer.skip_finalize_kv_cache is True
     assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
-    assert pipeline.enable_sync_and_profile is True
 
 
 def test_map_context_disables_only_native_dit_on_selected_preset() -> None:

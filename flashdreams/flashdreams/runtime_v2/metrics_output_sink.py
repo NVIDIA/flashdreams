@@ -39,6 +39,7 @@ class MetricsOutputSink(OutputSink):
         self._steps: list[dict[str, Any]] = []
         self._samples: list[dict[str, Any]] = []
         self._written = False
+        self._step_result_index = 0
 
     def open(self, session_desc: SessionDesc) -> None:
         """Start a new benchmark record."""
@@ -46,20 +47,29 @@ class MetricsOutputSink(OutputSink):
         self._steps = []
         self._samples = []
         self._written = False
+        self._step_result_index = 0
+
+    def set_step_result_index(self, index: int) -> None:
+        """Set the position of the next result in its model-step result list."""
+        self._step_result_index = index
 
     def write(self, result: StepResult) -> None:
         """Record one model result's frame count and metrics.
+
+        Args:
+            result: One channel returned by the model loop.
 
         Raises:
             RuntimeError: Called before :meth:`open`.
         """
         if self._session_desc is None:
             raise RuntimeError("MetricsOutputSink.open() must run before write().")
-        samples = _samples_from(result)
+        samples = _samples_from(result, self._step_result_index)
         self._samples.extend(samples)
         self._steps.append(
             {
                 "step_index": result.step_index,
+                "result_index": self._step_result_index,
                 "frame_count": result.frame_count,
                 "sample_count": len(samples),
             }
@@ -90,10 +100,10 @@ class MetricsOutputSink(OutputSink):
         )
 
 
-def _samples_from(result: StepResult) -> list[dict[str, Any]]:
+def _samples_from(result: StepResult, index: int) -> list[dict[str, Any]]:
     """Return the finite numeric metrics from one result."""
     samples: list[dict[str, Any]] = []
-    for name, value in result.metrics.items():
+    for name, value in (result.metrics or {}).items():
         if not name.strip():
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
@@ -108,6 +118,7 @@ def _samples_from(result: StepResult) -> list[dict[str, Any]]:
                 "unit": unit,
                 "category": category,
                 "step_index": result.step_index,
+                "result_index": index,
                 "metadata": {"frame_count": result.frame_count},
             }
         )

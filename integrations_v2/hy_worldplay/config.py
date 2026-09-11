@@ -51,7 +51,6 @@ assert isinstance(_BASE_NETWORK, WanDiTNetworkConfig)
 
 PIPELINE_HY_WORLDPLAY_WAN_I2V_5B = HyWorldPlayPipelineConfig(
     name="hy-worldplay-wan-i2v-5b",
-    enable_sync_and_profile=PIPELINE_WAN22_TI2V_5B.enable_sync_and_profile,
     text_encoder=copy.deepcopy(PIPELINE_WAN22_TI2V_5B.text_encoder),
     image_encoder=copy.deepcopy(PIPELINE_WAN22_TI2V_5B.image_encoder),
     encoder=HyWorldPlayWanCtrlEncoderConfig(

@@ -221,11 +221,6 @@ def test_shared_session_emits_seed_then_live_actions_and_resets() -> None:
         ActionSnapshot(keys=frozenset({"W"})),
         ActionSnapshot(keys=frozenset({"W"})),
     ]
-    assert first.metrics == {
-        "model_step": 1,
-        "autoregressive_index": 1,
-        "generated_frames": 4,
-    }
     assert not loop.is_finished()
     loop.reset()
     assert len(pipeline.initialized_caches) == 2
@@ -271,7 +266,6 @@ def test_dummy_application_runs_without_a_model() -> None:
             320,
         )
     )
-    assert generated.metrics["dummy_step"] == 1
     assert loop.is_finished()
 
 

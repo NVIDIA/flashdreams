@@ -77,7 +77,6 @@ class FakeSession(ISession):
             ),
             frame_count=_FRAMES_PER_STEP,
             output_layout=self._session_desc.output_layout,
-            metrics={"total_ms": 1.5},
         )
 
     def reset(self) -> None:

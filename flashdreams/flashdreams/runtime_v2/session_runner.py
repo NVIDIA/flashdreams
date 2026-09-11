@@ -13,9 +13,9 @@ from pathlib import Path
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.input_source import TimestampedInputSource
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
-from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -49,7 +49,7 @@ def run_session(
     session: ISession,
     window: IClientWindow,
     *,
-    metrics_output_sink: OutputSink | None = None,
+    metrics_output_sink: MetricsOutputSink | None = None,
     profiler: RuntimeProfiler | None = None,
     steps: int | None = None,
     timeout_seconds: float | None = None,
@@ -189,7 +189,8 @@ def run_session(
                 step_elapsed_s=step_elapsed_s,
             )
             if metrics_output_sink is not None:
-                for result in results:
+                for index, result in enumerate(results):
+                    metrics_output_sink.set_step_result_index(index)
                     metrics_output_sink.write(result)
 
         def tick_ui() -> None:

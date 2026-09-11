@@ -97,11 +97,6 @@ class VehicleConfig:
 
 
 @dataclass(frozen=True)
-class WorldModelProfileConfig:
-    enabled: bool = False
-
-
-@dataclass(frozen=True)
 class BevConfig:
     """Straight-down HD-map view rendered for the HUD mini-map."""
 
@@ -130,7 +125,6 @@ class AppConfig:
     chunk: ChunkConfig = ChunkConfig()
     raster: RasterConfig = RasterConfig()
     vehicle: VehicleConfig = VehicleConfig()
-    world_model_profile: WorldModelProfileConfig = WorldModelProfileConfig()
     world_model_device: str = "cuda:0"
     world_model_seed: int | None = None
     world_model_debug_condition_frame_dir: Path | None = None

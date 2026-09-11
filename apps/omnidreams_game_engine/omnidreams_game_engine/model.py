@@ -62,6 +62,7 @@ class WorldModelStep:
     video_bvtchw: Tensor
     engine: EngineStep
     metrics: Mapping[str, float | int]
+    finalize_metrics: dict[str, float | int] | None
     _trace: _WorldModelStepTrace | None = None
 
 
@@ -148,7 +149,7 @@ class WorldModelRollout:
             generate_returned_ns = (
                 time.monotonic_ns() if self._trace_chunk_lifecycle else None
             )
-            metrics = self.pipeline.finalize(
+            finalize_metrics = self.pipeline.finalize(
                 autoregressive_index=autoregressive_index,
                 cache=self.cache,
             )
@@ -176,7 +177,7 @@ class WorldModelRollout:
             )
         if int(video.shape[2]) != expected:
             raise ValueError("Generated video does not align with the engine step")
-        step_metrics = dict(metrics or {})
+        step_metrics = dict(finalize_metrics or {})
         step_metrics.update(engine_step.metrics)
         step_metrics.update(
             {
@@ -215,6 +216,7 @@ class WorldModelRollout:
             video_bvtchw=video.detach(),
             engine=engine_step,
             metrics=step_metrics,
+            finalize_metrics=finalize_metrics,
             _trace=trace,
         )
 

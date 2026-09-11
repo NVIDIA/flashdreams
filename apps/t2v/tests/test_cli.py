@@ -10,6 +10,7 @@ run against the window the arguments chose, and closed.
 
 import argparse
 import json
+import os
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -390,7 +391,17 @@ def test_a_run_can_record_what_generating_the_clip_cost(
 ) -> None:
     """A clip says nothing about what it took to generate, so a benchmark run
     asks for both and the file it writes is the one the harness reads."""
-    _install(monkeypatch, StubT2VApplication(_stand_in()))
+    application = StubT2VApplication(_stand_in())
+    _install(monkeypatch, application)
+    monkeypatch.setenv("FLASHDREAMS_SYNC_AND_PROFILE", "0")
+
+    def create_profiled_application(slug: str) -> IApplication:
+        del slug
+        assert os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] == "1"
+        return application
+
+    monkeypatch.setattr(cli, "create_application", create_profiled_application)
+
     stats_path = tmp_path / "stats_run.json"
     clip_path = tmp_path / "clip.mp4"
 

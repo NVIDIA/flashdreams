@@ -21,6 +21,7 @@
         "quality-10s"
       ],
       "env": {
+        "FLASHDREAMS_SYNC_AND_PROFILE": "1",
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
       },
@@ -80,6 +81,7 @@
         "quality-10s"
       ],
       "env": {
+        "FLASHDREAMS_SYNC_AND_PROFILE": "1",
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
       },
@@ -131,6 +133,9 @@
         "performance",
         "review"
       ],
+      "env": {
+        "FLASHDREAMS_SYNC_AND_PROFILE": "1"
+      },
       "command": [
         "uv",
         "run",
@@ -181,6 +186,7 @@
         "review"
       ],
       "env": {
+        "FLASHDREAMS_SYNC_AND_PROFILE": "1",
         "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
       },

@@ -24,7 +24,6 @@ from lingbot.impl.conditioning import resolve_lingbot_conditioning
 LINGBOT_CAM2V_DEFAULTS = Cam2VApplicationDefaults(
     pipeline_config=derive_config(
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
-        enable_sync_and_profile=False,
     ),
     input_resolver=resolve_lingbot_conditioning,
     total_blocks=20,
@@ -54,9 +53,7 @@ class LingbotCam2VApplication(Cam2VApplication):
         if pipeline_config is not None:
             defaults = dataclasses.replace(
                 defaults,
-                pipeline_config=derive_config(
-                    pipeline_config, enable_sync_and_profile=False
-                ),
+                pipeline_config=derive_config(pipeline_config),
             )
         super().__init__(defaults=defaults)
 

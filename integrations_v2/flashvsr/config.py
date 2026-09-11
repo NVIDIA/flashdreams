@@ -147,7 +147,6 @@ def build_flashvsr_v1_1(
     compile_network: bool = False,
     use_cuda_graph: bool = False,
     color_corrector_implementation: ColorCorrectorImplementation = "cuda",
-    enable_sync_and_profile: bool = False,
     dtype: torch.dtype = torch.bfloat16,
     seed: int = 0,
     name: str = "flashvsr-v1.1",
@@ -179,8 +178,6 @@ def build_flashvsr_v1_1(
             per-resolution once proven stable.
         color_corrector_implementation: ``"cuda"`` (hand-rolled AdaIN)
             or ``"torch"`` (wavelet + AdaIN reference).
-        enable_sync_and_profile: Per-AR-step CUDA-event profiling; adds
-            one ``cuda.synchronize()`` per step.
         dtype: Compute dtype. ``bfloat16`` matches FlashVSR-tiny weights.
         seed: Diffusion-model initial-noise RNG seed.
         name: Slug for the returned pipeline. Override per application preset.
@@ -208,7 +205,6 @@ def build_flashvsr_v1_1(
     return FlashVSRPipelineConfig(
         name=name,
         prompt_path=checkpoint_path["prompt"],
-        enable_sync_and_profile=enable_sync_and_profile,
         encoder=FlashVSREncoderConfig(
             input_H=input_H,
             input_W=input_W,
@@ -265,7 +261,6 @@ def _build_sparse_ratio_variant(sparse_ratio: float) -> FlashVSRPipelineConfig:
         sparse_ratio=sparse_ratio,
         compile_network=True,
         use_cuda_graph=True,
-        enable_sync_and_profile=True,
     )
 
 
@@ -280,5 +275,4 @@ PIPELINE_FLASHVSR_V1_1_FULL_ATTN = build_flashvsr_v1_1(
     attention_mode="full",
     compile_network=True,
     use_cuda_graph=True,
-    enable_sync_and_profile=True,
 )

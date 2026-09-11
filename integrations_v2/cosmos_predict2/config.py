@@ -37,7 +37,6 @@ CHECKPOINT_PATH_POST_TRAINED_2B = (
 
 PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
     name="cosmos2-t2v-2b-720p",
-    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
@@ -65,7 +64,6 @@ PIPELINE_COSMOS2_T2V_2B_720P = CosmosInferencePipelineConfig(
 )
 PIPELINE_COSMOS2_I2V_2B_720P = CosmosInferencePipelineConfig(
     name="cosmos2-i2v-2b-720p",
-    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(

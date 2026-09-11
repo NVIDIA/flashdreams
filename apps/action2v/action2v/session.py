@@ -107,10 +107,6 @@ class Action2VModelLoop(IModelLoop[Action2VModelState]):
                     output=frames.detach(),
                     frame_count=frames.shape[0],
                     output_layout=state.session_desc.output_layout,
-                    metrics={
-                        "autoregressive_index": 0,
-                        "seed_frames": frames.shape[0],
-                    },
                 )
             ]
 
@@ -130,7 +126,7 @@ class Action2VModelLoop(IModelLoop[Action2VModelState]):
                 cache=cache,
                 input=action,
             )
-            stats = state.pipeline.finalize(
+            finalize_metrics = state.pipeline.finalize(
                 autoregressive_index=step_index,
                 cache=cache,
             )
@@ -138,16 +134,13 @@ class Action2VModelLoop(IModelLoop[Action2VModelState]):
 
         frames = _presentation_frames(video, state.session_desc)
         state.actions_generated += 1
-        metrics: dict[str, float | int] = dict(stats or {})
-        metrics.setdefault("autoregressive_index", step_index)
-        metrics.setdefault("generated_frames", frames.shape[0])
         return [
             StepResult(
                 step_index=step_index,
                 output=frames,
                 frame_count=frames.shape[0],
                 output_layout=state.session_desc.output_layout,
-                metrics=metrics,
+                metrics=finalize_metrics,
             )
         ]
 
