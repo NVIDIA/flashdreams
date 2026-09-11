@@ -45,6 +45,8 @@ Running a session:
 - `session_desc.py` describes the session being run: frame size, rates, layout,
   and the two policy knobs below.
 - `step_result.py` is what one generation step produces.
+- `coordination.py` broadcasts rank zero's continue/reset/stop decisions over a
+  separate CPU process group for distributed model loops.
 
 Presenting it:
 
@@ -68,6 +70,31 @@ Input:
   projects held state over each selected window. Other modalities should reuse
   the window clock with their own semantics: held state for mouse buttons,
   coalesced position for pointer motion, and accumulated impulses for wheels.
+
+## Tensor × context inference
+
+`flashdreams.core.distributed.parallel.init_parallel(head_groups=...)` creates
+a tensor × context mesh from the launcher world, or reuses an initialized
+process group. Pass the model's key/value head count; the default tensor size is
+`gcd(world_size, head_groups)`. An explicit `tensor_parallel` overrides it.
+Tensor groups contain consecutive ranks, and context groups stride by tensor
+size. Match the tensor size to the node topology when launching across nodes.
+
+`core.distributed.tensor_parallel` provides `ColumnParallelLinear` and
+`RowParallelLinear`. The integration selects the projections and head ranges;
+the core layers slice weights and sum row-sharded outputs. Keep a row bias on
+exactly one tensor rank. Shard after loading and before moving weights to CUDA.
+
+`core.distributed.context_parallel` provides `build_shard`, `gather_tokens`,
+and `local_query_range` for uneven token counts. Existing equal-sized
+`split_inputs_cp` and `cat_outputs_cp` callers retain their contracts.
+
+Construct `StepAgreement` on every rank during session initialization. Each
+model loop calls `agree` once per iteration, applies rank zero's action, and
+calls `announce_stop` when closing. Its Gloo group is separate from model
+collectives; it cannot recover a failure inside a model collective. Worker
+loops return `[]` to publish no frames. Only the presenting rank decodes and
+writes output.
 
 ## The command line
 
@@ -177,6 +204,10 @@ initialization, input collection, UI rendering, window writes, and cleanup.
 Constructing the manager with an explicit CPU device disables the CUDA stream.
 Stream priority lets short UI work overtake queued lower-priority kernels, but
 does not preempt a kernel that is already executing.
+
+Publishing an empty list queues nothing and waits for nothing — a step that
+presented nothing, which is what a worker process of a sharded multi-process run
+returns. See `api_v2/README.md` for the model loop's side of that.
 
 Frame cadence initially uses `frames_per_second_for_step`, then follows the
 throughput of complete model steps over the trailing two seconds. The estimate
