@@ -202,10 +202,3 @@ def build_context(tp_size: int, cp_size: int, device: torch.device) -> ParallelC
         cp_size=cp_size,
         device=device,
     )
-
-
-def shutdown() -> None:
-    """Tear the process group down, if there is one."""
-    if dist.is_available() and dist.is_initialized():
-        dist.barrier()
-        dist.destroy_process_group()

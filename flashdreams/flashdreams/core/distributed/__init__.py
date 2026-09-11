@@ -72,7 +72,11 @@ def shutdown(*, synchronize: bool = False, terminate_process: bool = False) -> N
             return
         if synchronize:
             logger.info("Synchronizing distributed ranks before shutdown.")
-            dist.barrier(device_ids=[torch.cuda.current_device()])
+            dist.barrier(
+                device_ids=[torch.cuda.current_device()]
+                if dist.get_backend() == "nccl"
+                else None
+            )
             synchronization_complete = True
             logger.info("Distributed shutdown synchronization complete.")
     finally:

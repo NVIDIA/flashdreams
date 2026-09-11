@@ -186,7 +186,9 @@ process groups, uneven token gathers, and sharded linear projections live in
 
 The two-loop ownership rule applies per process. Rank zero's main thread owns
 the only client window, UI presentation, and metrics sink. Every rank has one
-model thread that owns its shard and executes the same admitted steps.
+model thread that binds its mesh CUDA device before running model hooks, owns
+its shard, and executes the same admitted steps. CUDA device selection on the
+main thread does not select the device on a newly created model thread.
 Worker main threads manage startup and cleanup without a client window. The
 runtime creates no coordination thread. PyTorch, communication, and window
 backends may have their own internal threads.
@@ -208,6 +210,10 @@ collective decisions to these hooks. All ranks must enter matching model
 collectives in the same order inside each admitted step. Tensor groups contain
 consecutive ranks; context groups stride by tensor size. Size the tensor axis
 to match the fast links available in the launch topology.
+
+`invoke_async` remains process-local; it does not replicate callbacks or state
+across ranks. Use the replicated input events for model changes that must agree
+across the mesh, and keep rank-local callbacks free of collective decisions.
 
 The control group is created on every rank before session initialization can
 fail independently. Its five-minute timeout bounds a missing participant.
