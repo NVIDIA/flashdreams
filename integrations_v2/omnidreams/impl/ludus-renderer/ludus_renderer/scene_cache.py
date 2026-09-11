@@ -682,7 +682,7 @@ def load_scene_from_disk(
     path: Path, device: torch.device = torch.device("cpu")
 ) -> ClipgtGpuScene:
     """Load a serialized scene from disk (per-file fallback)."""
-    data = torch.load(path, map_location="cpu", weights_only=False)
+    data = torch.load(path, map_location="cpu", weights_only=True)
     v = data.get("version", 0)
     if v not in (1, CACHE_VERSION):
         raise ValueError(f"Cache version mismatch: got {v}, expected {CACHE_VERSION}")
@@ -704,7 +704,7 @@ def _deserialize_from_bytes(
 ) -> ClipgtGpuScene:
     """Deserialize a scene from raw bytes (from LMDB storage)."""
     buf = io.BytesIO(data)
-    d = torch.load(buf, map_location="cpu", weights_only=False)
+    d = torch.load(buf, map_location="cpu", weights_only=True)
     v = d.get("version", 0)
     if v not in (1, CACHE_VERSION):
         raise ValueError(f"Cache version mismatch: got {v}, expected {CACHE_VERSION}")
