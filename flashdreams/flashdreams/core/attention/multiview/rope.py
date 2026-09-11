@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import Tensor
 
@@ -68,8 +70,8 @@ def _mrope_ids(
     base_fps: float = BASE_FPS,
 ) -> Tensor:
     """``[3, N]`` position ids -- temporal, height, width -- in packed token order."""
-    if fps <= 0:
-        raise ValueError(f"fps must be positive, got {fps}.")
+    if not math.isfinite(fps) or fps <= 0:
+        raise ValueError(f"fps must be finite and positive, got {fps}.")
     patch_h, patch_w = geometry.patch_h, geometry.patch_w
     spatial = patch_h * patch_w
 

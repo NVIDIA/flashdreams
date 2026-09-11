@@ -208,16 +208,20 @@ class FixedSlotKVCache:
         end = start + count
         destination = self._seq_slice(start, end, self._k[0].ndim)
         tail = self._seq_slice(end, start + region.slot_tokens, self._k[0].ndim)
+        for layer, ((key, value), key_buffer, value_buffer) in enumerate(
+            zip(chunk, self._k, self._v, strict=True)
+        ):
+            self._validate_chunk_layer(
+                key, key_buffer, count=count, layer=layer, kind="key"
+            )
+            self._validate_chunk_layer(
+                value, value_buffer, count=count, layer=layer, kind="value"
+            )
+
         with torch.no_grad():
-            for layer, ((key, value), key_buffer, value_buffer) in enumerate(
-                zip(chunk, self._k, self._v, strict=True)
+            for (key, value), key_buffer, value_buffer in zip(
+                chunk, self._k, self._v, strict=True
             ):
-                self._validate_chunk_layer(
-                    key, key_buffer, count=count, layer=layer, kind="key"
-                )
-                self._validate_chunk_layer(
-                    value, value_buffer, count=count, layer=layer, kind="value"
-                )
                 key_buffer[destination] = key
                 value_buffer[destination] = value
                 key_buffer[tail].zero_()
@@ -242,27 +246,34 @@ class FixedSlotKVCache:
                 f"{len(prefilled)} prefill layers for {len(self._k)} cache layers."
             )
         prefix = self._seq_slice(0, self._initial_length, self._k[0].ndim)
+        suffix = self._seq_slice(self._initial_length, self._capacity, self._k[0].ndim)
+        for layer, ((key, value), key_buffer, value_buffer) in enumerate(
+            zip(prefilled, self._k, self._v, strict=True)
+        ):
+            self._validate_prefill_layer(key, value, layer)
+            self._validate_chunk_layer(
+                key,
+                key_buffer,
+                count=self._initial_length,
+                layer=layer,
+                kind="key",
+            )
+            self._validate_chunk_layer(
+                value,
+                value_buffer,
+                count=self._initial_length,
+                layer=layer,
+                kind="value",
+            )
+
         with torch.no_grad():
-            for layer, ((key, value), key_buffer, value_buffer) in enumerate(
-                zip(prefilled, self._k, self._v, strict=True)
+            for (key, value), key_buffer, value_buffer in zip(
+                prefilled, self._k, self._v, strict=True
             ):
-                self._validate_prefill_layer(key, value, layer)
-                self._validate_chunk_layer(
-                    key,
-                    key_buffer,
-                    count=self._initial_length,
-                    layer=layer,
-                    kind="key",
-                )
-                self._validate_chunk_layer(
-                    value,
-                    value_buffer,
-                    count=self._initial_length,
-                    layer=layer,
-                    kind="value",
-                )
                 key_buffer[prefix] = key
                 value_buffer[prefix] = value
+                key_buffer[suffix].zero_()
+                value_buffer[suffix].zero_()
         self._length = self._initial_length
         for name in self._next_slot:
             self._next_slot[name] = 0

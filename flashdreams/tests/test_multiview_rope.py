@@ -173,6 +173,12 @@ def test_chunk_rejects_frames_outside_the_clip() -> None:
         )
 
 
+@pytest.mark.parametrize("fps", [0.0, -1.0, float("nan"), float("inf"), float("-inf")])
+def test_position_ids_reject_nonpositive_or_nonfinite_fps(fps: float) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        clip_mrope_ids(geometry(), fps=fps, temporal_offset=OFFSET)
+
+
 def test_vision_starts_after_the_text_plus_the_modality_margin() -> None:
     assert vision_temporal_offset(7) == 7 + MODALITY_MARGIN
     assert MODALITY_MARGIN == 15_000.0

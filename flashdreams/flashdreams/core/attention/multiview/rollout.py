@@ -200,6 +200,8 @@ class ChunkRollout:
             raise ValueError(
                 f"sample_type must be 'sde' or 'ode'; got {sample_type!r}."
             )
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError(f"fps must be finite and positive, got {fps}.")
         self._check_tokens(
             condition_tokens,
             frames=geometry.condition_frames,

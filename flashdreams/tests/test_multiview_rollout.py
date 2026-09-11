@@ -295,3 +295,21 @@ def test_rollout_validates_conditioning_and_schedule_before_prefill() -> None:
             condition_tokens=condition,
             schedule=[0.5, 0.75],
         )
+
+
+@pytest.mark.parametrize("fps", [0.0, -1.0, float("nan"), float("inf"), float("-inf")])
+def test_rollout_rejects_invalid_fps_before_prefill(fps: float) -> None:
+    model = _Model()
+    controls, text_ids, condition = _inputs()
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        ChunkRollout(
+            model,
+            geometry=GEOMETRY,
+            controls=controls,
+            text_ids=text_ids,
+            condition_tokens=condition,
+            fps=fps,
+        )
+
+    assert not model.prepared

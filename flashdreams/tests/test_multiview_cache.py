@@ -128,6 +128,76 @@ def test_reset_restores_prefill_and_slot_positions_without_reallocation() -> Non
     ] == pointers
 
 
+def test_reset_clears_stale_suffix_before_a_later_region_extends_length() -> None:
+    memory = FixedSlotKVCache(
+        [layer(1, 1.0)],
+        capacity=5,
+        regions=[
+            SlotRegion(
+                name="first", start=1, slots=1, slot_tokens=2, extends_length=True
+            ),
+            SlotRegion(
+                name="second", start=3, slots=1, slot_tokens=2, extends_length=True
+            ),
+        ],
+    )
+    memory.write("first", [layer(2, 10.0)])
+    memory.write("second", [layer(2, 20.0)])
+
+    memory.reset([layer(1, 30.0)])
+    memory.write("second", [layer(2, 40.0)])
+
+    key, value = memory.layers()[0]
+    assert memory.length == memory.capacity
+    assert torch.count_nonzero(key[:, :, 1:3]) == 0
+    assert torch.count_nonzero(value[:, :, 1:3]) == 0
+    assert torch.equal(key[:, :, 3:5], layer(2, 40.0)[0])
+    assert torch.equal(value[:, :, 3:5], layer(2, 40.0)[1])
+
+
+def test_invalid_later_write_layer_does_not_modify_cache() -> None:
+    memory = cache()
+    before = [
+        (key.clone(), value.clone())
+        for key, value in zip(memory._k, memory._v, strict=True)
+    ]
+    malformed = chunks(2, 10.0)
+    malformed[1] = (torch.zeros(2, 2, 2, 3), malformed[1][1])
+
+    with pytest.raises(ValueError, match="layer 1 key dimension 0"):
+        memory.write("control", malformed)
+
+    assert memory.length == 5
+    assert memory._next_slot["control"] == 0
+    for (key, value), (old_key, old_value) in zip(
+        zip(memory._k, memory._v, strict=True), before, strict=True
+    ):
+        assert torch.equal(key, old_key)
+        assert torch.equal(value, old_value)
+
+
+def test_invalid_later_reset_layer_does_not_modify_cache() -> None:
+    memory = cache()
+    memory.write("history", chunks(3, 10.0))
+    before = [
+        (key.clone(), value.clone())
+        for key, value in zip(memory._k, memory._v, strict=True)
+    ]
+    malformed = [layer(5, 70.0), layer(5, 80.0)]
+    malformed[1] = (torch.zeros(2, 2, 5, 3), malformed[1][1])
+
+    with pytest.raises(ValueError, match="prefill layer 1.*dimension 0"):
+        memory.reset(malformed)
+
+    assert memory.length == 8
+    assert memory._next_slot["history"] == 1
+    for (key, value), (old_key, old_value) in zip(
+        zip(memory._k, memory._v, strict=True), before, strict=True
+    ):
+        assert torch.equal(key, old_key)
+        assert torch.equal(value, old_value)
+
+
 def test_reset_rejects_an_incompatible_prefill_shape() -> None:
     """Validate replacement tensor geometry before writing cache storage."""
     memory = FixedSlotKVCache(
