@@ -258,6 +258,7 @@ def run_session(
                     "publish": publish_model_results,
                     "max_steps": steps,
                     "agreement": agreement,
+                    "device": None if parallel is None else parallel.device,
                 },
                 name=_MODEL_THREAD_NAME,
             )
