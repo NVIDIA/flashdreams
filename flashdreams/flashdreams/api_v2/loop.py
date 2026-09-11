@@ -273,8 +273,14 @@ class IModelLoop(ILoop[StateT], ABC):
 
     :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
     channel, with every channel reporting the same ``frame_count``. An empty
-    list means the step produced no presentable output. Returning a bare
-    :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    list means the step produced no presentable output.
+
+    **An empty list is a step that presents nothing**, which is how a loop says
+    "this process is a worker". Several processes running the same sharded model
+    generate the same frames and only one of them has a client; the others would
+    otherwise decode a copy nobody reads and write a file nobody opens. A run
+    whose steps all present nothing still ends when the model loop does. Returning
+    a bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
     @abstractmethod
