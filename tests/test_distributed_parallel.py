@@ -230,10 +230,12 @@ def _projection_worker(rank: int, world: int, tp: int, rendezvous: str) -> None:
 
 @pytest.mark.parametrize(("tp", "cp"), [(3, 1), (1, 3), (2, 2)])
 def test_uneven_projections_and_tokens_match_unsharded_values(tp, cp, tmp_path) -> None:
-    mp.spawn(
+    # ponytail: CPU CI is Linux-only; package this worker before testing elsewhere.
+    mp.start_processes(
         _projection_worker,
         args=(tp * cp, tp, str(tmp_path / "rendezvous")),
         nprocs=tp * cp,
+        start_method="fork",
     )
 
 
