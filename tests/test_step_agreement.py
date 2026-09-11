@@ -13,11 +13,11 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from numpy import uint64
 import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
@@ -170,7 +170,7 @@ class _Window(IClientWindow):
         self._main_thread()
         if (
             self.session.scenario == "unfinished_ui"
-            and self.session.post_inference_ui_steps >= 2
+            and self.session.post_inference_ui_steps >= 600
         ):
             return UserInputEvents([CloseUserInputEvent(timestamp=uint64(0))])
         if self.session.scenario == "window_failure":
@@ -251,6 +251,11 @@ def _worker(rank, scenario, rendezvous, output):
                 session.bound_devices.append(str(device))
 
             next_session_desc = None
+            agreement_timeout = (
+                timedelta(seconds=2)
+                if scenario == "unfinished_ui"
+                else timedelta(seconds=8)
+            )
             try:
                 with (
                     patch.object(torch.cuda, "set_device", bind_device),
@@ -258,7 +263,7 @@ def _worker(rank, scenario, rendezvous, output):
                     patch.object(
                         session_runner,
                         "StepAgreement",
-                        lambda mesh: StepAgreement(mesh, timeout=timedelta(seconds=8)),
+                        lambda mesh: StepAgreement(mesh, timeout=agreement_timeout),
                     ),
                 ):
                     next_session_desc = session_runner.run_session(
@@ -376,7 +381,7 @@ def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
             assert leader["window_closes"] == 0
         elif scenario == "unfinished_ui":
             assert leader["next_session_width"] is worker["next_session_width"] is None
-            assert leader["post_inference_ui_steps"] >= 2
+            assert leader["post_inference_ui_steps"] >= 600
             assert worker["post_inference_ui_steps"] == 0
             assert leader["window_closes"] == 1
         if scenario in ("zero_steps", "close_before_start", "stop_during_pacing"):
