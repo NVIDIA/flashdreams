@@ -26,6 +26,8 @@ from typing import Generic, TypeVar
 from torch import Tensor, nn
 from torch.nn.attention.flex_attention import BlockMask
 
+from flashdreams.accelerated.multi_head_attention.flex import FlexAttentionOptions
+
 KVCacheT = TypeVar("KVCacheT")
 """Backend-owned K/V cache type passed to attention."""
 
@@ -335,6 +337,7 @@ __all__ = [
     "AttentionConfig",
     "AttentionMask",
     "AttentionType",
+    "FlexAttentionOptions",
     "MoTRoute",
     "MultiHeadAttention",
     "QKNormScope",

@@ -17,17 +17,15 @@
 
 from __future__ import annotations
 
-import functools
 import math
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import cast
 
 import torch
 from torch import Tensor, nn
-from torch.nn.attention.flex_attention import BlockMask, flex_attention
+from torch.nn.attention.flex_attention import BlockMask
 
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
@@ -44,6 +42,10 @@ from flashdreams.accelerated.multi_head_attention import (
 from flashdreams.accelerated.multi_head_attention.cudnn import (
     native_cudnn_fp8_sdpa,
     torch_cudnn_sdpa,
+)
+from flashdreams.accelerated.multi_head_attention.flex import (
+    FlexAttentionOptions,
+    compiled_flex_attention,
 )
 from flashdreams.accelerated.multi_head_attention.triton import (
     flash_attention_2,
@@ -74,12 +76,6 @@ class SDPABackend(str, Enum):
 
     FLEX = "flex"
     """Use compiled PyTorch FlexAttention with a block-sparse mask."""
-
-
-@functools.cache
-def _compiled_flex_attention() -> Callable[..., Tensor]:
-    """Return one compiled FlexAttention callable."""
-    return torch.compile(cast(Callable[..., Tensor], flex_attention))
 
 
 class QKVFusionOption(str, Enum):
@@ -156,6 +152,9 @@ class OptimizedImplConfig:
     quantization: QuantizationOption = QuantizationOption()
     """Attention quantization policy."""
 
+    flex_attention: FlexAttentionOptions = FlexAttentionOptions()
+    """FlexAttention mask, compilation, and kernel policy."""
+
     def __post_init__(self) -> None:
         """Validate optimized implementation policy values."""
         if not isinstance(self.qkv_fusion_option, QKVFusionOption):
@@ -166,6 +165,11 @@ class OptimizedImplConfig:
         if not isinstance(self.quantization, QuantizationOption):
             raise TypeError(
                 f"quantization must be a QuantizationOption; got {self.quantization!r}"
+            )
+        if not isinstance(self.flex_attention, FlexAttentionOptions):
+            raise TypeError(
+                "flex_attention must be a FlexAttentionOptions; "
+                f"got {self.flex_attention!r}"
             )
         if not isinstance(self.sdpa_backend, SDPABackend):
             raise TypeError(
@@ -802,12 +806,14 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         if self.sdpa_backend is SDPABackend.FLEX:
             if not isinstance(attn_mask, BlockMask):
                 raise TypeError("FlexAttention requires a BlockMask attention mask")
-            output = _compiled_flex_attention()(
+            flex_options = self.optimized_impl_config.flex_attention
+            output = compiled_flex_attention(dynamic=flex_options.compile_dynamic)(
                 query.transpose(1, 2),
                 key.transpose(1, 2),
                 value.transpose(1, 2),
                 block_mask=attn_mask,
                 enable_gqa=enable_gqa,
+                kernel_options=flex_options.kernel_options or None,
             ).transpose(1, 2)
             return output if output_dtype is None else output.to(output_dtype)
 
@@ -1263,6 +1269,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
 
 
 __all__ = [
+    "FlexAttentionOptions",
     "OptimizedImplConfig",
     "OptimizedMultiHeadAttention",
     "QKVFusionOption",

@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 from torch import Tensor
@@ -31,7 +33,9 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEStyle,
 )
 from flashdreams.accelerated.multi_head_attention.cudnn import native_cudnn_fp8_sdpa
+import flashdreams.accelerated.multi_head_attention.optimized as optimized
 from flashdreams.accelerated.multi_head_attention.optimized import (
+    FlexAttentionOptions,
     OptimizedImplConfig,
     OptimizedMultiHeadAttention,
     QKVFusionOption,
@@ -488,6 +492,13 @@ def test_masked_gqa_matches_torch(
     qkv_fusion_option: QKVFusionOption,
 ) -> None:
     """Match dense cuDNN and block-sparse Flex GQA against Torch SDPA."""
+    flex_options = FlexAttentionOptions(
+        block_size=128,
+        mask_block_m=64,
+        prescale_qk=True,
+        rows_guaranteed_safe=True,
+    )
+    sequence_length = 128
     attention_config = AttentionConfig(
         query_dim=128,
         n_heads=4,
@@ -503,26 +514,34 @@ def test_masked_gqa_matches_torch(
             qkv_fusion_option=qkv_fusion_option,
             sdpa_backend=sdpa_backend,
             use_tma=False,
+            flex_attention=flex_options,
         ),
     )
     actual.load_state_dict(reference.state_dict(), strict=True)
     reference.to(device=cuda_device, dtype=torch.bfloat16).eval()
     actual.to(device=cuda_device, dtype=torch.bfloat16).eval()
 
-    tokens = torch.randn(1, 16, 128, device=cuda_device, dtype=torch.bfloat16)
-    dense_mask = torch.ones(16, 16, device=cuda_device, dtype=torch.bool).tril()
+    tokens = torch.randn(
+        1, sequence_length, 128, device=cuda_device, dtype=torch.bfloat16
+    )
+    dense_mask = torch.ones(
+        sequence_length,
+        sequence_length,
+        device=cuda_device,
+        dtype=torch.bool,
+    ).tril()
     reference_cache = reference.allocate_kv_cache(
         batch_size=1,
-        chunk_size=16,
-        window_size=16,
+        chunk_size=sequence_length,
+        window_size=sequence_length,
         sink_size=0,
         device=cuda_device,
         dtype=torch.bfloat16,
     )
     actual_cache = actual.allocate_kv_cache(
         batch_size=1,
-        chunk_size=16,
-        window_size=16,
+        chunk_size=sequence_length,
+        window_size=sequence_length,
         sink_size=0,
         device=cuda_device,
         dtype=torch.bfloat16,
@@ -542,17 +561,19 @@ def test_masked_gqa_matches_torch(
             causal_mask,
             B=None,
             H=None,
-            Q_LEN=16,
-            KV_LEN=16,
+            Q_LEN=sequence_length,
+            KV_LEN=sequence_length,
             device=str(cuda_device),
+            BLOCK_SIZE=flex_options.mask_block_size,
         )
+        assert mask.BLOCK_SIZE == (64, 128)
     else:
         mask = dense_mask
     output = actual(tokens, actual_cache, attn_mask=mask)
 
     _assert_close(output, expected)
     _assert_cache_close(actual_cache, reference_cache)
-    assert actual_cache.cached_k().shape == (1, 16, 2, 32)
+    assert actual_cache.cached_k().shape == (1, sequence_length, 2, 32)
     reference_cache.after_update(0)
     actual_cache.after_update(0)
 
@@ -599,6 +620,74 @@ def test_backend_capability_errors_are_explicit() -> None:
     )
     with pytest.raises(TypeError, match="requires a BlockMask"):
         flex._attention(query, key, value)
+
+
+def test_module_attention_forwards_the_shared_flex_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the same compile and kernel policy as the functional API."""
+    observed: dict[str, Any] = {}
+
+    def compile_flex(*, dynamic: bool | None = None):
+        observed["dynamic"] = dynamic
+
+        def run(
+            query: Tensor,
+            _key: Tensor,
+            value: Tensor,
+            **kwargs: Any,
+        ) -> Tensor:
+            observed.update(kwargs)
+            return torch.zeros(
+                (*query.shape[:-1], value.shape[-1]),
+                dtype=query.dtype,
+                device=query.device,
+            )
+
+        return run
+
+    monkeypatch.setattr(optimized, "compiled_flex_attention", compile_flex)
+    options = FlexAttentionOptions(
+        compile_dynamic=True,
+        block_m=32,
+        block_n=64,
+        use_tma=False,
+    )
+    attention = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        AttentionConfig(query_dim=128, n_heads=4, head_dim=32),
+        OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.NONE,
+            sdpa_backend=SDPABackend.FLEX,
+            flex_attention=options,
+        ),
+    )
+    query = torch.zeros(1, 5, 4, 32)
+    key = torch.zeros(1, 7, 4, 32)
+    value = torch.zeros_like(key)
+    mask = create_block_mask(
+        lambda _batch, _head, query_index, key_index: key_index <= query_index,
+        B=None,
+        H=None,
+        Q_LEN=5,
+        KV_LEN=7,
+        device="cpu",
+        BLOCK_SIZE=(16, 32),
+    )
+
+    output = attention._attention(query, key, value, attn_mask=mask)
+
+    assert output.shape == query.shape
+    assert observed == {
+        "dynamic": True,
+        "block_mask": mask,
+        "enable_gqa": False,
+        "kernel_options": {
+            "BLOCK_M": 32,
+            "BLOCK_N": 64,
+            "USE_TMA": False,
+        },
+    }
 
 
 @pytest.mark.parametrize(

@@ -29,6 +29,7 @@ from flashdreams.core.attention.multiview.mask import (
     ROLE_UND,
     StreamFields,
     _compiled_create_block_mask,
+    build_block_mask,
     visibility,
     visibility_mask_mod,
 )
@@ -287,3 +288,11 @@ def test_the_block_mask_builder_compiles_once() -> None:
     cost more than the kernel saves.
     """
     assert _compiled_create_block_mask() is _compiled_create_block_mask()
+
+
+def test_the_block_mask_builder_accepts_asymmetric_tiles() -> None:
+    stream = build_stream(_sample_tokens())
+
+    mask = build_block_mask(stream, stream, block_size=(16, 32))
+
+    assert mask.BLOCK_SIZE == (16, 32)

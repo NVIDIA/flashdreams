@@ -17,23 +17,18 @@
 
 from __future__ import annotations
 
-import functools
-from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from typing import cast
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn.attention.flex_attention import BlockMask, flex_attention
+from torch.nn.attention.flex_attention import BlockMask
 
 from flashdreams.accelerated.multi_head_attention import AttentionMask
-
-
-@functools.cache
-def compiled_flex_attention(*, dynamic: bool | None = None) -> Callable[..., Tensor]:
-    """Return the compiled FlexAttention kernel for one shape policy."""
-    return torch.compile(cast(Callable[..., Tensor], flex_attention), dynamic=dynamic)
+from flashdreams.accelerated.multi_head_attention.flex import (
+    FlexAttentionOptions,
+    compiled_flex_attention,
+)
 
 
 def cudnn_attention() -> AbstractContextManager[None]:
@@ -53,7 +48,7 @@ def masked_attention(
     mask: AttentionMask,
     *,
     enable_gqa: bool = False,
-    dynamic: bool | None = None,
+    flex_options: FlexAttentionOptions = FlexAttentionOptions(),
 ) -> Tensor:
     """Apply dense or block-sparse attention selected by ``mask``.
 
@@ -63,7 +58,8 @@ def masked_attention(
         value: Value heads shaped ``[B, Hkv, K, Dv]``.
         mask: A boolean ``[Q, K]`` tensor or equivalent :class:`BlockMask`.
         enable_gqa: Share each K/V head across a group of query heads.
-        dynamic: Shape policy used when compiling FlexAttention.
+        flex_options: Mask geometry, compilation, and kernel policy used by
+            FlexAttention. Ignored for a dense mask.
 
     Returns:
         Attention output shaped ``[B, Hq, Q, Dv]``.
@@ -73,18 +69,23 @@ def masked_attention(
         ValueError: Q/K/V or mask geometry is incompatible.
     """
     _validate_qkv(query, key, value, enable_gqa=enable_gqa)
+    if not isinstance(flex_options, FlexAttentionOptions):
+        raise TypeError(
+            f"flex_options must be a FlexAttentionOptions; got {flex_options!r}."
+        )
     expected = (query.shape[-2], key.shape[-2])
     if isinstance(mask, BlockMask):
         if tuple(mask.shape[-2:]) != expected:
             raise ValueError(
                 f"block mask shape {tuple(mask.shape[-2:])} does not match {expected}."
             )
-        return compiled_flex_attention(dynamic=dynamic)(
+        return compiled_flex_attention(dynamic=flex_options.compile_dynamic)(
             query,
             key,
             value,
             block_mask=mask,
             enable_gqa=enable_gqa,
+            kernel_options=flex_options.kernel_options or None,
         )
     if not isinstance(mask, Tensor):
         raise TypeError(f"mask must be a Tensor or BlockMask; got {type(mask)!r}.")
@@ -142,5 +143,6 @@ __all__ = [
     "backend_for",
     "compiled_flex_attention",
     "cudnn_attention",
+    "FlexAttentionOptions",
     "masked_attention",
 ]

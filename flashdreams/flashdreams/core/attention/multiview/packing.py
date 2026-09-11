@@ -629,7 +629,7 @@ class ChunkMetadata:
         pattern: AttentionPattern = "causal",
         scope: AttentionScope = "all_views",
         decomposed_temporal_window_seconds: float | None = None,
-        block_size: int = 128,
+        block_size: int | tuple[int, int] = 128,
     ) -> BlockMask:
         """Return the same visibility as :meth:`mask`, as blocks FlexAttention can skip.
 

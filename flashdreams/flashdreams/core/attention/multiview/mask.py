@@ -274,14 +274,16 @@ def build_block_mask(
     pattern: AttentionPattern = "causal",
     scope: AttentionScope = "all_views",
     decomposed_temporal_window_seconds: float | None = None,
-    block_size: int = 128,
+    block_size: int | tuple[int, int] = 128,
 ) -> BlockMask:
     """The rules of :func:`visibility`, as blocks FlexAttention can skip.
 
     Args:
         q, kv: the two token streams, as :func:`visibility` takes them.
-        block_size: the tile the kernel skips at. A mask smaller than one block
-            has nothing to skip, which only matters to tests.
+        block_size: query and key/value tiles the kernel skips at. One integer
+            selects square blocks; a pair selects asymmetric ``(Q, KV)`` blocks.
+            A mask smaller than one block has nothing to skip, which only
+            matters to tests.
 
     Returns:
         A ``BlockMask`` over ``[len(q), len(kv)]``.
