@@ -102,6 +102,27 @@ def _selection_grid_columns(option_count: int) -> int:
     return 2 if option_count <= 4 else 3
 
 
+def _selection_card_widths(
+    imgui: Any,
+    viewport_width: int,
+    natural_grid_width: float,
+    *other_content_widths: float,
+) -> tuple[float, float, float]:
+    """Fit a selection card to the viewport without shrinking its grid."""
+    window_padding_x = _point_xy(imgui.get_style().window_padding)[0]
+    natural_content_width = max(natural_grid_width, *other_content_widths)
+    window_width = min(
+        max(1.0, float(viewport_width) - 28.0),
+        natural_content_width + 2.0 * window_padding_x,
+    )
+    visible_content_width = max(1.0, window_width - 2.0 * window_padding_x)
+    return (
+        window_width,
+        visible_content_width,
+        max(natural_grid_width, visible_content_width),
+    )
+
+
 def bev_display_extent(video_width: int, video_height: int) -> tuple[int, int]:
     """Return the largest BEV image extent used by the fixed HUD layout."""
     size = max(1, min(int(video_width) // 4, int(video_height) // 3))
@@ -1043,11 +1064,53 @@ class TaxiHudState:
         if mode is None:
             self._menu_stage = "mode"
             return
-        window_width = max(1.0, min(620.0, float(self.width) - 28.0))
+        available_window_width = max(1.0, float(self.width) - 28.0)
         window_height = max(1.0, min(560.0, float(self.height) - 28.0))
-        scale = min(1.0, window_width / 620.0, window_height / 560.0)
+        scale = min(1.0, available_window_width / 620.0, window_height / 560.0)
         accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
+        button_height = max(36.0, 48.0 * scale)
+        visible_options = tuple(
+            (index, option)
+            for index, option in enumerate(self.map_options)
+            if mode != "race" or option.race_course_ids
+        )
+        cell_width = max(
+            1.0,
+            *(
+                _point_xy(imgui.calc_text_size(option.name))[0] + 20.0
+                for _index, option in visible_options
+            ),
+            *(
+                260.0 * scale
+                for _index, option in visible_options
+                if option.preview_image_path is not None
+            ),
+            *(
+                (_point_xy(imgui.calc_text_size("NO COMPATIBLE MAPS FOUND"))[0],)
+                if not visible_options
+                else ()
+            ),
+        )
+        column_count = _selection_grid_columns(len(visible_options))
+        natural_grid_width = cell_width * column_count
         _draw_arcade_backdrop(imgui, self.width, self.height)
+        style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
+        window_width, list_width, table_width = _selection_card_widths(
+            imgui,
+            self.width,
+            natural_grid_width,
+            _overlay_text_size(
+                imgui,
+                "SELECT MAP",
+                max(24.0, 38.0 * scale),
+                font=self._gameplay_overlay_font(imgui),
+            )[0],
+            _overlay_text_size(
+                imgui,
+                "RACE MODE" if mode == "race" else "TAXI MODE",
+                max(13.0, 15.0 * scale),
+            )[0],
+        )
         _prepare_window(
             imgui,
             position=(
@@ -1057,7 +1120,6 @@ class TaxiHudState:
             size=(window_width, window_height),
             alpha=0.97,
         )
-        style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
         visible = _begin_window(
             imgui,
             "Crazy Robotaxi — Select Map",
@@ -1080,36 +1142,18 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            button_height = max(36.0, 48.0 * scale)
-            visible_options = tuple(
-                (index, option)
-                for index, option in enumerate(self.map_options)
-                if mode != "race" or option.race_course_ids
-            )
-            cell_width = max(
-                1.0,
-                *(
-                    _point_xy(imgui.calc_text_size(option.name))[0] + 20.0
-                    for _index, option in visible_options
-                ),
-                *(
-                    260.0 * scale
-                    for _index, option in visible_options
-                    if option.preview_image_path is not None
-                ),
-                *(
-                    (_point_xy(imgui.calc_text_size("NO COMPATIBLE MAPS FOUND"))[0],)
-                    if not visible_options
-                    else ()
-                ),
-            )
-            column_count = _selection_grid_columns(len(visible_options))
-            list_width = cell_width * column_count
             list_height = max(
                 60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
             )
             list_visible = imgui.begin_child(
-                "##map-options", imgui.ImVec2(list_width, list_height)
+                "##map-options",
+                imgui.ImVec2(list_width, list_height),
+                0,
+                (
+                    int(imgui.WindowFlags_.horizontal_scrollbar)
+                    if table_width > list_width
+                    else 0
+                ),
             )
             try:
                 if list_visible:
@@ -1121,11 +1165,11 @@ class TaxiHudState:
                             imgui.TableFlags_.no_saved_settings
                             | imgui.TableFlags_.sizing_stretch_same
                         ),
-                        outer_size=imgui.ImVec2(list_width, 0.0),
+                        outer_size=imgui.ImVec2(table_width, 0.0),
                     ):
                         try:
-                            for index, option in visible_options:
-                                column = index % column_count
+                            for position, (index, option) in enumerate(visible_options):
+                                column = position % column_count
                                 if column == 0:
                                     imgui.table_next_row(min_row_height=0.0)
                                 imgui.table_set_column_index(column)
@@ -1185,10 +1229,49 @@ class TaxiHudState:
         if option is None:
             self._menu_stage = "map"
             return
-        window_width = max(1.0, min(620.0, float(self.width) - 28.0))
+        available_window_width = max(1.0, float(self.width) - 28.0)
         window_height = max(1.0, min(420.0, float(self.height) - 28.0))
-        scale = min(1.0, window_width / 620.0, window_height / 420.0)
+        scale = min(1.0, available_window_width / 620.0, window_height / 420.0)
+        button_height = max(36.0, 48.0 * scale)
+        cell_width = max(
+            1.0,
+            *(
+                _point_xy(
+                    imgui.calc_text_size(
+                        course.course_id.replace("-", " ").replace("_", " ").upper()
+                    )
+                )[0]
+                + 20.0
+                for course in option.race_courses
+            ),
+            *(
+                260.0 * scale
+                for course in option.race_courses
+                if course.preview_image_path is not None
+            ),
+        )
+        column_count = _selection_grid_columns(len(option.race_courses))
+        natural_grid_width = cell_width * column_count
         _draw_arcade_backdrop(imgui, self.width, self.height)
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _RACE_ACCENT_RGB
+        )
+        window_width, list_width, table_width = _selection_card_widths(
+            imgui,
+            self.width,
+            natural_grid_width,
+            _overlay_text_size(
+                imgui,
+                "SELECT RACE COURSE",
+                max(22.0, 36.0 * scale),
+                font=self._gameplay_overlay_font(imgui),
+            )[0],
+            _overlay_text_size(
+                imgui,
+                option.name.upper(),
+                max(13.0, 15.0 * scale),
+            )[0],
+        )
         _prepare_window(
             imgui,
             position=(
@@ -1197,9 +1280,6 @@ class TaxiHudState:
             ),
             size=(window_width, window_height),
             alpha=0.97,
-        )
-        style_var_count, style_color_count = _push_arcade_card_style(
-            imgui, _RACE_ACCENT_RGB
         )
         visible = _begin_window(
             imgui,
@@ -1223,31 +1303,18 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            button_height = max(36.0, 48.0 * scale)
-            cell_width = max(
-                1.0,
-                *(
-                    _point_xy(
-                        imgui.calc_text_size(
-                            course.course_id.replace("-", " ").replace("_", " ").upper()
-                        )
-                    )[0]
-                    + 20.0
-                    for course in option.race_courses
-                ),
-                *(
-                    260.0 * scale
-                    for course in option.race_courses
-                    if course.preview_image_path is not None
-                ),
-            )
-            column_count = _selection_grid_columns(len(option.race_courses))
-            list_width = cell_width * column_count
             list_height = max(
                 60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
             )
             list_visible = imgui.begin_child(
-                "##course-options", imgui.ImVec2(list_width, list_height)
+                "##course-options",
+                imgui.ImVec2(list_width, list_height),
+                0,
+                (
+                    int(imgui.WindowFlags_.horizontal_scrollbar)
+                    if table_width > list_width
+                    else 0
+                ),
             )
             try:
                 if list_visible:
@@ -1259,7 +1326,7 @@ class TaxiHudState:
                             imgui.TableFlags_.no_saved_settings
                             | imgui.TableFlags_.sizing_stretch_same
                         ),
-                        outer_size=imgui.ImVec2(list_width, 0.0),
+                        outer_size=imgui.ImVec2(table_width, 0.0),
                     ):
                         try:
                             for course_index, course in enumerate(option.race_courses):
