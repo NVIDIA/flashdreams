@@ -304,6 +304,9 @@ class TaxiHudState:
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
 
+    _exit_requested: bool = False
+    """Whether the root menu requested application shutdown."""
+
     _frames: OrderedDict[int, TaxiHudFrame] = field(default_factory=OrderedDict)
     """Recent immutable snapshots keyed by presented tensor-frame identity."""
 
@@ -744,11 +747,16 @@ class TaxiHudState:
             self._selected_map_option = None
             self._selected_game_mode = None
             self._menu_stage = "mode"
-        elif self._menu_stage == "mode" and model_loop is not None:
+        elif self._menu_stage == "mode":
             self._loading_status = "EXITING GAME"
             self._loading_started_at_s = time.monotonic()
             self._menu_stage = "loading"
-            invoke_async(model_loop, lambda model_state: model_state.request_exit())
+            self._exit_requested = True
+            if model_loop is not None:
+                invoke_async(
+                    model_loop,
+                    lambda model_state: model_state.request_exit(),
+                )
 
     def _select_mode(self, mode: GameMode) -> None:
         self._selected_game_mode = mode
@@ -1828,6 +1836,7 @@ class TaxiHudState:
 
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
+        self._exit_requested = False
         self._clear_presented_game()
         self._validation_message = ""
         self._submission_pending = False
@@ -3683,6 +3692,10 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
 
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     """Present generated frames beneath a responsive Dear ImGui taxi HUD."""
+
+    def is_finished(self) -> bool:
+        """Return whether the root menu requested application shutdown."""
+        return self.state._exit_requested
 
     def step_ui(
         self, imgui: Any, step_index: int, events: UserInputEvents
