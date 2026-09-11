@@ -111,6 +111,14 @@ Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the
 runtime presents them one per UI tick rather than dropping all but the last.
 
+A model loop returning an **empty list** presents nothing for that step. That is
+how a process says it is a worker: several processes running the same sharded
+model generate the same frames and only one of them has a client, so the rest
+would decode a copy nobody reads and write a file nobody opens. The run still
+ends when the model loop does, and a sink that was never written to leaves
+nothing behind — an `Mp4ClientWindow` on a worker creates no file at all, so
+every process in such a launch can be given the same `--output-path`.
+
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.

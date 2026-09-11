@@ -1594,6 +1594,106 @@ def test_run_session_discards_results_generated_before_a_reset(
     assert any("before a reset" in record.getMessage() for record in caplog.records)
 
 
+def test_publishing_nothing_queues_nothing_and_waits_for_nothing() -> None:
+    """A step that presented nothing must not fill the queue or block on it.
+
+    ``BLOCK`` is the default backpressure mode, so an empty chunk taking the
+    ordinary path would wait for room it does not need, once per step, on the
+    thread doing the generating.
+    """
+    manager = PresentationManager()
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+    )
+
+    manager.publish(0, [])
+    manager.publish(0, [])
+
+    assert manager.buffered_chunk_count == 0
+    assert not manager.has_pending_frames()
+    assert manager.advance(0) == (False, None)
+    assert manager.presented_frame(0) is None
+
+
+def test_a_model_loop_that_presents_nothing_still_runs_and_ends() -> None:
+    """The worker rank of a sharded run: it generates, and nobody watches it.
+
+    Every rank of such a run computes the same frames and only one of them has a
+    client. The rest used to have to decode a copy nobody reads and write a file
+    nobody opens, because a step publishing no channel was refused. Nothing
+    reaches the window now, and the run still ends on its own.
+    """
+    log = CallLog()
+
+    class SilentSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(SilentModelLoop, state=self)
+
+    class SilentModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            self.state.step(step_index, events)
+            return []
+
+    session = SilentSession(_session_desc(), log, length=3)
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=None)
+
+    assert [call for call in log.calls if call.startswith("session.step(")] == [
+        "session.step(0)",
+        "session.step(1)",
+        "session.step(2)",
+    ]
+    assert window.results == []
+    assert "ui_loop.step" not in log.calls
+    assert log.calls[-2:] == ["window.close", "session.close"]
+
+
+def test_a_step_that_presents_nothing_records_no_metrics() -> None:
+    """No channel is no result, so there is nothing for a metrics sink to write.
+
+    Worth pinning rather than assuming: a benchmark reading a worker rank's file
+    should find a run that measured nothing, not one that measured zeros.
+    """
+    log = CallLog()
+
+    class SilentModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del step_index, events
+            return []
+
+    class SilentSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(SilentModelLoop, state=self)
+
+    class RecordingMetricsSink:
+        def __init__(self) -> None:
+            self.results: list[StepResult] = []
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+
+        def write(self, result: StepResult) -> None:
+            self.results.append(result)
+
+        def close(self) -> None:
+            return
+
+    metrics = RecordingMetricsSink()
+    run_session(
+        SilentSession(_session_desc(), log, length=2),
+        RecordingClientWindow(log),
+        metrics_output_sink=metrics,
+        steps=2,
+    )
+
+    assert metrics.results == []
+
+
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
