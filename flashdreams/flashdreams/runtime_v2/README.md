@@ -110,15 +110,15 @@ Before each step the runtime checks cancellation, broadcasts rank zero's
 input batch and reset generation, then checks preparation and cancellation
 again. Admission commits every rank to the step; a later UI stop is handled
 at the following boundary. Input events must be pickleable and come from
-trusted ranks in the same job. Model threads use the control group through the
-last model boundary. After they stop, each calling thread exchanges failure
-state and rank zero broadcasts the terminal or replacement result. Workers can
-wait there while rank zero keeps an unfinished UI alive.
+trusted ranks in the same job. After model threads stop, calling threads poll
+rank zero's continue, terminal, or replacement result once per UI tick. Workers
+therefore remain coordinated while an unfinished UI stays open, without treating
+idle user time as a missing rank. Failed ranks bypass result polling; cleanup
+performs no collective that could hide the original failure.
 
 Control waits have a five-minute timeout. A process supervisor such as
 `torchrun` must terminate peers after a rank exits with an error; a Slurm
-time limit bounds kernel or process failures that cannot unwind. Cleanup
-performs no collective that could hide the original failure. See
+time limit bounds kernel or process failures that cannot unwind. See
 [ARCHITECTURE.md](../../../ARCHITECTURE.md#many-gpu-sessions) for the process
 and thread model, and `tests/test_step_agreement.py` for fault-injection checks.
 
@@ -159,6 +159,10 @@ and replacement sessions. At the deadline the UI thread signals the session's
 loops to stop and performs their normal cleanup. An in-flight model step must
 return before the process can finish cleaning up. Synchronous application or
 session initialization likewise cannot be interrupted mid-call.
+
+A replacement result already synchronized by the old session is authoritative:
+every rank creates that replacement even if the deadline crosses during cleanup,
+then the new session receives zero remaining time and stops at its first boundary.
 
 `--stats-path` adds a `MetricsOutputSink`. It receives the **model** loop's
 results as they are published, not the UI loop's output, so a benchmark measures

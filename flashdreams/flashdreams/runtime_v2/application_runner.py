@@ -84,7 +84,13 @@ class ApplicationRunner:
             self._application.init(commandline_args)
             next_session_desc: SessionDesc | None = session_desc
             while next_session_desc is not None:
-                if deadline is not None and time.monotonic() >= deadline:
+                # A replacement returned by run_session is already synchronized
+                # across ranks, so only gate the unsynchronized first session.
+                if (
+                    not session_run_started
+                    and deadline is not None
+                    and time.monotonic() >= deadline
+                ):
                     break
                 session = self._application.create_session(next_session_desc)
                 session_run_started = True

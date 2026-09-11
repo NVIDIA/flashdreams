@@ -202,8 +202,13 @@ The runtime coordinates model threads over a separate Gloo process group:
 | Step admission | Check preparation, completion, and cancellation on every rank. | A preparation error fails the run on every rank. |
 | Model execution | Execute the admitted step and its TP/CP collectives. | A later UI stop cannot make a rank skip this step. |
 | Publication | Rank zero publishes frames; workers can return an empty list. | Workers do not enter presentation backpressure. |
-| Session result | After model threads stop, exchange failure state and broadcast rank zero's terminal or replacement result. | Workers wait while rank zero keeps an unfinished UI alive; replacement sessions start together. |
+| Session result | After model threads stop, rank zero broadcasts continue, terminal, or replacement state on every UI tick. | Workers remain responsive through long idle UIs; replacement sessions start together. |
 | Cleanup | Join the model thread, release loops and sinks, then release the control group. | No collective is introduced during error cleanup. |
+
+A failed rank bypasses session-result polling and begins cleanup, which releases
+a healthy peer waiting in the next poll without making the failed rank wait. A
+synchronized replacement result is authoritative across the application runner's
+deadline check, so every rank enters the same replacement session.
 
 This belongs to the runtime: `is_finished` is a local predicate, and `reset`
 and `close` are local state hooks. Integrations must not add independent

@@ -27,8 +27,8 @@ class StepAgreement:
 
     The model-thread checks cover cancellation, preparation, and input before
     committing every rank to a step. After every model thread stops, the calling
-    threads exchange failure state and rank zero broadcasts the replacement or
-    terminal result. Cleanup performs no collective.
+    threads poll rank zero's result once per UI tick. A failed rank bypasses
+    result polling, and cleanup performs no collective.
     """
 
     def __init__(
@@ -65,19 +65,16 @@ class StepAgreement:
             raise RuntimeError("Rank zero did not broadcast step inputs.")
         return result
 
-    def resolve_session(
-        self, next_session: SessionDesc | None, *, failed: bool
-    ) -> SessionDesc | None:
-        """Share failure or rank zero's terminal/replacement decision."""
-        status = torch.tensor([int(failed)], dtype=torch.int64)
-        dist.all_reduce(status, op=dist.ReduceOp.MAX, group=self._group)
-        if status.item():
-            if failed:
-                return None
-            raise RuntimeError("Another runtime rank failed while ending the session.")
-        payload = [next_session if self._ctx.is_main else None]
+    def session_result(
+        self, next_session: SessionDesc | None, *, stopping: bool
+    ) -> tuple[bool, SessionDesc | None]:
+        """Broadcast rank zero's continue, terminal, or replacement result."""
+        payload = [(stopping, next_session) if self._ctx.is_main else None]
         dist.broadcast_object_list(payload, src=0, group=self._group)
-        return payload[0]
+        result = payload[0]
+        if result is None:
+            raise RuntimeError("Rank zero did not broadcast the session result.")
+        return result
 
     def close(self) -> None:
         """Release the local control group without a shutdown collective."""
