@@ -79,6 +79,12 @@ process group. Pass the model's key/value head count; the default tensor size is
 `gcd(world_size, head_groups)`. An explicit `tensor_parallel` overrides it.
 Tensor groups contain consecutive ranks, and context groups stride by tensor
 size. Match the tensor size to the node topology when launching across nodes.
+Both axes use NCCL for CUDA or Gloo for CPU, regardless of the reused world's
+backend; all ranks must agree on the device type. The caller still owns the
+world's lifecycle. The shared shutdown helper's immediate-exit path for
+compiled CUDA-graph workloads requires an NCCL **world**, not only NCCL axes;
+a mixed Gloo-world/NCCL-axis launch still needs launcher/job timeouts around
+ordinary process-group teardown.
 
 `core.distributed.tensor_parallel` provides `ColumnParallelLinear` and
 `RowParallelLinear`. The integration selects the projections and head ranges;
