@@ -24,6 +24,7 @@ import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import create_block_mask
 
+import flashdreams.accelerated.multi_head_attention.optimized as optimized
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -33,7 +34,6 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEStyle,
 )
 from flashdreams.accelerated.multi_head_attention.cudnn import native_cudnn_fp8_sdpa
-import flashdreams.accelerated.multi_head_attention.optimized as optimized
 from flashdreams.accelerated.multi_head_attention.optimized import (
     FlexAttentionOptions,
     OptimizedImplConfig,
