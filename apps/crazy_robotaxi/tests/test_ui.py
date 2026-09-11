@@ -162,6 +162,7 @@ class _FakeImGui:
         no_saved_settings=8,
         no_title_bar=16,
         no_background=32,
+        horizontal_scrollbar=64,
     )
     InputTextFlags_ = SimpleNamespace(enter_returns_true=1)
     StyleVar_ = SimpleNamespace(
@@ -212,9 +213,14 @@ class _FakeImGui:
         self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.window_sizes: dict[str, tuple[float, float]] = {}
+        self.child_sizes: dict[str, tuple[float, float]] = {}
+        self.child_window_flags: dict[str, int] = {}
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
         self.table_column_counts: dict[str, int] = {}
+        self.table_outer_sizes: dict[str, tuple[float, float]] = {}
+        self.table_column_indices: dict[str, list[int]] = {}
         self.highlighted_rows: list[int] = []
         self.current_table: str | None = None
         self.current_table_column = 0
@@ -249,6 +255,10 @@ class _FakeImGui:
 
     def get_io(self) -> SimpleNamespace:
         return self.io
+
+    @staticmethod
+    def get_style() -> SimpleNamespace:
+        return SimpleNamespace(window_padding=(28.0, 24.0))
 
     def push_font(self, font: object, size: float) -> None:
         self.font_stack.append((self.current_font, self.current_font_size))
@@ -292,13 +302,22 @@ class _FakeImGui:
         self.current_window = title
         self.windows.setdefault(title, [])
         self.window_flags[title] = flags
+        self.window_sizes[title] = self.next_window_size
         return True
 
     def end(self) -> None:
         self.current_window = None
 
-    def begin_child(self, child_id: str, size: object) -> bool:
-        del child_id, size
+    def begin_child(
+        self,
+        child_id: str,
+        size: tuple[float, float],
+        child_flags: int = 0,
+        window_flags: int = 0,
+    ) -> bool:
+        del child_flags
+        self.child_sizes[child_id] = size
+        self.child_window_flags[child_id] = window_flags
         return True
 
     def end_child(self) -> None:
@@ -380,13 +399,15 @@ class _FakeImGui:
         columns: int,
         *,
         flags: int,
-        outer_size: object,
+        outer_size: tuple[float, float],
     ) -> bool:
-        del flags, outer_size
+        del flags
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
         self.table_column_counts[table_id] = columns
+        self.table_outer_sizes[table_id] = outer_size
+        self.table_column_indices[table_id] = []
         return True
 
     def end_table(self) -> None:
@@ -408,6 +429,8 @@ class _FakeImGui:
 
     def table_set_column_index(self, column: int) -> None:
         self.current_table_column = column
+        assert self.current_table is not None
+        self.table_column_indices[self.current_table].append(column)
 
     def table_set_bg_color(self, target: int, color: int) -> None:
         del target, color
@@ -922,6 +945,90 @@ def test_hud_animates_prepresentation_warmup_status() -> None:
 )
 def test_selection_grid_column_count(option_count: int, expected_columns: int) -> None:
     assert _selection_grid_columns(option_count) == expected_columns
+
+
+def test_race_map_grid_uses_filtered_positions_for_layout() -> None:
+    race_course = (GameRaceCourseOption("course", "race-start"),)
+    options = tuple(
+        GameMapOption(
+            map_id=f"map-{index}",
+            name=f"Map {index}",
+            path=Path(f"map-{index}.robotaxi.yaml"),
+            race_courses=race_course if index % 2 else (),
+        )
+        for index in range(4)
+    )
+    state = TaxiHudState(900, 540, _calibration(), map_options=options)
+    state._selected_game_mode = "race"
+    state._menu_stage = "map"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert imgui.table_column_indices["##map-grid"] == [0, 1]
+    assert "Map 1##map-1" in imgui.buttons
+    assert "Map 3##map-3" in imgui.buttons
+
+
+@pytest.mark.parametrize("viewport_width", [640, 1200])
+def test_three_column_selection_grids_preserve_natural_width(
+    viewport_width: int,
+) -> None:
+    courses = tuple(
+        GameRaceCourseOption(
+            f"course-{index}",
+            f"spawn-{index}",
+            Path(f"course-{index}.jpg"),
+        )
+        for index in range(5)
+    )
+    options = tuple(
+        GameMapOption(
+            map_id=f"map-{index}",
+            name=f"Map {index}",
+            path=Path(f"map-{index}.robotaxi.yaml"),
+            race_courses=courses,
+            preview_image_path=Path(f"map-{index}.jpg"),
+        )
+        for index in range(5)
+    )
+    state = TaxiHudState(viewport_width, 720, _calibration(), map_options=options)
+    state._selection_preview_pixels = {
+        path: np.zeros((90, 160, 3), dtype=np.uint8)
+        for option in options
+        for path in (option.preview_image_path,)
+        if path is not None
+    } | {
+        path: np.zeros((90, 160, 3), dtype=np.uint8)
+        for course in courses
+        for path in (course.preview_image_path,)
+        if path is not None
+    }
+    imgui = _FakeImGui()
+
+    state._selected_game_mode = "taxi"
+    state._menu_stage = "map"
+    state.draw(imgui)
+    state._selected_game_mode = "race"
+    state._selected_map_option = options[0]
+    state._menu_stage = "course"
+    state.draw(imgui)
+
+    for child_id, table_id in (
+        ("##map-options", "##map-grid"),
+        ("##course-options", "##course-grid"),
+    ):
+        visible_width = imgui.child_sizes[child_id][0]
+        natural_width = imgui.table_outer_sizes[table_id][0]
+        horizontal_scroll = (
+            imgui.child_window_flags[child_id] & imgui.WindowFlags_.horizontal_scrollbar
+        )
+        if viewport_width == 640:
+            assert natural_width > visible_width
+            assert horizontal_scroll
+        else:
+            assert natural_width == visible_width
+            assert not horizontal_scroll
 
 
 def test_selection_menus_use_arcade_card_layout() -> None:
