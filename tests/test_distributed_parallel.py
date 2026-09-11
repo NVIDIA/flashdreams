@@ -265,6 +265,24 @@ def test_single_rank_initialization_validates_the_requested_mesh(monkeypatch) ->
         init_parallel(2, head_groups=4)
 
 
+def test_reused_world_preserves_current_cuda_device_without_local_rank(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "get_world_size", lambda: 1)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    with (
+        patch.object(torch.cuda, "current_device", return_value=3),
+        patch.object(torch.cuda, "set_device") as set_device,
+    ):
+        ctx = init_parallel(head_groups=8)
+
+    assert ctx.device == torch.device("cuda:3")
+    set_device.assert_called_once_with(ctx.device)
+
+
 @pytest.mark.parametrize(("device", "backend"), [("cpu", "gloo"), ("cuda:1", "nccl")])
 @pytest.mark.parametrize("world_backend", ["gloo", "nccl", "cpu:gloo,cuda:nccl"])
 @pytest.mark.parametrize("reuse_world", [False, True])

@@ -19,7 +19,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.loop import IModelLoop
+from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
 from flashdreams.api_v2.session import ISession
 from flashdreams.core.distributed.parallel import build_context
 from flashdreams.runtime_v2 import session_runner
@@ -96,6 +96,20 @@ class _Model(IModelLoop):
         self.state.model_closes += 1
 
 
+class _UI(IUILoop):
+    def is_finished(self):
+        return False
+
+    def step(self, step_index, events):
+        del step_index, events
+        if self.model_inference_state is not ModelInferenceState.FINISHED:
+            return None
+        self.state.post_inference_ui_steps += 1
+        if self.state.scenario == "replacement":
+            self.request_new_session(replace(self.session_desc, video_width=4))
+        return None
+
+
 class _Session(ISession):
     def __init__(self, ctx, scenario):
         self.ctx = ctx
@@ -109,6 +123,8 @@ class _Session(ISession):
         self.reset_sent = threading.Event()
         self.session_closes = 0
         self.bound_devices = []
+        self.post_inference_ui_steps = 0
+        self.window_closes = 0
 
     @property
     def parallel_context(self):
@@ -126,6 +142,8 @@ class _Session(ISession):
 
     def init(self):
         assert threading.get_ident() == self.main_thread
+        if self.scenario in ("unfinished_ui", "replacement"):
+            self.register_ui_loop(_UI, state=self)
         if self.scenario == "init_failure" and self.ctx.is_main:
             raise ValueError("injected session initialization failure")
         self.register_model_loop(_Model, state=self)
@@ -149,6 +167,11 @@ class _Window(IClientWindow):
 
     def get_user_input_events(self):
         self._main_thread()
+        if (
+            self.session.scenario == "unfinished_ui"
+            and self.session.post_inference_ui_steps >= 2
+        ):
+            return UserInputEvents([CloseUserInputEvent(timestamp=0)])
         if self.session.scenario == "window_failure":
             raise ValueError("injected window failure")
         if (
@@ -180,6 +203,7 @@ class _Window(IClientWindow):
 
     def close(self):
         self._main_thread()
+        self.session.window_closes += 1
 
 
 def _worker(rank, scenario, rendezvous, output):
@@ -225,6 +249,7 @@ def _worker(rank, scenario, rendezvous, output):
                 )
                 session.bound_devices.append(str(device))
 
+            next_session_desc = None
             try:
                 with (
                     patch.object(torch.cuda, "set_device", bind_device),
@@ -235,7 +260,7 @@ def _worker(rank, scenario, rendezvous, output):
                         lambda mesh: StepAgreement(mesh, timeout=timedelta(seconds=8)),
                     ),
                 ):
-                    session_runner.run_session(
+                    next_session_desc = session_runner.run_session(
                         session,
                         window,
                         steps=0
@@ -260,6 +285,13 @@ def _worker(rank, scenario, rendezvous, output):
                     "failure": failure,
                     "writes": 0 if window is None else window.writes,
                     "bound_devices": session.bound_devices,
+                    "next_session_width": (
+                        None
+                        if next_session_desc is None
+                        else next_session_desc.video_width
+                    ),
+                    "post_inference_ui_steps": session.post_inference_ui_steps,
+                    "window_closes": session.window_closes,
                 }
             )
         Path(output, f"rank{rank}.json").write_text(json.dumps(records))
@@ -284,6 +316,8 @@ def _worker(rank, scenario, rendezvous, output):
         "window_failure",
         "active_window_failure",
         "device_binding",
+        "unfinished_ui",
+        "replacement",
         "repeat",
     ],
 )
@@ -336,6 +370,14 @@ def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
             assert worker["bound_devices"] == ["cuda:1"]
         assert leader["indices"] == worker["indices"]
         assert leader["model_closes"] == worker["model_closes"] == 1
+        if scenario == "replacement":
+            assert leader["next_session_width"] == worker["next_session_width"] == 4
+            assert leader["window_closes"] == 0
+        elif scenario == "unfinished_ui":
+            assert leader["next_session_width"] is worker["next_session_width"] is None
+            assert leader["post_inference_ui_steps"] >= 2
+            assert worker["post_inference_ui_steps"] == 0
+            assert leader["window_closes"] == 1
         if scenario in ("zero_steps", "close_before_start", "stop_during_pacing"):
             assert leader["indices"] == []
         elif scenario in ("stop_after_admission", "worker_finished"):
