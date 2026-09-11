@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -167,18 +168,13 @@ def _preflight_local_cache_path(
 def _s3_cache_path(
     local_cache_dir: str, checkpoint_path: str, *, suffix: str = ""
 ) -> str:
-    """Return an S3 checkpoint's cache path without allowing path traversal."""
+    """Return a collision-free local cache path for an S3 checkpoint."""
+    parsed = urlparse(checkpoint_path)
+    if parsed.scheme != "s3" or not parsed.netloc:
+        raise ValueError(f"S3 checkpoint path must include a bucket: {checkpoint_path}")
     cache_root = os.path.realpath(local_cache_dir)
-    cache_path = os.path.realpath(
-        os.path.join(cache_root, checkpoint_path.removeprefix("s3://") + suffix)
-    )
-    try:
-        is_within_cache = os.path.commonpath((cache_root, cache_path)) == cache_root
-    except ValueError:
-        is_within_cache = False
-    if not is_within_cache:
-        raise ValueError(f"S3 checkpoint path escapes local cache: {checkpoint_path}")
-    return cache_path
+    cache_key = hashlib.sha256(checkpoint_path.encode()).hexdigest()
+    return os.path.join(cache_root, cache_key + suffix)
 
 
 def _raise_local_cache_disk_error(

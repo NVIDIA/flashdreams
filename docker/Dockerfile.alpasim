@@ -6,6 +6,8 @@
 ARG FLASHDREAMS_BASE_IMAGE=flashdreams:local
 FROM ${FLASHDREAMS_BASE_IMAGE} AS wheel-builder
 
+USER root
+
 WORKDIR /workspace/flashdreams
 
 # Copy only the workspace metadata and package trees. In particular, do not
