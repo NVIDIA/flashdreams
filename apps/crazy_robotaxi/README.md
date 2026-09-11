@@ -119,10 +119,11 @@ rain or snow items automatically enable weather editing.
 
 Open **CONTROLS** from the mode menu, then choose **KEYBOARD**, **GAMEPAD**, or
 **WHEEL**. Each gameplay action has primary and secondary binding slots. Select
-a slot and press the desired key or device control. `Escape` cancels capture;
-`Backspace`, `Delete`, or **CLEAR** unbinds the slot. Reusing an existing binding
-swaps it with the previous slot. **SAVE** writes the current device without
-leaving its page, and **RESET TO DEFAULTS** affects only that device.
+a slot and press the desired key or device control. `Escape` is a valid keyboard
+binding. `Backspace`, `Delete`, or **CLEAR** unbinds the slot, while **CANCEL**
+stops capture without changing it. Reusing an existing binding swaps it with the
+previous slot. **SAVE** writes the current device without leaving its page, and
+**RESET TO DEFAULTS** affects only that device.
 
 Bindings are stored as three independent sparse YAML documents under
 `$XDG_CONFIG_HOME/crazy-robotaxi/controls/`, or
