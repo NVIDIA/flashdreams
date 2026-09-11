@@ -55,6 +55,24 @@ CLIP = ClipGeometry(
 )
 
 
+@pytest.mark.parametrize(
+    "seconds_per_frame", [0.0, -1.0, float("nan"), float("inf"), float("-inf")]
+)
+def test_clip_geometry_rejects_nonpositive_or_nonfinite_timing(
+    seconds_per_frame: float,
+) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        ClipGeometry(
+            num_views=2,
+            frames_per_view=3,
+            patch_h=1,
+            patch_w=1,
+            frames_per_chunk=1,
+            condition_frames=1,
+            seconds_per_frame=seconds_per_frame,
+        )
+
+
 def test_pack_cross_view_attention_shares_all_views_at_each_frame() -> None:
     """Give each view its own queries and the same rig-wide context."""
     tokens = torch.arange(1 * 4 * 2 * 3).reshape(1, 4, 2, 3, 1)

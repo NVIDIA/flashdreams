@@ -24,6 +24,7 @@ import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import BlockMask
 
+import flashdreams.core.attention.multiview.rollout as rollout_module
 from flashdreams.core.attention.multiview import (
     ChunkMask,
     ChunkRollout,
@@ -194,6 +195,46 @@ def test_generic_rollout_owns_chunking_sampling_masks_and_output() -> None:
     assert model.state.topups == [2, 3]
     assert model.state.history == [(1, 2)]
     assert all(isinstance(mask, Tensor) for mask in model.state.masks)
+
+
+def test_rollout_requests_position_ids_on_the_model_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _Model()
+    controls, text_ids, condition = _inputs()
+    requested: list[torch.device | None] = []
+    original = rollout_module.chunk_mrope_ids
+
+    def tracked_chunk_mrope_ids(
+        geometry: ClipGeometry,
+        *,
+        chunk_start: int,
+        chunk_frames: int,
+        fps: float,
+        temporal_offset: float,
+        device: torch.device | None,
+    ) -> Tensor:
+        requested.append(device)
+        return original(
+            geometry,
+            chunk_start=chunk_start,
+            chunk_frames=chunk_frames,
+            fps=fps,
+            temporal_offset=temporal_offset,
+            device=device,
+        )
+
+    monkeypatch.setattr(rollout_module, "chunk_mrope_ids", tracked_chunk_mrope_ids)
+
+    run_rollout(
+        model,
+        geometry=GEOMETRY,
+        controls=controls,
+        text_ids=text_ids,
+        condition_tokens=condition,
+    )
+
+    assert requested == [model.device, model.device]
 
 
 def test_block_mask_selection_crosses_the_protocol_boundary() -> None:

@@ -207,6 +207,7 @@ class FixedSlotKVCache:
         start = region.start + slot * region.slot_tokens
         end = start + count
         destination = self._seq_slice(start, end, self._k[0].ndim)
+        tail = self._seq_slice(end, start + region.slot_tokens, self._k[0].ndim)
         with torch.no_grad():
             for layer, ((key, value), key_buffer, value_buffer) in enumerate(
                 zip(chunk, self._k, self._v, strict=True)
@@ -219,6 +220,8 @@ class FixedSlotKVCache:
                 )
                 key_buffer[destination] = key
                 value_buffer[destination] = value
+                key_buffer[tail].zero_()
+                value_buffer[tail].zero_()
 
         if region.extends_length:
             self._length = max(

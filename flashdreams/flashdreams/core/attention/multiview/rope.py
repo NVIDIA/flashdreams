@@ -95,13 +95,14 @@ def clip_mrope_ids(
     fps: float,
     temporal_offset: float,
     base_fps: float = BASE_FPS,
+    device: torch.device | None = None,
 ) -> Tensor:
     """Position ids for a whole clip, for one of the two vision tracks.
 
     Both tracks of the prefill get the same tensor, which is what it means for
     a control token and the frame it describes to share a position.
     """
-    frames = torch.arange(geometry.frames_per_view)
+    frames = torch.arange(geometry.frames_per_view, device=device)
     return _mrope_ids(
         geometry, frames, fps=fps, temporal_offset=temporal_offset, base_fps=base_fps
     )
@@ -115,6 +116,7 @@ def chunk_mrope_ids(
     fps: float,
     temporal_offset: float,
     base_fps: float = BASE_FPS,
+    device: torch.device | None = None,
 ) -> Tensor:
     """Position ids for the frames one autoregressive chunk covers.
 
@@ -129,7 +131,7 @@ def chunk_mrope_ids(
             f"Chunk [{chunk_start}, {chunk_start + chunk_frames}) runs outside the clip's "
             f"{geometry.frames_per_view} frames per view."
         )
-    frames = torch.arange(chunk_start, chunk_start + chunk_frames)
+    frames = torch.arange(chunk_start, chunk_start + chunk_frames, device=device)
     return _mrope_ids(
         geometry, frames, fps=fps, temporal_offset=temporal_offset, base_fps=base_fps
     )

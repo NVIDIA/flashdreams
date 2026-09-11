@@ -87,15 +87,21 @@ def test_named_regions_rotate_independently_without_reallocation() -> None:
     ] == pointers
 
 
-def test_short_write_reserves_the_whole_physical_slot() -> None:
+def test_short_write_clears_the_tail_of_a_reused_physical_slot() -> None:
     memory = cache()
 
+    memory.write("history", chunks(3, 7.0))
+    memory.write("history", chunks(3, 8.0))
     memory.write("history", chunks(1, 9.0))
 
-    key, _value = memory.layers()[0]
-    assert memory.length == 8
+    key, value = memory.layers()[0]
+    assert memory.length == memory.capacity
     assert torch.equal(key[:, :, 5:6], chunks(1, 9.0)[0][0])
+    assert torch.equal(value[:, :, 5:6], chunks(1, 9.0)[0][1])
     assert torch.count_nonzero(key[:, :, 6:8]) == 0
+    assert torch.count_nonzero(value[:, :, 6:8]) == 0
+    assert torch.equal(key[:, :, 8:11], chunks(3, 8.0)[0][0])
+    assert torch.equal(value[:, :, 8:11], chunks(3, 8.0)[0][1])
 
 
 def test_reset_restores_prefill_and_slot_positions_without_reallocation() -> None:

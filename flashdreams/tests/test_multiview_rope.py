@@ -104,6 +104,24 @@ def test_chunk_is_the_clip_restricted_to_its_frames() -> None:
     assert torch.equal(chunk, whole[:, keep])
 
 
+def test_position_ids_use_the_requested_device() -> None:
+    clip = geometry()
+    device = torch.device("meta")
+
+    whole = clip_mrope_ids(clip, fps=FPS, temporal_offset=OFFSET, device=device)
+    chunk = chunk_mrope_ids(
+        clip,
+        chunk_start=2,
+        chunk_frames=2,
+        fps=FPS,
+        temporal_offset=OFFSET,
+        device=device,
+    )
+
+    assert whole.device == device
+    assert chunk.device == device
+
+
 def test_positions_scale_with_the_clip_frame_rate() -> None:
     """Half the base rate puts frames twice as far apart on the temporal axis."""
     clip = geometry()

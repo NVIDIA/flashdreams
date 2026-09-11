@@ -371,6 +371,7 @@ class ChunkRollout:
             chunk_frames=frames,
             fps=self._fps,
             temporal_offset=self._offset,
+            device=self._model.device,
         )
         noisy_mask = self._mask(
             memory,

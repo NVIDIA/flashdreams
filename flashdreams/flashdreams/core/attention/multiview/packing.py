@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from itertools import pairwise
@@ -91,9 +92,10 @@ class ClipGeometry:
             raise ValueError(
                 f"condition_frames must lie in [0, {self.frames_per_view}], got {self.condition_frames}."
             )
-        if self.seconds_per_frame <= 0:
+        if not math.isfinite(self.seconds_per_frame) or self.seconds_per_frame <= 0:
             raise ValueError(
-                f"seconds_per_frame must be positive, got {self.seconds_per_frame}."
+                "seconds_per_frame must be finite and positive, got "
+                f"{self.seconds_per_frame}."
             )
         # A stride shorter than the clip would run one camera's frames into the
         # next camera's stretch of the axis, and since that position is the only
