@@ -25,3 +25,13 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     Created by the runtime, never by an application.
     """
+
+    # Optional to implement
+    def request_hide_cursor(self, hide_cursor: bool) -> None:
+        """Show or hide the cursor for this client window."""
+        pass
+
+    # Optional to implement
+    def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
+        """Release or capture pointer motion for this client window."""
+        pass

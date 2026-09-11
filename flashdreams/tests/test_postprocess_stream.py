@@ -40,6 +40,7 @@ class _BufferSession(VideoPostProcessorSession):
         self.spec = spec
         self.chunk: VideoChunk | None = None
         self.prepare_calls = 0
+        self.reset_calls = 0
 
     def prepare(self) -> None:
         self.prepare_calls += 1
@@ -47,6 +48,10 @@ class _BufferSession(VideoPostProcessorSession):
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         self.chunk = chunk
         return []
+
+    def reset(self) -> None:
+        self.chunk = None
+        self.reset_calls += 1
 
     def flush(self) -> list[VideoChunk]:
         if self.chunk is None:
@@ -103,6 +108,46 @@ def test_stream_prepares_session_once_before_processing() -> None:
     assert processor_session.prepare_calls == 1
 
     stream.process(second, autoregressive_index=1)
+    assert processor_session.prepare_calls == 1
+
+
+def test_stream_reset_reuses_prepared_processor_session_after_finish() -> None:
+    stream = _stream(_BufferConfig())
+    first = torch.ones(3, 3, 4, 5)
+    second = torch.full((2, 3, 4, 5), 2.0)
+
+    stream.process(first, autoregressive_index=0)
+    chain = stream.state.sessions[-1]
+    assert isinstance(chain, _VideoPostprocessChainSession)
+    processor_session = chain._sessions[0]
+    assert isinstance(processor_session, _BufferSession)
+    assert stream.finish() is not None
+
+    stream.reset()
+    output = stream.process(second, autoregressive_index=0)
+
+    assert output.shape[0] == 0
+    assert stream.state.sessions[-1] is chain
+    assert chain._sessions[0] is processor_session
+    assert processor_session.prepare_calls == 1
+    assert processor_session.reset_calls == 1
+    tail = stream.finish()
+    assert tail is not None and torch.equal(tail, second)
+
+
+def test_stream_can_prepare_from_static_spec_before_processing() -> None:
+    stream = _stream(_BufferConfig())
+    spec = VideoSpec(height=4, width=5)
+
+    stream.prepare(spec)
+
+    chain = stream.state.sessions[-1]
+    assert isinstance(chain, _VideoPostprocessChainSession)
+    processor_session = chain._sessions[0]
+    assert isinstance(processor_session, _BufferSession)
+    assert processor_session.spec == spec
+    assert processor_session.prepare_calls == 1
+    stream.process(torch.ones(3, 3, 4, 5), autoregressive_index=0)
     assert processor_session.prepare_calls == 1
 
 
@@ -167,6 +212,16 @@ def test_chain_propagates_output_spec_to_downstream_session() -> None:
     assert isinstance(session, _VideoPostprocessChainSession)
     assert isinstance(session._sessions[1], _BufferSession)
     assert session._sessions[1].spec == VideoSpec(height=8, width=12, fps=12)
+
+
+def test_chain_reports_final_output_spec() -> None:
+    chain = VideoPostprocessChainConfig(
+        processors=(_ScaleSpecConfig(scale=2), _ScaleSpecConfig(scale=3))
+    )
+
+    assert chain.output_spec(VideoSpec(height=4, width=6, fps=12, channels=1)) == (
+        VideoSpec(height=24, width=36, fps=12, channels=1)
+    )
 
 
 def test_stream_rejects_input_spec_changes() -> None:

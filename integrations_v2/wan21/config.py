@@ -43,7 +43,6 @@ CHECKPOINT_PATH_I2V_14B_480P = (
 
 PIPELINE_WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
     name="wan21-t2v-1.3b-480p",
-    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(
@@ -65,7 +64,6 @@ PIPELINE_WAN21_T2V_1PT3B_480P = WanInferencePipelineConfig(
 )
 PIPELINE_WAN21_I2V_14B_480P = WanInferencePipelineConfig(
     name="wan21-i2v-14b-480p",
-    enable_sync_and_profile=True,
     encoder=WanI2VCtrlEncoderConfig(
         encoder=WanVAEEncoderConfig(),
     ),

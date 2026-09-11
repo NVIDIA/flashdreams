@@ -71,7 +71,7 @@ Reference integration folders
 - `hy_worldplay <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay>`_
 - `wan21 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan21>`_
 - `fastvideo_causal_wan22 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/fastvideo_causal_wan22>`_
-- `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr>`_
+- `flashvsr <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr>`_
 - `cosmos_predict2 <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2>`_
 
 NVIDIA OmniDreams

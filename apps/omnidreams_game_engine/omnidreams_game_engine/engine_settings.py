@@ -58,7 +58,7 @@ class WorldModelLaunchSettings:
     """Optional override for transformer compilation."""
 
     profile_pipeline: bool = False
-    """Whether to collect synchronized pipeline stage timings."""
+    """Whether to collect model-loop timings and realtime-budget warnings."""
 
 
 @dataclass(frozen=True)

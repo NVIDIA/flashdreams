@@ -618,11 +618,17 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         num_tokens_per_view_per_step = pH * pW
         if self.cp_groups.THW_group is not None:
             num_tokens_per_view_per_step //= self.cp_groups.THW_group.size()
+        network_cache_kwargs: dict[str, Any] = {
+            "chunk_size": num_tokens_per_view_per_step * pT,
+            "window_size": num_tokens_per_view_per_step * cfg.window_size_t,
+            "sink_size": num_tokens_per_view_per_step * cfg.sink_size_t,
+        }
+        if cfg.early_short_history_block_count is not None:
+            network_cache_kwargs["early_short_history_block_count"] = (
+                cfg.early_short_history_block_count
+            )
         network_cache = self.network.initialize_cache(
-            chunk_size=num_tokens_per_view_per_step * pT,
-            window_size=num_tokens_per_view_per_step * cfg.window_size_t,
-            sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
-            early_short_history_block_count=cfg.early_short_history_block_count,
+            **network_cache_kwargs,
             context=text_embeddings,
         )
         network_cache_uncond: CosmosDiTNetworkCache | None = None
@@ -632,10 +638,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 "requires negative_text_embeddings."
             )
             network_cache_uncond = self.network.initialize_cache(
-                chunk_size=num_tokens_per_view_per_step * pT,
-                window_size=num_tokens_per_view_per_step * cfg.window_size_t,
-                sink_size=num_tokens_per_view_per_step * cfg.sink_size_t,
-                early_short_history_block_count=cfg.early_short_history_block_count,
+                **network_cache_kwargs,
                 context=negative_text_embeddings,
             )
 

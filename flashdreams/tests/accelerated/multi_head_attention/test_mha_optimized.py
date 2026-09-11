@@ -473,6 +473,9 @@ def test_mha_optimized_matches_torch(
 
 
 @pytest.mark.parametrize(
+    "quantize_output_projection", (False, True), ids=("qkv-only", "combined")
+)
+@pytest.mark.parametrize(
     "attention_type", tuple(AttentionType), ids=lambda value: value.value
 )
 @pytest.mark.parametrize(
@@ -489,8 +492,9 @@ def test_mha_optimized_quantized_projections_match_torch(
     attention_type: AttentionType,
     qkv_fusion_option: QKVFusionOption,
     projection_dtype: torch.dtype,
+    quantize_output_projection: bool,
 ) -> None:
-    """Match quantized Q/K/V projections against native-precision attention."""
+    """Match quantized Q/K/V (and optionally output) projections against native precision."""
     attention_config = AttentionConfig(
         query_dim=_QUERY_DIM,
         n_heads=_N_HEADS,
@@ -499,7 +503,10 @@ def test_mha_optimized_quantized_projections_match_torch(
     )
     optimized_impl_config = OptimizedImplConfig(
         qkv_fusion_option=qkv_fusion_option,
-        quantization=QuantizationOption(projection=projection_dtype),
+        quantization=QuantizationOption(
+            projection=projection_dtype,
+            output_projection=projection_dtype if quantize_output_projection else None,
+        ),
         sdpa_backend=SDPABackend.CUDNN,
         use_tma=False,
     )
@@ -530,6 +537,13 @@ def test_mha_optimized_quantized_projections_match_torch(
             assert actual.fused_qkv.dtype is projection_dtype
         else:
             assert actual.fused_qkv is None
+    if quantize_output_projection:
+        assert isinstance(
+            actual.quantized_output_projection, QuantizedNonPersistentLinear
+        )
+        assert actual.quantized_output_projection.dtype is projection_dtype
+    else:
+        assert actual.quantized_output_projection is None
 
     quantization_tolerance = (
         torch.finfo(projection_dtype).eps

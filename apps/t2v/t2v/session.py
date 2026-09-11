@@ -42,7 +42,7 @@ class T2VModelLoop(IModelLoop[T2VModelState]):
         frames = state.pipeline.generate(
             autoregressive_index=step_index, cache=state.cache
         )
-        metrics = state.pipeline.finalize(
+        finalize_metrics = state.pipeline.finalize(
             autoregressive_index=step_index, cache=state.cache
         )
         return [
@@ -51,7 +51,7 @@ class T2VModelLoop(IModelLoop[T2VModelState]):
                 output=frames.detach(),
                 frame_count=int(frames.shape[0]),
                 output_layout=state.session_desc.output_layout,
-                metrics=dict(metrics or {}),
+                metrics=finalize_metrics,
             )
         ]
 

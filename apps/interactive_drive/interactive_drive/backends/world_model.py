@@ -297,6 +297,9 @@ class WorldModelRenderBackend(RenderBackend):
         self._clear_pipeline(finalize_pending=True, recreate_output_stream=False)
         self._rasterizer.cleanup()
 
+    def finalize(self) -> dict[str, float] | None:
+        return self._finalize_pending()
+
     def _start_pipeline(
         self,
         initial_rgb: object,
@@ -357,14 +360,15 @@ class WorldModelRenderBackend(RenderBackend):
             view_names=_VIEW_NAMES,
         )
 
-    def _finalize_pending(self) -> None:
+    def _finalize_pending(self) -> dict[str, float] | None:
         if self._cache is None or self._pending_finalization_index is None:
-            return
-        self._pipeline.finalize(
+            return {}
+        metrics = self._pipeline.finalize(
             autoregressive_index=self._pending_finalization_index,
             cache=self._cache,
         )
         self._pending_finalization_index = None
+        return metrics
 
     def _clear_pipeline(
         self,

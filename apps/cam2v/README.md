@@ -15,12 +15,16 @@ application named `cam2v-<model-config-name>`.
 
 Losing browser focus clears held keys.
 
+Presentation pacing follows the complete model-loop time, including optional
+post-processing; the model-only status remains separate.
+
 ## Usage
 
 Concrete launch commands live with each model adapter:
 
 - [Lingbot](../../integrations_v2/lingbot/apps/cam2v/README.md)
 - [HY-WorldPlay](../../integrations_v2/hy_worldplay/apps/cam2v/README.md)
+- [SANA-WM](../../integrations_v2/sana_wm/apps/cam2v/README.md)
 
 The general command shape is:
 
@@ -62,31 +66,50 @@ Cam2V application arguments, after `--`:
 | `--warmup-blocks INT` | Set chunks excluded from steady-state FPS |
 | `--ui`, `--no-ui` | Enable or disable the controls/status overlay |
 | `--compile`, `--no-compile` | Enable or disable model compilation |
-| `--sync-and-profile`, `--no-sync-and-profile` | Enable or disable synchronized per-stage pipeline timings |
+| `--postprocess-comparison-ui`, `--no-postprocess-comparison-ui` | Show synchronized original and post-processed panes; requires a postprocessor and UI |
 | `--seed INT` | Override the diffusion seed |
+
+### Post-processing comparison
+
+With a postprocessor configured, `--postprocess-comparison-ui` changes the
+interactive canvas to show the original video on the left and the
+post-processed video on the right. The original is resized to the
+postprocessor's output resolution so both panes are directly comparable.
+
+```bash
+uv run --no-sync flashdreams-run-v2 cam2v-<model-config-name> \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --postprocess-preset <preset> \
+  --postprocess-comparison-ui
+```
+
+The mode requires `--ui` and a frame-preserving postprocessor. It intentionally
+doubles the delivered video width and may increase encode and transfer cost.
 
 ### Defaults
 
 Defaults supplied by each registered Cam2V application:
 
-| Setting | `cam2v-lingbot` | `cam2v-hy-worldplay` | `cam2v-dummy` |
-| --- | --- | --- | --- |
-| Output size | 832 x 464 | 1280 x 704 | 640 x 360 |
-| Model FPS | 16 | 16 | 16 |
-| UI FPS | 60 | 60 | 60 |
-| `--device` | `cuda` | `cuda` | `cuda` |
-| `--total-blocks` | 20 | 20 | 10,000 |
-| `--warmup-blocks` | 5 | 5 | 1 |
-| `--world-scale` | Unset; inferred from `--pose-path` | 2.5 | Fixed at 1.0 |
-| Output layout | `tchw` | `tchw` | `tchw` |
-| Backpressure | `block` | `block` | `block` |
-| Presentation | `continuous` | `continuous` | `continuous` |
+| Setting | `cam2v-lingbot` | `cam2v-hy-worldplay` | `cam2v-sana-wm-streaming` | `cam2v-dummy` |
+| --- | --- | --- | --- | --- |
+| Output size | 832 x 464 | 1280 x 704 | 1280 x 704 | 640 x 360 |
+| Model FPS | 16 | 16 | 16 | 16 |
+| UI FPS | 60 | 60 | 60 | 60 |
+| `--device` | `cuda` | `cuda` | `cuda` | `cuda` |
+| `--total-blocks` | 20 | 20 | 10 | 10,000 |
+| `--warmup-blocks` | 5 | 5 | 5 | 1 |
+| `--world-scale` | Unset; inferred from `--pose-path` | 2.5 | 1.0 | Fixed at 1.0 |
+| Output layout | `tchw` | `tchw` | `tchw` | `tchw` |
+| Backpressure | `block` | `block` | `block` | `block` |
+| Presentation | `continuous` | `continuous` | `continuous` | `continuous` |
 
-For all three applications, the controls/status UI is enabled,
+For all four applications, the controls/status UI is enabled,
 `--example-data` is disabled, and `--example-idx` is 0. Prompt and input paths
 default to unset. HY-WorldPlay falls back to its built-in prompt and computed
 intrinsics; Lingbot requires an image and intrinsics, and also a pose trace when
-`--world-scale` is not given. `--compile`, `--sync-and-profile`, and `--seed`
+`--world-scale` is not given. SANA-WM can download its official image and prompt
+with `--example-data`; intrinsics
+default to a 90-degree horizontal field of view. `--compile` and `--seed`
 default to the selected pipeline configuration values.
 
 For UI development without loading a model:

@@ -51,7 +51,6 @@ OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
         use_compile=False,
         use_cuda_graph=True,
     ),
-    enable_sync_and_profile=True,
     encoder=WanVAEEncoderConfig(
         checkpoint_path=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["lightvae"],
         use_compile=False,

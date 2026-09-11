@@ -31,9 +31,8 @@ class StepResult:
     output_layout: VideoTensorLayout
     """Layout of ``output``."""
 
-    metrics: dict[str, float | int] = field(default_factory=dict)
-    """Measurements for this step, such as timings, keyed by name. Recorded only
-    when a run asked for a metrics sink, and only from a model loop."""
+    metrics: dict[str, float | int] | None = field(default_factory=dict)
+    """Measurements for this step, or ``None`` when profiling is disabled."""
 
     _output: Tensor = field(init=False, repr=False)
     """Generated frames, laid out as ``output_layout`` says. Floating-point

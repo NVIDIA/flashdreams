@@ -148,6 +148,7 @@ jobs:
             frun "${APP_ID}" \
               --mode mp4 \
               --output-path "${output_dir}/lingbot-demo-replay.mp4" \
+              --stats-path "${output_dir}/lingbot-demo-replay-stats.json" \
               --pixel-height "${HEIGHT}" \
               --pixel-width "${WIDTH}" \
               --fps "${FPS}" \
@@ -159,7 +160,6 @@ jobs:
               --example-idx 0 \
               --total-blocks "${BLOCKS}" \
               --warmup-blocks 0 \
-              --sync-and-profile \
               --no-ui
 
       - name: Validate LingBot demo artifacts

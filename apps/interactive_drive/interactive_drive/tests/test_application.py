@@ -177,6 +177,7 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
         initial_chunk_frames=2,
         chunk_frames=2,
         render_first_chunk=lambda _: chunk,
+        finalize=lambda: {},
     )
     config = SimpleNamespace(
         total_blocks=2,

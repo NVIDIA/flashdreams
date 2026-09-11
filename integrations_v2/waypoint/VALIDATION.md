@@ -30,20 +30,19 @@ and long-rollout outputs are under its `additional-inference/` directory.
 ## Automated gates
 
 - Ruff 0.12.7 check and format: passed.
-- ty 0.0.53 for both integration packages: passed.
-- CPU model, TAEHV, V2 lifecycle, reset, input, and MP4 tests: 51 passed and
-  7 deselected.
+- ty 0.0.53 for the shared app and unified integration packages: passed.
+- CPU Action2V, model, lifecycle, reset, input, and MP4 tests: 56 passed.
 - CUDA fixed-cache FlexAttention equivalence, local and global layers over
   eight autoregressive frames: 2 passed.
-- Built-wheel entry-point discovery: `waypoint-1-5-1b` resolves to
-  `WaypointApplication`; all 118 bundled actions are available.
+- Built-wheel entry-point discovery: `action2v-waypoint-1-5-1b` resolves to
+  `WaypointApplication`.
 
 ## Real V2 inference
 
-The real application ran with `--example-data --actions 40 --seed 464
---device cuda --profile`, using V2 `ApplicationRunner`, `Mp4ClientWindow`, and
+The real application ran a scripted 40-action validation with seed 464 on CUDA,
+using V2 `ApplicationRunner`, `Mp4ClientWindow`, and
 `MetricsOutputSink`. It loaded the published checkpoints, established action
-zero from the pinned seed image, generated actions 1 through 40, finalized each
+zero from the pinned first-frame image, generated actions 1 through 40, finalized each
 cache entry, and encoded every presented frame.
 
 | AR action | Diffuse | Decode | Finalize | Total | Peak allocated |
@@ -61,9 +60,8 @@ hardware-normalized.
 
 On 2026-08-26, the same RTX PRO was used to validate the review-driven native
 1024x512 presentation contract and fixed-cache visibility-mask reuse. Both
-measurements used a fresh process, the same checkpoints, the pinned example
-seed and controls, `--actions 40 --seed 464 --profile`, and actions 20 through
-40 as the steady-state window.
+measurements used a fresh process, the same checkpoints, the pinned validation first frame and controls, seed 464, profiling enabled,
+and actions 20 through 40 as the steady-state window.
 
 | Optimization stage | Mean | Median | p90 | Peak allocated |
 |---|---:|---:|---:|---:|
@@ -119,7 +117,7 @@ official compiled graph versus separately compiled attention in FlashDreams.
 
 ## Additional scene and long-rollout validation
 
-All 15 seed images from the pinned Biome checkout were each run for 40 actions.
+All 15 first-frame images from the pinned Biome checkout were each run for 40 actions.
 The original pinned example was also run through all 118 bundled actions. One
 loaded application and model served fresh sequential sessions, exercising both
 model reuse and per-session image cache/RNG isolation.

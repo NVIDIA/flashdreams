@@ -111,6 +111,17 @@ class VideoPostProcessorSession(ABC):
         stream when this method returns.
         """
 
+    def reset(self) -> None:
+        """Reset one rollout while retaining prepared processor resources.
+
+        Stateful processors that support application-lifetime reuse override
+        this hook. The default fails explicitly so a reusable output path does
+        not silently carry temporal state across rollouts.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support rollout reset."
+        )
+
     @abstractmethod
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         """Process one input chunk and return zero or more output chunks.
@@ -123,6 +134,16 @@ class VideoPostProcessorSession(ABC):
     @abstractmethod
     def flush(self) -> list[VideoChunk]:
         """Return any buffered output at end-of-stream."""
+
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear metrics from the latest finalized model chunk.
+
+        Deprecated:
+            This is an MVP escape hatch for post-processors that wrap model
+            pipelines. Replace it with per-output metrics plumbing in issue
+            #603.
+        """
+        return None
 
 
 class VideoPostProcessor(ABC, Generic[VideoPostProcessorConfigT]):
@@ -163,6 +184,13 @@ class VideoPostprocessChainConfig(PrintableConfig):
     def is_enabled(self) -> bool:
         """Return whether any post-processing step is configured."""
         return bool(self.processors or self.preset)
+
+    def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
+        """Return the final stream specification produced from ``input_spec``."""
+        output_spec = input_spec
+        for processor in self.resolved_processors():
+            output_spec = processor.output_spec(output_spec)
+        return output_spec
 
     def requires_all_ranks(self, *, world_size: int) -> bool:
         """Return whether any processor must execute on every rank."""
@@ -206,6 +234,12 @@ class _VideoPostprocessChainSession(VideoPostProcessorSession):
         """Prepare every processor session in chain order."""
         for session in self._sessions:
             session.prepare()
+
+    def reset(self) -> None:
+        """Reset every processor while retaining its loaded resources."""
+        for session in self._sessions:
+            session.reset()
+        self._closed = False
 
     def flush(self) -> list[VideoChunk]:
         """Flush each session once and feed its tail output downstream.

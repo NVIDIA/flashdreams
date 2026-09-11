@@ -12,9 +12,9 @@ from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
-from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 
@@ -47,7 +47,7 @@ def run_session(
     session: ISession,
     window: IClientWindow,
     *,
-    metrics_output_sink: OutputSink | None = None,
+    metrics_output_sink: MetricsOutputSink | None = None,
     steps: int | None = None,
     timeout_seconds: float | None = None,
 ) -> SessionDesc | None:
@@ -132,10 +132,19 @@ def run_session(
                 if loop_result.stop_requested:
                     stop.set()
                     return
-                if loop_result.new_session_request is not None:
-                    next_session_desc = loop_result.new_session_request
-                    stop.set()
-                    return
+
+                request = ui_loop.flush_ui_loop_requests()
+                if request is not None:
+                    if request.hide_cursor is not None:
+                        window.request_hide_cursor(request.hide_cursor)
+                    if request.lock_cursor_to_window is not None:
+                        window.request_lock_cursor_to_window(
+                            request.lock_cursor_to_window
+                        )
+                    if request.new_session is not None:
+                        next_session_desc = request.new_session
+                        stop.set()
+                        return
                 if loop_result.step_index is None or not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
@@ -159,7 +168,8 @@ def run_session(
                 step_elapsed_s=step_elapsed_s,
             )
             if metrics_output_sink is not None:
-                for result in results:
+                for index, result in enumerate(results):
+                    metrics_output_sink.set_step_result_index(index)
                     metrics_output_sink.write(result)
 
         def tick_ui() -> None:

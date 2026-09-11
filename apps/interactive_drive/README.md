@@ -77,7 +77,6 @@ optional and follow the `--` separator:
 | `--no-ui` | Present model output directly without creating the HUD or rendering its BEV minimap. |
 | `--game-mode` | Enable the speed limit and collisions with scene actors and static map geometry. |
 | `--postprocess-preset NAME` | Start with a registered video post-processing preset enabled. Default: none. |
-| `--world-model-profile` | Enable synchronized world-model profiling. |
 | `--world-model-device DEVICE` | Select the model device. Default: `cuda:0`. |
 | `--world-model-seed N` | Pin the seed used for each rollout. |
 | `--world-model-debug-condition-frame-dir PATH` | Override first-chunk condition frames for debugging. |

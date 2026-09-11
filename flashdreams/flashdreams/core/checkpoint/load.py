@@ -584,7 +584,9 @@ def load_distributed_checkpoint(
     if local_cache_checkpoint_path is not None and os.path.exists(
         local_cache_checkpoint_path
     ):
-        state_dict = torch.load(local_cache_checkpoint_path, map_location="cpu")
+        state_dict = torch.load(
+            local_cache_checkpoint_path, map_location="cpu", weights_only=True
+        )
         model.load_state_dict(state_dict)
         logger.info(
             f"Loaded successfully from the local cache: {local_cache_checkpoint_path}"
@@ -741,7 +743,7 @@ def _load_checkpoint_from_local(
     if ext == ".safetensors":
         return load_safetensors_file(path, device=_safetensors_device(map_location))
     else:
-        return torch.load(path, map_location=map_location, weights_only=False)
+        return torch.load(path, map_location=map_location, weights_only=True)
 
 
 def _copy_checkpoint_tensor(destination: torch.Tensor, source: torch.Tensor) -> int:
@@ -1083,7 +1085,7 @@ def _load_checkpoint_from_s3(
         return load_safetensors(data_bytes)
     else:
         return torch.load(
-            io.BytesIO(data_bytes), map_location=map_location, weights_only=False
+            io.BytesIO(data_bytes), map_location=map_location, weights_only=True
         )
 
 

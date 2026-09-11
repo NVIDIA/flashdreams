@@ -16,6 +16,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -203,7 +204,7 @@ class _SecondSessionClosingWindow(_Window):
         self._sessions_opened += 1
 
 
-class _MetricsSink:
+class _MetricsSink(MetricsOutputSink):
     """Record model results delivered independently of the client window."""
 
     def __init__(self, calls: list[str]) -> None:

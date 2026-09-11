@@ -61,38 +61,23 @@ Installation
 .. code-block:: bash
 
    # from the repo root
-   uv sync --project integrations/flashvsr
+   uv sync --package flashdreams-flashvsr --inexact
 
 Running the method
 ------------------
 
-To run FlashVSR, provide an input video path and launch one of the
-registered runner slugs. For example:
+The v2 ``v2v`` application accepts a video and writes the super-resolved video
+through the standard application/session runtime:
 
 .. code-block:: bash
 
-   uv run --project integrations/flashvsr \
-       flashdreams-run \
-       flashvsr-v1.1-sparse-ratio-2.0 \
-       --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
-       --chunk-size 8
+   uv run --no-sync flashdreams-run-v2 \
+       v2v-flashvsr-v1.1-sparse-ratio-2.0 \
+       --output-path upscaled.mp4 \
+       -- --video-path input.mp4
 
-For multi-GPU inference, run the dense full-attention preset under
-``torchrun`` (taking 4 GPUs as an example):
-
-.. code-block:: bash
-
-   uv run --project integrations/flashvsr \
-       torchrun --nproc_per_node=4 --no-python flashdreams-run \
-       flashvsr-v1.1-full-attn \
-       --input-path https://raw.githubusercontent.com/OpenImagingLab/FlashVSR/main/examples/WanVSR/inputs/example1.mp4 \
-       --chunk-size 8
-
-.. note::
-
-   Multi-GPU is supported only by the dense ``flashvsr-v1.1-full-attn`` preset.
-   The ``flashvsr-v1.1-sparse-ratio-*`` presets are single-GPU only because
-   their Triton sparse-attention backend is not context-parallel aware.
+Omit ``--video-path`` to download and process the bounded Big Buck Bunny
+fallback.
 
 We provide the following variants:
 
@@ -102,21 +87,19 @@ We provide the following variants:
 
    * - Method
      - Description
-   * - ``flashvsr-v1.1-sparse-ratio-2.0``
+   * - ``v2v-flashvsr-v1.1-sparse-ratio-2.0``
      - Streaming 2x video super-resolution with the stable sparse-attention preset.
-   * - ``flashvsr-v1.1-sparse-ratio-1.5``
+   * - ``v2v-flashvsr-v1.1-sparse-ratio-1.5``
      - Streaming 2x video super-resolution with the faster sparse-attention preset.
-   * - ``flashvsr-v1.1-full-attn``
-     - Dense full-attention preset with multi-GPU context-parallel support.
+   * - ``v2v-flashvsr-v1.1-full-attn``
+     - Dense full-attention preset.
 
 To inspect all supported CLI arguments and their default values, run:
 
 .. code-block:: bash
 
-   uv run --project integrations/flashvsr \
-       flashdreams-run \
-       flashvsr-v1.1-sparse-ratio-2.0 \
-       --help
+   uv run --no-sync flashdreams-run-v2 \
+       v2v-flashvsr-v1.1-sparse-ratio-2.0 -- --help
 
 A generated sample from the above commands:
 
@@ -160,7 +143,7 @@ under matched settings.
       <p class="model-footnote">
         This chart shows per-chunk 2x upsampling time in milliseconds on a single GB200 GPU with a chunk size of 8 frames.
         For the official FlashVSR implementation, see
-        <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations/flashvsr/tests/parity_check">this instruction</a>.
+        <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr/tests/parity_check">this instruction</a>.
       </p>
     </figcaption>
   </figure>

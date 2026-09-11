@@ -39,8 +39,6 @@ CHECKPOINT_PATH_FRAMEWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/
 # Causal-Forcing chunkwise Wan 2.1 1.3B T2V pipeline.
 PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
     name="causal-forcing-wan2.1-t2v-1.3b-chunkwise",
-    # Warning: This will slow down the e2e latency.
-    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(

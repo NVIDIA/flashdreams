@@ -21,10 +21,10 @@ import numpy.typing as npt
 import torch
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.output_sink import OutputSink
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -337,7 +337,7 @@ class _FakeDecoder:
         self.spatial_compression_ratio = spatial_compression_ratio
 
 
-class _FrameInspector(OutputSink):
+class _FrameInspector(MetricsOutputSink):
     """Measure what a run generates, and pass it on to a file when asked to."""
 
     def __init__(self, mp4: Mp4OutputSink | None) -> None:
@@ -364,7 +364,7 @@ class _FrameInspector(OutputSink):
             raise RuntimeError("open() must run before write().")
         frames = result_to_rgb24_frames(result, self._session_desc)
         self.frames_per_step.append(len(frames))
-        self.metrics.append(dict(result.metrics))
+        self.metrics.append(dict(result.metrics or {}))
         self.luminance_sum += float(frames.mean()) * len(frames)
         # The previous step's last frame leads this one, so the change across a
         # step boundary counts like any other.

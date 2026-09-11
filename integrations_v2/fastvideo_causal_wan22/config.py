@@ -58,8 +58,6 @@ def _wan22_branch(checkpoint_path: str) -> Wan21TransformerConfig:
 # Official FastVideo CausalWan 2.2 14B MoE T2V pipeline config.
 PIPELINE_WAN22_T2V_14B = WanInferencePipelineConfig(
     name="fastvideo-causal-wan2.2-t2v-14b",
-    # Warning: This will slow down the e2e latency.
-    enable_sync_and_profile=True,
     encoder=None,
     decoder=WanVAEDecoderConfig(),
     diffusion_model=DiffusionModelConfig(

@@ -11,6 +11,8 @@ const pressedKeys = new Map();
 const pressedButtons = new Set();
 const gamepadSnapshots = new Map();
 let lastPointerPosition = {x: 0, y: 0};
+let hideCursor = false;
+let lockCursorToWindow = false;
 
 const MAX_NONCRITICAL_BUFFER_BYTES = 4 * 1024;
 
@@ -59,12 +61,32 @@ const sendInput = (
   return send(payload, channel);
 };
 
+const updateCursorVisibility = () => {
+  video.style.cursor = hideCursor && document.hasFocus() ? "none" : "";
+};
+
+const applyCursorOptions = options => {
+  hideCursor = options.hide_cursor === true;
+  lockCursorToWindow = options.lock_cursor_to_window === true;
+  updateCursorVisibility();
+  if (!lockCursorToWindow && document.pointerLockElement === video) {
+    document.exitPointerLock();
+  }
+};
+
+window.addEventListener("focus", updateCursorVisibility);
+window.addEventListener("blur", updateCursorVisibility);
+
 controls.addEventListener("message", event => {
   if (typeof event.data !== "string") {
     return;
   }
   try {
     const payload = JSON.parse(event.data);
+    if (payload?.type === "cursor_options") {
+      applyCursorOptions(payload);
+      return;
+    }
     if (payload?.type === "error") {
       console.warn(`WebRTC server: ${payload.message ?? "unknown error"}`);
     }
@@ -157,8 +179,33 @@ const pointerPosition = event => {
   };
 };
 
+const activePointerPosition = event => {
+  if (!lockCursorToWindow || document.pointerLockElement !== video) {
+    return pointerPosition(event);
+  }
+  const bounds = renderedVideoBounds();
+  return {
+    x: lastPointerPosition.x + event.movementX / bounds.width,
+    y: lastPointerPosition.y + event.movementY / bounds.height,
+  };
+};
+
+const lockPointerToWindow = () => {
+  if (!lockCursorToWindow || document.pointerLockElement === video) {
+    return;
+  }
+  try {
+    const request = video.requestPointerLock();
+    request?.catch(error => {
+      console.debug("Unable to lock the cursor to the window.", error);
+    });
+  } catch (error) {
+    console.debug("Unable to lock the cursor to the window.", error);
+  }
+};
+
 video.addEventListener("pointermove", event => {
-  lastPointerPosition = pointerPosition(event);
+  lastPointerPosition = activePointerPosition(event);
   pendingPointerMove = lastPointerPosition;
   if (pointerMoveHandle !== null) {
     return;
@@ -186,9 +233,13 @@ video.addEventListener("pointermove", event => {
 
 video.addEventListener("pointerdown", event => {
   video.focus();
-  video.setPointerCapture(event.pointerId);
+  if (lockCursorToWindow) {
+    lockPointerToWindow();
+  } else {
+    video.setPointerCapture(event.pointerId);
+  }
   cancelPendingPointerMove();
-  lastPointerPosition = pointerPosition(event);
+  lastPointerPosition = activePointerPosition(event);
   const wasSent = sendInput(
     {
       type: "mouse",
@@ -210,7 +261,7 @@ video.addEventListener("pointerup", event => {
     return;
   }
   cancelPendingPointerMove();
-  lastPointerPosition = pointerPosition(event);
+  lastPointerPosition = activePointerPosition(event);
   const wasSent = sendInput(
     {
       type: "mouse",
@@ -247,7 +298,7 @@ video.addEventListener("pointercancel", () => {
 });
 
 video.addEventListener("wheel", event => {
-  const position = pointerPosition(event);
+  const position = activePointerPosition(event);
   if (pendingWheel === null) {
     pendingWheel = {
       position,
@@ -408,8 +459,9 @@ const waitForServer = async () => {
   while (true) {
     try {
       const health = await fetch("/healthz", {cache: "no-store"});
-      if (health.ok && (await health.json()).open) {
-        return;
+      const state = health.ok ? await health.json() : null;
+      if (state?.open) {
+        return state;
       }
     } catch (error) {
       console.debug("WebRTC server is not ready yet.", error);
@@ -420,7 +472,8 @@ const waitForServer = async () => {
 
 async function connect() {
   showStatus("Waiting for the server…");
-  await waitForServer();
+  const server = await waitForServer();
+  applyCursorOptions(server);
   showStatus("Gathering WebRTC network candidates…");
   await peer.setLocalDescription(await peer.createOffer());
   await waitForIceGatheringComplete();

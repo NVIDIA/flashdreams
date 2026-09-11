@@ -153,8 +153,9 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "JSON file to record model-step measurements in, for a benchmark "
-            "to read. Nothing is measured unless this is asked for. If a run "
-            "replaces its session, the file contains the final session."
+            "to read. This also enables synchronized per-stage pipeline "
+            "profiling. If a run replaces its session, the file contains the "
+            "final session."
         ),
     )
     for mode in _MODES:

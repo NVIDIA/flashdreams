@@ -15,6 +15,7 @@ argument that only one of them uses.
 
 import argparse
 import math
+import os
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -59,6 +60,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         not math.isfinite(parsed.timeout) or parsed.timeout <= 0
     ):
         parser.error("--timeout must be a finite number greater than zero.")
+    if parsed.stats_path is not None:
+        os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
 
     mode = client_window_mode(parsed.mode)
     # Asking an application what it takes is answered by the application alone,

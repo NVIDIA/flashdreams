@@ -44,7 +44,6 @@ from interactive_drive.config import (
     ChunkConfig,
     RasterConfig,
     VehicleConfig,
-    WorldModelProfileConfig,
 )
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.scene_download import download_default_scene
@@ -296,6 +295,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             if state.first_chunk
             else state.backend.render_next_chunk(trajectory)
         )
+        finalize_metrics = state.backend.finalize()
         state.vehicle = trajectory.boundary_state_after_chunk
         state.next_timestamp_us = int(
             trajectory.timestamps_us[-1] + state.config.app.chunk.frame_interval_us
@@ -314,7 +314,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
                 output=output,
                 frame_count=int(output.shape[0]),
                 output_layout=state.desc.output_layout,
-                metrics={},
+                metrics=finalize_metrics,
             )
         ]
         bev_output = self._bev_chunk_tensor(chunk)
@@ -325,7 +325,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
                     output=bev_output,
                     frame_count=int(bev_output.shape[0]),
                     output_layout=state.desc.output_layout,
-                    metrics={},
+                    metrics=finalize_metrics,
                 )
             )
         model_loop_ms = (time.perf_counter() - step_started_at) * 1000.0
@@ -499,11 +499,6 @@ class _InteractiveDriveApplicationBase(IApplication):
                 "A configured preset starts enabled and can be toggled in the HUD."
             ),
         )
-        parser.add_argument(
-            "--world-model-profile",
-            action="store_true",
-            help="Enable synchronized world-model profiling.",
-        )
         parser.add_argument("--world-model-device", default="cuda:0")
         parser.add_argument("--world-model-seed", type=int)
         parser.add_argument(
@@ -530,9 +525,6 @@ class _InteractiveDriveApplicationBase(IApplication):
             prompt_override=args.prompt,
             chunk=chunk,
             raster=raster,
-            world_model_profile=WorldModelProfileConfig(
-                enabled=args.world_model_profile
-            ),
             world_model_device=args.world_model_device,
             world_model_seed=args.world_model_seed,
             world_model_debug_condition_frame_dir=(
@@ -572,7 +564,6 @@ def _build_backend(
         )
     resolved_pipeline_config = derive_config(
         pipeline_config,
-        enable_sync_and_profile=config.world_model_profile.enabled,
         diffusion_model=dict(
             seed=(42 if config.world_model_seed is None else config.world_model_seed)
         ),

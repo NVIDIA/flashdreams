@@ -138,6 +138,8 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert await response.json() == {
                     "open": False,
                     "client_connected": False,
+                    "hide_cursor": False,
+                    "lock_cursor_to_window": False,
                 }
             async with client.get(window.server.url) as response:
                 browser_page = await response.text()
@@ -159,6 +161,13 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "renderedVideoBounds" in browser_script
                 assert "pressedKeys" in browser_script
                 assert "pointercancel" in browser_script
+                assert "requestPointerLock" in browser_script
+                assert "applyCursorOptions" in browser_script
+                assert "document.exitPointerLock" in browser_script
+                assert (
+                    'hideCursor && document.hasFocus() ? "none" : ""' in browser_script
+                )
+                assert "event.movementX" in browser_script
                 assert "pressedKeys.has(keyId)" in browser_script
                 assert "pressedKeys.set(keyId, event.key)" in browser_script
                 assert "MAX_NONCRITICAL_BUFFER_BYTES" in browser_script
@@ -175,12 +184,51 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "navigator.getGamepads" in browser_script
                 assert 'type: "touch"' in browser_script
 
+        window.request_hide_cursor(True)
         window.open(_session_desc())
+        window.request_lock_cursor_to_window(True)
+        async with ClientSession() as client:
+            async with client.get(f"{window.server.url}healthz") as response:
+                health = await response.json()
+                assert health["hide_cursor"] is True
+                assert health["lock_cursor_to_window"] is True
         peer, channel, _ = await _connect_browser(window)
+        cursor_messages: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                payload = json.loads(message)
+                if payload.get("type") == "cursor_options":
+                    cursor_messages.append(payload)
+
+        window.request_hide_cursor(False)
+        window.request_lock_cursor_to_window(False)
+        for _ in range(100):
+            if (
+                cursor_messages
+                and cursor_messages[-1]["lock_cursor_to_window"] is False
+            ):
+                break
+            await asyncio.sleep(0.01)
+        assert cursor_messages[-1] == {
+            "type": "cursor_options",
+            "hide_cursor": False,
+            "lock_cursor_to_window": False,
+        }
+
+        window.request_hide_cursor(True)
+        window.request_lock_cursor_to_window(True)
+        for _ in range(100):
+            if cursor_messages and cursor_messages[-1]["lock_cursor_to_window"] is True:
+                break
+            await asyncio.sleep(0.01)
+        assert cursor_messages[-1]["hide_cursor"] is True
+        assert cursor_messages[-1]["lock_cursor_to_window"] is True
         channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": True}))
         channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": False}))
         channel.send(
-            json.dumps({"type": "mouse", "action": "move", "x": 0.25, "y": 0.75})
+            json.dumps({"type": "mouse", "action": "move", "x": 1.25, "y": -0.5})
         )
         channel.send(json.dumps({"type": "focus", "focused": True}))
         channel.send(
@@ -253,7 +301,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
         mouse = next(
             event for event in events if isinstance(event, MouseUserInputEvent)
         )
-        assert (mouse.action, mouse.x, mouse.y) == ("move", 0.25, 0.75)
+        assert (mouse.action, mouse.x, mouse.y) == ("move", 1.25, -0.5)
         focus = next(
             event for event in events if isinstance(event, FocusUserInputEvent)
         )
@@ -289,6 +337,48 @@ async def test_window_buffers_browser_events_until_drained() -> None:
         if peer is not None:
             await peer.close()
         window.close()
+    window.request_lock_cursor_to_window(False)
+
+
+def test_server_sends_initial_and_changed_cursor_options_only() -> None:
+    server = webrtc_server.WebRTCServer.__new__(webrtc_server.WebRTCServer)
+    server._hide_cursor = False
+    server._lock_cursor_to_window = False
+    server._sent_cursor_options = None
+    channel = Mock()
+    channel.readyState = "open"
+    loop = Mock(spec=asyncio.AbstractEventLoop)
+    server._control_channel = channel
+    server._loop = loop
+
+    server._send_cursor_options()
+    assert json.loads(channel.send.call_args.args[0]) == {
+        "type": "cursor_options",
+        "hide_cursor": False,
+        "lock_cursor_to_window": False,
+    }
+    channel.reset_mock()
+
+    server.configure_cursor(hide_cursor=False, lock_cursor_to_window=False)
+    loop.call_soon_threadsafe.assert_not_called()
+
+    server.configure_cursor(hide_cursor=True, lock_cursor_to_window=False)
+    server.configure_cursor(hide_cursor=True, lock_cursor_to_window=True)
+    assert loop.call_soon_threadsafe.call_count == 2
+    for scheduled_call in loop.call_soon_threadsafe.call_args_list:
+        scheduled_call.args[0]()
+    assert channel.send.call_count == 1
+    assert json.loads(channel.send.call_args.args[0]) == {
+        "type": "cursor_options",
+        "hide_cursor": True,
+        "lock_cursor_to_window": True,
+    }
+
+    channel.reset_mock()
+    loop.reset_mock()
+    server.configure_cursor(hide_cursor=True, lock_cursor_to_window=True)
+    channel.send.assert_not_called()
+    loop.call_soon_threadsafe.assert_not_called()
 
 
 def test_webrtc_loop_suppresses_only_the_aioice_completed_retry_race() -> None:
@@ -513,6 +603,25 @@ async def test_webrtc_always_configures_a_bounded_two_frame_sender_queue(
         track = window.server._video_track
         assert track is not None
         assert track.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_server_closes_while_browser_peer_is_still_connected() -> None:
+    window = WebRTCClientWindow(startup_timeout_seconds=1.0)
+    peer: RTCPeerConnection | None = None
+    try:
+        assert isinstance(window.server._loop, asyncio.SelectorEventLoop)
+        window.open(_session_desc())
+        peer, _, _ = await _connect_browser(window)
+
+        await asyncio.to_thread(window.close)
+
+        assert not window.server._thread.is_alive()
+        assert window.server._loop is None
     finally:
         if peer is not None:
             await peer.close()

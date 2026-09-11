@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pytest
-from flashvsr.postprocess import FlashVSRPostProcessorConfig
+from flashvsr.impl.postprocess import FlashVSRPostProcessorConfig
 
 from flashdreams.infra.postprocess import (
     RTXVideoSuperResolutionPostProcessorConfig,

@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-swiftvr"
+version = "0.1.0"
+description = "SwiftVR real-time streaming video restoration for FlashDreams."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flashdreams",
+    "flashdreams-v2v",
+    "safetensors>=0.4",
+]
+
+[tool.uv]
+managed = true
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-v2v = { workspace = true }
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.entry-points."flashdreams.applications_v2"]
+"v2v-swiftvr" = "swiftvr.apps.v2v.adapter:create_app"
+
+[project.entry-points."flashdreams.postprocess_presets"]
+"swiftvr-2x" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_2X"
+"swiftvr-4x" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_4X"
+
+[tool.setuptools]
+packages = [
+    "swiftvr",
+    "swiftvr.apps",
+    "swiftvr.apps.v2v",
+    "swiftvr.impl",
+    "swiftvr.impl.decoder",
+    "swiftvr.impl.encoder",
+    "swiftvr.impl.transformer",
+]
+
+[tool.setuptools.package-dir]
+swiftvr = "."
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+markers = [
+    "ci_cpu: CPU-safe test, runs on the CPU CI runner",
+    "ci_gpu: requires GPU or libGL (cv2), runs on the GPU CI runner",
+    "manual: heavy or environment-specific test, opt-in only",
+]

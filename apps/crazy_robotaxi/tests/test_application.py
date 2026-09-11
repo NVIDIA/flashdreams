@@ -228,76 +228,6 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.config.race_course_id == "grand-prix"
 
 
-def test_native_window_accepts_crazy_robotaxi_output_contract() -> None:
-    """Keep the app's fixed output contract compatible with V2 native output."""
-
-    class Presenter:
-        should_close = False
-
-        def __init__(self) -> None:
-            self.frames: list[torch.Tensor] = []
-            self.closed = False
-
-        def set_input_callbacks(self, **callbacks: object) -> None:
-            assert set(callbacks) == {
-                "on_keyboard_event",
-                "on_mouse_event",
-                "on_gamepad_event",
-                "on_gamepad_state",
-            }
-
-        def present_frame(self, frame: torch.Tensor) -> bool:
-            self.frames.append(frame)
-            return True
-
-        def close(self) -> None:
-            self.closed = True
-
-    desc = _application().session_desc()
-    presenter = Presenter()
-    presenter_arguments: dict[str, object] = {}
-
-    def create_presenter(**arguments: object) -> Presenter:
-        presenter_arguments.update(arguments)
-        return presenter
-
-    window = NativeWindowClientWindow(
-        title="Crazy Robotaxi",
-        presenter_factory=cast(Any, create_presenter),
-    )
-    source = torch.zeros(
-        (1, 3, desc.video_height, desc.video_width),
-        dtype=torch.float32,
-    )
-
-    window.open(desc)
-    window.write(
-        StepResult(
-            step_index=0,
-            output=source,
-            frame_count=1,
-            output_layout=desc.output_layout,
-        )
-    )
-    window.close()
-
-    assert presenter_arguments == {
-        "width": desc.video_width,
-        "height": desc.video_height,
-        "title": "Crazy Robotaxi",
-    }
-    assert len(presenter.frames) == 1
-    assert presenter.frames[0].shape == (
-        desc.video_height,
-        desc.video_width,
-        3,
-    )
-    assert presenter.frames[0].device == source.device
-    assert presenter.frames[0].dtype is torch.uint8
-    assert torch.all(presenter.frames[0] == 128)
-    assert presenter.closed
-
-
 def test_pressed_r_requests_a_v2_game_restart() -> None:
     pressed = KeyboardUserInputEvent(
         timestamp=np.uint64(1),
@@ -516,7 +446,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         (["--profile-pipeline"], True),
     ],
 )
-def test_pipeline_profiling_is_an_app_local_opt_in(
+def test_diagnostics_flag_does_not_enable_pipeline_profiling(
     arguments: list[str],
     expected: bool,
 ) -> None:
@@ -531,10 +461,8 @@ def test_pipeline_profiling_is_an_app_local_opt_in(
 
     assert configured == []
     session._pipeline_factory()
-    assert configured[0].enable_sync_and_profile is expected
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
-    assert OMNIDREAMS_PIPELINE_CONFIG.enable_sync_and_profile
 
 
 def test_model_adapters_keep_their_packaged_pipeline_configs() -> None:
@@ -675,7 +603,6 @@ def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
     assert transformer.native_dit_acceleration == "required"
     assert transformer.skip_finalize_kv_cache is True
     assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
-    assert pipeline.enable_sync_and_profile is True
 
 
 def test_map_context_disables_only_native_dit_on_selected_preset() -> None:

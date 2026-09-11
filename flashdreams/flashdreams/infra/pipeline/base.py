@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Generic
 
@@ -77,9 +78,13 @@ class StreamInferencePipelineConfig(InstantiateConfig):
     :class:`StreamingEncoder`; one-shot encoders go on
     ``transformer.context_encoder`` instead."""
 
-    enable_sync_and_profile: bool = False
-    """Record per-stage CUDA events and log timing per AR step. Calls
-    ``torch.cuda.synchronize()`` once per step, which hurts throughput."""
+    @property
+    def enable_sync_and_profile(self) -> bool:
+        """Whether to record synchronized per-stage CUDA timings.
+
+        Enabled process-wide with ``FLASHDREAMS_SYNC_AND_PROFILE=1``
+        """
+        return os.getenv("FLASHDREAMS_SYNC_AND_PROFILE") == "1"
 
 
 @dataclass(kw_only=True)

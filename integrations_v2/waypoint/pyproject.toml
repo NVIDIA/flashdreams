@@ -6,30 +6,42 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flashdreams-waypoint-v2"
+name = "flashdreams-waypoint"
 version = "0.1.0"
-description = "FlashDreams V2 application for the Waypoint 1.5 world model."
+description = "Waypoint 1.5 world-model integration for FlashDreams v2."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "flashdreams-action2v",
     "flashdreams",
-    "flashdreams-waypoint",
     "pillow>=10",
 ]
 
 [project.entry-points."flashdreams.applications_v2"]
-waypoint-1-5-1b = "waypoint_v2.app:create_app"
+action2v-waypoint-1-5-1b = "waypoint.apps.action2v.adapter:create_app"
 
 [tool.uv.sources]
+flashdreams-action2v = { workspace = true }
 flashdreams = { workspace = true }
-flashdreams-waypoint = { workspace = true }
 
-[tool.setuptools.packages.find]
-include = ["waypoint_v2*"]
-exclude = ["tests"]
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+include-package-data = false
+packages = [
+    "waypoint",
+    "waypoint.apps",
+    "waypoint.apps.action2v",
+    "waypoint.impl",
+    "waypoint.impl.transformer",
+]
+
+[tool.setuptools.package-dir]
+waypoint = "."
 
 [tool.setuptools.package-data]
-waypoint_v2 = ["assets/*.json"]
+"waypoint.apps.action2v" = ["assets/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"

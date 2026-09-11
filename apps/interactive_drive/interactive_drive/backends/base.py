@@ -97,6 +97,10 @@ class RenderBackend(ABC):
         """
         del enabled
 
+    def finalize(self) -> dict[str, float] | None:
+        """Finalize the most recently rendered model chunk."""
+        return {}
+
     @abstractmethod
     def render_first_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raise NotImplementedError

@@ -56,7 +56,6 @@ CHECKPOINT_PATH = LINGBOT_WORLD_V1_CHECKPOINT_PATH
 # Official LingBot-World-Fast pipeline config.
 PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
     name="lingbot-world-fast",
-    enable_sync_and_profile=True,
     encoder=I2VCamCtrlEncoderConfig(
         i2v=LingbotI2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(),
