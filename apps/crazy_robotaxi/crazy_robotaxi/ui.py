@@ -3680,7 +3680,7 @@ def build_hud_frames(
     autoregressive_index: int = -1,
     simulation_timestamps_us: Sequence[int | None] | None = None,
     cache_finalize_returned_ns: int | None = None,
-    live_edit_status: LiveEditHudStatus | None = None,
+    live_edit_statuses: Sequence[LiveEditHudStatus | None] | None = None,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -3701,6 +3701,10 @@ def build_hud_frames(
         simulation_timestamps_us = (None,) * frame_count
     if len(simulation_timestamps_us) != frame_count:
         raise ValueError("Simulation timestamps and video frames must align")
+    if live_edit_statuses is None:
+        live_edit_statuses = (None,) * frame_count
+    if len(live_edit_statuses) != frame_count:
+        raise ValueError("Live-edit states and video frames must align")
     frames = []
     for index, (snapshot, simulation_timestamp_us) in enumerate(
         zip(snapshots, simulation_timestamps_us, strict=True)
@@ -3715,7 +3719,7 @@ def build_hud_frames(
                 snapshot=snapshot,
                 rig_pose_world=pose,
                 speed_mps=float(speeds_mps[index]),
-                live_edit_status=live_edit_status,
+                live_edit_status=live_edit_statuses[index],
                 transition_timestamp_us=transition_timestamps_us[index],
                 runtime_generation=runtime_generation,
                 model_step_index=model_step_index,
