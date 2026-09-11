@@ -40,15 +40,10 @@ and a Blackwell-class GPU (SM 12.0) or newer.
 
 **Fix or next step:**
 
-Start with the non-perf OmniDreams launch in :doc:`/models/omnidreams`. If you
-need the perf application, prepare the pinned third-party sources first:
-
-.. code-block:: bash
-
-   uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-
-Then verify that the machine has the required GPU and a CUDA toolchain that
-matches the PyTorch build before launching:
+Start with the non-perf OmniDreams launch in :doc:`/models/omnidreams`. The
+perf application downloads its pinned third-party sources on first use. Verify
+that the machine has network access, the required GPU, and a CUDA toolchain
+that matches the PyTorch build before launching:
 
 .. code-block:: bash
 

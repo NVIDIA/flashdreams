@@ -284,19 +284,13 @@ LightVAE through the OmniDreams single-view CUDA extension
 (``native_dit_acceleration: required``), which is faster than the default
 PyTorch path. The extension builds against pinned checkouts of CUTLASS,
 SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
-repo. ``omnidreams-prepare --perf`` clones them at their pinned commits into
-``integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/``:
-
-.. code-block:: bash
-
-   uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-
-This step only syncs sources; the extension itself compiles on the first
-launch that uses the perf configuration (one-time, a few minutes). It requires a
-Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
-``omnidreams_singleview`` sources ship only in the git tree, not the wheel),
-``git``, and a CUDA toolchain (``nvcc``) matching your PyTorch build. Then
-launch the perf application:
+repo. On first use, the native extension downloads them at their pinned commits
+into ``integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/`` and
+then compiles (one-time, a few minutes). It requires a Blackwell-class GPU
+(SM 12.0) or newer, a source checkout (the ``omnidreams_singleview`` sources
+ship only in the git tree, not the wheel), ``git``, network access, and a CUDA
+toolchain (``nvcc``) matching your PyTorch build. Then launch the perf
+application:
 
 .. code-block:: bash
 

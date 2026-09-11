@@ -20,9 +20,6 @@ From the repository root:
 export HF_TOKEN=<YOUR-HF-TOKEN>
 
 uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams python \
-  integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync
-
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   crazy-robotaxi-omnidreams --mode native-window
 ```
@@ -54,16 +51,8 @@ Ten OmniDreams runner configurations are registered:
 | `crazy-robotaxi-omnidreams-optimized-gb300-responsive` | GB300-optimized attention with responsive model history |
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive` | RTX PRO 6000-optimized attention with responsive model history |
 
-The `crazy-robotaxi-omnidreams-perf` and
-`crazy-robotaxi-omnidreams-fast-perf` presets use native DiT acceleration and
-require its CUDA sources to be prepared once:
-
-```bash
-uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-```
-
-The five presets whose names end in `-responsive` disable native DiT and do
-not require that setup.
+The five presets whose names end in `-responsive` disable native DiT.
+`fast-perf-responsive` still uses the native FP8 VAE.
 
 Application arguments follow `--`. For example:
 

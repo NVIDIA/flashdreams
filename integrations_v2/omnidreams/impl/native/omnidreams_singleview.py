@@ -113,6 +113,13 @@ def sync_thirdparty(*, force: bool = False) -> dict[str, Any]:
     }
 
 
+def _ensure_thirdparty() -> dict[str, Any]:
+    return {
+        name: info.as_dict()
+        for name, info in _native_build().ensure_thirdparty().items()
+    }
+
+
 def load_python_module(name: str) -> ModuleType:
     """Load a helper module shipped with the single-view native sources."""
 
@@ -589,8 +596,11 @@ def load_extension(
 
             try:
                 thirdparty_info = validate_thirdparty()
-            except _native_build().NativeBuildError as exc:
-                raise NativeSourcesUnavailable(str(exc)) from exc
+            except _native_build().NativeBuildError:
+                try:
+                    thirdparty_info = _ensure_thirdparty()
+                except _native_build().NativeBuildError as exc:
+                    raise NativeSourcesUnavailable(str(exc)) from exc
             extension_name = _extension_name(
                 thirdparty_info,
                 cuda_arch_list=cuda_arch_identity,

@@ -152,6 +152,30 @@ def sync_thirdparty(*, force: bool = False) -> dict[str, SourceInfo]:
         raise NativeBuildError(str(exc)) from exc
 
 
+def ensure_thirdparty() -> dict[str, SourceInfo]:
+    """Download missing native sources, then validate their pinned provenance."""
+
+    try:
+        tool = _sync_tool()
+        sources = _sources()
+        missing = {
+            source.name
+            for source in sources
+            if not (THIRDPARTY_DIR / source.destination_name).exists()
+        }
+        if missing:
+            tool.sync_sources(sources, THIRDPARTY_DIR, selected=missing)
+        results = tool.verify_sources(sources, THIRDPARTY_DIR)
+        return {
+            result.source.name: _source_info(result.source, result.path)
+            for result in results
+        }
+    except NativeBuildError:
+        raise
+    except Exception as exc:
+        raise NativeBuildError(str(exc)) from exc
+
+
 def validate_thirdparty() -> dict[str, SourceInfo]:
     """Validate native source checkouts and return their pinned provenance."""
 

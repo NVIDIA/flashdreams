@@ -633,6 +633,43 @@ def test_native_build_wraps_sync_setup_errors(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.ci_cpu
+def test_native_build_downloads_only_missing_thirdparty_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    helper = native._native_build()
+    source = SimpleNamespace(name="demo", destination_name="demo")
+    synced: list[set[str]] = []
+
+    def sync_sources(
+        *_args: object,
+        selected: set[str],
+        **_kwargs: object,
+    ) -> tuple[object, ...]:
+        synced.append(selected)
+        (tmp_path / "demo").mkdir()
+        return ()
+
+    def verify_sources(*_args: object, **_kwargs: object) -> tuple[object, ...]:
+        assert (tmp_path / "demo").is_dir()
+        return (SimpleNamespace(source=source, path=tmp_path / "demo"),)
+
+    tool = SimpleNamespace(
+        load_manifest=lambda: (source,),
+        sync_sources=sync_sources,
+        verify_sources=verify_sources,
+    )
+    monkeypatch.setattr(helper, "THIRDPARTY_DIR", tmp_path)
+    monkeypatch.setattr(helper, "_sync_thirdparty_module", tool)
+    monkeypatch.setattr(helper, "_source_info", lambda _source, path: path)
+
+    assert helper.ensure_thirdparty()["demo"] == tmp_path / "demo"
+    assert synced == [{"demo"}]
+    assert helper.ensure_thirdparty()["demo"] == tmp_path / "demo"
+    assert synced == [{"demo"}]
+
+
+@pytest.mark.ci_cpu
 def test_native_acceleration_disabled_does_not_load_extension() -> None:
     called = False
 
@@ -674,8 +711,8 @@ def test_native_acceleration_auto_reports_missing_extension() -> None:
 
 
 @pytest.mark.ci_cpu
-def test_native_acceleration_reports_how_to_sync_missing_sources() -> None:
-    error = NativeSourcesUnavailable("third-party sources are missing")
+def test_native_acceleration_reports_failed_source_download() -> None:
+    error = NativeSourcesUnavailable("git clone failed")
 
     selection = select_native_extension(
         NativeAccelerationConfig(mode="auto"),
@@ -685,7 +722,8 @@ def test_native_acceleration_reports_how_to_sync_missing_sources() -> None:
     )
 
     assert selection.error is error
-    assert "sync_thirdparty.py sync" in selection.reason
+    assert "git clone failed" in selection.reason
+    assert "sync_thirdparty.py sync" not in selection.reason
 
 
 @pytest.mark.ci_cpu

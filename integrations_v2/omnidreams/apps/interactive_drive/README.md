@@ -26,11 +26,8 @@ Available application slugs:
 | `interactive-drive-omnidreams-perf` | `OMNIDREAMS_PERF_PIPELINE_CONFIG` |
 | `interactive-drive-omnidreams-fast-perf` | `OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG` |
 
-The `perf` variants require a one-time preparation step before launch:
-
-```bash
-uv run --no-sync omnidreams-prepare --perf
-```
+The `perf` variants download their pinned native source dependencies on first
+use, before compiling the extension.
 
 See the shared [Interactive Drive README](../../../../apps/interactive_drive/README.md)
 for controls, application arguments, output modes, and tests. See the
