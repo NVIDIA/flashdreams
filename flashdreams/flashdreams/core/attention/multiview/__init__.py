@@ -53,6 +53,11 @@ from flashdreams.core.attention.multiview.packing import (
     text_stream,
     unpack_cross_view_attention,
 )
+from flashdreams.core.attention.multiview.prefill import (
+    PrefillPack,
+    build_prefill_pack,
+    pad_control_slots,
+)
 from flashdreams.core.attention.multiview.rollout import (
     ChunkMask,
     ChunkRollout,
@@ -96,6 +101,7 @@ __all__ = [
     "MemoryLayout",
     "MultiViewRolloutModel",
     "MultiViewRolloutState",
+    "PrefillPack",
     "Rollout",
     "SlotRegion",
     "StreamFields",
@@ -106,12 +112,14 @@ __all__ = [
     "build_block_mask",
     "build_chunk_metadata",
     "build_memory_layout",
+    "build_prefill_pack",
     "causal_steps",
     "chunk_mrope_ids",
     "clip_mrope_ids",
     "control_chunk_ranges",
     "control_window",
     "pack_cross_view_attention",
+    "pad_control_slots",
     "run_rollout",
     "temporal_positions",
     "text_stream",
