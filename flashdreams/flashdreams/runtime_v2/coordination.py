@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Step admission and input synchronization across a model process mesh."""
+"""Step admission and session-result synchronization across a process mesh."""
+
+from __future__ import annotations
 
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import torch
 import torch.distributed as dist
@@ -11,18 +14,21 @@ import torch.distributed as dist
 from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
+if TYPE_CHECKING:
+    from flashdreams.runtime_v2.session_desc import SessionDesc
+
+
 AGREEMENT_TIMEOUT = timedelta(minutes=5)
 """Maximum wait for a rank at a runtime boundary; model collectives have their own timeout."""
 
 
 class StepAgreement:
-    """Two admission checks per step, on the model thread of every rank.
+    """Coordinate model-step boundaries and the final session result.
 
-    The first checks cancellation before broadcasting input. The second checks
-    preparation and cancellation before committing to model execution. Once
-    admitted, every rank executes the step even if its UI requests a stop.
-    Cleanup performs no collective: an exception must reach the process
-    supervisor so it can terminate peers blocked inside model collectives.
+    The model-thread checks cover cancellation, preparation, and input before
+    committing every rank to a step. After every model thread stops, the calling
+    threads exchange failure state and rank zero broadcasts the replacement or
+    terminal result. Cleanup performs no collective.
     """
 
     def __init__(
@@ -58,6 +64,20 @@ class StepAgreement:
         if result is None:
             raise RuntimeError("Rank zero did not broadcast step inputs.")
         return result
+
+    def resolve_session(
+        self, next_session: SessionDesc | None, *, failed: bool
+    ) -> SessionDesc | None:
+        """Share failure or rank zero's terminal/replacement decision."""
+        status = torch.tensor([int(failed)], dtype=torch.int64)
+        dist.all_reduce(status, op=dist.ReduceOp.MAX, group=self._group)
+        if status.item():
+            if failed:
+                return None
+            raise RuntimeError("Another runtime rank failed while ending the session.")
+        payload = [next_session if self._ctx.is_main else None]
+        dist.broadcast_object_list(payload, src=0, group=self._group)
+        return payload[0]
 
     def close(self) -> None:
         """Release the local control group without a shutdown collective."""
