@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 from dataclasses import replace
 from datetime import timedelta
@@ -328,17 +329,17 @@ def _worker(rank, scenario, rendezvous, output):
     ],
 )
 def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
-    # ponytail: CPU CI is Linux-only; package this worker before testing elsewhere.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     processes = [
-        mp.get_context("fork").Process(
+        mp.get_context("spawn").Process(
             target=_worker,
             args=(rank, scenario, str(tmp_path / "rendezvous"), str(tmp_path)),
         )
         for rank in range(2)
     ]
-    for process in processes:
-        process.start()
     try:
+        for process in processes:
+            process.start()
         for process in processes:
             process.join(timeout=45)
         assert [process.exitcode for process in processes] == [0, 0], (
@@ -349,6 +350,7 @@ def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
             if process.is_alive():
                 process.kill()
             process.join()
+        del sys.path[0]
     results = [
         json.loads((tmp_path / f"rank{rank}.json").read_text()) for rank in range(2)
     ]
