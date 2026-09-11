@@ -111,6 +111,19 @@ def test_pickle_checkpoint_formats_still_load_tensor_state_dicts(
     torch.testing.assert_close(actual["weight"], expected["weight"])
 
 
+@pytest.mark.parametrize(
+    "checkpoint_path", ["s3://bucket/../../escape.pt", "s3:///tmp/escape.pt"]
+)
+def test_s3_cache_path_rejects_paths_outside_cache(
+    checkpoint_path: str, tmp_path: Path
+) -> None:
+    """Do not let an S3 object key escape the configured cache directory."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+
+    with pytest.raises(ValueError, match="escapes local cache"):
+        checkpoint_load._s3_cache_path(str(tmp_path), checkpoint_path)
+
+
 def test_local_safetensors_uses_file_backed_loader(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

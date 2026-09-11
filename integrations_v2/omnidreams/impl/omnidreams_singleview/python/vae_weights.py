@@ -274,7 +274,7 @@ _LIGHTVAE_FP8_STAGED_STATE_CACHE: dict[tuple[int, int, int, str], dict[str, Any]
 def load_lightvae_fp8_state(path: str) -> dict[str, torch.Tensor]:
     """Load a LightVAE FP8 calibration state from a local torch checkpoint."""
 
-    obj = torch.load(path, map_location="cpu")
+    obj = torch.load(path, map_location="cpu", weights_only=True)
     if isinstance(obj, Mapping) and "fp8_state" in obj:
         obj = obj["fp8_state"]
     if not isinstance(obj, Mapping):

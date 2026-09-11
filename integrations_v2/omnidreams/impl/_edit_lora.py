@@ -94,7 +94,7 @@ class TextEditLoRA:
     ) -> None:
         network = unwrap_compiled_module(network)
         linears = _target_linears(network)
-        sd = torch.load(checkpoint, map_location="cpu", weights_only=False)["lora"]
+        sd = torch.load(checkpoint, map_location="cpu", weights_only=True)["lora"]
         assert len(sd) == 2 * len(linears), (
             f"edit-LoRA checkpoint has {len(sd)} tensors but the network "
             f"exposes {2 * len(linears)} ({len(linears)} target projections); "
