@@ -139,7 +139,6 @@ class DiagnosticsSettings:
     profile_pipeline: bool = False
     profile_input_latency: bool = False
     input_trace_path: Path | None = None
-    alignment_directory: Path | None = None
 
 
 @dataclass(frozen=True)
