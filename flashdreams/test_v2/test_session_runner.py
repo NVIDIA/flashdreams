@@ -1311,6 +1311,24 @@ def test_run_session_returns_a_ui_requested_replacement_after_cleanup() -> None:
     assert "window.close" not in log.calls
 
 
+def test_timeout_wins_over_a_ui_requested_replacement() -> None:
+    log = CallLog()
+    resolved = _session_desc()
+
+    class RequestingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self.ui_loop.request_new_session(resolved)
+
+    session = RequestingSession(resolved, log)
+    window = RecordingClientWindow(log)
+
+    next_session_desc = run_session(session, window, timeout_seconds=0.0)
+
+    assert next_session_desc is None
+    assert log.calls[-2:] == ["window.close", "session.close"]
+
+
 def test_interactive_ui_can_replace_an_already_finished_session() -> None:
     log = CallLog()
 

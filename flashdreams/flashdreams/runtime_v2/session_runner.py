@@ -245,6 +245,7 @@ def run_session(
 
         if deadline is not None and time.monotonic() >= deadline:
             stop.set()
+            next_session_desc = None
         if not stop.is_set() or agreement is not None:
             model_thread_handle = threading.Thread(
                 target=model_loop._run_model_loop,
@@ -262,29 +263,49 @@ def run_session(
             next_tick_at = time.monotonic() + tick_seconds
 
             def should_end_ui() -> bool:
+                nonlocal next_session_desc
                 if model_thread_handle.is_alive():
                     return False
-                if presentation_manager.has_pending_frames():
-                    return False
+                if not session._failure_queue.empty():
+                    return True
 
+                pending_frames = presentation_manager.has_pending_frames()
+                ui_finished = False
                 if (
                     window is not None
-                    and session._failure_queue.empty()
-                    and steps is None
-                    and not ui_loop.is_finished()
+                    and not pending_frames
+                    and not stop.is_set()
+                    and next_session_desc is None
                 ):
-                    # The presenting rank owns the post-inference UI lifetime.
-                    return False
-                collect_input()
-                run_ui_once(step_requested=False)
-                return True
+                    if steps is None:
+                        ui_finished = ui_loop.is_finished()
+                    if steps is not None or ui_finished:
+                        collect_input()
+                        run_ui_once(step_requested=False)
+                stopping = (
+                    stop.is_set()
+                    or next_session_desc is not None
+                    or (not pending_frames and steps is not None)
+                    or ui_finished
+                )
+                if agreement is None:
+                    return stopping
+                finished, replacement = agreement.session_result(
+                    next_session_desc, stopping=stopping
+                )
+                if finished:
+                    next_session_desc = replacement
+                return finished
 
-            while not stop.is_set():
+            while True:
                 if deadline is not None and time.monotonic() >= deadline:
                     stop.set()
-                    break
+                    next_session_desc = None
                 if should_end_ui():
                     break
+                if stop.is_set():
+                    model_thread_handle.join()
+                    continue
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
                 if deadline is not None:
                     wait_seconds = min(
@@ -292,10 +313,11 @@ def run_session(
                         max(0.0, deadline - time.monotonic()),
                     )
                 if stop.wait(wait_seconds):
-                    break
+                    continue
                 if deadline is not None and time.monotonic() >= deadline:
                     stop.set()
-                    break
+                    next_session_desc = None
+                    continue
                 collect_input()
                 tick_ui()
                 event_buffer.collect_garbage()
@@ -313,21 +335,6 @@ def run_session(
                 model_thread_handle.join()
             except BaseException as error:
                 cleanup_failures.append(error)
-        if agreement is not None and model_thread_handle is not None:
-            failed = (
-                high_level_failures is not None
-                or not session._failure_queue.empty()
-                or bool(cleanup_failures)
-            )
-            try:
-                next_session_desc = agreement.resolve_session(
-                    next_session_desc, failed=failed
-                )
-            except BaseException as error:
-                if failed:
-                    cleanup_failures.append(error)
-                else:
-                    high_level_failures = error
 
         if presentation_manager is not None:
             try:
