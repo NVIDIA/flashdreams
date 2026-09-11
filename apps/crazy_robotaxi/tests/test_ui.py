@@ -1032,10 +1032,10 @@ def test_fps_counter_measures_distinct_generated_video_frames(
 
 @pytest.mark.parametrize("show_current_prompt", [False, True])
 def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> None:
-    video = torch.zeros(1, 3, 180, 320)
+    video = torch.zeros(1, 3, 360, 320)
     state = TaxiHudState(
         320,
-        180,
+        360,
         _calibration(),
         show_current_prompt=show_current_prompt,
     )
@@ -1058,6 +1058,16 @@ def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> No
     assert ("Current Prompt" in imgui.windows) is show_current_prompt
     if show_current_prompt:
         assert len(imgui.windows["Current Prompt"]) > 1
+
+
+def test_current_prompt_overlay_preserves_room_for_gameplay_hud() -> None:
+    state = TaxiHudState(320, 360, _calibration(), show_current_prompt=True)
+    imgui = _FakeImGui()
+
+    prompt_offset = state._draw_current_prompt(imgui, "long prompt " * 100)
+
+    assert prompt_offset + 160.0 + 44.0 <= state.height
+    assert imgui.windows["Current Prompt"][-1] == "..."
 
 
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
