@@ -22,6 +22,7 @@ from dataclasses import replace
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.core.distributed import get_global_rank_for_logging
 from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
@@ -81,11 +82,15 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         application.init(application_args)
         return
     session_desc = _session_desc(application, parsed)
-    window = mode.create(parsed)
-    _report(mode.starting(window))
+    worker = get_global_rank_for_logging() != 0
+    window = None if worker else mode.create(parsed)
+    if window is not None:
+        _report(mode.starting(window))
     # The session's UI and client input decide when the run ends.
     metrics_output_sink = (
-        None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
+        None
+        if worker or parsed.stats_path is None
+        else MetricsOutputSink(parsed.stats_path)
     )
     ApplicationRunner(
         application,
@@ -96,7 +101,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         application_args,
         timeout_seconds=parsed.timeout,
     )
-    _report(mode.finished(window))
+    if window is not None:
+        _report(mode.finished(window))
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:

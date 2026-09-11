@@ -25,14 +25,15 @@ class ApplicationRunner:
     def __init__(
         self,
         application: IApplication,
-        client_window: IClientWindow,
+        client_window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
     ) -> None:
         """
         Args:
             application: Long-lived application that creates the session.
-            client_window: Window that supplies input and presents generated output.
+            client_window: Rank-zero input and output, or ``None`` on a model
+                worker.
             metrics_output_sink: Optional sink for model-step metrics. It is
                 opened and closed once for each session.
         """
@@ -112,7 +113,7 @@ class ApplicationRunner:
             )
 
 
-def _close_client_window(client_window: IClientWindow) -> None:
+def _close_client_window(client_window: IClientWindow | None) -> None:
     """Close a window still owned by the application runner.
 
     This covers initial setup and the gap between sessions. The run has already
@@ -120,7 +121,8 @@ def _close_client_window(client_window: IClientWindow) -> None:
     raised over the top of it.
     """
     try:
-        client_window.close()
+        if client_window is not None:
+            client_window.close()
     except Exception:
         _LOGGER.exception("The client window failed to close while stopping.")
 

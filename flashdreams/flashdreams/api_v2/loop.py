@@ -25,6 +25,7 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 if TYPE_CHECKING:
+    from flashdreams.runtime_v2.coordination import StepAgreement
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
@@ -257,6 +258,13 @@ class ILoop(ABC, Generic[StateT]):
             if result is not None:
                 raise TypeError("Message operations must return None.")
 
+    def _pace(self, last_run_started: float | None) -> float:
+        if self.frequency == 0 or last_run_started is None:
+            return time.monotonic()
+        earliest_start = last_run_started + 1.0 / self.frequency
+        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
+        return time.monotonic()
+
     def _empty_message_queue(self) -> None:
         while True:
             try:
@@ -310,6 +318,7 @@ class IModelLoop(ILoop[StateT], ABC):
         reader_id: int,
         publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
+        agreement: StepAgreement | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
 
@@ -319,29 +328,48 @@ class IModelLoop(ILoop[StateT], ABC):
             publish: Function called with each model result and the elapsed
                 seconds spent in :meth:`step`.
             max_steps: Maximum steps; ``None`` runs until stopped.
+            agreement: Runtime-owned admission and input synchronization for a mesh.
         """
         steps_run = 0
         last_run_started: float | None = None
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
-            while not self._shutdown_event.is_set() and (
-                max_steps is None or steps_run < max_steps
-            ):
+            while True:
+                stopping = self._shutdown_event.is_set() or (
+                    max_steps is not None and steps_run >= max_steps
+                )
+                if agreement is not None:
+                    if not agreement.ready(stopping=stopping):
+                        break
+                elif stopping:
+                    break
                 events, generation = event_buffer.read(reader_id)
+                if agreement is not None:
+                    events, generation = agreement.inputs(events, generation)
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
-                    run = self._begin_run(events, generation)
-                    if run.step_index is None:
+                    try:
+                        run = self._begin_run(events, generation)
+                        if run.step_index is not None:
+                            last_run_started = self._pace(last_run_started)
+                    except BaseException:
+                        if agreement is not None:
+                            try:
+                                agreement.ready(stopping=True, failed=True)
+                            except BaseException:
+                                # A departed peer must not replace the original failure.
+                                pass
+                        raise
+                    stopping = run.step_index is None or self._shutdown_event.is_set()
+                    if agreement is not None:
+                        if not agreement.ready(stopping=stopping):
+                            break
+                    elif stopping:
                         break
-                    if self.frequency != 0 and last_run_started is not None:
-                        earliest_start = last_run_started + 1.0 / self.frequency
-                        self._shutdown_event.wait(
-                            max(0.0, earliest_start - time.monotonic())
-                        )
-                    last_run_started = time.monotonic()
-                    if self._shutdown_event.is_set():
-                        break
+                    # Admission commits every rank to this step. A later UI stop is
+                    # handled at the next boundary, never by skipping a collective.
+                    assert run.step_index is not None
                     step_started_at = time.monotonic()
                     raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
