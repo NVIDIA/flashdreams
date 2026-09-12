@@ -304,6 +304,45 @@ def test_application_timeout_must_be_positive_and_finite(timeout: float) -> None
     assert calls == []
 
 
+def test_replacement_result_remains_authoritative_after_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every rank follows the synchronized result instead of racing its clock."""
+    calls: list[str] = []
+    application = _Application(calls)
+    session_desc = _session_desc()
+    results = iter((session_desc, None))
+    remaining_seconds: list[float | None] = []
+
+    def fake_run_session(
+        session: ISession,
+        window: IClientWindow | None,
+        *,
+        metrics_output_sink: MetricsOutputSink | None = None,
+        steps: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> SessionDesc | None:
+        del session, window, metrics_output_sink, steps
+        remaining_seconds.append(timeout_seconds)
+        return next(results)
+
+    times = iter((0.0, 0.5, 0.5, 1.1))
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.application_runner.time.monotonic",
+        lambda: next(times),
+    )
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.application_runner.run_session", fake_run_session
+    )
+
+    ApplicationRunner(application, _SilentWindow(calls)).run(
+        session_desc, timeout_seconds=1.0
+    )
+
+    assert len(application.sessions) == 2
+    assert remaining_seconds == [0.5, 0.0]
+
+
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:
     calls: list[str] = []
     window = _ClosingAfterWritesWindow(calls, 2)

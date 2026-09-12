@@ -254,21 +254,29 @@ class PresentationManager:
         queue is full, until there is room or the session stops;
         ``DROP_OLDEST`` evicts instead and returns.
 
+        **An empty chunk is a step that presented nothing**, and nothing is
+        queued or waited for. That is what a worker rank of a multi-process run
+        publishes: every rank generates the same frames and only one of them has
+        a client, so the rest would otherwise decode a copy nobody reads and
+        write a file nobody opens. A run whose steps all present nothing still
+        ends when its model loop does, since what ends it is the model thread
+        finishing with no frames left to show.
+
         Args:
             generation: Reset generation the chunk was generated in. A chunk
                 from an earlier one is discarded rather than presented.
-            chunk: One :class:`StepResult` per model channel.
+            chunk: One :class:`StepResult` per model channel, or empty to
+                present nothing for this step.
             step_elapsed_s: Time spent producing the result, including
                 post-processing inside the model step; ``None`` leaves the
                 presentation cadence unchanged.
 
         Raises:
-            ValueError: ``chunk`` is empty, or its channels disagree about
-                ``frame_count``.
+            ValueError: ``chunk``'s channels disagree about ``frame_count``.
             TypeError: ``chunk`` holds something other than results.
         """
         if not chunk:
-            raise ValueError("A presented chunk must contain at least one channel.")
+            return
         if any(not isinstance(result, StepResult) for result in chunk):
             raise TypeError("Every model channel must be a StepResult.")
         frame_count = chunk[0].frame_count
