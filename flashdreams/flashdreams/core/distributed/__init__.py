@@ -43,11 +43,10 @@ DEFAULT_LOG_LEVEL = "INFO"
 def _safe_destroy_pg() -> None:
     """Tear down the default process group on interpreter exit.
 
-    Registered via :func:`atexit.register` from :func:`init` so NCCL stops
-    printing the ``destroy_process_group() was not called before program
-    exit`` warning at the end of every ``flashdreams-run`` / ``torchrun``
-    invocation. Best-effort: never raises, so a teardown failure cannot
-    mask the original exit code or exception.
+    Registered via :func:`atexit.register` when a FlashDreams initializer owns
+    the default group, so NCCL does not warn about a leaked group at process
+    exit. Best-effort: never raises, so a teardown failure cannot mask the
+    original exit code or exception.
     """
     try:
         if dist.is_available() and dist.is_initialized():

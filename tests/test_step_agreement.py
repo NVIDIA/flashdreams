@@ -401,7 +401,10 @@ def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
             assert leader["indices"] == [0, 1, 2]
 
 
-def test_worker_cli_constructs_no_window_or_sink(monkeypatch):
+@pytest.mark.parametrize("fails", [False, True])
+def test_worker_cli_constructs_no_io_and_shuts_down_distributed(
+    monkeypatch: pytest.MonkeyPatch, fails: bool
+) -> None:
     from types import SimpleNamespace
 
     from flashdreams.runtime_v2 import cli
@@ -415,13 +418,18 @@ def test_worker_cli_constructs_no_window_or_sink(monkeypatch):
         lambda slug: SimpleNamespace(session_desc=lambda: SessionDesc()),
     )
     received = []
-    monkeypatch.setattr(
-        cli,
-        "ApplicationRunner",
-        lambda application, window, **kwargs: SimpleNamespace(
-            run=lambda *args, **run_kwargs: received.append((window, kwargs))
-        ),
-    )
+
+    def make_runner(application, window, **kwargs):
+        received.append((window, kwargs))
+
+        def run(*args, **run_kwargs):
+            del args, run_kwargs
+            if fails:
+                raise RuntimeError("injected application failure")
+
+        return SimpleNamespace(run=run)
+
+    monkeypatch.setattr(cli, "ApplicationRunner", make_runner)
     mode = cli.client_window_mode("webrtc")
     monkeypatch.setattr(
         mode, "create", lambda args: pytest.fail("worker created a window")
@@ -429,7 +437,27 @@ def test_worker_cli_constructs_no_window_or_sink(monkeypatch):
     monkeypatch.setattr(
         cli, "MetricsOutputSink", lambda path: pytest.fail("worker created a sink")
     )
-    cli.entrypoint(
-        ["fake", "--mode", "webrtc", "--port", "8123", "--stats-path", "shared.json"]
+    shutdown_calls = []
+    monkeypatch.setattr(
+        cli,
+        "shutdown_distributed",
+        lambda **kwargs: shutdown_calls.append(kwargs),
     )
+    arguments = [
+        "fake",
+        "--mode",
+        "webrtc",
+        "--port",
+        "8123",
+        "--stats-path",
+        "shared.json",
+    ]
+    if fails:
+        with pytest.raises(RuntimeError, match="injected application failure"):
+            cli.entrypoint(arguments)
+    else:
+        cli.entrypoint(arguments)
     assert received == [(None, {"metrics_output_sink": None})]
+    assert shutdown_calls == [
+        {"synchronize": not fails, "terminate_process": not fails}
+    ]

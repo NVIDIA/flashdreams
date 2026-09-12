@@ -21,6 +21,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
+from flashdreams.core.distributed import parallel
 from flashdreams.core.distributed.context_parallel import (
     build_shard,
     gather_tokens,
@@ -247,6 +248,26 @@ def test_single_rank_gather_is_a_noop() -> None:
     ctx = ParallelContext.single()
     x = torch.arange(5)
     assert gather_tokens(x, build_shard(5, ctx), ctx, dim=-1) is x
+
+
+def test_init_parallel_registers_cleanup_for_an_owned_world(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    expected = context(tp=2)
+    with (
+        patch.object(dist, "is_initialized", return_value=False),
+        patch.object(dist, "init_process_group") as initialize,
+        patch.object(parallel, "build_context", return_value=expected),
+        patch.object(parallel.atexit, "register") as register,
+    ):
+        actual = init_parallel(head_groups=8)
+
+    assert actual is expected
+    initialize.assert_called_once_with(backend="gloo")
+    register.assert_called_once_with(parallel._safe_destroy_pg)
 
 
 def test_collectives_require_the_axis_group() -> None:

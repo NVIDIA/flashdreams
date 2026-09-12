@@ -22,7 +22,10 @@ from dataclasses import replace
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
-from flashdreams.core.distributed import get_global_rank_for_logging
+from flashdreams.core.distributed import (
+    get_global_rank_for_logging,
+    shutdown as shutdown_distributed,
+)
 from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
@@ -92,17 +95,25 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         if worker or parsed.stats_path is None
         else MetricsOutputSink(parsed.stats_path)
     )
-    ApplicationRunner(
-        application,
-        window,
-        metrics_output_sink=metrics_output_sink,
-    ).run(
-        session_desc,
-        application_args,
-        timeout_seconds=parsed.timeout,
-    )
-    if window is not None:
-        _report(mode.finished(window))
+    completed = False
+    try:
+        ApplicationRunner(
+            application,
+            window,
+            metrics_output_sink=metrics_output_sink,
+        ).run(
+            session_desc,
+            application_args,
+            timeout_seconds=parsed.timeout,
+        )
+        if window is not None:
+            _report(mode.finished(window))
+        completed = True
+    finally:
+        shutdown_distributed(
+            synchronize=completed,
+            terminate_process=completed,
+        )
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
