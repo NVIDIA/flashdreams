@@ -31,9 +31,9 @@ from crazy_robotaxi.rules import (
 )
 from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
-    _selection_grid_columns,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
+    _selection_grid_columns,
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
