@@ -400,15 +400,452 @@ SPDX-License-Identifier: Apache-2.0
 <span class="c1"># See the License for the specific language governing permissions and</span>
 <span class="c1"># limitations under the License.</span>
 
-<span class="sd">&quot;&quot;&quot;Block KV cache for causal attention with a fixed-size local window.&quot;&quot;&quot;</span>
+<span class="sd">&quot;&quot;&quot;K/V caches for causal attention and fixed-slot multi-view memory.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">pairwise</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tensor</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">Self</span>
+
+<span class="n">LayerKV</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]</span>
+<span class="sd">&quot;&quot;&quot;Key/value tensors for one attention layer.&quot;&quot;&quot;</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SlotRegion</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Describe one independently rotating region of a fixed-slot cache.&quot;&quot;&quot;</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Unique name used to select the region when writing.&quot;&quot;&quot;</span>
+
+    <span class="n">start</span><span class="p">:</span> <span class="nb">int</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;First token of the region in the physical cache.&quot;&quot;&quot;</span>
+
+    <span class="n">slots</span><span class="p">:</span> <span class="nb">int</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of circular slots in the region.&quot;&quot;&quot;</span>
+
+    <span class="n">slot_tokens</span><span class="p">:</span> <span class="nb">int</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Maximum number of tokens held by each slot.&quot;&quot;&quot;</span>
+
+    <span class="n">extends_length</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether writes extend the visible cache prefix.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;a slot region needs a non-empty name.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">start</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;region </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> starts before zero.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slots</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;region </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> cannot have </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">slots</span><span class="si">}</span><span class="s2"> slots.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slots</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">slot_tokens</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;region </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> has </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">slots</span><span class="si">}</span><span class="s2"> slots but &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">slot_tokens</span><span class="si">}</span><span class="s2"> tokens per slot.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">slots</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">slot_tokens</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;region </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> cannot have </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">slot_tokens</span><span class="si">}</span><span class="s2"> tokens per slot.&quot;</span>
+            <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">end</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the exclusive physical end of the region.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">start</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">slots</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">slot_tokens</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">FixedSlotKVCache</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Store per-layer keys and values in named circular slot regions.</span>
+
+<span class="sd">    A fixed prefill occupies the initial visible prefix. Regions inside that</span>
+<span class="sd">    prefix can rotate controls or other replaceable context, while regions</span>
+<span class="sd">    after it can extend the visible prefix with generated history. All writes</span>
+<span class="sd">    preserve the allocated tensor addresses for CUDA-graph compatibility.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">prefilled</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">LayerKV</span><span class="p">],</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">capacity</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">regions</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">SlotRegion</span><span class="p">],</span>
+        <span class="n">seq_dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Allocate storage and copy the prefilled key/value tensors.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            prefilled: Per-layer key/value tensors with a shared sequence length.</span>
+<span class="sd">            capacity: Total tokens reserved along ``seq_dim``.</span>
+<span class="sd">            regions: Independently rotating physical slot regions.</span>
+<span class="sd">            seq_dim: Sequence dimension in every key/value tensor.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: Inputs or slot regions cannot describe a valid cache.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">prefilled</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;a fixed-slot cache needs at least one layer.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">capacity</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;capacity must be non-negative, got </span><span class="si">{</span><span class="n">capacity</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+
+        <span class="n">first_k</span><span class="p">,</span> <span class="n">first_v</span> <span class="o">=</span> <span class="n">prefilled</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">first_k</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="n">first_v</span><span class="o">.</span><span class="n">ndim</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;key and value tensors must have the same rank.&quot;</span><span class="p">)</span>
+        <span class="n">tensor_dim</span> <span class="o">=</span> <span class="n">first_k</span><span class="o">.</span><span class="n">ndim</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="o">-</span><span class="n">tensor_dim</span> <span class="o">&lt;=</span> <span class="n">seq_dim</span> <span class="o">&lt;</span> <span class="n">tensor_dim</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;seq_dim must be in [-</span><span class="si">{</span><span class="n">tensor_dim</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">tensor_dim</span><span class="si">}</span><span class="s2">), got </span><span class="si">{</span><span class="n">seq_dim</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span> <span class="o">=</span> <span class="n">seq_dim</span> <span class="o">%</span> <span class="n">tensor_dim</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">first_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">])</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">first_v</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">])</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;prefilled keys and values need the same sequence length.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">capacity</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;the prefill wrote </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="si">}</span><span class="s2"> tokens, past a &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;capacity of </span><span class="si">{</span><span class="n">capacity</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_capacity</span> <span class="o">=</span> <span class="n">capacity</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_regions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_next_slot</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_regions</span><span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">layer</span><span class="p">,</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">prefilled</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_validate_prefill_layer</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">layer</span><span class="p">)</span>
+            <span class="n">key_shape</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">value_shape</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">key_shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">]</span> <span class="o">=</span> <span class="n">capacity</span>
+            <span class="n">value_shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">]</span> <span class="o">=</span> <span class="n">capacity</span>
+            <span class="n">key_buffer</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">new_zeros</span><span class="p">(</span><span class="n">key_shape</span><span class="p">)</span>
+            <span class="n">value_buffer</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">new_zeros</span><span class="p">(</span><span class="n">value_shape</span><span class="p">)</span>
+            <span class="n">prefix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">,</span> <span class="n">tensor_dim</span><span class="p">)</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">key_buffer</span><span class="p">[</span><span class="n">prefix</span><span class="p">]</span> <span class="o">=</span> <span class="n">key</span>
+                <span class="n">value_buffer</span><span class="p">[</span><span class="n">prefix</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">key_buffer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value_buffer</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">capacity</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the allocated token capacity.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_capacity</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">length</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the visible token prefix length.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">seq_dim</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the normalized sequence dimension.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">layers</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">LayerKV</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return per-layer views over the visible token prefix.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span>
+            <span class="p">(</span>
+                <span class="n">key</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">,</span> <span class="n">key</span><span class="o">.</span><span class="n">ndim</span><span class="p">)],</span>
+                <span class="n">value</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">,</span> <span class="n">value</span><span class="o">.</span><span class="n">ndim</span><span class="p">)],</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">region_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chunk</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">LayerKV</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write a chunk into the next slot of a named region.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            region_name: Region to advance.</span>
+<span class="sd">            chunk: Per-layer key/value tensors to write.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Physical slot index within the selected region.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The region is missing, has no slots, or cannot hold the</span>
+<span class="sd">                supplied tensors.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">region</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_regions</span><span class="p">[</span><span class="n">region_name</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown slot region </span><span class="si">{</span><span class="n">region_name</span><span class="si">!r}</span><span class="s2">.&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">error</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">region</span><span class="o">.</span><span class="n">slots</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;slot region </span><span class="si">{</span><span class="n">region_name</span><span class="si">!r}</span><span class="s2"> has no reusable slots.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span><span class="si">}</span><span class="s2"> layers of chunk for </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">)</span><span class="si">}</span><span class="s2"> layers of memory.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">count</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">chunk</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">count</span> <span class="o">&gt;</span> <span class="n">region</span><span class="o">.</span><span class="n">slot_tokens</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> tokens do not fit the </span><span class="si">{</span><span class="n">region</span><span class="o">.</span><span class="n">slot_tokens</span><span class="si">}</span><span class="s2">-token slots &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;in region </span><span class="si">{</span><span class="n">region_name</span><span class="si">!r}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">count</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;a cache write needs at least one token.&quot;</span><span class="p">)</span>
+
+        <span class="n">slot</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_next_slot</span><span class="p">[</span><span class="n">region_name</span><span class="p">]</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">region</span><span class="o">.</span><span class="n">start</span> <span class="o">+</span> <span class="n">slot</span> <span class="o">*</span> <span class="n">region</span><span class="o">.</span><span class="n">slot_tokens</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">count</span>
+        <span class="n">destination</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span><span class="p">)</span>
+        <span class="n">tail</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="n">end</span><span class="p">,</span> <span class="n">start</span> <span class="o">+</span> <span class="n">region</span><span class="o">.</span><span class="n">slot_tokens</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">layer</span><span class="p">,</span> <span class="p">((</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="n">key_buffer</span><span class="p">,</span> <span class="n">value_buffer</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span>
+            <span class="nb">zip</span><span class="p">(</span><span class="n">chunk</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_validate_chunk_layer</span><span class="p">(</span>
+                <span class="n">key</span><span class="p">,</span> <span class="n">key_buffer</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="n">count</span><span class="p">,</span> <span class="n">layer</span><span class="o">=</span><span class="n">layer</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;key&quot;</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_validate_chunk_layer</span><span class="p">(</span>
+                <span class="n">value</span><span class="p">,</span> <span class="n">value_buffer</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="n">count</span><span class="p">,</span> <span class="n">layer</span><span class="o">=</span><span class="n">layer</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;value&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="n">key_buffer</span><span class="p">,</span> <span class="n">value_buffer</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+                <span class="n">chunk</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span>
+            <span class="p">):</span>
+                <span class="n">key_buffer</span><span class="p">[</span><span class="n">destination</span><span class="p">]</span> <span class="o">=</span> <span class="n">key</span>
+                <span class="n">value_buffer</span><span class="p">[</span><span class="n">destination</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+                <span class="n">key_buffer</span><span class="p">[</span><span class="n">tail</span><span class="p">]</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
+                <span class="n">value_buffer</span><span class="p">[</span><span class="n">tail</span><span class="p">]</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">region</span><span class="o">.</span><span class="n">extends_length</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_length</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">,</span> <span class="n">region</span><span class="o">.</span><span class="n">start</span> <span class="o">+</span> <span class="p">(</span><span class="n">slot</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">region</span><span class="o">.</span><span class="n">slot_tokens</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_next_slot</span><span class="p">[</span><span class="n">region_name</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">slot</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">region</span><span class="o">.</span><span class="n">slots</span>
+        <span class="k">return</span> <span class="n">slot</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefilled</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">LayerKV</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Restore a fresh prefill without reallocating cache storage.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            prefilled: Replacement prefix with the original layer shapes and</span>
+<span class="sd">                sequence length.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">prefilled</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">prefilled</span><span class="p">)</span><span class="si">}</span><span class="s2"> prefill layers for </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">)</span><span class="si">}</span><span class="s2"> cache layers.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">prefix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span><span class="p">)</span>
+        <span class="n">suffix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_capacity</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">layer</span><span class="p">,</span> <span class="p">((</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="n">key_buffer</span><span class="p">,</span> <span class="n">value_buffer</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span>
+            <span class="nb">zip</span><span class="p">(</span><span class="n">prefilled</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_validate_prefill_layer</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">layer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_validate_chunk_layer</span><span class="p">(</span>
+                <span class="n">key</span><span class="p">,</span>
+                <span class="n">key_buffer</span><span class="p">,</span>
+                <span class="n">count</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">,</span>
+                <span class="n">layer</span><span class="o">=</span><span class="n">layer</span><span class="p">,</span>
+                <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;key&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_validate_chunk_layer</span><span class="p">(</span>
+                <span class="n">value</span><span class="p">,</span>
+                <span class="n">value_buffer</span><span class="p">,</span>
+                <span class="n">count</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">,</span>
+                <span class="n">layer</span><span class="o">=</span><span class="n">layer</span><span class="p">,</span>
+                <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="n">key_buffer</span><span class="p">,</span> <span class="n">value_buffer</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+                <span class="n">prefilled</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span>
+            <span class="p">):</span>
+                <span class="n">key_buffer</span><span class="p">[</span><span class="n">prefix</span><span class="p">]</span> <span class="o">=</span> <span class="n">key</span>
+                <span class="n">value_buffer</span><span class="p">[</span><span class="n">prefix</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+                <span class="n">key_buffer</span><span class="p">[</span><span class="n">suffix</span><span class="p">]</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
+                <span class="n">value_buffer</span><span class="p">[</span><span class="n">suffix</span><span class="p">]</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_next_slot</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_next_slot</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_regions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">regions</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">SlotRegion</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SlotRegion</span><span class="p">]:</span>
+        <span class="n">by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SlotRegion</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">occupied</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">SlotRegion</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">region</span> <span class="ow">in</span> <span class="n">regions</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">region</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">by_name</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;duplicate slot region name </span><span class="si">{</span><span class="n">region</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">.&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">region</span><span class="o">.</span><span class="n">end</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_capacity</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;region </span><span class="si">{</span><span class="n">region</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> ends at </span><span class="si">{</span><span class="n">region</span><span class="o">.</span><span class="n">end</span><span class="si">}</span><span class="s2">, past the &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;cache capacity of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_capacity</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">region</span><span class="o">.</span><span class="n">extends_length</span> <span class="ow">and</span> <span class="n">region</span><span class="o">.</span><span class="n">end</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;non-extending region </span><span class="si">{</span><span class="n">region</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> ends at </span><span class="si">{</span><span class="n">region</span><span class="o">.</span><span class="n">end</span><span class="si">}</span><span class="s2">, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;past the prefilled prefix of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+            <span class="n">by_name</span><span class="p">[</span><span class="n">region</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">region</span>
+            <span class="k">if</span> <span class="n">region</span><span class="o">.</span><span class="n">slots</span><span class="p">:</span>
+                <span class="n">occupied</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">region</span><span class="p">)</span>
+
+        <span class="n">ordered</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">occupied</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">region</span><span class="p">:</span> <span class="n">region</span><span class="o">.</span><span class="n">start</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">previous</span><span class="p">,</span> <span class="n">current</span> <span class="ow">in</span> <span class="n">pairwise</span><span class="p">(</span><span class="n">ordered</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">current</span><span class="o">.</span><span class="n">start</span> <span class="o">&lt;</span> <span class="n">previous</span><span class="o">.</span><span class="n">end</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;slot regions </span><span class="si">{</span><span class="n">previous</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> and </span><span class="si">{</span><span class="n">current</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> overlap.&quot;</span>
+                <span class="p">)</span>
+        <span class="k">return</span> <span class="n">by_name</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_prefill_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">layer</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">expected_rank</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span> <span class="k">else</span> <span class="n">key</span><span class="o">.</span><span class="n">ndim</span>
+        <span class="k">if</span> <span class="n">key</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="n">expected_rank</span> <span class="ow">or</span> <span class="n">value</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="n">expected_rank</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;prefill layer </span><span class="si">{</span><span class="n">layer</span><span class="si">}</span><span class="s2"> has inconsistent tensor ranks.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">])</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;prefill layer </span><span class="si">{</span><span class="n">layer</span><span class="si">}</span><span class="s2"> has </span><span class="si">{</span><span class="n">key</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">]</span><span class="si">}</span><span class="s2"> key tokens; &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;expected </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">])</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;prefill layer </span><span class="si">{</span><span class="n">layer</span><span class="si">}</span><span class="s2"> has </span><span class="si">{</span><span class="n">value</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">]</span><span class="si">}</span><span class="s2"> value tokens; &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;expected </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_initial_length</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">for</span> <span class="n">dim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">dim</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span> <span class="ow">and</span> <span class="n">key</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="o">!=</span> <span class="n">value</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;prefill layer </span><span class="si">{</span><span class="n">layer</span><span class="si">}</span><span class="s2"> key/value shapes disagree at dimension </span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_chunk_layer</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">source</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">destination</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">layer</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">source</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="n">destination</span><span class="o">.</span><span class="n">ndim</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;chunk layer </span><span class="si">{</span><span class="n">layer</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2"> rank does not match its cache.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">for</span> <span class="n">dim</span><span class="p">,</span> <span class="p">(</span><span class="n">source_size</span><span class="p">,</span> <span class="n">destination_size</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span>
+            <span class="nb">zip</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">destination</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">):</span>
+            <span class="n">expected</span> <span class="o">=</span> <span class="n">count</span> <span class="k">if</span> <span class="n">dim</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span> <span class="k">else</span> <span class="n">destination_size</span>
+            <span class="k">if</span> <span class="n">source_size</span> <span class="o">!=</span> <span class="n">expected</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;chunk layer </span><span class="si">{</span><span class="n">layer</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2"> dimension </span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="n">source_size</span><span class="si">}</span><span class="s2">; &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;expected </span><span class="si">{</span><span class="n">expected</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_seq_slice</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">ndim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">slice</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="p">[</span><span class="nb">slice</span><span class="p">(</span><span class="kc">None</span><span class="p">)]</span> <span class="o">*</span> <span class="n">ndim</span>
+        <span class="n">index</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_dim</span><span class="p">]</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TokenWindow</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Store the most recent multi-view token frames in a circular buffer.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">num_views</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">frames</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">spatial</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Allocate a bounded ``[V, T, S, D]`` token window.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">min</span><span class="p">(</span><span class="n">num_views</span><span class="p">,</span> <span class="n">frames</span><span class="p">,</span> <span class="n">spatial</span><span class="p">,</span> <span class="n">width</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;num_views, frames, spatial, and width must all be positive.&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frames</span> <span class="o">=</span> <span class="n">frames</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_store</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+            <span class="n">num_views</span><span class="p">,</span> <span class="n">frames</span><span class="p">,</span> <span class="n">spatial</span><span class="p">,</span> <span class="n">width</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_end</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">capacity</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of frames held at once.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frames</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the oldest absolute frame still readable.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_end</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frames</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">end</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return one past the newest absolute frame written.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_end</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">tokens</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Append the next consecutive frame range.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            start: First absolute frame in the range.</span>
+<span class="sd">            end: Exclusive absolute end of the range.</span>
+<span class="sd">            tokens: Tokens shaped ``[V, end - start, S, D]``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The range is non-consecutive, empty, too large, or has</span>
+<span class="sd">                an incompatible tensor shape.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">start</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_end</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;frames [</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">end</span><span class="si">}</span><span class="s2">) do not carry on from </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_end</span><span class="si">}</span><span class="s2">; &quot;</span>
+                <span class="s2">&quot;a window is written in order.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="n">start</span>
+        <span class="k">if</span> <span class="n">count</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">end</span><span class="si">}</span><span class="s2">) is not a frame range.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">count</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frames</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> frames at once do not fit a </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_frames</span><span class="si">}</span><span class="s2">-frame window.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_store</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">count</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_store</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_store</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">tokens</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">!=</span> <span class="n">expected</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;tokens have shape </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">tokens</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2">; expected </span><span class="si">{</span><span class="n">expected</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_store</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ring</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)]</span> <span class="o">=</span> <span class="n">tokens</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_end</span> <span class="o">=</span> <span class="n">end</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return tokens for an absolute frame range.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The range is empty, unwritten, or no longer retained.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">start</span> <span class="o">&gt;=</span> <span class="n">end</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">end</span><span class="si">}</span><span class="s2">) is not a frame range.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">end</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_end</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;frames up to </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_end</span><span class="si">}</span><span class="s2"> are written; [</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">end</span><span class="si">}</span><span class="s2">) &quot;</span>
+                <span class="s2">&quot;reaches past that.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">start</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">start</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">end</span><span class="si">}</span><span class="s2">) reaches back past frame </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">start</span><span class="si">}</span><span class="s2">, which &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;is as far as a </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_frames</span><span class="si">}</span><span class="s2">-frame window goes.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_store</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ring</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Reset the visible frame range without reallocating storage.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_end</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ring</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">frames</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_store</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">frames</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frames</span>
 
 
 <div class="viewcode-block" id="BlockKVCache">
@@ -805,6 +1242,15 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">v</span><span class="p">)</span></div>
 </div>
 
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;BlockKVCache&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;FixedSlotKVCache&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;LayerKV&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SlotRegion&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;TokenWindow&quot;</span><span class="p">,</span>
+<span class="p">]</span>
 </pre></div>
 
                 </article>
