@@ -1,0 +1,55 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "**"
+  workflow_dispatch:
+
+jobs:
+  hf-readme-inference-assets:
+    name: HF README inference assets
+    runs-on: linux-amd64-cpu8
+    container:
+      image: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+    permissions:
+      contents: read
+    env:
+      UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
+      UV_LINK_MODE: copy
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            python3 python3-dev python3-venv \
+            git curl ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-suffix: "cd-hf-access"
+
+      - name: Install workspace dependencies
+        env:
+          BLOCK_SPARSE_ATTN_SKIP_CUDA_BUILD: "TRUE"
+        run: |
+          uv venv --clear
+          uv sync --extra runners --no-install-package transformer-engine-torch
+
+      - name: Verify HF token is configured
+        run: |
+          test -n "${HF_TOKEN}" || {
+            echo "::error::HF_TOKEN secret is required for CD HF asset verification"
+            exit 1
+          }
+
+      - name: Verify HF inference assets
+        run: uv run --no-sync python flashdreams/tests/check_hf_inference_assets.py
