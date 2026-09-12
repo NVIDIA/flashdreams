@@ -122,6 +122,9 @@ time limit bounds kernel or process failures that cannot unwind. See
 [ARCHITECTURE.md](../../../ARCHITECTURE.md#many-gpu-sessions) for the process
 and thread model, and `tests/test_step_agreement.py` for fault-injection checks.
 
+The v2 CLI synchronizes and releases the default process group after a clean
+run; on failure it lets the process supervisor terminate blocked peers.
+
 ## The command line
 
 `flashdreams-run-v2 SLUG` finds an application through the
