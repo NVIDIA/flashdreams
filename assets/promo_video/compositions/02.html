@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .stage {
+        position: absolute;
+        inset: 0;
+        background: transparent;
+      }
+
+      .heading {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        max-width: 1100px;
+        z-index: 50;
+      }
+
+      .title {
+        padding: 18px 26px;
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-size: 78px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+        clip-path: inset(0 100% 0 0);
+      }
+
+      /* Label vignette only — no noise (tiles sit above grid videos in index.html). */
+      .tile {
+        position: absolute;
+        width: 640px;
+        height: 360px;
+        border-radius: 0;
+        pointer-events: none;
+        background-image: linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.55) 0%,
+            rgba(0, 0, 0, 0.12) 22%,
+            rgba(0, 0, 0, 0) 42%,
+            rgba(0, 0, 0, 0) 72%,
+            rgba(0, 0, 0, 0.35) 100%
+          ),
+          linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0) 38%);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        z-index: 20;
+      }
+
+      .c1 { left: 0; }
+      .c2 { left: 640px; }
+      .c3 { left: 1280px; }
+      .r1 { top: 0; }
+      .r2 { top: 360px; }
+      .r3 { top: 720px; }
+
+      .label {
+        position: absolute;
+        left: 24px;
+        top: 20px;
+        right: 24px;
+      }
+
+      .name {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font-size: 34px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+      }
+
+      .desc {
+        margin-top: 10px;
+        margin-left: 8px;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 20px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+      }
+
+      .more {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .tile.more.bg-green-center-glow {
+        background-color: var(--bg);
+        background-image:
+          var(--noise-tile-soft),
+          radial-gradient(
+            ellipse 120% 95% at 50% 42%,
+            rgba(118, 185, 0, 0.26) 0%,
+            rgba(118, 185, 0, 0.18) 24%,
+            rgba(118, 185, 0, 0.1) 42%,
+            rgba(118, 185, 0, 0.045) 56%,
+            transparent 72%
+          ),
+          linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.55) 0%,
+            rgba(0, 0, 0, 0.12) 22%,
+            rgba(0, 0, 0, 0) 42%,
+            rgba(0, 0, 0, 0) 72%,
+            rgba(0, 0, 0, 0.35) 100%
+          ),
+          linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0) 38%);
+        background-size: 512px 512px, cover, auto, auto;
+        background-blend-mode: soft-light, normal, normal, normal;
+        background-repeat: no-repeat;
+      }
+
+      .more .name {
+        color: var(--green);
+        font-size: 46px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="scene-model-grid"
+      data-duration="5"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div id="stage" class="clip stage" data-start="0" data-duration="5" data-track-index="0">
+        <div class="heading">
+          <div class="title">Many Supported Models</div>
+        </div>
+      </div>
+
+      <div id="t1" class="clip tile c1 r1" data-start="0" data-duration="5" data-track-index="1"><div class="label"><div class="name">OmniDreams</div><div class="desc">closed-loop AV simulator</div></div></div>
+      <div id="t2" class="clip tile c2 r1" data-start="0" data-duration="5" data-track-index="2"><div class="label"><div class="name">LingBot-World</div><div class="desc">camera/action-control world model</div></div></div>
+      <div id="t3" class="clip tile c3 r1" data-start="0" data-duration="5" data-track-index="3"><div class="label"><div class="name">Self-Forcing</div><div class="desc">autoregressive T2V / I2V</div></div></div>
+      <div id="t4" class="clip tile c1 r2" data-start="0" data-duration="5" data-track-index="4"><div class="label"><div class="name">Causal-Forcing</div><div class="desc">autoregressive T2V / I2V</div></div></div>
+      <div id="t5" class="clip tile c2 r2" data-start="0" data-duration="5" data-track-index="5"><div class="label"><div class="name">Causal Wan2.2</div><div class="desc">autoregressive T2V / I2V</div></div></div>
+      <div id="t6" class="clip tile c3 r2" data-start="0" data-duration="5" data-track-index="6"><div class="label"><div class="name">FlashVSR</div><div class="desc">autoregressive super-resolution</div></div></div>
+      <div id="t7" class="clip tile c1 r3" data-start="0" data-duration="5" data-track-index="7"><div class="label"><div class="name">Wan2.1</div><div class="desc">bidirectional video model</div></div></div>
+      <div id="t8" class="clip tile c2 r3" data-start="0" data-duration="5" data-track-index="8"><div class="label"><div class="name">Cosmos-Predict2.5</div><div class="desc">bidirectional world model</div></div></div>
+      <div id="t9" class="clip tile c3 r3 more bg-green-center-glow" data-start="0" data-duration="5" data-track-index="9">
+        <div><div class="name">And more to come.</div></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.to(".title", {
+        clipPath: "inset(0 0% 0 0)",
+        duration: 0.9,
+        ease: "power2.out",
+      }, 0.25);
+
+      window.__timelines["scene-model-grid"] = tl;
+    </script>
+  </body>
+</html>
