@@ -53,6 +53,44 @@ def test_get_global_rank_for_logging_uses_env_before_distributed_init(
     assert distributed.get_global_rank_for_logging() == 7
 
 
+@pytest.mark.parametrize("exception_attribute", ("last_exc", "last_value"))
+def test_exit_cleanup_skips_destroy_after_unhandled_failure(
+    monkeypatch: pytest.MonkeyPatch, exception_attribute: str
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(distributed.sys, "last_exc", None, raising=False)
+    monkeypatch.setattr(distributed.sys, "last_value", None, raising=False)
+    monkeypatch.setattr(
+        distributed.sys, exception_attribute, RuntimeError("rank failed")
+    )
+    monkeypatch.setattr(distributed.dist, "is_available", lambda: True)
+    monkeypatch.setattr(distributed.dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        distributed.dist, "destroy_process_group", lambda: calls.append("destroy")
+    )
+
+    distributed._safe_destroy_pg()
+
+    assert calls == []
+
+
+def test_exit_cleanup_destroys_owned_group_after_clean_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(distributed.sys, "last_exc", None, raising=False)
+    monkeypatch.setattr(distributed.sys, "last_value", None, raising=False)
+    monkeypatch.setattr(distributed.dist, "is_available", lambda: True)
+    monkeypatch.setattr(distributed.dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        distributed.dist, "destroy_process_group", lambda: calls.append("destroy")
+    )
+
+    distributed._safe_destroy_pg()
+
+    assert calls == ["destroy"]
+
+
 def test_shutdown_synchronizes_successful_run_before_destroy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
