@@ -426,10 +426,14 @@ SPDX-License-Identifier: Apache-2.0
   <section id="add-a-new-method">
 <h1>Add a new method<a class="headerlink" href="#add-a-new-method" title="Link to this heading">#</a></h1>
 <p>Before you start adding a new method, we highly recommend reading the <a class="reference internal" href="inference_pipeline_overview.html"><span class="doc">Inference pipeline overview</span></a> and <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a> pages first to obtain an overview of the system architecture.</p>
-<p>FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a <em>standalone repository</em> that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations">integrations/</a> directory of this repository.</p>
+<p>FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a <em>standalone repository</em> that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2">integrations_v2/</a> directory of this repository.</p>
 <p>However, if any of your new features require modifications to the core FlashDreams infra or introduce generally useful components (such as the <a class="reference internal" href="../api/integrations.html#module-flashdreams.recipes.taehv" title="flashdreams.recipes.taehv"><code class="xref py py-mod docutils literal notranslate"><span class="pre">TAEHV</span> <span class="pre">decoder</span></code></a>), we encourage you to submit a PR to enable others to benefit from them.</p>
 <section id="file-structure">
 <h2>File structure<a class="headerlink" href="#file-structure" title="Link to this heading">#</a></h2>
+<p>This page still describes a standalone package that registers a
+<code class="docutils literal notranslate"><span class="pre">flashdreams.runner_configs</span></code> runner (<code class="docutils literal notranslate"><span class="pre">runner.py</span></code> below). In-tree
+packages under <code class="docutils literal notranslate"><span class="pre">integrations_v2/</span></code> do not add <code class="docutils literal notranslate"><span class="pre">runner.py</span></code>; they follow
+the layout in <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/README.md">integrations_v2/README.md</a>.</p>
 <p>We recommend the following file structure for your new method:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>customized_method/
 ├── customized_method/
@@ -448,8 +452,8 @@ SPDX-License-Identifier: Apache-2.0
 Most integrations can use the base <a class="reference internal" href="../api/infra.html#flashdreams.infra.pipeline.StreamInferencePipeline" title="flashdreams.infra.pipeline.StreamInferencePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">StreamInferencePipeline</span></code></a> directly and only provide model components plus config literals.
 As explained in <a class="reference internal" href="config_system.html"><span class="doc">Config system</span></a>, a method typically defines a pipeline config and a runner config.
 The runner handles CLI-facing I/O and runtime loops.</p>
-<div class="literal-block-wrapper docutils container" id="id1">
-<div class="code-block-caption"><span class="caption-text">customized_method/runner.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">customized_method/runner.py</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipeline</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.runner</span><span class="w"> </span><span class="kn">import</span> <span class="n">Runner</span><span class="p">,</span> <span class="n">RunnerConfig</span>
@@ -479,8 +483,8 @@ The runner handles CLI-facing I/O and runtime loops.</p>
 </pre></div>
 </div>
 </div>
-<div class="literal-block-wrapper docutils container" id="id2">
-<div class="code-block-caption"><span class="caption-text">customized_method/config.py</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">customized_method/config.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionModelConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlowMatchSchedulerConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipelineConfig</span>
@@ -507,7 +511,7 @@ The runner handles CLI-facing I/O and runtime loops.</p>
 </pre></div>
 </div>
 </div>
-<p>You can use the existing integrations under the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2">integrations_v2/</a> directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">OmniDreams</a> and <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing">Self-Forcing</a> integrations for good references on how to extend and use FlashDreams in your own projects.</p>
+<p>The in-tree packages under <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2">integrations_v2/</a> are the current examples, but they follow the v2 layout (<code class="docutils literal notranslate"><span class="pre">config.py</span></code>, <code class="docutils literal notranslate"><span class="pre">impl/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/&lt;demo&gt;/adapter.py</span></code>), not the <code class="docutils literal notranslate"><span class="pre">runner.py</span></code> tree on this page. <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">OmniDreams</a> and <a class="reference external" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing">Self-Forcing</a> are the usual starting points. Rewriting this tutorial onto that layout is a follow-up.</p>
 </section>
 <section id="registering-your-method">
 <h2>Registering your method<a class="headerlink" href="#registering-your-method" title="Link to this heading">#</a></h2>
@@ -524,8 +528,8 @@ flashdreams-run<span class="w"> </span>customized-method<span class="w"> </span>
 </div>
 <p>To register your own models, package your code as a Python package and declare a runner entry point in its <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. FlashDreams discovers every registered runner at import time and surfaces it through the same command-line interface as the in-tree integrations. There is no central manifest to keep in sync.</p>
 <p>Create a <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> file. This is where the entrypoint to your method is set and also where you can specify additional dependencies required by your codebase.</p>
-<div class="literal-block-wrapper docutils container" id="id3">
-<div class="code-block-caption"><span class="caption-text">pyproject.toml</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">pyproject.toml</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project]</span>
 <span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;customized_method&quot;</span>
 <span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>

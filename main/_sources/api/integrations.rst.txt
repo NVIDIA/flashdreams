@@ -14,7 +14,7 @@
 .. limitations under the License.
 
 Pipelines, runners, and applications
-===================================
+====================================
 
 FlashDreams model integrations use these public layers:
 
@@ -23,18 +23,17 @@ FlashDreams model integrations use these public layers:
 - **V2 applications** (``IApplication``) that bind reusable demo infrastructure
   directly to pipeline configs.
 
-Most actively developed model implementations now live under ``integrations/*``
-as plugin-style standalone packages. This page keeps documenting the in-tree
-pipeline modules that are still exposed from ``flashdreams.recipes``.
+Most actively developed model implementations now live under
+``integrations_v2/<name>/`` as plugin-style standalone packages. This page
+keeps documenting the in-tree pipeline modules that are still exposed from
+``flashdreams.recipes``.
 
 .. note::
 
    Pipeline modules import the heavy GPU stack (transformer-engine, CUDA
    ops) at import time, so this page shows them by *automodule* with
    ``:no-undoc-members:`` to keep the rendered API focused on the names
-   that these in-tree modules actually expose. The unified ``flashdreams-run``
-   CLI shows end-to-end usage; see :doc:`/models/index` for model launch
-   examples.
+   that these in-tree modules actually expose.
 
 Integration structure (current)
 -------------------------------
@@ -51,9 +50,7 @@ V2 demo ports follow ``integrations_v2/<name>/``:
 
 Apart from that unique config, the integration root contains no implementation
 modules. These packages do not add ``runner.py`` or
-``flashdreams.runner_configs`` just to launch a v2 demo. Older plugin-style
-integrations under ``integrations/`` may still expose runners through
-``flashdreams-run``.
+``flashdreams.runner_configs`` just to launch a v2 demo.
 
 The default application entry point uses
 ``<demo-slug>-<model-slug>`` and ``create_app``. Additional compatible

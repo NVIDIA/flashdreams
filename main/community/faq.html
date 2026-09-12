@@ -425,7 +425,7 @@ methods.</p>
 </section>
 <section id="which-model-integrations-ship-in-the-box">
 <h3>Which model integrations ship in the box?<a class="headerlink" href="#which-model-integrations-ship-in-the-box" title="Link to this heading">#</a></h3>
-<p>First-party model integrations ship under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code> in the
+<p>First-party model integrations ship under <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;name&gt;/</span></code> in the
 repo. The <a class="reference internal" href="../models/index.html"><span class="doc">Models</span></a> page has the full list; the documented
 integrations are:</p>
 <ul class="simple">
@@ -452,7 +452,7 @@ multi-GPU command, and per-method knobs.</p>
 wheel on PyPI. Integration packages — <code class="docutils literal notranslate"><span class="pre">flashdreams-self-forcing</span></code>,
 <code class="docutils literal notranslate"><span class="pre">flashdreams-lingbot</span></code>, and the others listed in
 <a class="reference external" href="https://github.com/NVIDIA/flashdreams/blob/main/DEV.md">DEV.md</a> —
-are not published; they live under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code> in the monorepo
+are not published; they live under <code class="docutils literal notranslate"><span class="pre">integrations_v2/&lt;name&gt;/</span></code> in the monorepo
 and are designed to be consumed either as a workspace member or as
 git-installable packages.</p>
 <p>To install an integration directly from the repo:</p>
@@ -475,7 +475,7 @@ git-installable so they can pin against a known core commit.</p>
 <p>The <a class="reference internal" href="../developer_guides/new_integration.html"><span class="doc">Add a new method</span></a> guide walks the full
 flow — what to subclass on the runner side, how the entry-point
 registration works, and what the per-integration directory layout
-looks like. The in-tree integrations under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code>
+looks like. The in-tree integrations under <code class="docutils literal notranslate"><span class="pre">integrations_v2/</span></code>
 are the canonical references; pick the one closest in shape to your
 new integration and use it as a template.</p>
 <p>The minimum surface is: subclass the right runner base, register the

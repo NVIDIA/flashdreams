@@ -422,6 +422,7 @@ issue and we’ll fix it.</p>
 <li><p><a class="reference internal" href="#developer-certificate-of-origin-dco">Developer Certificate of Origin (DCO)</a></p></li>
 <li><p><a class="reference internal" href="#submitting-a-pull-request">Submitting a pull request</a></p></li>
 <li><p><a class="reference internal" href="#code-review-and-merge">Code review and merge</a></p></li>
+<li><p><a class="reference internal" href="#file-tree-of-flashdreams">File Tree Of FlashDreams</a></p></li>
 <li><p><a class="reference internal" href="#coding-conventions">Coding conventions</a></p></li>
 <li><p><a class="reference internal" href="#testing">Testing</a></p></li>
 <li><p><a class="reference internal" href="#dependency-version-bounds">Dependency version bounds</a></p></li>
@@ -618,6 +619,37 @@ clarifying exchange than a misunderstanding turning into rework.</p></li>
 your PR has been quiet longer than that, please feel free to leave a
 short ping comment.</p>
 </section>
+<section id="file-tree-of-flashdreams">
+<h2>File Tree Of FlashDreams<a class="headerlink" href="#file-tree-of-flashdreams" title="Link to this heading">#</a></h2>
+<p>Where a new app or model goes. Each documents its own layout:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>apps/                           # reusable apps; layout in apps/README.md
+integrations_v2/                # model packages; layout in integrations_v2/README.md
+</pre></div>
+</div>
+<p>The framework package, and the test and doc trees:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>flashdreams/flashdreams/        # the framework package
+  core/                         # numerical primitives, checkpoint loading, attention, I/O
+  infra/                        # framework contracts: configs, pipelines, encoders/decoders, schedulers, runners
+  recipes/                      # built-in reusable recipe code (WAN, Cosmos, TAEHV, ...)
+  api_v2/                       # protocols an application implements
+  runtime_v2/                   # the two-thread loop that runs an application
+  runtime/                      # experimental inference runtime API envelope (v0, pre-v2)
+  serving/                      # optional serving utilities (WebRTC, network, launch)
+  demo/                         # transport-neutral application hosting and I/O API
+  accelerated/                  # accelerated kernels (quantization, multi-head attention)
+  quality/                      # output-quality regression utilities (video, CLIP compare)
+  configs/                      # runner registry and CLI aggregator
+  plugins/                      # external-runner plugin layer (RunnerConfig discovery)
+  scripts/                      # console-script entry points (flashdreams-run)
+  _pytest_plugins/              # pytest plugins (e.g. CI-tier marker enforcement)
+
+flashdreams/test_v2/            # FlashDreams Runtime/Protocol tests (window, run_session, threads)
+flashdreams/tests/              # framework tests not yet migrated to test_v2/
+tests/                          # repo-wide test-runner scripts + meta checks, not package tests
+docs/source/                    # Sphinx sources
+</pre></div>
+</div>
+</section>
 <section id="coding-conventions">
 <h2>Coding conventions<a class="headerlink" href="#coding-conventions" title="Link to this heading">#</a></h2>
 <ul>
@@ -627,10 +659,10 @@ short ping comment.</p>
 locally is the easiest way to avoid surprises.</p></li>
 <li><p>Prefer small, well-named functions over long functions with comments
 explaining each block. Comments should explain <em>why</em>, not <em>what</em>.</p></li>
-<li><p>Tests live in <code class="docutils literal notranslate"><span class="pre">flashdreams/tests/</span></code>, <code class="docutils literal notranslate"><span class="pre">integrations/*/tests/</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">integrations_v2/*/tests/</span></code>. Use
-<code class="docutils literal notranslate"><span class="pre">pytest</span></code> and prefer existing fixtures over hand-rolled setup. See
-<a class="reference internal" href="#testing">Testing</a> for marker requirements.</p></li>
+<li><p>Tests live next to the thing they validate — see the File Tree Of
+FlashDreams above. Use <code class="docutils literal notranslate"><span class="pre">pytest</span></code> and prefer existing fixtures over
+hand-rolled setup. See
+<a class="reference internal" href="#testing">Testing</a> for discovery and marker requirements.</p></li>
 <li><p>Every source file added by a contribution must include the SPDX
 header used elsewhere in the project:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
@@ -657,6 +689,24 @@ retained.</p>
 </section>
 <section id="testing">
 <h2>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h2>
+<p>Pytest collection is configured in the root <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. There is
+no <code class="docutils literal notranslate"><span class="pre">testpaths</span></code> setting, so <code class="docutils literal notranslate"><span class="pre">pytest</span></code> from the repo root walks the tree:</p>
+<ul class="simple">
+<li><p>Files named <code class="docutils literal notranslate"><span class="pre">test_*.py</span></code>. Pytest’s default also collects <code class="docutils literal notranslate"><span class="pre">*_test.py</span></code>;
+don’t use that name here.</p></li>
+<li><p>Classes named <code class="docutils literal notranslate"><span class="pre">Test*</span></code> (pytest default). Some modules use classes,
+some only module-level functions.</p></li>
+<li><p>Functions and methods named <code class="docutils literal notranslate"><span class="pre">test_*</span></code> (pytest default), including
+<code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span> <span class="pre">test_*</span></code>.</p></li>
+</ul>
+<p>Same test filename in different folders is fine (several
+<code class="docutils literal notranslate"><span class="pre">test_application.py</span></code> files exist). Root <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> already sets
+<code class="docutils literal notranslate"><span class="pre">--import-mode=importlib</span></code> so pytest keeps them separate. Do not remove
+that flag.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">test_*.py</span></code> next to the code it validates is collected with no CI
+change. The root <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> skips <code class="docutils literal notranslate"><span class="pre">parity_check</span></code>,
+<code class="docutils literal notranslate"><span class="pre">parity_check_v2</span></code>, <code class="docutils literal notranslate"><span class="pre">baseline_fastvideo</span></code>, and <code class="docutils literal notranslate"><span class="pre">baseline_lightx2v</span></code> via
+<code class="docutils literal notranslate"><span class="pre">norecursedirs</span></code>.</p>
 <p>Every test function must be marked with exactly one <strong>CI tier marker</strong>.
 A pytest plugin (<code class="docutils literal notranslate"><span class="pre">flashdreams._pytest_plugins.marker_enforcement</span></code>)
 enforces this at collection time – tests without a marker are
@@ -727,7 +777,7 @@ either fix compatibility or bump the bound in <code class="docutils literal notr
 </section>
 <section id="working-with-a-single-integration-package">
 <h2>Working with a single integration package<a class="headerlink" href="#working-with-a-single-integration-package" title="Link to this heading">#</a></h2>
-<p>The workspace contains many integration packages under <code class="docutils literal notranslate"><span class="pre">integrations/</span></code>.
+<p>The workspace contains many integration packages under <code class="docutils literal notranslate"><span class="pre">integrations_v2/</span></code>.
 A full <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> installs dependencies for <em>all</em> of them. If you only
 need one (e.g. you’re working on <code class="docutils literal notranslate"><span class="pre">omnidreams</span></code>), use the distribution
 package name with <code class="docutils literal notranslate"><span class="pre">--package</span></code> to sync only that package’s dependencies:</p>
@@ -772,10 +822,13 @@ integrations require but yours does not, further reducing setup time.</p>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/self_forcing</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-self-forcing</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/wan21</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/swiftvr</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-swiftvr</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/wan21</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-wan21</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/wan22</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integrations_v2/wan22</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">flashdreams-wan22</span></code></p></td>
 </tr>
 </tbody>
@@ -886,6 +939,7 @@ their work upstream. We appreciate it.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#submitting-a-pull-request">Submitting a pull request</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-review-and-merge">Code review and merge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-tree-of-flashdreams">File Tree Of FlashDreams</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#coding-conventions">Coding conventions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-version-bounds">Dependency version bounds</a></li>
