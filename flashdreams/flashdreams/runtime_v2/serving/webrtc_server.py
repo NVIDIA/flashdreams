@@ -16,16 +16,19 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
 import torch
 from aiohttp import web
+from aiohttp.multipart import BodyPartReader
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 from loguru import logger
 
+from flashdreams.api_v2.web_ui import IWebUiProvider
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -47,6 +50,9 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 _WEB_RESOURCES = files("flashdreams.runtime_v2.serving").joinpath("web")
 _BROWSER_PAGE = _WEB_RESOURCES.joinpath("index.html").read_text(encoding="utf-8")
 _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
+
+_MAX_SESSION_INPUT_BYTES = 16 * 1024 * 1024
+"""Ceiling on one session-input request, sized for a first-frame upload."""
 
 _INTERACTIVE_FRAME_QUEUE_SIZE = 2
 """Send-ready frames retained while the media sender is temporarily busy."""
@@ -295,6 +301,72 @@ class _VideoTrack(MediaStreamTrack):
             await self._frame_available.wait()
 
 
+async def _read_session_input_payload(request: web.Request) -> dict[str, Any]:
+    """Decode one session-input request into a flat payload.
+
+    JSON bodies are returned as-is. Form and multipart bodies become a flat
+    mapping too, so an application handles one shape either way: file parts
+    arrive as ``bytes`` under their field name, with the uploaded filename
+    and content type under ``<field>_filename`` and ``<field>_content_type``.
+
+    Raises:
+        web.HTTPBadRequest: The body is malformed or not an object.
+        web.HTTPRequestEntityTooLarge: The body exceeds the size ceiling.
+    """
+    content_type = request.content_type or ""
+    if content_type == "application/json":
+        try:
+            json_body = await request.json()
+        except json.JSONDecodeError as error:
+            raise web.HTTPBadRequest(reason="Body must be valid JSON.") from error
+        if not isinstance(json_body, dict):
+            raise web.HTTPBadRequest(reason="Body must be a JSON object.")
+        return json_body
+
+    payload: dict[str, Any] = {}
+    total_bytes = 0
+    if content_type.startswith("multipart/"):
+        try:
+            reader = await request.multipart()
+        except (AssertionError, ValueError) as error:
+            raise web.HTTPBadRequest(reason="Body must be valid multipart.") from error
+        while True:
+            part = await reader.next()
+            if part is None:
+                break
+            if not isinstance(part, BodyPartReader) or part.name is None:
+                continue
+            if part.filename:
+                data = bytearray()
+                while chunk := await part.read_chunk():
+                    data.extend(chunk)
+                    total_bytes += len(chunk)
+                    if total_bytes > _MAX_SESSION_INPUT_BYTES:
+                        raise web.HTTPRequestEntityTooLarge(
+                            max_size=_MAX_SESSION_INPUT_BYTES,
+                            actual_size=total_bytes,
+                        )
+                payload[part.name] = bytes(data)
+                payload[f"{part.name}_filename"] = part.filename
+                payload[f"{part.name}_content_type"] = part.headers.get(
+                    "Content-Type", "application/octet-stream"
+                )
+                continue
+            text = await part.text()
+            total_bytes += len(text)
+            if total_bytes > _MAX_SESSION_INPUT_BYTES:
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=_MAX_SESSION_INPUT_BYTES,
+                    actual_size=total_bytes,
+                )
+            payload[part.name] = text
+        return payload
+
+    for key, value in (await request.post()).items():
+        payload[key] = value if isinstance(value, str) else str(value)
+    return payload
+
+
 class WebRTCServer:
     """Own the HTTP, signaling, input buffering, and media transport."""
 
@@ -304,12 +376,16 @@ class WebRTCServer:
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
+        web_ui: IWebUiProvider | None = None,
     ) -> None:
         """
         Args:
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
+            web_ui: Application serving its own browser UI. ``None`` serves
+                only the built-in viewer, which is what every application
+                that does not implement the protocol gets.
 
         Raises:
             RuntimeError: The server cannot start.
@@ -325,6 +401,7 @@ class WebRTCServer:
         self._host = host
         self._port = port
         self._startup_timeout_seconds = startup_timeout_seconds
+        self._web_ui = web_ui
         self._input_callback: Callable[[UserInputEvent], None] | None = None
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
@@ -668,6 +745,17 @@ class WebRTCServer:
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
+        # Registered unconditionally because aiohttp freezes the router once
+        # the runner starts, and the application attaches after this server
+        # is constructed. Without a web-UI application every one of these
+        # answers 404, exactly as an unrouted path did before they existed.
+        app.router.add_get("/request_session", self._serve_web_ui_page)
+        app.router.add_get("/api/session/initial_scene", self._initial_scene)
+        app.router.add_get("/api/session/first_frame", self._first_frame)
+        app.router.add_post("/api/session/input", self._session_input)
+        # Last, so every named route above wins over a file of the same name
+        # in the application's web root.
+        app.router.add_get("/{web_asset:.*}", self._serve_web_ui_asset)
         runner = web.AppRunner(app)
         await runner.setup()
         address_family = socket.AF_INET6 if ":" in self._host else socket.AF_INET
@@ -693,6 +781,81 @@ class WebRTCServer:
     async def _serve_browser_script(self, _: web.Request) -> web.Response:
         """Return the browser client's JavaScript."""
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
+
+    def serve_web_ui(self, web_ui: IWebUiProvider) -> None:
+        """Serve an application's own page and session routes.
+
+        Callable after startup: the routes are already registered and answer
+        404 until this supplies the application behind them.
+
+        Args:
+            web_ui: Application whose web root and session data to serve.
+
+        Raises:
+            RuntimeError: The server is closed.
+        """
+        if self._closed:
+            raise RuntimeError("Cannot serve a web UI from a closed WebRTC server.")
+        self._web_ui = web_ui
+
+    def _require_web_ui(self) -> IWebUiProvider:
+        """Return the web-UI application, which the routes guarantee exists."""
+        web_ui = self._web_ui
+        if web_ui is None:
+            raise web.HTTPNotFound()
+        return web_ui
+
+    def _resolve_web_asset(self, relative_path: str) -> Path:
+        """Return an existing file inside the application's web root.
+
+        Raises:
+            web.HTTPNotFound: The path escapes the web root or names nothing.
+        """
+        root = Path(self._require_web_ui().web_root()).resolve()
+        try:
+            resolved = (root / relative_path).resolve()
+        except OSError as error:
+            raise web.HTTPNotFound() from error
+        # Containment is checked after resolving, so neither "..", a symlink,
+        # nor an absolute path can reach a file outside the web root.
+        if not resolved.is_file() or not resolved.is_relative_to(root):
+            raise web.HTTPNotFound()
+        return resolved
+
+    async def _serve_web_ui_page(self, _: web.Request) -> web.StreamResponse:
+        """Return the application's own page."""
+        return web.FileResponse(self._resolve_web_asset("index.html"))
+
+    async def _serve_web_ui_asset(self, request: web.Request) -> web.StreamResponse:
+        """Return one file from the application's web root."""
+        return web.FileResponse(
+            self._resolve_web_asset(request.match_info["web_asset"])
+        )
+
+    async def _initial_scene(self, _: web.Request) -> web.Response:
+        """Return what the application says its session currently shows."""
+        web_ui = self._require_web_ui()
+        scene = await asyncio.to_thread(web_ui.initial_scene)
+        return web.json_response(dict(scene))
+
+    async def _first_frame(self, _: web.Request) -> web.Response:
+        """Return the session's first frame, or 404 before one exists."""
+        web_ui = self._require_web_ui()
+        frame = await asyncio.to_thread(web_ui.first_frame)
+        if frame is None:
+            raise web.HTTPNotFound()
+        data, content_type = frame
+        return web.Response(body=data, content_type=content_type)
+
+    async def _session_input(self, request: web.Request) -> web.Response:
+        """Hand one page-submitted change to the application."""
+        web_ui = self._require_web_ui()
+        payload = await _read_session_input_payload(request)
+        try:
+            scene = await asyncio.to_thread(web_ui.apply_session_input, payload)
+        except ValueError as error:
+            raise web.HTTPBadRequest(reason=str(error)) from error
+        return web.json_response(dict(scene))
 
     async def _health(self, _: web.Request) -> web.Response:
         """Report whether the server has an open session and client."""

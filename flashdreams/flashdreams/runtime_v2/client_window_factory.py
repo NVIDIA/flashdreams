@@ -14,7 +14,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.web_ui import IWebUiProvider
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 
 if TYPE_CHECKING:
@@ -48,6 +50,16 @@ class ClientWindowMode(ABC):
         Raises:
             ValueError: Whatever :meth:`check_arguments` reports.
         """
+
+    def attach_application(
+        self, client_window: IClientWindow, application: IApplication
+    ) -> None:
+        """Give the window whatever the application offers this mode.
+
+        Called once, after :meth:`create` and before the run. Most modes want
+        nothing: a file has no place to put an application's browser UI.
+        """
+        del client_window, application
 
     def starting(self, client_window: IClientWindow) -> str | None:
         """Return what to tell the user before the run, such as where to watch."""
@@ -99,6 +111,13 @@ class _WebRTCMode(ClientWindowMode):
         from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
         return WebRTCClientWindow(host=parsed_args.host, port=parsed_args.port)
+
+    def attach_application(
+        self, client_window: IClientWindow, application: IApplication
+    ) -> None:
+        """Serve the application's own browser UI when it has one."""
+        if isinstance(application, IWebUiProvider):
+            cast("WebRTCClientWindow", client_window).serve_web_ui(application)
 
     def starting(self, client_window: IClientWindow) -> str | None:
         """Return where to connect, which nobody can guess when the port is free."""
