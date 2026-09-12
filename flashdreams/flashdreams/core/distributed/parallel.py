@@ -5,12 +5,15 @@
 
 from __future__ import annotations
 
+import atexit
 import math
 import os
 from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
+
+from flashdreams.core.distributed import _safe_destroy_pg
 
 
 def balanced_ranges(total: int, parts: int) -> list[tuple[int, int]]:
@@ -136,7 +139,8 @@ def init_parallel(
     Pass the model's key/value head count as ``head_groups``. Without a
     launcher or initialized process group, return a single-process context.
     Axis groups use NCCL for CUDA or Gloo for CPU, independently of the
-    reused world's backend. The caller retains ownership of that world.
+    reused world's backend. The caller retains ownership of a reused world;
+    a world created here receives best-effort process-exit cleanup.
     """
     world_size = (
         dist.get_world_size() if dist.is_initialized() else _env_int("WORLD_SIZE", 1)
@@ -153,6 +157,7 @@ def init_parallel(
         return ParallelContext.single(device)
     if not dist.is_initialized():
         dist.init_process_group(backend="nccl" if device.type == "cuda" else "gloo")
+        atexit.register(_safe_destroy_pg)
     return build_context(tp_size, cp_size, device)
 
 
