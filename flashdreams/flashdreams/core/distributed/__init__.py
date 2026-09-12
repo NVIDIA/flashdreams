@@ -44,10 +44,16 @@ def _safe_destroy_pg() -> None:
     """Tear down the default process group on interpreter exit.
 
     Registered via :func:`atexit.register` when a FlashDreams initializer owns
-    the default group, so NCCL does not warn about a leaked group at process
-    exit. Best-effort: never raises, so a teardown failure cannot mask the
-    original exit code or exception.
+    the default group, so NCCL does not warn about a leaked group after a clean
+    exit. An uncaught exception may leave peers inside collectives, so failure
+    exits skip destruction and let the process supervisor stop the world.
     """
+    if (
+        getattr(sys, "last_exc", None) is not None
+        or getattr(sys, "last_value", None) is not None
+    ):
+        return
+
     try:
         if dist.is_available() and dist.is_initialized():
             dist.destroy_process_group()
