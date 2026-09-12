@@ -595,12 +595,9 @@ def load_extension(
             from torch.utils.cpp_extension import load as load_torch_extension
 
             try:
-                thirdparty_info = validate_thirdparty()
-            except _native_build().NativeBuildError:
-                try:
-                    thirdparty_info = _ensure_thirdparty()
-                except _native_build().NativeBuildError as exc:
-                    raise NativeSourcesUnavailable(str(exc)) from exc
+                thirdparty_info = _ensure_thirdparty()
+            except _native_build().NativeBuildError as exc:
+                raise NativeSourcesUnavailable(str(exc)) from exc
             extension_name = _extension_name(
                 thirdparty_info,
                 cuda_arch_list=cuda_arch_identity,

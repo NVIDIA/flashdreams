@@ -73,6 +73,9 @@ def find_pyproject_files() -> list[Path]:
 def should_skip(path: Path, text: str) -> bool:
     """Return True if this pyproject.toml should not be version-synced."""
     rel_path = path.relative_to(REPO_ROOT)
+    # Downloaded third-party projects are not FlashDreams workspace members.
+    if "3rdparty" in rel_path.parts:
+        return True
     # Skip the root workspace config (has no [project] section).
     if path == REPO_ROOT / "pyproject.toml":
         return True

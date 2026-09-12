@@ -58,6 +58,19 @@ def _run_git(cwd: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def test_remove_tree_handles_readonly_files(tmp_path: Path) -> None:
+    tool = _load_sync_module()
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    readonly = tree / "readonly"
+    readonly.write_text("managed Git metadata", encoding="utf-8")
+    readonly.chmod(0o444)
+
+    tool.remove_tree(tree)
+
+    assert not tree.exists()
+
+
 def _make_repo(tmp_path: Path) -> tuple[Path, str]:
     repo = tmp_path / "source"
     repo.mkdir()

@@ -159,6 +159,7 @@ norecursedirs = [
     "parity_check_v2",
     "baseline_fastvideo",
     "baseline_lightx2v",
+    "3rdparty",
 ]
 markers = [
     "ci_cpu: CPU-safe test, runs on the CPU CI runner",
