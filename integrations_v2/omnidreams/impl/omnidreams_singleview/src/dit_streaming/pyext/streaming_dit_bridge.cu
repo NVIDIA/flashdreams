@@ -11,6 +11,7 @@
 #include "cutlass/gemm/device/gemm_batched.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/numeric_conversion.h"
+#include <c10/cuda/CUDAGuard.h>
 #include <torch/nn/functional.h>
 #include <algorithm>
 #include <array>
@@ -1284,8 +1285,9 @@ torch::Tensor cosmos_forward(
     TORCH_CHECK(crossattn_emb.is_cuda() && crossattn_emb.dim() == 3);
     TORCH_CHECK(hdmap.is_cuda() && hdmap.dim() == 5);
 
+    const c10::cuda::CUDAGuard device_guard(x.device());
     auto orig_dtype = x.dtype();
-    auto stream = at::cuda::getCurrentCUDAStream().stream();
+    auto stream = at::cuda::getCurrentCUDAStream(x.get_device()).stream();
 
     // ── Config ───────────────────────────────────────────────────────────────
     auto ci = [&](const char* k, int d)   { return config.contains(k) ? py::cast<int>(config[k]) : d; };
@@ -1558,9 +1560,10 @@ torch::Tensor optimized_dit_forward(
     TORCH_CHECK(condition_mask_patched.is_cuda() && condition_mask_patched.dim() == 5,
                 "condition_mask_patched must be CUDA 5D");
 
+    const c10::cuda::CUDAGuard device_guard(x_new.device());
     auto orig_dtype = x_new.dtype();
     auto orig_scalar_type = x_new.scalar_type();
-    auto stream = at::cuda::getCurrentCUDAStream().stream();
+    auto stream = at::cuda::getCurrentCUDAStream(x_new.get_device()).stream();
     bool prof = cosmos_profile_enabled();
     enum {
         EV_START = 0,

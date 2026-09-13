@@ -5,11 +5,24 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import tomli as tomllib
+from crazy_robotaxi.application import CrazyRobotaxiApplication
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
+from omnidreams.apps.crazy_robotaxi.adapter import (
+    OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
+)
 from omnidreams.apps.interactive_drive.adapter import (
     OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
@@ -200,8 +213,120 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
             OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
             OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
         ),
+        (OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
+            OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
+        ),
     ):
         assert defaults.pipeline_config is pipeline_config
+
+
+def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
+    """Moved from apps/crazy_robotaxi/tests/test_application.py: pure OmniDreams
+    pipeline-config assertions, no Crazy Robotaxi app involved."""
+    pipeline: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    perf_pipeline: Any = OMNIDREAMS_PERF_PIPELINE_CONFIG
+    assert pipeline.name == "omnidreams-fast-perf"
+    assert pipeline.diffusion_model.seed is None
+    assert pipeline.decoder.use_compile is perf_pipeline.decoder.use_compile
+    assert pipeline.decoder.use_cuda_graph is True
+    assert pipeline.image_encoder.native_vae_acceleration == "required"
+    assert pipeline.image_encoder.native_vae_backend == "fp8"
+    assert pipeline.image_encoder.native_vae_fp8_auto_export is True
+    assert pipeline.encoder.native_vae_acceleration == "required"
+    assert pipeline.encoder.native_vae_backend == "fp8"
+    assert pipeline.encoder.native_vae_fp8_auto_export is True
+    assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
+    assert (
+        pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
+    )
+    assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
+
+
+def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
+    """Moved from apps/crazy_robotaxi/tests/test_application.py: tests that Crazy
+    Robotaxi's CLI parsing correctly mutates OmniDreams's pipeline config, which
+    is inherently an adapter-level (app x model) concern."""
+    app = CrazyRobotaxiApplication(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS
+    )
+
+    app.init(
+        [
+            "--seed",
+            "7",
+            "--no-compile",
+            "--profile-pipeline",
+        ]
+    )
+
+    pipeline = cast(Any, app._pipeline_config)
+    transformer = pipeline.diffusion_model.transformer
+    assert pipeline.diffusion_model.seed == 7
+    assert transformer.compile_network is False
+    assert transformer.native_dit_acceleration == "required"
+    assert transformer.skip_finalize_kv_cache is True
+    assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
+
+
+def test_crazy_robotaxi_map_context_disables_only_native_dit_on_selected_preset() -> (
+    None
+):
+    """Moved from apps/crazy_robotaxi/tests/test_application.py; same reasoning
+    as test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides."""
+    app = CrazyRobotaxiApplication(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS
+    )
+
+    app.init(["--live-edit-map-context"])
+
+    pipeline = cast(Any, app._pipeline_config)
+    original: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    transformer = pipeline.diffusion_model.transformer
+    assert app._config is not None
+    assert app._config.scene_request.use_prompt_context
+    assert pipeline.name == original.name
+    assert transformer.native_dit_acceleration == "disabled"
+    assert transformer.native_dit_backend == (
+        original.diffusion_model.transformer.native_dit_backend
+    )
+    assert transformer.skip_finalize_kv_cache is True
+    assert pipeline.diffusion_model.scheduler == original.diffusion_model.scheduler
+    assert pipeline.image_encoder.native_vae_acceleration == "required"
+    assert pipeline.encoder.native_vae_acceleration == "required"
 
 
 @pytest.mark.parametrize(

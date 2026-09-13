@@ -34,6 +34,7 @@ from .core import (
     SceneLoader,
     ViewMode,
     _InteractiveDriveApplicationBase,
+    _output_cuda_device,
 )
 from .scene_loader import load_scene_bundle
 
@@ -62,6 +63,10 @@ class InteractiveDriveUIState:
     view_mode: ViewMode = "rgb"
     viewport_width: int = 1280
     viewport_height: int = 704
+    world_model_device: str = "cuda:0"
+    raster_device: str = "cuda:0"
+    postprocess_preset: str = ""
+    postprocess_device: str = "cuda:0"
     postprocess_enabled: bool = False
     show_postprocess_toggle: bool = False
     status: str = (
@@ -158,6 +163,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
                 size=(64.0, 138.0),
             )
             imgui.separator()
+            self._draw_runtime_config(imgui)
             if state.show_postprocess_toggle:
                 postprocess = (
                     telemetry.postprocess_enabled
@@ -218,6 +224,15 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         finally:
             imgui.end()
         return self.presented_model_frame()
+
+    def _draw_runtime_config(self, imgui: Any) -> None:
+        """Display the launch-time GPU and postprocessor configuration."""
+        state = self.state
+        imgui.text(f"World model GPU  {state.world_model_device}")
+        imgui.text(f"Ludus raster GPU {state.raster_device}")
+        imgui.text(f"Postprocessor   {state.postprocess_preset or 'none'}")
+        if state.postprocess_preset:
+            imgui.text(f"Postprocess GPU {state.postprocess_device}")
 
     def _draw_scene_controls(self, imgui: Any) -> None:
         state = self.state
@@ -369,11 +384,16 @@ class InteractiveDriveSession(ISession):
                 view_mode=self._config.view_mode,
                 viewport_width=self._desc.video_width,
                 viewport_height=self._desc.video_height,
+                world_model_device=self._config.app.world_model_device,
+                raster_device=self._config.app.raster.device,
+                postprocess_preset=self._config.app.postprocess_preset,
+                postprocess_device=self._config.app.postprocess_device,
                 postprocess_enabled=self._config.app.postprocess.is_enabled(),
-                show_postprocess_toggle=bool(self._config.app.postprocess.preset),
+                show_postprocess_toggle=self._config.app.postprocess.is_enabled(),
             ),
             width=self._desc.video_width,
             height=self._desc.video_height,
+            cuda_device=_output_cuda_device(self._config.app),
         )
         model_state.ui_loop = ui_loop
 
@@ -452,6 +472,15 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
             raise RuntimeError("init() must run before create_session().")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Interactive Drive requires tchw output.")
+        if (
+            session_desc.video_width,
+            session_desc.video_height,
+        ) == self._initial_session_video_size:
+            session_desc = replace(
+                session_desc,
+                video_width=self._desc.video_width,
+                video_height=self._desc.video_height,
+            )
         options = self._interactive_scene_options
         if not options:
             options = (

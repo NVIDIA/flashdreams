@@ -19,11 +19,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
 import torch
 from torch import Tensor
+from typing_extensions import Self
 
 from flashdreams.infra.config import InstantiateConfig, PrintableConfig
 
@@ -74,6 +75,9 @@ class VideoPostProcessorConfig(InstantiateConfig):
     _target: type["VideoPostProcessor"] = field(
         default_factory=lambda: VideoPostProcessor
     )
+
+    device: str = "cuda"
+    """Execution device assigned before the processor is instantiated."""
 
     def output_spec(self, input_spec: VideoSpec) -> VideoSpec:
         """Return the stream specification produced from ``input_spec``.
@@ -172,6 +176,28 @@ class VideoPostprocessChainConfig(PrintableConfig):
     ``flashdreams.postprocess_presets`` entry-point group (for example
     ``flashvsr-v1.1-sparse-2.0`` when the FlashVSR integration is
     installed). Empty means no preset is appended."""
+
+    @classmethod
+    def from_preset(
+        cls,
+        preset: str,
+        *,
+        device: str | torch.device,
+    ) -> Self:
+        """Resolve ``preset`` into a new config bound to ``device``.
+
+        An empty preset returns a disabled chain. A selected preset is copied
+        before assigning its shared :attr:`VideoPostProcessorConfig.device`
+        field so the registry's cached config remains unchanged.
+        """
+        if not preset:
+            return cls()
+        from flashdreams.plugins.registry import resolve_postprocess_preset
+
+        processor = replace(
+            resolve_postprocess_preset(preset), device=str(torch.device(device))
+        )
+        return cls(processors=(processor,))
 
     def resolved_processors(self) -> tuple[VideoPostProcessorConfig, ...]:
         """Return :attr:`processors` plus any preset selected by name."""

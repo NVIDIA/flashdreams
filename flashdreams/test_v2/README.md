@@ -26,20 +26,20 @@ CPU-only tests for the v2 protocols themselves:
   skipped when the serving packages are missing, which is also why a run writing
   a file does not import them.
 - [`apps/t2v/tests`](../../apps/t2v/tests) covers the reusable text-to-video
-  application, session, model loop, and stand-in model checks.
-- `test_cli.py` covers `flashdreams-run-v2`: finding an application, splitting
-  the command line at `--`, choosing a window, describing the session to ask for,
-  and running one into a real MP4 with a stand-in for a model. An application
-  that describes no session of its own is run there too, since running more than
+  application, session, model loop, and stand-in model checks. Its
+  [`test_cli.py`](../../apps/t2v/tests/test_cli.py) also covers
+  `flashdreams-run-v2` itself: finding an application, splitting the command
+  line at `--`, choosing a window, describing the session to ask for, and
+  running one into a real MP4 with a stand-in for a model. An application that
+  describes no session of its own is run there too, since running more than
   text-to-video is the point of the command.
 - `test_metrics_output_sink.py` covers the sink that records what a run
   measured, which is a file another tool reads: what a benchmark expects of it
   is checked against the reader itself in
   `flashdreams/tests/test_benchmark_harness.py`.
 
-Application behaviour is tested by the application that owns it — see
-`integrations_v2/red_screen/red_screen/tests/` and
-`integrations_v2/color_fade/color_fade/tests/`.
+Reusable apps keep their tests beside the package, in `apps/<name>/tests/`
+(see `apps/t2v/tests/` above, and `apps/interactive_drive/tests/`).
 
 Run commands from the repository root.
 

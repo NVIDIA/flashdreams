@@ -1,13 +1,9 @@
 [tool.uv.workspace]
 members = [
     "flashdreams",
-    # Each populated subdir under ``integrations/`` or ``integrations_v2/``
-    # is a standalone external integration repo (e.g. ``causal_forcing`` /
-    # ``self_forcing``
-    # plugins, ``omnidreams`` / ``lingbot`` integrations); empty stub
-    # folders alongside them are intentional placeholders for future
-    # extractions and don't ship a ``pyproject.toml`` yet.
-    "integrations/*",
+    # Each populated subdir under ``integrations_v2/`` is a standalone
+    # external integration repo (e.g. ``causal_forcing`` / ``self_forcing``
+    # plugins, ``omnidreams`` / ``lingbot`` integrations).
     "integrations_v2/*",
     "apps/*",
     # Nested sub-packages that the integration globs do not reach.
@@ -16,7 +12,6 @@ members = [
 exclude = [
     "apps/__init__.py",
     "apps/README.md",
-    "integrations/omnidreams",
     "integrations_v2/README.md",
 ]
 
@@ -128,6 +123,8 @@ extra-paths = [
 exclude = [
     "**/protos/*pb2*",
     "apps/interactive_drive/interactive_drive/**",
+    # Same files as above; tests live beside the package, not inside it.
+    "apps/interactive_drive/tests/**",
     # These map/archive parsers and numerical PhysX adapters intentionally
     # accept dynamically shaped YAML, Arrow, and NumPy values. Keep the new
     # V2 application, session, engine contracts, rollout, input, and renderer

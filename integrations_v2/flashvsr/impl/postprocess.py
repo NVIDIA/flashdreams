@@ -90,9 +90,6 @@ class FlashVSRPostProcessorConfig(VideoPostProcessorConfig):
     dtype: _DTypeName = "bfloat16"
     """FlashVSR compute dtype."""
 
-    device: str = "cuda"
-    """Device used by the FlashVSR model."""
-
     tail_policy: _TailPolicy = "replicate_pad"
     """How to handle final partial chunks. ``replicate_pad`` preserves all
     frames; ``drop`` favors speed and fixed-size chunks."""

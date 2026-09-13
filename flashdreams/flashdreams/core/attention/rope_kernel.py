@@ -250,25 +250,26 @@ def apply_rotary_pos_emb(
         num_warps_eff = int(num_warps)
     num_stages_eff = 2 if num_stages is None else int(num_stages)
 
-    _rope_inference_kernel[(B, S_TILES, H_TILES)](
-        out,
-        freqs,
-        out.stride(0),
-        out.stride(1),
-        out.stride(2),
-        out.stride(3),
-        stride_fs,
-        stride_fd,
-        S,
-        H,
-        D_HALF=head_dim_half,
-        INTERLEAVED=interleaved,
-        BLOCK_S=BLOCK_S,
-        BLOCK_H=BLOCK_H,
-        BLOCK_D=BLOCK_D,
-        num_warps=num_warps_eff,  # type: ignore[call-arg]
-        num_stages=num_stages_eff,  # type: ignore[call-arg]
-    )
+    with torch.cuda.device(out.device):
+        _rope_inference_kernel[(B, S_TILES, H_TILES)](
+            out,
+            freqs,
+            out.stride(0),
+            out.stride(1),
+            out.stride(2),
+            out.stride(3),
+            stride_fs,
+            stride_fd,
+            S,
+            H,
+            D_HALF=head_dim_half,
+            INTERLEAVED=interleaved,
+            BLOCK_S=BLOCK_S,
+            BLOCK_H=BLOCK_H,
+            BLOCK_D=BLOCK_D,
+            num_warps=num_warps_eff,  # type: ignore[call-arg]
+            num_stages=num_stages_eff,  # type: ignore[call-arg]
+        )
     return out
 
 

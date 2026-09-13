@@ -42,13 +42,7 @@ Start here, then use the narrower docs for the task in front of you:
 
 ## Repo Map
 
-- `flashdreams/flashdreams/core/`: reusable numerical primitives, checkpoint loading, distributed helpers, attention, and I/O. Keep it model-agnostic.
-- `flashdreams/flashdreams/infra/`: framework contracts and orchestration for configs, pipelines, encoders, decoders, diffusion models, schedulers, runners, profiling, and CUDA graph wrapping.
-- `flashdreams/flashdreams/recipes/`: built-in reusable recipe code such as WAN, Cosmos, TAEHV, and template wiring.
-- `flashdreams/flashdreams/configs/`, `plugins/`, and `scripts/`: runner registry, plugin discovery, and CLI entry points.
-- `integrations/<name>/`: workspace-member model/plugin packages with their own configs, runners, tests, README files, and `pyproject.toml` entry points.
-- `docs/source/`: Sphinx sources for quickstart, models, developer guides, API, and community docs.
-- `tests/`: root test helpers plus package/integration tests. Ignore `.claude/worktrees/` when scanning the source tree; those are nested worktree artifacts, not the repo's current source.
+File structure is in [CONTRIBUTING.md's File Tree Of FlashDreams](CONTRIBUTING.md#file-tree-of-flashdreams). Ignore gitignored AI-tool directories (see `.gitignore`) when scanning the source tree; they hold tool state, not the repo's current source.
 
 ## Skill Map
 
@@ -90,11 +84,24 @@ Use `--no-instantiate` before GPU work to inspect the resolved runner config wit
 
 ## Testing Guidance
 
-Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; `CONTRIBUTING.md` has the exact rules. Use module-level `pytestmark = pytest.mark.ci_cpu` for pure Python/metadata tests. Keep GPU, `libGL`/`cv2`, large-checkpoint, credential, and download-heavy checks out of `ci_cpu`.
+Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; `CONTRIBUTING.md` has the exact rules, including how pytest discovers files and functions (`test_*.py`, `test_*`). Use module-level `pytestmark = pytest.mark.ci_cpu` for pure Python/metadata tests. Keep GPU, `libGL`/`cv2`, large-checkpoint, credential, and download-heavy checks out of `ci_cpu`.
 
-## Boundaries
+**v2 test ownership** — put a new test next to the thing it validates:
 
-Keep dependency direction strict: `core` -> `infra` -> recipes/integrations. `core` and `infra` must not import from `integrations/`; expose a generic config slot or override hook instead of adding model-specific branches. Built-in reusable model pieces belong in `flashdreams/flashdreams/recipes/`; standalone plugin packages belong in `integrations/<name>/`.
+| You are testing… | Test lives in… |
+| --- | --- |
+| FlashDreams Runtime/Protocol (window, threads, presentation) | `flashdreams/test_v2/` |
+| An app (flags, WASD, physics) | `apps/<name>/tests/` |
+| A model or its adapter | `integrations_v2/<model>/tests/` |
+
+## Dependencies
+
+- `infra` depends on `core` — never the other way around. `core` stays model-agnostic.
+- `recipes`/`integrations_v2` depend on `infra` and `core` — never the other way around. Expose a generic config slot or override hook in `core`/`infra` instead of adding model-specific branches. Built-in reusable model pieces belong in `flashdreams/flashdreams/recipes/`; standalone plugin packages belong in `integrations_v2/<name>/`.
+- `apps/<name>/` depends on `flashdreams` — never the other way around. An app is written against the framework, not against any one model: it must run against a stub network, and binding a real model is the adapter's job.
+- `integrations_v2/<model>/` depends on `flashdreams` and on the app it adapts for (via its own `integrations_v2/<model>/apps/<demo>/adapter.py`) — never the other way around.
+
+Because of this direction, tests in `apps/<name>/tests/` must not import from `integrations_v2/` — an app's tests run against a stub, and model-specific checks belong in `integrations_v2/<model>/tests/`. CI enforcement of this is a separate follow-up, not yet built.
 
 ## Known Pitfalls
 

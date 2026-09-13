@@ -1077,11 +1077,19 @@ def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
     state = TaxiHudState(640, 360, _calibration())
     state._selected_game_mode = "race"
     state._menu_stage = "game"
+    shutdown_event = threading.Event()
     model_loop = _SelectionLoop()
     model_loop.register_session_loop_objects(
         state=_SelectionState(),
         frequency=0,
-        shutdown_event=threading.Event(),
+        shutdown_event=shutdown_event,
+        failure_queue=queue.Queue(),
+    )
+    ui_loop = CrazyRobotaxiImGuiUILoop(renderer=_Renderer(640, 360))
+    ui_loop.register_session_loop_objects(
+        state=state,
+        frequency=0,
+        shutdown_event=shutdown_event,
         failure_queue=queue.Queue(),
     )
     state.model_loop = model_loop
@@ -1111,6 +1119,7 @@ def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
     state.consume_input_events(UserInputEvents([pressed]))
     assert state._menu_stage == "loading"
     assert state._loading_status == "EXITING GAME"
+    assert ui_loop.is_finished()
     model_loop._run_message_batch()
     assert model_loop.state.exit_requested
 

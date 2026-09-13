@@ -17,10 +17,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 from torch import Tensor
+from torch.nn.attention.flex_attention import create_block_mask
 
+import flashdreams.accelerated.multi_head_attention.optimized as optimized
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -31,6 +35,7 @@ from flashdreams.accelerated.multi_head_attention import (
 )
 from flashdreams.accelerated.multi_head_attention.cudnn import native_cudnn_fp8_sdpa
 from flashdreams.accelerated.multi_head_attention.optimized import (
+    FlexAttentionOptions,
     OptimizedImplConfig,
     OptimizedMultiHeadAttention,
     QKVFusionOption,
@@ -91,7 +96,7 @@ _OPTIMIZED_IMPL_CONFIGS = tuple(
         ),
         id=f"{sdpa_backend.value}-{qkv_fusion_option.value}-{'tma' if use_tma else 'no-tma'}",
     )
-    for sdpa_backend in SDPABackend
+    for sdpa_backend in (SDPABackend.CUDNN, SDPABackend.FA2)
     for qkv_fusion_option in QKVFusionOption
     for use_tma in (False, True)
 )
@@ -142,12 +147,12 @@ class _AttentionModules:
         )
         self.k_proj = torch.nn.Linear(
             self.attention_config.context_dim,
-            self.attention_config.inner_dim,
+            self.attention_config.kv_inner_dim,
             bias=True,
         )
         self.v_proj = torch.nn.Linear(
             self.attention_config.context_dim,
-            self.attention_config.inner_dim,
+            self.attention_config.kv_inner_dim,
             bias=True,
         )
         self.output_proj = torch.nn.Linear(
@@ -473,6 +478,219 @@ def test_mha_optimized_matches_torch(
 
 
 @pytest.mark.parametrize(
+    "sdpa_backend",
+    (SDPABackend.CUDNN, SDPABackend.FLEX),
+    ids=lambda value: value.value,
+)
+@pytest.mark.parametrize(
+    "qkv_fusion_option", tuple(QKVFusionOption), ids=lambda value: value.value
+)
+@torch.inference_mode()
+def test_masked_gqa_matches_torch(
+    cuda_device: torch.device,
+    sdpa_backend: SDPABackend,
+    qkv_fusion_option: QKVFusionOption,
+) -> None:
+    """Match dense cuDNN and block-sparse Flex GQA against Torch SDPA."""
+    flex_options = FlexAttentionOptions(
+        block_size=128,
+        mask_block_m=64,
+        prescale_qk=True,
+        rows_guaranteed_safe=True,
+    )
+    sequence_length = 128
+    attention_config = AttentionConfig(
+        query_dim=128,
+        n_heads=4,
+        n_kv_heads=2,
+        head_dim=32,
+        qk_norm_scope=QKNormScope.HEAD,
+    )
+    reference = _TorchMHA(AttentionType.SELF_ATTENTION, attention_config)
+    actual = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        attention_config,
+        OptimizedImplConfig(
+            qkv_fusion_option=qkv_fusion_option,
+            sdpa_backend=sdpa_backend,
+            use_tma=False,
+            flex_attention=flex_options,
+        ),
+    )
+    actual.load_state_dict(reference.state_dict(), strict=True)
+    reference.to(device=cuda_device, dtype=torch.bfloat16).eval()
+    actual.to(device=cuda_device, dtype=torch.bfloat16).eval()
+
+    tokens = torch.randn(
+        1, sequence_length, 128, device=cuda_device, dtype=torch.bfloat16
+    )
+    dense_mask = torch.ones(
+        sequence_length,
+        sequence_length,
+        device=cuda_device,
+        dtype=torch.bool,
+    ).tril()
+    reference_cache = reference.allocate_kv_cache(
+        batch_size=1,
+        chunk_size=sequence_length,
+        window_size=sequence_length,
+        sink_size=0,
+        device=cuda_device,
+        dtype=torch.bfloat16,
+    )
+    actual_cache = actual.allocate_kv_cache(
+        batch_size=1,
+        chunk_size=sequence_length,
+        window_size=sequence_length,
+        sink_size=0,
+        device=cuda_device,
+        dtype=torch.bfloat16,
+    )
+    reference_cache.before_update(0)
+    actual_cache.before_update(0)
+    expected = reference(tokens, reference_cache, attn_mask=dense_mask)
+
+    if sdpa_backend is SDPABackend.FLEX:
+
+        def causal_mask(
+            _batch: Tensor, _head: Tensor, query: Tensor, key: Tensor
+        ) -> Tensor:
+            return query >= key
+
+        mask = create_block_mask(
+            causal_mask,
+            B=None,
+            H=None,
+            Q_LEN=sequence_length,
+            KV_LEN=sequence_length,
+            device=str(cuda_device),
+            BLOCK_SIZE=flex_options.mask_block_size,
+        )
+        assert mask.BLOCK_SIZE == (64, 128)
+    else:
+        mask = dense_mask
+    output = actual(tokens, actual_cache, attn_mask=mask)
+
+    _assert_close(output, expected)
+    _assert_cache_close(actual_cache, reference_cache)
+    assert actual_cache.cached_k().shape == (1, sequence_length, 2, 32)
+    reference_cache.after_update(0)
+    actual_cache.after_update(0)
+
+
+def test_backend_capability_errors_are_explicit() -> None:
+    """Reject unsupported mask, GQA, and FP8 combinations before kernel launch."""
+    attention_config = AttentionConfig(
+        query_dim=128,
+        n_heads=4,
+        n_kv_heads=2,
+        head_dim=32,
+        qk_norm_scope=QKNormScope.HEAD,
+    )
+    query = torch.zeros(1, 4, 4, 32)
+    key = torch.zeros(1, 4, 2, 32)
+    value = torch.zeros_like(key)
+    dense_mask = torch.ones(4, 4, dtype=torch.bool)
+    fa2 = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        attention_config,
+        OptimizedImplConfig(sdpa_backend=SDPABackend.FA2),
+    )
+
+    with pytest.raises(ValueError, match="does not support an attention mask"):
+        fa2._attention(query, key, value, attn_mask=dense_mask)
+    with pytest.raises(ValueError, match="requires equal"):
+        fa2._attention(query, key, value)
+
+    fp8 = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        attention_config,
+        OptimizedImplConfig(
+            sdpa_backend=SDPABackend.CUDNN,
+            quantization=QuantizationOption(quantized_sdpa=True),
+        ),
+    )
+    with pytest.raises(ValueError, match="does not support masks or grouped-query"):
+        fp8._attention(query, key, value, attn_mask=dense_mask)
+
+    flex = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        attention_config,
+        OptimizedImplConfig(sdpa_backend=SDPABackend.FLEX),
+    )
+    with pytest.raises(TypeError, match="requires a BlockMask"):
+        flex._attention(query, key, value)
+
+
+def test_module_attention_forwards_the_shared_flex_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the same compile and kernel policy as the functional API."""
+    observed: dict[str, Any] = {}
+
+    def compile_flex(*, dynamic: bool | None = None):
+        observed["dynamic"] = dynamic
+
+        def run(
+            query: Tensor,
+            _key: Tensor,
+            value: Tensor,
+            **kwargs: Any,
+        ) -> Tensor:
+            observed.update(kwargs)
+            return torch.zeros(
+                (*query.shape[:-1], value.shape[-1]),
+                dtype=query.dtype,
+                device=query.device,
+            )
+
+        return run
+
+    monkeypatch.setattr(optimized, "compiled_flex_attention", compile_flex)
+    options = FlexAttentionOptions(
+        compile_dynamic=True,
+        block_m=32,
+        block_n=64,
+        use_tma=False,
+    )
+    attention = _OptimizedMHA(
+        AttentionType.SELF_ATTENTION,
+        AttentionConfig(query_dim=128, n_heads=4, head_dim=32),
+        OptimizedImplConfig(
+            qkv_fusion_option=QKVFusionOption.NONE,
+            sdpa_backend=SDPABackend.FLEX,
+            flex_attention=options,
+        ),
+    )
+    query = torch.zeros(1, 5, 4, 32)
+    key = torch.zeros(1, 7, 4, 32)
+    value = torch.zeros_like(key)
+    mask = create_block_mask(
+        lambda _batch, _head, query_index, key_index: key_index <= query_index,
+        B=None,
+        H=None,
+        Q_LEN=5,
+        KV_LEN=7,
+        device="cpu",
+        BLOCK_SIZE=(16, 32),
+    )
+
+    output = attention._attention(query, key, value, attn_mask=mask)
+
+    assert output.shape == query.shape
+    assert observed == {
+        "dynamic": True,
+        "block_mask": mask,
+        "enable_gqa": False,
+        "kernel_options": {
+            "BLOCK_M": 32,
+            "BLOCK_N": 64,
+            "USE_TMA": False,
+        },
+    }
+
+
+@pytest.mark.parametrize(
     "quantize_output_projection", (False, True), ids=("qkv-only", "combined")
 )
 @pytest.mark.parametrize(
@@ -577,7 +795,9 @@ def test_mha_optimized_quantized_projections_match_torch(
 )
 @pytest.mark.parametrize("rope_scope", tuple(RoPEScope), ids=lambda value: value.value)
 @pytest.mark.parametrize(
-    "sdpa_backend", tuple(SDPABackend), ids=lambda value: value.value
+    "sdpa_backend",
+    (SDPABackend.CUDNN, SDPABackend.FA2),
+    ids=lambda value: value.value,
 )
 @pytest.mark.parametrize("use_tma", (False, True), ids=("no-tma", "tma"))
 @torch.inference_mode()

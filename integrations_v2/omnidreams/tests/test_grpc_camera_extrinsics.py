@@ -15,11 +15,15 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+
 import numpy as np
 import pytest
 from omnidreams.impl.grpc.protos import common_pb2
 from omnidreams.impl.grpc.utils import (
     compute_camera_poses_from_rig,
+    load_static_world_from_zip_bytes,
     parse_rig_to_camera_transforms,
 )
 
@@ -52,6 +56,19 @@ def test_session_rig_to_camera_transforms_are_mapped_by_camera_order() -> None:
 def test_session_rig_to_camera_count_must_match_camera_specs() -> None:
     with pytest.raises(ValueError, match="exactly one Pose per camera_spec"):
         parse_rig_to_camera_transforms([_pose(1.0, 0.0, 0.0)], ["front", "rear"])
+
+
+def test_hdmap_zip_rejects_path_traversal() -> None:
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("../escape.parquet", b"not a parquet")
+
+    with pytest.raises(ValueError, match="escapes extraction"):
+        load_static_world_from_zip_bytes(
+            archive.getvalue(),
+            camera_names=[],
+            target_resolution_hw=(1, 1),
+        )
 
 
 def test_camera_pose_uses_session_rig_to_camera_transform() -> None:

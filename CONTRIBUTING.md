@@ -18,13 +18,14 @@ issue and we'll fix it.
 3. [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
 4. [Submitting a pull request](#submitting-a-pull-request)
 5. [Code review and merge](#code-review-and-merge)
-6. [Coding conventions](#coding-conventions)
-7. [Testing](#testing)
-8. [Dependency version bounds](#dependency-version-bounds)
-9. [Working with a single integration package](#working-with-a-single-integration-package)
-10. [Licensing of contributions](#licensing-of-contributions)
-11. [Reporting issues](#reporting-issues)
-12. [Code of Conduct](#code-of-conduct)
+6. [File Tree Of FlashDreams](#file-tree-of-flashdreams)
+7. [Coding conventions](#coding-conventions)
+8. [Testing](#testing)
+9. [Dependency version bounds](#dependency-version-bounds)
+10. [Working with a single integration package](#working-with-a-single-integration-package)
+11. [Licensing of contributions](#licensing-of-contributions)
+12. [Reporting issues](#reporting-issues)
+13. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -223,6 +224,40 @@ We aim for an initial review on every PR within two business days. If
 your PR has been quiet longer than that, please feel free to leave a
 short ping comment.
 
+## File Tree Of FlashDreams
+
+Where a new app or model goes. Each documents its own layout:
+
+```text
+apps/                           # reusable apps; layout in apps/README.md
+integrations_v2/                # model packages; layout in integrations_v2/README.md
+```
+
+The framework package, and the test and doc trees:
+
+```text
+flashdreams/flashdreams/        # the framework package
+  core/                         # numerical primitives, checkpoint loading, attention, I/O
+  infra/                        # framework contracts: configs, pipelines, encoders/decoders, schedulers, runners
+  recipes/                      # built-in reusable recipe code (WAN, Cosmos, TAEHV, ...)
+  api_v2/                       # protocols an application implements
+  runtime_v2/                   # the two-thread loop that runs an application
+  runtime/                      # experimental inference runtime API envelope (v0, pre-v2)
+  serving/                      # optional serving utilities (WebRTC, network, launch)
+  demo/                         # transport-neutral application hosting and I/O API
+  accelerated/                  # accelerated kernels (quantization, multi-head attention)
+  quality/                      # output-quality regression utilities (video, CLIP compare)
+  configs/                      # runner registry and CLI aggregator
+  plugins/                      # external-runner plugin layer (RunnerConfig discovery)
+  scripts/                      # console-script entry points (flashdreams-run)
+  _pytest_plugins/              # pytest plugins (e.g. CI-tier marker enforcement)
+
+flashdreams/test_v2/            # FlashDreams Runtime/Protocol tests (window, run_session, threads)
+flashdreams/tests/              # framework tests not yet migrated to test_v2/
+tests/                          # repo-wide test-runner scripts + meta checks, not package tests
+docs/source/                    # Sphinx sources
+```
+
 ## Coding conventions
 
 - Python 3.10+. Type-annotate new code; the project type-checks with
@@ -232,10 +267,10 @@ short ping comment.
   locally is the easiest way to avoid surprises.
 - Prefer small, well-named functions over long functions with comments
   explaining each block. Comments should explain *why*, not *what*.
-- Tests live in `flashdreams/tests/`, `integrations/*/tests/`, and
-  `integrations_v2/*/tests/`. Use
-  `pytest` and prefer existing fixtures over hand-rolled setup. See
-  [Testing](#testing) for marker requirements.
+- Tests live next to the thing they validate — see the File Tree Of
+  FlashDreams above. Use `pytest` and prefer existing fixtures over
+  hand-rolled setup. See
+  [Testing](#testing) for discovery and marker requirements.
 - Every source file added by a contribution must include the SPDX
   header used elsewhere in the project:
 
@@ -261,6 +296,26 @@ short ping comment.
   retained.
 
 ## Testing
+
+Pytest collection is configured in the root `pyproject.toml`. There is
+no `testpaths` setting, so `pytest` from the repo root walks the tree:
+
+- Files named `test_*.py`. Pytest's default also collects `*_test.py`;
+  don't use that name here.
+- Classes named `Test*` (pytest default). Some modules use classes,
+  some only module-level functions.
+- Functions and methods named `test_*` (pytest default), including
+  `async def test_*`.
+
+Same test filename in different folders is fine (several
+`test_application.py` files exist). Root `pyproject.toml` already sets
+`--import-mode=importlib` so pytest keeps them separate. Do not remove
+that flag.
+
+A `test_*.py` next to the code it validates is collected with no CI
+change. The root `pyproject.toml` skips `parity_check`,
+`parity_check_v2`, `baseline_fastvideo`, and `baseline_lightx2v` via
+`norecursedirs`.
 
 Every test function must be marked with exactly one **CI tier marker**.
 A pytest plugin (`flashdreams._pytest_plugins.marker_enforcement`)
@@ -321,7 +376,7 @@ the declared minimums. This means:
 
 ## Working with a single integration package
 
-The workspace contains many integration packages under `integrations/`.
+The workspace contains many integration packages under `integrations_v2/`.
 A full `uv sync` installs dependencies for *all* of them. If you only
 need one (e.g. you're working on `omnidreams`), use the distribution
 package name with `--package` to sync only that package's dependencies:
@@ -349,6 +404,7 @@ Available integration packages:
 | `integrations_v2/lingbot` | `flashdreams-lingbot` |
 | `integrations_v2/omnidreams` | `flashdreams-omnidreams` |
 | `integrations_v2/self_forcing` | `flashdreams-self-forcing` |
+| `integrations_v2/swiftvr` | `flashdreams-swiftvr` |
 | `integrations_v2/wan21` | `flashdreams-wan21` |
 | `integrations_v2/wan22` | `flashdreams-wan22` |
 

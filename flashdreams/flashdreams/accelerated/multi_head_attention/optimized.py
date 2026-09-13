@@ -25,12 +25,14 @@ from enum import Enum
 
 import torch
 from torch import Tensor, nn
+from torch.nn.attention.flex_attention import BlockMask
 
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
 )
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
+    AttentionMask,
     AttentionType,
     MultiHeadAttention,
     QKNormScope,
@@ -40,6 +42,10 @@ from flashdreams.accelerated.multi_head_attention import (
 from flashdreams.accelerated.multi_head_attention.cudnn import (
     native_cudnn_fp8_sdpa,
     torch_cudnn_sdpa,
+)
+from flashdreams.accelerated.multi_head_attention.flex import (
+    FlexAttentionOptions,
+    compiled_flex_attention,
 )
 from flashdreams.accelerated.multi_head_attention.triton import (
     flash_attention_2,
@@ -67,6 +73,9 @@ class SDPABackend(str, Enum):
 
     FA2 = "fa2"
     """Use Triton FlashAttention2 (FA2)."""
+
+    FLEX = "flex"
+    """Use compiled PyTorch FlexAttention with a block-sparse mask."""
 
 
 class QKVFusionOption(str, Enum):
@@ -143,6 +152,9 @@ class OptimizedImplConfig:
     quantization: QuantizationOption = QuantizationOption()
     """Attention quantization policy."""
 
+    flex_attention: FlexAttentionOptions = FlexAttentionOptions()
+    """FlexAttention mask, compilation, and kernel policy."""
+
     def __post_init__(self) -> None:
         """Validate optimized implementation policy values."""
         if not isinstance(self.qkv_fusion_option, QKVFusionOption):
@@ -153,6 +165,11 @@ class OptimizedImplConfig:
         if not isinstance(self.quantization, QuantizationOption):
             raise TypeError(
                 f"quantization must be a QuantizationOption; got {self.quantization!r}"
+            )
+        if not isinstance(self.flex_attention, FlexAttentionOptions):
+            raise TypeError(
+                "flex_attention must be a FlexAttentionOptions; "
+                f"got {self.flex_attention!r}"
             )
         if not isinstance(self.sdpa_backend, SDPABackend):
             raise TypeError(
@@ -276,6 +293,13 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             raise ValueError(
                 "accelerated attention requires a power-of-two head_dim in [16, 256]; "
                 f"got {self.attention_config.head_dim}"
+            )
+        if (
+            self.attention_config.n_kv_heads != self.attention_config.n_heads
+            and self.attention_config.qk_norm_scope is QKNormScope.INNER
+        ):
+            raise ValueError(
+                "grouped-query attention does not support INNER Q/K normalization"
             )
 
         self.optimized_impl_config = optimized_impl_config
@@ -475,10 +499,12 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         # Keep ``[B, S, H, D]`` as the public cache shape: ``BlockKVCache``
         # rolls and slices axis 1, and both attention backends accept that logical
         # order.
+        kv_heads = self.attention_config.n_kv_heads
+        assert kv_heads is not None
         cache_shape = (
             batch_size,
             sink_size + window_size,
-            self.attention_config.n_heads,
+            kv_heads,
             self.attention_config.head_dim,
         )
         self._validate_cuda_device(device)
@@ -537,6 +563,8 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         x: Tensor,
         kv_cache: BlockKVCache,
         rope_freqs: Tensor | None = None,
+        *,
+        attn_mask: AttentionMask | None = None,
     ) -> Tensor:
         """Apply self- or cross-attention using the configured cache lifecycle.
 
@@ -552,6 +580,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
                 current chunk. After-cache RoPE expects positions covering the
                 query and visible cache. Ignored when ``rope_config`` is
                 ``None``.
+            attn_mask: Optional dense or block-sparse visibility mask.
 
         Returns:
             Output-projected tokens with the same shape and dtype as ``x``.
@@ -585,6 +614,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             query,
             key,
             value,
+            attn_mask=attn_mask,
             output_dtype=x.dtype,
         )
         sequence_length = x.shape[-2]
@@ -717,6 +747,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         key: Tensor,
         value: Tensor,
         *,
+        attn_mask: AttentionMask | None = None,
         output_dtype: torch.dtype | None = None,
     ) -> Tensor:
         """Apply the configured non-causal scaled-dot-product attention backend.
@@ -725,12 +756,29 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             query: Processed queries with shape ``[B, L, H, D]``.
             key: Cached keys with shape ``[B, S, H, D]``.
             value: Cached values with shape ``[B, S, H, D]``.
+            attn_mask: Optional dense or block-sparse visibility mask.
             output_dtype: Output storage dtype; ``None`` uses ``query.dtype``.
 
         Returns:
             Attention output with shape ``[B, L, H, D]``.
         """
+        enable_gqa = query.shape[2] != key.shape[2]
+        self._validate_attention_mask(
+            attn_mask,
+            query_length=query.shape[1],
+            key_length=key.shape[1],
+            device=query.device,
+        )
+        if self.optimized_impl_config.quantization.quantized_sdpa and (
+            attn_mask is not None or enable_gqa
+        ):
+            raise ValueError(
+                "FP8 attention does not support masks or grouped-query heads"
+            )
+
         if self.sdpa_backend is SDPABackend.CUDNN:
+            if isinstance(attn_mask, BlockMask):
+                raise TypeError("cuDNN attention requires a dense Tensor mask")
             # The module and Triton kernel use token-major ``[B, L/S, H, D]``.
             # PyTorch SDPA instead interprets its two middle axes as ``[H, L/S]``.
             # These transposes change only shape/stride metadata.
@@ -743,12 +791,36 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             if query.dtype is torch.float8_e4m3fn:
                 output = native_cudnn_fp8_sdpa(query, key, value)
             else:
-                output = torch_cudnn_sdpa(query, key, value)
+                output = torch_cudnn_sdpa(
+                    query,
+                    key,
+                    value,
+                    attn_mask=attn_mask,
+                    enable_gqa=enable_gqa,
+                )
 
             # Restore the module-wide ``[B, L, H, D]`` contract for head merging.
             output = output.transpose(1, 2)
             return output if output_dtype is None else output.to(output_dtype)
 
+        if self.sdpa_backend is SDPABackend.FLEX:
+            if not isinstance(attn_mask, BlockMask):
+                raise TypeError("FlexAttention requires a BlockMask attention mask")
+            flex_options = self.optimized_impl_config.flex_attention
+            output = compiled_flex_attention(dynamic=flex_options.compile_dynamic)(
+                query.transpose(1, 2),
+                key.transpose(1, 2),
+                value.transpose(1, 2),
+                block_mask=attn_mask,
+                enable_gqa=enable_gqa,
+                kernel_options=flex_options.kernel_options or None,
+            ).transpose(1, 2)
+            return output if output_dtype is None else output.to(output_dtype)
+
+        if attn_mask is not None:
+            raise ValueError("FA2 attention does not support an attention mask")
+        if enable_gqa:
+            raise ValueError("FA2 attention requires equal query and key/value heads")
         attention = (
             flash_attention_2_tma
             if self.use_tma and is_tma_flash_attention_supported(query, key, value)
@@ -757,6 +829,37 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         if output_dtype is None:
             return attention(query, key, value)
         return attention(query, key, value, output_dtype=output_dtype)
+
+    def _validate_attention_mask(
+        self,
+        attn_mask: AttentionMask | None,
+        *,
+        query_length: int,
+        key_length: int,
+        device: torch.device,
+    ) -> None:
+        """Validate mask shape, dtype, and placement before backend dispatch."""
+        if attn_mask is None:
+            return
+        expected = (query_length, key_length)
+        if isinstance(attn_mask, BlockMask):
+            if tuple(attn_mask.shape[-2:]) != expected:
+                raise ValueError(
+                    f"block mask shape must end in {expected}; "
+                    f"got {tuple(attn_mask.shape[-2:])}"
+                )
+            return
+        if attn_mask.dtype is not torch.bool or attn_mask.ndim != 2:
+            raise ValueError(
+                "attention mask must be a two-dimensional boolean tensor; "
+                f"got dtype={attn_mask.dtype} shape={tuple(attn_mask.shape)}"
+            )
+        if tuple(attn_mask.shape) != expected:
+            raise ValueError(
+                f"attention mask shape must be {expected}; got {tuple(attn_mask.shape)}"
+            )
+        if attn_mask.device != device:
+            raise RuntimeError("attention mask and query must be on the same device")
 
     def _apply_rope(self, x: Tensor, rope_freqs: Tensor) -> Tensor:
         """Apply the shared RoPE kernel to token-major head features.
@@ -850,7 +953,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         # one B axis before projection; cached K/V must use the same flattening.
         expected_shape = (
             math.prod(x.shape[:-2]),
-            self.attention_config.n_heads,
+            self.attention_config.n_kv_heads,
             self.attention_config.head_dim,
         )
         cache_shape = (kv_cache._k.shape[0], kv_cache._k.shape[2], kv_cache._k.shape[3])
@@ -924,7 +1027,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         batch_size = math.prod(x.shape[:-2])
         expected_cache_shape = (
             batch_size,
-            self.attention_config.n_heads,
+            self.attention_config.n_kv_heads,
             self.attention_config.head_dim,
         )
         cache_shape = (
@@ -1053,7 +1156,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         head_shape = (
             -1,
             sequence_length,
-            self.attention_config.n_heads,
+            self.attention_config.n_kv_heads,
             self.attention_config.head_dim,
         )
         if self.qkv_fusion_option is QKVFusionOption.NONE:
@@ -1108,7 +1211,7 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
                 -1,
                 sequence_length,
                 2,
-                self.attention_config.n_heads,
+                self.attention_config.n_kv_heads,
                 self.attention_config.head_dim,
             )
             key, value = projected_kv.unbind(dim=2)
@@ -1124,15 +1227,30 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             if not isinstance(self.fused_qkv, QuantizedNonPersistentLinear):
                 raise RuntimeError("quantized fused QKV projection is not initialized")
             qkv = self.fused_qkv(x, Granularity.SLICE, out_dtype=x.dtype)
-        qkv = qkv.reshape(
+        query, key, value = torch.split(
+            qkv,
+            [
+                self.attention_config.inner_dim,
+                self.attention_config.kv_inner_dim,
+                self.attention_config.kv_inner_dim,
+            ],
+            dim=-1,
+        )
+        query = query.reshape(
             -1,
             x.shape[-2],
-            3,
             self.attention_config.n_heads,
             self.attention_config.head_dim,
         )
-        query, key, value = qkv.unbind(dim=2)
-        return query, key, value
+        kv_heads = self.attention_config.n_kv_heads
+        assert kv_heads is not None
+        kv_shape = (
+            -1,
+            x.shape[-2],
+            kv_heads,
+            self.attention_config.head_dim,
+        )
+        return query, key.reshape(kv_shape), value.reshape(kv_shape)
 
     def _project_output(self, x: Tensor) -> Tensor:
         """Apply the output projection, quantized when configured."""
@@ -1151,11 +1269,12 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
 
 
 __all__ = [
+    "FlexAttentionOptions",
+    "OptimizedImplConfig",
+    "OptimizedMultiHeadAttention",
     "QKVFusionOption",
     "QuantizationOption",
     "SDPABackend",
-    "OptimizedImplConfig",
-    "OptimizedMultiHeadAttention",
     "flash_attention_2",
     "flash_attention_2_tma",
     "is_tma_flash_attention_supported",

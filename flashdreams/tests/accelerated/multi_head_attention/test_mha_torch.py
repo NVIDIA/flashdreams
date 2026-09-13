@@ -30,6 +30,9 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEScope,
     RoPEStyle,
 )
+from flashdreams.accelerated.multi_head_attention.reference import (
+    reference_masked_attention,
+)
 from flashdreams.accelerated.multi_head_attention.torch import TorchMultiHeadAttention
 
 pytestmark = pytest.mark.ci_cpu
@@ -96,6 +99,58 @@ class _IdentityMHA(TorchMultiHeadAttention):
         self.norm = nn.Identity()
         with torch.no_grad():
             self.projection.weight.copy_(torch.eye(4))
+
+
+class _GQAMHA(TorchMultiHeadAttention):
+    """Provide deterministic projections for grouped-query attention tests."""
+
+    @property
+    def query_projection(self) -> nn.Linear:
+        """Return the query projection."""
+        return self.q_proj
+
+    @property
+    def key_projection(self) -> nn.Linear:
+        """Return the key projection."""
+        return self.k_proj
+
+    @property
+    def value_projection(self) -> nn.Linear:
+        """Return the value projection."""
+        return self.v_proj
+
+    @property
+    def output_projection(self) -> nn.Linear:
+        """Return the output projection."""
+        return self.out_proj
+
+    @property
+    def query_norm(self) -> nn.Module:
+        """Return identity query normalization."""
+        return self.norm
+
+    @property
+    def key_norm(self) -> nn.Module:
+        """Return identity key normalization."""
+        return self.norm
+
+    def __init__(self) -> None:
+        """Initialize four query heads sharing two key/value heads."""
+        super().__init__(
+            AttentionType.SELF_ATTENTION,
+            AttentionConfig(
+                query_dim=8,
+                n_heads=4,
+                n_kv_heads=2,
+                head_dim=2,
+                qk_norm_scope=QKNormScope.NONE,
+            ),
+        )
+        self.q_proj = nn.Linear(8, 8, bias=False)
+        self.k_proj = nn.Linear(8, 4, bias=False)
+        self.v_proj = nn.Linear(8, 4, bias=False)
+        self.out_proj = nn.Linear(8, 8, bias=False)
+        self.norm = nn.Identity()
 
 
 def _apply_rope(x: Tensor, rope_freqs: Tensor, style: RoPEStyle) -> Tensor:
@@ -210,3 +265,104 @@ def test_cross_attention_after_cache_rope_allows_unequal_lengths(
     )
 
     torch.testing.assert_close(actual, expected)
+
+
+@torch.inference_mode()
+def test_dense_masked_gqa_matches_torch_sdpa() -> None:
+    """Match the framework reference with an exact two-dimensional mask."""
+    torch.manual_seed(7)
+    attention = _GQAMHA()
+    tokens = torch.randn(1, 3, 8)
+    mask = torch.tensor(
+        [
+            [True, False, False],
+            [True, True, False],
+            [True, False, True],
+        ]
+    )
+    cache = attention.allocate_kv_cache(
+        batch_size=1,
+        chunk_size=3,
+        window_size=3,
+        sink_size=0,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    cache.before_update(0)
+
+    actual = attention(tokens, cache, attn_mask=mask)
+
+    query = attention.q_proj(tokens).reshape(1, 3, 4, 2).transpose(1, 2)
+    key = attention.k_proj(tokens).reshape(1, 3, 2, 2).transpose(1, 2)
+    value = attention.v_proj(tokens).reshape(1, 3, 2, 2).transpose(1, 2)
+    expected = F.scaled_dot_product_attention(
+        query,
+        key,
+        value,
+        attn_mask=mask,
+        enable_gqa=True,
+    )
+    expected = attention.out_proj(expected.transpose(1, 2).flatten(-2))
+
+    torch.testing.assert_close(actual, expected)
+    assert cache.cached_k().shape == (1, 3, 2, 2)
+    cache.after_update(0)
+
+
+@torch.inference_mode()
+def test_dense_masked_attention_matches_explicit_reference() -> None:
+    """Validate the dense backend against an explicit softmax oracle."""
+    torch.manual_seed(11)
+    query = torch.randn(2, 3, 4, 8)
+    key = torch.randn(2, 3, 6, 8)
+    value = torch.randn(2, 3, 6, 5)
+    mask = torch.tensor(
+        [
+            [True, False, True, False, False, True],
+            [True, True, False, False, True, False],
+            [False, True, True, True, False, False],
+            [True, False, False, True, True, True],
+        ]
+    )
+
+    actual = F.scaled_dot_product_attention(query, key, value, attn_mask=mask)
+    expected = reference_masked_attention(query, key, value, mask)
+
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize(
+    ("mask", "message"),
+    [
+        (torch.ones(3, 3), "boolean"),
+        (torch.ones(1, 3, 3, dtype=torch.bool), "two-dimensional"),
+        (torch.ones(3, 2, dtype=torch.bool), "shape"),
+    ],
+)
+@torch.inference_mode()
+def test_dense_mask_validation_is_exact(mask: Tensor, message: str) -> None:
+    """Reject mask dtypes and shapes that PyTorch could silently broadcast."""
+    attention = _GQAMHA()
+    tokens = torch.randn(1, 3, 8)
+    cache = attention.allocate_kv_cache(
+        batch_size=1,
+        chunk_size=3,
+        window_size=3,
+        sink_size=0,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    cache.before_update(0)
+
+    with pytest.raises(ValueError, match=message):
+        attention(tokens, cache, attn_mask=mask)
+
+
+def test_attention_config_normalizes_and_validates_kv_heads() -> None:
+    """Default to equal heads and require an integral GQA sharing ratio."""
+    equal_heads = AttentionConfig(query_dim=8, n_heads=4, head_dim=2)
+
+    assert equal_heads.n_kv_heads == 4
+    assert equal_heads.inner_dim == equal_heads.kv_inner_dim == 8
+    with pytest.raises(ValueError, match="divisible"):
+        AttentionConfig(query_dim=8, n_heads=3, n_kv_heads=2, head_dim=2)

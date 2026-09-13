@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -162,6 +163,18 @@ def _preflight_local_cache_path(
         settings=settings,
     )
     return min_bytes
+
+
+def _s3_cache_path(
+    local_cache_dir: str, checkpoint_path: str, *, suffix: str = ""
+) -> str:
+    """Return a collision-free local cache path for an S3 checkpoint."""
+    parsed = urlparse(checkpoint_path)
+    if parsed.scheme != "s3" or not parsed.netloc:
+        raise ValueError(f"S3 checkpoint path must include a bucket: {checkpoint_path}")
+    cache_root = os.path.realpath(local_cache_dir)
+    cache_key = hashlib.sha256(checkpoint_path.encode()).hexdigest()
+    return os.path.join(cache_root, cache_key + suffix)
 
 
 def _raise_local_cache_disk_error(
@@ -574,9 +587,8 @@ def load_distributed_checkpoint(
     # cache root so subsequent loads skip the S3 round trip.
     local_cache_checkpoint_path = None
     if is_s3_checkpoint and local_cache_dir is not None:
-        local_cache_checkpoint_path = os.path.join(
-            local_cache_dir,
-            checkpoint_path.split("s3://")[1].rstrip("/") + ".pt",
+        local_cache_checkpoint_path = _s3_cache_path(
+            local_cache_dir, checkpoint_path.rstrip("/"), suffix=".pt"
         )
 
     # Local cache hit: trust it (the ``check_success`` path below only
@@ -707,9 +719,7 @@ def load_single_checkpoint(
     # For S3 paths, check local cache first
     local_cache_path = None
     if is_s3_path and local_cache_dir is not None:
-        local_cache_path = os.path.join(
-            local_cache_dir, checkpoint_path.removeprefix("s3://")
-        )
+        local_cache_path = _s3_cache_path(local_cache_dir, checkpoint_path)
         if os.path.exists(local_cache_path):
             logger.info(f"Loading from local cache: {local_cache_path}")
             return _load_checkpoint_from_local(local_cache_path, ext, map_location)
@@ -1062,9 +1072,7 @@ def _resolve_streamable_safetensors_path(
             checkpoint_min_free_gb=checkpoint_min_free_gb,
         )
     if checkpoint_path.startswith("s3://"):
-        cache_path = os.path.join(
-            local_cache_dir, checkpoint_path.removeprefix("s3://")
-        )
+        cache_path = _s3_cache_path(local_cache_dir, checkpoint_path)
         return cache_path if os.path.exists(cache_path) else None
     return checkpoint_path
 

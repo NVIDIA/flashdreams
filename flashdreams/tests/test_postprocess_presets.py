@@ -56,6 +56,28 @@ def test_resolve_postprocess_preset_rejects_unknown_name() -> None:
         resolve_postprocess_preset("not-a-real-preset")
 
 
+def test_chain_from_preset_binds_a_copy_to_the_selected_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registered = _ExamplePostProcessorConfig()
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.resolve_postprocess_preset",
+        lambda name: registered,
+    )
+
+    chain = VideoPostprocessChainConfig.from_preset(
+        "example-preset",
+        device="cuda:1",
+    )
+
+    (configured,) = chain.processors
+    assert isinstance(configured, _ExamplePostProcessorConfig)
+    assert configured is not registered
+    assert configured.device == "cuda:1"
+    assert registered.device == "cuda"
+    assert chain.preset == ""
+
+
 def test_chain_config_appends_preset_after_explicit_processors() -> None:
     explicit = _ExamplePostProcessorConfig()
     chain = VideoPostprocessChainConfig(

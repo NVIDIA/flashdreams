@@ -18,6 +18,7 @@
 import io
 import json
 import os
+import stat
 from contextlib import contextmanager
 from typing import Any, Generator, Union
 from urllib.parse import urlparse
@@ -43,6 +44,13 @@ class S3FileSystem(FileSystemBase):
     """
 
     def __init__(self, credential_path: str) -> None:
+        mode = os.stat(credential_path).st_mode
+        if mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise PermissionError(
+                f"S3 credential file {credential_path} must not grant group or "
+                "other permissions; run: chmod 600 "
+                f"{credential_path}"
+            )
         with open(credential_path, "r") as f:
             config = json.load(f)
         self.s3_client = boto3.client("s3", **config)

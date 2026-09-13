@@ -15,15 +15,57 @@
 
 """CPU regression tests for the interactive-driving BEV projection."""
 
+from types import SimpleNamespace
+
+import interactive_drive.rasterizer as rasterizer_module
 import pytest
 import torch
+from interactive_drive.config import RasterConfig
 from interactive_drive.rasterizer import (
     _build_bev_ego_car_pool,
     _level_rig_poses_for_bev,
+    _LudusConditionRasterizerImpl,
 )
 from ludus_renderer import PRIM_EGO_OBSTACLE
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_ludus_uses_configured_cuda_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    devices: list[torch.device] = []
+
+    class _FakeContext:
+        def __init__(self, *, device: torch.device) -> None:
+            devices.append(device)
+
+        def set_depth_scaling(self, _enabled: bool) -> None:
+            pass
+
+        def set_msaa_samples(self, _samples: int) -> None:
+            pass
+
+        def set_max_tessellation_levels(self, **_levels: int) -> None:
+            pass
+
+        def set_line_widths(self, **_widths: float) -> None:
+            pass
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(rasterizer_module, "LudusCudaTimestampedContext", _FakeContext)
+    monkeypatch.setattr(
+        rasterizer_module,
+        "LudusPhysxDebugSceneBuffer",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+
+    rasterizer = _LudusConditionRasterizerImpl(
+        RasterConfig(device="cuda:1"),
+    )
+
+    assert rasterizer._device == torch.device("cuda:1")
+    assert devices == [torch.device("cuda:1")]
 
 
 def test_bev_pose_discards_driving_pitch_and_roll() -> None:

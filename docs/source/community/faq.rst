@@ -41,7 +41,7 @@ methods.
 Which model integrations ship in the box?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-First-party model integrations ship under ``integrations/`` in the
+First-party model integrations ship under ``integrations_v2/<name>/`` in the
 repo. The :doc:`/models/index` page has the full list; the documented
 integrations are:
 
@@ -69,7 +69,7 @@ Only the core ``flashdreams`` package is published as a pure-Python
 wheel on PyPI. Integration packages — ``flashdreams-self-forcing``,
 ``flashdreams-lingbot``, and the others listed in
 `DEV.md <https://github.com/NVIDIA/flashdreams/blob/main/DEV.md>`__ —
-are not published; they live under ``integrations/`` in the monorepo
+are not published; they live under ``integrations_v2/<name>/`` in the monorepo
 and are designed to be consumed either as a workspace member or as
 git-installable packages.
 
@@ -97,7 +97,7 @@ How do I plug in a new model integration?
 The :doc:`/developer_guides/new_integration` guide walks the full
 flow — what to subclass on the runner side, how the entry-point
 registration works, and what the per-integration directory layout
-looks like. The in-tree integrations under ``integrations/``
+looks like. The in-tree integrations under ``integrations_v2/``
 are the canonical references; pick the one closest in shape to your
 new integration and use it as a template.
 

@@ -110,9 +110,6 @@ class SwiftVRPostProcessorConfig(VideoPostProcessorConfig):
     dtype: _DTypeName = "bfloat16"
     """Model compute dtype."""
 
-    device: str = "cuda"
-    """Model execution device."""
-
     _processor: "SwiftVRPostProcessor | None" = field(
         default=None, init=False, repr=False, compare=False
     )

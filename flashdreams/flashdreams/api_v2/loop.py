@@ -269,8 +269,9 @@ class IModelLoop(ILoop[StateT], ABC):
     """Loop that generates model results on the model thread.
 
     :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
-    channel, with every channel reporting the same ``frame_count``. Returning a
-    bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    channel, with every channel reporting the same ``frame_count``. An empty
+    list means the step produced no presentable output. Returning a bare
+    :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
     @abstractmethod
@@ -310,18 +311,23 @@ class IModelLoop(ILoop[StateT], ABC):
         Args:
             event_buffer: Client input shared by both loops.
             reader_id: This loop's event reader ID.
-            publish: Function called with each model result and the elapsed
-                seconds spent in :meth:`step`.
+            publish: Function called with each model result and the cumulative
+                seconds spent in :meth:`step` since the previous result.
             max_steps: Maximum steps; ``None`` runs until stopped.
         """
         steps_run = 0
         last_run_started: float | None = None
+        unpublished_step_elapsed_s = 0.0
+        unpublished_generation: int | None = None
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
             while not self._shutdown_event.is_set() and (
                 max_steps is None or steps_run < max_steps
             ):
                 events, generation = event_buffer.read(reader_id)
+                if generation != unpublished_generation:
+                    unpublished_step_elapsed_s = 0.0
+                    unpublished_generation = generation
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
@@ -343,7 +349,12 @@ class IModelLoop(ILoop[StateT], ABC):
                     step_completed = True
                 finally:
                     self._finish_run(result, step_completed=step_completed)
-                publish(generation, result, step_elapsed_s)
+                unpublished_step_elapsed_s += step_elapsed_s
+
+                # Carry timing across steps whose output remains buffered.
+                if result:
+                    publish(generation, result, unpublished_step_elapsed_s)
+                    unpublished_step_elapsed_s = 0.0
                 steps_run += 1
         except BaseException as error:
             self._failure_queue.put(error)
