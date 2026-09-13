@@ -26,6 +26,7 @@ from swiftvr.impl.postprocess import SwiftVRPostProcessorConfig
 
 from flashdreams.infra.postprocess import (
     VideoChunk,
+    VideoPostprocessChainConfig,
     VideoSpec,
 )
 from flashdreams.infra.postprocess.base import concatenate_video_chunks
@@ -176,6 +177,25 @@ def test_swiftvr_reports_exact_scaled_output_spec() -> None:
     )
 
     assert output == VideoSpec(height=1440, width=2560, fps=30)
+
+
+def test_preset_device_binding_does_not_reuse_a_resident_processor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registered = SwiftVRPostProcessorConfig(device="cuda:0")
+    registered_processor = registered.setup()
+    monkeypatch.setattr(
+        "flashdreams.plugins.registry.resolve_postprocess_preset",
+        lambda name: registered,
+    )
+
+    chain = VideoPostprocessChainConfig.from_preset("swiftvr", device="cuda:1")
+
+    (configured,) = chain.processors
+    assert configured.device == "cuda:1"
+    assert configured.setup() is not registered_processor
+    assert registered.device == "cuda:0"
+    assert registered.setup() is registered_processor
 
 
 def test_swiftvr_rejects_empty_input_chunk(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -110,7 +110,7 @@ Drive a world model in real time with the unified OmniDreams `local-window` or
 ## Supported models
 
 FlashDreams ships first-party integrations under
-[`integrations/`](integrations/). Each model has a dedicated docs page with
+[`integrations_v2/`](integrations_v2/). Each model has a dedicated docs page with
 runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
 
 | Model | Family |

@@ -3,7 +3,7 @@
 
 """CPU tests for Crazy Robotaxi's application boundary against FlashDreams V2."""
 
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -29,30 +29,6 @@ from crazy_robotaxi.session import (
     _taxi_driver_command,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
-from omnidreams.apps.crazy_robotaxi.adapter import (
-    OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_RESPONSIVE_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_RESPONSIVE_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
-    OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
-)
-from omnidreams.config import (
-    OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
-    OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
-    OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
-    OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
-    OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
-    OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
-    OMNIDREAMS_PERF_PIPELINE_CONFIG,
-    OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
-    OMNIDREAMS_PIPELINE_CONFIG,
-    OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
-)
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
@@ -63,11 +39,12 @@ from omnidreams_game_engine.types import (
     SceneDefinition,
 )
 
-from flashdreams.runtime_v2.native_window_client_window import (
-    NativeWindowClientWindow,
-)
+from flashdreams.infra.diffusion.model import DiffusionModelConfig
+from flashdreams.infra.diffusion.scheduler.base import SchedulerConfig
+from flashdreams.infra.diffusion.transformer.base import TransformerConfig
+from flashdreams.infra.encoder.base import EncoderConfig
+from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime_v2.session_desc import PresentationMode
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -86,9 +63,57 @@ _DEMO_RACE_MAP = (
 )
 
 
+@dataclass(kw_only=True)
+class _StubTransformerConfig(TransformerConfig):
+    """Adds the fields CrazyRobotaxiApplication logs unconditionally.
+
+    Placeholder values only; no test in this file inspects them (tests that
+    care about real acceleration/backend settings live under
+    integrations_v2/omnidreams/tests/, since apps/ must not import
+    integrations_v2/).
+    """
+
+    native_dit_acceleration: str | None = None
+    native_dit_backend: str | None = None
+    native_dit_attention_backend: str | None = None
+    skip_finalize_kv_cache: bool = False
+    compile_network: bool = False
+
+
+@dataclass(kw_only=True)
+class _StubEncoderConfig(EncoderConfig):
+    """Adds the fields CrazyRobotaxiApplication logs unconditionally."""
+
+    native_vae_acceleration: str | None = None
+    native_vae_backend: str | None = None
+
+
+@dataclass(kw_only=True)
+class _StubSchedulerConfig(SchedulerConfig):
+    """Adds the field CrazyRobotaxiApplication logs unconditionally."""
+
+    denoising_timesteps: list[int] = field(default_factory=list)
+
+
+_STUB_PIPELINE_CONFIG = StreamInferencePipelineConfig(
+    name="crazy-robotaxi-test-stub",
+    diffusion_model=DiffusionModelConfig(
+        transformer=_StubTransformerConfig(),
+        scheduler=_StubSchedulerConfig(),
+    ),
+    encoder=_StubEncoderConfig(),
+)
+"""A pipeline config with no model behind it, built from base flashdreams
+config classes only. CrazyRobotaxiApplication reads ``.name`` and logs
+several transformer/encoder fields unconditionally, so app-level tests
+need a real, structured pipeline config, not a real *model*."""
+
+_STUB_DEFAULTS = CrazyRobotaxiApplicationDefaults(pipeline_config=_STUB_PIPELINE_CONFIG)
+
+
 def _application(
     *,
-    defaults: CrazyRobotaxiApplicationDefaults = OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
+    defaults: CrazyRobotaxiApplicationDefaults = _STUB_DEFAULTS,
     **kwargs: Any,
 ) -> CrazyRobotaxiApplication:
     return CrazyRobotaxiApplication(defaults=defaults, **kwargs)
@@ -465,69 +490,6 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
     assert app._config.pipeline_profiling is expected
 
 
-def test_model_adapters_keep_their_packaged_pipeline_configs() -> None:
-    for defaults, pipeline_config in (
-        (OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
-            OMNIDREAMS_PERF_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
-            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS,
-            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
-            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
-            OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
-            OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_RESPONSIVE_DEFAULTS,
-            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_RESPONSIVE_DEFAULTS,
-            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
-        ),
-        (
-            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_DEFAULTS,
-            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
-        ),
-    ):
-        assert defaults.pipeline_config is pipeline_config
-
-
-def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
-    pipeline: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
-    perf_pipeline: Any = OMNIDREAMS_PERF_PIPELINE_CONFIG
-    assert pipeline.name == "omnidreams-fast-perf"
-    assert pipeline.diffusion_model.seed is None
-    assert pipeline.decoder.use_compile is perf_pipeline.decoder.use_compile
-    assert pipeline.decoder.use_cuda_graph is True
-    assert pipeline.image_encoder.native_vae_acceleration == "required"
-    assert pipeline.image_encoder.native_vae_backend == "fp8"
-    assert pipeline.image_encoder.native_vae_fp8_auto_export is True
-    assert pipeline.encoder.native_vae_acceleration == "required"
-    assert pipeline.encoder.native_vae_backend == "fp8"
-    assert pipeline.encoder.native_vae_fp8_auto_export is True
-    assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
-    assert (
-        pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
-    )
-    assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
-
-
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
 def test_adapter_dimensions_configure_renderer_geometry(
     resolution_wh: tuple[int, int], monkeypatch
@@ -546,7 +508,7 @@ def test_adapter_dimensions_configure_renderer_geometry(
 
     app = _application(
         defaults=replace(
-            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+            _STUB_DEFAULTS,
             width=resolution_wh[0],
             height=resolution_wh[1],
         ),
@@ -580,50 +542,6 @@ def test_adapter_dimensions_configure_renderer_geometry(
         resolution_wh[0],
         3,
     )
-
-
-def test_fast_perf_honors_explicit_pipeline_overrides() -> None:
-    app = _application(
-        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
-    )
-
-    app.init(
-        [
-            "--seed",
-            "7",
-            "--no-compile",
-            "--profile-pipeline",
-        ]
-    )
-
-    pipeline = cast(Any, app._pipeline_config)
-    transformer = pipeline.diffusion_model.transformer
-    assert pipeline.diffusion_model.seed == 7
-    assert transformer.compile_network is False
-    assert transformer.native_dit_acceleration == "required"
-    assert transformer.skip_finalize_kv_cache is True
-    assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
-
-
-def test_map_context_disables_only_native_dit_on_selected_preset() -> None:
-    app = _application(defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS)
-
-    app.init(["--live-edit-map-context"])
-
-    pipeline = cast(Any, app._pipeline_config)
-    original: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
-    transformer = pipeline.diffusion_model.transformer
-    assert app._config is not None
-    assert app._config.scene_request.use_prompt_context
-    assert pipeline.name == original.name
-    assert transformer.native_dit_acceleration == "disabled"
-    assert transformer.native_dit_backend == (
-        original.diffusion_model.transformer.native_dit_backend
-    )
-    assert transformer.skip_finalize_kv_cache is True
-    assert pipeline.diffusion_model.scheduler == original.diffusion_model.scheduler
-    assert pipeline.image_encoder.native_vae_acceleration == "required"
-    assert pipeline.encoder.native_vae_acceleration == "required"
 
 
 def test_bev_render_fit_preserves_authored_aspect_ratio_and_smaller_sources() -> None:

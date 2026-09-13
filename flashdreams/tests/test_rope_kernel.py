@@ -191,6 +191,23 @@ def test_zero_freqs_is_identity(cuda_device):
         torch.testing.assert_close(out, x)
 
 
+def test_launches_on_input_device():
+    """A non-current input GPU selects the matching Triton context."""
+    if torch.cuda.device_count() < 2:
+        pytest.skip("Two CUDA devices required.")
+    current_device = torch.cuda.current_device()
+    input_device = torch.device("cuda:1" if current_device == 0 else "cuda:0")
+    B, S, H, D = 1, 8, 2, 32
+    x = torch.randn(B, S, H, D, device=input_device, dtype=torch.float32)
+    zero_freqs = torch.zeros(S, 1, 1, D, device=input_device, dtype=torch.float32)
+
+    out = apply_rotary_pos_emb(x, zero_freqs)
+    torch.cuda.synchronize(input_device)
+
+    torch.testing.assert_close(out, x)
+    assert torch.cuda.current_device() == current_device
+
+
 @_requires_te
 def test_non_contiguous_x(cuda_device):
     """The kernel respects arbitrary strides on the B / S / H axes."""

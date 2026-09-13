@@ -6,7 +6,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from interactive_drive.config import ChunkConfig, RasterConfig
-from interactive_drive.types import FrameChunk, SceneBundle, TrajectoryChunk
+from interactive_drive.types import (
+    FrameChunk,
+    PresentedFrame,
+    SceneBundle,
+    TrajectoryChunk,
+)
 
 
 class RenderBackend(ABC):
@@ -108,6 +113,10 @@ class RenderBackend(ABC):
     @abstractmethod
     def render_next_chunk(self, trajectory: TrajectoryChunk) -> FrameChunk:
         raise NotImplementedError
+
+    def finish(self) -> tuple[PresentedFrame, ...]:
+        """Return any frames buffered by the current rollout."""
+        return ()
 
     def close(self) -> None:
         return

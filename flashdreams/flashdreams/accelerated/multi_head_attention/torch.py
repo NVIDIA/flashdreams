@@ -25,6 +25,7 @@ from torch import Tensor, nn
 
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
+    AttentionMask,
     AttentionType,
     MultiHeadAttention,
     QKNormScope,
@@ -125,10 +126,12 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         """
         # BlockKVCache rolls sequence dimension 1 while preserving independent
         # batch and head axes for SDPA.
+        kv_heads = self.attention_config.n_kv_heads
+        assert kv_heads is not None
         cache_shape = (
             batch_size,
             sink_size + window_size,
-            self.attention_config.n_heads,
+            kv_heads,
             self.attention_config.head_dim,
         )
         return BlockKVCache(
@@ -180,6 +183,8 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         x: Tensor,
         kv_cache: BlockKVCache,
         rope_freqs: Tensor | None = None,
+        *,
+        attn_mask: AttentionMask | None = None,
     ) -> Tensor:
         """Apply self- or cross-attention using the configured cache lifecycle.
 
@@ -191,6 +196,7 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
                 current chunk. After-cache RoPE expects positions covering the
                 query and visible cache. Ignored when ``rope_config`` is
                 ``None``.
+            attn_mask: Optional dense boolean visibility mask shaped ``[L, S]``.
 
         Returns:
             Output-projected tokens with the same shape as ``x``.
@@ -200,7 +206,13 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         )
         if self.attention_type is AttentionType.SELF_ATTENTION:
             kv_cache = self._update_kv(x, kv_cache, key_rope_freqs)
-        return self._query_kv(x, kv_cache, query_rope_freqs, key_rope_freqs)
+        return self._query_kv(
+            x,
+            kv_cache,
+            query_rope_freqs,
+            key_rope_freqs,
+            attn_mask=attn_mask,
+        )
 
     def _slice_rope_freqs(
         self,
@@ -277,6 +289,8 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         kv_cache: BlockKVCache,
         rope_freqs: Tensor | None = None,
         key_rope_freqs: Tensor | None = None,
+        *,
+        attn_mask: AttentionMask | None = None,
     ) -> Tensor:
         """Query visible K/V without mutating cache storage or bookkeeping.
 
@@ -288,6 +302,7 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
                 ``None`` leaves queries unrotated.
             key_rope_freqs: Optional visible-cache rotations with shape
                 ``[S, 1, 1, D]`` for after-cache RoPE.
+            attn_mask: Optional dense boolean visibility mask shaped ``[L, S]``.
 
         Returns:
             Output-projected tokens with the same leading dimensions and shape
@@ -313,7 +328,7 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         ):
             key = self._apply_rope(key, key_rope_freqs)
         value = kv_cache.cached_v()
-        output = self._attention(query, key, value)
+        output = self._attention(query, key, value, attn_mask=attn_mask)
         output = self._output_projection(output)
         # ``output`` is ``[B, L, query_dim]`` after head concatenation; restore
         # the exact leading query geometry captured at the module boundary.
@@ -369,7 +384,7 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             raise ValueError("K/V cache tensors must have identical shapes")
         expected = (
             x.shape[0],
-            self.attention_config.n_heads,
+            self.attention_config.n_kv_heads,
             self.attention_config.head_dim,
         )
         actual = (
@@ -439,7 +454,7 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         head_shape = (
             -1,
             sequence_length,
-            self.attention_config.n_heads,
+            self.attention_config.n_kv_heads,
             self.attention_config.head_dim,
         )
         key = self.key_projection(context).reshape(head_shape)
@@ -500,13 +515,21 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         # Apply the elementwise complex rotation: ``[..., L, H, D]``.
         return x * cos_freqs + rotated * sin_freqs
 
-    def _attention(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
+    def _attention(
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        *,
+        attn_mask: AttentionMask | None = None,
+    ) -> Tensor:
         """Apply non-causal scaled dot-product attention over visible K/V.
 
         Args:
             query: Projected queries with shape ``[B, L, H, D]``.
             key: Visible cached keys with shape ``[B, S, H, D]``.
             value: Visible cached values with shape ``[B, S, H, D]``.
+            attn_mask: Optional dense boolean visibility mask shaped ``[L, S]``.
 
         Returns:
             Per-head attention output with shape ``[B, L, H, D]``.
@@ -518,6 +541,27 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
         key_heads = key.transpose(-3, -2)
         value_heads = value.transpose(-3, -2)
 
+        if attn_mask is not None:
+            if not isinstance(attn_mask, Tensor):
+                raise TypeError(
+                    "TorchMultiHeadAttention requires a dense Tensor attention mask"
+                )
+            expected_mask_shape = (query.shape[-3], key.shape[-3])
+            if attn_mask.dtype is not torch.bool or attn_mask.ndim != 2:
+                raise ValueError(
+                    "attention mask must be a two-dimensional boolean tensor; "
+                    f"got dtype={attn_mask.dtype} shape={tuple(attn_mask.shape)}"
+                )
+            if tuple(attn_mask.shape) != expected_mask_shape:
+                raise ValueError(
+                    f"attention mask shape must be {expected_mask_shape}; "
+                    f"got {tuple(attn_mask.shape)}"
+                )
+            if attn_mask.device != query.device:
+                raise RuntimeError(
+                    "attention mask and query must be on the same device"
+                )
+
         # Let PyTorch dispatch the available SDPA backend so the reference works
         # on CPU and CUDA. Cache visibility defines the allowed context, while
         # zero dropout and a non-causal mask make inference deterministic.
@@ -525,8 +569,10 @@ class TorchMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             query_heads,
             key_heads,
             value_heads,
+            attn_mask=attn_mask,
             dropout_p=0.0,
             is_causal=False,
+            enable_gqa=query_heads.shape[-3] != key_heads.shape[-3],
         )
 
         # Restore token-major layout: ``[..., H, L, D] -> [..., L, H, D]``.

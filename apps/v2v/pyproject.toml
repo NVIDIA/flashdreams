@@ -26,9 +26,8 @@ dev = [
 [tool.uv.sources]
 flashdreams = { workspace = true }
 
-[tool.setuptools]
-packages = ["v2v"]
-package-dir = { v2v = "." }
+[tool.setuptools.packages.find]
+include = ["v2v*"]
 
 [tool.uv]
 managed = true

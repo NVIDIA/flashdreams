@@ -58,6 +58,12 @@ config or processor factory.
    - `validate_execution()` to reject unsupported distributed or shape modes
      early.
 
+   Every config inherits `device` from `VideoPostProcessorConfig`. Consumers
+   copy cached preset configs, assign `device` before `setup()`, and keep it
+   fixed for the processor's lifetime. Backends that need a native device
+   representation convert the shared string when they construct their runtime
+   resources. Never mutate the preset object returned by the registry.
+
 3. Define the processor factory:
 
    ```python
@@ -113,6 +119,22 @@ config or processor factory.
    ```
 
    Users select it with `--postprocess.preset my-postprocessor-v1`.
+
+   V2 applications that also expose device placement should resolve both at
+   launch time through the shared factory:
+
+   ```python
+   postprocess = VideoPostprocessChainConfig.from_preset(
+       args.postprocess_preset,
+       device=args.postprocess_device,
+   )
+   ```
+
+   This copies the registered preset, assigns its shared `device` field, and
+   stores it before `setup()` or `prepare()` can load model resources. Keep
+   output-channel selection and application metadata pairing in the
+   application; the session runner cannot infer those semantics from an
+   ordered list of model results.
 
 ## Runner Interaction
 

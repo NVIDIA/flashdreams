@@ -137,6 +137,13 @@ def load_static_world_from_zip_bytes(
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         with zipfile.ZipFile(io.BytesIO(hdmap_zip_bytes), "r") as zf:
+            if any(
+                not (tmppath / member.filename).resolve().is_relative_to(tmppath)
+                for member in zf.infolist()
+            ):
+                raise ValueError(
+                    "HD map archive contains a path that escapes extraction."
+                )
             zf.extractall(tmppath)
 
         # Load scene from extracted files

@@ -32,6 +32,30 @@ class _Prefetchable:
         self.calls += 1
 
 
+class _CudaTensor:
+    is_cuda = True
+    device = torch.device("cuda:1")
+
+    def __init__(self, calls: list[tuple[str, object]]) -> None:
+        self.calls = calls
+
+    def record_stream(self, stream: object) -> None:
+        self.calls.append(("record", stream))
+
+
+class _CudaStream:
+    def __init__(
+        self,
+        calls: list[tuple[str, object]],
+        device: torch.device = torch.device("cuda:1"),
+    ) -> None:
+        self.calls = calls
+        self.device = device
+
+    def wait_event(self, event: object) -> None:
+        self.calls.append(("wait", event))
+
+
 def test_cuda_host_prefetch_returns_false_for_cpu_tensor() -> None:
     prefetch = CudaHostPrefetch(torch.zeros((1, 2, 3), dtype=torch.uint8))
 
@@ -81,6 +105,50 @@ def test_lazy_cuda_frame_keeps_source_event_until_materialized() -> None:
     frame.to_numpy()
 
     assert frame.to_cuda_event() is None
+
+
+def test_lazy_cuda_frame_orders_cuda_tensor_on_consumer_stream() -> None:
+    calls: list[tuple[str, object]] = []
+    tensor = _CudaTensor(calls)
+    stream = _CudaStream(calls)
+    event = object()
+    frame = LazyCudaFrame([tensor], 0, source_event=event)
+
+    assert frame.to_cuda_tensor(consumer_stream=stream) is tensor
+    assert calls == [("wait", event), ("record", stream)]
+
+
+def test_lazy_cuda_frame_defaults_to_current_device_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+    tensor = _CudaTensor(calls)
+    stream = _CudaStream(calls)
+    event = object()
+    frame = LazyCudaFrame([tensor], 0, source_event=event)
+    requested_devices: list[object] = []
+
+    def current_stream(device: object) -> _CudaStream:
+        requested_devices.append(device)
+        return stream
+
+    monkeypatch.setattr(torch.cuda, "current_stream", current_stream)
+
+    assert frame.to_cuda_tensor() is tensor
+    assert requested_devices == [tensor.device]
+    assert calls == [("wait", event), ("record", stream)]
+
+
+def test_lazy_cuda_frame_rejects_consumer_stream_on_another_device() -> None:
+    calls: list[tuple[str, object]] = []
+    tensor = _CudaTensor(calls)
+    stream = _CudaStream(calls, torch.device("cuda:0"))
+    frame = LazyCudaFrame([tensor], 0, source_event=object())
+
+    with pytest.raises(RuntimeError, match="must use the same device"):
+        frame.to_cuda_tensor(consumer_stream=stream)
+
+    assert calls == []
 
 
 def test_lazy_cuda_frame_array_protocol_supports_dtype_and_copy() -> None:

@@ -305,7 +305,7 @@ def apply_drift_corrector(
         runner.pipeline.diffusion_model.transformer.network
     )
     transformer = runner.pipeline.diffusion_model.transformer
-    sd = torch.load(checkpoint, map_location="cpu", weights_only=False)["lora"]
+    sd = torch.load(checkpoint, map_location="cpu", weights_only=True)["lora"]
 
     if unfused:
         params = _apply_lora(network)
@@ -519,7 +519,7 @@ class DriftCorrectorDispatch:
                 added_bytes=added_bytes,
             )
         else:
-            sd = torch.load(checkpoint, map_location="cpu", weights_only=False)["lora"]
+            sd = torch.load(checkpoint, map_location="cpu", weights_only=True)["lora"]
             assert len(sd) == 2 * len(self._linears), (
                 f"corrector checkpoint has {len(sd)} LoRA tensors but the "
                 f"network exposes {2 * len(self._linears)}; rank or target "

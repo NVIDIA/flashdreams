@@ -18,12 +18,17 @@ Add a new method
 
 Before you start adding a new method, we highly recommend reading the :doc:`/developer_guides/inference_pipeline_overview` and :doc:`/developer_guides/config_system` pages first to obtain an overview of the system architecture.
 
-FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a *standalone repository* that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the `integrations/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations>`_ directory of this repository.
+FlashDreams aims to offer researchers a codebase that they can utilize to extend and develop novel video and world models. Our vision is for users to establish a *standalone repository* that imports FlashDreams as a dependency and overrides pipeline components (such as encoders, transformers, or decoders) to cater to specific functionality requirements of the new approach. We encourage you to maintain your method externally rather than pushing changes directly into the `integrations_v2/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2>`_ directory of this repository.
 
 However, if any of your new features require modifications to the core FlashDreams infra or introduce generally useful components (such as the :mod:`TAEHV decoder <flashdreams.recipes.taehv>`), we encourage you to submit a PR to enable others to benefit from them.
 
 File structure
 --------------
+
+This page still describes a standalone package that registers a
+``flashdreams.runner_configs`` runner (``runner.py`` below). In-tree
+packages under ``integrations_v2/`` do not add ``runner.py``; they follow
+the layout in `integrations_v2/README.md <https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/README.md>`_.
 
 We recommend the following file structure for your new method:
 
@@ -104,7 +109,7 @@ The runner handles CLI-facing I/O and runtime loops.
    )
 
 
-You can use the existing integrations under the `integrations_v2/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2>`_ directory as a minimal guide. These folders are simple examples of what mini standalone repositories that depend on FlashDreams look like. Examples are often the best way to learn; take a look at the `OmniDreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing>`_ integrations for good references on how to extend and use FlashDreams in your own projects.
+The in-tree packages under `integrations_v2/ <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2>`_ are the current examples, but they follow the v2 layout (``config.py``, ``impl/``, ``apps/<demo>/adapter.py``), not the ``runner.py`` tree on this page. `OmniDreams <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams>`_ and `Self-Forcing <https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/self_forcing>`_ are the usual starting points. Rewriting this tutorial onto that layout is a follow-up.
 
 Registering your method
 -----------------------

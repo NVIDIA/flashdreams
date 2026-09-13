@@ -512,7 +512,7 @@ if __name__ == "__main__":
     print("network parameters:", sum(p.numel() for p in network.parameters()))
 
     ckpt_path = "/root/.cache/huggingface/hub/models--nvidia--Cosmos-Predict2.5-2B/snapshots/15a82a2ec231bc318692aa0456a36537c806e7d4/base/post-trained/81edfebe-bd6a-4039-8c1d-737df1a790bf_ema_bf16.pt"
-    state_dict_raw = torch.load(ckpt_path)
+    state_dict_raw = torch.load(ckpt_path, weights_only=True)
     state_dict = state_dict_transform(state_dict_raw)
     network.load_state_dict(state_dict)
     print("network loaded")

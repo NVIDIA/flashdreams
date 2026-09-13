@@ -10,8 +10,8 @@ from typing import Any, cast
 import pytest
 import torch
 
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.video_output import (
-    LazyRGBFrame,
     VideoOutputStream,
     VideoResultCollector,
     infer_video_num_frames,
@@ -124,7 +124,7 @@ def test_lazy_rgb_frames_from_video_tensor_materializes_on_demand() -> None:
     frames = lazy_rgb_frames_from_video_tensor(video, layout="tchw")
 
     assert len(frames) == 2
-    assert isinstance(frames[0], LazyRGBFrame)
+    assert isinstance(frames[0], LazyCudaFrame)
     assert frames[1].to_numpy()[2, 3].tolist() == [255, 255, 255]
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -14,12 +15,13 @@ import torch
 from loguru import logger
 from PIL import Image
 
+from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.infra.postprocess import (
     VideoPostprocessChainConfig,
     VideoPostprocessStream,
 )
-from flashdreams.infra.video_output import VideoOutputStream
+from flashdreams.infra.video_output import lazy_rgb_frames_from_video_tensor
 from interactive_drive.backends.base import RenderBackend
 from interactive_drive.config import (
     BevConfig,
@@ -67,10 +69,12 @@ class WorldModelRenderBackend(RenderBackend):
         self._pipeline = pipeline
         self._postprocess = postprocess or VideoPostprocessChainConfig()
         self._postprocess_enabled = self._postprocess.is_enabled()
-        self._output_stream = self._new_output_stream()
+        self._postprocess_stream = self._new_postprocess_stream()
         self._cache: Any | None = None
         self._step_index = 0
         self._pending_finalization_index: int | None = None
+        self._pending_raster_frames: deque[PresentedFrame] = deque()
+        self._first_transition_frame: PresentedFrame | None = None
         self._scene: SceneBundle | None = None
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
@@ -290,34 +294,61 @@ class WorldModelRenderBackend(RenderBackend):
         if enabled == self._postprocess_enabled:
             return
         self._postprocess_enabled = enabled
-        self._output_stream.finish()
-        self._output_stream = self._new_output_stream()
+        if self._postprocess_stream is not None:
+            self._postprocess_stream.finish()
+        self._pending_raster_frames.clear()
+        self._first_transition_frame = None
+        self._postprocess_stream = self._new_postprocess_stream()
 
     def close(self) -> None:
-        self._clear_pipeline(finalize_pending=True, recreate_output_stream=False)
+        self._clear_pipeline(finalize_pending=True, recreate_postprocess_stream=False)
         self._rasterizer.cleanup()
 
     def finalize(self) -> dict[str, float] | None:
         return self._finalize_pending()
+
+    def finish(self) -> tuple[PresentedFrame, ...]:
+        """Flush delayed post-processing output for a finite rollout."""
+        self._finalize_pending()
+        output = (
+            None
+            if self._postprocess_stream is None
+            else self._postprocess_stream.finish()
+        )
+        model_frames = (
+            []
+            if output is None
+            else lazy_rgb_frames_from_video_tensor(output.detach(), layout="bvtchw")
+        )
+        _synchronize_cuda_frame_event(model_frames)
+        merged_frames = self._merge_frames((), model_frames)
+        if self._pending_raster_frames:
+            raise RuntimeError(
+                "Post-processing finished without emitting "
+                f"{len(self._pending_raster_frames)} buffered frames."
+            )
+        return merged_frames
 
     def _start_pipeline(
         self,
         initial_rgb: object,
         condition_frames: Sequence[object],
         prompt: str,
-    ) -> list[object]:
+    ) -> list[LazyCudaFrame]:
         self._clear_pipeline(finalize_pending=False)
         self._cache = self._initialize_cache(initial_rgb, prompt)
         return self._step_pipeline(condition_frames)
 
-    def _continue_pipeline(self, condition_frames: Sequence[object]) -> list[object]:
+    def _continue_pipeline(
+        self, condition_frames: Sequence[object]
+    ) -> list[LazyCudaFrame]:
         if self._cache is None:
             raise RuntimeError(
                 "render_first_chunk() must run before render_next_chunk()."
             )
         return self._step_pipeline(condition_frames)
 
-    def _step_pipeline(self, condition_frames: Sequence[object]) -> list[object]:
+    def _step_pipeline(self, condition_frames: Sequence[object]) -> list[LazyCudaFrame]:
         if self._cache is None:
             raise RuntimeError("The stream pipeline cache has not been initialized.")
         self._finalize_pending()
@@ -332,41 +363,40 @@ class WorldModelRenderBackend(RenderBackend):
                 f"{len(condition_frames)} vs {expected_frames}."
             )
         step_index = self._step_index
-        video_chunk = self._pipeline.generate(
-            autoregressive_index=step_index,
-            cache=self._cache,
-            input=self._condition_tensor(condition_frames),
-        )
-        self._pending_finalization_index = step_index
-        result = self._output_stream.process(
-            video_chunk,
-            autoregressive_index=step_index,
-            metrics={},
-        )
-        if result.frame_count != expected_frames:
-            raise RuntimeError(
-                f"Expected {expected_frames} generated frames, "
-                f"got {result.frame_count}."
+        with torch.cuda.device(self._pipeline.device):
+            video_chunk = self._pipeline.generate(
+                autoregressive_index=step_index,
+                cache=self._cache,
+                input=self._condition_tensor(condition_frames),
             )
+        self._pending_finalization_index = step_index
+        output = (
+            video_chunk
+            if self._postprocess_stream is None
+            else self._postprocess_stream.process(
+                video_chunk,
+                autoregressive_index=step_index,
+            )
+        )
         self._step_index += 1
-        model_frames = list(result.lazy_rgb_frames())
-        _synchronize_cuda_frame_event(model_frames)
-        return model_frames
+        return lazy_rgb_frames_from_video_tensor(output.detach(), layout="bvtchw")
 
     def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
-        return self._pipeline.initialize_cache(
-            text=[[prompt]],
-            image=self._initial_rgb_tensor(initial_rgb),
-            view_names=_VIEW_NAMES,
-        )
+        with torch.cuda.device(self._pipeline.device):
+            return self._pipeline.initialize_cache(
+                text=[[prompt]],
+                image=self._initial_rgb_tensor(initial_rgb),
+                view_names=_VIEW_NAMES,
+            )
 
     def _finalize_pending(self) -> dict[str, float] | None:
         if self._cache is None or self._pending_finalization_index is None:
             return {}
-        metrics = self._pipeline.finalize(
-            autoregressive_index=self._pending_finalization_index,
-            cache=self._cache,
-        )
+        with torch.cuda.device(self._pipeline.device):
+            metrics = self._pipeline.finalize(
+                autoregressive_index=self._pending_finalization_index,
+                cache=self._cache,
+            )
         self._pending_finalization_index = None
         return metrics
 
@@ -374,7 +404,7 @@ class WorldModelRenderBackend(RenderBackend):
         self,
         *,
         finalize_pending: bool,
-        recreate_output_stream: bool = True,
+        recreate_postprocess_stream: bool = True,
     ) -> None:
         if finalize_pending:
             self._finalize_pending()
@@ -382,23 +412,22 @@ class WorldModelRenderBackend(RenderBackend):
             self._pending_finalization_index = None
         self._cache = None
         self._step_index = 0
-        self._output_stream.finish()
-        if recreate_output_stream:
-            self._output_stream = self._new_output_stream()
+        if self._postprocess_stream is not None:
+            self._postprocess_stream.finish()
+        self._pending_raster_frames.clear()
+        self._first_transition_frame = None
+        if recreate_postprocess_stream:
+            self._postprocess_stream = self._new_postprocess_stream()
 
-    def _new_output_stream(self) -> VideoOutputStream:
-        postprocess_stream = None
-        if self._postprocess_enabled:
-            postprocess_stream = VideoPostprocessStream(
-                postprocess=self._postprocess,
-                output_layout="bvtchw",
-                fps=self._chunk.fps,
-                per_view=False,
-                world_size=1,
-            )
-        return VideoOutputStream(
-            postprocess_stream=postprocess_stream,
+    def _new_postprocess_stream(self) -> VideoPostprocessStream | None:
+        if not self._postprocess_enabled:
+            return None
+        return VideoPostprocessStream(
+            postprocess=self._postprocess,
             output_layout="bvtchw",
+            fps=self._chunk.fps,
+            per_view=False,
+            world_size=1,
         )
 
     def _initial_rgb_tensor(self, frame: object) -> torch.Tensor:
@@ -456,17 +485,18 @@ class WorldModelRenderBackend(RenderBackend):
         *,
         annotate_first_transition: bool = False,
     ) -> tuple[PresentedFrame, ...]:
-        if len(raster_frames) != len(model_frames):
+        self._pending_raster_frames.extend(raster_frames)
+        if annotate_first_transition and raster_frames:
+            self._first_transition_frame = raster_frames[-1]
+        if len(model_frames) > len(self._pending_raster_frames):
             raise ValueError(
-                "World-model output frame count does not match the conditioning chunk size: "
-                f"{len(model_frames)} vs {len(raster_frames)}"
+                "World-model output exceeds the buffered conditioning frames: "
+                f"{len(model_frames)} vs {len(self._pending_raster_frames)}"
             )
 
         merged: list[PresentedFrame] = []
-        last_index = len(raster_frames) - 1
-        for index, (raster_frame, model_rgb) in enumerate(
-            zip(raster_frames, model_frames, strict=True)
-        ):
+        for model_rgb in model_frames:
+            raster_frame = self._pending_raster_frames.popleft()
             merged.append(
                 PresentedFrame(
                     timestamp_us=raster_frame.timestamp_us,
@@ -480,11 +510,13 @@ class WorldModelRenderBackend(RenderBackend):
                     physx_rgb_host_uint8=raster_frame.physx_rgb_host_uint8,
                     status_message=(
                         _FIRST_STEADY_STATE_WARMUP_MESSAGE
-                        if annotate_first_transition and index == last_index
+                        if raster_frame is self._first_transition_frame
                         else None
                     ),
                 )
             )
+            if raster_frame is self._first_transition_frame:
+                self._first_transition_frame = None
         return tuple(merged)
 
 
@@ -500,11 +532,10 @@ def _condition_cuda_video(
     tensors: list[torch.Tensor] = []
     device: torch.device | None = None
     for frame in condition_frames:
-        to_cuda_tensor = getattr(frame, "to_cuda_tensor", None)
-        if not callable(to_cuda_tensor):
+        if not isinstance(frame, LazyCudaFrame):
             return None
         try:
-            tensor = to_cuda_tensor()
+            tensor = frame.to_cuda_tensor()
         except RuntimeError:
             return None
         if (
@@ -519,11 +550,6 @@ def _condition_cuda_video(
             device = tensor.device
         elif tensor.device != device:
             return None
-
-        to_cuda_event = getattr(frame, "to_cuda_event", None)
-        event = to_cuda_event() if callable(to_cuda_event) else None
-        if event is not None:
-            torch.cuda.current_stream(tensor.device).wait_event(event)
         rgb = tensor[..., :3]
         tensors.append(rgb if rgb.is_contiguous() else rgb.contiguous())
 

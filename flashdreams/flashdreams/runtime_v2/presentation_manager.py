@@ -79,9 +79,10 @@ class _PresentationClock:
             now: Monotonic completion time for the chunk.
             generation: Session generation that produced the chunk.
             frame_count: Number of generated frames in the chunk.
-            step_elapsed_s: Time spent producing the result, including
-                post-processing inside the model step but excluding loop pacing
-                and downstream publication backpressure.
+            step_elapsed_s: Cumulative time spent in model steps that produced
+                this result, including any earlier steps buffered by a causal
+                postprocessor but excluding loop pacing and downstream
+                publication backpressure.
 
         Raises:
             TypeError: ``frame_count`` is not an integer.
@@ -258,8 +259,8 @@ class PresentationManager:
             generation: Reset generation the chunk was generated in. A chunk
                 from an earlier one is discarded rather than presented.
             chunk: One :class:`StepResult` per model channel.
-            step_elapsed_s: Time spent producing the result, including
-                post-processing inside the model step; ``None`` leaves the
+            step_elapsed_s: Cumulative time spent in model steps that produced
+                the result, including buffered steps; ``None`` leaves the
                 presentation cadence unchanged.
 
         Raises:

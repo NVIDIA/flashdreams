@@ -18,6 +18,7 @@ follows is already done for you.
 - `red_screen` — the smallest interactive one, streaming to a browser.
 - `slangpy_ui_demo` — three applications that draw widgets over model output,
   and the reference for writing a UI loop.
+- `imgui_ui_demo` — an editable ImGui text field rendered over model output.
 - `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
   shared interactive camera-to-video application.
 - `waypoint` — the Waypoint model binding to the shared `apps/action2v`
@@ -33,6 +34,8 @@ follows is already done for you.
   `cam2v-sana-wm-streaming` live-control binding.
 - `flashvsr` — streaming video super-resolution bound to the shared
   `apps/v2v` video-to-video application.
+- `swiftvr` — real-time streaming video restoration bound to the same
+  `apps/v2v` application.
 - `null_model` — not an application. A v1 pipeline the framework tests use as a
   fixture.
 
@@ -43,13 +46,13 @@ integrations_v2/<model>/
   pyproject.toml
   README.md
   __init__.py
-  config.py            # model's unique pipeline config or config wrapper
-  impl/                # all model-specific implementation
-  tests/               # model-specific tests, when needed
+  config.py            # collection of pipeline definitions for a particular `<model>`
+  impl/                # implementation details of a model
+  tests/               # validate model implementation
   apps/
     <demo>/
       __init__.py
-      adapter.py       # create_app() -> IApplication
+      adapter.py       # all entry point definitions for `<demo>` (ex: `create_app`)
       README.md        # launch instructions only
 ```
 

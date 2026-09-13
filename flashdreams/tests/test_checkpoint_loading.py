@@ -77,8 +77,11 @@ def test_checkpoint_loads_reject_non_weight_objects(
             )
 
     else:
-        checkpoint_path = tmp_path / "bucket" / "model.pt"
-        checkpoint_path.parent.mkdir()
+        checkpoint_path = Path(
+            checkpoint_load._s3_cache_path(
+                str(tmp_path), "s3://bucket/model", suffix=".pt"
+            )
+        )
         checkpoint_path.write_bytes(checkpoint_bytes)
         model = torch.nn.Linear(1, 1, bias=False)
 
@@ -109,6 +112,30 @@ def test_pickle_checkpoint_formats_still_load_tensor_state_dicts(
     actual = checkpoint_load.load_single_checkpoint(str(checkpoint_path))
 
     torch.testing.assert_close(actual["weight"], expected["weight"])
+
+
+def test_s3_cache_path_preserves_distinct_opaque_s3_keys(tmp_path: Path) -> None:
+    """Keep different S3 object keys in separate local cache entries."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+
+    nested_key_path = checkpoint_load._s3_cache_path(
+        str(tmp_path), "s3://bucket/a/../model.pt"
+    )
+    direct_key_path = checkpoint_load._s3_cache_path(
+        str(tmp_path), "s3://bucket/model.pt"
+    )
+
+    assert nested_key_path != direct_key_path
+    assert Path(nested_key_path).parent == tmp_path
+    assert Path(direct_key_path).parent == tmp_path
+
+
+def test_s3_cache_path_rejects_uri_without_a_bucket(tmp_path: Path) -> None:
+    """Reject malformed S3 URIs before creating a cache entry."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+
+    with pytest.raises(ValueError, match="must include a bucket"):
+        checkpoint_load._s3_cache_path(str(tmp_path), "s3:///tmp/escape.pt")
 
 
 def test_local_safetensors_uses_file_backed_loader(
