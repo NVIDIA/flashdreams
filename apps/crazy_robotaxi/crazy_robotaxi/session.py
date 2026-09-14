@@ -9,7 +9,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from functools import cached_property
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -19,6 +19,13 @@ from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.scene import SceneRequest
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
+from crazy_robotaxi.controls import (
+    BoundActionState,
+    gamepad_driver_command,
+    keyboard_drive_key,
+    keyboard_driver_command,
+    wheel_driver_command,
+)
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.race import RaceGameSnapshot
@@ -34,11 +41,6 @@ from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    GamepadUserInputEvent,
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -48,8 +50,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
-_GAMEPAD_START_BUTTON_INDEX = 9
-"""Browser-standard gamepad index shared by Start and Nintendo Plus."""
 
 
 @dataclass(slots=True)
@@ -65,6 +65,9 @@ class ModelState:
     driver_input: DriverInput
     input_timeline: RealtimeInputTimeline = field(init=False)
     """Frame-rate sampling clock for timestamped driving transitions."""
+
+    control_actions: BoundActionState = field(init=False)
+    """Rising-edge gameplay actions for the process-start bindings."""
 
     ui_loop: IUILoop[TaxiHudState]
     """UI-loop endpoint used only through ``invoke_async``."""
@@ -103,6 +106,7 @@ class ModelState:
         self.input_timeline = RealtimeInputTimeline(
             samples_per_second=self.session_desc.frames_per_second_for_step,
         )
+        self.control_actions = BoundActionState(self.config.controls)
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
@@ -314,6 +318,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         # Match Interactive Drive: apply every unread edge before rollout setup,
         # reset handling, or simulation reads the retained command.
         input_times_s = state.driver_input.apply(events)
+        control_actions = state.control_actions.apply(events)
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
@@ -322,7 +327,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         snapshot = rollout.engine.current_game_frame
         if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
             raise TypeError("Crazy Robotaxi engine returned an unknown game frame")
-        if _restart_requested(events):
+        if "restart" in control_actions:
             state.restart_game()
             rollout = state.ensure_rollout()
             snapshot = rollout.engine.current_game_frame
@@ -335,7 +340,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         if snapshot.session_state in active_states:
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
-                live_edit.process_events(events)
+                for action in ("style", "weather", "coins", "obstacle"):
+                    if action in control_actions:
+                        live_edit.request_action(action)
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
             input_window = state.input_timeline.next_window(
@@ -583,11 +590,15 @@ class CrazyRobotaxiSession(ISession):
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
             hud_enabled=self._config.hud_enabled,
+            live_edit=self._config.live_edit,
             native_dit_disabled_for_live_edit=(
                 self._config.native_dit_disabled_for_live_edit
             ),
             show_control_tooltips=self._config.show_control_hints,
             settings_document=self._config.settings_document,
+            controls=self._config.controls,
+            gamepad_button_style=self._config.gamepad_button_style,
+            control_documents=self._config.control_documents,
             map_options=self._map_options,
             initial_game_mode=self._config.initial_game_mode,
             initial_map_path=self._config.initial_map_path,
@@ -606,7 +617,20 @@ class CrazyRobotaxiSession(ISession):
                 scene_factory=self._scene_factory,
                 config=self._config,
                 session_desc=self._session_desc,
-                driver_input=DriverInput(),
+                driver_input=DriverInput(
+                    keyboard_command=partial(
+                        keyboard_driver_command, self._config.controls.keyboard
+                    ),
+                    key_normalizer=partial(
+                        keyboard_drive_key, self._config.controls.keyboard
+                    ),
+                    gamepad_command=partial(
+                        gamepad_driver_command, self._config.controls.gamepad
+                    ),
+                    wheel_command=partial(
+                        wheel_driver_command, self._config.controls.wheel
+                    ),
+                ),
                 ui_loop=ui_loop,
             ),
         )
@@ -624,25 +648,6 @@ def _log_chunk_trace(phase: str, *, time_ns: int, **fields: object) -> None:
         time_ns,
         details,
     )
-
-
-def _restart_requested(events: UserInputEvents) -> bool:
-    """Return whether this model step received a keyboard or gamepad restart."""
-    for event in events.get_events():
-        if (
-            isinstance(event, KeyboardUserInputEvent)
-            and event.state is KeyboardInputState.PRESSED
-            and str(event.key).strip().lower() == "r"
-        ):
-            return True
-        if (
-            isinstance(event, GamepadUserInputEvent)
-            and event.action == "state"
-            and len(event.pressed) > _GAMEPAD_START_BUTTON_INDEX
-            and event.pressed[_GAMEPAD_START_BUTTON_INDEX]
-        ):
-            return True
-    return False
 
 
 def _taxi_driver_command(command: DriverCommand) -> DriverCommand:

@@ -47,12 +47,6 @@ from omnidreams_game_engine.types import (
 )
 from PIL import Image
 
-from flashdreams.runtime_v2.user_input_event import (
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
-
 pytestmark = pytest.mark.ci_cpu
 
 
@@ -186,31 +180,13 @@ def test_weather_downloads_corrector_only_for_nonzero_gain(
     assert len(downloads) == 2
 
 
-def test_v2_ability_keys_are_consumed_on_pressed_edges() -> None:
+def test_v2_manual_actions_share_keyboard_dispatch() -> None:
     gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
     gameplay.style = _StyleRequests()
     gameplay.coins = _Coins()
     gameplay.obstacles = _Obstacles()
-    events = UserInputEvents(
-        [
-            KeyboardUserInputEvent(
-                timestamp=np.uint64(index),
-                key=key,
-                state=state,
-            )
-            for index, (key, state) in enumerate(
-                (
-                    ("k", KeyboardInputState.PRESSED),
-                    ("k", KeyboardInputState.RELEASED),
-                    ("v", KeyboardInputState.PRESSED),
-                    ("c", KeyboardInputState.PRESSED),
-                    ("o", KeyboardInputState.PRESSED),
-                )
-            )
-        ]
-    )
-
-    gameplay.process_events(events)
+    for action in ("style", "weather", "coins", "obstacle"):
+        gameplay.request_action(action)
 
     assert gameplay.style.skin_cycles == 1
     assert gameplay.style.weather_cycles == 1
