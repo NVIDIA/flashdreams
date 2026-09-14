@@ -197,12 +197,9 @@ class SwiftVRPipeline(
         assert events is not None, "finalize() called without a SwiftVR profiler"
         events.record("finalize")
         stats_ms = events.sync_and_summarize()
-        total_ms = sum(stats_ms.values())
-        return {
-            **{f"{stage}_ms": ms for stage, ms in stats_ms.items()},
-            "total_ms": total_ms,
-            "total_ms_wo_finalize": total_ms - stats_ms.get("finalize", 0.0),
-        }
+        return events.format_result_as_ms(
+            stats_ms, collect_totals=True, collect_vram_info=True
+        )
 
     @torch.no_grad()
     def flush(self, cache: SwiftVRPipelineCache) -> Tensor | None:

@@ -313,28 +313,20 @@ class StreamInferencePipeline(
         )
         cache.event_profiler.record("finalize")
         stats_ms = cache.event_profiler.sync_and_summarize()
-        total_ms = sum(stats_ms.values())
-        total_ms_wo_finalize = total_ms - stats_ms.get("finalize", 0.0)
+        stats = cache.event_profiler.format_result_as_ms(
+            stats_ms, collect_totals=True, collect_vram_info=True
+        )
+
+        # Custom logging
+        total_ms = stats["total_ms"]
+        total_ms_wo_finalize = stats["total_ms_wo_finalize"]
         stages_str = " ".join(f"{stage} {ms:.3f} ms" for stage, ms in stats_ms.items())
-
-        stats: dict[str, float] = {f"{stage}_ms": ms for stage, ms in stats_ms.items()}
-        stats["total_ms"] = total_ms
-        stats["total_ms_wo_finalize"] = total_ms_wo_finalize
-
         mem_str = ""
-        if torch.cuda.is_available():
-            device = torch.cuda.current_device()
-            gib = 1024**3
-            mem_alloc_gib = torch.cuda.memory_allocated(device) / gib
-            mem_reserved_gib = torch.cuda.memory_reserved(device) / gib
-            mem_peak_gib = torch.cuda.max_memory_allocated(device) / gib
-            stats["mem_alloc_gib"] = mem_alloc_gib
-            stats["mem_reserved_gib"] = mem_reserved_gib
-            stats["mem_peak_gib"] = mem_peak_gib
+        if "mem_alloc_gib" in stats:
             mem_str = (
-                f" | GPU mem alloc {mem_alloc_gib:.3f} GiB "
-                f"reserved {mem_reserved_gib:.3f} GiB "
-                f"peak {mem_peak_gib:.3f} GiB"
+                f" | GPU mem alloc {stats['mem_alloc_gib']:.3f} GiB "
+                f"reserved {stats['mem_reserved_gib']:.3f} GiB "
+                f"peak {stats['mem_peak_gib']:.3f} GiB"
             )
         logger.info(
             f"AR {autoregressive_index} {stages_str} | "
@@ -342,4 +334,6 @@ class StreamInferencePipeline(
             f"total {total_ms:.3f} ms"
             f"{mem_str}"
         )
+        # End of custom logging
+
         return stats
