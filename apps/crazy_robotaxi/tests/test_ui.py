@@ -2379,7 +2379,7 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
     assert "Game Over" in imgui.windows
 
 
-def test_taxi_results_card_draws_ranked_leaderboard() -> None:
+def test_taxi_results_card_draws_leaderboard_without_player_rank() -> None:
     defaults = ControlsConfig()
     state = TaxiHudState(
         640,
@@ -2406,7 +2406,6 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
                 replace(
                     _snapshot(session_state="leaderboard"),
                     leaderboard=entries,
-                    high_score_rank=2,
                 ),
             ),
             np.eye(4, dtype=np.float32)[None],
@@ -2428,7 +2427,7 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
         ["#1", "ACE", "   2400"],
         ["#2", "DRIVER 7", "   1200"],
     ]
-    assert imgui.highlighted_rows == [2]
+    assert imgui.highlighted_rows == []
     assert "PLAY AGAIN" in imgui.buttons
     assert "P - RESTART   |   M - MENU" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
@@ -2456,7 +2455,7 @@ def test_hidden_gameplay_hud_still_draws_results() -> None:
     assert "Game Over" in imgui.windows
 
 
-def test_race_results_card_formats_times() -> None:
+def test_race_results_card_draws_leaderboard_without_player_rank() -> None:
     state = TaxiHudState(640, 540, _calibration())
     video = torch.zeros(1, 3, 540, 640)
     entries = (
@@ -2475,7 +2474,6 @@ def test_race_results_card_formats_times() -> None:
                 replace(
                     _race_snapshot(session_state="leaderboard"),
                     leaderboard=entries,
-                    high_score_rank=1,
                 ),
             ),
             np.eye(4, dtype=np.float32)[None],
@@ -2490,10 +2488,93 @@ def test_race_results_card_formats_times() -> None:
     assert "0:42.345" in imgui.windows["Game Over"]
     assert imgui.table_columns["##leaderboard"] == ["RANK", "DRIVER", "TIME"]
     assert imgui.tables["##leaderboard"] == [["#1", "RACER", "0:42.345"]]
+    assert imgui.highlighted_rows == []
 
 
-@pytest.mark.parametrize("session_state", ["awaiting_name", "leaderboard"])
-def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -> None:
+@pytest.mark.parametrize(
+    ("snapshot", "expected_rows", "save_label"),
+    [
+        (
+            replace(
+                _snapshot(session_state="awaiting_name"),
+                high_score_rank=1,
+            ),
+            [["#1", "", "   1200"]],
+            "SAVE SCORE",
+        ),
+        (
+            replace(
+                _race_snapshot(session_state="awaiting_name"),
+                high_score_rank=1,
+            ),
+            [["#1", "", "0:42.345"]],
+            "SAVE TIME",
+        ),
+    ],
+)
+def test_terminal_shows_pending_result_before_name_is_saved(
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+    expected_rows: list[list[str]],
+    save_label: str,
+) -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    video = torch.zeros(1, 3, 540, 640)
+    state.publish(
+        build_hud_frames(
+            video,
+            (snapshot,),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert imgui.tables["##leaderboard"] == expected_rows
+    assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
+    assert save_label in imgui.buttons
+    assert imgui.highlighted_rows == [1]
+
+
+def test_terminal_first_frame_constrains_leaderboard_to_viewport() -> None:
+    state = TaxiHudState(320, 180, _calibration())
+    video = torch.zeros(1, 3, 180, 320)
+    entries = tuple(
+        HighScoreEntry(f"DRIVER {index}", 10_000 - index, "") for index in range(10)
+    )
+    state.publish(
+        build_hud_frames(
+            video,
+            (
+                replace(
+                    _snapshot(session_state="leaderboard"),
+                    leaderboard=entries,
+                ),
+            ),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
+
+
+@pytest.mark.parametrize(
+    ("session_state", "button"),
+    [
+        ("awaiting_name", "PLAY AGAIN"),
+        ("leaderboard", "PLAY AGAIN"),
+        ("leaderboard", "RETURN TO MENU"),
+    ],
+)
+def test_terminal_result_actions(
+    session_state: TaxiSessionState,
+    button: str,
+) -> None:
     state = TaxiHudState(640, 360, _calibration())
     model_loop = _SelectionLoop()
     model_loop.register_session_loop_objects(
@@ -2514,12 +2595,16 @@ def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -
     state._menu_stage = "loading"
     state.select_presented_frame(video[0])
     imgui = _FakeImGui()
-    imgui.clicked_buttons.add("PLAY AGAIN")
+    imgui.clicked_buttons.add(button)
 
     state.draw(imgui)
     model_loop._run_message_batch()
 
-    assert model_loop.state.restart_count == 1
+    if button == "PLAY AGAIN":
+        assert model_loop.state.restart_count == 1
+    else:
+        assert state._menu_stage == "map"
+        assert model_loop.state.return_to_map_count == 1
 
 
 def _settings_document(path: Path) -> SettingsDocument:
