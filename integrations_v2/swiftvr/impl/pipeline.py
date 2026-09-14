@@ -222,11 +222,11 @@ class SwiftVRPipeline(
         *,
         event_profiler: EventProfiler | None = None,
     ) -> Tensor | None:
+        record_event(event_profiler, "diffuse")
         restored = self.transformer.restore(
             latents.permute(0, 2, 1, 3, 4).contiguous(),
             cache.transformer_cache,
         )
-        record_event(event_profiler, "diffuse")
         assert cache.decoder_cache is not None
         output = self.decoder(
             input=restored,
