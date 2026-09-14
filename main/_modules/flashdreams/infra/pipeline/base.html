@@ -711,28 +711,20 @@ SPDX-License-Identifier: Apache-2.0
         <span class="p">)</span>
         <span class="n">cache</span><span class="o">.</span><span class="n">event_profiler</span><span class="o">.</span><span class="n">record</span><span class="p">(</span><span class="s2">&quot;finalize&quot;</span><span class="p">)</span>
         <span class="n">stats_ms</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">event_profiler</span><span class="o">.</span><span class="n">sync_and_summarize</span><span class="p">()</span>
-        <span class="n">total_ms</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">stats_ms</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
-        <span class="n">total_ms_wo_finalize</span> <span class="o">=</span> <span class="n">total_ms</span> <span class="o">-</span> <span class="n">stats_ms</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;finalize&quot;</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">event_profiler</span><span class="o">.</span><span class="n">format_result_as_ms</span><span class="p">(</span>
+            <span class="n">stats_ms</span><span class="p">,</span> <span class="n">collect_totals</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">collect_vram_info</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Custom logging</span>
+        <span class="n">total_ms</span> <span class="o">=</span> <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;total_ms&quot;</span><span class="p">]</span>
+        <span class="n">total_ms_wo_finalize</span> <span class="o">=</span> <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;total_ms_wo_finalize&quot;</span><span class="p">]</span>
         <span class="n">stages_str</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">ms</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> ms&quot;</span> <span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">ms</span> <span class="ow">in</span> <span class="n">stats_ms</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
-
-        <span class="n">stats</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2">_ms&quot;</span><span class="p">:</span> <span class="n">ms</span> <span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">ms</span> <span class="ow">in</span> <span class="n">stats_ms</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-        <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;total_ms&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">total_ms</span>
-        <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;total_ms_wo_finalize&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">total_ms_wo_finalize</span>
-
         <span class="n">mem_str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-        <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
-            <span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">()</span>
-            <span class="n">gib</span> <span class="o">=</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">3</span>
-            <span class="n">mem_alloc_gib</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">memory_allocated</span><span class="p">(</span><span class="n">device</span><span class="p">)</span> <span class="o">/</span> <span class="n">gib</span>
-            <span class="n">mem_reserved_gib</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">memory_reserved</span><span class="p">(</span><span class="n">device</span><span class="p">)</span> <span class="o">/</span> <span class="n">gib</span>
-            <span class="n">mem_peak_gib</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">max_memory_allocated</span><span class="p">(</span><span class="n">device</span><span class="p">)</span> <span class="o">/</span> <span class="n">gib</span>
-            <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;mem_alloc_gib&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mem_alloc_gib</span>
-            <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;mem_reserved_gib&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mem_reserved_gib</span>
-            <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;mem_peak_gib&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mem_peak_gib</span>
+        <span class="k">if</span> <span class="s2">&quot;mem_alloc_gib&quot;</span> <span class="ow">in</span> <span class="n">stats</span><span class="p">:</span>
             <span class="n">mem_str</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot; | GPU mem alloc </span><span class="si">{</span><span class="n">mem_alloc_gib</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> GiB &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;reserved </span><span class="si">{</span><span class="n">mem_reserved_gib</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> GiB &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;peak </span><span class="si">{</span><span class="n">mem_peak_gib</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> GiB&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot; | GPU mem alloc </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;mem_alloc_gib&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> GiB &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;reserved </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;mem_reserved_gib&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> GiB &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;peak </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;mem_peak_gib&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> GiB&quot;</span>
             <span class="p">)</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;AR </span><span class="si">{</span><span class="n">autoregressive_index</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">stages_str</span><span class="si">}</span><span class="s2"> | &quot;</span>
@@ -740,6 +732,8 @@ SPDX-License-Identifier: Apache-2.0
             <span class="sa">f</span><span class="s2">&quot;total </span><span class="si">{</span><span class="n">total_ms</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> ms&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mem_str</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
+        <span class="c1"># End of custom logging</span>
+
         <span class="k">return</span> <span class="n">stats</span></div>
 
 </pre></div>
