@@ -31,8 +31,12 @@ from crazy_robotaxi.high_scores import HighScoreEntry, RaceTimeEntry
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditMapContextConfig,
+    LiveEditObstacleConfig,
     LiveEditStyleConfig,
+    LiveEditWeatherConfig,
 )
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot, RaceSessionState
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
@@ -256,6 +260,7 @@ class _FakeImGui:
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
         self.button_positions: list[tuple[str, float]] = []
+        self.same_line_count = 0
         self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
         self.disabled_depth = 0
         self.disabled_buttons: list[str] = []
@@ -269,6 +274,7 @@ class _FakeImGui:
         self.last_item_rect_size = (0.0, 0.0)
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
+        self.table_column_widths: dict[str, list[float]] = {}
         self.table_column_counts: dict[str, int] = {}
         self.table_flags: dict[str, int] = {}
         self.table_outer_sizes: dict[str, tuple[float, float]] = {}
@@ -536,7 +542,7 @@ class _FakeImGui:
         self.disabled_depth -= 1
 
     def same_line(self) -> None:
-        return
+        self.same_line_count += 1
 
     def begin_table(
         self,
@@ -549,6 +555,7 @@ class _FakeImGui:
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
+        self.table_column_widths[table_id] = []
         self.table_column_counts[table_id] = columns
         self.table_flags[table_id] = flags
         self.table_outer_sizes[table_id] = outer_size
@@ -559,9 +566,10 @@ class _FakeImGui:
         self.current_table = None
 
     def table_setup_column(self, label: str, flags: int, width: float) -> None:
-        del flags, width
+        del flags
         assert self.current_table is not None
         self.table_columns[self.current_table].append(label)
+        self.table_column_widths[self.current_table].append(width)
 
     def table_headers_row(self) -> None:
         return
@@ -647,6 +655,7 @@ class _SubmissionLoop(IModelLoop[_SubmissionState]):
 @dataclass
 class _SelectionState:
     selections: list[GameSelection] = field(default_factory=list)
+    live_edit_actions: list[LiveEditAction] = field(default_factory=list)
     return_to_map_count: int = 0
     restart_count: int = 0
     exit_requested: bool = False
@@ -662,6 +671,9 @@ class _SelectionState:
 
     def request_exit(self) -> None:
         self.exit_requested = True
+
+    def request_live_edit_action(self, action: LiveEditAction) -> None:
+        self.live_edit_actions.append(action)
 
 
 class _SelectionLoop(IModelLoop[_SelectionState]):
@@ -702,6 +714,184 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
     )
 
     assert [frame.transition_timestamp_us for frame in frames] == [100, 200]
+
+
+def test_hud_frames_preserve_frame_aligned_live_edit_status() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+    statuses = (
+        LiveEditHudStatus(skin_name="comic", coins_enabled=True, coins_collected=0),
+        LiveEditHudStatus(skin_name="comic", coins_enabled=True, coins_collected=1),
+    )
+
+    frames = build_hud_frames(
+        video,
+        (_snapshot(), _snapshot()),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        live_edit_statuses=statuses,
+    )
+
+    assert tuple(frame.live_edit_status for frame in frames) == statuses
+
+
+def test_live_edit_card_dispatches_enabled_actions() -> None:
+    live_edit = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+        coins=LiveEditCoinsConfig(enabled=True),
+        obstacle=LiveEditObstacleConfig(enabled=True),
+    )
+    state = TaxiHudState(640, 540, _calibration(), live_edit=live_edit)
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons = {
+        "CYCLE STYLE (K)",
+        "CYCLE WEATHER (V)",
+        "TOGGLE COINS (C)",
+        "SPAWN OBSTACLE (O)",
+    }
+
+    state._draw_live_edit_card(
+        imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+    model_loop._run_message_batch()
+
+    assert model_loop.state.live_edit_actions == [
+        "style",
+        "weather",
+        "coins",
+        "obstacle",
+    ]
+    assert len({size for _label, size in imgui.button_sizes}) == 1
+    assert all(
+        size is not None and size[0] >= imgui.calc_text_size(label).x + 20.0
+        for label, size in imgui.button_sizes
+    )
+    assert imgui.next_window_position == (14.0, 94.0)
+    assert imgui.same_line_count == 0
+
+
+def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            style=LiveEditStyleConfig(enabled=True),
+            weather=LiveEditWeatherConfig(enabled=True),
+            coins=LiveEditCoinsConfig(enabled=True),
+            obstacle=LiveEditObstacleConfig(enabled=True),
+        ),
+    )
+    imgui = _FakeImGui()
+
+    state._draw_live_edit_card(
+        imgui,
+        LiveEditHudStatus(
+            skin_name="comic",
+            weather_name="rain",
+            coins_enabled=True,
+            coins_collected=3,
+            nitro_seconds_remaining=4.0,
+            item_flash="NITRO BOOST",
+            obstacle_count=2,
+        ),
+    )
+
+    assert imgui.windows["Live Edit"] == [
+        "LIVE EDIT",
+        "STYLE  COMIC",
+        "WEATHER  RAIN",
+        "COINS  ON",
+        "NITRO  4.0s",
+        "OBSTACLES  2",
+        "NITRO BOOST",
+    ]
+    live_edit_flags = imgui.window_flags["Live Edit"]
+    assert live_edit_flags & imgui.WindowFlags_.always_auto_resize
+    assert live_edit_flags & imgui.WindowFlags_.no_scrollbar
+    assert live_edit_flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert imgui.disabled_buttons == ["CYCLE WEATHER (V)"]
+
+
+def test_coin_counter_uses_upper_left_auto_sized_card() -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    imgui = _FakeImGui()
+
+    state._draw_coin_counter(
+        imgui,
+        LiveEditHudStatus(coins_enabled=True, coins_collected=3),
+    )
+
+    assert imgui.next_window_position == (14.0, 14.0)
+    assert imgui.windows["Coin Counter"] == ["COINS  3"]
+    flags = imgui.window_flags["Coin Counter"]
+    assert flags & imgui.WindowFlags_.always_auto_resize
+    assert flags & imgui.WindowFlags_.no_scrollbar
+
+
+def test_live_edit_mapping_location_and_button_visibility() -> None:
+    live_edit = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+    )
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=live_edit,
+        live_edit_mapping_location="control hints",
+    )
+    card_imgui = _FakeImGui()
+
+    state._draw_live_edit_card(
+        card_imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+
+    assert card_imgui.buttons == ["CYCLE STYLE", "CYCLE WEATHER"]
+    hints_imgui = _FakeImGui()
+    state._draw_control_tooltips(hints_imgui)
+    hints = [
+        value for row in hints_imgui.tables["##gameplay-control-hints"] for value in row
+    ]
+    assert "CYCLE STYLE" in hints
+    assert "K" in hints
+    assert "CYCLE WEATHER" in hints
+    assert "V" in hints
+
+    state.show_live_edit_buttons = False
+    hidden_imgui = _FakeImGui()
+    state._draw_live_edit_card(
+        hidden_imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+    assert hidden_imgui.buttons == []
+    assert "LIVE EDIT" in hidden_imgui.windows["Live Edit"]
+
+
+def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            map_context=LiveEditMapContextConfig(enabled=True),
+        ),
+        show_live_edit_buttons=False,
+    )
+    imgui = _FakeImGui()
+
+    state._draw_live_edit_card(imgui, LiveEditHudStatus())
+
+    assert "Live Edit" not in imgui.windows
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
@@ -1984,6 +2174,10 @@ def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
     assert "START / MENU" in hints
     assert "BACK / VIEW" in hints
     assert "W / UP ARROW" not in hints
+    column_widths = imgui.table_column_widths["##gameplay-control-hints"]
+    assert column_widths[1::2] == [
+        max(imgui.calc_text_size(value).x for value in hints[1::2])
+    ] * (len(column_widths) // 2)
 
     terminal_imgui = _FakeImGui()
     state._draw_terminal(
@@ -2439,7 +2633,7 @@ def test_options_booleans_use_compact_native_green_checkboxes(
         for style, value in imgui.pushed_style_vars
         if style == imgui.StyleVar_.frame_padding and value == (10.0, 4.0)
     ]
-    assert len(compact_padding) == 3
+    assert len(compact_padding) == len(native_check_colors)
 
 
 def test_options_text_fields_wrap_without_resizing_the_submenu(
@@ -2568,13 +2762,21 @@ def test_options_save_persists_and_applies_presentation_setting(
     state._options_category = "presentation"
     imgui = _FakeImGui()
     imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.checkbox_values["##presentation.show_live_edit_buttons"] = False
+    imgui.combo_indices["##presentation.live_edit_mapping_location"] = 1
     imgui.clicked_buttons.add("SAVE")
 
     state.draw(imgui)
 
     assert state._menu_stage == "options"
     assert state.show_fps
+    assert not state.show_live_edit_buttons
+    assert state.live_edit_mapping_location == "control hints"
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
+    assert "show_live_edit_buttons: false" in document.path.read_text(encoding="utf-8")
+    assert "live_edit_mapping_location: control hints" in document.path.read_text(
+        encoding="utf-8"
+    )
     assert state._settings_notice == f"SAVED {document.path}"
     assert not state._settings_restart_notice
     options_lines = imgui.windows["Crazy Robotaxi - Options"]

@@ -7,12 +7,10 @@ Unlike the weather/skin items, nitro never touches the world-model state
 machines — it is pure app-side physics. The seam is the per-frame
 ``integrate_fn`` the rollout passes to ``sample_chunk_trajectory``
 (:func:`crazy_robotaxi.driving.integrate_taxi_vehicle`): while the boost is
-active, :func:`integrate_with_nitro` hands the integrator a vehicle config
-with ``max_accel_mps2`` and ``max_speed_mps`` multiplied by
-``nitro_boost``, the boosted max speed hard-capped at
-``nitro_max_speed_mps`` so the ego stays inside the world model's manifold
-(the conditioning renders the faster ego plausibly up to highway speeds;
-~16 m/s is the validated comfort zone on the shipped suburb map).
+active, :func:`integrate_with_nitro` raises the vehicle's speed limit by
+``nitro_boost`` without changing its acceleration. The boosted limit is
+hard-capped at ``nitro_max_speed_mps``, but never below the vehicle's normal
+limit.
 
 Activation is INSTANT: a pickup detected in chunk N boosts the very next
 sampled physics tick (chunk N+1 at the pipeline's one-chunk pickup
@@ -51,6 +49,7 @@ class NitroAbility:
     def __init__(self, config: LiveEditItemsConfig) -> None:
         self._config = config
         self._remaining_s = 0.0
+        self._tick_history: list[tuple[float, float]] = []
 
     @property
     def boost(self) -> float:
@@ -79,27 +78,60 @@ class NitroAbility:
     def reset(self) -> None:
         """Drop any active boost (rollout reset)."""
         self._remaining_s = 0.0
+        self._tick_history.clear()
 
     def boosted_vehicle(self, vehicle: VehicleConfig) -> VehicleConfig:
         """The vehicle config with the nitro multiplier and ceiling applied."""
         return replace(
             vehicle,
-            max_accel_mps2=vehicle.max_accel_mps2 * self._config.nitro_boost,
-            max_speed_mps=min(
-                vehicle.max_speed_mps * self._config.nitro_boost,
-                self._config.nitro_max_speed_mps,
+            max_speed_mps=max(
+                vehicle.max_speed_mps,
+                min(
+                    vehicle.max_speed_mps * self._config.nitro_boost,
+                    self._config.nitro_max_speed_mps,
+                ),
             ),
         )
 
     def vehicle_for_tick(self, vehicle: VehicleConfig, dt_s: float) -> VehicleConfig:
         """Consume one physics tick; return the config the tick should use."""
+        before_tick_s = self.seconds_remaining
         if not self.active:
+            self._tick_history.append((before_tick_s, before_tick_s))
             return vehicle
         boosted = self.boosted_vehicle(vehicle)
-        self._remaining_s -= dt_s
+        self._remaining_s = max(0.0, self._remaining_s - dt_s)
+        self._tick_history.append((before_tick_s, self.seconds_remaining))
         if not self.active:
             logger.info("[live-edit] nitro boost expired")
         return boosted
+
+    def consume_frame_seconds(self, frame_count: int) -> tuple[float, ...]:
+        """Return and clear countdown values aligned with simulated frames.
+
+        The first rollout chunk includes its initial state without an integration
+        tick, so its first value is the timer immediately before the next tick.
+
+        Args:
+            frame_count: Number of states in the completed trajectory.
+
+        Returns:
+            Remaining nitro seconds after each corresponding physics state.
+
+        Raises:
+            ValueError: The recorded physics ticks cannot align with ``frame_count``.
+        """
+        history = tuple(self._tick_history)
+        self._tick_history.clear()
+        if len(history) == frame_count:
+            return tuple(after_tick_s for _before_tick_s, after_tick_s in history)
+        if len(history) == frame_count - 1:
+            initial_s = history[0][0] if history else self.seconds_remaining
+            return (initial_s, *(after_tick_s for _, after_tick_s in history))
+        raise ValueError(
+            "Nitro physics ticks do not align with the completed trajectory: "
+            f"got {len(history)} ticks for {frame_count} frames"
+        )
 
 
 def integrate_with_nitro(nitro: NitroAbility, integrate_fn: IntegrateFn) -> IntegrateFn:

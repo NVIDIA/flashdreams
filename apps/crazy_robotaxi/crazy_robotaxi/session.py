@@ -28,6 +28,7 @@ from crazy_robotaxi.controls import (
 )
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
@@ -307,6 +308,15 @@ class ModelState:
         rollout = self.ensure_rollout()
         rollout.engine.submit_text(name)
 
+    def request_live_edit_action(self, action: LiveEditAction) -> None:
+        """Forward one UI action to the active live-edit gameplay state."""
+        rollout = self.rollout
+        if rollout is None:
+            return
+        live_edit = getattr(rollout.engine, "live_edit", None)
+        if live_edit is not None:
+            live_edit.request_action(action)
+
 
 class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
@@ -337,6 +347,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         autoregressive_index = -1
         simulation_timestamps_us: tuple[int, ...] | None = None
         cache_finalize_returned_ns: int | None = None
+        live_edit_statuses: tuple[LiveEditHudStatus, ...] | None = None
         if snapshot.session_state in active_states:
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
@@ -406,6 +417,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     )
             if live_edit is not None and live_edit.style is not None:
                 live_edit.style.after_v2_chunk()
+            if live_edit is not None:
+                live_edit_statuses = live_edit.hud_statuses()
             state.blocks_generated += 1
             video = generated.video_bvtchw[0, 0]
             expected_shape = (
@@ -462,6 +475,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             autoregressive_index=autoregressive_index,
             simulation_timestamps_us=simulation_timestamps_us,
             cache_finalize_returned_ns=cache_finalize_returned_ns,
+            live_edit_statuses=live_edit_statuses,
         )
         invoke_async(
             state.ui_loop,
@@ -595,6 +609,8 @@ class CrazyRobotaxiSession(ISession):
                 self._config.native_dit_disabled_for_live_edit
             ),
             show_control_tooltips=self._config.show_control_hints,
+            show_live_edit_buttons=self._config.show_live_edit_buttons,
+            live_edit_mapping_location=self._config.live_edit_mapping_location,
             settings_document=self._config.settings_document,
             controls=self._config.controls,
             gamepad_button_style=self._config.gamepad_button_style,

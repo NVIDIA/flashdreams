@@ -62,6 +62,7 @@ from crazy_robotaxi.high_scores import (
     validate_player_name,
 )
 from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -72,6 +73,7 @@ from crazy_robotaxi.rules import (
 )
 from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
+    LiveEditMappingLocation,
     SettingsDocument,
     SettingsError,
     clone_settings,
@@ -131,6 +133,13 @@ _MENU_BACK_CONTROLS = replace(
     ),
 )
 """Fixed menu navigation bindings, separate from gameplay controls."""
+
+_LIVE_EDIT_CONTROL_FIELDS: tuple[tuple[LiveEditAction, str], ...] = (
+    ("style", "cycle_style"),
+    ("weather", "cycle_weather"),
+    ("coins", "toggle_coins"),
+    ("obstacle", "spawn_obstacle"),
+)
 
 
 def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
@@ -202,6 +211,9 @@ class TaxiHudFrame:
     speed_mps: float = 0.0
     """Authoritative signed vehicle speed for the corresponding simulation frame."""
 
+    live_edit_status: LiveEditHudStatus | None = None
+    """Live-edit state aligned with this generated frame."""
+
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
 
@@ -253,13 +265,19 @@ class TaxiHudState:
     """Whether gameplay HUD overlays are visible."""
 
     live_edit: LiveEditConfig = field(default_factory=LiveEditConfig)
-    """Live-edit availability used by the Controls editor."""
+    """Enabled live-edit controls exposed by the HUD."""
 
     native_dit_disabled_for_live_edit: bool = False
     """Whether this launch forced native DiT acceleration off."""
 
     show_control_tooltips: bool = True
     """Whether to display keyboard control hints during gameplay."""
+
+    show_live_edit_buttons: bool = True
+    """Whether live-edit actions appear as clickable HUD buttons."""
+
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    """Where active live-edit mappings appear in the gameplay HUD."""
 
     settings_document: SettingsDocument | None = None
     """User-authored settings backing the reusable Options screen."""
@@ -1106,6 +1124,12 @@ class TaxiHudState:
             self.show_fps = draft.presentation.show_fps
         if ("presentation", "show_control_hints") not in overrides:
             self.show_control_tooltips = draft.presentation.show_control_hints
+        if ("presentation", "show_live_edit_buttons") not in overrides:
+            self.show_live_edit_buttons = draft.presentation.show_live_edit_buttons
+        if ("presentation", "live_edit_mapping_location") not in overrides:
+            self.live_edit_mapping_location = (
+                draft.presentation.live_edit_mapping_location
+            )
         self._settings_notice = f"SAVED {document.path}"
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S
@@ -1268,6 +1292,8 @@ class TaxiHudState:
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
             self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_coin_counter(imgui, hud_frame.live_edit_status)
+            self._draw_live_edit_card(imgui, hud_frame.live_edit_status)
             self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
@@ -1504,6 +1530,136 @@ class TaxiHudState:
             lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
         )
 
+    def _draw_live_edit_card(
+        self,
+        imgui: Any,
+        status: LiveEditHudStatus | None,
+    ) -> None:
+        """Draw frame-aligned live-edit status and action buttons."""
+        if status is None or not self.live_edit.any_enabled:
+            return
+        control_entries = self._live_edit_control_entries()
+        actions = tuple(
+            (
+                action,
+                (
+                    f"{label} ({mapping})"
+                    if self.live_edit_mapping_location == "buttons"
+                    else label
+                ),
+            )
+            for action, label, mapping in control_entries
+            if self.show_live_edit_buttons
+        )
+        lines = _live_edit_status_lines(status)
+        if not actions and not lines:
+            return
+        button_width = max(
+            (
+                _point_xy(imgui.calc_text_size(label))[0] + 20.0
+                for _action, label in actions
+            ),
+            default=1.0,
+        )
+        _prepare_window(
+            imgui,
+            position=(14.0, 94.0),
+            size=None,
+            alpha=0.94,
+            pivot=(0.0, 0.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(
+            imgui,
+            "Live Edit",
+            extra_flags=_AUTO_CARD_FLAGS,
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "LIVE EDIT",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=18.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            for line in lines:
+                imgui.text(line)
+            if actions:
+                imgui.separator()
+            for action, label in actions:
+                disabled = action == "weather" and status.skin_name not in {
+                    None,
+                    "base",
+                }
+                if disabled:
+                    imgui.begin_disabled()
+                try:
+                    if imgui.button(label, imgui.ImVec2(button_width, 34.0)):
+                        self._request_live_edit_action(action)
+                finally:
+                    if disabled:
+                        imgui.end_disabled()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _draw_coin_counter(
+        self,
+        imgui: Any,
+        status: LiveEditHudStatus | None,
+    ) -> None:
+        """Draw collected coins in the upper-left while coins are available."""
+        if status is None or not status.coins_enabled:
+            return
+        _prepare_window(
+            imgui,
+            position=(14.0, 14.0),
+            size=None,
+            alpha=0.94,
+            pivot=(0.0, 0.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(imgui, "Coin Counter", extra_flags=_AUTO_CARD_FLAGS)
+        try:
+            if visible:
+                _colored_imgui_text(
+                    imgui,
+                    f"COINS  {status.coins_collected}",
+                    (*_TAXI_ACCENT_RGB, 1.0),
+                )
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _live_edit_control_entries(
+        self,
+    ) -> tuple[tuple[LiveEditAction, str, str], ...]:
+        """Return enabled live-edit actions with authored labels and mappings."""
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
+        fields_by_name = {item.name: item for item in controls_fields(controls)}
+        return tuple(
+            (
+                action,
+                control_label(fields_by_name[field_name]),
+                _binding_slots_display(
+                    device,
+                    getattr(controls, field_name),
+                    self.gamepad_button_style,
+                ),
+            )
+            for action, field_name in _LIVE_EDIT_CONTROL_FIELDS
+            if getattr(self.live_edit, action).enabled
+        )
+
     def _draw_control_tooltips(self, imgui: Any) -> None:
         """Draw controls for the device currently driving the game."""
         if not self.show_control_tooltips:
@@ -1537,6 +1693,14 @@ class TaxiHudState:
             ("RESTART", display(controls.restart)),
             ("RETURN TO MENU", display(controls.return_to_menu)),
             ("HIDE CONTROLS", display(controls.toggle_hints)),
+            *(
+                tuple(
+                    (label, mapping)
+                    for _action, label, mapping in self._live_edit_control_entries()
+                )
+                if self.live_edit_mapping_location == "control hints"
+                else ()
+            ),
         )
         action_width = max(
             _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries
@@ -3372,6 +3536,14 @@ class TaxiHudState:
         if self.model_loop is not None:
             invoke_async(self.model_loop, lambda state: state.restart_game())
 
+    def _request_live_edit_action(self, action: LiveEditAction) -> None:
+        """Queue one live-edit action on the model thread."""
+        if self.model_loop is not None:
+            invoke_async(
+                self.model_loop,
+                lambda state, value=action: state.request_live_edit_action(value),
+            )
+
     def _submit_name(self, value: str) -> None:
         if self._submission_pending:
             return
@@ -3508,6 +3680,7 @@ def build_hud_frames(
     autoregressive_index: int = -1,
     simulation_timestamps_us: Sequence[int | None] | None = None,
     cache_finalize_returned_ns: int | None = None,
+    live_edit_statuses: Sequence[LiveEditHudStatus | None] | None = None,
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -3528,6 +3701,10 @@ def build_hud_frames(
         simulation_timestamps_us = (None,) * frame_count
     if len(simulation_timestamps_us) != frame_count:
         raise ValueError("Simulation timestamps and video frames must align")
+    if live_edit_statuses is None:
+        live_edit_statuses = (None,) * frame_count
+    if len(live_edit_statuses) != frame_count:
+        raise ValueError("Live-edit states and video frames must align")
     frames = []
     for index, (snapshot, simulation_timestamp_us) in enumerate(
         zip(snapshots, simulation_timestamps_us, strict=True)
@@ -3542,6 +3719,7 @@ def build_hud_frames(
                 snapshot=snapshot,
                 rig_pose_world=pose,
                 speed_mps=float(speeds_mps[index]),
+                live_edit_status=live_edit_statuses[index],
                 transition_timestamp_us=transition_timestamps_us[index],
                 runtime_generation=runtime_generation,
                 model_step_index=model_step_index,
@@ -3553,6 +3731,25 @@ def build_hud_frames(
             )
         )
     return tuple(frames)
+
+
+def _live_edit_status_lines(status: LiveEditHudStatus) -> tuple[str, ...]:
+    """Format compact status rows for the live-edit HUD card."""
+    lines: list[str] = []
+    if status.skin_name is not None:
+        lines.append(f"STYLE  {status.skin_name.upper()}")
+    if status.weather_name is not None:
+        lines.append(f"WEATHER  {status.weather_name.upper()}")
+    if status.coins_enabled is not None:
+        state = "ON" if status.coins_enabled else "OFF"
+        lines.append(f"COINS  {state}")
+    if status.nitro_seconds_remaining is not None:
+        lines.append(f"NITRO  {status.nitro_seconds_remaining:.1f}s")
+    if status.obstacle_count is not None:
+        lines.append(f"OBSTACLES  {status.obstacle_count}")
+    if status.item_flash is not None:
+        lines.append(status.item_flash)
+    return tuple(lines)
 
 
 def _binding_slots_display(
