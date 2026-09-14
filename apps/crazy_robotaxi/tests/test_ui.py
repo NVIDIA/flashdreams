@@ -34,11 +34,9 @@ from crazy_robotaxi.ui import (
     _BEV_WAYPOINT_ALPHA,
     CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
-    _selection_grid_columns,
     build_hud_frames,
 )
 from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
-from omnidreams.config import OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
 from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
@@ -57,8 +55,23 @@ pytestmark = pytest.mark.ci_cpu
 
 
 @dataclass(frozen=True)
+class _SettingsTransformer:
+    dtype: str = "bfloat16"
+    native_dit_acceleration: str = "required"
+
+
+@dataclass(frozen=True)
+class _SettingsDiffusionModel:
+    seed: int | None = None
+    transformer: _SettingsTransformer = field(default_factory=_SettingsTransformer)
+
+
+@dataclass(frozen=True)
 class _SettingsPipeline:
     name: str = "test-preset"
+    diffusion_model: _SettingsDiffusionModel = field(
+        default_factory=_SettingsDiffusionModel
+    )
 
 
 def _calibration() -> CameraCalibration:
@@ -1918,15 +1931,6 @@ def _settings_document(path: Path) -> SettingsDocument:
     )
 
 
-def _perf_settings_document(path: Path) -> SettingsDocument:
-    return SettingsDocument.load(
-        path,
-        pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
-        width=640,
-        height=360,
-    )
-
-
 @pytest.mark.parametrize(
     ("stage", "expected_stage"),
     [("mode", "options"), ("map", "map"), ("course", "course")],
@@ -1983,7 +1987,7 @@ def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
         1280,
         720,
         _calibration(),
-        settings_document=_perf_settings_document(tmp_path / "config.yaml"),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
     )
     state._open_options()
     click_imgui = _FakeImGui()
@@ -2100,7 +2104,7 @@ def test_options_reset_to_defaults_remains_unsaved_until_save(tmp_path: Path) ->
         "    enabled: true\n",
         encoding="utf-8",
     )
-    document = _perf_settings_document(config_path)
+    document = _settings_document(config_path)
     state = TaxiHudState(
         640,
         360,
@@ -2364,7 +2368,7 @@ def test_native_dit_notices_reflect_menu_context(
 def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
     tmp_path: Path,
 ) -> None:
-    document = _perf_settings_document(tmp_path / "config.yaml")
+    document = _settings_document(tmp_path / "config.yaml")
     state = TaxiHudState(
         640,
         360,
