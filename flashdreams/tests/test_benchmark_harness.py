@@ -233,6 +233,58 @@ def test_runtime_benchmark_stats_records_group_samples_by_step(
     assert records[1].metrics["generated_fps"] == pytest.approx(15.0)
 
 
+def test_runtime_benchmark_stats_backfills_total_s_from_model_step_wall_s(
+    tmp_path: Path,
+) -> None:
+    """Cam2V reports model_step_wall_s/chunk_fps, not the canonical total_s.
+
+    The harness derives generated_fps and its run highlights from total_s
+    (falling back to model_step_s), so a scenario that only ever reports
+    model_step_wall_s drops out of every part of the pipeline keyed on those
+    canonical names. Backfilling total_s from the app-reported key, without
+    dropping that key, is what keeps both readable.
+    """
+    stats_path = tmp_path / "stats_demo.json"
+    stats_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifact_type": "flashdreams.runtime.demo.benchmark_stats",
+                "steps": [
+                    {"step_index": 0, "frame_count": 4},
+                ],
+                "samples": [
+                    {
+                        "name": "model_step_wall_s",
+                        "value": 0.2,
+                        "unit": "s",
+                        "category": "timing",
+                        "step_index": 0,
+                    },
+                    {
+                        "name": "chunk_fps",
+                        "value": 20.0,
+                        "unit": "fps",
+                        "category": "throughput",
+                        "step_index": 0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = records_from_stats_file(
+        stats_path, scenario_id="cam2v-lingbot-quality-10s", source_root=tmp_path
+    )
+
+    assert len(records) == 1
+    assert records[0].metrics["model_step_wall_s"] == pytest.approx(0.2)
+    assert records[0].metrics["chunk_fps"] == pytest.approx(20.0)
+    assert records[0].metrics["total_s"] == pytest.approx(0.2)
+    assert records[0].metrics["generated_fps"] == pytest.approx(20.0)
+
+
 def test_runtime_benchmark_stats_written_by_the_v2_sink_are_read(
     tmp_path: Path,
 ) -> None:

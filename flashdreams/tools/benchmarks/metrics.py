@@ -73,6 +73,11 @@ _KEY_OVERRIDES = {
     "cache_ms": "cache_seed_prune_s",
     "copy_ms": "gpu_to_cpu_copy_s",
 }
+# Canonical name backfilled onto a runtime metric sample, alongside (never
+# instead of) the name an integration actually reports.
+_RUNTIME_METRIC_CANONICAL_ALIASES = {
+    "model_step_wall_s": "total_s",
+}
 _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE = "flashdreams.runtime.demo.benchmark_stats"
 _RUNTIME_METRIC_SAMPLE_PARSER = "runtime_metric_samples"
 
@@ -359,6 +364,10 @@ def _records_from_runtime_metric_samples(
         metrics_by_step.setdefault(step_index, {})[name] = value
         sample_count_by_step[step_index] = sample_count_by_step.get(step_index, 0) + 1
 
+    for metrics in metrics_by_step.values():
+        _apply_runtime_metric_aliases(metrics)
+    _apply_runtime_metric_aliases(summary_metrics)
+
     for step_index, frame_count in frame_counts_by_step.items():
         metrics = metrics_by_step.setdefault(step_index, {})
         metrics["generated_frame_count"] = frame_count
@@ -390,6 +399,13 @@ def _records_from_runtime_metric_samples(
             )
         )
     return records
+
+
+def _apply_runtime_metric_aliases(metrics: dict[str, float | int]) -> None:
+    """Backfill each canonical name from its alias, alongside the original key."""
+    for raw_name, canonical_name in _RUNTIME_METRIC_CANONICAL_ALIASES.items():
+        if canonical_name not in metrics and raw_name in metrics:
+            metrics[canonical_name] = metrics[raw_name]
 
 
 def _runtime_step_frame_counts(steps: object) -> dict[int, int]:
