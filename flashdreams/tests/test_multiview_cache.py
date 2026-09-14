@@ -55,6 +55,36 @@ def cache() -> FixedSlotKVCache:
     )
 
 
+def test_cache_can_use_caller_owned_storage() -> None:
+    """Embed fixed-slot storage in an allocation owned by an adapter."""
+    prefilled = [layer(5, 1.0), layer(5, 2.0)]
+    storage = [layer(11, 0.0), layer(11, 0.0)]
+    memory = FixedSlotKVCache(
+        prefilled,
+        capacity=11,
+        regions=[
+            SlotRegion(
+                name="history",
+                start=5,
+                slots=2,
+                slot_tokens=3,
+                extends_length=True,
+            )
+        ],
+        storage=storage,
+    )
+
+    assert [
+        (key.data_ptr(), value.data_ptr())
+        for key, value in zip(memory._k, memory._v, strict=True)
+    ] == [(key.data_ptr(), value.data_ptr()) for key, value in storage]
+    for (key, value), (prefill_key, prefill_value) in zip(
+        memory.layers(), prefilled, strict=True
+    ):
+        assert torch.equal(key, prefill_key)
+        assert torch.equal(value, prefill_value)
+
+
 def chunks(tokens: int, value: float) -> list[LayerKV]:
     """Build a two-layer cache write."""
     return [layer(tokens, value), layer(tokens, value + 1.0)]

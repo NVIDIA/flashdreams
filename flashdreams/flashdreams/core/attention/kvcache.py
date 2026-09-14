@@ -87,6 +87,7 @@ class FixedSlotKVCache:
         capacity: int,
         regions: Sequence[SlotRegion],
         seq_dim: int = 2,
+        storage: Sequence[LayerKV] | None = None,
     ) -> None:
         """Allocate storage and copy the prefilled key/value tensors.
 
@@ -95,6 +96,10 @@ class FixedSlotKVCache:
             capacity: Total tokens reserved along ``seq_dim``.
             regions: Independently rotating physical slot regions.
             seq_dim: Sequence dimension in every key/value tensor.
+            storage: Optional caller-owned K/V buffers whose sequence dimension
+                is exactly ``capacity``. Writes retain these buffers and their
+                storage addresses, which lets accelerated adapters embed the
+                cache in a larger attention arena.
 
         Raises:
             ValueError: Inputs or slot regions cannot describe a valid cache.
@@ -129,20 +134,66 @@ class FixedSlotKVCache:
         self._k: list[Tensor] = []
         self._v: list[Tensor] = []
 
+        if storage is not None and len(storage) != len(prefilled):
+            raise ValueError(
+                f"{len(storage)} storage layers for {len(prefilled)} prefill layers."
+            )
+
         for layer, (key, value) in enumerate(prefilled):
             self._validate_prefill_layer(key, value, layer)
-            key_shape = list(key.shape)
-            value_shape = list(value.shape)
-            key_shape[self._seq_dim] = capacity
-            value_shape[self._seq_dim] = capacity
-            key_buffer = key.new_zeros(key_shape)
-            value_buffer = value.new_zeros(value_shape)
+            if storage is None:
+                key_shape = list(key.shape)
+                value_shape = list(value.shape)
+                key_shape[self._seq_dim] = capacity
+                value_shape[self._seq_dim] = capacity
+                key_buffer = key.new_zeros(key_shape)
+                value_buffer = value.new_zeros(value_shape)
+            else:
+                key_buffer, value_buffer = storage[layer]
+                self._validate_storage_layer(
+                    key, key_buffer, capacity=capacity, layer=layer, kind="key"
+                )
+                self._validate_storage_layer(
+                    value,
+                    value_buffer,
+                    capacity=capacity,
+                    layer=layer,
+                    kind="value",
+                )
             prefix = self._seq_slice(0, self._initial_length, tensor_dim)
             with torch.no_grad():
                 key_buffer[prefix] = key
                 value_buffer[prefix] = value
             self._k.append(key_buffer)
             self._v.append(value_buffer)
+
+    def _validate_storage_layer(
+        self,
+        source: Tensor,
+        storage: Tensor,
+        *,
+        capacity: int,
+        layer: int,
+        kind: str,
+    ) -> None:
+        """Validate caller-owned storage for one prefilled tensor."""
+        if storage.ndim != source.ndim:
+            raise ValueError(
+                f"storage layer {layer} {kind} rank does not match its prefill."
+            )
+        for dim, (source_size, storage_size) in enumerate(
+            zip(source.shape, storage.shape, strict=True)
+        ):
+            expected = capacity if dim == self._seq_dim else source_size
+            if storage_size != expected:
+                raise ValueError(
+                    f"storage layer {layer} {kind} dimension {dim} is "
+                    f"{storage_size}; expected {expected}."
+                )
+        if storage.dtype is not source.dtype or storage.device != source.device:
+            raise ValueError(
+                f"storage layer {layer} {kind} must match prefill dtype and device."
+            )
 
     @property
     def capacity(self) -> int:

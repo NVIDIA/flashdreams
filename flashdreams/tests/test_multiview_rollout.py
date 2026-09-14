@@ -238,22 +238,22 @@ def test_rollout_requests_position_ids_on_the_model_device(
 
 
 def test_block_mask_selection_crosses_the_protocol_boundary() -> None:
-    """Supply the same visibility contract in block-sparse form."""
+    """Supply the same visibility contract with the requested block geometry."""
     model = _Model()
     controls, text_ids, condition = _inputs()
-    rollout = ChunkRollout(
+    run_rollout(
         model,
         geometry=GEOMETRY,
         controls=controls,
         text_ids=text_ids,
         condition_tokens=condition,
         use_block_mask=True,
+        mask_block_size=(16, 32),
     )
-
-    rollout.step()
 
     assert model.state.masks
     assert all(isinstance(mask, BlockMask) for mask in model.state.masks)
+    assert all(mask.BLOCK_SIZE == (16, 32) for mask in model.state.masks)
 
 
 def test_seeded_rollouts_are_reproducible_through_an_adapter() -> None:
