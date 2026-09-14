@@ -646,17 +646,13 @@ LightVAE through the OmniDreams single-view CUDA extension
 (<code class="docutils literal notranslate"><span class="pre">native_dit_acceleration:</span> <span class="pre">required</span></code>), which is faster than the default
 PyTorch path. The extension builds against pinned checkouts of CUTLASS,
 SageAttention, SpargeAttn, and cudnn-frontend that are not vendored in the
-repo. <code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span> <span class="pre">--perf</span></code> clones them at their pinned commits into
-<code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
-</pre></div>
-</div>
-<p>This step only syncs sources; the extension itself compiles on the first
-launch that uses the perf configuration (one-time, a few minutes). It requires a
-Blackwell-class GPU (SM 12.0) or newer, a source checkout (the
-<code class="docutils literal notranslate"><span class="pre">omnidreams_singleview</span></code> sources ship only in the git tree, not the wheel),
-<code class="docutils literal notranslate"><span class="pre">git</span></code>, and a CUDA toolchain (<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching your PyTorch build. Then
-launch the perf application:</p>
+repo. On first use, the native extension downloads them at their pinned commits
+into <code class="docutils literal notranslate"><span class="pre">integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/</span></code> and
+then compiles (one-time, a few minutes). It requires a Blackwell-class GPU
+(SM 12.0) or newer, a source checkout (the <code class="docutils literal notranslate"><span class="pre">omnidreams_singleview</span></code> sources
+ship only in the git tree, not the wheel), <code class="docutils literal notranslate"><span class="pre">git</span></code>, network access, and a CUDA
+toolchain (<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching your PyTorch build. Then launch the perf
+application:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>interactive-drive-omnidreams-perf<span class="w"> </span>--mode<span class="w"> </span>native-window
 </pre></div>

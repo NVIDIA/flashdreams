@@ -49,7 +49,6 @@ Run the perf application only on hosts that can build and load the native extens
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams omnidreams-prepare --perf
    uv run --package flashdreams-omnidreams flashdreams-run-v2 \
        interactive-drive-omnidreams-perf --mode native-window
 
@@ -114,11 +113,10 @@ required`` and ``native_dit_backend: fp8_kvcache_cudnn | bf16``. The attention
 backend accepts ``auto``, ``cudnn``, ``sparge``, ``sage3``, and ``sage3_fp8``;
 the perf application config pins ``cudnn``.
 
-The native extension requires a source checkout, ``git``, a CUDA toolchain
-(``nvcc``) matching the PyTorch build, synced third-party sources from
-``omnidreams-prepare --perf``, and a Blackwell-class GPU (SM 12.0) or newer.
-The extension builds for ``12.0a`` by default. Use this path on Blackwell and
-GB300 systems.
+The native extension requires a source checkout, ``git``, network access, a
+CUDA toolchain (``nvcc``) matching the PyTorch build, and a Blackwell-class GPU
+(SM 12.0) or newer. It downloads pinned third-party sources when first used and
+builds for ``12.0a`` by default. Use this path on Blackwell and GB300 systems.
 
 H100 / Hopper systems should use the standard PyTorch CUDA path with native DiT
 disabled unless you are deliberately maintaining a compatible native build. That

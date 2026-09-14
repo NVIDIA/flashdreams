@@ -1119,13 +1119,9 @@ uv run --project flashdreams --group test pytest \
     -p no:manual_marker -m manual --benchmark-only -v
 ```
 
-For the OmniDreams module, network, and pipeline benchmarks, first synchronize
-the required third-party source and then run:
+For the OmniDreams module, network, and pipeline benchmarks:
 
 ```bash
-uv run --package flashdreams-omnidreams python \
-    integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync
-
 uv run --project integrations_v2/omnidreams --group test pytest \
     integrations_v2/omnidreams/benchmarks \
     -p no:manual_marker -m manual --benchmark-only -v

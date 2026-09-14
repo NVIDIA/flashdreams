@@ -1529,12 +1529,8 @@ benchmark directly with:</p>
 <span class="w">    </span>-p<span class="w"> </span>no:manual_marker<span class="w"> </span>-m<span class="w"> </span>manual<span class="w"> </span>--benchmark-only<span class="w"> </span>-v
 </pre></div>
 </div>
-<p>For the OmniDreams module, network, and pipeline benchmarks, first synchronize
-the required third-party source and then run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>python<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py<span class="w"> </span>sync
-
-uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
+<p>For the OmniDreams module, network, and pipeline benchmarks:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>integrations_v2/omnidreams<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>integrations_v2/omnidreams/benchmarks<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-p<span class="w"> </span>no:manual_marker<span class="w"> </span>-m<span class="w"> </span>manual<span class="w"> </span>--benchmark-only<span class="w"> </span>-v
 </pre></div>

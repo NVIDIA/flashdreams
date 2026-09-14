@@ -448,8 +448,7 @@ default resolution to <code class="docutils literal notranslate"><span class="pr
 blocks, enables the performance recipe, and requires the native DiT path.</p></li>
 </ul>
 <p>Run the perf application only on hosts that can build and load the native extension:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
-uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>interactive-drive-omnidreams-perf<span class="w"> </span>--mode<span class="w"> </span>native-window
 </pre></div>
 </div>
@@ -506,11 +505,10 @@ DiT path:</p>
 <span class="pre">required</span></code> and <code class="docutils literal notranslate"><span class="pre">native_dit_backend:</span> <span class="pre">fp8_kvcache_cudnn</span> <span class="pre">|</span> <span class="pre">bf16</span></code>. The attention
 backend accepts <code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>, <code class="docutils literal notranslate"><span class="pre">sparge</span></code>, <code class="docutils literal notranslate"><span class="pre">sage3</span></code>, and <code class="docutils literal notranslate"><span class="pre">sage3_fp8</span></code>;
 the perf application config pins <code class="docutils literal notranslate"><span class="pre">cudnn</span></code>.</p>
-<p>The native extension requires a source checkout, <code class="docutils literal notranslate"><span class="pre">git</span></code>, a CUDA toolchain
-(<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching the PyTorch build, synced third-party sources from
-<code class="docutils literal notranslate"><span class="pre">omnidreams-prepare</span> <span class="pre">--perf</span></code>, and a Blackwell-class GPU (SM 12.0) or newer.
-The extension builds for <code class="docutils literal notranslate"><span class="pre">12.0a</span></code> by default. Use this path on Blackwell and
-GB300 systems.</p>
+<p>The native extension requires a source checkout, <code class="docutils literal notranslate"><span class="pre">git</span></code>, network access, a
+CUDA toolchain (<code class="docutils literal notranslate"><span class="pre">nvcc</span></code>) matching the PyTorch build, and a Blackwell-class GPU
+(SM 12.0) or newer. It downloads pinned third-party sources when first used and
+builds for <code class="docutils literal notranslate"><span class="pre">12.0a</span></code> by default. Use this path on Blackwell and GB300 systems.</p>
 <p>H100 / Hopper systems should use the standard PyTorch CUDA path with native DiT
 disabled unless you are deliberately maintaining a compatible native build. That
 path is supported, but it is not the same perf path as the published GB300

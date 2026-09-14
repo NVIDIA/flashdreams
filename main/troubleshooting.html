@@ -441,13 +441,10 @@ acceleration with <code class="docutils literal notranslate"><span class="pre">n
 <code class="docutils literal notranslate"><span class="pre">git</span></code>, a CUDA toolchain with <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> matching the installed PyTorch build,
 and a Blackwell-class GPU (SM 12.0) or newer.</p>
 <p><strong>Fix or next step:</strong></p>
-<p>Start with the non-perf OmniDreams launch in <a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>. If you
-need the perf application, prepare the pinned third-party sources first:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare<span class="w"> </span>--perf
-</pre></div>
-</div>
-<p>Then verify that the machine has the required GPU and a CUDA toolchain that
-matches the PyTorch build before launching:</p>
+<p>Start with the non-perf OmniDreams launch in <a class="reference internal" href="models/omnidreams.html"><span class="doc">NVIDIA OmniDreams</span></a>. The
+perf application downloads its pinned third-party sources on first use. Verify
+that the machine has network access, the required GPU, and a CUDA toolchain
+that matches the PyTorch build before launching:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.__version__, torch.version.cuda)&quot;</span>
 nvcc<span class="w"> </span>--version
 </pre></div>
