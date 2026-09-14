@@ -32,7 +32,9 @@ from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "thirdparty_sources.json"
-DEFAULT_DEST_ROOT = ROOT / "3rdparty"
+DEFAULT_DEST_ROOT = (
+    Path(__file__).resolve().parents[5] / "artifacts" / "omnidreams" / "thirdparty"
+)
 STAMP_NAME = ".flashdreams_source.json"
 SCHEMA_VERSION = 1
 

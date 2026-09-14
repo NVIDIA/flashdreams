@@ -116,6 +116,9 @@ def test_build_info_uses_script_managed_source_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     helper = native._native_build()
+    assert helper.THIRDPARTY_DIR == (
+        Path(__file__).resolve().parents[3] / "artifacts" / "omnidreams" / "thirdparty"
+    )
     monkeypatch.setattr(
         helper,
         "validate_thirdparty",
@@ -130,7 +133,7 @@ def test_build_info_uses_script_managed_source_provenance(
     assert info["thirdparty"]["SageAttention"]["commit"] == "sage-test-sha"
     assert info["thirdparty"]["SpargeAttn"]["commit"] == "sparge-test-sha"
     assert Path(info["cutlass_include"]).parts[-3:] == (
-        "3rdparty",
+        "thirdparty",
         "cutlass",
         "include",
     )
@@ -634,13 +637,13 @@ def test_native_build_wraps_sync_setup_errors(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.ci_cpu
-def test_native_build_downloads_missing_and_forces_resync_every_time(
+def test_native_build_downloads_missing_and_try_resyncs_every_time(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     helper = native._native_build()
-    monkeypatch.delenv(helper._FORCE_THIRDPARTY_RESYNC_ENV, raising=False)
-    thirdparty_dir = tmp_path / "3rdparty"
+    monkeypatch.delenv(helper._TRY_THIRDPARTY_RESYNC_ENV, raising=False)
+    thirdparty_dir = tmp_path / "thirdparty"
     source_path = thirdparty_dir / "demo"
     source = SimpleNamespace(name="demo", destination_name="demo")
     synced: list[tuple[set[str] | None, bool]] = []
@@ -685,7 +688,7 @@ def test_native_build_downloads_missing_and_forces_resync_every_time(
         remove_tree=shutil.rmtree,
         verify_sources=verify_sources,
     )
-    monkeypatch.setattr(helper, "ROOT", tmp_path)
+    monkeypatch.setattr(helper, "SYNC_LOCK_PATH", tmp_path / ".thirdparty.sync.lock")
     monkeypatch.setattr(helper, "THIRDPARTY_DIR", thirdparty_dir)
     monkeypatch.setattr(helper, "FileLock", TrackingFileLock)
     monkeypatch.setattr(helper, "_sync_thirdparty_module", tool)
@@ -700,20 +703,22 @@ def test_native_build_downloads_missing_and_forces_resync_every_time(
     with pytest.raises(helper.NativeBuildError, match="broken checkout"):
         helper.ensure_thirdparty()
     assert synced == [({"demo"}, False)]
+    state["broken"] = False
 
-    monkeypatch.setenv(helper._FORCE_THIRDPARTY_RESYNC_ENV, "1")
+    monkeypatch.setenv(helper._TRY_THIRDPARTY_RESYNC_ENV, "1")
     sentinel = thirdparty_dir / "stale"
     sentinel.write_text("stale", encoding="utf-8")
+
     assert helper.ensure_thirdparty()["demo"] == source_path
     assert not sentinel.exists()
-    assert synced == [({"demo"}, False), (None, False)]
+    assert synced == [({"demo"}, False), ({"demo"}, False)]
 
     sentinel.write_text("stale again", encoding="utf-8")
     assert helper.ensure_thirdparty()["demo"] == source_path
     assert not sentinel.exists()
-    assert synced == [({"demo"}, False), (None, False), (None, False)]
+    assert synced == [({"demo"}, False), ({"demo"}, False), ({"demo"}, False)]
 
-    monkeypatch.setenv(helper._FORCE_THIRDPARTY_RESYNC_ENV, "invalid")
+    monkeypatch.setenv(helper._TRY_THIRDPARTY_RESYNC_ENV, "invalid")
     with pytest.raises(helper.NativeBuildError, match="must be '0' or '1'"):
         helper.ensure_thirdparty()
     assert not state["locked"]

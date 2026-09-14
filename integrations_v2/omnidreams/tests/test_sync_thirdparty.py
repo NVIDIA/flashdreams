@@ -58,6 +58,14 @@ def _run_git(cwd: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def test_default_destination_is_the_omnidreams_artifact_directory() -> None:
+    module = _load_sync_module()
+
+    assert module.DEFAULT_DEST_ROOT == (
+        SCRIPT_PATH.parents[5] / "artifacts" / "omnidreams" / "thirdparty"
+    )
+
+
 def test_remove_tree_handles_readonly_files(tmp_path: Path) -> None:
     tool = _load_sync_module()
     tree = tmp_path / "tree"

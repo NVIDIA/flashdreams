@@ -143,6 +143,3 @@ _output/
 _vk_compare/
 
 imgui.ini
-
-#lock file
-.thirdparty.sync.lock
