@@ -34,6 +34,7 @@ import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.config import BevConfig
 from omnidreams_game_engine.types import CameraCalibration
+from PIL import Image
 from torch import Tensor
 
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
@@ -91,6 +92,35 @@ _PROFILE_DRIVE_KEYS = frozenset(
 )
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
+_LOGGER = logging.getLogger(__name__)
+
+
+def _selection_grid_columns(option_count: int) -> int:
+    """Return the requested map/course grid column count."""
+    if option_count <= 1:
+        return 1
+    return 2 if option_count <= 4 else 3
+
+
+def _selection_card_widths(
+    imgui: Any,
+    viewport_width: int,
+    natural_grid_width: float,
+    *other_content_widths: float,
+) -> tuple[float, float, float]:
+    """Fit a selection card to the viewport without shrinking its grid."""
+    window_padding_x = _point_xy(imgui.get_style().window_padding)[0]
+    natural_content_width = max(natural_grid_width, *other_content_widths)
+    window_width = min(
+        max(1.0, float(viewport_width) - 28.0),
+        natural_content_width + 2.0 * window_padding_x,
+    )
+    visible_content_width = max(1.0, window_width - 2.0 * window_padding_x)
+    return (
+        window_width,
+        visible_content_width,
+        max(natural_grid_width, visible_content_width),
+    )
 
 
 def bev_display_extent(video_width: int, video_height: int) -> tuple[int, int]:
@@ -221,6 +251,11 @@ class TaxiHudState:
 
     _selected_map_option: GameMapOption | None = None
     """Map chosen before the separate race-course screen."""
+
+    _selection_preview_pixels: dict[Path, npt.NDArray[np.uint8] | None] = field(
+        default_factory=dict
+    )
+    """Decoded menu thumbnails cached by resolved authored-image path."""
 
     _profile_pressed: set[str] = field(default_factory=set)
     """Normalized drive keys currently held according to UI-thread events."""
@@ -523,6 +558,48 @@ class TaxiHudState:
             model_loop,
             lambda model_state, value=selection: model_state.select_game(value),
         )
+
+    def _draw_selection_preview(
+        self,
+        imgui: Any,
+        image_path: Path | None,
+        available_width: float,
+        scale: float,
+        max_height: float | None = None,
+    ) -> None:
+        if image_path is None:
+            return
+        if image_path not in self._selection_preview_pixels:
+            try:
+                with Image.open(image_path) as image:
+                    pixels = np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
+            except OSError as exc:
+                _LOGGER.warning("Could not load menu thumbnail %s: %s", image_path, exc)
+                pixels = None
+            self._selection_preview_pixels[image_path] = pixels
+        pixels = self._selection_preview_pixels[image_path]
+        if pixels is None:
+            return
+        image_height, image_width = pixels.shape[:2]
+        preview_width = min(available_width, 260.0 * scale, float(image_width))
+        if preview_width <= 0.0 or image_width <= 0 or image_height <= 0:
+            return
+        preview_height = preview_width * image_height / image_width
+        if max_height is not None and preview_height > max_height:
+            preview_height = max_height
+            preview_width = preview_height * image_width / image_height
+        if preview_height <= 0.0:
+            return
+        cursor_x = float(imgui.get_cursor_pos_x())
+        imgui.set_cursor_pos_x(
+            cursor_x + max(0.0, (available_width - preview_width) * 0.5)
+        )
+        imgui.image(
+            f"selection-preview:{image_path}",
+            pixels,
+            size=(preview_width, preview_height),
+        )
+        imgui.set_cursor_pos_x(cursor_x)
 
     def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
         """Draw cached world-marker projections aligned with ``frame``."""
@@ -987,11 +1064,53 @@ class TaxiHudState:
         if mode is None:
             self._menu_stage = "mode"
             return
-        window_width = max(1.0, min(620.0, float(self.width) - 28.0))
+        available_window_width = max(1.0, float(self.width) - 28.0)
         window_height = max(1.0, min(560.0, float(self.height) - 28.0))
-        scale = min(1.0, window_width / 620.0, window_height / 560.0)
+        scale = min(1.0, available_window_width / 620.0, window_height / 560.0)
         accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
+        button_height = max(36.0, 48.0 * scale)
+        visible_options = tuple(
+            (index, option)
+            for index, option in enumerate(self.map_options)
+            if mode != "race" or option.race_course_ids
+        )
+        cell_width = max(
+            1.0,
+            *(
+                _point_xy(imgui.calc_text_size(option.name))[0] + 20.0
+                for _index, option in visible_options
+            ),
+            *(
+                260.0 * scale
+                for _index, option in visible_options
+                if option.preview_image_path is not None
+            ),
+            *(
+                (_point_xy(imgui.calc_text_size("NO COMPATIBLE MAPS FOUND"))[0],)
+                if not visible_options
+                else ()
+            ),
+        )
+        column_count = _selection_grid_columns(len(visible_options))
+        natural_grid_width = cell_width * column_count
         _draw_arcade_backdrop(imgui, self.width, self.height)
+        style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
+        window_width, list_width, table_width = _selection_card_widths(
+            imgui,
+            self.width,
+            natural_grid_width,
+            _overlay_text_size(
+                imgui,
+                "SELECT MAP",
+                max(24.0, 38.0 * scale),
+                font=self._gameplay_overlay_font(imgui),
+            )[0],
+            _overlay_text_size(
+                imgui,
+                "RACE MODE" if mode == "race" else "TAXI MODE",
+                max(13.0, 15.0 * scale),
+            )[0],
+        )
         _prepare_window(
             imgui,
             position=(
@@ -1001,7 +1120,6 @@ class TaxiHudState:
             size=(window_width, window_height),
             alpha=0.97,
         )
-        style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
         visible = _begin_window(
             imgui,
             "Crazy Robotaxi — Select Map",
@@ -1024,27 +1142,58 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            button_height = max(36.0, 48.0 * scale)
             list_height = max(
                 60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
             )
             list_visible = imgui.begin_child(
-                "##map-options", imgui.ImVec2(0.0, list_height)
+                "##map-options",
+                imgui.ImVec2(list_width, list_height),
+                0,
+                (
+                    int(imgui.WindowFlags_.horizontal_scrollbar)
+                    if table_width > list_width
+                    else 0
+                ),
             )
             try:
                 if list_visible:
-                    button_width = _point_xy(imgui.get_content_region_avail())[0]
-                    available = False
-                    for index, option in enumerate(self.map_options):
-                        if mode == "race" and not option.race_course_ids:
-                            continue
-                        available = True
-                        if imgui.button(
-                            f"{option.name}##map-{index}",
-                            imgui.ImVec2(button_width, button_height),
-                        ):
-                            self._select_map(option)
-                    if not available:
+                    available_height = _point_xy(imgui.get_content_region_avail())[1]
+                    if visible_options and imgui.begin_table(
+                        "##map-grid",
+                        column_count,
+                        flags=(
+                            imgui.TableFlags_.no_saved_settings
+                            | imgui.TableFlags_.sizing_stretch_same
+                        ),
+                        outer_size=imgui.ImVec2(table_width, 0.0),
+                    ):
+                        try:
+                            for position, (index, option) in enumerate(visible_options):
+                                column = position % column_count
+                                if column == 0:
+                                    imgui.table_next_row(min_row_height=0.0)
+                                imgui.table_set_column_index(column)
+                                item_width = _point_xy(
+                                    imgui.get_content_region_avail()
+                                )[0]
+                                self._draw_selection_preview(
+                                    imgui,
+                                    option.preview_image_path,
+                                    item_width,
+                                    scale,
+                                    max(
+                                        0.0,
+                                        available_height - button_height - 10.0,
+                                    ),
+                                )
+                                if imgui.button(
+                                    f"{option.name}##map-{index}",
+                                    imgui.ImVec2(item_width, button_height),
+                                ):
+                                    self._select_map(option)
+                        finally:
+                            imgui.end_table()
+                    elif not visible_options:
                         _centered_imgui_text(
                             imgui,
                             "NO COMPATIBLE MAPS FOUND",
@@ -1080,10 +1229,49 @@ class TaxiHudState:
         if option is None:
             self._menu_stage = "map"
             return
-        window_width = max(1.0, min(620.0, float(self.width) - 28.0))
+        available_window_width = max(1.0, float(self.width) - 28.0)
         window_height = max(1.0, min(420.0, float(self.height) - 28.0))
-        scale = min(1.0, window_width / 620.0, window_height / 420.0)
+        scale = min(1.0, available_window_width / 620.0, window_height / 420.0)
+        button_height = max(36.0, 48.0 * scale)
+        cell_width = max(
+            1.0,
+            *(
+                _point_xy(
+                    imgui.calc_text_size(
+                        course.course_id.replace("-", " ").replace("_", " ").upper()
+                    )
+                )[0]
+                + 20.0
+                for course in option.race_courses
+            ),
+            *(
+                260.0 * scale
+                for course in option.race_courses
+                if course.preview_image_path is not None
+            ),
+        )
+        column_count = _selection_grid_columns(len(option.race_courses))
+        natural_grid_width = cell_width * column_count
         _draw_arcade_backdrop(imgui, self.width, self.height)
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _RACE_ACCENT_RGB
+        )
+        window_width, list_width, table_width = _selection_card_widths(
+            imgui,
+            self.width,
+            natural_grid_width,
+            _overlay_text_size(
+                imgui,
+                "SELECT RACE COURSE",
+                max(22.0, 36.0 * scale),
+                font=self._gameplay_overlay_font(imgui),
+            )[0],
+            _overlay_text_size(
+                imgui,
+                option.name.upper(),
+                max(13.0, 15.0 * scale),
+            )[0],
+        )
         _prepare_window(
             imgui,
             position=(
@@ -1092,9 +1280,6 @@ class TaxiHudState:
             ),
             size=(window_width, window_height),
             alpha=0.97,
-        )
-        style_var_count, style_color_count = _push_arcade_card_style(
-            imgui, _RACE_ACCENT_RGB
         )
         visible = _begin_window(
             imgui,
@@ -1118,23 +1303,65 @@ class TaxiHudState:
                 color=(0.62, 0.62, 0.68, 1.0),
             )
             imgui.separator()
-            button_height = max(36.0, 48.0 * scale)
             list_height = max(
                 60.0, _point_xy(imgui.get_content_region_avail())[1] - 92.0
             )
             list_visible = imgui.begin_child(
-                "##course-options", imgui.ImVec2(0.0, list_height)
+                "##course-options",
+                imgui.ImVec2(list_width, list_height),
+                0,
+                (
+                    int(imgui.WindowFlags_.horizontal_scrollbar)
+                    if table_width > list_width
+                    else 0
+                ),
             )
             try:
                 if list_visible:
-                    button_width = _point_xy(imgui.get_content_region_avail())[0]
-                    for course_index, course_id in enumerate(option.race_course_ids):
-                        label = course_id.replace("-", " ").replace("_", " ").upper()
-                        if imgui.button(
-                            f"{label}##course-{course_index}",
-                            imgui.ImVec2(button_width, button_height),
-                        ):
-                            self._start_game(option, race_course_id=course_id)
+                    available_height = _point_xy(imgui.get_content_region_avail())[1]
+                    if imgui.begin_table(
+                        "##course-grid",
+                        column_count,
+                        flags=(
+                            imgui.TableFlags_.no_saved_settings
+                            | imgui.TableFlags_.sizing_stretch_same
+                        ),
+                        outer_size=imgui.ImVec2(table_width, 0.0),
+                    ):
+                        try:
+                            for course_index, course in enumerate(option.race_courses):
+                                column = course_index % column_count
+                                if column == 0:
+                                    imgui.table_next_row(min_row_height=0.0)
+                                imgui.table_set_column_index(column)
+                                item_width = _point_xy(
+                                    imgui.get_content_region_avail()
+                                )[0]
+                                self._draw_selection_preview(
+                                    imgui,
+                                    course.preview_image_path,
+                                    item_width,
+                                    scale,
+                                    max(
+                                        0.0,
+                                        available_height - button_height - 10.0,
+                                    ),
+                                )
+                                label = (
+                                    course.course_id.replace("-", " ")
+                                    .replace("_", " ")
+                                    .upper()
+                                )
+                                if imgui.button(
+                                    f"{label}##course-{course_index}",
+                                    imgui.ImVec2(item_width, button_height),
+                                ):
+                                    self._start_game(
+                                        option,
+                                        race_course_id=course.course_id,
+                                    )
+                        finally:
+                            imgui.end_table()
             finally:
                 imgui.end_child()
             imgui.separator()

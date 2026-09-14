@@ -31,7 +31,7 @@ from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
 
 from crazy_robotaxi.config import CrazyRobotaxiSettings
-from crazy_robotaxi.game_selection import GameMapOption, GameMode
+from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameRaceCourseOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
     LiveEditConfig,
@@ -477,7 +477,15 @@ def _discover_game_maps(selected_path: Path) -> tuple[GameMapOption, ...]:
                 map_id=header.map_id,
                 name=header.name,
                 path=header.source_path,
-                race_course_ids=header.race_course_ids,
+                race_courses=tuple(
+                    GameRaceCourseOption(
+                        course_id=course.course_id,
+                        spawn_id=course.spawn_id,
+                        preview_image_path=course.spawn_image_path,
+                    )
+                    for course in header.race_courses
+                ),
+                preview_image_path=header.menu_thumbnail_path,
             )
         )
     return tuple(
