@@ -41,6 +41,12 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 ControlDevice = Literal["keyboard", "gamepad", "wheel"]
 ControlDirection = Literal["negative", "positive", "bidirectional"]
 GamepadButtonStyle = Literal["Xbox", "PlayStation", "Nintendo Switch"]
+_GAMEPAD_STEERING_DEADZONE = 0.15
+"""Centered stick dead zone, rescaled so full deflection remains full lock."""
+
+_GAMEPAD_PEDAL_DEADZONE = 0.05
+"""Trigger dead zone, rescaled so the usable pedal range still reaches one."""
+
 _GAMEPAD_BUTTON_NAMES: dict[GamepadButtonStyle, tuple[str, ...]] = {
     "Xbox": (
         "A",
@@ -520,11 +526,12 @@ def keyboard_driver_command(
     steer = _keyboard_action_value(settings.steer_left, pressed)
     steer -= _keyboard_action_value(settings.steer_right, pressed)
     return DriverCommand(
-        throttle=1.0 if forward != reverse and not handbrake else 0.0,
-        brake=1.0 if handbrake else 0.0,
+        throttle=1.0 if forward and not reverse and not handbrake else 0.0,
+        brake=1.0 if reverse and not forward and not handbrake else 0.0,
         steer=steer,
-        reverse=reverse and not forward,
-        manual_control=handbrake,
+        handbrake=handbrake,
+        steer_is_direct=True,
+        manual_control=True,
     )
 
 
@@ -558,9 +565,18 @@ def gamepad_driver_command(
     if event.action != "state":
         return None
     return DriverCommand(
-        throttle=_event_action_value(settings.throttle, event),
-        brake=_event_action_value(settings.brake, event),
-        steer=_steering_value(settings.steer, event),
+        throttle=_rescale_deadzone(
+            _event_action_value(settings.throttle, event),
+            _GAMEPAD_PEDAL_DEADZONE,
+        ),
+        brake=_rescale_deadzone(
+            _event_action_value(settings.brake, event),
+            _GAMEPAD_PEDAL_DEADZONE,
+        ),
+        steer=_rescale_deadzone(
+            _steering_value(settings.steer, event),
+            _GAMEPAD_STEERING_DEADZONE,
+        ),
         handbrake=_event_action_value(settings.handbrake, event) > 0.5,
         steer_is_direct=True,
         manual_control=True,
@@ -1005,9 +1021,8 @@ def _binding_value(
     if binding.kind == "button":
         index = int(binding.code)
         if isinstance(event, GamepadUserInputEvent):
-            analog = event.buttons[index] if index < len(event.buttons) else 0.0
-            digital = index < len(event.pressed) and event.pressed[index]
-            return max(analog, float(digital))
+            values = _gamepad_button_values(event)
+            return values[index] if index < len(values) else 0.0
         return float(event.buttons[index]) if index < len(event.buttons) else 0.0
     if isinstance(event, GamepadUserInputEvent):
         index = int(binding.code)
@@ -1017,6 +1032,16 @@ def _binding_value(
     if binding.direction == "bidirectional":
         return -value if binding.invert else value
     return max(0.0, value if binding.direction == "positive" else -value)
+
+
+def _rescale_deadzone(value: float, deadzone: float) -> float:
+    """Remove centered analog noise without reducing the reachable range."""
+    value = min(1.0, max(-1.0, value))
+    magnitude = abs(value)
+    if magnitude <= deadzone:
+        return 0.0
+    scaled = (magnitude - deadzone) / (1.0 - deadzone)
+    return scaled if value > 0.0 else -scaled
 
 
 def _moved_numeric(
@@ -1046,12 +1071,13 @@ def _pressed_numeric(values: Sequence[float], baseline: Sequence[float]) -> int 
 
 
 def _gamepad_button_values(event: GamepadUserInputEvent) -> tuple[float, ...]:
-    """Return button values including clients that only report digital state."""
+    """Prefer analog button values, falling back to digital-only clients."""
     size = max(len(event.buttons), len(event.pressed))
     return tuple(
-        max(
-            event.buttons[index] if index < len(event.buttons) else 0.0,
-            float(event.pressed[index]) if index < len(event.pressed) else 0.0,
+        (
+            event.buttons[index]
+            if index < len(event.buttons)
+            else float(event.pressed[index])
         )
         for index in range(size)
     )
