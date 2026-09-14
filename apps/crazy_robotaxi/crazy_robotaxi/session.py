@@ -153,13 +153,6 @@ class ModelState:
         request = replace(
             self.config.scene_request,
             map_path=option.path,
-            variant=option.variant,
-            prompt=(
-                self.config.scene_request.prompt
-                if option.path
-                == self.config.scene_request.map_path.expanduser().resolve()
-                else None
-            ),
         )
         scene = self.scene_factory(request, self.config.renderer.raster)
         self.close()

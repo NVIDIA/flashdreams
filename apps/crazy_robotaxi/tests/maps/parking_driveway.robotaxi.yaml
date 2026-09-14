@@ -50,7 +50,5 @@ spawns:
     road: west_road
     lane: 1
     distance_m: 30
-    variants:
-      default:
-        image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: A street beside a small parking lot.
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A street beside a small parking lot.

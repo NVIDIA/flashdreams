@@ -4,20 +4,24 @@
 """CPU validation for shipped semantic maps."""
 
 import math
+import zipfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 import yaml
+from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.game_map import (
     GameMapError,
     compile_game_map,
     load_game_map,
+    load_game_map_header,
 )
 from omnidreams_game_engine.game_map.types import (
     game_map_from_dict,
     game_map_to_dict,
 )
+from omnidreams_game_engine.scene import SceneRequest, load_scene
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -35,9 +39,8 @@ def test_shipped_map_is_valid(filename: str) -> None:
     assert game_map.map_id.startswith("crazy-robotaxi-")
     assert game_map.spawns
     assert game_map.lanes
-    variant = game_map.default_spawn.variants[0]
-    assert variant.prompt_context
-    assert variant.prompt_context != variant.prompt
+    assert game_map.default_spawn.prompt_context
+    assert game_map.default_spawn.prompt_context != game_map.default_spawn.prompt
 
 
 def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
@@ -46,9 +49,7 @@ def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
     )
     source["nodes"][0]["prompt_context"] = "  A neighborhood landmark.  "
     source["roads"][0]["prompt_context"] = "  Detached homes line the road.  "
-    source["spawns"][0]["variants"]["default"]["prompt_context"] = (
-        "  A forward-facing road view.  "
-    )
+    source["spawns"][0]["prompt_context"] = "  A forward-facing road view.  "
     path = tmp_path / "prompt-context.robotaxi.yaml"
     path.write_text(yaml.safe_dump(source, sort_keys=False))
 
@@ -59,11 +60,8 @@ def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
     assert original.topology.roads[0].prompt_context == (
         "Detached homes line the road."
     )
-    assert original.default_spawn.variants[0].prompt_context == (
-        "A forward-facing road view."
-    )
-    assert restored.default_spawn.variants == original.default_spawn.variants
-    assert restored.topology == original.topology
+    assert original.default_spawn.prompt_context == "A forward-facing road view."
+    assert game_map_to_dict(restored) == game_map_to_dict(original)
 
 
 @pytest.mark.parametrize("value", ["", "   ", 42, ["not", "text"]])
@@ -86,7 +84,7 @@ def test_spawn_prompt_context_requires_nonempty_text(
     source = yaml.safe_load(
         (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
     )
-    source["spawns"][0]["variants"]["default"]["prompt_context"] = value
+    source["spawns"][0]["prompt_context"] = value
     path = tmp_path / "invalid-spawn-prompt-context.robotaxi.yaml"
     path.write_text(yaml.safe_dump(source, sort_keys=False))
 
@@ -111,6 +109,32 @@ def test_prompt_context_change_invalidates_compiler_cache(tmp_path: Path) -> Non
     assert first.cache_hit is False
     assert changed.cache_hit is False
     assert changed.archive_path != first.archive_path
+
+
+def test_compiled_map_uses_canonical_spawn_conditioning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
+    game_map = load_game_map(path)
+
+    scene = load_scene(
+        SceneRequest(map_path=path),
+        RasterConfig(width=64, height=32, compute_device="automatic"),
+    )
+    context_scene = load_scene(
+        SceneRequest(map_path=path, use_prompt_context=True),
+        RasterConfig(width=64, height=32, compute_device="automatic"),
+    )
+
+    assert scene.prompt == game_map.default_spawn.prompt
+    assert context_scene.prompt == game_map.default_spawn.prompt_context
+    assert context_scene.scene_path != scene.scene_path
+    assert scene.initial_rgb.shape == (32, 64, 3)
+    with zipfile.ZipFile(scene.scene_path) as archive:
+        names = set(archive.namelist())
+    assert {"prompt.txt", "first_image.png"} <= names
+    assert not any(name.startswith(("prompt_", "first_image_")) for name in names)
 
 
 def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None:

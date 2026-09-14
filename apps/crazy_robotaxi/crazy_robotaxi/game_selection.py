@@ -37,9 +37,6 @@ class GameMapOption:
     path: Path
     """Resolved authored-map path loaded after selection."""
 
-    variant: str
-    """Visual variant used when loading this map."""
-
     race_course_ids: tuple[str, ...] = ()
     """Ordered race courses available on this map."""
 
