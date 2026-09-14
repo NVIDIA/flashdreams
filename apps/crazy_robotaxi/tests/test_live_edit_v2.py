@@ -471,6 +471,23 @@ def test_weather_suffix_composes_without_changing_style_prompt() -> None:
     )
 
 
+def test_active_prompt_reports_composed_model_target() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(
+            enabled=True,
+            skins=(StyleSkin("comic", "Comic-book visuals."),),
+        )
+    )
+    ability._base_prompt = "A city road."
+
+    assert ability.active_prompt == "A city road."
+
+    ability._active_index = 0
+    ability._active_map_suffix = "The taxi is driving forward."
+
+    assert ability.active_prompt == "Comic-book visuals. The taxi is driving forward."
+
+
 def test_map_prompt_change_is_plain_and_deferred_during_guidance() -> None:
     ability, session, targets = _map_prompt_ability()
     ability._pending_map_suffix = "The taxi is driving forward."

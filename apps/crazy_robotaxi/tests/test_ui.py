@@ -266,6 +266,7 @@ class _FakeImGui:
         self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.window_positions: dict[str, tuple[float, float]] = {}
         self.window_sizes: dict[str, tuple[float, float]] = {}
         self.child_sizes: dict[str, tuple[float, float]] = {}
         self.child_window_flags: dict[str, int] = {}
@@ -361,6 +362,7 @@ class _FakeImGui:
         self.current_window = title
         self.windows.setdefault(title, [])
         self.window_flags[title] = flags
+        self.window_positions[title] = self.next_window_position
         self.window_sizes[title] = self.next_window_size
         return True
 
@@ -894,6 +896,22 @@ def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> N
     assert "Live Edit" not in imgui.windows
 
 
+def test_hud_frames_preserve_frame_aligned_prompt() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+
+    frames = build_hud_frames(
+        video,
+        (_snapshot(), _snapshot()),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        current_prompt="A taxi driving through a city.",
+    )
+
+    assert [frame.current_prompt for frame in frames] == [
+        "A taxi driving through a city.",
+        "A taxi driving through a city.",
+    ]
+
+
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
     with pytest.raises(ValueError, match="Input transitions"):
         build_hud_frames(
@@ -1014,9 +1032,81 @@ def test_fps_counter_measures_distinct_generated_video_frames(
     assert imgui.windows["Performance"] == ["VIDEO FPS   30.0"]
 
 
+@pytest.mark.parametrize("show_current_prompt", [False, True])
+def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> None:
+    video = torch.zeros(1, 3, 360, 320)
+    state = TaxiHudState(
+        320,
+        360,
+        _calibration(),
+        show_current_prompt=show_current_prompt,
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            current_prompt=(
+                "A taxi driving through a wide city boulevard with buildings and trees."
+            ),
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert ("Current Prompt" in imgui.windows) is show_current_prompt
+    if show_current_prompt:
+        assert len(imgui.windows["Current Prompt"]) > 1
+
+
+def test_current_prompt_overlay_preserves_room_for_gameplay_hud() -> None:
+    state = TaxiHudState(320, 360, _calibration(), show_current_prompt=True)
+    imgui = _FakeImGui()
+
+    prompt_offset = state._draw_current_prompt(imgui, "long prompt " * 100)
+
+    assert prompt_offset + 160.0 + 44.0 <= state.height
+    assert imgui.windows["Current Prompt"][-1] == "..."
+
+
+def test_current_prompt_offsets_left_live_edit_overlays() -> None:
+    video = torch.zeros(1, 3, 360, 320)
+    live_edit = LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True))
+    status = LiveEditHudStatus(coins_enabled=True, coins_collected=3)
+    state = TaxiHudState(
+        320,
+        360,
+        _calibration(),
+        show_current_prompt=True,
+        live_edit=live_edit,
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            live_edit_statuses=(status,),
+            current_prompt="A taxi driving through a wide city boulevard.",
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    prompt_bottom = 14.0 + imgui.window_sizes["Current Prompt"][1]
+    assert imgui.window_positions["Coin Counter"] == (14.0, prompt_bottom + 8.0)
+    assert imgui.window_positions["Live Edit"] == (14.0, prompt_bottom + 88.0)
+
+
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
+    hdmap = torch.full((1, 3, height, width), 0.5, dtype=torch.bfloat16)
     bev = torch.full((1, 4, 32, 32), 255, dtype=torch.uint8)
     bev[:, :3].fill_(191)
     hud_state = TaxiHudState(width, height, _calibration())
@@ -1033,6 +1123,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
         0,
         [
             StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
             StepResult(0, bev, 1, VideoTensorLayout.tchw),
         ],
     )
@@ -1109,6 +1200,57 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert hud_state._bev_composite is None
     assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
+
+
+def test_imgui_ui_loop_can_present_exact_hdmap_conditioning() -> None:
+    width, height = 160, 96
+    video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
+    hdmap = torch.full((1, 3, height, width), 0.75, dtype=torch.bfloat16)
+    hud_state = TaxiHudState(width, height, _calibration(), hud_enabled=False)
+    hud_state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    presentation = PresentationManager()
+    presentation.publish(
+        0,
+        [
+            StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
+        ],
+    )
+    presentation.advance(0)
+    loop = CrazyRobotaxiImGuiUILoop(renderer=_Renderer(width, height))
+    loop.register_session_loop_objects(
+        state=hud_state,
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
+        presentation_manager=presentation,
+    )
+
+    generated = loop.step(0, UserInputEvents([])).read_output()
+    conditioning = loop.step(
+        1,
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="m",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        ),
+    ).read_output()
+
+    assert torch.all(generated == -0.5)
+    assert torch.all(conditioning == 0.75)
 
 
 def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
@@ -1216,7 +1358,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
             keyboard=replace(
                 defaults.keyboard,
                 restart=(InputBinding("key", "p"), None),
-                return_to_menu=(InputBinding("key", "m"), None),
+                return_to_menu=(InputBinding("key", "n"), None),
                 toggle_hints=(InputBinding("key", "j"), None),
             ),
         ),
@@ -1241,7 +1383,8 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         ["FORWARD", "W / UP ARROW", "BRAKE / REVERSE", "S / DOWN ARROW"],
         ["STEER LEFT", "A / LEFT ARROW", "STEER RIGHT", "D / RIGHT ARROW"],
         ["HANDBRAKE", "SPACE", "RESTART", "P"],
-        ["RETURN TO MENU", "M", "HIDE CONTROLS", "J"],
+        ["RETURN TO MENU", "N", "HIDE CONTROLS", "J"],
+        ["TOGGLE HD MAP VIEW", "M"],
     ]
     controls_flags = imgui.window_flags["Controls"]
     assert controls_flags & imgui.WindowFlags_.always_auto_resize
@@ -2133,6 +2276,32 @@ def test_h_toggles_gameplay_control_tooltips() -> None:
     assert state.show_control_tooltips
 
 
+def test_m_toggles_hdmap_view_only_during_gameplay() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="m",
+        state=KeyboardInputState.RELEASED,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="M",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_hdmap
+
+    state.consume_input_events(UserInputEvents([released]))
+    state._menu_stage = "game"
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state.show_hdmap
+
+    state.consume_input_events(UserInputEvents([released]))
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_hdmap
+
+
 def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
     state = TaxiHudState(160, 96, _calibration())
     imgui = _FakeImGui()
@@ -2140,7 +2309,7 @@ def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
     state._draw_control_tooltips(imgui)
 
     assert imgui.table_column_counts["##gameplay-control-hints"] == 2
-    assert len(imgui.tables["##gameplay-control-hints"]) == 8
+    assert len(imgui.tables["##gameplay-control-hints"]) == 9
 
 
 def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
@@ -2849,6 +3018,7 @@ def test_options_save_persists_and_applies_presentation_setting(
     imgui.checkbox_values["##presentation.show_fps"] = True
     imgui.checkbox_values["##presentation.show_live_edit_buttons"] = False
     imgui.combo_indices["##presentation.live_edit_mapping_location"] = 1
+    imgui.checkbox_values["##presentation.show_current_prompt"] = True
     imgui.clicked_buttons.add("SAVE")
 
     state.draw(imgui)
@@ -2857,11 +3027,13 @@ def test_options_save_persists_and_applies_presentation_setting(
     assert state.show_fps
     assert not state.show_live_edit_buttons
     assert state.live_edit_mapping_location == "control hints"
+    assert state.show_current_prompt
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
     assert "show_live_edit_buttons: false" in document.path.read_text(encoding="utf-8")
     assert "live_edit_mapping_location: control hints" in document.path.read_text(
         encoding="utf-8"
     )
+    assert "show_current_prompt: true" in document.path.read_text(encoding="utf-8")
     assert state._settings_notice == f"SAVED {document.path}"
     assert not state._settings_restart_notice
     options_lines = imgui.windows["Crazy Robotaxi - Options"]
