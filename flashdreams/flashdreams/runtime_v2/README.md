@@ -87,7 +87,8 @@ declare arguments this command also has.
 | `webrtc` | `--host`, `--port` | keyboard, mouse, focus, query string, reset, close | the application UI finishes or the client closes it |
 
 `--host` and `--port` choose the listener. When a browser connects with a
-non-empty query string, `ILoop` recives a `QueryStringUserInputEvent`, value being the raw string without leading `?`.
+non-empty query string, an `ILoop` receives a `QueryStringUserInputEvent` whose
+value is the raw string without the leading `?`.
 
 These override whatever session the application asked for:
 
