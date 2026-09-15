@@ -926,7 +926,7 @@ def test_ui_loop_rejects_a_non_step_result_element() -> None:
     class BadElementUILoop(FakeUILoop):
         def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
             del step_index, events
-            return [0]  # type: ignore[list-item]
+            return [0]  # ty: ignore[invalid-return-type]
 
     class BadElementSession(FakeSession):
         def init(self) -> None:
