@@ -920,6 +920,28 @@ def test_ui_loop_rejects_more_than_one_result() -> None:
         )
 
 
+def test_ui_loop_rejects_a_non_step_result_element() -> None:
+    log = CallLog()
+
+    class BadElementUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del step_index, events
+            return [0]  # type: ignore[list-item]
+
+    class BadElementSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_ui_loop(BadElementUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    with pytest.raises(TypeError, match="list of StepResult"):
+        run_session(
+            BadElementSession(_session_desc(), log),
+            RecordingClientWindow(log),
+            steps=1,
+        )
+
+
 def test_default_ui_finishes_only_after_drawing_the_final_model_frame() -> None:
     manager = PresentationManager(device=torch.device("cpu"))
     stop = threading.Event()

@@ -148,7 +148,9 @@ def run_session(
                 if loop_result.step_index is None or not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
-                if not isinstance(raw_result, list):
+                if not isinstance(raw_result, list) or any(
+                    not isinstance(item, StepResult) for item in raw_result
+                ):
                     raise TypeError("A UI loop must return a list of StepResult.")
                 if len(raw_result) > 1:
                     raise TypeError("A UI loop must return at most one StepResult.")
