@@ -108,6 +108,27 @@ def test_invalid_caller_storage_does_not_mutate_any_layer() -> None:
         assert torch.equal(value, old_value)
 
 
+def test_prefill_can_alias_unused_caller_storage() -> None:
+    """Copy aliased prefill values before clearing the unused suffix."""
+    storage = [layer(11, -9.0)]
+    key_buffer, value_buffer = storage[0]
+    prefilled = [(key_buffer[:, :, 6:], value_buffer[:, :, 6:])]
+    expected = [(key.clone(), value.clone()) for key, value in prefilled]
+
+    memory = FixedSlotKVCache(
+        prefilled,
+        capacity=11,
+        regions=[],
+        storage=storage,
+    )
+
+    key, value = memory.layers()[0]
+    assert torch.equal(key, expected[0][0])
+    assert torch.equal(value, expected[0][1])
+    assert torch.count_nonzero(key_buffer[:, :, 5:]) == 0
+    assert torch.count_nonzero(value_buffer[:, :, 5:]) == 0
+
+
 def chunks(tokens: int, value: float) -> list[LayerKV]:
     """Build a two-layer cache write."""
     return [layer(tokens, value), layer(tokens, value + 1.0)]

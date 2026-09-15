@@ -156,6 +156,7 @@ class FixedSlotKVCache:
                     kind="value",
                 )
 
+        buffers: list[LayerKV] = []
         for layer, (key, value) in enumerate(prefilled):
             if storage is None:
                 key_shape = list(key.shape)
@@ -166,13 +167,20 @@ class FixedSlotKVCache:
                 value_buffer = value.new_zeros(value_shape)
             else:
                 key_buffer, value_buffer = storage[layer]
-            prefix = self._seq_slice(0, self._initial_length, tensor_dim)
-            suffix = self._seq_slice(self._initial_length, capacity, tensor_dim)
-            with torch.no_grad():
-                key_buffer[suffix].zero_()
-                value_buffer[suffix].zero_()
+            buffers.append((key_buffer, value_buffer))
+
+        prefix = self._seq_slice(0, self._initial_length, tensor_dim)
+        suffix = self._seq_slice(self._initial_length, capacity, tensor_dim)
+        with torch.no_grad():
+            for (key, value), (key_buffer, value_buffer) in zip(
+                prefilled, buffers, strict=True
+            ):
                 key_buffer[prefix] = key
                 value_buffer[prefix] = value
+            for key_buffer, value_buffer in buffers:
+                key_buffer[suffix].zero_()
+                value_buffer[suffix].zero_()
+        for key_buffer, value_buffer in buffers:
             self._k.append(key_buffer)
             self._v.append(value_buffer)
 
