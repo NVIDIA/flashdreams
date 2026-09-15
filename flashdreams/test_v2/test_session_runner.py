@@ -461,7 +461,7 @@ class FakeModelLoop(IModelLoop["FakeSession"]):
 class FakeUILoop(IUILoop["FakeSession"]):
     """Delegate direct UI rendering to the test session."""
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         return self.state.run_ui(step_index, events)
 
     def reset(self) -> None:
@@ -525,18 +525,20 @@ class FakeSession(ISession):
             output_layout=self._session_desc.output_layout,
         )
 
-    def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         del events
         self._log.record("ui_loop.step")
         frame = self._presentation_manager.presented_frame(0)
         if frame is None:
-            return None
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0).unsqueeze(2),
-            frame_count=1,
-            output_layout=self.session_desc.output_layout,
-        )
+            return []
+        return [
+            StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0).unsqueeze(2),
+                frame_count=1,
+                output_layout=self.session_desc.output_layout,
+            )
+        ]
 
     def is_finished(self) -> bool:
         return False
@@ -740,7 +742,8 @@ def test_run_session_presents_every_step_in_order() -> None:
     assert [result.step_index for result in window.results] == sorted(
         result.step_index for result in window.results
     )
-    assert window.results[-1] is session.ui_loop.latest_result
+    assert session.ui_loop.latest_result is not None
+    assert window.results[-1] is session.ui_loop.latest_result[0]
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
 
@@ -794,7 +797,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
             assert input_processed.wait(timeout=1.0)
             return super().step(step_index, events)
 
-        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
             self.ui_model_states.append(self.ui_loop.model_inference_state)
             if events.get_events():
                 input_processed.set()
@@ -878,15 +881,43 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
 
     assert manager.advance(0, now=1.0)[0]
     first = ui.step(0, UserInputEvents([]))
-    assert first is not None
-    assert first.read_output()[0, :, 0, 0].tolist() == [0.5, 0.25, 0.0]
+    assert first
+    assert first[0].read_output()[0, :, 0, 0].tolist() == [0.5, 0.25, 0.0]
     assert not manager.advance(0)[0]
     held = ui.step(1, UserInputEvents([]))
-    assert held is not None
-    assert torch.equal(held.read_output(), first.read_output())
+    assert held
+    assert torch.equal(held[0].read_output(), first[0].read_output())
     assert not manager.advance(1)[0]
     assert manager.presented_frame_count == 0
-    assert ui.step(2, UserInputEvents([])) is None
+    assert ui.step(2, UserInputEvents([])) == []
+
+
+def test_ui_loop_rejects_more_than_one_result() -> None:
+    log = CallLog()
+
+    class TwoResultUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del events
+            result = StepResult(
+                step_index=step_index,
+                output=torch.zeros((1, 3, 1, 1, 1)),
+                frame_count=1,
+                output_layout=self.state.session_desc.output_layout,
+            )
+            return [result, result]
+
+    class TwoResultSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_ui_loop(TwoResultUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    with pytest.raises(TypeError, match="at most one StepResult"):
+        run_session(
+            TwoResultSession(_session_desc(), log),
+            RecordingClientWindow(log),
+            steps=1,
+        )
 
 
 def test_default_ui_finishes_only_after_drawing_the_final_model_frame() -> None:
@@ -928,7 +959,7 @@ def test_default_ui_finishes_only_after_drawing_the_final_model_frame() -> None:
     assert not ui.is_finished()
     assert manager.advance(0, now=1.0)[0]
     assert not ui.is_finished()
-    assert ui.step(0, UserInputEvents([])) is not None
+    assert ui.step(0, UserInputEvents([]))
     assert ui.is_finished()
 
 
@@ -1272,7 +1303,7 @@ def test_run_session_stops_when_the_window_reports_a_close(
 
     def record_finish(
         self: FakeUILoop,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:
@@ -1315,7 +1346,7 @@ def test_interactive_ui_can_replace_an_already_finished_session() -> None:
     log = CallLog()
 
     class RequestingUILoop(FakeUILoop):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
             self.state.ui_model_states.append(self.model_inference_state)
             self.state.ui_steps += 1
             if self.state.ui_steps == 2:
@@ -1329,12 +1360,14 @@ def test_interactive_ui_can_replace_an_already_finished_session() -> None:
                         },
                     )
                 )
-                return StepResult(
-                    step_index=step_index,
-                    output=torch.zeros((1, 3, 1, 2, 2)),
-                    frame_count=1,
-                    output_layout=self.state.session_desc.output_layout,
-                )
+                return [
+                    StepResult(
+                        step_index=step_index,
+                        output=torch.zeros((1, 3, 1, 2, 2)),
+                        frame_count=1,
+                        output_layout=self.state.session_desc.output_layout,
+                    )
+                ]
             return super().step(step_index, events)
 
     class RequestingSession(FiniteSession):
@@ -1735,7 +1768,7 @@ def test_run_session_closes_both_when_a_step_raises(
 
     def record_finish(
         self: FakeModelLoop,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:

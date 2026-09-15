@@ -73,12 +73,12 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         ...
 
     @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Render the UI over the optional back-buffer returned by :meth:`step_ui`.
 
         Returns:
-            One composited frame, as ``[1, C, H, W]``. Sessions using this loop
-            therefore declare a ``tchw`` layout.
+            One composited frame in a list, as ``[1, C, H, W]``. Sessions using
+            this loop therefore declare a ``tchw`` layout.
         """
         back_buffer: Tensor | None = None
 
@@ -89,12 +89,14 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         overlay = self.renderer.render(step_index, events, draw)
         back_buffer = prepare_ui_back_buffer(back_buffer, overlay)
         frame = self._presentation_manager.composite(back_buffer, overlay)
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
+        return [
+            StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
+        ]
 
     def reset(self) -> None:
         """Reset renderer state after a session reset event."""
