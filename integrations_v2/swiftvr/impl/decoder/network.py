@@ -57,13 +57,18 @@ class SwiftVRTemporalGrow(nn.Module):
 class SwiftVRTAEHV(TAEHV):
     """Shared TAEHV configured for SwiftVR's ReAE checkpoint."""
 
-    def __init__(self, checkpoint_path: str | None) -> None:
+    def __init__(
+        self,
+        checkpoint_path: str | None,
+        *,
+        use_compile: bool = False,
+    ) -> None:
         super().__init__(
             checkpoint_path=None,
             model_type="wan22",
             channels=(512, 256, 128, 64),
             use_cuda_graph=False,
-            use_compile=False,
+            use_compile=use_compile,
         )
         with torch.device("meta"):
             for index, block in enumerate(self.decoder.blocks):

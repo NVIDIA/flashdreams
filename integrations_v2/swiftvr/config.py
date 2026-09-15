@@ -36,6 +36,8 @@ def build_swiftvr_pipeline(
     dtype: torch.dtype = torch.bfloat16,
     attention_window: tuple[int, int] = (16, 16),
     compile_blocks: bool = False,
+    compile_reae_encoder: bool = False,
+    compile_reae_decoder: bool = False,
     chunk_size: int = 8,
     name: str = "swiftvr",
 ) -> SwiftVRPipelineConfig:
@@ -52,6 +54,7 @@ def build_swiftvr_pipeline(
         encoder=SwiftVREncoderConfig(
             checkpoint_path=reae_checkpoint,
             dtype=dtype,
+            use_compile=compile_reae_encoder,
         ),
         diffusion_model=DiffusionModelConfig(
             transformer=SwiftVRTransformerConfig(
@@ -75,6 +78,7 @@ def build_swiftvr_pipeline(
         decoder=SwiftVRDecoderConfig(
             checkpoint_path=reae_checkpoint,
             dtype=dtype,
+            use_compile=compile_reae_decoder,
         ),
     )
 

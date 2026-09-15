@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 import torch
@@ -23,6 +25,8 @@ from flashdreams.infra.encoder import (
 from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
 from flashdreams.recipes.taehv.impl import Encoder as TAEHVEncoder
 from flashdreams.recipes.taehv.impl import MemBlock
+
+_EncodeCompleteGroups = Callable[[Tensor, dict[int, Tensor]], Tensor]
 
 
 def _encode_complete_groups(
@@ -63,6 +67,9 @@ class SwiftVREncoderConfig(EncoderConfig):
     dtype: torch.dtype = torch.bfloat16
     """Encoder compute dtype."""
 
+    use_compile: bool = False
+    """Compile the complete-group ReAE encoder compute path."""
+
 
 @dataclass(kw_only=True)
 class SwiftVREncoderCache(StreamingEncoderCache):
@@ -102,6 +109,15 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
             }
             self.network.load_state_dict(encoder_state, strict=True)
         self.network.to(dtype=config.dtype).eval().requires_grad_(False)
+        encode_complete_groups: _EncodeCompleteGroups = partial(
+            _encode_complete_groups,
+            self.network,
+        )
+        self._encode_complete_groups = (
+            torch.compile(encode_complete_groups, mode="default", fullgraph=False)
+            if config.use_compile
+            else encode_complete_groups
+        )
 
     @property
     def device(self) -> torch.device:
@@ -181,7 +197,7 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
             cache.tail = None
         if tensor.shape[1] == 0:
             return None
-        return _encode_complete_groups(self.network, tensor, cache.state)
+        return self._encode_complete_groups(tensor, cache.state)
 
     def flush(self, cache: SwiftVREncoderCache) -> Tensor | None:
         """Replicate-pad and encode the final partial temporal group."""
@@ -194,7 +210,7 @@ class SwiftVREncoder(StreamingEncoder[SwiftVREncoderCache]):
             tensor = torch.cat(
                 [tensor, tensor[:, -1:].expand(-1, padding, -1, -1, -1)], dim=1
             )
-        return _encode_complete_groups(self.network, tensor, cache.state)
+        return self._encode_complete_groups(tensor, cache.state)
 
 
 __all__ = [

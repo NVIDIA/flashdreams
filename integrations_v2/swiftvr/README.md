@@ -52,10 +52,18 @@ postprocessor = SwiftVRPostProcessorConfig(
 Set `checkpoint` to a local directory for offline use. `chunk_size` must be a
 multiple of four. `dit_overlap=0` is the upstream throughput path;
 `dit_overlap=1` trades speed for latent overlap blending. `compile_blocks` is
-off by default because it adds a long one-time compilation phase. Loading the
-upstream FP32 transformer remaps roughly 19 GiB of weights in host memory before
-moving them to the selected CUDA dtype; both single-file and standard sharded
+off by default because it adds a long one-time compilation phase.
+`compile_reae_encoder` and `compile_reae_decoder` independently compile the
+ReAE compute paths while keeping causal state explicit. Loading the upstream
+FP32 transformer remaps roughly 19 GiB of weights in host memory before moving
+them to the selected CUDA dtype; both single-file and standard sharded
 safetensors checkpoints are accepted.
+
+For long-running 2x streams, the opt-in `swiftvr-2x-compiled` preset compiles
+the transformer and ReAE decoder. On one GB300 at 2560x1408 it reduced the
+steady eight-frame median from 96.47 ms to 79.60 ms, while increasing cold
+preparation from 3.2 seconds to about 142 seconds with fresh compiler caches.
+The regular `swiftvr-2x` preset remains the startup-friendly fallback.
 
 ## End-to-end V2V demo
 
@@ -82,6 +90,18 @@ the source or a same-resolution reference, and report speed only from complete
 steady-state 8-frame chunks; checkpoint loading and prewarm are intentionally
 outside those samples.
 
+## Interactive Drive demo
+
+The shared OmniDreams application accepts SwiftVR through its postprocessor
+option. Run OmniDreams at 1280x704 and present 2560x1408 output with:
+
+```bash
+uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --width 1280 --height 704 \
+  --postprocess-preset swiftvr-2x-compiled
+```
+
 ## Validation
 
 ```bash
@@ -91,3 +111,7 @@ uv run --package flashdreams-swiftvr --extra dev \
 
 The adapted code is pinned in attribution to upstream SwiftVR commit
 `5ca168cef6ca7200f135fdfea85e5e13d12c5b53` (Apache-2.0).
+
+See [REAE_COMPILE_BENCHMARK.md](REAE_COMPILE_BENCHMARK.md) for the compile
+configuration matrix, GB300 results, quality checks, and RTX PRO 6000 repeat
+procedure.
