@@ -141,15 +141,10 @@ class FixedSlotKVCache:
 
         for layer, (key, value) in enumerate(prefilled):
             self._validate_prefill_layer(key, value, layer)
-            if storage is None:
-                key_shape = list(key.shape)
-                value_shape = list(value.shape)
-                key_shape[self._seq_dim] = capacity
-                value_shape[self._seq_dim] = capacity
-                key_buffer = key.new_zeros(key_shape)
-                value_buffer = value.new_zeros(value_shape)
-            else:
-                key_buffer, value_buffer = storage[layer]
+        if storage is not None:
+            for layer, ((key, value), (key_buffer, value_buffer)) in enumerate(
+                zip(prefilled, storage, strict=True)
+            ):
                 self._validate_storage_layer(
                     key, key_buffer, capacity=capacity, layer=layer, kind="key"
                 )
@@ -160,8 +155,22 @@ class FixedSlotKVCache:
                     layer=layer,
                     kind="value",
                 )
+
+        for layer, (key, value) in enumerate(prefilled):
+            if storage is None:
+                key_shape = list(key.shape)
+                value_shape = list(value.shape)
+                key_shape[self._seq_dim] = capacity
+                value_shape[self._seq_dim] = capacity
+                key_buffer = key.new_zeros(key_shape)
+                value_buffer = value.new_zeros(value_shape)
+            else:
+                key_buffer, value_buffer = storage[layer]
             prefix = self._seq_slice(0, self._initial_length, tensor_dim)
+            suffix = self._seq_slice(self._initial_length, capacity, tensor_dim)
             with torch.no_grad():
+                key_buffer[suffix].zero_()
+                value_buffer[suffix].zero_()
                 key_buffer[prefix] = key
                 value_buffer[prefix] = value
             self._k.append(key_buffer)

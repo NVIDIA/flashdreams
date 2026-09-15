@@ -252,8 +252,9 @@ def test_block_mask_selection_crosses_the_protocol_boundary() -> None:
     )
 
     assert model.state.masks
-    assert all(isinstance(mask, BlockMask) for mask in model.state.masks)
-    assert all(mask.BLOCK_SIZE == (16, 32) for mask in model.state.masks)
+    for mask in model.state.masks:
+        assert isinstance(mask, BlockMask)
+        assert mask.BLOCK_SIZE == (16, 32)
 
 
 def test_seeded_rollouts_are_reproducible_through_an_adapter() -> None:

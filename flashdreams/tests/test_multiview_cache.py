@@ -58,7 +58,7 @@ def cache() -> FixedSlotKVCache:
 def test_cache_can_use_caller_owned_storage() -> None:
     """Embed fixed-slot storage in an allocation owned by an adapter."""
     prefilled = [layer(5, 1.0), layer(5, 2.0)]
-    storage = [layer(11, 0.0), layer(11, 0.0)]
+    storage = [layer(11, -9.0), layer(11, -9.0)]
     memory = FixedSlotKVCache(
         prefilled,
         capacity=11,
@@ -83,6 +83,29 @@ def test_cache_can_use_caller_owned_storage() -> None:
     ):
         assert torch.equal(key, prefill_key)
         assert torch.equal(value, prefill_value)
+    for key, value in storage:
+        assert torch.count_nonzero(key[:, :, 5:]) == 0
+        assert torch.count_nonzero(value[:, :, 5:]) == 0
+
+
+def test_invalid_caller_storage_does_not_mutate_any_layer() -> None:
+    """Validate every supplied buffer before clearing or copying any of them."""
+    prefilled = [layer(5, 1.0), layer(5, 2.0)]
+    storage = [layer(11, -9.0), layer(11, -8.0)]
+    storage[1] = (torch.zeros(2, 2, 11, 3), storage[1][1])
+    before = [(key.clone(), value.clone()) for key, value in storage]
+
+    with pytest.raises(ValueError, match="storage layer 1 key dimension 0"):
+        FixedSlotKVCache(
+            prefilled,
+            capacity=11,
+            regions=[],
+            storage=storage,
+        )
+
+    for (key, value), (old_key, old_value) in zip(storage, before, strict=True):
+        assert torch.equal(key, old_key)
+        assert torch.equal(value, old_value)
 
 
 def chunks(tokens: int, value: float) -> list[LayerKV]:
