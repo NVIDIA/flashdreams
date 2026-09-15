@@ -29,6 +29,7 @@ from aiortc import (
 )
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+from yarl import URL
 
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
@@ -41,6 +42,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    QueryStringUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
@@ -74,6 +76,7 @@ def _frame_mean(frame: VideoFrame) -> float:
 
 async def _connect_browser(
     window: WebRTCClientWindow,
+    query_string: str = "",
 ) -> tuple[RTCPeerConnection, RTCDataChannel, asyncio.Future[MediaStreamTrack]]:
     peer = RTCPeerConnection()
     channel = peer.createDataChannel("controls")
@@ -93,9 +96,16 @@ async def _connect_browser(
             video_track.set_result(track)
 
     await peer.setLocalDescription(await peer.createOffer())
+    query_suffix = f"?{query_string}" if query_string else ""
     async with ClientSession() as client:
         async with client.post(
-            f"{window.server.url}api/webrtc/offer",
+            URL(
+                (
+                    f"http://{window.server.host}:{window.server.port}"
+                    f"/api/webrtc/offer{query_suffix}"
+                ),
+                encoded=True,
+            ),
             json={
                 "sdp": peer.localDescription.sdp,
                 "type": peer.localDescription.type,
@@ -108,6 +118,27 @@ async def _connect_browser(
     )
     await asyncio.wait_for(channel_opened.wait(), timeout=5)
     return peer, channel, video_track
+
+
+@pytest.mark.asyncio
+async def test_browser_query_string_reaches_the_input_stream() -> None:
+    query_string = "model=omnidreams&preset=night%20drive&asset=s3%3A%2F%2Fworld&seed=7"
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, _, _ = await _connect_browser(window, query_string)
+        events = window.get_user_input_events().get_events()
+
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, QueryStringUserInputEvent)
+        assert event.get_type_name() == "query_string"
+        assert event.query_string == query_string
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
 
 
 @pytest.mark.asyncio
@@ -156,6 +187,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'type: "reset"' not in browser_script
                 assert "beforeunload" not in browser_script
                 assert "waitForIceGatheringComplete" in browser_script
+                assert '"/api/webrtc/offer" + window.location.search' in browser_script
                 assert 'peer.iceGatheringState === "complete"' in browser_script
                 assert "Unable to start WebRTC" in browser_script
                 assert "renderedVideoBounds" in browser_script
