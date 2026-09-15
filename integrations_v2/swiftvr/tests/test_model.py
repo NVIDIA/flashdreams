@@ -3,6 +3,7 @@
 
 """CPU contracts for the FlashDreams-native SwiftVR pipeline."""
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -52,6 +53,8 @@ def test_pipeline_config_follows_stream_inference_component_contracts(
         checkpoint=str(tmp_path),
         revision=None,
         attention_window=(8, 12),
+        compile_reae_encoder=True,
+        compile_reae_decoder=True,
         chunk_size=24,
     )
 
@@ -61,6 +64,8 @@ def test_pipeline_config_follows_stream_inference_component_contracts(
     assert isinstance(config.encoder, SwiftVREncoderConfig)
     assert isinstance(config.diffusion_model.transformer, SwiftVRTransformerConfig)
     assert isinstance(config.decoder, SwiftVRDecoderConfig)
+    assert config.encoder.use_compile
+    assert config.decoder.use_compile
     assert config.diffusion_model.transformer.network.attention_window == (8, 12)
     assert config.diffusion_model.transformer.latent_frames == 6
 
@@ -224,6 +229,27 @@ def test_reae_complete_group_adapter_preserves_stream_boundaries() -> None:
 
     assert len(state) == 9
     torch.testing.assert_close(chunked, whole)
+
+
+def test_reae_encoder_compile_callable_is_bound_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiled: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+
+    def compile_function(
+        function: Callable[..., Any], **kwargs: Any
+    ) -> Callable[..., Any]:
+        compiled.append((function, kwargs))
+        return function
+
+    monkeypatch.setattr(torch, "compile", compile_function)
+    encoder = SwiftVREncoder(
+        SwiftVREncoderConfig(dtype=torch.float32, use_compile=True)
+    )
+
+    assert compiled == [
+        (encoder._encode_complete_groups, {"mode": "default", "fullgraph": False})
+    ]
 
 
 def _diffusers_checkpoint_key(native_key: str) -> str:
