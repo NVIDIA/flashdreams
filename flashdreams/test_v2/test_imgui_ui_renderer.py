@@ -206,7 +206,7 @@ def test_imgui_loop_composites_over_the_presented_model_frame() -> None:
 
     result = loop.step(0, UserInputEvents([]))
 
-    output = result.read_output()
+    output = result[0].read_output()
     assert output.shape == (1, 3, 3, 4)
     assert torch.all(output == -0.5)
     loop.reset()

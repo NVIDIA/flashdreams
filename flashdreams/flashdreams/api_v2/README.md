@@ -101,11 +101,15 @@ client asks for one, implement it, even if the body is `return`.
 
 ## What a step returns
 
-The two loops have different return contracts, and the runtime enforces both:
+Both loops return `list[StepResult]`. The list does not mean the same thing
+on both threads, and the runtime enforces both contracts:
 
-- A model loop returns `list[StepResult]`, one entry per channel. A single
-  `StepResult` or `None` raises `TypeError`.
-- A UI loop returns one `StepResult`, or `None` to present nothing this tick.
+- A model loop returns one entry per channel. A single `StepResult` or
+  `None` raises `TypeError`. An empty list means this step produced no
+  presentable output; the runtime does not publish it.
+- A UI loop returns one `StepResult` to present, or `[]` to present nothing
+  this tick. A list longer than one raises `TypeError`, because
+  `window.write` takes a single frame.
 
 Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the

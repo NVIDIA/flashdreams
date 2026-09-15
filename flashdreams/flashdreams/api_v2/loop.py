@@ -117,7 +117,7 @@ class ILoop(ABC, Generic[StateT]):
         self._message_queue: queue.Queue[_Message[StateT]] = queue.Queue()
         self.user_events = UserInputEvents([])
         self._pending_user_events: list[UserInputEvent] = []
-        self.latest_result: StepResult | list[StepResult] | None = None
+        self.latest_result: list[StepResult] | None = None
         self._step_index = 0
         self._generation = 0
         self._accepting_messages = True
@@ -132,23 +132,22 @@ class ILoop(ABC, Generic[StateT]):
         return
 
     @abstractmethod
-    def step(
-        self, step_index: int, events: UserInputEvents
-    ) -> StepResult | list[StepResult] | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Run one step.
 
-        The two kinds of loop return different things, and the runtime rejects
-        the wrong one: a model loop must return ``list[StepResult]``, one entry
-        per channel, and a UI loop must return one :class:`StepResult` or
-        ``None`` to present nothing this step.
+        Both kinds of loop return ``list[StepResult]``. A model loop returns
+        one entry per channel, or an empty list when the step produced no
+        presentable output. A UI loop returns one frame to present, or an
+        empty list to present nothing this step. A UI list longer than one
+        raises :class:`TypeError`.
 
         Args:
             step_index: Zero-based index since the latest reset.
             events: Input events not seen by this loop before.
 
         Returns:
-            Model channels from a model loop; one frame, or ``None``, from a UI
-            loop.
+            Model channels from a model loop, possibly empty; zero or one
+            frame from a UI loop.
         """
         ...
 
@@ -215,14 +214,15 @@ class ILoop(ABC, Generic[StateT]):
     @final
     def _finish_run(
         self,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:
         """Finish one prepared run, saving its completed step when present.
 
         Args:
-            result: Value returned by the completed step, or ``None``.
+            result: Value returned by the completed step, or ``None`` when no
+                step ran.
             step_completed: Whether :meth:`step` returned successfully and
                 ``result`` should replace :attr:`latest_result`.
         """
@@ -369,10 +369,17 @@ class IModelLoop(ILoop[StateT], ABC):
 class IUILoop(ILoop[StateT], ABC):
     """Loop whose output is sent to the client window.
 
-    :meth:`ILoop.step` must return one :class:`StepResult` or ``None`` here.
-    Model frames to draw come from :meth:`presented_model_frame` and
-    :meth:`presented_model_frames` rather than from the model loop directly.
+    :meth:`ILoop.step` must return ``list[StepResult]`` here: one frame to
+    present, or an empty list to present nothing this step. A list longer than
+    one raises :class:`TypeError`. Model frames to draw come from
+    :meth:`presented_model_frame` and :meth:`presented_model_frames` rather
+    than from the model loop directly.
     """
+
+    @abstractmethod
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        """Return zero or one :class:`StepResult` to present this tick."""
+        ...
 
     @final
     def register_session_ui_loop_objects(

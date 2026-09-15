@@ -125,7 +125,7 @@ def run_session(
             if ui_loop is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
-            result: StepResult | None = None
+            result: list[StepResult] | None = None
             step_completed = False
             try:
                 loop_result = ui_loop._begin_run(events, generation)
@@ -148,14 +148,18 @@ def run_session(
                 if loop_result.step_index is None or not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
-                if raw_result is not None and not isinstance(raw_result, StepResult):
-                    raise TypeError("A UI loop must return StepResult or None.")
+                if not isinstance(raw_result, list) or any(
+                    not isinstance(item, StepResult) for item in raw_result
+                ):
+                    raise TypeError("A UI loop must return a list of StepResult.")
+                if len(raw_result) > 1:
+                    raise TypeError("A UI loop must return at most one StepResult.")
                 result = raw_result
                 step_completed = True
             finally:
                 ui_loop._finish_run(result, step_completed=step_completed)
-            if result is not None:
-                window.write(result)
+            if result:
+                window.write(result[0])
 
         def publish_model_results(
             generation: int,

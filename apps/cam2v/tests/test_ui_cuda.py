@@ -103,7 +103,7 @@ def test_slangpy_composite_records_high_priority_output_readiness() -> None:
     closed = False
     try:
         with manager.presentation_context():
-            result = loop.step(0, UserInputEvents([]))
+            result = loop.step(0, UserInputEvents([]))[0]
 
         output_ready_event = result._output_ready_event
         assert output_ready_event is not None
