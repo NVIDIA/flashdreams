@@ -647,6 +647,7 @@ def test_window_write_materializes_before_synchronous_sender_admission(
     source = torch.full((1, 3, 16, 16), 31, dtype=torch.uint8)
     try:
         window.open(_session_desc())
+        assert window.input_timestamp_origin_ns is not None
         window.server._video_track = cast(Any, track)
         window.server._media_connected.set()
         with monkeypatch.context() as patch:
@@ -829,6 +830,8 @@ def test_window_discards_events_buffered_during_a_session_handoff() -> None:
     window = WebRTCClientWindow()
     try:
         window.open(_session_desc())
+        first_session_origin_ns = window.input_timestamp_origin_ns
+        assert first_session_origin_ns is not None
         time.sleep(0.01)
         window.server._buffer_browser_message(
             json.dumps({"type": "keyboard", "key": "w", "pressed": True})
@@ -838,6 +841,9 @@ def test_window_discards_events_buffered_during_a_session_handoff() -> None:
 
         window.server._buffer_browser_message(json.dumps({"type": "close"}))
         window.open(_session_desc())
+        replacement_origin_ns = window.input_timestamp_origin_ns
+        assert replacement_origin_ns is not None
+        assert replacement_origin_ns > first_session_origin_ns
         window.server._buffer_browser_message(
             json.dumps({"type": "focus", "focused": True})
         )
@@ -846,6 +852,10 @@ def test_window_discards_events_buffered_during_a_session_handoff() -> None:
         assert [type(event) for event in replacement_events] == [FocusUserInputEvent]
         assert (
             replacement_events[0].get_timestamp() < first_session_event.get_timestamp()
+        )
+        assert (
+            first_session_origin_ns + int(first_session_event.get_timestamp()) * 1_000
+            < replacement_origin_ns + int(replacement_events[0].get_timestamp()) * 1_000
         )
     finally:
         window.close()
