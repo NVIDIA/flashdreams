@@ -106,6 +106,8 @@ jobs:
       OMNIDREAMS_QUALITY_REFERENCE_PATH: ${{ vars.OMNIDREAMS_QUALITY_REFERENCE_PATH || 'data/quality_references/single_view/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae/239560dc-33d1-11ef-9720-00044bcbccac/reference_compare_region.mp4' }}
       OMNIDREAMS_QUALITY_REFERENCE_CLIP: /tmp/omnidreams_quality_reference/reference_compare_region.mp4
       OMNIDREAMS_QUALITY_ARTIFACT_DIR: /tmp/omnidreams_quality_artifacts
+      # Persistent Inductor/FX-graph cache for torch.compile across GPU CI jobs.
+      FLASHDREAMS_CACHE_DIR: /tmp/flashdreams-cache
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -125,6 +127,14 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Cache torch.compile artifacts
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FLASHDREAMS_CACHE_DIR }}/torchinductor
+          key: inductor-sm${{ steps.gpu-arch.outputs.arch }}-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            inductor-sm${{ steps.gpu-arch.outputs.arch }}-
 
       - name: Install system dependencies
         run: |
