@@ -477,11 +477,14 @@ async function connect() {
   showStatus("Gathering WebRTC network candidates…");
   await peer.setLocalDescription(await peer.createOffer());
   await waitForIceGatheringComplete();
-  const response = await fetch("/api/webrtc/offer", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify(peer.localDescription),
-  });
+  const response = await fetch(
+    "/api/webrtc/offer" + window.location.search,
+    {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify(peer.localDescription),
+    },
+  );
   if (!response.ok) {
     throw new Error(await response.text());
   }

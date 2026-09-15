@@ -37,6 +37,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    QueryStringUserInputEvent,
     ResetUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
@@ -846,6 +847,16 @@ class WebRTCServer:
             self._sent_cursor_options = None
             if control_channel is not None and control_channel.readyState == "open":
                 self._send_cursor_options()
+            query_string = request.rel_url.raw_query_string
+            if query_string:
+                timestamp_us = self._timestamp_us()
+                if timestamp_us is not None:
+                    self._append_event(
+                        QueryStringUserInputEvent(
+                            timestamp=timestamp_us,
+                            query_string=query_string,
+                        )
+                    )
             return web.json_response(
                 {"sdp": local_description.sdp, "type": local_description.type}
             )
