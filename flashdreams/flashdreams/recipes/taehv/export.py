@@ -123,6 +123,8 @@ def export_streaming_decoder(
         output_names=output_names,
         opset_version=18,
         do_constant_folding=True,
+        dynamo=False,  # legacy exporter: matches the WebGPU-validated decoder
+        # graph (the dynamo path emits a different one) and avoids onnxscript.
     )
 
     # Consolidate weights inline so the browser can load a single file.

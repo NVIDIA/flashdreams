@@ -42,11 +42,39 @@ export function loadOrt() {
   return _ortPromise
 }
 
-function _configure(ort) {
+async function _configure(ort) {
   // WebGPU EP still fetches its wasm (jsep) glue from the dist directory.
   ort.env.wasm.wasmPaths = ORT_BASE
   ort.env.logLevel = "warning"
+  await _ensureWebGpuDevice(ort)
   return ort
+}
+
+// The cache-as-IO VAE decoder materializes full-resolution intermediates larger
+// than WebGPU's default 1 GiB maxBufferSize / 128 MiB storage-binding limits, so
+// CreateBuffer fails (and, since ORT-web shares one WebGPU device, that error
+// also breaks the caption session). Create a single device up front requesting
+// the adapter's maximum buffer limits (and shader-f16 when available) and hand
+// it to ORT-web, so both sessions run on a device that can allocate them.
+async function _ensureWebGpuDevice(ort) {
+  if (ort.env.webgpu.device || !globalThis.navigator?.gpu) {
+    return
+  }
+  try {
+    const adapter = await navigator.gpu.requestAdapter()
+    if (!adapter) {
+      return
+    }
+    ort.env.webgpu.device = await adapter.requestDevice({
+      requiredFeatures: adapter.features.has("shader-f16") ? ["shader-f16"] : [],
+      requiredLimits: {
+        maxBufferSize: adapter.limits.maxBufferSize,
+        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+      },
+    })
+  } catch {
+    // Leave ORT to create its own default device; large decodes may still fail.
+  }
 }
 
 export { ORT_VERSION }

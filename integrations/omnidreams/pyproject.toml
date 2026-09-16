@@ -89,6 +89,15 @@ dev = [
     "pyvirtualdisplay>=3.0",
     "flip-evaluator>=1.7",
 ]
+# Offline Cosmos-Reason1-7B teacher labeling of caption windows (Phase 2 of the
+# caption pipeline; ``omnidreams.caption.label_teacher``). vLLM pins its own
+# torch/transformers that conflict with this project's runtime deps, so these
+# are documented here but must be installed into a DEDICATED venv and the
+# labeler run by path there -- see omnidreams/caption/README.md.
+teacher-label = [
+    "vllm>=0.8.5",
+    "qwen-vl-utils>=0.0.11",
+]
 
 [project.scripts]
 # ``omnidreams-prepare`` stages resources used by *both* demo paths
@@ -103,6 +112,16 @@ omnidreams-prepare = "omnidreams.prepare:main"
 # Batch evaluation helper for Hugging Face scene discovery, bounded staging,
 # FlashDreams generation, and DrivingGen adapter setup.
 omnidreams-eval = "omnidreams.eval.cli:main"
+
+# Offline capture harness for the latent-native live-caption model: drives the
+# world model headless with scripted WSAD and writes (latent-window, RGB-window)
+# training shards. GPU-only (loads checkpoints + builds CUDA graphs).
+omnidreams-caption-capture = "omnidreams.caption.capture:main"
+
+# Train (Phase 4) and export (Phase 5) the latent caption CNN. Torch-only (the
+# small model + ONNX export); no world-model runtime needed.
+omnidreams-caption-train = "omnidreams.caption.train:main"
+omnidreams-caption-export = "omnidreams.caption.export:main"
 
 # Desktop interactive-drive demo entry point. Requires the
 # ``interactive-drive`` extra (it adds slangpy); without it the

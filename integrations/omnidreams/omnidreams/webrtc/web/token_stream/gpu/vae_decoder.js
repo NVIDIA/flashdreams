@@ -105,21 +105,16 @@ export class VaeDecoder {
 
   async _selectPrecision(descriptor) {
     const preferred = descriptor.default_precision || "fp32"
-    // Opt into fp16 only when the session offers it and the client can run the
-    // half-precision shaders (native Float16Array + WebGPU shader-f16).
-    if (descriptor.precisions.fp16 && typeof globalThis.Float16Array === "function") {
-      try {
-        const adapter = await navigator.gpu.requestAdapter()
-        if (adapter && adapter.features.has("shader-f16")) {
-          const device = await adapter.requestDevice({
-            requiredFeatures: ["shader-f16"],
-          })
-          this._ort.env.webgpu.device = device
-          return "fp16"
-        }
-      } catch {
-        // fall through to fp32
-      }
+    // Opt into fp16 only when the session offers it and the shared ORT device
+    // (configured in loadOrt with the adapter's max limits) supports the
+    // half-precision shaders — the native `Float16Array` is also required.
+    const device = this._ort.env.webgpu.device
+    if (
+      descriptor.precisions.fp16 &&
+      typeof globalThis.Float16Array === "function" &&
+      device?.features?.has("shader-f16")
+    ) {
+      return "fp16"
     }
     return descriptor.precisions[preferred] ? preferred : "fp32"
   }
