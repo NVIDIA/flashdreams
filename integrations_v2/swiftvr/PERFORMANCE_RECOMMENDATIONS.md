@@ -22,8 +22,10 @@ latency by 14.0%. Transformer-only and encoder-only compilation improved it by
 1.8% and 4.3%, respectively. Encoder plus decoder matched the selected path
 within measurement noise but prepared more slowly, so the preset deliberately
 combines the compiled transformer with only the compiled decoder. FP8
-transformer linear layers and ReAE memory-layout work remain possible
-follow-ups.
+transformer linear layers remain a possible follow-up. The ReAE layout
+experiment is complete: explicit layout changes hurt eager execution, while a
+compiler-only decoder path cut isolated decoder latency from 18.93 ms to 9.83
+ms without a visible output change.
 
 Increasing chunk size, changing the SDPA backend, enabling cuDNN benchmarking,
 or optimizing adapter format conversions did not show enough potential to be
@@ -159,13 +161,35 @@ each candidate in a fresh process.
 
 ### ReAE memory layout follow-up
 
-**Status:** Deferred experiment.
+**Status:** Implemented for the compiled decoder; rejected for eager execution
+and the encoder.
 
-The format-conversion kernels still suggest that cuDNN repeatedly converts
-layouts around the Conv2d-heavy encoder and decoder. A future experiment should
-preserve `channels_last` only through Conv2d regions, test `channels_last_3d`
-independently for temporal Conv3d, and keep temporal pooling and pixel shuffle
-boundaries in their natural contiguous layouts.
+The experiment preserved `channels_last` through ordinary Conv2d regions,
+tested `channels_last_3d` independently at SwiftVR's temporal Conv3d
+boundaries, and returned to contiguous layout before pixel shuffle. Each case
+ran in a fresh process and compiler cache on the same 24-frame input as the
+compile sweep.
+
+| Stage and mode | Contiguous | Conv2d `channels_last` | Conv3d `channels_last_3d` | Combined |
+| --- | ---: | ---: | ---: | ---: |
+| Encoder eager | **9.05 ms** | 17.10 ms | n/a | n/a |
+| Encoder compiled | **4.87 ms** | 4.94 ms | n/a | n/a |
+| Decoder eager | **32.03 ms** | 44.17 ms | 32.87 ms | 41.15 ms |
+| Decoder compiled | 18.93 ms | 20.54 ms | 10.91 ms | **9.83 ms** |
+
+The compiled combined result repeated at 9.83 ms against an 18.93 ms repeated
+contiguous baseline, a 48.1% isolated decoder reduction. Inductor can absorb
+the layout boundaries and select substantially faster temporal Conv3d kernels;
+eager execution pays those conversions as separate kernels, which erases or
+reverses the gain. Conv2d-only layout changes did not help either stage.
+
+The production optimization is therefore deliberately coupled to
+`compile_reae_decoder=True`; the eager decoder remains unchanged. Direct
+compiled decoder outputs were bit-identical in the isolated sweep. A full
+24-frame pipeline comparison against the previous compiled decoder measured
+0.000048 MAE, 0.000350 RMSE, 69.13 dB PSNR, and no visible difference at normal
+scale. The reproducible isolated harness is
+`scripts/benchmark_reae_layout.py`.
 
 ### 3. Quantize transformer projections and FFNs to FP8
 

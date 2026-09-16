@@ -60,10 +60,13 @@ them to the selected CUDA dtype; both single-file and standard sharded
 safetensors checkpoints are accepted.
 
 For long-running 2x streams, the opt-in `swiftvr-2x-compiled` preset compiles
-the transformer and ReAE decoder. On one GB300 at 2560x1408 it reduced the
-steady eight-frame median from 96.47 ms to 79.60 ms, while increasing cold
-preparation from 3.2 seconds to about 142 seconds with fresh compiler caches.
-The regular `swiftvr-2x` preset remains the startup-friendly fallback.
+the transformer and ReAE decoder. The compiled decoder also selects optimized
+Conv2d and temporal Conv3d memory layouts; eager execution keeps its original
+layout because explicit conversions are slower there. On one GB300 at
+2560x1408, the initial compile experiment reduced the steady eight-frame
+median from 96.47 ms to 79.60 ms, while increasing cold preparation from 3.2
+seconds to about 142 seconds with fresh compiler caches. The regular
+`swiftvr-2x` preset remains the startup-friendly fallback.
 
 ## End-to-end V2V demo
 

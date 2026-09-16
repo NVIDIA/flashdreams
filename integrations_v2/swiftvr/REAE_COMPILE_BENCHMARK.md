@@ -31,6 +31,11 @@ stack.
 | Transformer compiled | Useful component | 1.8% lower latency in isolation |
 | Transformer + ReAE decoder compiled | Selected opt-in | 17.5% lower latency; visual validation passed |
 
+The configuration chart below predates the compiler-only decoder layout
+optimization. A later isolated sweep reduced compiled decoder compute from
+18.93 ms to 9.83 ms; see
+[Compiled decoder layout follow-up](#compiled-decoder-layout-follow-up).
+
 ## GB300 configuration
 
 | Setting | Value |
@@ -63,6 +68,30 @@ encoding.
 | Encoder + decoder | off | on | on | 79.91 ms | 80.57 ms | 100.1 | 145.5 s | 20.45 GiB |
 | Transformer | on | off | off | 94.69 ms | 95.34 ms | 84.5 | 30.0 s | 18.65 GiB |
 | Transformer + decoder | on | off | on | **79.60 ms** | **79.97 ms** | **100.5** | 142.0 s | 20.45 GiB |
+
+## Compiled decoder layout follow-up
+
+The compiled decoder now preserves `channels_last` through its ordinary
+Conv2d regions and uses `channels_last_3d` for SwiftVR's temporal Conv3d
+boundaries. The eager path is unchanged because explicit layout conversions
+made it slower.
+
+| Decoder candidate | Eager median | Compiled median | Compiled decision |
+| --- | ---: | ---: | --- |
+| Contiguous | **32.03 ms** | 18.93 ms | Baseline |
+| Conv2d `channels_last` | 44.17 ms | 20.54 ms | Reject |
+| Conv3d `channels_last_3d` | 32.87 ms | 10.91 ms | Useful |
+| Combined | 41.15 ms | **9.83 ms** | Selected |
+
+The selected result reproduced in a second fresh-cache run. Direct compiled
+decoder outputs were bit-identical across layouts. Through the complete
+24-frame pipeline, the selected layout differed from the previous compiled
+decoder by 0.000048 MAE and 69.13 dB PSNR, with no visible normal-scale
+difference in frames 1, 12, or 24.
+
+Run the isolated layout sweep with `scripts/benchmark_reae_layout.py`. Keep
+baseline and candidate in separate fresh processes and set a fresh
+`TORCHINDUCTOR_CACHE_DIR` for every compiled case.
 
 ## Output validation
 
