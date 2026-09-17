@@ -8,9 +8,9 @@
 // Two classifiers:
 //   - Real model: when the session header carries a `caption_model` descriptor,
 //     the exported latent->caption-bank ONNX is fetched and run via
-//     onnxruntime-web on WebGPU over a rolling latent window; argmax indexes the
-//     caption bank. (Works even with an untrained/random model — it just yields
-//     meaningless captions, useful for validating the end-to-end path.)
+//     onnxruntime-web on WebGPU over a rolling latent window. The softmax is
+//     smoothed across recent windows and biased toward "driving straight", then
+//     a sustained + minimum-dwell change gates which caption-bank entry shows.
 //   - Stub: a model-free latent-activity heuristic used when no model is served
 //     or if the model fails to load, so the overlay always works.
 //
@@ -37,8 +37,12 @@ export class CaptionEngine {
     onState = noop,
     onModel = noop,
     log = noop,
-    intervalMs = 1200,
+    intervalMs = 1500,
     windowChunks = 6,
+    smoothWindows = 3,
+    straightBiasMargin = 0.15,
+    hysteresis = 2,
+    minDwellMs = 1800,
     descriptor = null,
     device = null,
   } = {}) {
@@ -54,6 +58,27 @@ export class CaptionEngine {
     this._windowChunks = descriptor?.input_window_chunks ?? windowChunks
     this._captionBank = descriptor?.caption_bank ?? null
     this._modelVersion = descriptor?.version ?? null
+
+    // Caption stabilization: average the softmax over recent windows, bias
+    // toward "driving straight" (the model over-predicts turns), and require a
+    // sustained + minimum-dwell change before the displayed caption switches.
+    this._smoothWindows = smoothWindows
+    this._straightBiasMargin = straightBiasMargin
+    this._hysteresis = hysteresis
+    this._minDwellMs = minDwellMs
+    this._probHistory = [] // recent softmax vectors, averaged for smoothing
+    this._displayedIdx = null
+    this._pendingIdx = null
+    this._pendingCount = 0
+    this._lastChangeAt = 0
+    this._labels = descriptor?.labels ?? null
+    this._neutralIdx = 0 // index of the "driving straight" class for the bias
+    if (this._labels) {
+      const i = this._labels.indexOf("driving_straight")
+      if (i >= 0) {
+        this._neutralIdx = i
+      }
+    }
 
     this._window = [] // recent chunks' latent frames
     this._prevFrame = null
@@ -152,10 +177,13 @@ export class CaptionEngine {
     this._onState("generating")
     try {
       const useModel = this._modelReady && this._window.length >= this._windowChunks
-      const text = useModel ? await this._classifyModel() : this._classifyStub()
-      this._onModel(useModel ? this._modelVersion : "stub")
-      if (text) {
-        this._onCaption(text)
+      if (useModel) {
+        const idx = this._selectClass(await this._classifyModel())
+        this._onModel(this._modelVersion)
+        this._maybeShow(idx)
+      } else {
+        this._onModel("stub")
+        this._onCaption(this._classifyStub())
       }
     } catch (error) {
       this._log(`caption inference failed (${error.message}); using stub`, {
@@ -189,14 +217,83 @@ export class CaptionEngine {
     const shape = [1, frames.length, cl, hl, wl]
     const feeds = { [this._inputName]: new this._ort.Tensor("float32", buffer, shape) }
     const results = await runExclusive(() => this._session.run(feeds))
-    const logits = results[this._outputName].data
-    let best = 0
-    for (let i = 1; i < logits.length; i += 1) {
-      if (logits[i] > logits[best]) {
-        best = i
-      }
+    return this._softmax(results[this._outputName].data)
+  }
+
+  _softmax(logits) {
+    let max = -Infinity
+    for (let i = 0; i < logits.length; i += 1) {
+      if (logits[i] > max) max = logits[i]
     }
-    return this._captionBank?.[best] ?? `caption ${best}`
+    let sum = 0
+    const out = new Array(logits.length)
+    for (let i = 0; i < logits.length; i += 1) {
+      out[i] = Math.exp(logits[i] - max)
+      sum += out[i]
+    }
+    for (let i = 0; i < out.length; i += 1) {
+      out[i] /= sum
+    }
+    return out
+  }
+
+  // Average the softmax over recent windows, then bias toward "driving
+  // straight": a non-straight class must beat it by a margin to be chosen.
+  _selectClass(probs) {
+    this._probHistory.push(probs)
+    if (this._probHistory.length > this._smoothWindows) {
+      this._probHistory.shift()
+    }
+    const n = probs.length
+    const avg = new Array(n).fill(0)
+    for (const p of this._probHistory) {
+      for (let i = 0; i < n; i += 1) avg[i] += p[i]
+    }
+    for (let i = 0; i < n; i += 1) avg[i] /= this._probHistory.length
+    let best = 0
+    for (let i = 1; i < n; i += 1) {
+      if (avg[i] > avg[best]) best = i
+    }
+    const neutral = this._neutralIdx
+    if (best !== neutral && avg[best] - avg[neutral] < this._straightBiasMargin) {
+      best = neutral
+    }
+    return best
+  }
+
+  // Switch the displayed caption only after the candidate is sustained
+  // (hysteresis) and a minimum dwell has elapsed — prevents fast flicker.
+  _maybeShow(idx) {
+    const now = performance.now()
+    if (this._displayedIdx === null) {
+      this._show(idx, now)
+      return
+    }
+    if (idx === this._displayedIdx) {
+      this._pendingIdx = idx
+      this._pendingCount = 0
+      return
+    }
+    if (idx === this._pendingIdx) {
+      this._pendingCount += 1
+    } else {
+      this._pendingIdx = idx
+      this._pendingCount = 1
+    }
+    if (
+      this._pendingCount >= this._hysteresis &&
+      now - this._lastChangeAt >= this._minDwellMs
+    ) {
+      this._show(idx, now)
+    }
+  }
+
+  _show(idx, now) {
+    this._displayedIdx = idx
+    this._lastChangeAt = now
+    this._pendingIdx = idx
+    this._pendingCount = 0
+    this._onCaption(this._captionBank?.[idx] ?? `caption ${idx}`)
   }
 
   _classifyStub() {
@@ -214,5 +311,9 @@ export class CaptionEngine {
     this._prevFrame = null
     this._session = null
     this._modelReady = false
+    this._probHistory = []
+    this._displayedIdx = null
+    this._pendingIdx = null
+    this._pendingCount = 0
   }
 }
