@@ -285,6 +285,50 @@ def test_runtime_benchmark_stats_backfills_total_s_from_model_step_wall_s(
     assert records[0].metrics["generated_fps"] == pytest.approx(20.0)
 
 
+def test_cam2v_step_result_metrics_backfill_total_s_through_the_real_sink(
+    tmp_path: Path,
+) -> None:
+    """The backfill above is proven against a hand-built stats file; this proves
+    it against the actual producer path Cam2V now uses post-#607.
+
+    ``StepResult.metrics`` carries whatever Cam2V's own pipeline reports
+    (``model_step_wall_s``, not ``total_s``) straight into
+    ``MetricsOutputSink.write()``. Only after that sink round-trips through
+    JSON does ``records_from_stats_file`` see it, so a test that skips the
+    sink cannot tell whether the alias survives the trip.
+    """
+    stats_path = tmp_path / "stats_demo.json"
+    session_desc = SessionDesc(
+        output_layout=VideoTensorLayout.tchw,
+        frames_per_second_for_ui=60,
+        frames_per_second_for_step=16,
+        video_width=128,
+        video_height=64,
+    )
+    sink = MetricsOutputSink(stats_path)
+    sink.open(session_desc)
+    sink.write(
+        StepResult(
+            step_index=0,
+            output=torch.zeros((4, 3, 64, 128)),
+            frame_count=4,
+            output_layout=VideoTensorLayout.tchw,
+            metrics={"model_step_wall_s": 0.2, "chunk_fps": 20.0},
+        )
+    )
+    sink.close()
+
+    records = records_from_stats_file(
+        stats_path, scenario_id="cam2v-lingbot-quality-10s", source_root=tmp_path
+    )
+
+    assert len(records) == 1
+    assert records[0].metrics["model_step_wall_s"] == pytest.approx(0.2)
+    assert records[0].metrics["chunk_fps"] == pytest.approx(20.0)
+    assert records[0].metrics["total_s"] == pytest.approx(0.2)
+    assert records[0].metrics["generated_fps"] == pytest.approx(20.0)
+
+
 def test_runtime_benchmark_stats_written_by_the_v2_sink_are_read(
     tmp_path: Path,
 ) -> None:
