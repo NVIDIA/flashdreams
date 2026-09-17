@@ -83,30 +83,49 @@ def dense_attention(
         query: Query heads shaped ``[B, Hq, Q, D]``.
         key: Key heads shaped ``[B, Hkv, K, D]``.
         value: Value heads shaped ``[B, Hkv, K, Dv]``.
-        mask: Optional boolean visibility mask shaped ``[Q, K]``.
+        mask: Optional boolean or additive floating-point mask broadcastable
+            to ``[B, Hq, Q, K]``.
         enable_gqa: Share each K/V head across a group of query heads.
         backend: Dense PyTorch SDPA backend policy.
 
     Returns:
-        Attention output shaped ``[B, Hq, Q, Dv]``.
+        Attention output shaped ``[B, Hq, Q, Dv]``, where ``B`` is the
+        broadcast query/key batch size.
     """
-    _validate_qkv(query, key, value, enable_gqa=enable_gqa)
+    _validate_qkv(
+        query,
+        key,
+        value,
+        enable_gqa=enable_gqa,
+        allow_batch_broadcast=True,
+    )
     _validate_dense_mask(mask, query=query, key=key)
     if not isinstance(backend, DenseSDPABackend):
         raise TypeError(f"backend must be a DenseSDPABackend; got {backend!r}.")
+
+    batch_size = max(query.shape[0], key.shape[0])
+    query = query.expand(batch_size, -1, -1, -1)
+    key = key.expand(batch_size, -1, -1, -1)
+    value = value.expand(batch_size, -1, -1, -1)
 
     output_shape: tuple[int, ...] | None = None
     use_native_gqa = enable_gqa
     if backend is DenseSDPABackend.EFFICIENT and enable_gqa:
         repeats = query.shape[1] // key.shape[1]
-        output_shape = (*query.shape[:3], value.shape[-1])
-        batch_heads = key.shape[0] * key.shape[1]
-        query = query.reshape(batch_heads, repeats, *query.shape[2:])
-        key = key.reshape(batch_heads, 1, *key.shape[2:]).expand(-1, repeats, -1, -1)
-        value = value.reshape(batch_heads, 1, *value.shape[2:]).expand(
-            -1, repeats, -1, -1
-        )
         use_native_gqa = False
+        if query.shape[0] == key.shape[0] and (mask is None or mask.ndim == 2):
+            output_shape = (*query.shape[:3], value.shape[-1])
+            batch_heads = key.shape[0] * key.shape[1]
+            query = query.reshape(batch_heads, repeats, *query.shape[2:])
+            key = key.reshape(batch_heads, 1, *key.shape[2:]).expand(
+                -1, repeats, -1, -1
+            )
+            value = value.reshape(batch_heads, 1, *value.shape[2:]).expand(
+                -1, repeats, -1, -1
+            )
+        else:
+            key = key.repeat_interleave(repeats, dim=1)
+            value = value.repeat_interleave(repeats, dim=1)
 
     with backend_for(query, backend):
         output = F.scaled_dot_product_attention(
@@ -135,7 +154,8 @@ def masked_attention(
         query: Query heads shaped ``[B, Hq, Q, D]``.
         key: Key heads shaped ``[B, Hkv, K, D]``.
         value: Value heads shaped ``[B, Hkv, K, Dv]``.
-        mask: A boolean ``[Q, K]`` tensor or equivalent :class:`BlockMask`.
+        mask: A boolean or additive floating-point dense tensor, or an
+            equivalent :class:`BlockMask`.
         enable_gqa: Share each K/V head across a group of query heads.
         dense_backend: PyTorch backend used for a dense mask. Ignored for a
             block-sparse mask.
@@ -149,7 +169,6 @@ def masked_attention(
         TypeError: ``mask`` is neither a boolean tensor nor a block mask.
         ValueError: Q/K/V or mask geometry is incompatible.
     """
-    _validate_qkv(query, key, value, enable_gqa=enable_gqa)
     if not isinstance(dense_backend, DenseSDPABackend):
         raise TypeError(
             f"dense_backend must be a DenseSDPABackend; got {dense_backend!r}."
@@ -158,8 +177,15 @@ def masked_attention(
         raise TypeError(
             f"flex_options must be a FlexAttentionOptions; got {flex_options!r}."
         )
-    expected = (query.shape[-2], key.shape[-2])
     if isinstance(mask, BlockMask):
+        _validate_qkv(
+            query,
+            key,
+            value,
+            enable_gqa=enable_gqa,
+            allow_batch_broadcast=False,
+        )
+        expected = (query.shape[-2], key.shape[-2])
         if tuple(mask.shape[-2:]) != expected:
             raise ValueError(
                 f"block mask shape {tuple(mask.shape[-2:])} does not match {expected}."
@@ -194,18 +220,35 @@ def _validate_dense_mask(
         return
     if not isinstance(mask, Tensor):
         raise TypeError(f"mask must be a Tensor or None; got {type(mask)!r}.")
-    if mask.ndim != 2:
+    if not 2 <= mask.ndim <= 4:
         raise ValueError(
-            "dense mask must be a two-dimensional [Q, KV] mask; "
+            "dense mask must have between two and four dimensions; "
             f"got {tuple(mask.shape)}."
         )
-    expected = (query.shape[-2], key.shape[-2])
-    if tuple(mask.shape) != expected:
+    expected_tokens = (query.shape[-2], key.shape[-2])
+    if tuple(mask.shape[-2:]) != expected_tokens:
         raise ValueError(
-            f"dense mask shape {tuple(mask.shape)} does not match {expected}."
+            f"dense mask shape {tuple(mask.shape)} does not match {expected_tokens}."
         )
-    if mask.dtype is not torch.bool:
-        raise ValueError(f"dense mask must be boolean; got {mask.dtype}.")
+    expected = (
+        max(query.shape[0], key.shape[0]),
+        query.shape[1],
+        *expected_tokens,
+    )
+    try:
+        broadcast = torch.broadcast_shapes(tuple(mask.shape), expected)
+    except RuntimeError as error:
+        raise ValueError(
+            f"dense mask shape {tuple(mask.shape)} is not broadcastable to {expected}."
+        ) from error
+    if tuple(broadcast) != expected:
+        raise ValueError(
+            f"dense mask shape {tuple(mask.shape)} is not broadcastable to {expected}."
+        )
+    if mask.dtype is not torch.bool and not mask.is_floating_point():
+        raise ValueError(
+            f"dense mask must be boolean or floating point; got {mask.dtype}."
+        )
     if mask.device != query.device:
         raise ValueError("dense mask must be on the query device.")
 
@@ -216,11 +259,17 @@ def _validate_qkv(
     value: Tensor,
     *,
     enable_gqa: bool,
+    allow_batch_broadcast: bool,
 ) -> None:
     if query.ndim != 4 or key.ndim != 4 or value.ndim != 4:
         raise ValueError("query, key, and value must have shape [B, H, S, D].")
-    if query.shape[0] != key.shape[0] or key.shape[:3] != value.shape[:3]:
-        raise ValueError("query, key, and value batch/token axes must agree.")
+    if key.shape[:3] != value.shape[:3]:
+        raise ValueError("key and value batch/head/token axes must agree.")
+    if allow_batch_broadcast:
+        if query.shape[0] != key.shape[0] and query.shape[0] != 1 and key.shape[0] != 1:
+            raise ValueError("query and key/value batch axes must be broadcastable.")
+    elif query.shape[0] != key.shape[0]:
+        raise ValueError("query, key, and value batch axes must agree.")
     if query.shape[-1] != key.shape[-1]:
         raise ValueError("query and key head dimensions must agree.")
     query_heads = query.shape[1]

@@ -128,6 +128,89 @@ def test_efficient_dense_gqa_matches_explicit_kv_expansion(kv_heads: int) -> Non
     torch.testing.assert_close(actual, expected)
 
 
+@pytest.mark.parametrize(
+    ("query_batch", "key_batch"),
+    [(1, 1), (2, 2), (1, 2), (2, 1)],
+)
+def test_efficient_dense_gqa_broadcasts_batches(
+    query_batch: int,
+    key_batch: int,
+) -> None:
+    """Match explicit K/V head expansion for every broadcast batch direction."""
+    generator = torch.Generator().manual_seed(17)
+    query = torch.randn(query_batch, 4, 5, 8, generator=generator)
+    key = torch.randn(key_batch, 2, 7, 8, generator=generator)
+    value = torch.randn(key_batch, 2, 7, 6, generator=generator)
+    mask = _mask()
+
+    actual = masked_attention(
+        query,
+        key,
+        value,
+        mask,
+        enable_gqa=True,
+        dense_backend=DenseSDPABackend.EFFICIENT,
+    )
+    expected = masked_attention(
+        query,
+        key.repeat_interleave(2, dim=1),
+        value.repeat_interleave(2, dim=1),
+        mask,
+    )
+
+    torch.testing.assert_close(actual, expected)
+
+
+def test_efficient_dense_gqa_keeps_batch_and_head_masks() -> None:
+    """Preserve a separately broadcast visibility mask for every batch and head."""
+    generator = torch.Generator().manual_seed(23)
+    query = torch.randn(2, 4, 5, 8, generator=generator)
+    key = torch.randn(2, 2, 7, 8, generator=generator)
+    value = torch.randn(2, 2, 7, 6, generator=generator)
+    mask = torch.rand(2, 4, 5, 7, generator=generator) > 0.3
+    mask[..., 0] = True
+
+    actual = masked_attention(
+        query,
+        key,
+        value,
+        mask,
+        enable_gqa=True,
+        dense_backend=DenseSDPABackend.EFFICIENT,
+    )
+    expected = masked_attention(
+        query,
+        key.repeat_interleave(2, dim=1),
+        value.repeat_interleave(2, dim=1),
+        mask,
+    )
+
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize("backend", tuple(DenseSDPABackend))
+def test_dense_attention_accepts_additive_float_masks(
+    backend: DenseSDPABackend,
+) -> None:
+    """Treat zero/-infinity masks as the boolean visibility rule they encode."""
+    query, key, value = _qkv()
+    boolean_mask = _mask()
+    additive_mask = torch.zeros_like(boolean_mask, dtype=query.dtype).masked_fill(
+        ~boolean_mask, -torch.inf
+    )
+
+    actual = masked_attention(
+        query,
+        key,
+        value,
+        additive_mask,
+        dense_backend=backend,
+    )
+    expected = masked_attention(query, key, value, boolean_mask)
+
+    torch.testing.assert_close(actual, expected)
+
+
 def test_efficient_dense_gqa_shares_kv_storage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -242,14 +325,14 @@ def test_functional_attention_forwards_the_shared_flex_policy(
     }
 
 
-def test_functional_attention_validates_exact_shapes_and_heads() -> None:
-    """Reject broadcastable masks and implicit grouped-query layouts."""
+def test_functional_attention_validates_shapes_and_heads() -> None:
+    """Reject incompatible masks and implicit grouped-query layouts."""
     query, key, value = _qkv(kv_heads=2)
 
     with pytest.raises(ValueError, match="enable_gqa"):
         masked_attention(query, key, value, _mask())
-    with pytest.raises(ValueError, match="two-dimensional"):
-        masked_attention(query, query, query, _mask()[None])
+    with pytest.raises(ValueError, match="broadcastable"):
+        masked_attention(query, query, query, torch.ones(2, 5, 5, dtype=torch.bool))
     with pytest.raises(ValueError, match="does not match"):
         masked_attention(query, query, query, _mask()[:, :-1])
     with pytest.raises(TypeError, match="dense_backend"):
@@ -259,7 +342,7 @@ def test_functional_attention_validates_exact_shapes_and_heads() -> None:
             value,
             _mask(),
             enable_gqa=True,
-            dense_backend="efficient",  # type: ignore[arg-type]
+            dense_backend="efficient",  # ty: ignore[invalid-argument-type]
         )
 
 
