@@ -25,7 +25,6 @@ from typing import Any, Literal, cast
 import ftfy
 import torch
 from torch import Tensor
-from transformers import T5Tokenizer, UMT5EncoderModel
 
 from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
 from flashdreams.infra.encoder import Encoder, EncoderConfig
@@ -67,6 +66,8 @@ class UMT5TextEncoder(Encoder):
     """
 
     def __init__(self, config: UMT5TextEncoderConfig) -> None:
+        from transformers import T5Tokenizer, UMT5EncoderModel
+
         super().__init__(config)
         self.config: UMT5TextEncoderConfig = config
 
