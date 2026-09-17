@@ -17,6 +17,9 @@ from t2v.defaults import T2VApplicationDefaults
 from t2v.session import T2VSession
 from t2v.ui import T2VImGuiUILoop
 
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
+)
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -91,8 +94,10 @@ class RecordingRollout(T2VSession):
         prompt: str | None,
         session_desc: SessionDesc,
         total_blocks: int,
+        *,
+        use_ui: bool = True,
     ) -> None:
-        super().__init__(pipeline, prompt, session_desc, total_blocks)
+        super().__init__(pipeline, prompt, session_desc, total_blocks, use_ui=use_ui)
         self.blocks_to_generate = total_blocks
 
 
@@ -198,6 +203,17 @@ def test_an_interactive_application_can_wait_for_its_first_prompt(
     assert session.session_desc.presentation_mode is presentation_mode
     assert isinstance(session.ui_loop, T2VImGuiUILoop)
     assert session.model_loop.is_finished()
+
+
+def test_no_ui_uses_the_default_finite_presentation_loop() -> None:
+    app = T2VApplication(defaults=_defaults())
+    app.init(["--no-ui"])
+    session = app.create_session(_session_desc())
+
+    session.init()
+    ui_loop, _ = session._take_loops()
+
+    assert isinstance(ui_loop, BlitModelOutputToScreenLoop)
 
 
 def test_an_explicit_prompt_cannot_be_empty() -> None:

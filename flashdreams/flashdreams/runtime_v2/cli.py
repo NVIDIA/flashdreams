@@ -64,6 +64,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
 
     mode = client_window_mode(parsed.mode)
+    if parsed.mode == "mp4" and parsed.presentation_mode is None:
+        parsed.presentation_mode = PresentationMode.ON_DEMAND
     # Asking an application what it takes is answered by the application alone,
     # so a run that only wants its help neither checks the arguments for a
     # window nor opens one.
