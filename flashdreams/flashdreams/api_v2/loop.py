@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
+import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -25,6 +26,7 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 if TYPE_CHECKING:
+    from flashdreams.runtime_v2.coordination import StepAgreement
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
@@ -139,8 +141,8 @@ class ILoop(ABC, Generic[StateT]):
 
         The two kinds of loop return different things, and the runtime rejects
         the wrong one: a model loop must return ``list[StepResult]``, one entry
-        per channel, and a UI loop must return one :class:`StepResult` or
-        ``None`` to present nothing this step.
+        per channel or empty to present nothing, and a UI loop must return one
+        :class:`StepResult` or ``None`` to present nothing this step.
 
         Args:
             step_index: Zero-based index since the latest reset.
@@ -257,6 +259,13 @@ class ILoop(ABC, Generic[StateT]):
             if result is not None:
                 raise TypeError("Message operations must return None.")
 
+    def _pace(self, last_run_started: float | None) -> float:
+        if self.frequency == 0 or last_run_started is None:
+            return time.monotonic()
+        earliest_start = last_run_started + 1.0 / self.frequency
+        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
+        return time.monotonic()
+
     def _empty_message_queue(self) -> None:
         while True:
             try:
@@ -270,8 +279,14 @@ class IModelLoop(ILoop[StateT], ABC):
 
     :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
     channel, with every channel reporting the same ``frame_count``. An empty
-    list means the step produced no presentable output. Returning a bare
-    :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    list means the step produced no presentable output.
+
+    **An empty list is a step that presents nothing**, which is how a loop says
+    "this process is a worker". Several processes running the same sharded model
+    generate the same frames and only one of them has a client; the others would
+    otherwise decode a copy nobody reads and write a file nobody opens. A run
+    whose steps all present nothing still ends when the model loop does. Returning
+    a bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
     @abstractmethod
@@ -305,6 +320,8 @@ class IModelLoop(ILoop[StateT], ABC):
         reader_id: int,
         publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
+        agreement: StepAgreement | None = None,
+        device: torch.device | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
 
@@ -314,6 +331,8 @@ class IModelLoop(ILoop[StateT], ABC):
             publish: Function called with each model result and the cumulative
                 seconds spent in :meth:`step` since the previous result.
             max_steps: Maximum steps; ``None`` runs until stopped.
+            agreement: Runtime-owned admission and input synchronization for a mesh.
+            device: Mesh device to bind on this model thread before running hooks.
         """
         steps_run = 0
         last_run_started: float | None = None
@@ -321,27 +340,47 @@ class IModelLoop(ILoop[StateT], ABC):
         unpublished_generation: int | None = None
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
-            while not self._shutdown_event.is_set() and (
-                max_steps is None or steps_run < max_steps
-            ):
+            if device is not None and device.type == "cuda":
+                torch.cuda.set_device(device)
+            while True:
+                stopping = self._shutdown_event.is_set() or (
+                    max_steps is not None and steps_run >= max_steps
+                )
+                if agreement is not None:
+                    if not agreement.ready(stopping=stopping):
+                        break
+                elif stopping:
+                    break
                 events, generation = event_buffer.read(reader_id)
+                if agreement is not None:
+                    events, generation = agreement.inputs(events, generation)
                 if generation != unpublished_generation:
                     unpublished_step_elapsed_s = 0.0
                     unpublished_generation = generation
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
-                    run = self._begin_run(events, generation)
-                    if run.step_index is None:
+                    try:
+                        run = self._begin_run(events, generation)
+                        if run.step_index is not None:
+                            last_run_started = self._pace(last_run_started)
+                    except BaseException:
+                        if agreement is not None:
+                            try:
+                                agreement.ready(stopping=True, failed=True)
+                            except BaseException:
+                                # A departed peer must not replace the original failure.
+                                pass
+                        raise
+                    stopping = run.step_index is None or self._shutdown_event.is_set()
+                    if agreement is not None:
+                        if not agreement.ready(stopping=stopping):
+                            break
+                    elif stopping:
                         break
-                    if self.frequency != 0 and last_run_started is not None:
-                        earliest_start = last_run_started + 1.0 / self.frequency
-                        self._shutdown_event.wait(
-                            max(0.0, earliest_start - time.monotonic())
-                        )
-                    last_run_started = time.monotonic()
-                    if self._shutdown_event.is_set():
-                        break
+                    # Admission commits every rank to this step. A later UI stop is
+                    # handled at the next boundary, never by skipping a collective.
+                    assert run.step_index is not None
                     step_started_at = time.monotonic()
                     raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at

@@ -175,6 +175,66 @@ Loops that genuinely need to reach across send a message instead of sharing
 memory: `invoke_async` queues an operation against the other loop's state, and
 that loop runs it on its own thread before its next step.
 
+## Many-GPU sessions
+
+A launcher such as `torchrun` starts one process per GPU. The application
+initializes a tensor × context mesh and exposes it through
+`ISession.parallel_context`, available before `session.init`. The default is
+`None`, so a local session keeps its existing execution path. Mesh planning,
+process groups, uneven token gathers, and sharded linear projections live in
+`flashdreams.core.distributed`; the integration maps its model onto them.
+
+The two-loop ownership rule applies per process. Rank zero's main thread owns
+the only client window, UI presentation, and metrics sink. Every rank has one
+model thread that binds its mesh CUDA device before running model hooks, owns
+its shard, and executes the same admitted steps. CUDA device selection on the
+main thread does not select the device on a newly created model thread.
+Worker main threads manage startup and cleanup without a client window. The
+runtime creates no coordination thread. PyTorch, communication, and window
+backends may have their own internal threads.
+
+The runtime coordinates model threads over a separate Gloo process group:
+
+| Boundary | Runtime action | Required ordering |
+| --- | --- | --- |
+| Before preparation | Stop if any rank requests cancellation or reaches its step bound. | All ranks meet before preparing a step. |
+| Input | Broadcast rank zero's event batch and reset generation. | Every model sees the same reset and input events. |
+| Step admission | Check preparation, completion, and cancellation on every rank. | A preparation error fails the run on every rank. |
+| Model execution | Execute the admitted step and its TP/CP collectives. | A later UI stop cannot make a rank skip this step. |
+| Publication | Rank zero publishes frames; workers can return an empty list. | Workers do not enter presentation backpressure. |
+| Session result | After model threads stop, rank zero broadcasts continue, terminal, or replacement state on every UI tick. | Workers remain responsive through long idle UIs; replacement sessions start together. |
+| Cleanup | Join the model thread, release loops and sinks, then release the control group. | No collective is introduced during error cleanup. |
+
+A failed rank bypasses session-result polling and begins cleanup, which releases
+a healthy peer waiting in the next poll without making the failed rank wait. A
+synchronized replacement result is authoritative across the application runner's
+deadline check, so every rank enters the same replacement session.
+
+This belongs to the runtime: `is_finished` is a local predicate, and `reset`
+and `close` are local state hooks. Integrations must not add independent
+collective decisions to these hooks. All ranks must enter matching model
+collectives in the same order inside each admitted step. Tensor groups contain
+consecutive ranks; context groups stride by tensor size. Size the tensor axis
+to match the fast links available in the launch topology.
+
+`invoke_async` remains process-local; it does not replicate callbacks or state
+across ranks. Use the replicated input events for model changes that must agree
+across the mesh, and keep rank-local callbacks free of collective decisions.
+
+The control group is created on every rank before session initialization can
+fail independently. Its five-minute timeout bounds a missing participant.
+An exception inside a model collective is a process failure: the runtime lets
+the original error reach `torchrun`, which terminates the other ranks. It does
+not attempt to recover an incomplete distributed step. NCCL/Gloo timeouts and
+the Slurm time limit remain necessary for a lost process or a GPU kernel that
+never returns; arbitrary model code cannot be made deadlock-free by a Python
+thread join.
+
+The step-agreement tests exercise these boundaries with real Gloo processes and
+bounded joins, including close before startup, stop after admission, reset/input
+replication, worker completion, unfinished post-inference UI, replacement
+sessions, repeat sessions, and injected failures.
+
 ## Where the threads meet
 
 **Input** is collected once, on the main thread, but both loops need it and they
@@ -214,10 +274,11 @@ then raises. Failures that happen during that cleanup are logged rather than
 raised over the top of the failure that caused them, so a run always reports the
 thing that actually went wrong.
 
-A run ends normally in one of two ways: the client closes the window, or the
-model loop reports itself finished and the last frames are shown. Both matter,
-because one of the two windows has no client to close it — a run writing an MP4
-depends entirely on the session knowing when it is done.
+A run ends normally when the client closes the window or the UI reports itself
+finished after model output drains. Model completion alone does not end an
+unfinished interactive UI, so rank zero may keep post-inference controls alive.
+The default file-output UI finishes after its last frame, preserving automatic
+termination for non-interactive runs.
 
 ## Not built yet
 

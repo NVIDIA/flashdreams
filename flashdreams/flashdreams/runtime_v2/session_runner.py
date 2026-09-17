@@ -13,6 +13,7 @@ from pathlib import Path
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
 from flashdreams.api_v2.session import ISession
+from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -45,7 +46,7 @@ def _log_secondary_failure(message: str, error: BaseException) -> None:
 
 def run_session(
     session: ISession,
-    window: IClientWindow,
+    window: IClientWindow | None,
     *,
     metrics_output_sink: MetricsOutputSink | None = None,
     steps: int | None = None,
@@ -65,7 +66,7 @@ def run_session(
 
     Args:
         session: Session to run.
-        window: Source of input and destination for UI output.
+        window: Input and output on rank zero; ``None`` on model workers.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
         steps: Maximum model steps before ending the session; ``None`` leaves
@@ -90,6 +91,14 @@ def run_session(
         raise ValueError("timeout_seconds must be finite and non-negative.")
 
     deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
+
+    parallel = session.parallel_context
+    worker = parallel is not None and parallel.world_size > 1 and not parallel.is_main
+    if worker and (window is not None or metrics_output_sink is not None):
+        raise ValueError("Model workers must not own a client window or metrics sink.")
+    if not worker and window is None:
+        raise ValueError("The presenting rank requires a client window.")
+    agreement: StepAgreement | None = None
 
     event_buffer = EventBuffer()
     model_thread_handle: threading.Thread | None = None
@@ -117,12 +126,14 @@ def run_session(
         )
 
         def collect_input() -> None:
+            if window is None:
+                return
             event_buffer.append(window.get_user_input_events())
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
             nonlocal next_session_desc
-            if ui_loop is None:
+            if ui_loop is None or window is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
             result: StepResult | None = None
@@ -216,6 +227,8 @@ def run_session(
                 session_desc.video_height,
                 trace_log.handler.baseFilename if trace_log is not None else "none",
             )
+        if parallel is not None and parallel.world_size > 1:
+            agreement = StepAgreement(parallel)
         session.init()
         registered_ui, registered_model = session._take_loops()
         ui_loop = registered_ui
@@ -223,7 +236,8 @@ def run_session(
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
-        window.open(session_desc)
+        if window is not None:
+            window.open(session_desc)
         if metrics_output_sink is not None:
             metrics_output_sink.open(session_desc)
         collect_input()
@@ -231,7 +245,8 @@ def run_session(
 
         if deadline is not None and time.monotonic() >= deadline:
             stop.set()
-        if not stop.is_set():
+            next_session_desc = None
+        if not stop.is_set() or agreement is not None:
             model_thread_handle = threading.Thread(
                 target=model_loop._run_model_loop,
                 kwargs={
@@ -239,6 +254,8 @@ def run_session(
                     "reader_id": _MODEL_READER_ID,
                     "publish": publish_model_results,
                     "max_steps": steps,
+                    "agreement": agreement,
+                    "device": None if parallel is None else parallel.device,
                 },
                 name=_MODEL_THREAD_NAME,
             )
@@ -246,29 +263,49 @@ def run_session(
             next_tick_at = time.monotonic() + tick_seconds
 
             def should_end_ui() -> bool:
+                nonlocal next_session_desc
                 if model_thread_handle.is_alive():
                     return False
-                if presentation_manager.has_pending_frames():
-                    return False
+                if not session._failure_queue.empty():
+                    return True
 
+                pending_frames = presentation_manager.has_pending_frames()
+                ui_finished = False
                 if (
-                    session._failure_queue.empty()
-                    and steps is None
-                    and not ui_loop.is_finished()
+                    window is not None
+                    and not pending_frames
+                    and not stop.is_set()
+                    and next_session_desc is None
                 ):
-                    # If there are no failures, no steps limit, and the UI is not finished,
-                    # the run should continue.
-                    return False
-                collect_input()
-                run_ui_once(step_requested=False)
-                return True
+                    if steps is None:
+                        ui_finished = ui_loop.is_finished()
+                    if steps is not None or ui_finished:
+                        collect_input()
+                        run_ui_once(step_requested=False)
+                stopping = (
+                    stop.is_set()
+                    or next_session_desc is not None
+                    or (not pending_frames and steps is not None)
+                    or ui_finished
+                )
+                if agreement is None:
+                    return stopping
+                finished, replacement = agreement.session_result(
+                    next_session_desc, stopping=stopping
+                )
+                if finished:
+                    next_session_desc = replacement
+                return finished
 
-            while not stop.is_set():
+            while True:
                 if deadline is not None and time.monotonic() >= deadline:
                     stop.set()
-                    break
+                    next_session_desc = None
                 if should_end_ui():
                     break
+                if stop.is_set():
+                    model_thread_handle.join()
+                    continue
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())
                 if deadline is not None:
                     wait_seconds = min(
@@ -276,10 +313,11 @@ def run_session(
                         max(0.0, deadline - time.monotonic()),
                     )
                 if stop.wait(wait_seconds):
-                    break
+                    continue
                 if deadline is not None and time.monotonic() >= deadline:
                     stop.set()
-                    break
+                    next_session_desc = None
+                    continue
                 collect_input()
                 tick_ui()
                 event_buffer.collect_garbage()
@@ -316,7 +354,7 @@ def run_session(
                 metrics_output_sink.close()
             except BaseException as error:
                 cleanup_failures.append(error)
-        if next_session_desc is None:
+        if next_session_desc is None and window is not None:
             try:
                 window.close()
             except BaseException as error:
@@ -325,6 +363,11 @@ def run_session(
             session.close()
         except BaseException as error:
             cleanup_failures.append(error)
+        if agreement is not None:
+            try:
+                agreement.close()
+            except BaseException as error:
+                cleanup_failures.append(error)
         if trace_log is not None:
             try:
                 _close_chunk_trace(trace_log)
@@ -340,7 +383,11 @@ def run_session(
 
     # A replacement may take ownership of the window only after every resource
     # owned by the old session has been released successfully.
-    if next_session_desc is not None and primary_failure is not None:
+    if (
+        next_session_desc is not None
+        and primary_failure is not None
+        and window is not None
+    ):
         try:
             window.close()
         except BaseException as error:

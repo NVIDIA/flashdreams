@@ -45,6 +45,8 @@ Running a session:
 - `session_desc.py` describes the session being run: frame size, rates, layout,
   and the two policy knobs below.
 - `step_result.py` is what one generation step produces.
+- `coordination.py` broadcasts rank zero's continue/reset/stop decisions over a
+  separate CPU process group for distributed model loops.
 
 Presenting it:
 
@@ -68,6 +70,60 @@ Input:
   projects held state over each selected window. Other modalities should reuse
   the window clock with their own semantics: held state for mouse buttons,
   coalesced position for pointer motion, and accumulated impulses for wheels.
+
+## Tensor × context inference
+
+`flashdreams.core.distributed.parallel.init_parallel(head_groups=...)` creates
+a tensor × context mesh from the launcher world, or reuses an initialized
+process group. Pass the model's key/value head count; the default tensor size is
+`gcd(world_size, head_groups)`. An explicit `tensor_parallel` overrides it.
+Tensor groups contain consecutive ranks, and context groups stride by tensor
+size. Match the tensor size to the node topology when launching across nodes.
+Both axes use NCCL for CUDA or Gloo for CPU, regardless of the reused world's
+backend; all ranks must agree on the device type. The caller still owns the
+world's lifecycle. The shared shutdown helper's immediate-exit path for
+compiled CUDA-graph workloads requires an NCCL **world**, not only NCCL axes;
+a mixed Gloo-world/NCCL-axis launch still needs launcher/job timeouts around
+ordinary process-group teardown.
+
+`core.distributed.tensor_parallel` provides `ColumnParallelLinear` and
+`RowParallelLinear`. The integration selects the projections and head ranges;
+the core layers slice weights and sum row-sharded outputs. Keep a row bias on
+exactly one tensor rank. Shard after loading and before moving weights to CUDA.
+
+`core.distributed.context_parallel` provides `build_shard`, `gather_tokens`,
+and `local_query_range` for uneven token counts. Existing equal-sized
+`split_inputs_cp` and `cat_outputs_cp` callers retain their contracts.
+
+Expose the mesh through `ISession.parallel_context`; it must be available
+before `session.init`. `run_session` owns step admission and input
+synchronization. Model hooks stay local: `is_finished` reports completion,
+`reset` discards model state, and `close` releases resources. They do not
+broadcast lifecycle decisions or perform cleanup barriers.
+
+Only rank zero creates a window or metrics sink. Programmatic worker calls
+pass `None` as the window; the CLI selects this from the launcher rank.
+Workers return `[]` from model steps to skip presentation. The integration
+can skip decoding on those ranks while retaining its model shard.
+
+Before each step the runtime checks cancellation, broadcasts rank zero's
+input batch and reset generation, then checks preparation and cancellation
+again. Admission commits every rank to the step; a later UI stop is handled
+at the following boundary. Input events must be pickleable and come from
+trusted ranks in the same job. After model threads stop, calling threads poll
+rank zero's continue, terminal, or replacement result once per UI tick. Workers
+therefore remain coordinated while an unfinished UI stays open, without treating
+idle user time as a missing rank. Failed ranks bypass result polling; cleanup
+performs no collective that could hide the original failure.
+
+Control waits have a five-minute timeout. A process supervisor such as
+`torchrun` must terminate peers after a rank exits with an error; a Slurm
+time limit bounds kernel or process failures that cannot unwind. See
+[ARCHITECTURE.md](../../../ARCHITECTURE.md#many-gpu-sessions) for the process
+and thread model, and `tests/test_step_agreement.py` for fault-injection checks.
+
+The v2 CLI synchronizes and releases the default process group after a clean
+run; on failure it lets the process supervisor terminate blocked peers.
 
 ## The command line
 
@@ -110,6 +166,10 @@ and replacement sessions. At the deadline the UI thread signals the session's
 loops to stop and performs their normal cleanup. An in-flight model step must
 return before the process can finish cleaning up. Synchronous application or
 session initialization likewise cannot be interrupted mid-call.
+
+A replacement result already synchronized by the old session is authoritative:
+every rank creates that replacement even if the deadline crosses during cleanup,
+then the new session receives zero remaining time and stops at its first boundary.
 
 `--stats-path` adds a `MetricsOutputSink`. It receives the **model** loop's
 results as they are published, not the UI loop's output, so a benchmark measures
@@ -181,6 +241,10 @@ initialization, input collection, UI rendering, window writes, and cleanup.
 Constructing the manager with an explicit CPU device disables the CUDA stream.
 Stream priority lets short UI work overtake queued lower-priority kernels, but
 does not preempt a kernel that is already executing.
+
+Publishing an empty list queues nothing and waits for nothing — a step that
+presented nothing, which is what a worker process of a sharded multi-process run
+returns. See `api_v2/README.md` for the model loop's side of that.
 
 Frame cadence initially uses `frames_per_second_for_step`, then follows the
 throughput of complete model steps over the trailing two seconds. The estimate
