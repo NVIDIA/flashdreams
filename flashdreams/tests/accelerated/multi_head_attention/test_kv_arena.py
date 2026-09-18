@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 import torch
 
@@ -31,7 +33,7 @@ pytestmark = pytest.mark.ci_cpu
 
 def pair(tokens: int, start: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
     shape = (1, 2, tokens, 4)
-    key = torch.arange(start, start + torch.tensor(shape).prod()).reshape(shape).float()
+    key = torch.arange(start, start + math.prod(shape)).reshape(shape).float()
     return key, key + 1000
 
 
@@ -85,7 +87,7 @@ def test_invalid_shapes_and_aliasing_are_refused() -> None:
     )
     with pytest.raises(ValueError, match="must have shape"):
         stage_current_kv_(arena, pair(1), layout)
-    current = tuple(tensor[:, :, 1:3] for tensor in arena)
+    current = (arena[0][:, :, 1:3], arena[1][:, :, 1:3])
     with pytest.raises(ValueError, match="must not alias"):
         stage_current_kv_(arena, current, layout)
 

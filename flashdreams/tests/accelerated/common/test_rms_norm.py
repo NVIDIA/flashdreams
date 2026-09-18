@@ -25,10 +25,11 @@ pytestmark = pytest.mark.ci_cpu
 
 def test_rms_norm_matches_pytorch_module() -> None:
     torch.manual_seed(0)
-    module = torch.nn.RMSNorm(16, eps=1e-6)
+    eps = 1e-6
+    module = torch.nn.RMSNorm(16, eps=eps)
     input = torch.randn(2, 7, 16)
 
-    assert torch.allclose(rms_norm(input, module.weight, module.eps), module(input))
+    assert torch.allclose(rms_norm(input, module.weight, eps), module(input))
 
 
 def test_rms_norm_rejects_a_mismatched_weight() -> None:
