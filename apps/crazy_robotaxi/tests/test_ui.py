@@ -864,7 +864,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
 
     result = loop.step(0, UserInputEvents([]))
 
-    output = result.read_output()
+    output = result[0].read_output()
     assert changed
     assert output.shape == (1, 3, height, width)
     assert output.dtype is torch.float32

@@ -15,8 +15,9 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 class StepResult:
     """Generated output returned by one inference step.
 
-    A model loop returns a list of these, one per channel, and a UI loop returns
-    one. Channels in the same list must agree about ``frame_count``.
+    A model loop returns a list of these, one per channel. A UI loop returns
+    zero or one in a list. Channels in the same list must agree about
+    ``frame_count``.
     """
 
     step_index: int
