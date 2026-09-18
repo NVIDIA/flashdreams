@@ -15,6 +15,7 @@
 
 """Cosmos DiT network for streaming omnidreams inference."""
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -33,6 +34,7 @@ from flashdreams.core.distributed.context_parallel import (
     cat_outputs_cp,
     split_inputs_cp,
 )
+from flashdreams.infra.acceleration.layerwise_offload import LayerwiseOffloader
 from flashdreams.infra.config import InstantiateConfig
 
 from .modules import (
@@ -254,6 +256,18 @@ class CosmosDiTNetwork(nn.Module):
         self._is_shuffle_op_fused = False
         self._is_padding_mask_fused = False
         self._parameters_updated_after_loading_checkpoint = False
+        self._layerwise_offloader: LayerwiseOffloader | None = None
+
+    def enable_layerwise_offload(self) -> None:
+        """Move transformer-block parameters into pinned CPU staging buffers."""
+        if self._layerwise_offloader is not None:
+            raise RuntimeError("layer-wise offload is already enabled")
+        self._layerwise_offloader = LayerwiseOffloader(self.blocks)
+
+    @property
+    def layerwise_offloader(self) -> LayerwiseOffloader | None:
+        """Return the active layer-wise offloader, if configured."""
+        return self._layerwise_offloader
 
     def set_context_parallel_group(
         self,
@@ -458,14 +472,20 @@ class CosmosDiTNetwork(nn.Module):
             assert isinstance(block, Block)
             use_short_history = block_index < short_history_count
             block_window_size = chunk_size if use_short_history else window_size
-            block_caches.append(
-                block.initialize_cache(
-                    chunk_size,
-                    block_window_size,
-                    sink_size,
-                    context,
-                )
+            execution = (
+                self._layerwise_offloader.materialize(block_index)
+                if self._layerwise_offloader is not None
+                else nullcontext()
             )
+            with execution:
+                block_caches.append(
+                    block.initialize_cache(
+                        chunk_size,
+                        block_window_size,
+                        sink_size,
+                        context,
+                    )
+                )
         return CosmosDiTNetworkCache(block_caches=block_caches)
 
     @torch.no_grad()
@@ -483,10 +503,18 @@ class CosmosDiTNetwork(nn.Module):
         context = text_embeddings
         if self.config.use_crossattn_projection:
             context = self.crossattn_proj(context)
-        for block, block_cache in zip(self.blocks, cache.block_caches, strict=True):
+        for block_index, (block, block_cache) in enumerate(
+            zip(self.blocks, cache.block_caches, strict=True)
+        ):
             assert isinstance(block, Block)
-            fresh = block.cross_attn.compute_kv(context)
-            block_cache.cross_attn.overwrite_kv_(*fresh.clone_kv())
+            execution = (
+                self._layerwise_offloader.materialize(block_index)
+                if self._layerwise_offloader is not None
+                else nullcontext()
+            )
+            with execution:
+                fresh = block.cross_attn.compute_kv(context)
+                block_cache.cross_attn.overwrite_kv_(*fresh.clone_kv())
 
     def forward(
         self,
@@ -564,14 +592,20 @@ class CosmosDiTNetwork(nn.Module):
             cache.before_update(current_chunk_idx)
         for block_idx, block in enumerate(self.blocks):
             assert isinstance(block, Block)
-            x = block(
-                x=x,
-                emb=t_emb,
-                rope_freqs=rope_freqs,
-                adaln_lora=adaln_lora,
-                cache=cache[block_idx],
-                view_embedding_proj=view_embedding_proj,
+            execution = (
+                self._layerwise_offloader.materialize(block_idx)
+                if self._layerwise_offloader is not None
+                else nullcontext()
             )
+            with execution:
+                x = block(
+                    x=x,
+                    emb=t_emb,
+                    rope_freqs=rope_freqs,
+                    adaln_lora=adaln_lora,
+                    cache=cache[block_idx],
+                    view_embedding_proj=view_embedding_proj,
+                )
         if eager_mode:
             cache.after_update(current_chunk_idx)
 
