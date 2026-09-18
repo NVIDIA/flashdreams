@@ -479,7 +479,7 @@ def test_mha_optimized_matches_torch(
 
 @pytest.mark.parametrize(
     "sdpa_backend",
-    (SDPABackend.CUDNN, SDPABackend.FLEX),
+    (SDPABackend.CUDNN, SDPABackend.EFFICIENT, SDPABackend.FLEX),
     ids=lambda value: value.value,
 )
 @pytest.mark.parametrize(
@@ -491,7 +491,7 @@ def test_masked_gqa_matches_torch(
     sdpa_backend: SDPABackend,
     qkv_fusion_option: QKVFusionOption,
 ) -> None:
-    """Match dense cuDNN and block-sparse Flex GQA against Torch SDPA."""
+    """Match dense and block-sparse GQA backends against Torch SDPA."""
     flex_options = FlexAttentionOptions(
         block_size=128,
         mask_block_m=64,
