@@ -28,6 +28,7 @@ from crazy_robotaxi.controls import (
 )
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
+from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -648,12 +649,26 @@ class CrazyRobotaxiSession(ISession):
             initial_map_path=self._config.initial_map_path,
             initial_race_course_id=self._config.initial_race_course_id,
         )
-        ui_loop = self.register_ui_loop(
-            CrazyRobotaxiImGuiUILoop,
-            state=hud_state,
-            width=self._session_desc.video_width,
-            height=self._session_desc.video_height,
-        )
+        if self._config.no_ui:
+            if (
+                self._config.initial_game_mode is None
+                or self._config.initial_map_path is None
+                or self._config.total_blocks is None
+            ):
+                raise ValueError(
+                    "--no-ui requires explicit --game-mode, --map, and --total-blocks"
+                )
+            ui_loop = self.register_ui_loop(
+                CrazyRobotaxiHeadlessUILoop,
+                state=hud_state,
+            )
+        else:
+            ui_loop = self.register_ui_loop(
+                CrazyRobotaxiImGuiUILoop,
+                state=hud_state,
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
             state=ModelState(

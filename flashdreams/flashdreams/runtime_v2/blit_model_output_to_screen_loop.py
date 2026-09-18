@@ -45,7 +45,7 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
             return None
         return StepResult(
             step_index=step_index,
-            output=_frame_to_layout(output, self.output_layout),
+            output=frame_to_layout(output, self.output_layout),
             frame_count=1,
             output_layout=self.output_layout,
         )
@@ -62,7 +62,7 @@ class BlitModelOutputToScreenLoop(IUILoop[None]):
         self._last_presented_frame_count = 0
 
 
-def _frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:
+def frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:
     """Add singleton time, batch, and view dimensions for ``layout``."""
     if layout is VideoTensorLayout.tchw:
         return frame.unsqueeze(0)
@@ -75,4 +75,4 @@ def _frame_to_layout(frame: Tensor, layout: VideoTensorLayout) -> Tensor:
     raise ValueError(f"Unsupported presentation layout: {layout}.")
 
 
-__all__ = ["BlitModelOutputToScreenLoop"]
+__all__ = ["BlitModelOutputToScreenLoop", "frame_to_layout"]

@@ -3,6 +3,8 @@
 
 """CPU tests for Crazy Robotaxi's application boundary against FlashDreams V2."""
 
+import queue
+import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
+from torch import Tensor
 from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
@@ -21,6 +24,7 @@ from crazy_robotaxi.application import (
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
+from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
@@ -47,6 +51,7 @@ from omnidreams_game_engine.types import (
     SceneDefinition,
 )
 
+from flashdreams.api_v2.loop import ModelInferenceState
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.base import SchedulerConfig
 from flashdreams.infra.diffusion.transformer.base import TransformerConfig
@@ -975,3 +980,88 @@ def test_application_forces_continuous_presentation_for_interactive_input() -> N
     )
 
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
+
+
+def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--prewarm-blocks",
+            "0",
+            "--no-ui",
+            "--total-blocks",
+            "4",
+            "--game-mode",
+            "race",
+            "--map",
+            str(_DEMO_RACE_MAP),
+        ]
+    )
+    assert app._config is not None
+    assert app._config.no_ui
+
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+
+    assert isinstance(ui_loop, CrazyRobotaxiHeadlessUILoop)
+    assert isinstance(model_loop, CrazyRobotaxiModelLoop)
+    assert model_loop.state.ui_loop is ui_loop
+    assert ui_loop.state.initial_game_mode == "race"
+    assert ui_loop.state.initial_map_path == _DEMO_RACE_MAP.resolve()
+
+
+def test_no_ui_requires_explicit_mode_map_and_block_count() -> None:
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(["--device", "cpu", "--no-ui"])
+
+    session = app.create_session(app.session_desc())
+    with pytest.raises(ValueError, match="--no-ui requires"):
+        session.init()
+
+
+def test_headless_loop_presents_video_channel_and_finishes() -> None:
+    frame = torch.zeros((3, 4, 6))
+    presented: list[tuple[Tensor, ...]] = [(frame, torch.ones((3, 4, 6)))]
+    manager = SimpleNamespace(
+        presented_frames=lambda: presented[0],
+        presented_frame_count=1,
+        composite=lambda background, layer: layer,
+        has_pending_frames=lambda: False,
+    )
+    resets: list[str] = []
+    state = SimpleNamespace(reset=lambda: resets.append("hud"))
+    loop = CrazyRobotaxiHeadlessUILoop()
+    loop.register_session_loop_objects(
+        state=state,
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        session_desc=_application().session_desc(),
+        presentation_manager=cast(Any, manager),
+    )
+    loop._set_model_loop(
+        cast(Any, SimpleNamespace(inference_state=ModelInferenceState.FINISHED))
+    )
+
+    result = loop.step(0, UserInputEvents([]))
+
+    assert result is not None
+    output = result.read_output()
+    assert output.shape == (1, 3, 4, 6)
+    assert torch.equal(output[0], frame)
+    assert loop.is_finished()
+    loop.reset()
+    assert resets == ["hud"]
+    presented[0] = ()
+    assert loop.step(1, UserInputEvents([])) is None
