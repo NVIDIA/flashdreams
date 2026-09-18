@@ -457,7 +457,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 vehicle.speed_mps for vehicle in engine_step.trajectory.vehicle_states
             )
             bev = engine_step.condition.bev_tchw
-            finalize_metrics = generated.finalize_metrics
             metrics = dict(generated.metrics)
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
@@ -480,7 +479,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             poses = state.last_pose[None, ...]
             speeds_mps = (state.last_speed_mps,)
             bev = state.last_bev
-            finalize_metrics = {}
             metrics = {}
             transition_timestamps_us = (None,) * int(video.shape[0])
 
@@ -565,7 +563,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 output=video,
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
-                metrics=finalize_metrics,
+                metrics=metrics,
             ),
             StepResult(
                 step_index=step_index,
@@ -581,7 +579,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     output=bev,
                     frame_count=count,
                     output_layout=VideoTensorLayout.tchw,
-                    metrics=finalize_metrics,
                 )
             )
         return results
