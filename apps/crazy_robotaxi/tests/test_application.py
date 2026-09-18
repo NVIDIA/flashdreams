@@ -40,7 +40,7 @@ from crazy_robotaxi.session import (
     ModelState,
     _taxi_driver_command,
 )
-from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
+from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
@@ -1041,7 +1041,7 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
     state = SimpleNamespace(reset=lambda: resets.append("hud"))
     loop = CrazyRobotaxiHeadlessUILoop()
     loop.register_session_loop_objects(
-        state=state,
+        state=cast(TaxiHudState, state),
         frequency=0,
         shutdown_event=threading.Event(),
         failure_queue=queue.Queue(),
