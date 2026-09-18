@@ -245,8 +245,9 @@ def _resolve_and_validate(args: argparse.Namespace) -> None:
     args.torch_cache = args.torch_cache.expanduser().resolve()
     args.flashdreams_cache = args.flashdreams_cache.expanduser().resolve()
 
-    if not (args.flashdreams_repo / "docker" / "Dockerfile.alpasim").is_file():
-        raise ValueError(f"Not a FlashDreams checkout: {args.flashdreams_repo}")
+    alpasim_dockerfile = args.flashdreams_repo / "docker" / "Dockerfile.alpasim"
+    if not args.skip_build and not alpasim_dockerfile.is_file():
+        raise ValueError(f"Missing AlpaSim Dockerfile: {alpasim_dockerfile}")
     for source_path in (
         args.flashdreams_repo / "flashdreams",
         args.flashdreams_repo / "apps" / "interactive_drive",

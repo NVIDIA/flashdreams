@@ -153,6 +153,22 @@ def test_rejects_build_only_when_all_builds_are_disabled(tmp_path: Path) -> None
         _parse_args(tmp_path, "--build-only", "--skip-build")
 
 
+def test_skip_build_does_not_require_alpasim_dockerfile(tmp_path: Path) -> None:
+    args = _parse_args(tmp_path, "--skip-build")
+    (args.flashdreams_repo / "docker" / "Dockerfile.alpasim").unlink()
+
+    _resolve_and_validate(args)
+
+
+def test_image_build_requires_alpasim_dockerfile(tmp_path: Path) -> None:
+    args = _parse_args(tmp_path)
+    dockerfile = args.flashdreams_repo / "docker" / "Dockerfile.alpasim"
+    dockerfile.unlink()
+
+    with pytest.raises(ValueError, match=f"Missing AlpaSim Dockerfile: {dockerfile}"):
+        _resolve_and_validate(args)
+
+
 def test_rejects_output_path_that_is_not_a_directory(tmp_path: Path) -> None:
     output_path = tmp_path / "output"
     output_path.write_text("not a directory")

@@ -214,6 +214,11 @@ uv run --package flashdreams-omnidreams \
   --skip-build
 ```
 
+`--skip-build` does not require `docker/Dockerfile.alpasim`; it only requires
+the selected image to exist in the active Docker daemon. Pass
+`--image <registry-or-local-tag>` to use another compatible image while the
+launcher continues to mount the current FlashDreams source trees read-only.
+
 Pass `--scene-id <metadata-scene-id>` more than once to select an explicit
 set. Without it, AlpaSim discovers local artifacts under `--scene-dir`.
 `--allow-existing-output` permits reuse of a non-empty output directory, but a
