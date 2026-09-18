@@ -85,10 +85,11 @@ The regular configuration already uses the required OmniDreams self- and
 cross-attention backends with native DiT acceleration disabled. Do not enable
 the flag directly on the native `perf` or optimized-attention configurations.
 Layer-wise offload automatically bypasses whole-DiT `torch.compile` and CUDA
-Graph execution, and it does not support runtime text-edit LoRA, training,
-post-construction dtype conversion, or state-dict operations. Construct the
-pipeline before moving it to CUDA, as shown above. Expect additional pinned host
-memory and host-to-device traffic in exchange for lower GPU memory use.
+Graph execution, and it does not support runtime text-edit LoRA, live-edit drift
+correction, training, post-construction dtype conversion, or state-dict
+operations. Construct the pipeline before moving it to CUDA, as shown above.
+Expect additional pinned host memory and host-to-device traffic in exchange for
+lower GPU memory use.
 
 There is currently no layer-wise-offload application slug or Interactive Drive
 CLI flag; applications that need this mode must provide a derived pipeline

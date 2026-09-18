@@ -16,10 +16,16 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal
 
 import pytest
 import torch
+from omnidreams.impl._drift_corrector import (
+    DriftCorrectorDispatch,
+    apply_drift_corrector,
+)
 from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
 from omnidreams.impl.transformer import modules as transformer_modules
 from omnidreams.impl.transformer.modules import AttentionBackend, MultiHeadAttention
@@ -50,6 +56,38 @@ def test_transformer_layerwise_offload_disables_whole_network_acceleration(
     assert transformer._use_cuda_graph is False
     with pytest.raises(ValueError, match="text-edit LoRA"):
         transformer.set_text_edit_lora(object())
+
+
+def test_layerwise_offload_rejects_drift_correction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    transformer = CosmosTransformer(
+        CosmosTransformerConfig(
+            network=_small_network_config(),
+            dtype=torch.float32,
+            compile_network=False,
+            use_cuda_graph=False,
+            enable_layerwise_offload=True,
+        )
+    )
+    runner = SimpleNamespace(
+        pipeline=SimpleNamespace(
+            diffusion_model=SimpleNamespace(transformer=transformer)
+        )
+    )
+    message = "drift correction is not compatible with layer-wise offload"
+
+    for mode in ("premerged", "fused", "unfused"):
+        with pytest.raises(ValueError, match=message):
+            apply_drift_corrector(
+                runner,
+                Path("unused-corrector.pt"),
+                0.25,
+                mode=mode,
+            )
+    with pytest.raises(ValueError, match=message):
+        DriftCorrectorDispatch(runner)
 
 
 @torch.inference_mode()
