@@ -13,9 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared modules for accelerated inference implementations."""
+"""Tests for the shared RMSNorm inference primitive."""
 
-from flashdreams.accelerated.common.non_persistent_linear import NonPersistentLinear
+import pytest
+import torch
+
 from flashdreams.accelerated.common.rms_norm import rms_norm
 
-__all__ = ["NonPersistentLinear", "rms_norm"]
+pytestmark = pytest.mark.ci_cpu
+
+
+def test_rms_norm_matches_pytorch_module() -> None:
+    torch.manual_seed(0)
+    module = torch.nn.RMSNorm(16, eps=1e-6)
+    input = torch.randn(2, 7, 16)
+
+    assert torch.allclose(rms_norm(input, module.weight, module.eps), module(input))
+
+
+def test_rms_norm_rejects_a_mismatched_weight() -> None:
+    with pytest.raises(ValueError, match="does not match"):
+        rms_norm(torch.randn(2, 7, 16), torch.ones(8), 1e-6)
