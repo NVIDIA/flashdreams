@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1.7
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+ARG FLASHDREAMS_BASE_IMAGE=flashdreams:local
+FROM ${FLASHDREAMS_BASE_IMAGE} AS dependency-builder
+
+WORKDIR /workspace/flashdreams
+
+COPY --chown=flashdreams:flashdreams pyproject.toml uv.lock ./
+COPY --chown=flashdreams:flashdreams flashdreams ./flashdreams
+COPY --chown=flashdreams:flashdreams apps ./apps
+COPY --chown=flashdreams:flashdreams integrations_v2 ./integrations_v2
+
+ENV UV_PROJECT_ENVIRONMENT=/workspace/.venv
+
+RUN --mount=type=cache,target=/home/flashdreams/.cache/uv,uid=1000,gid=1000 \
+    uv sync \
+    --locked \
+    --package flashdreams-omnidreams \
+    --no-install-workspace
+
+
+FROM ${FLASHDREAMS_BASE_IMAGE} AS development
+
+COPY --from=dependency-builder --chown=flashdreams:flashdreams \
+    /workspace/.venv /workspace/.venv
+
+ENV VIRTUAL_ENV=/workspace/.venv
+ENV UV_PROJECT_ENVIRONMENT=/workspace/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+ENV PYTHONPATH="/workspace/flashdreams/flashdreams:/workspace/flashdreams/apps/interactive_drive:/workspace/flashdreams/integrations_v2/omnidreams:/workspace/flashdreams/integrations_v2/omnidreams/impl/ludus-renderer"
+
+WORKDIR /workspace/flashdreams
+
+
+FROM dependency-builder AS wheel-builder
+
+RUN --mount=type=cache,target=/home/flashdreams/.cache/uv,uid=1000,gid=1000 \
+    uv sync \
+    --locked \
+    --package flashdreams-omnidreams \
+    --no-editable
+
+
+FROM ${FLASHDREAMS_BASE_IMAGE} AS runtime
+
+COPY --from=wheel-builder --chown=flashdreams:flashdreams \
+    /workspace/.venv /workspace/.venv
+
+ENV VIRTUAL_ENV=/workspace/.venv
+ENV UV_PROJECT_ENVIRONMENT=/workspace/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+WORKDIR /workspace/flashdreams
