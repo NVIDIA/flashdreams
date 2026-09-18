@@ -258,7 +258,9 @@ class CosmosTransformerConfig(TransformerConfig):
 
     ``auto`` selects the current default, which resolves to the portable cuDNN
     FP8 SDPA path. Set ``sparge``, ``sage3``, or ``sage3_fp8`` explicitly to
-    opt into Sparge/SageAttention-3 experiments.
+    opt into Sparge/SageAttention-3 experiments. ``prefer_sage3_fp8`` uses
+    SageAttention-3 FP8 when the native build and device support it and falls
+    back to cuDNN otherwise (Windows, stub builds).
     """
 
     native_dit_sparge_topk: float | None = None
