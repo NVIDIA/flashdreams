@@ -61,7 +61,6 @@ _PIXEL_WIDTH = OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width
 _TEXT_TOKENS = 512
 _WARMUP_ROUNDS = 5
 _BENCHMARK_ROUNDS = 50
-_LAYERWISE_BENCHMARK_ROUNDS = 20
 _SEED = 0
 _TORCH_CASE = next(
     case for case in BENCHMARK_CASES if case.implementation == "omnidreams_torch"
@@ -91,14 +90,13 @@ def test_full_pipeline_layerwise_offload_benchmark(
     benchmark: BenchmarkFixture,
     enable_layerwise_offload: bool,
 ) -> None:
-    """Compare complete eager chunks with and without block-parameter offload."""
+    """Compare generation with and without block-parameter offload."""
     _run_full_pipeline_benchmark(
         benchmark,
         case=_TORCH_CASE,
         compile_network=False,
         use_cuda_graph=False,
         enable_layerwise_offload=enable_layerwise_offload,
-        include_finalize_in_timing=True,
     )
 
 
@@ -110,7 +108,6 @@ def _run_full_pipeline_benchmark(
     compile_network: bool = True,
     use_cuda_graph: bool = True,
     enable_layerwise_offload: bool = False,
-    include_finalize_in_timing: bool = False,
 ) -> None:
     """Run one DiT backend full-pipeline benchmark variant."""
     if not torch.cuda.is_bf16_supported():
@@ -313,30 +310,16 @@ def _run_full_pipeline_benchmark(
         assert native_selection is None
         assert native_executor is None
 
-    benchmark.group = (
-        "omnidreams-layerwise-offload-full-chunk"
-        if include_finalize_in_timing
-        else "omnidreams-full-pipeline-generate"
-    )
-    benchmark_rounds = (
-        _LAYERWISE_BENCHMARK_ROUNDS if include_finalize_in_timing else _BENCHMARK_ROUNDS
-    )
+    benchmark.group = "omnidreams-full-pipeline-generate"
 
     next_chunk_index = cache_prefill_chunks
 
     def synchronized_generate() -> torch.Tensor:
-        nonlocal next_chunk_index
         output = pipeline.generate(
             autoregressive_index=next_chunk_index,
             cache=cache,
             input=hdmap_steady,
         )
-        if include_finalize_in_timing:
-            pipeline.finalize(
-                autoregressive_index=next_chunk_index,
-                cache=cache,
-            )
-            next_chunk_index += 1
         torch.cuda.synchronize()
         return output
 
@@ -351,9 +334,9 @@ def _run_full_pipeline_benchmark(
 
     output = benchmark.pedantic(
         synchronized_generate,
-        teardown=None if include_finalize_in_timing else teardown_generate,
+        teardown=teardown_generate,
         iterations=1,
-        rounds=benchmark_rounds,
+        rounds=_BENCHMARK_ROUNDS,
         warmup_rounds=_WARMUP_ROUNDS,
     )
 
@@ -368,7 +351,6 @@ def _run_full_pipeline_benchmark(
             "compile_network": compile_network,
             "use_cuda_graph": transformer._use_cuda_graph,
             "enable_layerwise_offload": enable_layerwise_offload,
-            "includes_finalize": include_finalize_in_timing,
             "p90_seconds": p90_seconds,
             "steady_allocated_gib": steady_allocated_bytes / gib,
             "peak_allocated_gib": peak_allocated_bytes / gib,
