@@ -291,6 +291,32 @@ def _run(command: Sequence[str], *, cwd: Path, print_only: bool) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def _validate_reused_image(args: argparse.Namespace) -> None:
+    """Fail fast when a reused renderer image is unavailable locally."""
+    if not args.skip_build or args.print_only or args.build_only:
+        return
+    if shutil.which("docker") is None:
+        raise FileNotFoundError("Required executable is not available: docker")
+
+    command = ["docker", "image", "inspect", args.image]
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip()
+        suffix = f" Docker reported: {detail}" if detail else ""
+        raise RuntimeError(
+            f"Docker image {args.image!r} is not available in the active daemon; "
+            "build it or remove --skip-build."
+            f"{suffix}"
+        ) from exc
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Build the renderer environment and launch the AlpaSim closed loop.
 
@@ -299,6 +325,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """
     args = _parser().parse_args(argv)
     _resolve_and_validate(args)
+    _validate_reused_image(args)
 
     if not args.print_only:
         args.output_dir.mkdir(parents=True, exist_ok=True)

@@ -218,6 +218,9 @@ uv run --package flashdreams-omnidreams \
 the selected image to exist in the active Docker daemon. Pass
 `--image <registry-or-local-tag>` to use another compatible image while the
 launcher continues to mount the current FlashDreams source trees read-only.
+Before an actual run, the launcher checks the selected image in the active
+daemon with `docker image inspect`; `--print-only` remains non-executing and
+skips this check.
 
 Pass `--scene-id <metadata-scene-id>` more than once to select an explicit
 set. Without it, AlpaSim discovers local artifacts under `--scene-dir`.

@@ -18,9 +18,11 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
 
 import pytest
+from omnidreams.impl.tools import alpasim_closed_loop
 from omnidreams.impl.tools.alpasim_closed_loop import (
     _parser,
     _resolve_and_validate,
@@ -31,7 +33,7 @@ from omnidreams.impl.tools.alpasim_closed_loop import (
 pytestmark = pytest.mark.ci_cpu
 
 
-def _parse_args(tmp_path: Path, *extra: str) -> argparse.Namespace:
+def _fixture_argv(tmp_path: Path, *extra: str) -> list[str]:
     flashdreams_repo = tmp_path / "flashdreams"
     (flashdreams_repo / "docker").mkdir(parents=True)
     (flashdreams_repo / "docker" / "Dockerfile.alpasim").write_text("")
@@ -46,25 +48,27 @@ def _parse_args(tmp_path: Path, *extra: str) -> argparse.Namespace:
     scene_dir.mkdir()
     (scene_dir / "scene.usdz").write_bytes(b"fixture")
 
-    args = _parser().parse_args(
-        [
-            "--scene-dir",
-            str(scene_dir),
-            "--output-dir",
-            str(tmp_path / "output"),
-            "--flashdreams-repo",
-            str(flashdreams_repo),
-            "--alpasim-repo",
-            str(alpasim_repo),
-            "--hf-cache",
-            str(tmp_path / "hf"),
-            "--torch-cache",
-            str(tmp_path / "torch"),
-            "--flashdreams-cache",
-            str(tmp_path / "fd-cache"),
-            *extra,
-        ]
-    )
+    return [
+        "--scene-dir",
+        str(scene_dir),
+        "--output-dir",
+        str(tmp_path / "output"),
+        "--flashdreams-repo",
+        str(flashdreams_repo),
+        "--alpasim-repo",
+        str(alpasim_repo),
+        "--hf-cache",
+        str(tmp_path / "hf"),
+        "--torch-cache",
+        str(tmp_path / "torch"),
+        "--flashdreams-cache",
+        str(tmp_path / "fd-cache"),
+        *extra,
+    ]
+
+
+def _parse_args(tmp_path: Path, *extra: str) -> argparse.Namespace:
+    args = _parser().parse_args(_fixture_argv(tmp_path, *extra))
     _resolve_and_validate(args)
     return args
 
@@ -167,6 +171,49 @@ def test_image_build_requires_alpasim_dockerfile(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=f"Missing AlpaSim Dockerfile: {dockerfile}"):
         _resolve_and_validate(args)
+
+
+def test_skip_build_rejects_missing_image_before_creating_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        alpasim_closed_loop.shutil, "which", lambda _: "/usr/bin/docker"
+    )
+
+    def missing_image(*args: object, **kwargs: object) -> None:
+        raise subprocess.CalledProcessError(
+            1,
+            ["docker", "image", "inspect"],
+            stderr="Error: No such image: missing:latest",
+        )
+
+    monkeypatch.setattr(alpasim_closed_loop.subprocess, "run", missing_image)
+
+    with pytest.raises(RuntimeError, match="not available in the active daemon"):
+        alpasim_closed_loop.main(
+            _fixture_argv(
+                tmp_path,
+                "--skip-build",
+                "--image",
+                "missing:latest",
+            )
+        )
+
+    assert not (tmp_path / "output").exists()
+    assert not (tmp_path / "hf").exists()
+    assert not (tmp_path / "torch").exists()
+    assert not (tmp_path / "fd-cache").exists()
+
+
+def test_print_only_skip_build_does_not_access_docker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_docker_lookup(_: str) -> None:
+        pytest.fail("--print-only must not access Docker")
+
+    monkeypatch.setattr(alpasim_closed_loop.shutil, "which", unexpected_docker_lookup)
+
+    alpasim_closed_loop.main(_fixture_argv(tmp_path, "--skip-build", "--print-only"))
 
 
 def test_rejects_output_path_that_is_not_a_directory(tmp_path: Path) -> None:
