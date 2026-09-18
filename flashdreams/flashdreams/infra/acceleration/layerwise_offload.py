@@ -109,10 +109,7 @@ class LayerwiseOffloader:
             )
             layer_parameters.append(named_parameters)
             for name, parameter in named_parameters:
-                if hasattr(parameter, "device_mesh"):
-                    raise ValueError(
-                        "layer-wise offload does not support DTensor parameters"
-                    )
+                self._validate_packable_parameter(name, parameter)
                 previous = seen_parameters.get(id(parameter))
                 if previous is not None:
                     previous_layer, previous_name = previous
@@ -252,6 +249,43 @@ class LayerwiseOffloader:
                 normalized.append((qualified_name, parameter))
         return normalized
 
+    @staticmethod
+    def _validate_packable_parameter(name: str, parameter: nn.Parameter) -> None:
+        if hasattr(parameter, "device_mesh"):
+            raise ValueError("layer-wise offload does not support DTensor parameters")
+        if parameter.device.type != "cpu":
+            raise ValueError(
+                "layer-wise offload must be enabled before moving the model "
+                f"to an accelerator; {name!r} is on {parameter.device}"
+            )
+        if parameter.layout is not torch.strided:
+            raise ValueError(
+                f"layer-wise offload only supports strided parameters; {name!r} "
+                f"uses {parameter.layout}"
+            )
+        if parameter.numel() == 0:
+            raise ValueError(
+                f"layer-wise offload does not support empty parameter {name!r}"
+            )
+        if any(stride < 0 for stride in parameter.stride()):
+            raise ValueError(
+                "layer-wise offload does not support negative strides for "
+                f"parameter {name!r}"
+            )
+        overlap = torch._debug_has_internal_overlap(parameter)
+        if overlap == 1:
+            raise ValueError(
+                "layer-wise offload does not support overlapping parameter "
+                f"layout for {name!r}"
+            )
+        if overlap != 0 and (
+            overlap != 2 or not _strides_prove_non_overlapping(parameter)
+        ):
+            raise ValueError(
+                "layer-wise offload cannot verify a non-overlapping parameter "
+                f"layout for {name!r}"
+            )
+
     @torch.inference_mode(False)
     def _pack_layer(
         self,
@@ -263,29 +297,6 @@ class LayerwiseOffloader:
 
         grouped: dict[torch.dtype, list[tuple[str, nn.Parameter]]] = {}
         for name, parameter in named_parameters:
-            if parameter.device.type != "cpu":
-                raise ValueError(
-                    "layer-wise offload must be enabled before moving the model "
-                    f"to an accelerator; {name!r} is on {parameter.device}"
-                )
-            if parameter.layout is not torch.strided:
-                raise ValueError(
-                    f"layer-wise offload only supports strided parameters; {name!r} "
-                    f"uses {parameter.layout}"
-                )
-            if hasattr(parameter, "device_mesh"):
-                raise ValueError(
-                    "layer-wise offload does not support DTensor parameters"
-                )
-            if parameter.numel() == 0:
-                raise ValueError(
-                    f"layer-wise offload does not support empty parameter {name!r}"
-                )
-            if torch._debug_has_internal_overlap(parameter) != 0:
-                raise ValueError(
-                    "layer-wise offload does not support overlapping parameter "
-                    f"layout for {name!r}"
-                )
             grouped.setdefault(parameter.dtype, []).append((name, parameter))
 
         host_buffers: dict[torch.dtype, torch.Tensor] = {}
@@ -305,13 +316,6 @@ class LayerwiseOffloader:
                     (size - 1) * stride
                     for size, stride in zip(parameter.shape, parameter.stride())
                 )
-                if storage_numel < parameter.numel() or any(
-                    stride < 0 for stride in parameter.stride()
-                ):
-                    raise ValueError(
-                        "layer-wise offload does not support overlapping or negative "
-                        f"strides for parameter {qualified_name!r}"
-                    )
                 owner, local_name = _resolve_parameter_owner(layer, qualified_name)
                 layouts.append(
                     (
@@ -400,7 +404,7 @@ class LayerwiseOffloader:
         state = self._states[layer_index]
         if state.materialized_device is not None:
             if device is not None and state.materialized_device != device:
-                raise ValueError(
+                raise RuntimeError(
                     "an offloaded layer cannot be materialized on multiple devices"
                 )
             return state.materialized_device
@@ -412,7 +416,7 @@ class LayerwiseOffloader:
             state.materialized_device = layer_device
             return layer_device
         if layer_device.type != "cuda":
-            raise ValueError(
+            raise RuntimeError(
                 f"layer-wise offload only supports CPU and CUDA execution, got {layer_device}"
             )
 
@@ -551,12 +555,12 @@ class LayerwiseOffloader:
         for metadata in state.parameters:
             parameter = metadata.parameter
             if parameter.device != device:
-                raise ValueError(
+                raise RuntimeError(
                     "all offloaded parameters must be moved to one execution device; "
                     f"expected {device}, got {parameter.device}"
                 )
             if parameter.dtype != metadata.dtype:
-                raise ValueError(
+                raise RuntimeError(
                     "dtype conversion after enabling layer-wise offload is not "
                     f"supported; expected {metadata.dtype}, got {parameter.dtype}"
                 )
@@ -596,3 +600,19 @@ def _resolve_parameter_owner(
 
 def _align(value: int, alignment: int) -> int:
     return ((value + alignment - 1) // alignment) * alignment
+
+
+def _strides_prove_non_overlapping(parameter: nn.Parameter) -> bool:
+    covered_span = 0
+    dimensions = sorted(
+        zip(parameter.shape, parameter.stride()),
+        key=lambda dimension: dimension[1],
+    )
+    for size, stride in dimensions:
+        if size <= 1:
+            continue
+        # Each new dimension must start beyond all offsets covered so far.
+        if stride <= covered_span:
+            return False
+        covered_span += (size - 1) * stride
+    return True

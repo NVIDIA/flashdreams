@@ -125,6 +125,58 @@ def test_layerwise_offloader_rejects_tied_parameters() -> None:
 
 
 @pytest.mark.ci_cpu
+def test_layerwise_offloader_rejects_empty_layer_sequence() -> None:
+    with pytest.raises(ValueError, match="requires at least one layer"):
+        LayerwiseOffloader([], pin_memory=False)
+
+
+@pytest.mark.ci_cpu
+def test_layerwise_offloader_rejects_non_strided_parameters() -> None:
+    layer = _ParameterLayer(torch.eye(2).to_sparse())
+
+    with pytest.raises(ValueError, match="only supports strided parameters"):
+        LayerwiseOffloader([layer], pin_memory=False)
+
+
+@pytest.mark.ci_cpu
+def test_layerwise_offloader_rejects_empty_parameters_before_alias_check() -> None:
+    layers = [_ParameterLayer(torch.empty(0)) for _ in range(2)]
+
+    with pytest.raises(ValueError, match="empty parameter"):
+        LayerwiseOffloader(layers, pin_memory=False)
+
+
+@pytest.mark.ci_cpu
+def test_layerwise_offloader_rejects_definitely_overlapping_parameters() -> None:
+    layer = _ParameterLayer(torch.ones(1).expand(2))
+
+    with pytest.raises(ValueError, match="overlapping parameter layout"):
+        LayerwiseOffloader([layer], pin_memory=False)
+
+
+@pytest.mark.ci_cpu
+def test_layerwise_offloader_rejects_unverified_overlapping_parameters() -> None:
+    layer = _ParameterLayer(torch.arange(5.0).as_strided((2, 2), (2, 2)))
+
+    with pytest.raises(ValueError, match="cannot verify a non-overlapping"):
+        LayerwiseOffloader([layer], pin_memory=False)
+
+
+@pytest.mark.ci_cpu
+@torch.no_grad()
+def test_layerwise_offloader_preserves_gapped_parameter_strides() -> None:
+    layer = _ParameterLayer(torch.arange(12.0)[::2])
+    expected = layer.weight.detach().clone()
+    expected_stride = layer.weight.stride()
+
+    offloader = LayerwiseOffloader([layer], pin_memory=False)
+
+    with offloader.materialize(0):
+        assert layer.weight.stride() == expected_stride
+        torch.testing.assert_close(layer.weight, expected)
+
+
+@pytest.mark.ci_cpu
 def test_layerwise_offloader_restores_layers_after_constructor_failure() -> None:
     valid_layer = nn.Linear(2, 2)
     value = torch.randn(2, 2)
@@ -168,7 +220,21 @@ def test_layerwise_offloader_rejects_late_dtype_conversion() -> None:
     offloader = LayerwiseOffloader(layers, pin_memory=False)
     layers.double()
 
-    with torch.inference_mode(), pytest.raises(ValueError, match="dtype conversion"):
+    with torch.inference_mode(), pytest.raises(RuntimeError, match="dtype conversion"):
+        with offloader.materialize(0):
+            pass
+
+
+@pytest.mark.ci_cpu
+def test_layerwise_offloader_rejects_unsupported_execution_device() -> None:
+    layer = _ParameterLayer(torch.ones(2))
+    offloader = LayerwiseOffloader([layer], pin_memory=False)
+    layer.to(device="meta")
+
+    with (
+        torch.inference_mode(),
+        pytest.raises(RuntimeError, match="only supports CPU and CUDA execution"),
+    ):
         with offloader.materialize(0):
             pass
 
@@ -252,3 +318,9 @@ class _StridedLayer(nn.Module):
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         return value @ self.weight
+
+
+class _ParameterLayer(nn.Module):
+    def __init__(self, value: torch.Tensor) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(value)

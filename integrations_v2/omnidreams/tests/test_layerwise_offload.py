@@ -146,27 +146,50 @@ def test_layerwise_offload_matches_multiview_forward(
 
 
 @pytest.mark.parametrize(
-    ("native_acceleration", "self_attention_backend", "message"),
+    (
+        "native_acceleration",
+        "self_attention_backend",
+        "cross_attention_backend",
+        "message",
+    ),
     [
         (
             "required",
+            AttentionBackend.OMNIDREAMS,
+            AttentionBackend.OMNIDREAMS,
+            "native DiT acceleration",
+        ),
+        (
+            "auto",
+            AttentionBackend.OMNIDREAMS,
             AttentionBackend.OMNIDREAMS,
             "native DiT acceleration",
         ),
         (
             "disabled",
             AttentionBackend.OPTIMIZED,
+            AttentionBackend.OMNIDREAMS,
+            "OmniDreams self- and cross-attention backends",
+        ),
+        (
+            "disabled",
+            AttentionBackend.OMNIDREAMS,
+            AttentionBackend.OPTIMIZED,
             "OmniDreams self- and cross-attention backends",
         ),
     ],
 )
 def test_layerwise_offload_rejects_incompatible_dit_paths(
-    native_acceleration: Literal["disabled", "required"],
+    native_acceleration: Literal["auto", "disabled", "required"],
     self_attention_backend: AttentionBackend,
+    cross_attention_backend: AttentionBackend,
     message: str,
 ) -> None:
     config = CosmosTransformerConfig(
-        network=_small_network_config(self_attention_backend=self_attention_backend),
+        network=_small_network_config(
+            self_attention_backend=self_attention_backend,
+            cross_attention_backend=cross_attention_backend,
+        ),
         dtype=torch.float32,
         compile_network=False,
         use_cuda_graph=False,
