@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 import torch
 from torch import Tensor
 
+from flashdreams.infra.nvtx import nvtx_range
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -383,7 +384,8 @@ class IModelLoop(ILoop[StateT], ABC):
                     try:
                         run = self._begin_run(events, generation)
                         if run.step_index is not None:
-                            last_run_started = self._pace(last_run_started)
+                            with nvtx_range("model.pace"):
+                                last_run_started = self._pace(last_run_started)
                     except BaseException:
                         if step_control is not None:
                             try:
@@ -402,7 +404,8 @@ class IModelLoop(ILoop[StateT], ABC):
                     # handled at the next boundary, never by skipping a collective.
                     assert run.step_index is not None
                     step_started_at = time.monotonic()
-                    raw_result = self.step(run.step_index, self.user_events)
+                    with nvtx_range(f"model.step[{run.step_index}]"):
+                        raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
                     result = _model_results(raw_result)
                     step_completed = True
@@ -412,7 +415,8 @@ class IModelLoop(ILoop[StateT], ABC):
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
-                    publish(generation, result, unpublished_step_elapsed_s)
+                    with nvtx_range("model.publish"):
+                        publish(generation, result, unpublished_step_elapsed_s)
                     unpublished_step_elapsed_s = 0.0
                 steps_run += 1
         except BaseException as error:

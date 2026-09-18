@@ -19,6 +19,7 @@ from flashdreams.api_v2.loop import (
     UILoopRequests,
 )
 from flashdreams.api_v2.session import ISession
+from flashdreams.infra.nvtx import nvtx_range
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -182,7 +183,10 @@ def run_session(
                         return
                 if loop_result.step_index is None or not step_requested:
                     return
-                raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
+                with nvtx_range("ui.step"):
+                    raw_result = ui_loop.step(
+                        loop_result.step_index, ui_loop.user_events
+                    )
                 if not isinstance(raw_result, list) or any(
                     not isinstance(item, StepResult) for item in raw_result
                 ):
