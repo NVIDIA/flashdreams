@@ -26,6 +26,7 @@ from omnidreams.apps.crazy_robotaxi.adapter import (
 from omnidreams.apps.interactive_drive.adapter import (
     OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_LAYERWISE_OFFLOAD_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
     OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
@@ -35,6 +36,9 @@ from omnidreams.apps.interactive_drive.adapter import (
 )
 from omnidreams.apps.interactive_drive.adapter import (
     create_fast_perf_app as create_interactive_drive_fast_perf_app,
+)
+from omnidreams.apps.interactive_drive.adapter import (
+    create_layerwise_offload_app as create_interactive_drive_layerwise_offload_app,
 )
 from omnidreams.apps.interactive_drive.adapter import (
     create_optimized_gb300_app as create_interactive_drive_gb300_app,
@@ -49,6 +53,7 @@ from omnidreams.config import (
     OMNIDREAMS_CONFIGS,
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+    OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
@@ -71,6 +76,7 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
     """Expose every model-owned OmniDreams pipeline config."""
     assert OMNIDREAMS_CONFIGS == {
         "omnidreams": OMNIDREAMS_PIPELINE_CONFIG,
+        "omnidreams-layerwise-offload": OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG,
         "omnidreams-optimized-gb300": OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
         "omnidreams-optimized-rtx-pro-6000": (
             OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG
@@ -89,6 +95,24 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
             OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG
         ),
     }
+
+
+def test_layerwise_offload_config_is_opt_in() -> None:
+    """Expose a valid offload preset without changing the regular config."""
+    regular_transformer = cast(
+        CosmosTransformerConfig,
+        OMNIDREAMS_PIPELINE_CONFIG.diffusion_model.transformer,
+    )
+    offload_transformer = cast(
+        CosmosTransformerConfig,
+        OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG.diffusion_model.transformer,
+    )
+
+    assert not regular_transformer.enable_layerwise_offload
+    assert offload_transformer.enable_layerwise_offload
+    assert offload_transformer.native_dit_acceleration == "disabled"
+    assert offload_transformer.network.self_attention_backend == "omnidreams"
+    assert offload_transformer.network.cross_attention_backend == "omnidreams"
 
 
 @pytest.mark.parametrize(
@@ -180,6 +204,10 @@ def test_fast_perf_uses_native_vae_when_available() -> None:
 def test_application_defaults_are_owned_by_each_adapter() -> None:
     """Keep demo-specific configuration beside each application factory."""
     assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.slug == "interactive-drive"
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_LAYERWISE_OFFLOAD_DEFAULTS.slug
+        == "interactive-drive-layerwise-offload"
+    )
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.slug == "interactive-drive-perf"
     assert (
         OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS.slug
@@ -197,6 +225,10 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
     assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.width == 1168
     for defaults, pipeline_config in (
         (OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_LAYERWISE_OFFLOAD_DEFAULTS,
+            OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG,
+        ),
         (
             OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
             OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
@@ -333,6 +365,7 @@ def test_crazy_robotaxi_map_context_disables_only_native_dit_on_selected_preset(
     ("factory", "resolution_wh"),
     [
         (create_interactive_drive_app, (1280, 704)),
+        (create_interactive_drive_layerwise_offload_app, (1280, 704)),
         (create_interactive_drive_gb300_app, (1280, 704)),
         (create_interactive_drive_rtx_pro_6000_app, (1280, 704)),
         (create_interactive_drive_perf_app, (1168, 640)),
@@ -366,6 +399,9 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
     assert entry_points["flashdreams.applications_v2"] == {
         "interactive-drive-omnidreams": (
             "omnidreams.apps.interactive_drive.adapter:create_app"
+        ),
+        "interactive-drive-omnidreams-layerwise-offload": (
+            "omnidreams.apps.interactive_drive.adapter:create_layerwise_offload_app"
         ),
         "interactive-drive-omnidreams-optimized-gb300": (
             "omnidreams.apps.interactive_drive.adapter:create_optimized_gb300_app"

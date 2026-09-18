@@ -91,9 +91,23 @@ operations. Construct the pipeline before moving it to CUDA, as shown above.
 Expect additional pinned host memory and host-to-device traffic in exchange for
 lower GPU memory use.
 
-There is currently no layer-wise-offload application slug or Interactive Drive
-CLI flag; applications that need this mode must provide a derived pipeline
-configuration in their adapter.
+For Interactive Drive, select the regular slug to leave the flag disabled or
+the layer-wise-offload slug to enable it when the pipeline is constructed:
+
+```bash
+# Off (the default)
+uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
+  --mode webrtc --host 0.0.0.0 --port 8089
+
+# On
+uv run --no-sync flashdreams-run-v2 \
+  interactive-drive-omnidreams-layerwise-offload \
+  --mode webrtc --host 0.0.0.0 --port 8089
+```
+
+This is a startup-time switch rather than a live UI toggle: changing it requires
+reconstructing the pipeline because setup replaces inactive block storage with
+empty placeholders.
 
 ## Tests
 

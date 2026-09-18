@@ -102,6 +102,7 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 
 [project.entry-points."flashdreams.applications_v2"]
 "interactive-drive-omnidreams" = "omnidreams.apps.interactive_drive.adapter:create_app"
+"interactive-drive-omnidreams-layerwise-offload" = "omnidreams.apps.interactive_drive.adapter:create_layerwise_offload_app"
 "interactive-drive-omnidreams-optimized-gb300" = "omnidreams.apps.interactive_drive.adapter:create_optimized_gb300_app"
 "interactive-drive-omnidreams-optimized-rtx-pro-6000" = "omnidreams.apps.interactive_drive.adapter:create_optimized_rtx_pro_6000_app"
 "interactive-drive-omnidreams-perf" = "omnidreams.apps.interactive_drive.adapter:create_perf_app"

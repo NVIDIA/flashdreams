@@ -97,6 +97,19 @@ OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
 """Regular OmniDreams world-model pipeline configuration."""
 
 
+OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PIPELINE_CONFIG,
+        name="omnidreams-layerwise-offload",
+        diffusion_model=dict(
+            transformer=dict(enable_layerwise_offload=True),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Memory-oriented config that streams DiT block weights from pinned CPU memory."""
+
+
 OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG = cast(
     OmnidreamsPipelineConfig,
     derive_config(
@@ -305,6 +318,7 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
     config.name: config
     for config in (
         OMNIDREAMS_PIPELINE_CONFIG,
+        OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG,
         OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
         OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
         OMNIDREAMS_PERF_PIPELINE_CONFIG,
