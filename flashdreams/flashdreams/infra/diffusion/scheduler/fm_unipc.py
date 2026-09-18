@@ -29,6 +29,7 @@ from flashdreams.infra.diffusion.scheduler import (
     Scheduler,
     SchedulerConfig,
 )
+from flashdreams.infra.nvtx import nvtx_range
 
 
 def _build_per_step_coefs(sigmas: np.ndarray) -> dict[str, np.ndarray]:
@@ -353,65 +354,68 @@ class FlowMatchUniPCScheduler(Scheduler):
             disable=not self.config.enable_tqdm,
             desc="FlowMatchUniPCScheduler",
         ):
-            # Schedule buffers are pinned to fp32 (to preserve integer
-            # timestep values under a stray `module.to(bf16)`), but the
-            # network expects timesteps in the input dtype so that
-            # downstream modulation / Linear layers stay consistent.
-            timestep = self.timesteps[i].to(dtype=input_dtype)
+            with nvtx_range(f"denoise[{i}]"):
+                # Schedule buffers are pinned to fp32 (to preserve integer
+                # timestep values under a stray `module.to(bf16)`), but the
+                # network expects timesteps in the input dtype so that
+                # downstream modulation / Linear layers stay consistent.
+                timestep = self.timesteps[i].to(dtype=input_dtype)
 
-            # Network forward (heavy compute -- everything else here is
-            # ~free relative to this).
-            flow = predict_flow(sample, timestep)
+                # Network forward (heavy compute -- everything else here is
+                # ~free relative to this).
+                flow = predict_flow(sample, timestep)
 
-            # Convert to x0 estimate (predict_x0 + flow_prediction):
-            #   m_curr = sample - sigma_i * flow
-            # Promote to fp32 to match upstream's
-            # ``model_output = model_output.to(dtype=torch.float32)``
-            # before convert_model_output.
-            m_curr = sample.to(torch.float32) - self.sigmas[i] * flow.to(torch.float32)
-
-            # Corrector (skip on first step).
-            #
-            # last_sample is the sample saved before the previous
-            # predictor (matches upstream ``self.last_sample``).
-            # m_prev is model_outputs[-1] (previous step's m_curr),
-            # m_prev_prev is model_outputs[-2] (2 steps back).
-            # b_corr_dprev[1] = 0 (order-1 corrector) so the
-            # m_prev_prev term vanishes at i=1; we alias it to m_prev
-            # there to skip the zero-tensor allocation.
-            if i >= 1:
-                assert last_sample is not None and m_prev is not None
-                m_pp = m_prev_prev if m_prev_prev is not None else m_prev
-                corrected = (
-                    self.a_corr[i] * last_sample.to(torch.float32)
-                    + self.b_corr_m0[i] * m_prev
-                    + self.b_corr_dprev[i] * (m_pp - m_prev)
-                    + self.b_corr_dt[i] * (m_curr - m_prev)
+                # Convert to x0 estimate (predict_x0 + flow_prediction):
+                #   m_curr = sample - sigma_i * flow
+                # Promote to fp32 to match upstream's
+                # ``model_output = model_output.to(dtype=torch.float32)``
+                # before convert_model_output.
+                m_curr = sample.to(torch.float32) - self.sigmas[i] * flow.to(
+                    torch.float32
                 )
-                sample = corrected.to(input_dtype)
 
-            # Save sample BEFORE the predictor so the next iteration's
-            # corrector can use it as "last_sample".
-            last_sample = sample
+                # Corrector (skip on first step).
+                #
+                # last_sample is the sample saved before the previous
+                # predictor (matches upstream ``self.last_sample``).
+                # m_prev is model_outputs[-1] (previous step's m_curr),
+                # m_prev_prev is model_outputs[-2] (2 steps back).
+                # b_corr_dprev[1] = 0 (order-1 corrector) so the
+                # m_prev_prev term vanishes at i=1; we alias it to m_prev
+                # there to skip the zero-tensor allocation.
+                if i >= 1:
+                    assert last_sample is not None and m_prev is not None
+                    m_pp = m_prev_prev if m_prev_prev is not None else m_prev
+                    corrected = (
+                        self.a_corr[i] * last_sample.to(torch.float32)
+                        + self.b_corr_m0[i] * m_prev
+                        + self.b_corr_dprev[i] * (m_pp - m_prev)
+                        + self.b_corr_dt[i] * (m_curr - m_prev)
+                    )
+                    sample = corrected.to(input_dtype)
 
-            # Predictor advances sample to next sigma:
-            #   x_{i+1} = a_pred[i] * x_i + b_pred_m0[i] * m0
-            #            + b_pred_dprev[i] * (m_prev - m0)
-            # b_pred_dprev[0] = 0 (order-1 warmup) and
-            # b_pred_dprev[-1] = 0 (order-1 final) so the same line
-            # serves both order branches; alias m_prev to m_curr at
-            # the warmup step to skip a zero-tensor allocation.
-            m_p = m_prev if m_prev is not None else m_curr
-            predicted = (
-                self.a_pred[i] * sample.to(torch.float32)
-                + self.b_pred_m0[i] * m_curr
-                + self.b_pred_dprev[i] * (m_p - m_curr)
-            )
-            sample = predicted.to(input_dtype)
+                # Save sample BEFORE the predictor so the next iteration's
+                # corrector can use it as "last_sample".
+                last_sample = sample
 
-            # Roll the model-output history.
-            m_prev_prev = m_prev
-            m_prev = m_curr
+                # Predictor advances sample to next sigma:
+                #   x_{i+1} = a_pred[i] * x_i + b_pred_m0[i] * m0
+                #            + b_pred_dprev[i] * (m_prev - m0)
+                # b_pred_dprev[0] = 0 (order-1 warmup) and
+                # b_pred_dprev[-1] = 0 (order-1 final) so the same line
+                # serves both order branches; alias m_prev to m_curr at
+                # the warmup step to skip a zero-tensor allocation.
+                m_p = m_prev if m_prev is not None else m_curr
+                predicted = (
+                    self.a_pred[i] * sample.to(torch.float32)
+                    + self.b_pred_m0[i] * m_curr
+                    + self.b_pred_dprev[i] * (m_p - m_curr)
+                )
+                sample = predicted.to(input_dtype)
+
+                # Roll the model-output history.
+                m_prev_prev = m_prev
+                m_prev = m_curr
 
         return sample
 
