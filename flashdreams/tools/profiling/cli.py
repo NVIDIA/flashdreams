@@ -36,13 +36,14 @@ _REPORT_SUFFIX = ".nsys-rep"
 
 
 def resolve_runner() -> str | None:
-    """Return the runner's console script, preferring this interpreter's env.
+    """Return the runner's console script, preferring this venv over ``PATH``.
 
     The v2 CLI module has no ``__main__`` guard, so ``python -m`` would exit
     without running anything.
     """
     sibling = Path(sys.executable).parent / _RUNNER
-    if sibling.exists():
+    # is_file(): a directory also passes the X_OK check.
+    if sibling.is_file() and os.access(sibling, os.X_OK):
         return str(sibling)
     return shutil.which(_RUNNER)
 
@@ -70,9 +71,10 @@ def build_command(
 
 
 def default_report_path() -> Path:
-    """Report path under ``artifacts/profiles``, stamped to stay unique."""
+    """Default report path; the PID keeps concurrent runs from sharing a file."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    return Path("artifacts", "profiles", f"{_RUNNER}-{stamp}{_REPORT_SUFFIX}")
+    name = f"{_RUNNER}-{stamp}-{os.getpid()}{_REPORT_SUFFIX}"
+    return Path("artifacts", "profiles", name)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -119,7 +121,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=None,
         metavar="PATH",
         help="Where to write the report; .nsys-rep is added if missing. "
-        "Default: artifacts/profiles/<runner>-<timestamp>.nsys-rep.",
+        "Default: artifacts/profiles/<runner>-<timestamp>-<pid>.nsys-rep.",
     )
     parser.add_argument(
         "--trace",
