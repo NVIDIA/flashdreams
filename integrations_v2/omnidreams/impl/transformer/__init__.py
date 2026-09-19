@@ -52,6 +52,7 @@ from .context_parallel import (
     HierarchicalCPGroups,
     create_hierarchical_cp_groups,
 )
+from .modules import AttentionBackend
 from .network import (
     CosmosDiTNetwork,
     CosmosDiTNetworkCache,
@@ -232,6 +233,11 @@ class CosmosTransformerConfig(TransformerConfig):
     """Wrap in ``CUDAGraphWrapper`` for steady-state replay. Caller must
     keep non-staged inputs at stable storage addresses across calls."""
 
+    enable_layerwise_offload: bool = False
+    """Keep DiT block parameters in pinned CPU memory and stream one layer
+    ahead during inference. This mode takes precedence over ``compile_network``
+    and ``use_cuda_graph`` because both require stable whole-network weights."""
+
     cuda_graph_warmup_iters: int = 2
     """Eager calls before capture (>= 2 to drain Inductor autotune)."""
 
@@ -336,6 +342,24 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 "Cache-relative RoPE is not supported by native DiT acceleration; "
                 "set native_dit_acceleration='disabled'"
             )
+        if config.enable_layerwise_offload:
+            if config.native_dit_acceleration != "disabled":
+                raise ValueError(
+                    "Layer-wise offload is not compatible with native DiT "
+                    "acceleration; set native_dit_acceleration='disabled'"
+                )
+            attention_backends = (
+                AttentionBackend(config.network.self_attention_backend),
+                AttentionBackend(config.network.cross_attention_backend),
+            )
+            if any(
+                backend is not AttentionBackend.OMNIDREAMS
+                for backend in attention_backends
+            ):
+                raise ValueError(
+                    "Layer-wise offload currently requires the OmniDreams "
+                    "self- and cross-attention backends"
+                )
         if config.early_short_history_block_count is not None:
             if config.native_dit_acceleration != "disabled":
                 raise ValueError(
@@ -369,19 +393,28 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             state_dict = load_checkpoint(config.checkpoint_path)
             state_dict = transform(state_dict)
             self.network.load_state_dict(state_dict)
+            del state_dict
         self.network.update_parameters_after_loading_checkpoint()
+        if config.enable_layerwise_offload:
+            self.network.enable_layerwise_offload()
 
         self._optimized_dit_executor: Any | None = None
         self._optimized_dit_selection: NativeBackendSelection | None = None
         if config.native_dit_acceleration != "disabled":
             self._configure_optimized_dit_from_config()
 
-        if config.compile_network and self._optimized_dit_executor is None:
+        if (
+            config.compile_network
+            and self._optimized_dit_executor is None
+            and not config.enable_layerwise_offload
+        ):
             self.network = compile_module(self.network)
 
         # Cond and CFG-uncond branches each get their own CUDA-graph wrapper
         # since each mutates an independent rolling KV cache.
-        self._use_cuda_graph = config.use_cuda_graph
+        self._use_cuda_graph = (
+            config.use_cuda_graph and not config.enable_layerwise_offload
+        )
         self._cuda_graph_capture_ar_idx = cuda_graph_capture_ar_index(
             sink_size_t=config.sink_size_t,
             window_size_t=config.window_size_t,
@@ -389,7 +422,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         )
         self._cuda_graph_dispatch = CUDAGraphDispatch(
             self.network,
-            enabled=config.use_cuda_graph,
+            enabled=self._use_cuda_graph,
             capture_ar_idx=self._cuda_graph_capture_ar_idx,
             warmup_iters=config.cuda_graph_warmup_iters,
         )
@@ -408,6 +441,10 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
     def set_text_edit_lora(self, edit_lora: Any | None) -> None:
         """Attach a graph-safe distilled text-edit LoRA hook."""
+        if edit_lora is not None and self.config.enable_layerwise_offload:
+            raise ValueError(
+                "Runtime text-edit LoRA is not compatible with layer-wise offload"
+            )
         self._text_edit_lora = edit_lora
 
     def _configure_optimized_dit_from_config(self) -> None:

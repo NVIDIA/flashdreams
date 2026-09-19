@@ -252,6 +252,26 @@ def _premerge_weight_sets(
 _MODES = ("premerged", "fused", "unfused")
 
 
+def _drift_corrector_network(transformer: Any) -> nn.Module:
+    """Return the mutable network used by drift correction.
+
+    Returns:
+        Unwrapped PyTorch network whose parameter storage can be mutated.
+
+    Raises:
+        ValueError: Layer-wise offload owns the authoritative parameter storage.
+    """
+    network = unwrap_compiled_module(transformer.network)
+    if getattr(network, "layerwise_offloader", None) is not None:
+        raise ValueError(
+            "Runtime drift correction is not compatible with layer-wise offload "
+            "because corrected weights would not update the offloader's CPU "
+            "master buffers; set enable_layerwise_offload=False or disable drift "
+            "correction"
+        )
+    return network
+
+
 def _resolve_mode(mode: str | None, unfused: bool | None) -> str:
     """Resolve the deploy mode from explicit args, then the environment.
 
@@ -301,10 +321,8 @@ def apply_drift_corrector(
     """
     mode = _resolve_mode(mode, unfused)
     unfused = mode == "unfused"
-    network = unwrap_compiled_module(
-        runner.pipeline.diffusion_model.transformer.network
-    )
     transformer = runner.pipeline.diffusion_model.transformer
+    network = _drift_corrector_network(transformer)
     sd = torch.load(checkpoint, map_location="cpu", weights_only=True)["lora"]
 
     if unfused:
@@ -450,12 +468,12 @@ class DriftCorrectorDispatch:
     def __init__(self, runner: Any) -> None:
         diffusion_model = runner.pipeline.diffusion_model
         transformer = diffusion_model.transformer
+        network = _drift_corrector_network(transformer)
         assert getattr(transformer, "_optimized_dit_executor", None) is None, (
             "the fused drift-corrector dispatch merges into the PyTorch "
             "network's weights, which the native optimized-DiT executor "
             "bypasses; run with native_dit_acceleration='disabled'."
         )
-        network = unwrap_compiled_module(transformer.network)
         self._linears = _target_linears(network)
         self._live = [lin.weight.data for lin in self._linears]
         self._pristine32 = [
