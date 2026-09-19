@@ -101,6 +101,7 @@ def test_profile_wraps_the_runner_console_script(
     """The v2 CLI module has no ``__main__`` guard, so ``python -m`` exits silently."""
     script = tmp_path / "flashdreams-run-v2"
     script.touch()
+    script.chmod(0o755)
     monkeypatch.setattr(profiling_cli.sys, "executable", str(tmp_path / "python"))
     assert profiling_cli.resolve_runner() == str(script)
 
@@ -124,11 +125,37 @@ def test_profile_wraps_the_runner_console_script(
     ]
 
 
+@pytest.mark.parametrize(
+    "make", [Path.touch, Path.mkdir], ids=["non-executable file", "directory"]
+)
+def test_profile_skips_a_sibling_runner_it_cannot_execute(
+    make, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stray path next to the interpreter must not shadow the runner on PATH."""
+    make(tmp_path / "flashdreams-run-v2")
+    monkeypatch.setattr(profiling_cli.sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(profiling_cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    assert profiling_cli.resolve_runner() == "/usr/bin/flashdreams-run-v2"
+
+
 def test_profile_reports_default_under_artifacts() -> None:
     report_path = profiling_cli.default_report_path()
 
     assert report_path.parent == Path("artifacts", "profiles")
     assert report_path.suffix == ".nsys-rep"
+
+
+def test_default_reports_from_concurrent_runs_do_not_collide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent runs in the same second must not overwrite each other's report."""
+    monkeypatch.setattr(profiling_cli.time, "strftime", lambda fmt: "20260918-120000")
+    monkeypatch.setattr(profiling_cli.os, "getpid", lambda: 101)
+    first = profiling_cli.default_report_path()
+    monkeypatch.setattr(profiling_cli.os, "getpid", lambda: 102)
+
+    assert profiling_cli.default_report_path() != first
 
 
 def test_profile_writes_the_report_where_asked(
