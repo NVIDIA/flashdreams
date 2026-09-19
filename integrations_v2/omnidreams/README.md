@@ -50,6 +50,14 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
   --mode webrtc --host 0.0.0.0 --port 8089
 ```
 
+## ClipGT and AlpaSim closed loop
+
+Recorded ClipGT Parquet tables can be converted into a checkpoint-free scene
+bundle and used with OmniDreams as AlpaSim's stateful video renderer. See the
+[ClipGT-to-AlpaSim closed-loop guide](docs/clipgt-alpasim-closed-loop.md) for
+the conversion command, source-mounted Docker workflow, data flow, outputs,
+and validated ClipGT schema.
+
 ## Programmatic pipeline access
 
 ```python
