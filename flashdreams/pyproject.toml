@@ -75,6 +75,8 @@ flashdreams-run = "flashdreams.scripts.cli:entrypoint"
 # implement a different contract, so one binary could not resolve both.
 flashdreams-run-v2 = "flashdreams.runtime_v2.cli:entrypoint"
 flashdreams-benchmark = "tools.benchmarks.cli:main"
+# Wraps a runner in `nsys profile` with NVTX ranges enabled.
+flashdreams-profile = "tools.profiling.cli:main"
 
 [project.entry-points."flashdreams.postprocess_presets"]
 "rtx-super-resolution" = "flashdreams.infra.postprocess:POSTPROCESS_PRESET_RTX_SUPER_RESOLUTION"

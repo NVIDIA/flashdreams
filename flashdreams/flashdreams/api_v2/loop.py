@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from torch import Tensor
 
+from flashdreams.infra.nvtx import nvtx_range
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -336,14 +337,16 @@ class IModelLoop(ILoop[StateT], ABC):
                         break
                     if self.frequency != 0 and last_run_started is not None:
                         earliest_start = last_run_started + 1.0 / self.frequency
-                        self._shutdown_event.wait(
-                            max(0.0, earliest_start - time.monotonic())
-                        )
+                        with nvtx_range("model.pace"):
+                            self._shutdown_event.wait(
+                                max(0.0, earliest_start - time.monotonic())
+                            )
                     last_run_started = time.monotonic()
                     if self._shutdown_event.is_set():
                         break
                     step_started_at = time.monotonic()
-                    raw_result = self.step(run.step_index, self.user_events)
+                    with nvtx_range(f"model.step[{run.step_index}]"):
+                        raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
                     result = _model_results(raw_result)
                     step_completed = True
@@ -353,7 +356,8 @@ class IModelLoop(ILoop[StateT], ABC):
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
-                    publish(generation, result, unpublished_step_elapsed_s)
+                    with nvtx_range("model.publish"):
+                        publish(generation, result, unpublished_step_elapsed_s)
                     unpublished_step_elapsed_s = 0.0
                 steps_run += 1
         except BaseException as error:

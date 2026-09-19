@@ -44,6 +44,7 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCacheT,
 )
+from flashdreams.infra.nvtx import nvtx_range
 from flashdreams.infra.profiler import EventProfiler
 
 
@@ -239,20 +240,22 @@ class StreamInferencePipeline(
                 "NullEncoderConfig() for an identity passthrough)."
             )
             assert cache.encoder_cache is not None  # invariant: paired with encoder
-            input = self.encoder(
-                input=input,
-                autoregressive_index=autoregressive_index,
-                cache=cache.encoder_cache,
-            )
+            with nvtx_range("pipeline.encode"):
+                input = self.encoder(
+                    input=input,
+                    autoregressive_index=autoregressive_index,
+                    cache=cache.encoder_cache,
+                )
 
         if events is not None:
             events.record("encode")
 
-        clean_latent, final_state = self.diffusion_model.generate(
-            autoregressive_index=autoregressive_index,
-            cache=cache.transformer_cache,
-            input=input,
-        )
+        with nvtx_range("pipeline.diffuse"):
+            clean_latent, final_state = self.diffusion_model.generate(
+                autoregressive_index=autoregressive_index,
+                cache=cache.transformer_cache,
+                input=input,
+            )
         cache.final_state = final_state
 
         if events is not None:
@@ -260,11 +263,12 @@ class StreamInferencePipeline(
 
         if self.decoder is not None:
             assert cache.decoder_cache is not None  # invariant: paired with decoder
-            output = self.decoder(
-                input=clean_latent,
-                autoregressive_index=autoregressive_index,
-                cache=cache.decoder_cache,
-            )
+            with nvtx_range("pipeline.decode"):
+                output = self.decoder(
+                    input=clean_latent,
+                    autoregressive_index=autoregressive_index,
+                    cache=cache.decoder_cache,
+                )
         else:
             output = clean_latent
 
@@ -304,7 +308,8 @@ class StreamInferencePipeline(
         assert cache.final_state is not None, (
             "finalize() called before generate() — no FinalState on the cache."
         )
-        self.diffusion_model.finalize(final_state=cache.final_state)
+        with nvtx_range("pipeline.finalize"):
+            self.diffusion_model.finalize(final_state=cache.final_state)
         if not self.config.enable_sync_and_profile:
             return None
 
