@@ -571,12 +571,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
             ),
-            StepResult(
-                step_index=step_index,
-                output=hdmap,
-                frame_count=count,
-                output_layout=VideoTensorLayout.tchw,
-            ),
         ]
         if bev is not None:
             results.append(
