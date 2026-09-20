@@ -655,6 +655,14 @@ class CrazyRobotaxiSession(ISession):
                 raise ValueError(
                     "--no-ui requires explicit --game-mode, --map, and --total-blocks"
                 )
+            if (
+                self._config.initial_game_mode == "race"
+                and self._config.initial_race_course_id is None
+            ):
+                # Without one the HUD stops at the course menu, which a
+                # headless run has no way to answer: it would publish menu
+                # frames forever instead of generating --total-blocks.
+                raise ValueError("--no-ui in race mode requires --race-course")
             ui_loop = self.register_ui_loop(
                 CrazyRobotaxiHeadlessUILoop,
                 state=hud_state,

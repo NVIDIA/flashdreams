@@ -998,6 +998,8 @@ def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
             "4",
             "--game-mode",
             "race",
+            "--race-course",
+            "grand-prix",
             "--map",
             str(_DEMO_RACE_MAP),
         ]
@@ -1014,6 +1016,31 @@ def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.initial_game_mode == "race"
     assert ui_loop.state.initial_map_path == _DEMO_RACE_MAP.resolve()
+    assert ui_loop.state.initial_race_course_id == "grand-prix"
+
+
+def test_no_ui_in_race_mode_requires_a_course() -> None:
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--no-ui",
+            "--total-blocks",
+            "4",
+            "--game-mode",
+            "race",
+            "--map",
+            str(_DEMO_RACE_MAP),
+        ]
+    )
+
+    session = app.create_session(app.session_desc())
+    with pytest.raises(ValueError, match="requires --race-course"):
+        session.init()
 
 
 def test_no_ui_requires_explicit_mode_map_and_block_count() -> None:
