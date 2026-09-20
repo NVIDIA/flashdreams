@@ -157,6 +157,7 @@ class MultiHeadAttention(nn.Module):
         eps: float = 1e-6,
         apply_rope_before_kvcache: bool = True,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        attention_backend: Literal["cudnn", "sage2"] = "cudnn",
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -165,6 +166,7 @@ class MultiHeadAttention(nn.Module):
             context_dim: Feature dimension of key/value tokens. Defaults to ``query_dim``.
             n_heads: Number of attention heads.
             head_dim: Per-head feature dimension. Inner dimension is ``n_heads * head_dim``.
+            attention_backend: Kernel backend for this attention module.
         """
         super().__init__()
         context_dim = query_dim if context_dim is None else context_dim
@@ -187,7 +189,7 @@ class MultiHeadAttention(nn.Module):
         self.norm_k = nn.RMSNorm(inner_dim, eps=eps)
 
         self.attn_op = ContextParallelAttention(
-            qkv_format="bshd", backend="cudnn", method=cp_method
+            qkv_format="bshd", backend=attention_backend, method=cp_method
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
@@ -342,6 +344,19 @@ class MultiHeadAttention(nn.Module):
 class SelfAttention(MultiHeadAttention):
     """Self-attention that always refreshes K/V cache from current ``x``."""
 
+    def __init__(
+        self,
+        *args: Any,
+        self_attention_backend: Literal["cudnn", "sage2"] = "cudnn",
+        **kwargs: Any,
+    ) -> None:
+        """Initialize self-attention with the selected kernel backend.
+
+        Args:
+            self_attention_backend: Kernel backend for self-attention.
+        """
+        super().__init__(*args, attention_backend=self_attention_backend, **kwargs)
+
     def initialize_cache(
         self,
         batch_size: int,
@@ -404,7 +419,7 @@ class CrossAttention(MultiHeadAttention):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, attention_backend="cudnn", **kwargs)
         self.i2v = i2v
         if self.i2v:
             self.k_img = nn.Linear(self.context_dim, self.inner_dim)
@@ -513,6 +528,7 @@ class Block(nn.Module):
         i2v: bool = False,
         apply_rope_before_kvcache: bool = True,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        self_attention_backend: Literal["cudnn", "sage2"] = "cudnn",
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -530,6 +546,7 @@ class Block(nn.Module):
             eps=eps,
             apply_rope_before_kvcache=apply_rope_before_kvcache,
             cp_method=cp_method,
+            self_attention_backend=self_attention_backend,
         )
         self.norm3 = (
             nn.LayerNorm(dim, eps, elementwise_affine=True)

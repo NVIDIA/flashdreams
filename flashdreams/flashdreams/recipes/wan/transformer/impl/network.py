@@ -108,6 +108,12 @@ class WanDiTNetworkConfig(InstantiateConfig):
     """If True, apply RoPE to keys before storing them in the KV cache."""
     cp_method: Literal["ring", "ulysses"] = "ring"
     """Context-parallel attention method for transformer attention ops."""
+    self_attention_backend: Literal["cudnn", "sage2"] = "cudnn"
+    """Kernel backend for self-attention; cross-attention always uses cuDNN.
+
+    ``"sage2"`` requires the optional SageAttention 2 package and is incompatible
+    with Wan CUDA-graph replay.
+    """
 
 
 @dataclass
@@ -175,6 +181,7 @@ class WanDiTNetwork(nn.Module):
         self.patch_embedding_type = config.patch_embedding_type
         self.apply_rope_before_kvcache = config.apply_rope_before_kvcache
         self.cp_method = config.cp_method
+        self.self_attention_backend = config.self_attention_backend
 
         # Embedding layers
         in_dim = config.in_dim + 1 if self.concat_padding_mask else config.in_dim
@@ -230,6 +237,7 @@ class WanDiTNetwork(nn.Module):
             i2v=self.cross_attn_enable_img,
             apply_rope_before_kvcache=self.apply_rope_before_kvcache,
             cp_method=self.cp_method,
+            self_attention_backend=self.self_attention_backend,
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None = None) -> None:
