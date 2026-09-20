@@ -150,7 +150,9 @@ def check_t2v_model_impl(
         )
         with patch.multiple(
             T2VImGuiUILoop,
+            create=True,
             _initialize_loop_state=BlitModelOutputToScreenLoop._initialize_loop_state,
+            frames_to_blit=BlitModelOutputToScreenLoop.frames_to_blit,
             step=BlitModelOutputToScreenLoop.step,
             is_finished=BlitModelOutputToScreenLoop.is_finished,
             reset=BlitModelOutputToScreenLoop.reset,
