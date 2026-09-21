@@ -15,7 +15,7 @@
 
 """CPU coverage for Omnidreams DiT attention backend selection."""
 
-from typing import Literal
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -154,29 +154,88 @@ def test_sage2_rejects_cross_attention() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    ("use_cuda_graph", "native_dit_acceleration", "error"),
-    (
-        (True, "disabled", "use_cuda_graph=True"),
-        (False, "required", "Python/framework DiT path"),
-    ),
-)
-def test_sage2_rejects_incompatible_omnidreams_execution_paths(
-    use_cuda_graph: bool,
-    native_dit_acceleration: Literal["disabled", "required"],
-    error: str,
-) -> None:
-    """Reject configurations that would ignore or incorrectly replay Sage2."""
+def test_sage2_rejects_framework_cuda_graph_path() -> None:
+    """Reject framework CUDA graph replay, which does not support Sage2."""
     config = CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(
             self_attention_backend=AttentionBackend.SAGE2,
         ),
-        use_cuda_graph=use_cuda_graph,
-        native_dit_acceleration=native_dit_acceleration,
+        use_cuda_graph=True,
+        native_dit_acceleration="disabled",
     )
 
-    with pytest.raises(ValueError, match=error):
+    with pytest.raises(ValueError, match="use_cuda_graph=True"):
         CosmosTransformer(config)
+
+
+def test_sage2_rejects_conflicting_native_attention_backend() -> None:
+    """Reject a native backend override that conflicts with the unified switch."""
+    config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=AttentionBackend.SAGE2,
+        ),
+        native_dit_acceleration="required",
+        native_dit_attention_backend="sage3",
+    )
+
+    with pytest.raises(ValueError, match="Conflicting OmniDreams attention backends"):
+        CosmosTransformer(config)
+
+
+def test_sage2_rejects_incompatible_native_dit_compute_backend() -> None:
+    """Fail before building Native DiT when Sage2 cannot retain cuDNN cross-attn."""
+    config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=AttentionBackend.SAGE2,
+        ),
+        native_dit_acceleration="required",
+        native_dit_backend="bf16",
+    )
+
+    with pytest.raises(ValueError, match="native_dit_backend='fp8_kvcache_cudnn'"):
+        CosmosTransformer(config)
+
+
+def test_sage2_unified_switch_routes_to_native_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Map self_attention_backend=sage2 into the Native DiT executor."""
+    from omnidreams.impl.native import omnidreams_singleview
+
+    captured: dict[str, object] = {}
+
+    class FakeExecutor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    extension = object()
+    selection = SimpleNamespace(
+        enabled=True,
+        require_extension=lambda: extension,
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "load_python_module",
+        lambda name: SimpleNamespace(OptimizedDiTExecutor=FakeExecutor),
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "select_backend",
+        lambda *args, **kwargs: selection,
+    )
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    transformer.config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=AttentionBackend.SAGE2,
+        ),
+        native_dit_acceleration="required",
+        native_dit_attention_backend="auto",
+    )
+
+    transformer._configure_optimized_dit_from_config()
+
+    assert captured["attention_backend"] == "sage2"
 
 
 def test_omnidreams_attention_preserves_cache_lifecycles(
@@ -586,6 +645,7 @@ def test_benchmark_cases_match_selected_matrix() -> None:
         for case in native_cases
     ) == (
         ("cuda", "fp8_kvcache_cudnn", "cudnn", None),
+        ("cuda_sage2", "fp8_kvcache_cudnn", "sage2", (9, 0)),
         ("cuda_sparge", "fp8_kvcache_cudnn", "sparge", (12, 0)),
         ("cuda_sage3", "bf16", "sage3", (12, 0)),
         ("cuda_sage3_fp8", "fp8_kvcache_cudnn", "sage3_fp8", (12, 0)),

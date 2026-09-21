@@ -258,8 +258,10 @@ class CosmosTransformerConfig(TransformerConfig):
     """Optimized native attention backend.
 
     ``auto`` selects the current default, which resolves to the portable cuDNN
-    FP8 SDPA path. Set ``sparge``, ``sage3``, or ``sage3_fp8`` explicitly to
-    opt into Sparge/SageAttention-3 experiments.
+    FP8 SDPA path. Set ``sage2``, ``sparge``, ``sage3``, or ``sage3_fp8``
+    explicitly to opt into an experimental attention backend. The framework
+    ``self_attention_backend="sage2"`` setting also selects ``sage2`` when
+    native DiT acceleration is enabled.
     """
 
     native_dit_sparge_topk: float | None = None
@@ -309,16 +311,29 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     def __init__(self, config: CosmosTransformerConfig) -> None:
         self_attention_backend = AttentionBackend(config.network.self_attention_backend)
         if self_attention_backend is AttentionBackend.SAGE2:
-            if config.use_cuda_graph:
+            if config.native_dit_acceleration == "disabled" and config.use_cuda_graph:
                 raise ValueError(
                     "OmniDreams SageAttention 2 self-attention is incompatible "
                     "with use_cuda_graph=True. Set use_cuda_graph=False or select "
                     "another self_attention_backend."
                 )
-            if config.native_dit_acceleration != "disabled":
+            if (
+                config.native_dit_acceleration != "disabled"
+                and config.native_dit_attention_backend not in {"auto", "sage2"}
+            ):
                 raise ValueError(
-                    "OmniDreams SageAttention 2 self-attention requires the "
-                    "Python/framework DiT path. Set native_dit_acceleration='disabled'."
+                    "Conflicting OmniDreams attention backends: "
+                    "self_attention_backend='sage2' requires "
+                    "native_dit_attention_backend='auto' or 'sage2' when native "
+                    "DiT acceleration is enabled."
+                )
+            if (
+                config.native_dit_acceleration != "disabled"
+                and config.native_dit_backend != "fp8_kvcache_cudnn"
+            ):
+                raise ValueError(
+                    "OmniDreams Native SageAttention 2 requires "
+                    "native_dit_backend='fp8_kvcache_cudnn'."
                 )
         super().__init__(config)
         self.config: CosmosTransformerConfig = config
@@ -442,11 +457,14 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         self._optimized_dit_selection = selection
         if not selection.enabled:
             return
+        attention_backend = self.config.native_dit_attention_backend
+        if self.config.network.self_attention_backend == AttentionBackend.SAGE2.value:
+            attention_backend = "sage2"
         self._optimized_dit_executor = helper.OptimizedDiTExecutor(
             self,
             selection.require_extension(),
             dit_backend=self.config.native_dit_backend,
-            attention_backend=self.config.native_dit_attention_backend,
+            attention_backend=attention_backend,
             sparge_topk=self.config.native_dit_sparge_topk,
             sparge_hybrid_period=self.config.native_dit_sparge_hybrid_period,
             sparge_hybrid_phase=self.config.native_dit_sparge_hybrid_phase,

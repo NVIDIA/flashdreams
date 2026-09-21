@@ -110,18 +110,24 @@ DiT path:
 
 Supported manifest values are ``native_dit_acceleration: disabled | auto |
 required`` and ``native_dit_backend: fp8_kvcache_cudnn | bf16``. The attention
-backend accepts ``auto``, ``cudnn``, ``sparge``, ``sage3``, and ``sage3_fp8``;
-the perf application config pins ``cudnn``.
+backend accepts ``auto``, ``cudnn``, ``sage2``, ``sparge``, ``sage3``, and
+``sage3_fp8``; the perf application config pins ``cudnn``. Setting the network
+``self_attention_backend`` to ``sage2`` also selects Native Sage2 when native
+DiT acceleration is enabled; text cross-attention remains on cuDNN.
 
-The native extension requires a source checkout, ``git``, network access, a
-CUDA toolchain (``nvcc``) matching the PyTorch build, and a Blackwell-class GPU
-(SM 12.0) or newer. It downloads pinned third-party sources when first used and
-builds for ``12.0a`` by default. Use this path on Blackwell and GB300 systems.
+The native extension requires a source checkout, ``git``, network access, and a
+CUDA toolchain (``nvcc``) matching the PyTorch build. It downloads pinned
+third-party sources when first used. Supported Hopper devices build for
+``9.0a`` and supported Blackwell devices build for ``12.0a`` automatically.
+Native Sage2 is an experimental Hopper-only (SM 9.0) backend, requires
+``native_dit_backend: fp8_kvcache_cudnn``, and uses the upstream per-warp
+quantization path for self-attention. Text cross-attention stays on the FP8
+cuDNN path. Sage3 and Sage3 FP8 remain Blackwell-only.
 
-H100 / Hopper systems should use the standard PyTorch CUDA path with native DiT
-disabled unless you are deliberately maintaining a compatible native build. That
-path is supported, but it is not the same perf path as the published GB300
-numbers.
+Native DiT on H100 / Hopper is supported for explicit evaluation, including
+``native_dit_attention_backend: sage2``. It is not the same perf path as the
+published GB300 numbers, and ``cudnn`` remains the default until Native Sage2
+performance and quality have been validated for the target workload.
 
 Custom manifests also expose an optional native LightVAE FP8 encoder:
 
