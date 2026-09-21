@@ -13,10 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU contract tests for the optional SageAttention 2 backend."""
+"""CPU contract tests for the optional SageAttention 2 backend.
+
+Real-kernel single- and multi-GPU numerical coverage lives in
+``test_sage2_attention_gpu.py``.
+"""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -107,6 +112,25 @@ def test_missing_sage2_dependency_has_actionable_error(
     monkeypatch.setattr(native_module, "import_module", missing_sageattention)
 
     with pytest.raises(RuntimeError, match="requires SageAttention 2.x"):
+        NativeAttention(backend="sage2")
+
+
+@pytest.mark.parametrize(
+    "sageattention",
+    [object(), SimpleNamespace(sageattn=object())],
+    ids=["missing", "not-callable"],
+)
+def test_incompatible_sage2_dependency_has_actionable_error(
+    sageattention: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_module._load_sage2_op.cache_clear()
+    monkeypatch.setattr(native_module, "import_module", lambda name: sageattention)
+
+    with pytest.raises(
+        RuntimeError,
+        match="callable 'sageattn'.*compatible SageAttention",
+    ):
         NativeAttention(backend="sage2")
 
 
