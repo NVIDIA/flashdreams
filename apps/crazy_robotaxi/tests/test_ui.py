@@ -885,7 +885,7 @@ def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> N
         540,
         _calibration(),
         live_edit=LiveEditConfig(
-            map_context=LiveEditMapContextConfig(enabled=True),
+            dynamic_prompts=LiveEditMapContextConfig(enabled=True),
         ),
         show_live_edit_buttons=False,
     )
