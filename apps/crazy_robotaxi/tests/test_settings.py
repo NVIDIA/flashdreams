@@ -143,7 +143,7 @@ def test_load_can_append_style_skin(tmp_path: Path) -> None:
     assert document.settings.live_edit.style.skins[-1].prompt == "prompt-4"
 
 
-def test_legacy_map_context_setting_loads_and_saves_as_dynamic_prompts(
+def test_deprecated_map_context_setting_is_ignored(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "config.yaml"
@@ -154,21 +154,16 @@ def test_legacy_map_context_setting_loads_and_saves_as_dynamic_prompts(
 
     document = _load(path)
 
-    assert document.settings.live_edit.dynamic_prompts.enabled
-    assert document.settings.live_edit.dynamic_prompts.include_current_road_context
-    assert document.settings.live_edit.dynamic_prompts.include_next_map_node_type
-    assert document.settings.live_edit.dynamic_prompts.include_next_map_node_context
-    assert document.settings.live_edit.dynamic_prompts.include_upcoming_road_curve_direction
-    assert document.settings.live_edit.dynamic_prompts.include_taxi_motion_state
+    assert not document.settings.live_edit.dynamic_prompts.enabled
 
     document.save(document.settings)
 
     saved = path.read_text(encoding="utf-8")
     assert "map_context:" not in saved
-    assert "dynamic_prompts:" in saved
+    assert "dynamic_prompts:" not in saved
 
 
-def test_legacy_and_current_dynamic_prompt_keys_are_rejected(
+def test_deprecated_map_context_does_not_override_dynamic_prompts(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "config.yaml"
@@ -176,18 +171,16 @@ def test_legacy_and_current_dynamic_prompt_keys_are_rejected(
         """\
 live_edit:
   map_context:
-    enabled: true
-  dynamic_prompts:
     enabled: false
+  dynamic_prompts:
+    enabled: true
 """,
         encoding="utf-8",
     )
 
-    with pytest.raises(
-        SettingsError,
-        match="live_edit cannot contain both map_context and dynamic_prompts",
-    ):
-        _load(path)
+    document = _load(path)
+
+    assert document.settings.live_edit.dynamic_prompts.enabled
 
 
 def test_load_nullable_torch_dtype(tmp_path: Path) -> None:

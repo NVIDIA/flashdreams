@@ -228,7 +228,7 @@ class SettingsDocument:
         version = document.get("schema_version", 1)
         if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise SettingsError("schema_version must be 1")
-        _migrate_legacy_settings(document)
+        _drop_deprecated_settings(document)
         base = default_settings(
             pipeline_config,
             width=width,
@@ -287,16 +287,12 @@ class SettingsDocument:
         self.settings = settings
 
 
-def _migrate_legacy_settings(document: CommentedMap) -> None:
-    """Rename settings keys retired within schema version 1."""
+def _drop_deprecated_settings(document: CommentedMap) -> None:
+    """Discard settings keys retired within schema version 1."""
     live_edit = document.get("live_edit")
     if not isinstance(live_edit, CommentedMap) or "map_context" not in live_edit:
         return
-    if "dynamic_prompts" in live_edit:
-        raise SettingsError(
-            "live_edit cannot contain both map_context and dynamic_prompts"
-        )
-    live_edit["dynamic_prompts"] = live_edit.pop("map_context")
+    del live_edit["map_context"]
 
 
 def normalize_settings(
