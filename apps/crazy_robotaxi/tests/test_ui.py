@@ -31,8 +31,12 @@ from crazy_robotaxi.high_scores import HighScoreEntry, RaceTimeEntry
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditMapContextConfig,
+    LiveEditObstacleConfig,
     LiveEditStyleConfig,
+    LiveEditWeatherConfig,
 )
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot, RaceSessionState
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
@@ -256,11 +260,13 @@ class _FakeImGui:
         self.buttons: list[str] = []
         self.button_sizes: list[tuple[str, tuple[float, float] | None]] = []
         self.button_positions: list[tuple[str, float]] = []
+        self.same_line_count = 0
         self.images: list[tuple[str, np.ndarray, tuple[float, float]]] = []
         self.disabled_depth = 0
         self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.window_positions: dict[str, tuple[float, float]] = {}
         self.window_sizes: dict[str, tuple[float, float]] = {}
         self.child_sizes: dict[str, tuple[float, float]] = {}
         self.child_window_flags: dict[str, int] = {}
@@ -269,6 +275,7 @@ class _FakeImGui:
         self.last_item_rect_size = (0.0, 0.0)
         self.tables: dict[str, list[list[str]]] = {}
         self.table_columns: dict[str, list[str]] = {}
+        self.table_column_widths: dict[str, list[float]] = {}
         self.table_column_counts: dict[str, int] = {}
         self.table_flags: dict[str, int] = {}
         self.table_outer_sizes: dict[str, tuple[float, float]] = {}
@@ -355,6 +362,7 @@ class _FakeImGui:
         self.current_window = title
         self.windows.setdefault(title, [])
         self.window_flags[title] = flags
+        self.window_positions[title] = self.next_window_position
         self.window_sizes[title] = self.next_window_size
         return True
 
@@ -536,7 +544,7 @@ class _FakeImGui:
         self.disabled_depth -= 1
 
     def same_line(self) -> None:
-        return
+        self.same_line_count += 1
 
     def begin_table(
         self,
@@ -549,6 +557,7 @@ class _FakeImGui:
         self.current_table = table_id
         self.tables[table_id] = []
         self.table_columns[table_id] = []
+        self.table_column_widths[table_id] = []
         self.table_column_counts[table_id] = columns
         self.table_flags[table_id] = flags
         self.table_outer_sizes[table_id] = outer_size
@@ -559,9 +568,10 @@ class _FakeImGui:
         self.current_table = None
 
     def table_setup_column(self, label: str, flags: int, width: float) -> None:
-        del flags, width
+        del flags
         assert self.current_table is not None
         self.table_columns[self.current_table].append(label)
+        self.table_column_widths[self.current_table].append(width)
 
     def table_headers_row(self) -> None:
         return
@@ -647,6 +657,7 @@ class _SubmissionLoop(IModelLoop[_SubmissionState]):
 @dataclass
 class _SelectionState:
     selections: list[GameSelection] = field(default_factory=list)
+    live_edit_actions: list[LiveEditAction] = field(default_factory=list)
     return_to_map_count: int = 0
     restart_count: int = 0
     exit_requested: bool = False
@@ -662,6 +673,9 @@ class _SelectionState:
 
     def request_exit(self) -> None:
         self.exit_requested = True
+
+    def request_live_edit_action(self, action: LiveEditAction) -> None:
+        self.live_edit_actions.append(action)
 
 
 class _SelectionLoop(IModelLoop[_SelectionState]):
@@ -702,6 +716,200 @@ def test_hud_frames_preserve_frame_aligned_input_diagnostics() -> None:
     )
 
     assert [frame.transition_timestamp_us for frame in frames] == [100, 200]
+
+
+def test_hud_frames_preserve_frame_aligned_live_edit_status() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+    statuses = (
+        LiveEditHudStatus(skin_name="comic", coins_enabled=True, coins_collected=0),
+        LiveEditHudStatus(skin_name="comic", coins_enabled=True, coins_collected=1),
+    )
+
+    frames = build_hud_frames(
+        video,
+        (_snapshot(), _snapshot()),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        live_edit_statuses=statuses,
+    )
+
+    assert tuple(frame.live_edit_status for frame in frames) == statuses
+
+
+def test_live_edit_card_dispatches_enabled_actions() -> None:
+    live_edit = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+        coins=LiveEditCoinsConfig(enabled=True),
+        obstacle=LiveEditObstacleConfig(enabled=True),
+    )
+    state = TaxiHudState(640, 540, _calibration(), live_edit=live_edit)
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons = {
+        "CYCLE STYLE (K)",
+        "CYCLE WEATHER (V)",
+        "TOGGLE COINS (C)",
+        "SPAWN OBSTACLE (O)",
+    }
+
+    state._draw_live_edit_card(
+        imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+    model_loop._run_message_batch()
+
+    assert model_loop.state.live_edit_actions == [
+        "style",
+        "weather",
+        "coins",
+        "obstacle",
+    ]
+    assert len({size for _label, size in imgui.button_sizes}) == 1
+    assert all(
+        size is not None and size[0] >= imgui.calc_text_size(label).x + 20.0
+        for label, size in imgui.button_sizes
+    )
+    assert imgui.next_window_position == (14.0, 94.0)
+    assert imgui.same_line_count == 0
+
+
+def test_live_edit_card_formats_status_and_blocks_weather_during_skin() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            style=LiveEditStyleConfig(enabled=True),
+            weather=LiveEditWeatherConfig(enabled=True),
+            coins=LiveEditCoinsConfig(enabled=True),
+            obstacle=LiveEditObstacleConfig(enabled=True),
+        ),
+    )
+    imgui = _FakeImGui()
+
+    state._draw_live_edit_card(
+        imgui,
+        LiveEditHudStatus(
+            skin_name="comic",
+            weather_name="rain",
+            coins_enabled=True,
+            coins_collected=3,
+            nitro_seconds_remaining=4.0,
+            item_flash="NITRO BOOST",
+            obstacle_count=2,
+        ),
+    )
+
+    assert imgui.windows["Live Edit"] == [
+        "LIVE EDIT",
+        "STYLE  COMIC",
+        "WEATHER  RAIN",
+        "COINS  ON",
+        "NITRO  4.0s",
+        "OBSTACLES  2",
+        "NITRO BOOST",
+    ]
+    live_edit_flags = imgui.window_flags["Live Edit"]
+    assert live_edit_flags & imgui.WindowFlags_.always_auto_resize
+    assert live_edit_flags & imgui.WindowFlags_.no_scrollbar
+    assert live_edit_flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert imgui.disabled_buttons == ["CYCLE WEATHER (V)"]
+
+
+def test_coin_counter_uses_upper_left_auto_sized_card() -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    imgui = _FakeImGui()
+
+    state._draw_coin_counter(
+        imgui,
+        LiveEditHudStatus(coins_enabled=True, coins_collected=3),
+    )
+
+    assert imgui.next_window_position == (14.0, 14.0)
+    assert imgui.windows["Coin Counter"] == ["COINS  3"]
+    flags = imgui.window_flags["Coin Counter"]
+    assert flags & imgui.WindowFlags_.always_auto_resize
+    assert flags & imgui.WindowFlags_.no_scrollbar
+
+
+def test_live_edit_mapping_location_and_button_visibility() -> None:
+    live_edit = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+    )
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=live_edit,
+        live_edit_mapping_location="control hints",
+    )
+    card_imgui = _FakeImGui()
+
+    state._draw_live_edit_card(
+        card_imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+
+    assert card_imgui.buttons == ["CYCLE STYLE", "CYCLE WEATHER"]
+    hints_imgui = _FakeImGui()
+    state._draw_control_tooltips(hints_imgui)
+    hints = [
+        value for row in hints_imgui.tables["##gameplay-control-hints"] for value in row
+    ]
+    assert "CYCLE STYLE" in hints
+    assert "K" in hints
+    assert "CYCLE WEATHER" in hints
+    assert "V" in hints
+
+    state.show_live_edit_buttons = False
+    hidden_imgui = _FakeImGui()
+    state._draw_live_edit_card(
+        hidden_imgui,
+        LiveEditHudStatus(skin_name="base", weather_name="clear"),
+    )
+    assert hidden_imgui.buttons == []
+    assert "LIVE EDIT" in hidden_imgui.windows["Live Edit"]
+
+
+def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> None:
+    state = TaxiHudState(
+        640,
+        540,
+        _calibration(),
+        live_edit=LiveEditConfig(
+            map_context=LiveEditMapContextConfig(enabled=True),
+        ),
+        show_live_edit_buttons=False,
+    )
+    imgui = _FakeImGui()
+
+    state._draw_live_edit_card(imgui, LiveEditHudStatus())
+
+    assert "Live Edit" not in imgui.windows
+
+
+def test_hud_frames_preserve_frame_aligned_prompt() -> None:
+    video = torch.zeros(2, 3, 96, 160)
+
+    frames = build_hud_frames(
+        video,
+        (_snapshot(), _snapshot()),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        current_prompt="A taxi driving through a city.",
+    )
+
+    assert [frame.current_prompt for frame in frames] == [
+        "A taxi driving through a city.",
+        "A taxi driving through a city.",
+    ]
 
 
 def test_hud_frames_reject_misaligned_input_diagnostics() -> None:
@@ -824,9 +1032,81 @@ def test_fps_counter_measures_distinct_generated_video_frames(
     assert imgui.windows["Performance"] == ["VIDEO FPS   30.0"]
 
 
+@pytest.mark.parametrize("show_current_prompt", [False, True])
+def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> None:
+    video = torch.zeros(1, 3, 360, 320)
+    state = TaxiHudState(
+        320,
+        360,
+        _calibration(),
+        show_current_prompt=show_current_prompt,
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            current_prompt=(
+                "A taxi driving through a wide city boulevard with buildings and trees."
+            ),
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert ("Current Prompt" in imgui.windows) is show_current_prompt
+    if show_current_prompt:
+        assert len(imgui.windows["Current Prompt"]) > 1
+
+
+def test_current_prompt_overlay_preserves_room_for_gameplay_hud() -> None:
+    state = TaxiHudState(320, 360, _calibration(), show_current_prompt=True)
+    imgui = _FakeImGui()
+
+    prompt_offset = state._draw_current_prompt(imgui, "long prompt " * 100)
+
+    assert prompt_offset + 160.0 + 44.0 <= state.height
+    assert imgui.windows["Current Prompt"][-1] == "..."
+
+
+def test_current_prompt_offsets_left_live_edit_overlays() -> None:
+    video = torch.zeros(1, 3, 360, 320)
+    live_edit = LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True))
+    status = LiveEditHudStatus(coins_enabled=True, coins_collected=3)
+    state = TaxiHudState(
+        320,
+        360,
+        _calibration(),
+        show_current_prompt=True,
+        live_edit=live_edit,
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            live_edit_statuses=(status,),
+            current_prompt="A taxi driving through a wide city boulevard.",
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    prompt_bottom = 14.0 + imgui.window_sizes["Current Prompt"][1]
+    assert imgui.window_positions["Coin Counter"] == (14.0, prompt_bottom + 8.0)
+    assert imgui.window_positions["Live Edit"] == (14.0, prompt_bottom + 88.0)
+
+
 def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     width, height = 160, 96
     video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
+    hdmap = torch.full((1, 3, height, width), 0.5, dtype=torch.bfloat16)
     bev = torch.full((1, 4, 32, 32), 255, dtype=torch.uint8)
     bev[:, :3].fill_(191)
     hud_state = TaxiHudState(width, height, _calibration())
@@ -843,6 +1123,7 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
         0,
         [
             StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
             StepResult(0, bev, 1, VideoTensorLayout.tchw),
         ],
     )
@@ -919,6 +1200,57 @@ def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
     assert hud_state._bev_composite is None
     assert hud_state._bev_rect is None
     assert renderer.reset_count == 1
+
+
+def test_imgui_ui_loop_can_present_exact_hdmap_conditioning() -> None:
+    width, height = 160, 96
+    video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
+    hdmap = torch.full((1, 3, height, width), 0.75, dtype=torch.bfloat16)
+    hud_state = TaxiHudState(width, height, _calibration(), hud_enabled=False)
+    hud_state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    presentation = PresentationManager()
+    presentation.publish(
+        0,
+        [
+            StepResult(0, video, 1, VideoTensorLayout.tchw),
+            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
+        ],
+    )
+    presentation.advance(0)
+    loop = CrazyRobotaxiImGuiUILoop(renderer=_Renderer(width, height))
+    loop.register_session_loop_objects(
+        state=hud_state,
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
+        presentation_manager=presentation,
+    )
+
+    generated = loop.step(0, UserInputEvents([])).read_output()
+    conditioning = loop.step(
+        1,
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1),
+                    key="m",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        ),
+    ).read_output()
+
+    assert torch.all(generated == -0.5)
+    assert torch.all(conditioning == 0.75)
 
 
 def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
@@ -1026,7 +1358,7 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
             keyboard=replace(
                 defaults.keyboard,
                 restart=(InputBinding("key", "p"), None),
-                return_to_menu=(InputBinding("key", "m"), None),
+                return_to_menu=(InputBinding("key", "n"), None),
                 toggle_hints=(InputBinding("key", "j"), None),
             ),
         ),
@@ -1051,7 +1383,8 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         ["FORWARD", "W / UP ARROW", "BRAKE / REVERSE", "S / DOWN ARROW"],
         ["STEER LEFT", "A / LEFT ARROW", "STEER RIGHT", "D / RIGHT ARROW"],
         ["HANDBRAKE", "SPACE", "RESTART", "P"],
-        ["RETURN TO MENU", "M", "HIDE CONTROLS", "J"],
+        ["RETURN TO MENU", "N", "HIDE CONTROLS", "J"],
+        ["TOGGLE HD MAP VIEW", "M"],
     ]
     controls_flags = imgui.window_flags["Controls"]
     assert controls_flags & imgui.WindowFlags_.always_auto_resize
@@ -1943,6 +2276,32 @@ def test_h_toggles_gameplay_control_tooltips() -> None:
     assert state.show_control_tooltips
 
 
+def test_m_toggles_hdmap_view_only_during_gameplay() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    released = KeyboardUserInputEvent(
+        timestamp=np.uint64(1),
+        key="m",
+        state=KeyboardInputState.RELEASED,
+    )
+    pressed = KeyboardUserInputEvent(
+        timestamp=np.uint64(2),
+        key="M",
+        state=KeyboardInputState.PRESSED,
+    )
+
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_hdmap
+
+    state.consume_input_events(UserInputEvents([released]))
+    state._menu_stage = "game"
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert state.show_hdmap
+
+    state.consume_input_events(UserInputEvents([released]))
+    state.consume_input_events(UserInputEvents([pressed]))
+    assert not state.show_hdmap
+
+
 def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
     state = TaxiHudState(160, 96, _calibration())
     imgui = _FakeImGui()
@@ -1950,7 +2309,7 @@ def test_control_tooltip_card_uses_one_pair_per_row_when_narrow() -> None:
     state._draw_control_tooltips(imgui)
 
     assert imgui.table_column_counts["##gameplay-control-hints"] == 2
-    assert len(imgui.tables["##gameplay-control-hints"]) == 8
+    assert len(imgui.tables["##gameplay-control-hints"]) == 9
 
 
 def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
@@ -1984,6 +2343,10 @@ def test_connected_gamepad_replaces_keyboard_gameplay_hints() -> None:
     assert "START / MENU" in hints
     assert "BACK / VIEW" in hints
     assert "W / UP ARROW" not in hints
+    column_widths = imgui.table_column_widths["##gameplay-control-hints"]
+    assert column_widths[1::2] == [
+        max(imgui.calc_text_size(value).x for value in hints[1::2])
+    ] * (len(column_widths) // 2)
 
     terminal_imgui = _FakeImGui()
     state._draw_terminal(
@@ -2185,7 +2548,7 @@ def test_imgui_name_submission_uses_v2_loop_message_queue() -> None:
     assert "Game Over" in imgui.windows
 
 
-def test_taxi_results_card_draws_ranked_leaderboard() -> None:
+def test_taxi_results_card_draws_leaderboard_without_player_rank() -> None:
     defaults = ControlsConfig()
     state = TaxiHudState(
         640,
@@ -2212,7 +2575,6 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
                 replace(
                     _snapshot(session_state="leaderboard"),
                     leaderboard=entries,
-                    high_score_rank=2,
                 ),
             ),
             np.eye(4, dtype=np.float32)[None],
@@ -2234,7 +2596,7 @@ def test_taxi_results_card_draws_ranked_leaderboard() -> None:
         ["#1", "ACE", "   2400"],
         ["#2", "DRIVER 7", "   1200"],
     ]
-    assert imgui.highlighted_rows == [2]
+    assert imgui.highlighted_rows == []
     assert "PLAY AGAIN" in imgui.buttons
     assert "P - RESTART   |   M - MENU" in imgui.windows["Game Over"]
     results_flags = imgui.window_flags["Game Over"]
@@ -2262,7 +2624,7 @@ def test_hidden_gameplay_hud_still_draws_results() -> None:
     assert "Game Over" in imgui.windows
 
 
-def test_race_results_card_formats_times() -> None:
+def test_race_results_card_draws_leaderboard_without_player_rank() -> None:
     state = TaxiHudState(640, 540, _calibration())
     video = torch.zeros(1, 3, 540, 640)
     entries = (
@@ -2281,7 +2643,6 @@ def test_race_results_card_formats_times() -> None:
                 replace(
                     _race_snapshot(session_state="leaderboard"),
                     leaderboard=entries,
-                    high_score_rank=1,
                 ),
             ),
             np.eye(4, dtype=np.float32)[None],
@@ -2296,10 +2657,93 @@ def test_race_results_card_formats_times() -> None:
     assert "0:42.345" in imgui.windows["Game Over"]
     assert imgui.table_columns["##leaderboard"] == ["RANK", "DRIVER", "TIME"]
     assert imgui.tables["##leaderboard"] == [["#1", "RACER", "0:42.345"]]
+    assert imgui.highlighted_rows == []
 
 
-@pytest.mark.parametrize("session_state", ["awaiting_name", "leaderboard"])
-def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -> None:
+@pytest.mark.parametrize(
+    ("snapshot", "expected_rows", "save_label"),
+    [
+        (
+            replace(
+                _snapshot(session_state="awaiting_name"),
+                high_score_rank=1,
+            ),
+            [["#1", "", "   1200"]],
+            "SAVE SCORE",
+        ),
+        (
+            replace(
+                _race_snapshot(session_state="awaiting_name"),
+                high_score_rank=1,
+            ),
+            [["#1", "", "0:42.345"]],
+            "SAVE TIME",
+        ),
+    ],
+)
+def test_terminal_shows_pending_result_before_name_is_saved(
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+    expected_rows: list[list[str]],
+    save_label: str,
+) -> None:
+    state = TaxiHudState(640, 540, _calibration())
+    video = torch.zeros(1, 3, 540, 640)
+    state.publish(
+        build_hud_frames(
+            video,
+            (snapshot,),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert imgui.tables["##leaderboard"] == expected_rows
+    assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
+    assert save_label in imgui.buttons
+    assert imgui.highlighted_rows == [1]
+
+
+def test_terminal_first_frame_constrains_leaderboard_to_viewport() -> None:
+    state = TaxiHudState(320, 180, _calibration())
+    video = torch.zeros(1, 3, 180, 320)
+    entries = tuple(
+        HighScoreEntry(f"DRIVER {index}", 10_000 - index, "") for index in range(10)
+    )
+    state.publish(
+        build_hud_frames(
+            video,
+            (
+                replace(
+                    _snapshot(session_state="leaderboard"),
+                    leaderboard=entries,
+                ),
+            ),
+            np.eye(4, dtype=np.float32)[None],
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
+
+
+@pytest.mark.parametrize(
+    ("session_state", "button"),
+    [
+        ("awaiting_name", "PLAY AGAIN"),
+        ("leaderboard", "PLAY AGAIN"),
+        ("leaderboard", "RETURN TO MENU"),
+    ],
+)
+def test_terminal_result_actions(
+    session_state: TaxiSessionState,
+    button: str,
+) -> None:
     state = TaxiHudState(640, 360, _calibration())
     model_loop = _SelectionLoop()
     model_loop.register_session_loop_objects(
@@ -2320,12 +2764,16 @@ def test_terminal_play_again_requests_restart(session_state: TaxiSessionState) -
     state._menu_stage = "loading"
     state.select_presented_frame(video[0])
     imgui = _FakeImGui()
-    imgui.clicked_buttons.add("PLAY AGAIN")
+    imgui.clicked_buttons.add(button)
 
     state.draw(imgui)
     model_loop._run_message_batch()
 
-    assert model_loop.state.restart_count == 1
+    if button == "PLAY AGAIN":
+        assert model_loop.state.restart_count == 1
+    else:
+        assert state._menu_stage == "map"
+        assert model_loop.state.return_to_map_count == 1
 
 
 def _settings_document(path: Path) -> SettingsDocument:
@@ -2467,7 +2915,7 @@ def test_options_booleans_use_compact_native_green_checkboxes(
         for style, value in imgui.pushed_style_vars
         if style == imgui.StyleVar_.frame_padding and value == (10.0, 4.0)
     ]
-    assert len(compact_padding) == 3
+    assert len(compact_padding) == len(native_check_colors)
 
 
 def test_options_text_fields_wrap_without_resizing_the_submenu(
@@ -2596,13 +3044,24 @@ def test_options_save_persists_and_applies_presentation_setting(
     state._options_category = "presentation"
     imgui = _FakeImGui()
     imgui.checkbox_values["##presentation.show_fps"] = True
+    imgui.checkbox_values["##presentation.show_live_edit_buttons"] = False
+    imgui.combo_indices["##presentation.live_edit_mapping_location"] = 1
+    imgui.checkbox_values["##presentation.show_current_prompt"] = True
     imgui.clicked_buttons.add("SAVE")
 
     state.draw(imgui)
 
     assert state._menu_stage == "options"
     assert state.show_fps
+    assert not state.show_live_edit_buttons
+    assert state.live_edit_mapping_location == "control hints"
+    assert state.show_current_prompt
     assert "show_fps: true" in document.path.read_text(encoding="utf-8")
+    assert "show_live_edit_buttons: false" in document.path.read_text(encoding="utf-8")
+    assert "live_edit_mapping_location: control hints" in document.path.read_text(
+        encoding="utf-8"
+    )
+    assert "show_current_prompt: true" in document.path.read_text(encoding="utf-8")
     assert state._settings_notice == f"SAVED {document.path}"
     assert not state._settings_restart_notice
     options_lines = imgui.windows["Crazy Robotaxi - Options"]

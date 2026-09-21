@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -190,6 +191,7 @@ class RaceController:
         course: GameMapRaceCourse,
         initial_state: VehicleState,
         time_store: RaceTimeStore,
+        frame_advance: Callable[[VehicleState, bool], int] | None = None,
     ) -> None:
         self._map_id = game_map.map_id
         self._course = course
@@ -230,6 +232,7 @@ class RaceController:
             self._leaderboard[0].elapsed_time_us if self._leaderboard else None
         )
         self._high_score_rank: int | None = None
+        self._frame_advance = frame_advance
 
     @property
     def is_playing(self) -> bool:
@@ -246,7 +249,10 @@ class RaceController:
         for state, timestamp_us in zip(
             trajectory.vehicle_states, trajectory.timestamps_us, strict=True
         ):
-            if self.is_playing:
+            is_playing = self.is_playing
+            if self._frame_advance is not None:
+                self._frame_advance(state, is_playing)
+            if is_playing:
                 self._advance_pose(state, int(timestamp_us))
             self._previous_xy = (state.x_m, state.y_m)
             snapshots.append(self.snapshot(state))

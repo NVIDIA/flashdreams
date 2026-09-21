@@ -56,6 +56,9 @@ game:
   gamepad_button_style: PlayStation
 presentation:
   show_fps: true
+  show_live_edit_buttons: false
+  live_edit_mapping_location: control hints
+  show_current_prompt: true
 """,
         encoding="utf-8",
     )
@@ -66,6 +69,9 @@ presentation:
     assert document.settings.renderer.raster.resolution_wh == (1280, 704)
     assert document.settings.game.gamepad_button_style == "PlayStation"
     assert document.settings.presentation.show_fps
+    assert not document.settings.presentation.show_live_edit_buttons
+    assert document.settings.presentation.live_edit_mapping_location == "control hints"
+    assert document.settings.presentation.show_current_prompt
 
 
 def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
@@ -74,6 +80,31 @@ def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
 
     with pytest.raises(SettingsError, match="unknown keys: launch"):
         _load(path)
+
+
+def test_live_edit_prompt_suffix_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """\
+live_edit:
+  weather:
+    enabled: true
+    weathers:
+      - name: custom
+        prompt_suffix: Custom weather conditions.
+""",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+    document.save(document.settings)
+
+    assert document.settings.live_edit.weather.weathers[0].prompt_suffix == (
+        "Custom weather conditions."
+    )
+    assert "prompt_suffix: Custom weather conditions." in path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:

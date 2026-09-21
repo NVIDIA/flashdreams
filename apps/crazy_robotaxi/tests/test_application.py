@@ -212,6 +212,13 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert ui_loop.state.show_fps
     assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
     assert (
+        ui_loop.state.show_live_edit_buttons is session._config.show_live_edit_buttons
+    )
+    assert (
+        ui_loop.state.live_edit_mapping_location
+        == session._config.live_edit_mapping_location
+    )
+    assert (
         ui_loop.state.native_dit_disabled_for_live_edit
         is session._config.native_dit_disabled_for_live_edit
     )
@@ -291,6 +298,10 @@ game:
   gamepad_button_style: PlayStation
   taxi:
     seed: 1234
+presentation:
+  show_live_edit_buttons: false
+  live_edit_mapping_location: control hints
+  show_current_prompt: true
 runtime:
   prewarm_blocks: 0
 """,
@@ -308,6 +319,9 @@ runtime:
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234
     assert app._config.gamepad_button_style == "PlayStation"
+    assert not app._config.show_live_edit_buttons
+    assert app._config.live_edit_mapping_location == "control hints"
+    assert app._config.show_current_prompt
     pipeline_config = app._pipeline_config
     assert pipeline_config is not None
     assert pipeline_config.diffusion_model.seed == 5678
@@ -519,6 +533,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         ui_loop=cast(Any, ui_loop),
         rollout=cast(Any, rollout),
         last_video=torch.zeros(1, 3, 4, 4),
+        last_hdmap=torch.ones(1, 3, 4, 4),
         last_pose=np.eye(4, dtype=np.float32),
         prewarm_complete=True,
         game_selected=True,
@@ -528,7 +543,8 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
 
     results = loop.step(0, UserInputEvents([]))
 
-    assert len(results) == 1
+    assert len(results) == 2
+    assert torch.all(results[1].read_output() == 1.0)
     assert not state.finished
     assert not loop.is_finished()
     assert len(ui_loop.operations) == 1

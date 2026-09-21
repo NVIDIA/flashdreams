@@ -56,12 +56,14 @@ from crazy_robotaxi.controls import (
 )
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import (
+    LEADERBOARD_LIMIT,
     HighScoreEntry,
     RaceTimeEntry,
     format_race_time_us,
     validate_player_name,
 )
 from crazy_robotaxi.live_edit.config import LiveEditConfig
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -72,6 +74,7 @@ from crazy_robotaxi.rules import (
 )
 from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
+    LiveEditMappingLocation,
     SettingsDocument,
     SettingsError,
     clone_settings,
@@ -131,6 +134,13 @@ _MENU_BACK_CONTROLS = replace(
     ),
 )
 """Fixed menu navigation bindings, separate from gameplay controls."""
+
+_LIVE_EDIT_CONTROL_FIELDS: tuple[tuple[LiveEditAction, str], ...] = (
+    ("style", "cycle_style"),
+    ("weather", "cycle_weather"),
+    ("coins", "toggle_coins"),
+    ("obstacle", "spawn_obstacle"),
+)
 
 
 def _settings_disable_native_dit(settings: CrazyRobotaxiUserSettings) -> bool:
@@ -202,6 +212,12 @@ class TaxiHudFrame:
     speed_mps: float = 0.0
     """Authoritative signed vehicle speed for the corresponding simulation frame."""
 
+    live_edit_status: LiveEditHudStatus | None = None
+    """Live-edit state aligned with this generated frame."""
+
+    current_prompt: str = ""
+    """Model prompt aligned with this generated frame."""
+
     transition_timestamp_us: int | None = None
     """V2 input transition represented by this frame, when one was received."""
 
@@ -249,17 +265,29 @@ class TaxiHudState:
     show_fps: bool = False
     """Whether to display the measured generated-video frame rate."""
 
+    show_current_prompt: bool = False
+    """Whether to display the frame-aligned model prompt across the HUD top."""
+
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
 
     live_edit: LiveEditConfig = field(default_factory=LiveEditConfig)
-    """Live-edit availability used by the Controls editor."""
+    """Enabled live-edit controls exposed by the HUD."""
 
     native_dit_disabled_for_live_edit: bool = False
     """Whether this launch forced native DiT acceleration off."""
 
     show_control_tooltips: bool = True
     """Whether to display keyboard control hints during gameplay."""
+
+    show_live_edit_buttons: bool = True
+    """Whether live-edit actions appear as clickable HUD buttons."""
+
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    """Where active live-edit mappings appear in the gameplay HUD."""
+
+    show_hdmap: bool = False
+    """Whether to present the model's HD-map conditioning instead of its output."""
 
     settings_document: SettingsDocument | None = None
     """User-authored settings backing the reusable Options screen."""
@@ -537,6 +565,8 @@ class TaxiHudState:
                 self._handle_escape()
             if "toggle_hints" in actions:
                 self.show_control_tooltips = not self.show_control_tooltips
+            if self._menu_stage == "game" and "toggle_hdmap" in actions:
+                self.show_hdmap = not self.show_hdmap
         for event in received:
             if isinstance(event, GamepadUserInputEvent):
                 if event.action == "state":
@@ -1104,8 +1134,16 @@ class TaxiHudState:
             self.hud_enabled = draft.presentation.hud_enabled
         if ("presentation", "show_fps") not in overrides:
             self.show_fps = draft.presentation.show_fps
+        if ("presentation", "show_current_prompt") not in overrides:
+            self.show_current_prompt = draft.presentation.show_current_prompt
         if ("presentation", "show_control_hints") not in overrides:
             self.show_control_tooltips = draft.presentation.show_control_hints
+        if ("presentation", "show_live_edit_buttons") not in overrides:
+            self.show_live_edit_buttons = draft.presentation.show_live_edit_buttons
+        if ("presentation", "live_edit_mapping_location") not in overrides:
+            self.live_edit_mapping_location = (
+                draft.presentation.live_edit_mapping_location
+            )
         self._settings_notice = f"SAVED {document.path}"
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S
@@ -1211,18 +1249,21 @@ class TaxiHudState:
         if self._menu_stage == "options":
             self._draw_options(imgui)
             return
-        self._draw_fps_counter(imgui)
         if self._menu_stage == "mode":
+            self._draw_fps_counter(imgui)
             self._draw_mode_selection(imgui)
             return
         if self._menu_stage == "map":
+            self._draw_fps_counter(imgui)
             self._draw_map_selection(imgui)
             return
         if self._menu_stage == "course":
+            self._draw_fps_counter(imgui)
             self._draw_course_selection(imgui)
             return
         hud_frame = self._current
         if hud_frame is None:
+            self._draw_fps_counter(imgui)
             dots = "." * (1 + (ui_tick // 15) % 3)
             elapsed_s = max(0, int(time.monotonic() - self._loading_started_at_s))
             self._draw_text_window(
@@ -1234,6 +1275,16 @@ class TaxiHudState:
             )
             return
         snapshot = hud_frame.snapshot
+        active = snapshot.session_state in {"playing", "awaiting_start", "racing"}
+        prompt_offset = (
+            self._draw_current_prompt(imgui, hud_frame.current_prompt)
+            if self.hud_enabled
+            and active
+            and self.show_current_prompt
+            and hud_frame.current_prompt
+            else 0.0
+        )
+        self._draw_fps_counter(imgui, top=14.0 + prompt_offset)
         if not self.hud_enabled:
             self._draw_terminal(imgui, snapshot)
             return
@@ -1242,11 +1293,11 @@ class TaxiHudState:
             "awaiting_start",
             "racing",
         }:
-            self._draw_race_status(imgui, snapshot)
+            self._draw_race_status(imgui, snapshot, top_offset=prompt_offset)
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
-                center_y=110.0,
+                center_y=110.0 + prompt_offset,
                 color_rgb=(1.0, 0.18, 0.08),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
@@ -1254,11 +1305,11 @@ class TaxiHudState:
             isinstance(snapshot, TaxiGameSnapshot)
             and snapshot.session_state == "playing"
         ):
-            self._draw_taxi_status(imgui, snapshot)
+            self._draw_taxi_status(imgui, snapshot, top_offset=prompt_offset)
             self._draw_navigation_arrow(
                 imgui,
                 snapshot.relative_bearing_rad,
-                center_y=110.0,
+                center_y=110.0 + prompt_offset,
                 color_rgb=(
                     (118.0 / 255.0, 185.0 / 255.0, 0.0)
                     if snapshot.phase == "seeking_pickup"
@@ -1266,13 +1317,76 @@ class TaxiHudState:
                 ),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
-        if snapshot.session_state in {"playing", "awaiting_start", "racing"}:
+        if active:
             self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_coin_counter(
+                imgui,
+                hud_frame.live_edit_status,
+                top_offset=prompt_offset,
+            )
+            self._draw_live_edit_card(
+                imgui,
+                hud_frame.live_edit_status,
+                top_offset=prompt_offset,
+            )
             self._draw_control_tooltips(imgui)
         self._draw_terminal(imgui, snapshot)
         self._draw_input_diagnostic(imgui)
 
-    def _draw_taxi_status(self, imgui: Any, snapshot: TaxiGameSnapshot) -> None:
+    def _draw_current_prompt(self, imgui: Any, prompt: str) -> float:
+        """Draw the frame-aligned prompt in a plain wrapped debug window."""
+        panel_width = max(1.0, float(self.width) - 28.0)
+        window_padding = _point_xy(imgui.get_style().window_padding)
+        item_spacing_y = _point_xy(imgui.get_style().item_spacing)[1]
+        content_width = max(1.0, panel_width - 2.0 * window_padding[0])
+        frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
+        wrapped, _underlying_width, _editor_height, _field_height = (
+            _wrapped_editor_layout(
+                imgui,
+                prompt,
+                content_width + 2.0 * frame_padding_x,
+            )
+        )
+        lines = tuple(line.rstrip() for line in wrapped.splitlines()) or ("",)
+        font_size = float(imgui.get_font_size())
+        natural_height = (
+            float(imgui.get_frame_height())
+            + 2.0 * window_padding[1]
+            + len(lines) * font_size
+            + max(0, len(lines) - 1) * item_spacing_y
+        )
+        prompt_gap = 8.0
+        event_top = 160.0
+        event_height = _overlay_text_size(imgui, "M", 44.0)[1]
+        max_panel_height = float(self.height) - prompt_gap - event_top - event_height
+        if max_panel_height <= 0.0:
+            return 0.0
+        panel_height = min(natural_height, max_panel_height)
+        if panel_height < natural_height:
+            fixed_height = float(imgui.get_frame_height()) + 2.0 * window_padding[1]
+            line_stride = font_size + item_spacing_y
+            visible_line_count = max(
+                1,
+                int((panel_height - fixed_height + item_spacing_y) / line_stride),
+            )
+            lines = lines[:visible_line_count]
+            lines = (*lines[:-1], "...")
+        self._draw_text_window(
+            imgui,
+            "Current Prompt",
+            position=(14.0, 14.0),
+            size=(panel_width, panel_height),
+            lines=lines,
+        )
+        return panel_height + prompt_gap
+
+    def _draw_taxi_status(
+        self,
+        imgui: Any,
+        snapshot: TaxiGameSnapshot,
+        *,
+        top_offset: float = 0.0,
+    ) -> None:
         """Draw the source game's one-line taxi status directly over the frame."""
         phase = "PICKUP" if snapshot.phase == "seeking_pickup" else "DROPOFF"
         fare_time = (
@@ -1292,20 +1406,26 @@ class TaxiHudState:
             if snapshot.phase == "seeking_pickup"
             else (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
         )
-        self._draw_status_strip(imgui, label, color_rgb=color, top=35.0)
+        self._draw_status_strip(imgui, label, color_rgb=color, top=35.0 + top_offset)
         event = _event_label(snapshot)
         if event:
             self._draw_centered_text(
                 imgui,
                 event,
-                top=160.0,
+                top=160.0 + top_offset,
                 font_size=44.0,
                 color_rgb=color,
                 shadow=True,
                 font=self._gameplay_overlay_font(imgui),
             )
 
-    def _draw_race_status(self, imgui: Any, snapshot: RaceGameSnapshot) -> None:
+    def _draw_race_status(
+        self,
+        imgui: Any,
+        snapshot: RaceGameSnapshot,
+        *,
+        top_offset: float = 0.0,
+    ) -> None:
         """Draw the source game's one-line race status directly over the frame."""
         if snapshot.session_state == "awaiting_start":
             progress = "CROSS START LINE TO BEGIN"
@@ -1338,7 +1458,7 @@ class TaxiHudState:
             imgui,
             label,
             color_rgb=(200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0),
-            top=35.0,
+            top=35.0 + top_offset,
             outline=True,
         )
 
@@ -1491,7 +1611,7 @@ class TaxiHudState:
                 )
         return self._gameplay_font
 
-    def _draw_fps_counter(self, imgui: Any) -> None:
+    def _draw_fps_counter(self, imgui: Any, *, top: float = 14.0) -> None:
         """Draw the measured generated-video rate when the counter is enabled."""
         if not self.show_fps:
             return
@@ -1499,9 +1619,143 @@ class TaxiHudState:
         self._draw_text_window(
             imgui,
             "Performance",
-            position=(float(max(14.0, self.width - width - 14.0)), 14.0),
+            position=(float(max(14.0, self.width - width - 14.0)), top),
             size=(width, 66.0),
             lines=(f"VIDEO FPS  {self._video_fps:5.1f}",),
+        )
+
+    def _draw_live_edit_card(
+        self,
+        imgui: Any,
+        status: LiveEditHudStatus | None,
+        *,
+        top_offset: float = 0.0,
+    ) -> None:
+        """Draw frame-aligned live-edit status and action buttons."""
+        if status is None or not self.live_edit.any_enabled:
+            return
+        control_entries = self._live_edit_control_entries()
+        actions = tuple(
+            (
+                action,
+                (
+                    f"{label} ({mapping})"
+                    if self.live_edit_mapping_location == "buttons"
+                    else label
+                ),
+            )
+            for action, label, mapping in control_entries
+            if self.show_live_edit_buttons
+        )
+        lines = _live_edit_status_lines(status)
+        if not actions and not lines:
+            return
+        button_width = max(
+            (
+                _point_xy(imgui.calc_text_size(label))[0] + 20.0
+                for _action, label in actions
+            ),
+            default=1.0,
+        )
+        _prepare_window(
+            imgui,
+            position=(14.0, 94.0 + top_offset),
+            size=None,
+            alpha=0.94,
+            pivot=(0.0, 0.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(
+            imgui,
+            "Live Edit",
+            extra_flags=_AUTO_CARD_FLAGS,
+        )
+        try:
+            if not visible:
+                return
+            _centered_imgui_text(
+                imgui,
+                "LIVE EDIT",
+                font=self._gameplay_overlay_font(imgui),
+                font_size=18.0,
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            for line in lines:
+                imgui.text(line)
+            if actions:
+                imgui.separator()
+            for action, label in actions:
+                disabled = action == "weather" and status.skin_name not in {
+                    None,
+                    "base",
+                }
+                if disabled:
+                    imgui.begin_disabled()
+                try:
+                    if imgui.button(label, imgui.ImVec2(button_width, 34.0)):
+                        self._request_live_edit_action(action)
+                finally:
+                    if disabled:
+                        imgui.end_disabled()
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _draw_coin_counter(
+        self,
+        imgui: Any,
+        status: LiveEditHudStatus | None,
+        *,
+        top_offset: float = 0.0,
+    ) -> None:
+        """Draw collected coins in the upper-left while coins are available."""
+        if status is None or not status.coins_enabled:
+            return
+        _prepare_window(
+            imgui,
+            position=(14.0, 14.0 + top_offset),
+            size=None,
+            alpha=0.94,
+            pivot=(0.0, 0.0),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        visible = _begin_window(imgui, "Coin Counter", extra_flags=_AUTO_CARD_FLAGS)
+        try:
+            if visible:
+                _colored_imgui_text(
+                    imgui,
+                    f"COINS  {status.coins_collected}",
+                    (*_TAXI_ACCENT_RGB, 1.0),
+                )
+        finally:
+            imgui.end()
+            imgui.pop_style_color(style_color_count)
+            imgui.pop_style_var(style_var_count)
+
+    def _live_edit_control_entries(
+        self,
+    ) -> tuple[tuple[LiveEditAction, str, str], ...]:
+        """Return enabled live-edit actions with authored labels and mappings."""
+        device = self._active_control_device
+        controls = self.controls.for_device(device)
+        fields_by_name = {item.name: item for item in controls_fields(controls)}
+        return tuple(
+            (
+                action,
+                control_label(fields_by_name[field_name]),
+                _binding_slots_display(
+                    device,
+                    getattr(controls, field_name),
+                    self.gamepad_button_style,
+                ),
+            )
+            for action, field_name in _LIVE_EDIT_CONTROL_FIELDS
+            if getattr(self.live_edit, action).enabled
         )
 
     def _draw_control_tooltips(self, imgui: Any) -> None:
@@ -1537,6 +1791,15 @@ class TaxiHudState:
             ("RESTART", display(controls.restart)),
             ("RETURN TO MENU", display(controls.return_to_menu)),
             ("HIDE CONTROLS", display(controls.toggle_hints)),
+            *(
+                tuple(
+                    (label, mapping)
+                    for _action, label, mapping in self._live_edit_control_entries()
+                )
+                if self.live_edit_mapping_location == "control hints"
+                else ()
+            ),
+            ("TOGGLE HD MAP VIEW", display(controls.toggle_hdmap)),
         )
         action_width = max(
             _point_xy(imgui.calc_text_size(action))[0] for action, _binding in entries
@@ -3155,26 +3418,18 @@ class TaxiHudState:
             f"{_binding_slots_display(device, controls.return_to_menu, self.gamepad_button_style)} "
             "- MENU"
         )
+        entries = _terminal_leaderboard_entries(snapshot)
+        leaderboard_column_widths = _leaderboard_column_widths(imgui, entries, race)
+        terminal_region = "terminal-name" if awaiting_name else "terminal"
+        leaderboard_width = max(
+            sum(leaderboard_column_widths) + float(imgui.get_style().scrollbar_size),
+            float(self.width) * 0.5,
+        )
         content_width = max(
             _point_xy(imgui.calc_text_size(headline))[0],
             _point_xy(imgui.calc_text_size(terminal_controls))[0],
             _point_xy(imgui.calc_text_size("ENTER DRIVER NAME"))[0],
-            *(
-                sum(
-                    _point_xy(imgui.calc_text_size(value))[0]
-                    for value in (
-                        f"#{rank}",
-                        entry.name,
-                        (
-                            format_race_time_us(entry.elapsed_time_us)
-                            if isinstance(entry, RaceTimeEntry)
-                            else f"{entry.score}"
-                        ),
-                    )
-                )
-                + 96.0
-                for rank, entry in enumerate(snapshot.leaderboard, start=1)
-            ),
+            leaderboard_width,
         )
         scale = min(
             1.0,
@@ -3227,25 +3482,79 @@ class TaxiHudState:
                     color=(*accent_rgb, 1.0),
                 )
             imgui.separator()
+            _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
+            style = imgui.get_style()
+            lower_item_heights: list[float] = []
             if awaiting_name:
+                lower_item_heights.extend(
+                    (
+                        max(13.0, 16.0 * scale),
+                        float(imgui.get_frame_height()),
+                        max(32.0, 40.0 * scale),
+                    )
+                )
+                if self._validation_message:
+                    lower_item_heights.append(max(12.0, 13.0 * scale))
+            lower_item_heights.extend(
+                (max(34.0, 44.0 * scale), max(12.0, 13.0 * scale))
+            )
+            lower_height = (
+                sum(lower_item_heights)
+                + _point_xy(style.item_spacing)[1] * (len(lower_item_heights) + 2)
+                + _point_xy(style.window_padding)[1]
+                + 2.0 * _point_xy(style.display_safe_area_padding)[1]
+            )
+            available_height = max(
+                1.0,
+                float(self.height)
+                - _current_window_content_height(imgui)
+                - lower_height,
+            )
+            measured_height = self._menu_scroll_max_height(terminal_region)
+            leaderboard_max_height = (
+                available_height
+                if measured_height is None
+                else min(available_height, measured_height)
+            )
+            leaderboard_height = self._draw_terminal_leaderboard(
+                imgui,
+                entries,
+                snapshot.high_score_rank,
+                race,
+                accent_rgb,
+                content_width,
+                leaderboard_column_widths,
+                leaderboard_max_height,
+            )
+            if awaiting_name:
+                imgui.separator()
                 self._draw_terminal_name_entry(
                     imgui, race, accent_rgb, scale, content_width
                 )
-            else:
-                self._draw_terminal_leaderboard(
-                    imgui, snapshot, race, accent_rgb, content_width
-                )
             imgui.separator()
+            result_button_width = (
+                content_width - _point_xy(imgui.get_style().item_spacing)[0]
+            ) / 2.0
             if imgui.button(
                 "PLAY AGAIN",
-                imgui.ImVec2(content_width, max(34.0, 44.0 * scale)),
+                imgui.ImVec2(result_button_width, max(34.0, 44.0 * scale)),
             ):
                 self._request_restart()
+            imgui.same_line()
+            if imgui.button(
+                "RETURN TO MENU",
+                imgui.ImVec2(result_button_width, max(34.0, 44.0 * scale)),
+            ):
+                self._handle_escape()
+                return
             _centered_imgui_text(
                 imgui,
                 terminal_controls,
                 font_size=max(12.0, 13.0 * scale),
                 color=(0.58, 0.58, 0.64, 1.0),
+            )
+            self._remember_menu_scroll_chrome(
+                imgui, terminal_region, leaderboard_height
             )
         finally:
             imgui.end()
@@ -3301,14 +3610,15 @@ class TaxiHudState:
     def _draw_terminal_leaderboard(
         self,
         imgui: Any,
-        snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+        entries: Sequence[HighScoreEntry | RaceTimeEntry],
+        high_score_rank: int | None,
         race: bool,
         accent_rgb: tuple[float, float, float],
         content_width: float,
-    ) -> None:
+        column_widths: tuple[float, float, float],
+        max_height: float | None,
+    ) -> float:
         """Draw the ranked terminal results table."""
-        _centered_imgui_text(imgui, "LEADERBOARD", font_size=16.0)
-        entries = snapshot.leaderboard
         if not entries:
             _centered_imgui_text(
                 imgui,
@@ -3316,8 +3626,13 @@ class TaxiHudState:
                 font_size=14.0,
                 color=(0.62, 0.62, 0.68, 1.0),
             )
-            return
-        table_height = max(90.0, min(250.0, float(self.height) - 290.0))
+            return 0.0
+        cell_padding_y = _point_xy(imgui.get_style().cell_padding)[1]
+        text_height = float(imgui.get_font_size()) + 2.0 * cell_padding_y
+        row_height = max(26.0, text_height)
+        table_height = text_height + len(entries) * row_height
+        if max_height is not None:
+            table_height = min(table_height, max_height)
         table_flags = (
             imgui.TableFlags_.row_bg
             | imgui.TableFlags_.borders_inner_h
@@ -3331,21 +3646,19 @@ class TaxiHudState:
             flags=table_flags,
             outer_size=imgui.ImVec2(content_width, table_height),
         ):
-            return
+            return table_height
         try:
-            imgui.table_setup_column("RANK", imgui.TableColumnFlags_.width_fixed, 64.0)
-            imgui.table_setup_column(
-                "DRIVER", imgui.TableColumnFlags_.width_stretch, 1.0
-            )
-            imgui.table_setup_column(
-                "TIME" if race else "SCORE",
-                imgui.TableColumnFlags_.width_fixed,
-                128.0,
-            )
+            for label, width in zip(
+                ("RANK", "DRIVER", "TIME" if race else "SCORE"),
+                column_widths,
+            ):
+                imgui.table_setup_column(
+                    label, imgui.TableColumnFlags_.width_fixed, width
+                )
             imgui.table_headers_row()
             for rank, entry in enumerate(entries, start=1):
                 imgui.table_next_row(min_row_height=26.0)
-                if rank == snapshot.high_score_rank:
+                if rank == high_score_rank:
                     imgui.table_set_bg_color(
                         imgui.TableBgTarget_.row_bg1,
                         _imgui_color(imgui, (*accent_rgb, 0.24)),
@@ -3366,11 +3679,20 @@ class TaxiHudState:
                     imgui.text(value)
         finally:
             imgui.end_table()
+        return table_height
 
     def _request_restart(self) -> None:
         """Queue a game restart on the model thread."""
         if self.model_loop is not None:
             invoke_async(self.model_loop, lambda state: state.restart_game())
+
+    def _request_live_edit_action(self, action: LiveEditAction) -> None:
+        """Queue one live-edit action on the model thread."""
+        if self.model_loop is not None:
+            invoke_async(
+                self.model_loop,
+                lambda state, value=action: state.request_live_edit_action(value),
+            )
 
     def _submit_name(self, value: str) -> None:
         if self._submission_pending:
@@ -3451,14 +3773,18 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
-        bev_frame = frames[1] if len(frames) > 1 else None
+        hdmap_frame = frames[1] if len(frames) > 1 else None
+        bev_frame = frames[2] if len(frames) > 2 else None
         if video is not None:
             self.state.select_presented_frame(video)
             self.state.draw_waypoints(imgui, video)
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
-        return self.state.composite_bev(video, bev_frame)
+        background = (
+            hdmap_frame if self.state.show_hdmap and hdmap_frame is not None else video
+        )
+        return self.state.composite_bev(background, bev_frame)
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
@@ -3508,6 +3834,8 @@ def build_hud_frames(
     autoregressive_index: int = -1,
     simulation_timestamps_us: Sequence[int | None] | None = None,
     cache_finalize_returned_ns: int | None = None,
+    live_edit_statuses: Sequence[LiveEditHudStatus | None] | None = None,
+    current_prompt: str = "",
 ) -> tuple[TaxiHudFrame, ...]:
     """Build immutable UI messages aligned with generated tensor frames."""
     frame_count = int(video_tchw.shape[0])
@@ -3528,6 +3856,10 @@ def build_hud_frames(
         simulation_timestamps_us = (None,) * frame_count
     if len(simulation_timestamps_us) != frame_count:
         raise ValueError("Simulation timestamps and video frames must align")
+    if live_edit_statuses is None:
+        live_edit_statuses = (None,) * frame_count
+    if len(live_edit_statuses) != frame_count:
+        raise ValueError("Live-edit states and video frames must align")
     frames = []
     for index, (snapshot, simulation_timestamp_us) in enumerate(
         zip(snapshots, simulation_timestamps_us, strict=True)
@@ -3542,6 +3874,8 @@ def build_hud_frames(
                 snapshot=snapshot,
                 rig_pose_world=pose,
                 speed_mps=float(speeds_mps[index]),
+                live_edit_status=live_edit_statuses[index],
+                current_prompt=current_prompt,
                 transition_timestamp_us=transition_timestamps_us[index],
                 runtime_generation=runtime_generation,
                 model_step_index=model_step_index,
@@ -3553,6 +3887,25 @@ def build_hud_frames(
             )
         )
     return tuple(frames)
+
+
+def _live_edit_status_lines(status: LiveEditHudStatus) -> tuple[str, ...]:
+    """Format compact status rows for the live-edit HUD card."""
+    lines: list[str] = []
+    if status.skin_name is not None:
+        lines.append(f"STYLE  {status.skin_name.upper()}")
+    if status.weather_name is not None:
+        lines.append(f"WEATHER  {status.weather_name.upper()}")
+    if status.coins_enabled is not None:
+        state = "ON" if status.coins_enabled else "OFF"
+        lines.append(f"COINS  {state}")
+    if status.nitro_seconds_remaining is not None:
+        lines.append(f"NITRO  {status.nitro_seconds_remaining:.1f}s")
+    if status.obstacle_count is not None:
+        lines.append(f"OBSTACLES  {status.obstacle_count}")
+    if status.item_flash is not None:
+        lines.append(status.item_flash)
+    return tuple(lines)
 
 
 def _binding_slots_display(
@@ -3844,6 +4197,58 @@ def _table_content_width(imgui: Any, *column_widths: float) -> float:
     """Return table width including padding between adjacent columns."""
     cell_padding_x = _point_xy(imgui.get_style().cell_padding)[0]
     return sum(column_widths) + 2.0 * cell_padding_x * max(0, len(column_widths) - 1)
+
+
+def _leaderboard_column_widths(
+    imgui: Any,
+    entries: Sequence[HighScoreEntry | RaceTimeEntry],
+    race: bool,
+) -> tuple[float, float, float]:
+    """Measure complete leaderboard columns, including their cell padding."""
+    ranks = ["RANK"]
+    drivers = ["DRIVER"]
+    results = ["TIME" if race else "SCORE"]
+    for rank, entry in enumerate(entries, start=1):
+        ranks.append(f"#{rank}")
+        drivers.append(entry.name)
+        if race:
+            assert isinstance(entry, RaceTimeEntry)
+            results.append(format_race_time_us(entry.elapsed_time_us))
+        else:
+            assert isinstance(entry, HighScoreEntry)
+            results.append(f"{entry.score:>7}")
+    cell_padding = 2.0 * _point_xy(imgui.get_style().cell_padding)[0]
+
+    def width(values: Sequence[str]) -> float:
+        text_width = max(_point_xy(imgui.calc_text_size(value))[0] for value in values)
+        return text_width + cell_padding
+
+    return width(ranks), width(drivers), width(results)
+
+
+def _terminal_leaderboard_entries(
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot,
+) -> tuple[HighScoreEntry | RaceTimeEntry, ...]:
+    """Include an unpersisted blank-name result while name entry is pending."""
+    entries: list[HighScoreEntry | RaceTimeEntry] = list(snapshot.leaderboard)
+    rank = snapshot.high_score_rank
+    if snapshot.session_state == "awaiting_name" and rank is not None:
+        if isinstance(snapshot, RaceGameSnapshot):
+            entry: HighScoreEntry | RaceTimeEntry = RaceTimeEntry(
+                snapshot.map_id,
+                snapshot.course_id,
+                "",
+                (
+                    snapshot.final_time_us
+                    if snapshot.final_time_us is not None
+                    else snapshot.elapsed_time_us
+                ),
+                "",
+            )
+        else:
+            entry = HighScoreEntry("", snapshot.score, "")
+        entries.insert(rank - 1, entry)
+    return tuple(entries[:LEADERBOARD_LIMIT])
 
 
 def _current_window_content_height(imgui: Any) -> float:

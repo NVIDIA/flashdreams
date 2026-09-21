@@ -46,6 +46,7 @@ from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
 from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
+    LiveEditMappingLocation,
     SettingsDocument,
     default_config_path,
     normalize_settings,
@@ -110,11 +111,20 @@ class ApplicationConfig:
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
 
+    show_current_prompt: bool = False
+    """Whether the HUD displays the prompt currently driving generation."""
+
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
 
     show_control_hints: bool = True
     """Whether gameplay control hints start visible."""
+
+    show_live_edit_buttons: bool = True
+    """Whether live-edit actions appear as clickable HUD buttons."""
+
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    """Where active live-edit mappings appear in the gameplay HUD."""
 
     controls: ControlsConfig = ControlsConfig()
     """Process-start gameplay bindings."""
@@ -297,8 +307,13 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.diagnostics.input_trace_path
             ),
             show_fps=settings.presentation.show_fps,
+            show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
+            show_live_edit_buttons=settings.presentation.show_live_edit_buttons,
+            live_edit_mapping_location=(
+                settings.presentation.live_edit_mapping_location
+            ),
             controls=controls,
             gamepad_button_style=settings.game.gamepad_button_style,
             control_documents=control_documents,

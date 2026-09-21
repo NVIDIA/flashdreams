@@ -26,6 +26,7 @@ _RACE_CSV_FIELDS = (
     "elapsed_time_us",
     "achieved_at_utc",
 )
+LEADERBOARD_LIMIT = 10
 
 _PLAYER_NAME_RE = re.compile(r"[A-Za-z0-9 _-]{1,12}")
 
@@ -102,7 +103,7 @@ class HighScoreEntry:
 class HighScoreStore:
     """Read and atomically update a top-ten CSV leaderboard."""
 
-    def __init__(self, path: Path, *, limit: int = 10) -> None:
+    def __init__(self, path: Path, *, limit: int = LEADERBOARD_LIMIT) -> None:
         self._path = path
         self._limit = limit
         self._lock_path = path.with_suffix(f"{path.suffix}.lock")
@@ -264,7 +265,7 @@ class RaceTimeEntry:
 class RaceTimeStore:
     """Atomically maintain a top-ten race board for every map/course pair."""
 
-    def __init__(self, path: Path, *, limit: int = 10) -> None:
+    def __init__(self, path: Path, *, limit: int = LEADERBOARD_LIMIT) -> None:
         self._path = path
         self._limit = limit
         self._lock_path = path.with_suffix(f"{path.suffix}.lock")
