@@ -210,6 +210,68 @@ def test_context_parallel_sage2_ulysses_uses_hnd(
     assert fake_sage2[0]["return_lse"] is False
 
 
+def test_cosmos_config_routes_sage2_only_to_self_attention(
+    fake_sage2: list[dict[str, Any]],
+) -> None:
+    from flashdreams.recipes.cosmos.transformer.impl.network import (
+        CosmosDiTNetworkConfig,
+    )
+
+    network = CosmosDiTNetworkConfig(
+        model_channels=32,
+        num_blocks=1,
+        num_heads=2,
+        crossattn_emb_channels=16,
+        use_crossattn_projection=False,
+        self_attention_backend="sage2",
+    ).setup()
+    block = network.blocks[0]
+
+    assert block.self_attn.attn_op.backend == "sage2"
+    assert block.cross_attn.attn_op.backend == "cudnn"
+
+
+def test_template_config_routes_sage2_to_self_attention(
+    fake_sage2: list[dict[str, Any]],
+) -> None:
+    from flashdreams.recipes.template.transformer.network import TemplateDiTConfig
+
+    network = TemplateDiTConfig(self_attention_backend="sage2").setup()
+
+    assert network.attn.backend == "sage2"
+
+
+def test_cosmos_and_template_reject_sage2_cuda_graph() -> None:
+    from flashdreams.recipes.cosmos.transformer import (
+        CosmosTransformer,
+        CosmosTransformerConfig,
+    )
+    from flashdreams.recipes.cosmos.transformer.impl.network import (
+        CosmosDiTNetworkConfig,
+    )
+    from flashdreams.recipes.template.transformer import (
+        TemplateTransformer,
+        TemplateTransformerConfig,
+    )
+    from flashdreams.recipes.template.transformer.network import TemplateDiTConfig
+
+    with pytest.raises(ValueError, match="Cosmos SageAttention 2"):
+        CosmosTransformer(
+            CosmosTransformerConfig(
+                network=CosmosDiTNetworkConfig(self_attention_backend="sage2"),
+                use_cuda_graph=True,
+            )
+        )
+
+    with pytest.raises(ValueError, match="Template SageAttention 2"):
+        TemplateTransformer(
+            TemplateTransformerConfig(
+                network=TemplateDiTConfig(self_attention_backend="sage2"),
+                use_cuda_graph=True,
+            )
+        )
+
+
 def test_sage2_validates_dtype_head_dimension_and_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
