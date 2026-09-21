@@ -748,6 +748,34 @@ class LiveEditMapContextConfig:
     enabled: bool = False
     """Whether road, topology, and motion clauses update the model prompt."""
 
+    include_current_road_context: bool = True
+    """Include the authored context for the current map road."""
+
+    include_next_map_node_type: bool = True
+    """Include the type and relative status of the current or next map node."""
+
+    include_next_map_node_context: bool = True
+    """Include the authored context for the current or next map node."""
+
+    include_upcoming_road_curve_direction: bool = True
+    """Include whether the upcoming road curves left or right."""
+
+    include_taxi_motion_state: bool = True
+    """Include whether the taxi is moving forward, stationary, or reversing."""
+
+    @property
+    def active(self) -> bool:
+        """Return whether at least one enabled fragment can update the prompt."""
+        return self.enabled and any(
+            (
+                self.include_current_road_context,
+                self.include_next_map_node_type,
+                self.include_next_map_node_context,
+                self.include_upcoming_road_curve_direction,
+                self.include_taxi_motion_state,
+            )
+        )
+
 
 @dataclass(frozen=True)
 class LiveEditConfig:
@@ -768,10 +796,10 @@ class LiveEditConfig:
     obstacle: LiveEditObstacleConfig = field(default_factory=LiveEditObstacleConfig)
     """Obstacle-event ability."""
 
-    map_context: LiveEditMapContextConfig = field(
+    dynamic_prompts: LiveEditMapContextConfig = field(
         default_factory=LiveEditMapContextConfig
     )
-    """Map-aware prompt-direction ability."""
+    """Vehicle- and map-aware dynamic prompt fragments."""
 
     sharpen_amount: float = 0.8
     """Unsharp-mask strength applied to styled frames (0 disables)."""
@@ -794,7 +822,7 @@ class LiveEditConfig:
             or self.items.enabled
             or self.weather.enabled
             or self.obstacle.enabled
-            or self.map_context.enabled
+            or self.dynamic_prompts.active
         )
 
     @property
@@ -804,7 +832,7 @@ class LiveEditConfig:
             self.style.enabled
             or self.weather.enabled
             or (self.obstacle.enabled and self.obstacle.guide_scale > 0.0)
-            or self.map_context.enabled
+            or self.dynamic_prompts.active
         )
 
     def __post_init__(self) -> None:
@@ -878,10 +906,10 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
     """Register the ``--live-edit-*`` flags next to the ``--taxi-*`` flags."""
     group = parser.add_argument_group("live edit")
     group.add_argument(
-        "--live-edit-map-context",
+        "--live-edit-dynamic-prompts",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Describe the current road, topology, and vehicle motion in the prompt.",
+        help="Update the prompt from the selected map and taxi-state fragments.",
     )
     group.add_argument(
         "--live-edit-style",
@@ -1289,8 +1317,8 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
     if base is not None:
         return apply_live_edit_cli(base, args, explicit_only=True)
     return LiveEditConfig(
-        map_context=LiveEditMapContextConfig(
-            enabled=bool(args.live_edit_map_context),
+        dynamic_prompts=LiveEditMapContextConfig(
+            enabled=bool(args.live_edit_dynamic_prompts),
         ),
         style=LiveEditStyleConfig(
             enabled=bool(args.live_edit_style),
@@ -1529,9 +1557,9 @@ def apply_live_edit_cli(
             }
         ),
     )
-    map_context = replace(
-        base.map_context,
-        **updates({"live_edit_map_context": ("enabled", bool)}),
+    dynamic_prompts = replace(
+        base.dynamic_prompts,
+        **updates({"live_edit_dynamic_prompts": ("enabled", bool)}),
     )
     config = replace(
         base,
@@ -1540,7 +1568,7 @@ def apply_live_edit_cli(
         obstacle=obstacle,
         coins=coins,
         items=items,
-        map_context=map_context,
+        dynamic_prompts=dynamic_prompts,
     )
     if selected("live_edit_perf_log"):
         config = replace(config, perf_log_every_frames=int(args.live_edit_perf_log))

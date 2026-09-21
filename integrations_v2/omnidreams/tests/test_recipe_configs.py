@@ -302,7 +302,7 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
 
 
-def test_crazy_robotaxi_map_context_disables_only_native_dit_on_selected_preset() -> (
+def test_crazy_robotaxi_dynamic_prompts_disable_only_native_dit_on_selected_preset() -> (
     None
 ):
     """Moved from apps/crazy_robotaxi/tests/test_application.py; same reasoning
@@ -311,7 +311,7 @@ def test_crazy_robotaxi_map_context_disables_only_native_dit_on_selected_preset(
         defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS
     )
 
-    app.init(["--live-edit-map-context"])
+    app.init(["--live-edit-dynamic-prompts"])
 
     pipeline = cast(Any, app._pipeline_config)
     original: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG

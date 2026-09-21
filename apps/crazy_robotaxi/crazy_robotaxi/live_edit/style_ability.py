@@ -94,12 +94,14 @@ class StyleAbility:
         map_context_config: LiveEditMapContextConfig | None = None,
     ) -> None:
         weather_enabled = weather_config is not None and weather_config.enabled
-        map_enabled = map_context_config is not None and map_context_config.enabled
-        if not config.enabled and not weather_enabled and not map_enabled:
+        map_context_active = (
+            map_context_config is not None and map_context_config.active
+        )
+        if not config.enabled and not weather_enabled and not map_context_active:
             raise ValueError("StyleAbility requires style, weather, or map context")
         self._config = config
         self._weather_config = weather_config if weather_enabled else None
-        self._map_context_config = map_context_config if map_enabled else None
+        self._map_context_config = map_context_config if map_context_active else None
         self._map_tracker: MapContextTracker | None = None
         self._pending_map_suffix: str | None = None
         self._active_map_suffix = ""
@@ -128,7 +130,7 @@ class StyleAbility:
         """Bind the selected resolved map before a rollout starts."""
         if self._map_context_config is None:
             return
-        self._map_tracker = MapContextTracker(game_map)
+        self._map_tracker = MapContextTracker(game_map, self._map_context_config)
         self.reset_map_context()
 
     def reset_map_context(self) -> None:

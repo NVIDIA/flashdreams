@@ -90,15 +90,17 @@ class LiveEditGameplay:
         self.config = config
         self._game_map = scene.game_map
         self.style = (
-            StyleAbility(config.style, config.weather, config.map_context)
+            StyleAbility(config.style, config.weather, config.dynamic_prompts)
             if config.style.enabled
             or config.weather.enabled
-            or config.map_context.enabled
+            or config.dynamic_prompts.active
             else None
         )
-        if config.map_context.enabled:
+        if config.dynamic_prompts.active:
             if scene.game_map is None:
-                raise ValueError("live-edit map context requires a resolved game map")
+                raise ValueError(
+                    "live-edit dynamic prompts require a resolved game map"
+                )
             assert self.style is not None
             self.style.configure_map(scene.game_map)
         self.coins = (
@@ -177,10 +179,10 @@ class LiveEditGameplay:
         """Reuse installed model hooks while resetting per-rollout gameplay."""
         if self.style is not None and previous.style is not None:
             self.style = previous.style
-            if self.config.map_context.enabled:
+            if self.config.dynamic_prompts.active:
                 if self._game_map is None:
                     raise ValueError(
-                        "live-edit map context requires a resolved game map"
+                        "live-edit dynamic prompts require a resolved game map"
                     )
                 self.style.configure_map(self._game_map)
             self.style.reset_v2(cache)

@@ -196,7 +196,7 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   --live-edit-items \
   --live-edit-weather \
   --live-edit-style \
-  --live-edit-map-context
+  --live-edit-dynamic-prompts
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
@@ -206,16 +206,19 @@ change while a non-base style is active. Style mode downloads its additional
 model assets on first use and caches them under
 `artifacts/crazy_robotaxi/live_edit`.
 
-Map context appends authored road and landmark descriptions plus topology,
-curve, and vehicle-motion clauses to the active prompt. Complete combined
-prompts are encoded and retained lazily, so the first visit to a new context
-may pause briefly and maps with many unique contexts retain more GPU memory.
+Dynamic prompts append selected fragments for the current road context, next
+map-node type, next map-node context, upcoming road-curve direction, and taxi
+motion state. Each fragment can be included independently in the live settings.
+Complete combined prompts are encoded and retained lazily, so the first visit
+to a new combination may pause briefly and sessions with many unique
+combinations retain more GPU memory.
 
-Style, weather, and guided obstacles need the Python transformer hooks. When
-one of those features is enabled, the application automatically disables native
-DiT acceleration and logs the reason. Native VAE acceleration and the remaining
-performance configuration stay enabled; pixel-only features such as coins,
-items, and unguided obstacles keep native DiT acceleration.
+Style, weather, dynamic prompts, and guided obstacles need the Python
+transformer hooks. When one of those features is enabled, the application
+automatically disables native DiT acceleration and logs the reason. Native VAE
+acceleration and the remaining performance configuration stay enabled;
+pixel-only features such as coins, items, and unguided obstacles keep native
+DiT acceleration.
 
 ## Authored maps
 
@@ -232,5 +235,5 @@ uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
 ```
 
 Each spawn can define both a full `prompt` for normal play and a shorter
-`prompt_context` base for `--live-edit-map-context`; dynamic road and motion
-clauses are appended only to the latter.
+`prompt_context` base for `--live-edit-dynamic-prompts`; selected dynamic
+fragments are appended only to the latter.
