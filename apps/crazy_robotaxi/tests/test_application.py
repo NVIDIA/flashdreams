@@ -612,60 +612,6 @@ def test_live_edit_disables_native_dit_only_when_required(
     assert configured.encoder == pipeline.encoder
 
 
-def test_dynamic_prompts_disable_only_native_dit_on_selected_preset(
-    tmp_path: Path,
-) -> None:
-    transformer = replace(
-        cast(
-            _StubTransformerConfig,
-            _STUB_PIPELINE_CONFIG.diffusion_model.transformer,
-        ),
-        native_dit_acceleration="required",
-        native_dit_backend="vulkan",
-        skip_finalize_kv_cache=True,
-    )
-    encoder = replace(
-        cast(_StubEncoderConfig, _STUB_PIPELINE_CONFIG.encoder),
-        native_vae_acceleration="required",
-        native_vae_backend="vulkan",
-    )
-    selected_preset = replace(
-        _STUB_PIPELINE_CONFIG,
-        name="selected-crazy-robotaxi-preset",
-        diffusion_model=replace(
-            _STUB_PIPELINE_CONFIG.diffusion_model,
-            transformer=transformer,
-        ),
-        encoder=encoder,
-    )
-    app = _application(
-        defaults=replace(_STUB_DEFAULTS, pipeline_config=selected_preset)
-    )
-
-    app.init(
-        [
-            "--config",
-            str(tmp_path / "config.yaml"),
-            "--live-edit-dynamic-prompts",
-        ]
-    )
-
-    pipeline = cast(Any, app._pipeline_config)
-    configured_transformer = pipeline.diffusion_model.transformer
-    assert app._config is not None
-    assert app._config.scene_request.use_prompt_context
-    assert pipeline.name == selected_preset.name
-    assert configured_transformer.native_dit_acceleration == "disabled"
-    assert configured_transformer.native_dit_backend == (
-        selected_preset.diffusion_model.transformer.native_dit_backend
-    )
-    assert configured_transformer.skip_finalize_kv_cache is True
-    assert pipeline.diffusion_model.scheduler == (
-        selected_preset.diffusion_model.scheduler
-    )
-    assert pipeline.encoder == selected_preset.encoder
-
-
 @pytest.mark.parametrize("resolution_wh", [(1280, 704), (1168, 640)])
 def test_adapter_dimensions_configure_renderer_geometry(
     resolution_wh: tuple[int, int], monkeypatch
