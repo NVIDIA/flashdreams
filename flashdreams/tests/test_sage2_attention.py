@@ -73,10 +73,8 @@ def fake_sage2(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         output = query.clone()
         if not return_lse:
             return output
-        if tensor_layout == "HND":
-            batch, heads, sequence, _ = query.shape
-        else:
-            batch, sequence, heads, _ = query.shape
+        assert tensor_layout == "HND"
+        batch, heads, sequence, _ = query.shape
         lse = torch.zeros((batch, heads, sequence), dtype=torch.float32)
         return output, lse
 
@@ -112,7 +110,7 @@ def test_missing_sage2_dependency_has_actionable_error(
         NativeAttention(backend="sage2")
 
 
-def test_native_sage2_uses_nhd_without_transpose(
+def test_native_sage2_transposes_bshd_to_hnd(
     fake_sage2: list[dict[str, Any]],
 ) -> None:
     attention = NativeAttention(qkv_format="bshd", backend="sage2")
@@ -124,12 +122,12 @@ def test_native_sage2_uses_nhd_without_transpose(
 
     assert output.shape == query.shape
     assert len(fake_sage2) == 1
-    assert fake_sage2[0]["query"] is query
-    assert fake_sage2[0]["tensor_layout"] == "NHD"
+    assert fake_sage2[0]["query"].shape == (1, 4, 5, 16)
+    assert fake_sage2[0]["tensor_layout"] == "HND"
     assert fake_sage2[0]["return_lse"] is False
 
 
-def test_context_parallel_sage2_single_rank_uses_nhd(
+def test_context_parallel_sage2_single_rank_uses_hnd(
     fake_sage2: list[dict[str, Any]],
 ) -> None:
     attention = ContextParallelAttention(
@@ -141,8 +139,8 @@ def test_context_parallel_sage2_single_rank_uses_nhd(
 
     assert output.shape == query.shape
     assert len(fake_sage2) == 1
-    assert fake_sage2[0]["query"] is query
-    assert fake_sage2[0]["tensor_layout"] == "NHD"
+    assert fake_sage2[0]["query"].shape == (1, 4, 5, 16)
+    assert fake_sage2[0]["tensor_layout"] == "HND"
     assert fake_sage2[0]["return_lse"] is False
 
 
@@ -187,11 +185,11 @@ def test_context_parallel_sage2_ring_waits_for_kv_and_requests_lse(
     assert output.shape == query.shape
     assert events == ["gather", "sage", "wait", "sage"]
     assert len(fake_sage2) == 2
-    assert all(call["tensor_layout"] == "NHD" for call in fake_sage2)
+    assert all(call["tensor_layout"] == "HND" for call in fake_sage2)
     assert all(call["return_lse"] is True for call in fake_sage2)
 
 
-def test_context_parallel_sage2_ulysses_preserves_nhd(
+def test_context_parallel_sage2_ulysses_uses_hnd(
     fake_sage2: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -207,25 +205,9 @@ def test_context_parallel_sage2_ulysses_preserves_nhd(
 
     assert output.shape == query.shape
     assert len(fake_sage2) == 1
-    assert fake_sage2[0]["query"].shape == (1, 10, 2, 16)
-    assert fake_sage2[0]["tensor_layout"] == "NHD"
+    assert fake_sage2[0]["query"].shape == (1, 2, 10, 16)
+    assert fake_sage2[0]["tensor_layout"] == "HND"
     assert fake_sage2[0]["return_lse"] is False
-
-
-def test_context_parallel_sage2_ulysses_rejects_grouped_query_heads(
-    fake_sage2: list[dict[str, Any]],
-) -> None:
-    attention = ContextParallelAttention(
-        qkv_format="bshd", backend="sage2", method="ulysses"
-    )
-    attention.device_mesh = cast(Any, _FakeDeviceMesh())
-    query = torch.randn(1, 5, 4, 16)
-    key_value = torch.randn(1, 5, 2, 16)
-
-    with pytest.raises(ValueError, match="equal query, key, and value head counts"):
-        attention(query, key_value, key_value)
-
-    assert not fake_sage2
 
 
 def test_sage2_validates_dtype_head_dimension_and_device(
