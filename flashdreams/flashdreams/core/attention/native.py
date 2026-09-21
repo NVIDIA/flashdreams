@@ -106,15 +106,15 @@ def _validate_sage2_inputs(
         raise ValueError(
             "SageAttention 2 requires key and value sequence lengths to match."
         )
-    if key.shape[heads_dim] != value.shape[heads_dim]:
-        raise ValueError("SageAttention 2 requires key and value head counts to match.")
-    query_heads = query.shape[heads_dim]
-    key_heads = key.shape[heads_dim]
-    if key_heads == 0 or query_heads == 0 or query_heads % key_heads != 0:
+    head_counts = tuple(tensor.shape[heads_dim] for tensor in tensors)
+    if len(set(head_counts)) != 1:
         raise ValueError(
-            "SageAttention 2 requires the query head count to be a positive "
-            "multiple of the key/value head count."
+            "SageAttention 2 currently requires query, key, and value to have "
+            "the same number of attention heads; grouped-query attention is "
+            "not supported."
         )
+    if head_counts[0] == 0:
+        raise ValueError("SageAttention 2 requires a positive attention head count.")
 
     if any(not tensor.is_cuda for tensor in tensors):
         raise ValueError(

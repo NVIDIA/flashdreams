@@ -212,6 +212,22 @@ def test_context_parallel_sage2_ulysses_preserves_nhd(
     assert fake_sage2[0]["return_lse"] is False
 
 
+def test_context_parallel_sage2_ulysses_rejects_grouped_query_heads(
+    fake_sage2: list[dict[str, Any]],
+) -> None:
+    attention = ContextParallelAttention(
+        qkv_format="bshd", backend="sage2", method="ulysses"
+    )
+    attention.device_mesh = cast(Any, _FakeDeviceMesh())
+    query = torch.randn(1, 5, 4, 16)
+    key_value = torch.randn(1, 5, 2, 16)
+
+    with pytest.raises(ValueError, match="equal query, key, and value head counts"):
+        attention(query, key_value, key_value)
+
+    assert not fake_sage2
+
+
 def test_sage2_validates_dtype_head_dimension_and_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -227,6 +243,11 @@ def test_sage2_validates_dtype_head_dimension_and_device(
     oversized_qkv = torch.randn(1, 2, 2, 129, dtype=torch.bfloat16)
     with pytest.raises(ValueError, match="1 through 128"):
         attention(oversized_qkv, oversized_qkv, oversized_qkv)
+
+    query = torch.randn(1, 2, 4, 64, dtype=torch.bfloat16)
+    key_value = torch.randn(1, 2, 2, 64, dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match="grouped-query attention is not supported"):
+        attention(query, key_value, key_value)
 
     cpu_qkv = torch.randn(1, 2, 2, 64, dtype=torch.bfloat16)
     with pytest.raises(ValueError, match="on a CUDA device"):

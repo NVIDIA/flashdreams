@@ -218,49 +218,50 @@ class ContextParallelAttention(NativeAttention):
             )[0]
 
         if tensor_layout == "HND":
-            B, Hq, Sq_local, D = query.shape
-            Bk, Hkv, Sk_local, Dk = key.shape
+            B, H, Sq_local, D = query.shape
+            Bk, Hk, Sk_local, Dk = key.shape
             Bv, Hv, Sv_local, Dv = value.shape
         else:
-            B, Sq_local, Hq, D = query.shape
-            Bk, Sk_local, Hkv, Dk = key.shape
+            B, Sq_local, H, D = query.shape
+            Bk, Sk_local, Hk, Dk = key.shape
             Bv, Sv_local, Hv, Dv = value.shape
         if B != Bk or B != Bv or D != Dk or D != Dv:
             raise ValueError(
                 "Query, key, and value batch sizes and head dimensions must match "
                 "for Ulysses."
             )
-        if Hkv != Hv or Sk_local != Sv_local:
+        if H != Hk or H != Hv:
             raise ValueError(
-                "Key and value head counts and sequence lengths must match for Ulysses."
+                "Ulysses currently requires equal query, key, and value head counts."
             )
-        if Hq % world_size != 0 or Hkv % world_size != 0:
+        if Sk_local != Sv_local:
+            raise ValueError("Key and value sequence lengths must match for Ulysses.")
+        if H % world_size != 0:
             raise ValueError(
-                "Query and key/value head counts must both be divisible by CP size "
-                f"({world_size}) for Ulysses; got {Hq} and {Hkv}."
+                f"Number of heads ({H}) must be divisible by CP size "
+                f"({world_size}) for Ulysses."
             )
-        Hq_local = Hq // world_size
-        Hkv_local = Hkv // world_size
+        H_local = H // world_size
         group = self.device_mesh.get_group()
 
         if tensor_layout == "HND":
-            query = query.reshape(B, world_size, Hq_local, Sq_local, D).permute(
+            query = query.reshape(B, world_size, H_local, Sq_local, D).permute(
                 1, 3, 0, 2, 4
             )
-            key = key.reshape(B, world_size, Hkv_local, Sk_local, D).permute(
+            key = key.reshape(B, world_size, H_local, Sk_local, D).permute(
                 1, 3, 0, 2, 4
             )
-            value = value.reshape(B, world_size, Hkv_local, Sk_local, D).permute(
+            value = value.reshape(B, world_size, H_local, Sk_local, D).permute(
                 1, 3, 0, 2, 4
             )
         else:
-            query = query.reshape(B, Sq_local, world_size, Hq_local, D).permute(
+            query = query.reshape(B, Sq_local, world_size, H_local, D).permute(
                 2, 1, 0, 3, 4
             )
-            key = key.reshape(B, Sk_local, world_size, Hkv_local, D).permute(
+            key = key.reshape(B, Sk_local, world_size, H_local, D).permute(
                 2, 1, 0, 3, 4
             )
-            value = value.reshape(B, Sk_local, world_size, Hkv_local, D).permute(
+            value = value.reshape(B, Sk_local, world_size, H_local, D).permute(
                 2, 1, 0, 3, 4
             )
         query, key, value = (tensor.contiguous() for tensor in (query, key, value))
@@ -284,11 +285,11 @@ class ContextParallelAttention(NativeAttention):
         )
 
         if tensor_layout == "HND":
-            out = out.reshape(B, Hq_local, world_size, Sq_local, D).permute(
+            out = out.reshape(B, H_local, world_size, Sq_local, D).permute(
                 2, 1, 0, 3, 4
             )
         else:
-            out = out.reshape(B, world_size, Sq_local, Hq_local, D).permute(
+            out = out.reshape(B, world_size, Sq_local, H_local, D).permute(
                 1, 3, 0, 2, 4
             )
         out = out.contiguous()
