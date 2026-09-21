@@ -15,6 +15,8 @@
 
 """CPU coverage for Omnidreams DiT attention backend selection."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Literal
 
@@ -26,6 +28,7 @@ from omnidreams.impl.native.acceleration import (
 from omnidreams.impl.transformer import (
     CosmosTransformer,
     CosmosTransformerConfig,
+    _native_dit_sage2_availability,
     _resolve_attention_policy,
 )
 from omnidreams.impl.transformer import modules as transformer_modules
@@ -61,6 +64,34 @@ from integrations_v2.omnidreams.benchmarks.test_modules import (
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _patch_cuda_device_context(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    initial_device: int,
+) -> list[int]:
+    """Patch CUDA device selection without requiring a CUDA runtime."""
+    current_device = [initial_device]
+
+    @contextmanager
+    def device_context(device: torch.device | str | int) -> Iterator[None]:
+        previous_device = current_device[0]
+        if isinstance(device, int):
+            current_device[0] = device
+        else:
+            resolved = torch.device(device)
+            assert resolved.index is not None
+            current_device[0] = resolved.index
+        try:
+            yield
+        finally:
+            current_device[0] = previous_device
+
+    monkeypatch.setattr(torch.cuda, "device", device_context)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: current_device[0])
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    return current_device
 
 
 def test_dit_attention_backend_defaults_to_omnidreams() -> None:
@@ -380,7 +411,9 @@ def test_sage2_policy_routes_to_native_executor(
         use_cuda_graph=False,
     )
 
-    transformer._configure_optimized_dit_from_config()
+    transformer._configure_optimized_dit_from_config(
+        target_device=torch.device("cuda:0")
+    )
 
     assert captured["attention_backend"] == "sage2"
     assert transformer._attention_policy.framework_backend is framework_backend
@@ -445,7 +478,9 @@ def test_sage2_auto_native_selection_checks_kernel_compatibility(
     )
     transformer._optimized_dit_executor = None
 
-    transformer._configure_optimized_dit_from_config()
+    transformer._configure_optimized_dit_from_config(
+        target_device=torch.device("cuda:0")
+    )
 
     assert transformer._optimized_dit_selection is not None
     assert transformer._optimized_dit_selection.enabled is expected_enabled
@@ -455,6 +490,237 @@ def test_sage2_auto_native_selection_checks_kernel_compatibility(
     else:
         assert transformer._optimized_dit_executor is None
         assert "Sage2 stubs" in transformer._optimized_dit_selection.reason
+
+
+@pytest.mark.parametrize(
+    ("target_device", "supported_device", "expected_available"),
+    (
+        (torch.device("cuda:1"), 1, True),
+        (torch.device("cuda:1"), 0, False),
+    ),
+    ids=("target-supported", "current-only-supported"),
+)
+def test_native_sage2_availability_uses_explicit_target_device(
+    monkeypatch: pytest.MonkeyPatch,
+    target_device: torch.device,
+    supported_device: int,
+    expected_available: bool,
+) -> None:
+    """Evaluate Native Sage2 against the target rather than current device."""
+    checked_devices: list[int] = []
+
+    def is_runtime_supported(device: int) -> bool:
+        checked_devices.append(device)
+        return device == supported_device
+
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        sage2_is_built=lambda: True,
+        sage2_is_runtime_supported=is_runtime_supported,
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda,
+        "current_device",
+        lambda: pytest.fail("an explicit target must not read the current device"),
+    )
+
+    available, reason = _native_dit_sage2_availability(
+        extension,
+        device=target_device,
+    )
+
+    assert available is expected_available
+    assert checked_devices == [1]
+    assert "device 1" in reason
+
+
+@pytest.mark.parametrize(
+    ("supported_device", "expected_enabled", "expected_compile_calls"),
+    (
+        (1, True, 0),
+        (0, False, 1),
+    ),
+    ids=("target-supported", "current-only-supported"),
+)
+def test_native_sage2_auto_resolves_after_model_reaches_target_device(
+    monkeypatch: pytest.MonkeyPatch,
+    supported_device: int,
+    expected_enabled: bool,
+    expected_compile_calls: int,
+) -> None:
+    """Resolve deferred Native Sage2 against the moved model's device."""
+    from omnidreams.impl.native import omnidreams_singleview
+
+    checked_devices: list[int] = []
+    extension_load_devices: list[int] = []
+    compile_calls: list[torch.nn.Module] = []
+    compiled_network = torch.nn.Identity()
+
+    class FakeExecutor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+    def is_runtime_supported(device: int) -> bool:
+        checked_devices.append(device)
+        return device == supported_device
+
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        sage2_is_built=lambda: True,
+        sage2_is_runtime_supported=is_runtime_supported,
+    )
+    current_device = _patch_cuda_device_context(monkeypatch, initial_device=0)
+    monkeypatch.setattr(
+        native_attention,
+        "_load_sage2_op",
+        lambda: lambda *args, **kwargs: args[0],
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "load_python_module",
+        lambda name: SimpleNamespace(OptimizedDiTExecutor=FakeExecutor),
+    )
+
+    def load_extension(**kwargs: object) -> object:
+        extension_load_devices.append(current_device[0])
+        return extension
+
+    monkeypatch.setattr(omnidreams_singleview, "load_extension", load_extension)
+
+    def compile_network(network: torch.nn.Module) -> torch.nn.Module:
+        compile_calls.append(network)
+        return compiled_network
+
+    monkeypatch.setattr(
+        "omnidreams.impl.transformer.compile_module",
+        compile_network,
+    )
+    transformer = CosmosTransformer(
+        CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(
+                model_channels=128,
+                num_blocks=1,
+                num_heads=2,
+                crossattn_emb_channels=16,
+                use_crossattn_projection=False,
+                enable_cross_view_attn=False,
+                self_attention_backend=AttentionBackend.SAGE2,
+            ),
+            compile_network=True,
+            native_dit_acceleration="auto",
+            native_dit_attention_backend="auto",
+            use_cuda_graph=False,
+        )
+    )
+    original_network = transformer.network
+
+    assert transformer._optimized_dit_selection is None
+    assert transformer._optimized_dit_executor is None
+    assert extension_load_devices == []
+    assert compile_calls == []
+
+    model_device = [torch.device("cuda:1")]
+    monkeypatch.setattr(
+        CosmosTransformer,
+        "device",
+        property(lambda self: model_device[0]),
+    )
+    transformer._ensure_optimized_dit_configured_for_target_device()
+    transformer._ensure_optimized_dit_configured_for_target_device()
+
+    assert current_device == [0]
+    assert extension_load_devices == [1]
+    assert checked_devices == [1]
+    assert transformer._optimized_dit_selection is not None
+    assert transformer._optimized_dit_selection.enabled is expected_enabled
+    assert len(compile_calls) == expected_compile_calls
+    if expected_enabled:
+        assert isinstance(transformer._optimized_dit_executor, FakeExecutor)
+    else:
+        assert transformer._optimized_dit_executor is None
+        assert "device 1" in transformer._optimized_dit_selection.reason
+        assert compile_calls == [original_network]
+        assert transformer.network is compiled_network
+        assert transformer._cuda_graph_dispatch.fn is compiled_network
+        assert transformer._network_call is compiled_network
+        assert transformer._network_call_uncond is compiled_network
+
+    model_device[0] = torch.device("cuda:2")
+    with pytest.raises(
+        RuntimeError,
+        match="finalized for cuda:1.*model is now on cuda:2",
+    ):
+        transformer._ensure_optimized_dit_configured_for_target_device()
+
+
+def test_native_sage2_required_rejects_unsupported_target_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject required Native Sage2 only after checking the target device."""
+    from omnidreams.impl.native import omnidreams_singleview
+
+    checked_devices: list[int] = []
+    extension_load_devices: list[int] = []
+    current_device = _patch_cuda_device_context(monkeypatch, initial_device=0)
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        sage2_is_built=lambda: True,
+        sage2_is_runtime_supported=lambda device: (
+            checked_devices.append(device) or False
+        ),
+    )
+    monkeypatch.setattr(
+        native_attention,
+        "_load_sage2_op",
+        lambda: lambda *args, **kwargs: args[0],
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "load_python_module",
+        lambda name: SimpleNamespace(OptimizedDiTExecutor=object),
+    )
+
+    def load_extension(**kwargs: object) -> object:
+        extension_load_devices.append(current_device[0])
+        return extension
+
+    monkeypatch.setattr(omnidreams_singleview, "load_extension", load_extension)
+    transformer = CosmosTransformer(
+        CosmosTransformerConfig(
+            network=CosmosDiTNetworkConfig(
+                model_channels=128,
+                num_blocks=1,
+                num_heads=2,
+                crossattn_emb_channels=16,
+                use_crossattn_projection=False,
+                enable_cross_view_attn=False,
+                self_attention_backend=AttentionBackend.SAGE2,
+            ),
+            compile_network=False,
+            native_dit_acceleration="required",
+            native_dit_attention_backend="auto",
+            use_cuda_graph=False,
+        )
+    )
+    monkeypatch.setattr(
+        CosmosTransformer,
+        "device",
+        property(lambda self: torch.device("cuda:1")),
+    )
+
+    with pytest.raises(NativeAccelerationUnavailable, match="CUDA device 1"):
+        transformer.initialize_autoregressive_cache(
+            height=1,
+            width=1,
+            text_embeddings=torch.empty(0),
+            image_embeddings=torch.empty(0),
+        )
+
+    assert current_device == [0]
+    assert extension_load_devices == [1]
+    assert checked_devices == [1]
+    assert transformer._optimized_dit_executor is None
 
 
 def test_sage2_required_native_selection_rejects_blackwell_stub(
@@ -490,7 +756,9 @@ def test_sage2_required_native_selection_rejects_blackwell_stub(
     transformer._optimized_dit_executor = None
 
     with pytest.raises(NativeAccelerationUnavailable, match="Sage2 stubs"):
-        transformer._configure_optimized_dit_from_config()
+        transformer._configure_optimized_dit_from_config(
+            target_device=torch.device("cuda:0")
+        )
 
 
 def test_selected_native_sage2_rejects_cuda_graph_before_executor(
@@ -533,7 +801,9 @@ def test_selected_native_sage2_rejects_cuda_graph_before_executor(
     transformer._optimized_dit_executor = None
 
     with pytest.raises(ValueError, match="Native SageAttention 2"):
-        transformer._configure_optimized_dit_from_config()
+        transformer._configure_optimized_dit_from_config(
+            target_device=torch.device("cuda:0")
+        )
 
     assert executor_constructed is False
 
@@ -573,10 +843,14 @@ def test_auto_skips_native_sage2_when_graph_is_incompatible(
     transformer._optimized_dit_executor = None
 
     if error_match is None:
-        transformer._configure_optimized_dit_from_config()
+        transformer._configure_optimized_dit_from_config(
+            target_device=torch.device("cuda:0")
+        )
     else:
         with pytest.raises(ValueError, match=error_match):
-            transformer._configure_optimized_dit_from_config()
+            transformer._configure_optimized_dit_from_config(
+                target_device=torch.device("cuda:0")
+            )
 
     assert transformer._optimized_dit_selection is not None
     assert transformer._optimized_dit_selection.enabled is False
@@ -615,7 +889,9 @@ def test_native_only_sage2_stub_falls_back_to_framework_cudnn(
     )
     transformer._optimized_dit_executor = None
 
-    transformer._configure_optimized_dit_from_config()
+    transformer._configure_optimized_dit_from_config(
+        target_device=torch.device("cuda:0")
+    )
 
     assert transformer._optimized_dit_executor is None
     assert transformer._optimized_dit_selection is selection
@@ -649,10 +925,14 @@ def test_sage2_auto_fallback_validates_framework_cuda_graph_path(
     transformer._optimized_dit_executor = None
 
     if error_match is None:
-        transformer._configure_optimized_dit_from_config()
+        transformer._configure_optimized_dit_from_config(
+            target_device=torch.device("cuda:0")
+        )
     else:
         with pytest.raises(ValueError, match=error_match):
-            transformer._configure_optimized_dit_from_config()
+            transformer._configure_optimized_dit_from_config(
+                target_device=torch.device("cuda:0")
+            )
 
     assert transformer._optimized_dit_executor is None
     assert transformer._optimized_dit_selection is not None

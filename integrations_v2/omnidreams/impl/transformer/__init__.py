@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from omnidreams.impl.native.acceleration import (
     NativeAccelerationConfig,
     NativeAccelerationMode,
+    NativeAccelerationUnavailable,
     NativeBackendSelection,
     require_extension_symbols,
 )
@@ -417,8 +418,20 @@ def _resolve_attention_policy(config: CosmosTransformerConfig) -> _AttentionPoli
     )
 
 
-def _native_dit_sage2_availability(extension: Any) -> tuple[bool, str]:
-    """Check that Native DiT and its Sage2 kernel can run on this device."""
+def _native_dit_sage2_availability(
+    extension: Any,
+    *,
+    device: torch.device,
+) -> tuple[bool, str]:
+    """Check that Native DiT and its Sage2 kernel can run on a target device.
+
+    Args:
+        extension: Loaded OmniDreams Native extension.
+        device: CUDA device selected for the model.
+
+    Returns:
+        Whether Native Sage2 is available and an explanatory reason.
+    """
 
     symbols_available, reason = require_extension_symbols(
         "optimized_dit_forward",
@@ -440,16 +453,20 @@ def _native_dit_sage2_availability(extension: Any) -> tuple[bool, str]:
 
     if not torch.cuda.is_available():
         return False, "CUDA is unavailable for Native Sage2"
+    if device.type != "cuda":
+        return False, f"target device {device} is not a CUDA device"
+    if device.index is None:
+        return False, "target CUDA device must have an explicit index"
+    device_index = device.index
     try:
-        device = torch.cuda.current_device()
-    except Exception as exc:
-        return False, f"torch.cuda.current_device() failed: {exc}"
-    try:
-        if not bool(is_runtime_supported(device)):
-            return False, f"CUDA device {device} is not enabled for Native Sage2"
+        if not bool(is_runtime_supported(device_index)):
+            return (
+                False,
+                f"CUDA device {device_index} is not enabled for Native Sage2",
+            )
     except Exception as exc:
         return False, (f"native_extension.sage2_is_runtime_supported() failed: {exc}")
-    return True, "Native DiT Sage2 is available on the current CUDA device"
+    return True, f"Native DiT Sage2 is available on CUDA device {device_index}"
 
 
 ## Transformer
@@ -554,10 +571,24 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
         self._optimized_dit_executor: Any | None = None
         self._optimized_dit_selection: NativeBackendSelection | None = None
-        if config.native_dit_acceleration != "disabled":
-            self._configure_optimized_dit_from_config()
+        # Pipeline setup constructs modules before moving them to the requested
+        # device, so device-dependent Sage2 selection is finalized at cache init.
+        self._native_sage2_selection_pending = (
+            config.native_dit_acceleration != "disabled"
+            and attention_policy.native_backend == "sage2"
+        )
+        self._native_sage2_selection_device: torch.device | None = None
+        if (
+            config.native_dit_acceleration != "disabled"
+            and not self._native_sage2_selection_pending
+        ):
+            self._configure_optimized_dit_from_config(target_device=self.device)
 
-        if config.compile_network and self._optimized_dit_executor is None:
+        if (
+            config.compile_network
+            and self._optimized_dit_executor is None
+            and not self._native_sage2_selection_pending
+        ):
             self.network = compile_module(self.network)
 
         # Cond and CFG-uncond branches each get their own CUDA-graph wrapper
@@ -568,18 +599,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             window_size_t=config.window_size_t,
             len_t=config.len_t,
         )
-        self._cuda_graph_dispatch = CUDAGraphDispatch(
-            self.network,
-            enabled=config.use_cuda_graph,
-            capture_ar_idx=self._cuda_graph_capture_ar_idx,
-            warmup_iters=config.cuda_graph_warmup_iters,
-        )
-        # Compatibility aliases for native acceleration hooks that predate the
-        # shared dispatch helper.
-        self._network_call = self._cuda_graph_dispatch.cond_call or self.network
-        self._network_call_uncond = (
-            self._cuda_graph_dispatch.uncond_call or self.network
-        )
+        self._reset_framework_dispatch()
 
         # Single view: flatten latent to 4D [B, V, L, D] so CP applies on L
         # directly. Multi-view: keep 5D [B, V, T, HW, D] for hierarchical CP.
@@ -591,7 +611,16 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         """Attach a graph-safe distilled text-edit LoRA hook."""
         self._text_edit_lora = edit_lora
 
-    def _configure_optimized_dit_from_config(self) -> None:
+    def _configure_optimized_dit_from_config(
+        self,
+        *,
+        target_device: torch.device,
+    ) -> None:
+        """Select Native DiT using the model's target CUDA device.
+
+        Args:
+            target_device: Device that will own model parameters and caches.
+        """
         from omnidreams.impl.native import omnidreams_singleview
 
         attention_policy = getattr(self, "_attention_policy", None)
@@ -639,7 +668,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
         helper = omnidreams_singleview.load_python_module("optimized_dit")
         availability_check = (
-            _native_dit_sage2_availability
+            (
+                lambda extension: _native_dit_sage2_availability(
+                    extension,
+                    device=target_device,
+                )
+            )
             if attention_backend == "sage2"
             else require_extension_symbols("optimized_dit_forward")
         )
@@ -673,6 +707,64 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             sparge_topk=self.config.native_dit_sparge_topk,
             sparge_hybrid_period=self.config.native_dit_sparge_hybrid_period,
             sparge_hybrid_phase=self.config.native_dit_sparge_hybrid_phase,
+        )
+
+    def _ensure_optimized_dit_configured_for_target_device(self) -> None:
+        """Resolve pending Native Sage2 selection on the model's target device."""
+        target_device = self.device
+        if not self._native_sage2_selection_pending:
+            if (
+                self._native_sage2_selection_device is not None
+                and target_device != self._native_sage2_selection_device
+            ):
+                raise RuntimeError(
+                    "OmniDreams Native Sage2 selection was finalized for "
+                    f"{self._native_sage2_selection_device}, but the model is now "
+                    f"on {target_device}. Move the model to its final device before "
+                    "initializing the first autoregressive cache, or construct a "
+                    "new pipeline."
+                )
+            return
+
+        if target_device.type != "cuda":
+            reason = f"target device {target_device} is not a CUDA device"
+            if self.config.native_dit_acceleration == "required":
+                raise NativeAccelerationUnavailable(reason)
+            self._optimized_dit_selection = NativeBackendSelection(
+                component="optimized_dit",
+                mode=self.config.native_dit_acceleration,
+                enabled=False,
+                reason=reason,
+            )
+            self._attention_policy.validate_cuda_graph(
+                config=self.config,
+                native_selected=False,
+            )
+        else:
+            with torch.cuda.device(target_device):
+                self._configure_optimized_dit_from_config(
+                    target_device=target_device,
+                )
+
+        if self._optimized_dit_executor is None and self.config.compile_network:
+            self.network = compile_module(self.network)
+            self._reset_framework_dispatch()
+        self._native_sage2_selection_device = target_device
+        self._native_sage2_selection_pending = False
+
+    def _reset_framework_dispatch(self) -> None:
+        """Point framework dispatch at the current, possibly compiled network."""
+        self._cuda_graph_dispatch = CUDAGraphDispatch(
+            self.network,
+            enabled=self.config.use_cuda_graph,
+            capture_ar_idx=self._cuda_graph_capture_ar_idx,
+            warmup_iters=self.config.cuda_graph_warmup_iters,
+        )
+        # Compatibility aliases for native acceleration hooks that predate the
+        # shared dispatch helper.
+        self._network_call = self._cuda_graph_dispatch.cond_call or self.network
+        self._network_call_uncond = (
+            self._cuda_graph_dispatch.uncond_call or self.network
         )
 
     def _native_sage2_config_incompatibility(self) -> str | None:
@@ -811,6 +903,8 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             view_names: Length-``V`` view names; required when
                 ``num_views > 1``.
         """
+        self._ensure_optimized_dit_configured_for_target_device()
+
         # Stash per-rollout spatial layout (read by latent_shape,
         # unpatchify_and_maybe_gather_cp, and the network-cache / RoPE setup).
         cfg = self.config

@@ -257,6 +257,8 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
     transformer._output_height = None
     transformer._output_width = None
     transformer._optimized_dit_executor = None
+    transformer._native_sage2_selection_pending = False
+    transformer._native_sage2_selection_device = None
     # ``Transformer.device`` is a property reading from ``self.parameters()``;
     # register a placeholder so it resolves to CPU instead of asserting.
     transformer.register_parameter(
