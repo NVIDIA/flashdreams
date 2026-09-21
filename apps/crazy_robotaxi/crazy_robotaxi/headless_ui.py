@@ -7,11 +7,10 @@ from __future__ import annotations
 
 from torch import Tensor
 
+from crazy_robotaxi.ui import TaxiHudState
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
-
-from crazy_robotaxi.ui import TaxiHudState
 
 
 class CrazyRobotaxiHeadlessUILoop(BlitModelOutputToScreenLoop[TaxiHudState]):
