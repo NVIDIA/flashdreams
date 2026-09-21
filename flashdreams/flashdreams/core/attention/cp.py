@@ -219,22 +219,18 @@ class ContextParallelAttention(NativeAttention):
 
         if tensor_layout == "HND":
             B, H, Sq_local, D = query.shape
-            Bk, Hk, Sk_local, Dk = key.shape
-            Bv, Hv, Sv_local, Dv = value.shape
+            heads_dim = 1
+            sequence_dim = 2
         else:
             B, Sq_local, H, D = query.shape
-            Bk, Sk_local, Hk, Dk = key.shape
-            Bv, Sv_local, Hv, Dv = value.shape
-        if B != Bk or B != Bv or D != Dk or D != Dv:
-            raise ValueError(
-                "Query, key, and value batch sizes and head dimensions must match "
-                "for Ulysses."
-            )
-        if H != Hk or H != Hv:
+            heads_dim = 2
+            sequence_dim = 1
+        Sk_local = key.shape[sequence_dim]
+        if key.shape[heads_dim] != H or value.shape[heads_dim] != H:
             raise ValueError(
                 "Ulysses currently requires equal query, key, and value head counts."
             )
-        if Sk_local != Sv_local:
+        if value.shape[sequence_dim] != Sk_local:
             raise ValueError("Key and value sequence lengths must match for Ulysses.")
         if H % world_size != 0:
             raise ValueError(
