@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -321,6 +322,20 @@ class ModelState:
             live_edit.request_action(action)
 
 
+def _pace_realtime_chunk(
+    shutdown_event: threading.Event,
+    *,
+    frame_count: int,
+    frames_per_second: int,
+    model_step_wall_ms: float,
+) -> tuple[float, float]:
+    chunk_duration_ms = frame_count / frames_per_second * 1000.0
+    realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
+    if realtime_margin_ms > 0.0:
+        shutdown_event.wait(realtime_margin_ms / 1000.0)
+    return chunk_duration_ms, realtime_margin_ms
+
+
 class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
 
@@ -510,8 +525,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         if snapshot.session_state in active_states:
             model_step_wall_ms = (time.perf_counter() - step_wall_started) * 1000.0
             model_step_cpu_ms = (time.thread_time() - step_cpu_started) * 1000.0
-            chunk_duration_ms = (
-                count / state.session_desc.frames_per_second_for_step * 1000.0
+            chunk_duration_ms, realtime_margin_ms = _pace_realtime_chunk(
+                self._shutdown_event,
+                frame_count=count,
+                frames_per_second=state.session_desc.frames_per_second_for_step,
+                model_step_wall_ms=model_step_wall_ms,
             )
             metrics.update(
                 {
@@ -520,7 +538,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 }
             )
             if state.config.pipeline_profiling:
-                realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
                 metrics["model_step_wall_ms"] = model_step_wall_ms
                 metrics["realtime_margin_ms"] = realtime_margin_ms
             physx = engine_step.trajectory.physx_timings
