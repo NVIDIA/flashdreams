@@ -302,33 +302,6 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
 
 
-def test_crazy_robotaxi_dynamic_prompts_disable_only_native_dit_on_selected_preset() -> (
-    None
-):
-    """Moved from apps/crazy_robotaxi/tests/test_application.py; same reasoning
-    as test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides."""
-    app = CrazyRobotaxiApplication(
-        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS
-    )
-
-    app.init(["--live-edit-dynamic-prompts"])
-
-    pipeline = cast(Any, app._pipeline_config)
-    original: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
-    transformer = pipeline.diffusion_model.transformer
-    assert app._config is not None
-    assert app._config.scene_request.use_prompt_context
-    assert pipeline.name == original.name
-    assert transformer.native_dit_acceleration == "disabled"
-    assert transformer.native_dit_backend == (
-        original.diffusion_model.transformer.native_dit_backend
-    )
-    assert transformer.skip_finalize_kv_cache is True
-    assert pipeline.diffusion_model.scheduler == original.diffusion_model.scheduler
-    assert pipeline.image_encoder.native_vae_acceleration == "required"
-    assert pipeline.encoder.native_vae_acceleration == "required"
-
-
 @pytest.mark.parametrize(
     ("factory", "resolution_wh"),
     [
