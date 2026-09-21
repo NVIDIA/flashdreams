@@ -838,10 +838,12 @@ class Block(nn.Module):
         self.layer_norm_cross_attn = nn.LayerNorm(
             x_dim, elementwise_affine=False, eps=1e-6
         )
-        if self.self_attention_backend in {
-            AttentionBackend.OMNIDREAMS,
-            AttentionBackend.SAGE2,
-        }:
+        sdpa_backends: dict[AttentionBackend, Literal["cudnn", "sage2"]] = {
+            AttentionBackend.OMNIDREAMS: "cudnn",
+            AttentionBackend.SAGE2: "sage2",
+        }
+        sdpa_backend = sdpa_backends.get(self.self_attention_backend)
+        if sdpa_backend is not None:
             self.self_attn = SelfAttention(
                 query_dim=x_dim,
                 context_dim=None,
@@ -849,11 +851,7 @@ class Block(nn.Module):
                 head_dim=x_dim // num_heads,
                 cp_method=cp_method,
                 apply_rope_before_kvcache=apply_rope_before_kvcache,
-                attention_backend=(
-                    "sage2"
-                    if self.self_attention_backend is AttentionBackend.SAGE2
-                    else "cudnn"
-                ),
+                attention_backend=sdpa_backend,
             )
         else:
             self.self_attn = OptimizedSelfAttention(

@@ -39,16 +39,25 @@ def _load_sage2_op() -> SageAttentionOp:
         SageAttention's backend-selecting attention callable.
 
     Raises:
-        RuntimeError: SageAttention 2 or its CUDA extension cannot be imported.
+        RuntimeError: SageAttention 2, its entry point, or its CUDA extension is
+            unavailable.
     """
     try:
-        sageattn = getattr(import_module("sageattention"), "sageattn")
+        sageattention = import_module("sageattention")
     except (ImportError, OSError) as exc:
         raise RuntimeError(
             "The 'sage2' attention backend requires SageAttention 2.x with its "
             "CUDA extension built. Install SageAttention before selecting "
             "backend='sage2'."
         ) from exc
+
+    sageattn = getattr(sageattention, "sageattn", None)
+    if not callable(sageattn):
+        raise RuntimeError(
+            "The 'sage2' attention backend requires SageAttention 2.x with a "
+            "callable 'sageattn' entry point and its CUDA extension built. Install "
+            "a compatible SageAttention package before selecting backend='sage2'."
+        )
     return cast(SageAttentionOp, sageattn)
 
 

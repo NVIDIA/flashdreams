@@ -131,8 +131,9 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
     """Self-attention implementation used by every DiT block.
 
-    ``SAGE2`` requires the optional SageAttention 2 package, explicit CUDA graphs
-    disabled, and the Python/framework DiT path.
+    ``SAGE2`` requires the optional SageAttention 2 package and explicit CUDA
+    graphs disabled. A compatible Native DiT configuration uses its native
+    Sage2 kernel; ``auto`` falls back to the framework path when unavailable.
     """
 
     cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS

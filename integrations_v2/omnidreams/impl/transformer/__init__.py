@@ -261,7 +261,8 @@ class CosmosTransformerConfig(TransformerConfig):
     FP8 SDPA path. Set ``sage2``, ``sparge``, ``sage3``, or ``sage3_fp8``
     explicitly to opt into an experimental attention backend. The framework
     ``self_attention_backend="sage2"`` setting also selects ``sage2`` when
-    native DiT acceleration is enabled.
+    native DiT acceleration is enabled. With ``native_dit_acceleration="auto"``,
+    an unavailable Native Sage2 kernel falls back to framework Sage2.
     """
 
     native_dit_sparge_topk: float | None = None
@@ -300,6 +301,41 @@ def _strip_net_prefix(state_dict: dict[str, Tensor]) -> dict[str, Tensor]:
     return out
 
 
+def _native_dit_sage2_availability(extension: Any) -> tuple[bool, str]:
+    """Check that Native DiT and its Sage2 kernel can run on this device."""
+
+    symbols_available, reason = require_extension_symbols(
+        "optimized_dit_forward",
+        "sage2_is_built",
+        "sage2_is_runtime_supported",
+    )(extension)
+    if not symbols_available:
+        return False, reason
+
+    is_built = extension.sage2_is_built
+    is_runtime_supported = extension.sage2_is_runtime_supported
+    if not callable(is_built) or not callable(is_runtime_supported):
+        return False, "native Sage2 availability probes are not callable"
+    try:
+        if not bool(is_built()):
+            return False, "native extension was built with Sage2 stubs"
+    except Exception as exc:
+        return False, f"native_extension.sage2_is_built() failed: {exc}"
+
+    if not torch.cuda.is_available():
+        return False, "CUDA is unavailable for Native Sage2"
+    try:
+        device = torch.cuda.current_device()
+    except Exception as exc:
+        return False, f"torch.cuda.current_device() failed: {exc}"
+    try:
+        if not bool(is_runtime_supported(device)):
+            return False, f"CUDA device {device} is not enabled for Native Sage2"
+    except Exception as exc:
+        return False, (f"native_extension.sage2_is_runtime_supported() failed: {exc}")
+    return True, "Native DiT Sage2 is available on the current CUDA device"
+
+
 ## Transformer
 
 
@@ -310,13 +346,19 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
 
     def __init__(self, config: CosmosTransformerConfig) -> None:
         self_attention_backend = AttentionBackend(config.network.self_attention_backend)
+        native_sage2_requested = (
+            config.native_dit_acceleration != "disabled"
+            and config.native_dit_attention_backend == "sage2"
+        )
+        if config.use_cuda_graph and (
+            self_attention_backend is AttentionBackend.SAGE2 or native_sage2_requested
+        ):
+            raise ValueError(
+                "OmniDreams SageAttention 2 is incompatible with "
+                "use_cuda_graph=True in both the framework and Native DiT paths. "
+                "Set use_cuda_graph=False or select another attention backend."
+            )
         if self_attention_backend is AttentionBackend.SAGE2:
-            if config.native_dit_acceleration == "disabled" and config.use_cuda_graph:
-                raise ValueError(
-                    "OmniDreams SageAttention 2 self-attention is incompatible "
-                    "with use_cuda_graph=True. Set use_cuda_graph=False or select "
-                    "another self_attention_backend."
-                )
             if (
                 config.native_dit_acceleration != "disabled"
                 and config.native_dit_attention_backend not in {"auto", "sage2"}
@@ -328,7 +370,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                     "DiT acceleration is enabled."
                 )
             if (
-                config.native_dit_acceleration != "disabled"
+                config.native_dit_acceleration == "required"
                 and config.native_dit_backend != "fp8_kvcache_cudnn"
             ):
                 raise ValueError(
@@ -442,7 +484,28 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     def _configure_optimized_dit_from_config(self) -> None:
         from omnidreams.impl.native import omnidreams_singleview
 
+        attention_backend = self.config.native_dit_attention_backend
+        if self.config.network.self_attention_backend == AttentionBackend.SAGE2.value:
+            attention_backend = "sage2"
+        if attention_backend == "sage2":
+            incompatibility = self._native_sage2_config_incompatibility()
+            if incompatibility is not None:
+                if self.config.native_dit_acceleration == "required":
+                    raise ValueError(incompatibility)
+                self._optimized_dit_selection = NativeBackendSelection(
+                    component="optimized_dit",
+                    mode=self.config.native_dit_acceleration,
+                    enabled=False,
+                    reason=incompatibility,
+                )
+                return
+
         helper = omnidreams_singleview.load_python_module("optimized_dit")
+        availability_check = (
+            _native_dit_sage2_availability
+            if attention_backend == "sage2"
+            else require_extension_symbols("optimized_dit_forward")
+        )
         native_config = NativeAccelerationConfig(
             mode=self.config.native_dit_acceleration,
             build_root=self.config.native_dit_build_root,
@@ -452,14 +515,11 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         selection = omnidreams_singleview.select_backend(
             "optimized_dit",
             native_config,
-            availability_check=require_extension_symbols("optimized_dit_forward"),
+            availability_check=availability_check,
         )
         self._optimized_dit_selection = selection
         if not selection.enabled:
             return
-        attention_backend = self.config.native_dit_attention_backend
-        if self.config.network.self_attention_backend == AttentionBackend.SAGE2.value:
-            attention_backend = "sage2"
         self._optimized_dit_executor = helper.OptimizedDiTExecutor(
             self,
             selection.require_extension(),
@@ -469,6 +529,22 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             sparge_hybrid_period=self.config.native_dit_sparge_hybrid_period,
             sparge_hybrid_phase=self.config.native_dit_sparge_hybrid_phase,
         )
+
+    def _native_sage2_config_incompatibility(self) -> str | None:
+        """Return why this model configuration cannot use Native Sage2."""
+
+        if self.config.native_dit_backend != "fp8_kvcache_cudnn":
+            return (
+                "OmniDreams Native SageAttention 2 requires "
+                "native_dit_backend='fp8_kvcache_cudnn'."
+            )
+        head_dim = self.config.network.model_channels // self.config.network.num_heads
+        if head_dim not in {64, 128}:
+            return (
+                "OmniDreams Native SageAttention 2 requires head_dim=64 or 128, "
+                f"got {head_dim}."
+            )
+        return None
 
     ## Patchify / CP plumbing
 
