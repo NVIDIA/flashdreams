@@ -129,7 +129,11 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     """Context-parallel attention method for transformer attention ops."""
 
     self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
-    """Self-attention implementation used by every DiT block."""
+    """Self-attention implementation used by every DiT block.
+
+    ``SAGE2`` requires the optional SageAttention 2 package, explicit CUDA graphs
+    disabled, and the Python/framework DiT path.
+    """
 
     cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
     """Text and cross-view attention implementation used by every DiT block."""

@@ -56,6 +56,9 @@ class AttentionBackend(str, Enum):
     OPTIMIZED = "optimized"
     """Use optimized attention for the selected branch."""
 
+    SAGE2 = "sage2"
+    """Use SageAttention 2 through FlashDreams' context-parallel adapter."""
+
 
 class GPT2FeedForward(nn.Module):
     """GPT-2 style feed-forward network with GELU activation."""
@@ -275,6 +278,7 @@ class MultiHeadAttention(nn.Module):
         head_dim: int = 64,
         cp_method: Literal["ring", "ulysses"] = "ring",
         apply_rope_before_kvcache: bool = True,
+        attention_backend: Literal["cudnn", "sage2"] = "cudnn",
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -286,6 +290,7 @@ class MultiHeadAttention(nn.Module):
             cp_method: Context-parallel attention method.
             apply_rope_before_kvcache: Rotate keys before caching. ``False``
                 stores unrotated keys and applies cache-relative RoPE on read.
+            attention_backend: Kernel backend for this attention module.
         """
         super().__init__()
         context_dim = query_dim if context_dim is None else context_dim
@@ -306,7 +311,7 @@ class MultiHeadAttention(nn.Module):
         self.k_norm = nn.RMSNorm(self.head_dim, eps=1e-6)
 
         self.attn_op = ContextParallelAttention(
-            qkv_format="bshd", backend="cudnn", method=cp_method
+            qkv_format="bshd", backend=attention_backend, method=cp_method
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
@@ -819,6 +824,10 @@ class Block(nn.Module):
         self.cross_attention_backend = AttentionBackend(cross_attention_backend)
         self.self_attn_optimized_impl_config = self_attn_optimized_impl_config
         self.cross_attn_optimized_impl_config = cross_attn_optimized_impl_config
+        if self.cross_attention_backend is AttentionBackend.SAGE2:
+            raise ValueError(
+                "OmniDreams supports SageAttention 2 for self-attention only."
+            )
 
         # Self-attention
         self.layer_norm_self_attn = nn.LayerNorm(
@@ -829,7 +838,10 @@ class Block(nn.Module):
         self.layer_norm_cross_attn = nn.LayerNorm(
             x_dim, elementwise_affine=False, eps=1e-6
         )
-        if self.self_attention_backend is AttentionBackend.OMNIDREAMS:
+        if self.self_attention_backend in {
+            AttentionBackend.OMNIDREAMS,
+            AttentionBackend.SAGE2,
+        }:
             self.self_attn = SelfAttention(
                 query_dim=x_dim,
                 context_dim=None,
@@ -837,6 +849,11 @@ class Block(nn.Module):
                 head_dim=x_dim // num_heads,
                 cp_method=cp_method,
                 apply_rope_before_kvcache=apply_rope_before_kvcache,
+                attention_backend=(
+                    "sage2"
+                    if self.self_attention_backend is AttentionBackend.SAGE2
+                    else "cudnn"
+                ),
             )
         else:
             self.self_attn = OptimizedSelfAttention(

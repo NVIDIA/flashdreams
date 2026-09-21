@@ -143,6 +143,8 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     """Multiplier applied to raw timestep values before sinusoidal embedding."""
     cp_method: Literal["ring", "ulysses"] = "ring"
     """Context-parallel attention method for transformer attention ops."""
+    self_attention_backend: Literal["cudnn", "sage2"] = "cudnn"
+    """Kernel backend for self-attention; cross-attention always uses cuDNN."""
 
 
 class CosmosDiTNetwork(nn.Module):
@@ -197,6 +199,7 @@ class CosmosDiTNetwork(nn.Module):
                     use_adaln_lora=self.config.use_adaln_lora,
                     adaln_lora_dim=self.config.adaln_lora_dim,
                     cp_method=self.config.cp_method,
+                    self_attention_backend=self.config.self_attention_backend,
                 )
                 for _ in range(self.config.num_blocks)
             ]

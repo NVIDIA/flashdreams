@@ -80,6 +80,8 @@ class TemplateDiTConfig(InstantiateConfig):
     """Expansion factor applied to ``model_channels`` inside the FFN."""
     cp_method: Literal["ring", "ulysses"] = "ring"
     """Context-parallel attention method used by this network."""
+    self_attention_backend: Literal["cudnn", "sage2"] = "cudnn"
+    """Kernel backend used by self-attention."""
 
     def __post_init__(self) -> None:
         assert self.model_channels % self.num_heads == 0, (
@@ -128,7 +130,7 @@ class TemplateDiT(nn.Module):
         # ``bshd`` matches native ``[B, S, H, d_h]`` layout.
         self.attn = ContextParallelAttention(
             qkv_format="bshd",
-            backend="cudnn",
+            backend=config.self_attention_backend,
             method=config.cp_method,
         )
         self.attn_out = nn.Linear(D, D)

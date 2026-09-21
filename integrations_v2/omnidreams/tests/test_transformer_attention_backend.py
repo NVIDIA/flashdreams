@@ -15,12 +15,16 @@
 
 """CPU coverage for Omnidreams DiT attention backend selection."""
 
+from typing import Literal
+
 import pytest
 import torch
+from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
 from omnidreams.impl.transformer import modules as transformer_modules
 from omnidreams.impl.transformer.modules import AttentionBackend, Block
 from omnidreams.impl.transformer.network import CosmosDiTNetwork, CosmosDiTNetworkConfig
 
+import flashdreams.core.attention.native as native_attention
 from flashdreams.accelerated.multi_head_attention import (
     AttentionType,
     RoPEScope,
@@ -109,6 +113,70 @@ def test_network_config_selects_attention_backends_independently(
     assert isinstance(block.self_attn, expected_self_type)
     assert isinstance(block.cross_attn, expected_cross_type)
     assert isinstance(block.cross_view_attn, expected_cross_type)
+
+
+def test_network_config_selects_sage2_self_attention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Route Sage2 through framework self-attention and keep cross-attention unchanged."""
+    monkeypatch.setattr(
+        native_attention,
+        "_load_sage2_op",
+        lambda: lambda *args, **kwargs: args[0],
+    )
+    config = CosmosDiTNetworkConfig(
+        model_channels=32,
+        num_blocks=1,
+        num_heads=2,
+        crossattn_emb_channels=16,
+        use_crossattn_projection=False,
+        self_attention_backend=AttentionBackend.SAGE2,
+        cross_attention_backend=AttentionBackend.OMNIDREAMS,
+    )
+
+    block = CosmosDiTNetwork(config).blocks[0]
+
+    assert block.self_attention_backend is AttentionBackend.SAGE2
+    assert isinstance(block.self_attn, transformer_modules.SelfAttention)
+    assert block.self_attn.attn_op.backend == "sage2"
+    assert isinstance(block.cross_attn, transformer_modules.CrossAttention)
+    assert block.cross_attn.attn_op.backend == "cudnn"
+
+
+def test_sage2_rejects_cross_attention() -> None:
+    """Keep Sage2 scoped to the long self-attention shapes that were validated."""
+    with pytest.raises(ValueError, match="self-attention only"):
+        Block(
+            x_dim=32,
+            context_dim=16,
+            num_heads=2,
+            cross_attention_backend=AttentionBackend.SAGE2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("use_cuda_graph", "native_dit_acceleration", "error"),
+    (
+        (True, "disabled", "use_cuda_graph=True"),
+        (False, "required", "Python/framework DiT path"),
+    ),
+)
+def test_sage2_rejects_incompatible_omnidreams_execution_paths(
+    use_cuda_graph: bool,
+    native_dit_acceleration: Literal["disabled", "required"],
+    error: str,
+) -> None:
+    """Reject configurations that would ignore or incorrectly replay Sage2."""
+    config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=AttentionBackend.SAGE2,
+        ),
+        use_cuda_graph=use_cuda_graph,
+        native_dit_acceleration=native_dit_acceleration,
+    )
+
+    with pytest.raises(ValueError, match=error):
+        CosmosTransformer(config)
 
 
 def test_omnidreams_attention_preserves_cache_lifecycles(

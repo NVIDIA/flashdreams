@@ -52,6 +52,7 @@ from .context_parallel import (
     HierarchicalCPGroups,
     create_hierarchical_cp_groups,
 )
+from .modules import AttentionBackend
 from .network import (
     CosmosDiTNetwork,
     CosmosDiTNetworkCache,
@@ -306,6 +307,19 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     network: CosmosDiTNetwork
 
     def __init__(self, config: CosmosTransformerConfig) -> None:
+        self_attention_backend = AttentionBackend(config.network.self_attention_backend)
+        if self_attention_backend is AttentionBackend.SAGE2:
+            if config.use_cuda_graph:
+                raise ValueError(
+                    "OmniDreams SageAttention 2 self-attention is incompatible "
+                    "with use_cuda_graph=True. Set use_cuda_graph=False or select "
+                    "another self_attention_backend."
+                )
+            if config.native_dit_acceleration != "disabled":
+                raise ValueError(
+                    "OmniDreams SageAttention 2 self-attention requires the "
+                    "Python/framework DiT path. Set native_dit_acceleration='disabled'."
+                )
         super().__init__(config)
         self.config: CosmosTransformerConfig = config
 
