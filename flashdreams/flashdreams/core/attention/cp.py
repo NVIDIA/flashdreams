@@ -92,13 +92,10 @@ class ContextParallelAttention(NativeAttention):
         return tensor
 
     def _impl(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
-        tensor_layout: Literal["HND", "NHD"] = (
-            "NHD" if self.backend == "sage2" and self.qkv_format == "bshd" else "HND"
-        )
         if self.method == "ring":
-            return self._impl_ring(query, key, value, tensor_layout)
+            return self._impl_ring(query, key, value)
         if self.method == "ulysses":
-            return self._impl_ulysses(query, key, value, tensor_layout)
+            return self._impl_ulysses(query, key, value)
         raise ValueError(f"Unsupported context parallel method: {self.method}")
 
     def _local_attention(
@@ -106,7 +103,6 @@ class ContextParallelAttention(NativeAttention):
         query: Tensor,
         key: Tensor,
         value: Tensor,
-        tensor_layout: Literal["HND", "NHD"],
         return_lse: bool,
     ) -> tuple[Tensor, Tensor | None]:
         """Run one local attention shard with the configured backend."""
@@ -115,37 +111,24 @@ class ContextParallelAttention(NativeAttention):
                 query,
                 key,
                 value,
-                tensor_layout=tensor_layout,
                 return_lse=return_lse,
             )
-        if tensor_layout != "HND":
-            raise RuntimeError("Native SDPA backends require HND input layout.")
         attn_op = {
             "cudnn": torch_sdpa_cudnn,
             "flash": torch_sdpa_flash,
         }[self.backend]
         return attn_op(query, key, value, return_lse=return_lse)
 
-    def _impl_ring(
-        self,
-        query: Tensor,
-        key: Tensor,
-        value: Tensor,
-        tensor_layout: Literal["HND", "NHD"],
-    ) -> Tensor:
+    def _impl_ring(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
         """Ring attention: all-gather KV across CP ranks and LSE-merge outputs."""
         if self.device_mesh is None:
-            return self._local_attention(
-                query, key, value, tensor_layout, return_lse=False
-            )[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         rank = self.device_mesh.get_rank()
         world_size = self.device_mesh.size()
         group = self.device_mesh.get_group()
         if world_size == 1:
-            return self._local_attention(
-                query, key, value, tensor_layout, return_lse=False
-            )[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         next_rank = (rank + 1) % world_size
         prev_out = prev_lse = None
@@ -167,9 +150,7 @@ class ContextParallelAttention(NativeAttention):
                 value = kv[key.numel() :].reshape_as(value)
                 next_rank = (next_rank + 1) % world_size
 
-            out, lse = self._local_attention(
-                query, key, value, tensor_layout, return_lse=True
-            )
+            out, lse = self._local_attention(query, key, value, return_lse=True)
             if lse is None:
                 raise AssertionError("LSE is None")
 
@@ -186,8 +167,6 @@ class ContextParallelAttention(NativeAttention):
 
                 if prev_out is not None and prev_lse is not None:
                     merge_weight = torch.nn.functional.sigmoid(lse - prev_lse)
-                    if tensor_layout == "NHD":
-                        merge_weight = merge_weight.transpose(1, 2)
                     while merge_weight.ndim < out.ndim:
                         merge_weight = merge_weight.unsqueeze(-1)
                     out = prev_out - merge_weight * (prev_out - out)
@@ -198,40 +177,17 @@ class ContextParallelAttention(NativeAttention):
         out = out.to(query.dtype)
         return out
 
-    def _impl_ulysses(
-        self,
-        query: Tensor,
-        key: Tensor,
-        value: Tensor,
-        tensor_layout: Literal["HND", "NHD"],
-    ) -> Tensor:
+    def _impl_ulysses(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
         """Ulysses attention: all-to-all QKV, local SDPA, all-to-all output restore."""
         if self.device_mesh is None:
-            return self._local_attention(
-                query, key, value, tensor_layout, return_lse=False
-            )[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         world_size = self.device_mesh.size()
         if world_size == 1:
-            return self._local_attention(
-                query, key, value, tensor_layout, return_lse=False
-            )[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
-        if tensor_layout == "HND":
-            B, H, Sq_local, D = query.shape
-            heads_dim = 1
-            sequence_dim = 2
-        else:
-            B, Sq_local, H, D = query.shape
-            heads_dim = 2
-            sequence_dim = 1
-        Sk_local = key.shape[sequence_dim]
-        if key.shape[heads_dim] != H or value.shape[heads_dim] != H:
-            raise ValueError(
-                "Ulysses currently requires equal query, key, and value head counts."
-            )
-        if value.shape[sequence_dim] != Sk_local:
-            raise ValueError("Key and value sequence lengths must match for Ulysses.")
+        B, H, Sq_local, D = query.shape
+        _, _, Sk_local, _ = key.shape
         if H % world_size != 0:
             raise ValueError(
                 f"Number of heads ({H}) must be divisible by CP size "
@@ -240,60 +196,29 @@ class ContextParallelAttention(NativeAttention):
         H_local = H // world_size
         group = self.device_mesh.get_group()
 
-        if tensor_layout == "HND":
-            query = query.reshape(B, world_size, H_local, Sq_local, D).permute(
-                1, 3, 0, 2, 4
-            )
-            key = key.reshape(B, world_size, H_local, Sk_local, D).permute(
-                1, 3, 0, 2, 4
-            )
-            value = value.reshape(B, world_size, H_local, Sk_local, D).permute(
-                1, 3, 0, 2, 4
-            )
-        else:
-            query = query.reshape(B, Sq_local, world_size, H_local, D).permute(
-                2, 1, 0, 3, 4
-            )
-            key = key.reshape(B, Sk_local, world_size, H_local, D).permute(
-                2, 1, 0, 3, 4
-            )
-            value = value.reshape(B, Sk_local, world_size, H_local, D).permute(
-                2, 1, 0, 3, 4
-            )
+        query = query.reshape(B, world_size, H_local, Sq_local, D).permute(
+            1, 3, 0, 2, 4
+        )
+        key = key.reshape(B, world_size, H_local, Sk_local, D).permute(1, 3, 0, 2, 4)
+        value = value.reshape(B, world_size, H_local, Sk_local, D).permute(
+            1, 3, 0, 2, 4
+        )
         query, key, value = (tensor.contiguous() for tensor in (query, key, value))
         query, key, value = (
             self._wait_collective(funcol.all_to_all_single(x, None, None, group=group))
             for x in (query, key, value)
         )
-        if tensor_layout == "HND":
-            query, key, value = (
-                x.flatten(0, 1).permute(1, 2, 0, 3).contiguous()
-                for x in (query, key, value)
-            )
-        else:
-            query, key, value = (
-                x.flatten(0, 1).permute(1, 0, 2, 3).contiguous()
-                for x in (query, key, value)
-            )
-
-        out, _ = self._local_attention(
-            query, key, value, tensor_layout, return_lse=False
+        query, key, value = (
+            x.flatten(0, 1).permute(1, 2, 0, 3).contiguous()
+            for x in (query, key, value)
         )
 
-        if tensor_layout == "HND":
-            out = out.reshape(B, H_local, world_size, Sq_local, D).permute(
-                2, 1, 0, 3, 4
-            )
-        else:
-            out = out.reshape(B, world_size, Sq_local, H_local, D).permute(
-                1, 3, 0, 2, 4
-            )
+        out, _ = self._local_attention(query, key, value, return_lse=False)
+
+        out = out.reshape(B, H_local, world_size, Sq_local, D).permute(2, 1, 0, 3, 4)
         out = out.contiguous()
         out = self._wait_collective(
             funcol.all_to_all_single(out, None, None, group=group)
         )
-        if tensor_layout == "HND":
-            out = out.flatten(0, 1).permute(1, 0, 2, 3).contiguous()
-        else:
-            out = out.flatten(0, 1).permute(1, 2, 0, 3).contiguous()
+        out = out.flatten(0, 1).permute(1, 0, 2, 3).contiguous()
         return out

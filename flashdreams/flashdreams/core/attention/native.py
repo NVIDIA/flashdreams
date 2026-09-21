@@ -56,15 +56,13 @@ def _validate_sage2_inputs(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    tensor_layout: Literal["HND", "NHD"],
 ) -> None:
     """Validate QKV constraints imposed by SageAttention 2.
 
     Args:
-        query: Query tensor in ``tensor_layout``.
-        key: Key tensor in ``tensor_layout``.
-        value: Value tensor in ``tensor_layout``.
-        tensor_layout: SageAttention layout identifier.
+        query: Query tensor in ``HND`` layout.
+        key: Key tensor in ``HND`` layout.
+        value: Value tensor in ``HND`` layout.
 
     Raises:
         ValueError: QKV rank, shape, dtype, device, or stride is unsupported.
@@ -95,18 +93,16 @@ def _validate_sage2_inputs(
             f"{head_dims[0]}."
         )
 
-    sequence_dim = 2 if tensor_layout == "HND" else 1
-    heads_dim = 1 if tensor_layout == "HND" else 2
     if not (query.shape[0] == key.shape[0] == value.shape[0]):
         raise ValueError(
             "SageAttention 2 requires query, key, and value to have the same batch "
             "size."
         )
-    if key.shape[sequence_dim] != value.shape[sequence_dim]:
+    if key.shape[2] != value.shape[2]:
         raise ValueError(
             "SageAttention 2 requires key and value sequence lengths to match."
         )
-    head_counts = tuple(tensor.shape[heads_dim] for tensor in tensors)
+    head_counts = tuple(tensor.shape[1] for tensor in tensors)
     if len(set(head_counts)) != 1:
         raise ValueError(
             "SageAttention 2 currently requires query, key, and value to have "
@@ -196,14 +192,12 @@ class NativeAttention(torch.nn.Module):
         Returns:
             Attention output in the same format as inputs.
         """
-        # SageAttention consumes NHD directly; SDPA expects HND.
-        sage_nhd = self.backend == "sage2" and self.qkv_format == "bshd"
-        if self.qkv_format == "bshd" and not sage_nhd:
+        if self.qkv_format == "bshd":
             query = query.transpose(1, 2)
             key = key.transpose(1, 2)
             value = value.transpose(1, 2)
         out = self._impl(query=query, key=key, value=value)
-        if self.qkv_format == "bshd" and not sage_nhd:
+        if self.qkv_format == "bshd":
             out = out.transpose(1, 2)
         return out
 
@@ -212,16 +206,14 @@ class NativeAttention(torch.nn.Module):
         query: Tensor,
         key: Tensor,
         value: Tensor,
-        tensor_layout: Literal["HND", "NHD"],
         return_lse: bool,
     ) -> tuple[Tensor, Tensor | None]:
         """Run SageAttention 2 and normalize its optional LSE result.
 
         Args:
-            query: Query tensor in ``tensor_layout``.
-            key: Key tensor in ``tensor_layout``.
-            value: Value tensor in ``tensor_layout``.
-            tensor_layout: SageAttention layout identifier.
+            query: Query tensor in ``HND`` layout.
+            key: Key tensor in ``HND`` layout.
+            value: Value tensor in ``HND`` layout.
             return_lse: Return natural-log softmax normalization factors.
 
         Returns:
@@ -233,12 +225,12 @@ class NativeAttention(torch.nn.Module):
         """
         if self._sage2_op is None:
             raise RuntimeError("SageAttention 2 was not initialized for this module.")
-        _validate_sage2_inputs(query, key, value, tensor_layout)
+        _validate_sage2_inputs(query, key, value)
         result = self._sage2_op(
             query,
             key,
             value,
-            tensor_layout=tensor_layout,
+            tensor_layout="HND",
             is_causal=False,
             return_lse=return_lse,
         )
@@ -266,12 +258,10 @@ class NativeAttention(torch.nn.Module):
                 f"{tuple(out.shape)} != {tuple(query.shape)}."
             )
         if lse is not None:
-            sequence_dim = 2 if tensor_layout == "HND" else 1
-            heads_dim = 1 if tensor_layout == "HND" else 2
             expected_lse_shape = (
                 query.shape[0],
-                query.shape[heads_dim],
-                query.shape[sequence_dim],
+                query.shape[1],
+                query.shape[2],
             )
             if lse.shape != expected_lse_shape:
                 raise RuntimeError(
@@ -302,14 +292,10 @@ class NativeAttention(torch.nn.Module):
                     "NativeAttention's context-parallel wrapper only supports SDPA "
                     "backends. Use ContextParallelAttention with backend='sage2'."
                 )
-            tensor_layout: Literal["HND", "NHD"] = (
-                "NHD" if self.qkv_format == "bshd" else "HND"
-            )
             return self._run_sage2(
                 query,
                 key,
                 value,
-                tensor_layout=tensor_layout,
                 return_lse=False,
             )[0]
 
