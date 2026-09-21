@@ -28,7 +28,7 @@ from torch.distributed import ProcessGroup
 from torch.distributed.tensor.device_mesh import DeviceMesh
 from torch.distributed.tensor.experimental import context_parallel
 
-SageAttentionOp = Callable[..., Tensor | tuple[Tensor, Tensor]]
+SageAttentionOp = Callable[..., "Tensor | tuple[Tensor, Tensor]"]
 
 
 @cache

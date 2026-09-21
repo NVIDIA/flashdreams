@@ -16,14 +16,18 @@
 """CPU coverage for Omnidreams DiT attention backend selection."""
 
 from types import SimpleNamespace
+from typing import Literal
 
 import pytest
 import torch
 from omnidreams.impl.native.acceleration import (
-    NativeAccelerationMode,
     NativeAccelerationUnavailable,
 )
-from omnidreams.impl.transformer import CosmosTransformer, CosmosTransformerConfig
+from omnidreams.impl.transformer import (
+    CosmosTransformer,
+    CosmosTransformerConfig,
+    _resolve_attention_policy,
+)
 from omnidreams.impl.transformer import modules as transformer_modules
 from omnidreams.impl.transformer.modules import AttentionBackend, Block
 from omnidreams.impl.transformer.network import CosmosDiTNetwork, CosmosDiTNetworkConfig
@@ -74,6 +78,49 @@ def test_dit_attention_backend_defaults_to_omnidreams() -> None:
     assert isinstance(default_block.self_attn, transformer_modules.SelfAttention)
     assert default_block.self_attn.apply_rope_before_kvcache
     assert isinstance(default_block.cross_attn, transformer_modules.CrossAttention)
+
+
+@pytest.mark.parametrize(
+    (
+        "framework_backend",
+        "configured_native_backend",
+        "expected_native_backend",
+        "expected_override",
+    ),
+    (
+        (AttentionBackend.OMNIDREAMS, "auto", "cudnn", False),
+        (AttentionBackend.SAGE2, "auto", "sage2", False),
+        (AttentionBackend.OMNIDREAMS, "sage2", "sage2", True),
+        (AttentionBackend.OPTIMIZED, "sage3", "sage3", True),
+    ),
+    ids=(
+        "framework-cudnn-native-default",
+        "unified-sage2",
+        "native-only-sage2-override",
+        "optimized-framework-native-sage3-override",
+    ),
+)
+def test_attention_policy_resolves_framework_fallback_and_native_backend(
+    framework_backend: AttentionBackend,
+    configured_native_backend: str,
+    expected_native_backend: str,
+    expected_override: bool,
+) -> None:
+    """Keep framework fallback separate from an explicit Native override."""
+    config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=framework_backend,
+        ),
+        native_dit_acceleration="auto",
+        native_dit_attention_backend=configured_native_backend,
+        use_cuda_graph=False,
+    )
+
+    policy = _resolve_attention_policy(config)
+
+    assert policy.framework_backend is framework_backend
+    assert policy.native_backend == expected_native_backend
+    assert policy.native_backend_was_explicit is expected_override
 
 
 @pytest.mark.parametrize(
@@ -159,14 +206,65 @@ def test_sage2_rejects_cross_attention() -> None:
 
 
 @pytest.mark.parametrize(
+    (
+        "framework_backend",
+        "configured_native_backend",
+        "native_selected",
+        "error_match",
+    ),
+    (
+        (AttentionBackend.SAGE2, "auto", False, "framework SageAttention 2"),
+        (AttentionBackend.SAGE2, "auto", True, "Native SageAttention 2"),
+        (AttentionBackend.OMNIDREAMS, "sage2", True, "Native SageAttention 2"),
+        (AttentionBackend.OMNIDREAMS, "sage2", False, None),
+        (AttentionBackend.OMNIDREAMS, "auto", True, None),
+    ),
+    ids=(
+        "unified-sage2-framework-fallback",
+        "unified-sage2-native",
+        "native-only-sage2-selected",
+        "native-only-sage2-cudnn-fallback",
+        "native-cudnn",
+    ),
+)
+def test_attention_policy_validates_cuda_graph_on_effective_path(
+    framework_backend: AttentionBackend,
+    configured_native_backend: str,
+    native_selected: bool,
+    error_match: str | None,
+) -> None:
+    """Validate graph support after Native selection determines the real path."""
+    config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=framework_backend,
+        ),
+        use_cuda_graph=True,
+        native_dit_acceleration="auto",
+        native_dit_attention_backend=configured_native_backend,
+    )
+    policy = _resolve_attention_policy(config)
+
+    if error_match is None:
+        policy.validate_cuda_graph(
+            config=config,
+            native_selected=native_selected,
+        )
+    else:
+        with pytest.raises(ValueError, match=error_match):
+            policy.validate_cuda_graph(
+                config=config,
+                native_selected=native_selected,
+            )
+
+
+@pytest.mark.parametrize(
     "native_dit_acceleration",
     ("disabled", "auto", "required"),
-    ids=("framework", "native-auto", "native-required"),
 )
-def test_sage2_rejects_cuda_graph_for_all_execution_paths(
-    native_dit_acceleration: NativeAccelerationMode,
+def test_unified_sage2_rejects_cuda_graph_before_model_allocation(
+    native_dit_acceleration: Literal["disabled", "auto", "required"],
 ) -> None:
-    """Reject CUDA graph replay before either Sage2 execution path is built."""
+    """Reject the unified Sage2 graph policy before model allocation."""
     config = CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(
             self_attention_backend=AttentionBackend.SAGE2,
@@ -175,8 +273,32 @@ def test_sage2_rejects_cuda_graph_for_all_execution_paths(
         native_dit_acceleration=native_dit_acceleration,
     )
 
-    with pytest.raises(ValueError, match="use_cuda_graph=True"):
+    with pytest.raises(ValueError, match="framework SageAttention 2"):
         CosmosTransformer(config)
+
+
+def test_disabled_native_sage2_override_keeps_framework_cudnn_graph() -> None:
+    """Ignore a Native-only override when Native execution is disabled."""
+    config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            model_channels=32,
+            num_blocks=1,
+            num_heads=2,
+            crossattn_emb_channels=16,
+            use_crossattn_projection=False,
+            enable_cross_view_attn=False,
+            self_attention_backend=AttentionBackend.OMNIDREAMS,
+        ),
+        compile_network=False,
+        use_cuda_graph=True,
+        native_dit_acceleration="disabled",
+        native_dit_attention_backend="sage2",
+    )
+
+    transformer = CosmosTransformer(config)
+
+    assert transformer._optimized_dit_executor is None
+    assert transformer._cuda_graph_dispatch.enabled
 
 
 def test_sage2_rejects_conflicting_native_attention_backend() -> None:
@@ -209,10 +331,21 @@ def test_sage2_rejects_incompatible_native_dit_compute_backend() -> None:
         CosmosTransformer(config)
 
 
-def test_sage2_unified_switch_routes_to_native_executor(
+@pytest.mark.parametrize(
+    ("framework_backend", "configured_native_backend", "expected_override"),
+    (
+        (AttentionBackend.SAGE2, "auto", False),
+        (AttentionBackend.OMNIDREAMS, "sage2", True),
+    ),
+    ids=("unified-switch", "native-only-override"),
+)
+def test_sage2_policy_routes_to_native_executor(
     monkeypatch: pytest.MonkeyPatch,
+    framework_backend: AttentionBackend,
+    configured_native_backend: str,
+    expected_override: bool,
 ) -> None:
-    """Map self_attention_backend=sage2 into the Native DiT executor."""
+    """Pass the policy's effective Sage2 backend into the Native executor."""
     from omnidreams.impl.native import omnidreams_singleview
 
     captured: dict[str, object] = {}
@@ -240,16 +373,20 @@ def test_sage2_unified_switch_routes_to_native_executor(
     torch.nn.Module.__init__(transformer)
     transformer.config = CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(
-            self_attention_backend=AttentionBackend.SAGE2,
+            self_attention_backend=framework_backend,
         ),
         native_dit_acceleration="required",
-        native_dit_attention_backend="auto",
+        native_dit_attention_backend=configured_native_backend,
         use_cuda_graph=False,
     )
 
     transformer._configure_optimized_dit_from_config()
 
     assert captured["attention_backend"] == "sage2"
+    assert transformer._attention_policy.framework_backend is framework_backend
+    assert (
+        transformer._attention_policy.native_backend_was_explicit is expected_override
+    )
 
 
 @pytest.mark.parametrize(
@@ -348,7 +485,7 @@ def test_sage2_required_native_selection_rejects_blackwell_stub(
         ),
         native_dit_acceleration="required",
         native_dit_attention_backend="auto",
-        use_cuda_graph=False,
+        use_cuda_graph=True,
     )
     transformer._optimized_dit_executor = None
 
@@ -356,9 +493,36 @@ def test_sage2_required_native_selection_rejects_blackwell_stub(
         transformer._configure_optimized_dit_from_config()
 
 
-def test_explicit_native_sage2_rejects_cuda_graph_before_executor() -> None:
-    """Also guard the native-only Sage2 switch when framework attention is cuDNN."""
-    config = CosmosTransformerConfig(
+def test_selected_native_sage2_rejects_cuda_graph_before_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject Native Sage2 replay after selection and before executor construction."""
+    from omnidreams.impl.native import omnidreams_singleview
+
+    executor_constructed = False
+
+    class FakeExecutor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            nonlocal executor_constructed
+            executor_constructed = True
+
+    selection = SimpleNamespace(
+        enabled=True,
+        require_extension=lambda: object(),
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "load_python_module",
+        lambda name: SimpleNamespace(OptimizedDiTExecutor=FakeExecutor),
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "select_backend",
+        lambda *args, **kwargs: selection,
+    )
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    transformer.config = CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(
             self_attention_backend=AttentionBackend.OMNIDREAMS,
         ),
@@ -366,26 +530,129 @@ def test_explicit_native_sage2_rejects_cuda_graph_before_executor() -> None:
         native_dit_attention_backend="sage2",
         use_cuda_graph=True,
     )
+    transformer._optimized_dit_executor = None
 
-    with pytest.raises(ValueError, match="use_cuda_graph=True"):
-        CosmosTransformer(config)
+    with pytest.raises(ValueError, match="Native SageAttention 2"):
+        transformer._configure_optimized_dit_from_config()
+
+    assert executor_constructed is False
 
 
-def test_sage2_auto_falls_back_for_incompatible_native_compute_backend() -> None:
-    """Treat an incompatible Native compute backend as unavailable in auto mode."""
+@pytest.mark.parametrize(
+    ("framework_backend", "configured_native_backend", "error_match"),
+    (
+        (AttentionBackend.OMNIDREAMS, "sage2", None),
+        (AttentionBackend.SAGE2, "auto", "framework SageAttention 2"),
+    ),
+    ids=("native-only-falls-back-to-cudnn", "unified-fallback-is-unsafe"),
+)
+def test_auto_skips_native_sage2_when_graph_is_incompatible(
+    monkeypatch: pytest.MonkeyPatch,
+    framework_backend: AttentionBackend,
+    configured_native_backend: str,
+    error_match: str | None,
+) -> None:
+    """Treat Native Sage2 graph incompatibility as unavailable in auto mode."""
+    from omnidreams.impl.native import omnidreams_singleview
+
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "load_python_module",
+        lambda name: pytest.fail("auto mode must skip graph-incompatible Native Sage2"),
+    )
     transformer = CosmosTransformer.__new__(CosmosTransformer)
     torch.nn.Module.__init__(transformer)
     transformer.config = CosmosTransformerConfig(
         network=CosmosDiTNetworkConfig(
-            self_attention_backend=AttentionBackend.SAGE2,
+            self_attention_backend=framework_backend,
         ),
         native_dit_acceleration="auto",
-        native_dit_backend="bf16",
+        native_dit_attention_backend=configured_native_backend,
+        use_cuda_graph=True,
+    )
+    transformer._optimized_dit_executor = None
+
+    if error_match is None:
+        transformer._configure_optimized_dit_from_config()
+    else:
+        with pytest.raises(ValueError, match=error_match):
+            transformer._configure_optimized_dit_from_config()
+
+    assert transformer._optimized_dit_selection is not None
+    assert transformer._optimized_dit_selection.enabled is False
+    assert "stale attention outputs" in transformer._optimized_dit_selection.reason
+
+
+def test_native_only_sage2_stub_falls_back_to_framework_cudnn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep cuDNN fallback when the Native-only Sage2 build is unavailable."""
+    from omnidreams.impl.native import omnidreams_singleview
+
+    selection = SimpleNamespace(
+        enabled=False,
+        reason="native extension was built with Sage2 stubs",
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "load_python_module",
+        lambda name: SimpleNamespace(OptimizedDiTExecutor=object),
+    )
+    monkeypatch.setattr(
+        omnidreams_singleview,
+        "select_backend",
+        lambda *args, **kwargs: selection,
+    )
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    transformer.config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=AttentionBackend.OMNIDREAMS,
+        ),
+        native_dit_acceleration="auto",
+        native_dit_attention_backend="sage2",
         use_cuda_graph=False,
     )
     transformer._optimized_dit_executor = None
 
     transformer._configure_optimized_dit_from_config()
+
+    assert transformer._optimized_dit_executor is None
+    assert transformer._optimized_dit_selection is selection
+
+
+@pytest.mark.parametrize(
+    ("framework_backend", "configured_native_backend", "error_match"),
+    (
+        (AttentionBackend.SAGE2, "auto", "framework SageAttention 2"),
+        (AttentionBackend.OMNIDREAMS, "sage2", None),
+    ),
+    ids=("unified-sage2", "native-only-sage2"),
+)
+def test_sage2_auto_fallback_validates_framework_cuda_graph_path(
+    framework_backend: AttentionBackend,
+    configured_native_backend: str,
+    error_match: str | None,
+) -> None:
+    """Validate the framework backend after incompatible Native Sage2 fallback."""
+    transformer = CosmosTransformer.__new__(CosmosTransformer)
+    torch.nn.Module.__init__(transformer)
+    transformer.config = CosmosTransformerConfig(
+        network=CosmosDiTNetworkConfig(
+            self_attention_backend=framework_backend,
+        ),
+        native_dit_acceleration="auto",
+        native_dit_backend="bf16",
+        native_dit_attention_backend=configured_native_backend,
+        use_cuda_graph=True,
+    )
+    transformer._optimized_dit_executor = None
+
+    if error_match is None:
+        transformer._configure_optimized_dit_from_config()
+    else:
+        with pytest.raises(ValueError, match=error_match):
+            transformer._configure_optimized_dit_from_config()
 
     assert transformer._optimized_dit_executor is None
     assert transformer._optimized_dit_selection is not None

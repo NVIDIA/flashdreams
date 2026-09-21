@@ -111,9 +111,14 @@ DiT path:
 Supported manifest values are ``native_dit_acceleration: disabled | auto |
 required`` and ``native_dit_backend: fp8_kvcache_cudnn | bf16``. The attention
 backend accepts ``auto``, ``cudnn``, ``sage2``, ``sparge``, ``sage3``, and
-``sage3_fp8``; the perf application config pins ``cudnn``. Setting the network
-``self_attention_backend`` to ``sage2`` also selects Native Sage2 when native
-DiT acceleration is enabled; text cross-attention remains on cuDNN.
+``sage3_fp8``; ``auto`` resolves to the portable Native cuDNN path and the perf
+application config pins that choice explicitly. Setting the network
+``self_attention_backend`` to ``sage2`` is the unified Sage2 policy: it selects
+Native Sage2 when Native DiT is available and falls back to framework Sage2 in
+``native_dit_acceleration: auto`` mode. Text cross-attention remains on cuDNN.
+An explicit ``native_dit_attention_backend`` is a Native-only override instead;
+for example, framework ``omnidreams`` plus Native ``sage2`` falls back to the
+framework cuDNN path when Native DiT is unavailable.
 
 The native extension requires a source checkout, ``git``, network access, and a
 CUDA toolchain (``nvcc``) matching the PyTorch build. It downloads pinned
@@ -122,7 +127,12 @@ third-party sources when first used. Supported Hopper devices build for
 Native Sage2 is an experimental Hopper-only (SM 9.0) backend, requires
 ``native_dit_backend: fp8_kvcache_cudnn``, and uses the upstream per-warp
 quantization path for self-attention. Text cross-attention stays on the FP8
-cuDNN path. Sage3 and Sage3 FP8 remain Blackwell-only.
+cuDNN path. Sage2 is not compatible with ``use_cuda_graph: true`` in either
+the framework or Native path: the opt-in Native regression probe observes
+stale attention output after changed-input replay. In ``auto`` mode a
+Native-only Sage2 override can therefore fall back to framework cuDNN; the
+unified Sage2 policy still raises because its framework fallback is also Sage2.
+Sage3 and Sage3 FP8 remain Blackwell-only.
 
 Native DiT on H100 / Hopper is supported for explicit evaluation, including
 ``native_dit_attention_backend: sage2``. It is not the same perf path as the

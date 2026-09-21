@@ -262,7 +262,10 @@ class CosmosTransformerConfig(TransformerConfig):
     explicitly to opt into an experimental attention backend. The framework
     ``self_attention_backend="sage2"`` setting also selects ``sage2`` when
     native DiT acceleration is enabled. With ``native_dit_acceleration="auto"``,
-    an unavailable Native Sage2 kernel falls back to framework Sage2.
+    an unavailable Native Sage2 kernel falls back to framework Sage2. An
+    explicit Native backend remains a Native-only override: for example,
+    framework ``self_attention_backend="omnidreams"`` plus Native ``sage2``
+    falls back to the framework's cuDNN attention when Native DiT is unavailable.
     """
 
     native_dit_sparge_topk: float | None = None
@@ -299,6 +302,119 @@ def _strip_net_prefix(state_dict: dict[str, Tensor]) -> dict[str, Tensor]:
     for k, v in state_dict.items():
         out[k[len("net.") :] if k.startswith("net.") else k] = v
     return out
+
+
+@dataclass(frozen=True)
+class _AttentionPolicy:
+    """Resolved framework fallback and Native DiT attention choices.
+
+    ``AttentionBackend.OMNIDREAMS`` names the original framework attention
+    implementation, whose SDPA kernel is cuDNN. An explicit
+    ``native_dit_attention_backend`` remains a Native-only override, so the
+    legacy ``OMNIDREAMS`` + Native ``sage2`` combination deliberately falls
+    back to framework cuDNN when automatic Native DiT selection is unavailable.
+    """
+
+    framework_backend: AttentionBackend
+    """Framework attention backend used when Native DiT is not selected."""
+
+    native_backend: str
+    """Resolved Native attention backend passed to the Native executor."""
+
+    native_backend_was_explicit: bool
+    """Whether the Native backend came from a non-``auto`` override."""
+
+    def cuda_graph_incompatibility(
+        self,
+        *,
+        config: CosmosTransformerConfig,
+        native_selected: bool,
+    ) -> str | None:
+        """Return why the effective attention path cannot use CUDA Graph.
+
+        Args:
+            config: Transformer configuration containing the graph setting.
+            native_selected: Whether Native DiT is the effective execution path.
+
+        Returns:
+            An actionable incompatibility reason, or ``None`` when graph replay
+            is supported by the effective path.
+        """
+
+        if not config.use_cuda_graph:
+            return None
+        if native_selected and self.native_backend == "sage2":
+            return (
+                "OmniDreams Native SageAttention 2 is incompatible with "
+                "use_cuda_graph=True because replay can reuse stale attention "
+                "outputs. Set use_cuda_graph=False or select another Native "
+                "attention backend."
+            )
+        if not native_selected and self.framework_backend is AttentionBackend.SAGE2:
+            return (
+                "OmniDreams framework SageAttention 2 is incompatible with "
+                "use_cuda_graph=True. Set use_cuda_graph=False or select another "
+                "self_attention_backend."
+            )
+        return None
+
+    def validate_cuda_graph(
+        self, *, config: CosmosTransformerConfig, native_selected: bool
+    ) -> None:
+        """Reject Sage2 replay on the effective execution path.
+
+        Native selection is resolved before this check when acceleration is
+        enabled. That lets an unavailable Native-only Sage2 override fall back
+        to the graph-safe framework cuDNN path, while the unified Sage2 switch
+        still rejects its framework Sage2 fallback.
+
+        Args:
+            config: Transformer configuration containing the graph setting.
+            native_selected: Whether Native DiT is the effective execution path.
+
+        Raises:
+            ValueError: If the effective Sage2 path cannot replay safely.
+        """
+
+        incompatibility = self.cuda_graph_incompatibility(
+            config=config,
+            native_selected=native_selected,
+        )
+        if incompatibility is not None:
+            raise ValueError(incompatibility)
+
+
+def _resolve_attention_policy(config: CosmosTransformerConfig) -> _AttentionPolicy:
+    """Resolve framework and Native DiT attention settings once.
+
+    The framework ``SAGE2`` setting is the unified Sage2 switch: Native DiT
+    inherits it when enabled, while ``auto`` selection can fall back to the
+    same framework Sage2 implementation. Other explicit Native backends retain
+    their existing override semantics and framework fallback.
+
+    Args:
+        config: Transformer configuration containing both attention settings.
+
+    Returns:
+        The normalized framework fallback and Native attention selection.
+    """
+
+    framework_backend = AttentionBackend(config.network.self_attention_backend)
+    configured_native_backend = config.native_dit_attention_backend
+    native_backend_was_explicit = configured_native_backend != "auto"
+
+    if configured_native_backend == "auto":
+        native_backend = (
+            "sage2" if framework_backend is AttentionBackend.SAGE2 else "cudnn"
+        )
+    else:
+        native_backend = configured_native_backend
+
+    return _AttentionPolicy(
+        framework_backend=framework_backend,
+        native_backend=native_backend,
+        native_backend_was_explicit=native_backend_was_explicit,
+    )
 
 
 def _native_dit_sage2_availability(extension: Any) -> tuple[bool, str]:
@@ -345,23 +461,16 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     network: CosmosDiTNetwork
 
     def __init__(self, config: CosmosTransformerConfig) -> None:
-        self_attention_backend = AttentionBackend(config.network.self_attention_backend)
-        native_sage2_requested = (
-            config.native_dit_acceleration != "disabled"
-            and config.native_dit_attention_backend == "sage2"
-        )
-        if config.use_cuda_graph and (
-            self_attention_backend is AttentionBackend.SAGE2 or native_sage2_requested
-        ):
-            raise ValueError(
-                "OmniDreams SageAttention 2 is incompatible with "
-                "use_cuda_graph=True in both the framework and Native DiT paths. "
-                "Set use_cuda_graph=False or select another attention backend."
+        attention_policy = _resolve_attention_policy(config)
+        if attention_policy.framework_backend is AttentionBackend.SAGE2:
+            attention_policy.validate_cuda_graph(
+                config=config,
+                native_selected=False,
             )
-        if self_attention_backend is AttentionBackend.SAGE2:
             if (
                 config.native_dit_acceleration != "disabled"
-                and config.native_dit_attention_backend not in {"auto", "sage2"}
+                and attention_policy.native_backend_was_explicit
+                and attention_policy.native_backend != "sage2"
             ):
                 raise ValueError(
                     "Conflicting OmniDreams attention backends: "
@@ -379,6 +488,7 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                 )
         super().__init__(config)
         self.config: CosmosTransformerConfig = config
+        self._attention_policy = attention_policy
 
         # Auto-detect CP world size from torch.distributed; non-distributed -> singleton groups.
         if torch.distributed.is_initialized():
@@ -484,9 +594,13 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     def _configure_optimized_dit_from_config(self) -> None:
         from omnidreams.impl.native import omnidreams_singleview
 
-        attention_backend = self.config.native_dit_attention_backend
-        if self.config.network.self_attention_backend == AttentionBackend.SAGE2.value:
-            attention_backend = "sage2"
+        attention_policy = getattr(self, "_attention_policy", None)
+        if attention_policy is None:
+            # Some focused tests construct the transformer with ``__new__`` to
+            # isolate Native backend selection from model allocation.
+            attention_policy = _resolve_attention_policy(self.config)
+            self._attention_policy = attention_policy
+        attention_backend = attention_policy.native_backend
         if attention_backend == "sage2":
             incompatibility = self._native_sage2_config_incompatibility()
             if incompatibility is not None:
@@ -498,7 +612,30 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
                     enabled=False,
                     reason=incompatibility,
                 )
+                attention_policy.validate_cuda_graph(
+                    config=self.config,
+                    native_selected=False,
+                )
                 return
+        native_graph_incompatibility = attention_policy.cuda_graph_incompatibility(
+            config=self.config,
+            native_selected=True,
+        )
+        if (
+            native_graph_incompatibility is not None
+            and self.config.native_dit_acceleration == "auto"
+        ):
+            self._optimized_dit_selection = NativeBackendSelection(
+                component="optimized_dit",
+                mode=self.config.native_dit_acceleration,
+                enabled=False,
+                reason=native_graph_incompatibility,
+            )
+            attention_policy.validate_cuda_graph(
+                config=self.config,
+                native_selected=False,
+            )
+            return
 
         helper = omnidreams_singleview.load_python_module("optimized_dit")
         availability_check = (
@@ -519,7 +656,15 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
         )
         self._optimized_dit_selection = selection
         if not selection.enabled:
+            attention_policy.validate_cuda_graph(
+                config=self.config,
+                native_selected=False,
+            )
             return
+        attention_policy.validate_cuda_graph(
+            config=self.config,
+            native_selected=True,
+        )
         self._optimized_dit_executor = helper.OptimizedDiTExecutor(
             self,
             selection.require_extension(),
