@@ -258,31 +258,6 @@ class Mp4Encoder:
         return f"ffmpeg failed while writing {self._path}: {reported or 'no output'}"
 
 
-def result_to_rgb24_frames(
-    result: StepResult, session_desc: SessionDesc, presentation_size: tuple[int, int]
-) -> npt.NDArray[np.uint8]:
-    """Convert one result to the ``[T, H, W, C]`` uint8 frames an encoder reads.
-
-    A pixel's value is read by dtype: a floating point tensor holds ``[-1, 1]``,
-    which is what FlashDreams models emit, and an integer tensor holds raw
-    ``0``-``255`` values. A result carrying one colour channel has it repeated
-    across all three.
-
-    Args:
-        result: Generated output for one step.
-        session_desc: Description the output is expected to match.
-
-    Returns:
-        Frames as uint8 RGB, oldest first.
-
-    Raises:
-        ValueError: ``result`` does not match ``session_desc``, carries more than
-            one sequence of frames, or disagrees with itself over how many frames
-            it carries.
-    """
-    return result_to_rgb24_tensor(result, session_desc, presentation_size).cpu().numpy()
-
-
 def result_to_rgb24_tensor(
     result: StepResult,
     session_desc: SessionDesc,
