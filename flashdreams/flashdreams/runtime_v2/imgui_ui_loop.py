@@ -11,7 +11,6 @@ from torch import Tensor
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.imgui_ui_renderer import _ImGuiUIRenderer
 from flashdreams.runtime_v2.slangpy_ui_renderer import (
-    _ResizableUIRenderer,
     _UIRenderer,
 )
 from flashdreams.runtime_v2.step_result import StepResult
@@ -48,11 +47,15 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
                 height=height,
                 cuda_device=cuda_device,
             )
-        self.renderer = cast(_ResizableUIRenderer, renderer)
+        self.renderer = renderer
 
     def resize_ui_loop(self, width: int, height: int) -> None:
         """Resize the ImGui renderer."""
         self.renderer.resize(width, height)
+
+    def get_ui_loop_size(self) -> tuple[int, int]:
+        """Return the current ImGui render-target size."""
+        return self.renderer.width, self.renderer.height
 
     @abstractmethod
     def step_ui(

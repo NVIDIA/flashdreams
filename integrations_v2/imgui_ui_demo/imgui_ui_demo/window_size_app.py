@@ -91,6 +91,7 @@ class WindowSizeImGuiUILoop(ImGuiUILoop[WindowSizeState]):
         imgui.set_next_window_size(imgui.ImVec2(360.0, 175.0), imgui.Cond_.once)
         imgui.begin("Window size")
         try:
+            imgui.text(f"current ui_loop_size: {self.get_ui_loop_size()}")
             _, self.state.new_x = imgui.input_int("New X", self.state.new_x)
             _, self.state.new_y = imgui.input_int("New Y", self.state.new_y)
             if self.state.new_x <= 0 or self.state.new_y <= 0:

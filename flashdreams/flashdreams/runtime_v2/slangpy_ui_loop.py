@@ -10,7 +10,6 @@ from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.slangpy_ui_renderer import (
-    _ResizableUIRenderer,
     _SlangPyUIRenderer,
     _UIRenderer,
 )
@@ -53,11 +52,15 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
                     "width and height are required when renderer is not supplied."
                 )
             renderer = _SlangPyUIRenderer(width=width, height=height)
-        self.renderer = cast(_ResizableUIRenderer, renderer)
+        self.renderer = renderer
 
     def resize_ui_loop(self, width: int, height: int) -> None:
         """Resize the SlangPy renderer."""
         self.renderer.resize(width, height)
+
+    def get_ui_loop_size(self) -> tuple[int, int]:
+        """Return the current SlangPy render-target size."""
+        return self.renderer.width, self.renderer.height
 
     @abstractmethod
     def step_ui(

@@ -38,15 +38,6 @@ class _UIRenderer(Protocol):
         """Release renderer resources."""
         ...
 
-
-class _ResizableUIRenderer(_UIRenderer, Protocol):
-    """UI renderer with width and height."""
-
-    def resize(self, width: int, height: int) -> None:
-        """Resize the renderer's output."""
-        ...
-
-
 class _SlangPyUIRenderer:
     """Render SlangPy's native widgets through CUDA interop."""
 
