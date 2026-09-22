@@ -326,9 +326,7 @@ def result_to_rgb24_tensor(
         )
 
     if presentation_size is None:
-        raise ValueError(
-            f"Output is missing a downstream presentation frame size."
-        )
+        raise ValueError(f"Output is missing a downstream presentation frame size.")
     if presentation_size is not None and (
         presentation_size[0] <= 0 or presentation_size[1] <= 0
     ):

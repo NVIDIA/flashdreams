@@ -38,6 +38,7 @@ class _UIRenderer(Protocol):
         """Release renderer resources."""
         ...
 
+
 class _SlangPyUIRenderer:
     """Render SlangPy's native widgets through CUDA interop."""
 

@@ -1318,7 +1318,7 @@ def _validated_result_frames(
         raise ValueError("StepResult.frame_count does not match its output tensor.")
     if frames.shape[1] not in (1, 3):
         raise ValueError("WebRTC output must have one or three color channels.")
-    
+
     if presentation_size is None:
         raise ValueError("WebRTC is missing a downstream presentation frame size.")
     if result.output_layout != session_desc.output_layout:
