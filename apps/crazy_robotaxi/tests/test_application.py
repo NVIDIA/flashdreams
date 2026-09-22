@@ -14,7 +14,6 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-from torch import Tensor
 from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
@@ -50,6 +49,7 @@ from omnidreams_game_engine.types import (
     DriverCommand,
     SceneDefinition,
 )
+from torch import Tensor
 
 from flashdreams.api_v2.loop import ModelInferenceState
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
