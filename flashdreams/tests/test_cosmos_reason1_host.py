@@ -110,7 +110,7 @@ def test_run_on_cpu_applies_dtype_changes_on_host(make_encoder) -> None:
     assert encoder._compute_device == torch.device("meta")
 
 
-def test_embedding_cache_hits_and_evicts_least_recently_used(make_encoder) -> None:
+def test_embedding_cache_hits_and_evicts_in_insertion_order(make_encoder) -> None:
     encoder = make_encoder(run_on_cpu=True, embedding_cache_size=2)
     first = encoder(["one"])
     again = encoder(["one"])
@@ -118,10 +118,12 @@ def test_embedding_cache_hits_and_evicts_least_recently_used(make_encoder) -> No
     assert torch.equal(first, again)
 
     encoder(["two"])
-    encoder(["one"])  # refresh "one"
-    encoder(["three"])  # evicts "two"
+    encoder(["one"])  # a hit, which must not reorder the cache
+    encoder(["three"])  # evicts "one", the oldest entry
     assert encoder.model.calls == 3
     encoder(["two"])
+    assert encoder.model.calls == 3
+    encoder(["one"])
     assert encoder.model.calls == 4
 
     encoder.to("meta")  # a device change invalidates the cache

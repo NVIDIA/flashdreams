@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -74,13 +75,18 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
     """
 
     embedding_cache_size: int = 0
-    """Number of most recently used prompt batches whose embeddings are kept.
+    """Number of most recently encoded prompt batches whose embeddings are kept.
 
     Game hosts re-encode the same scene prompt on every restart. With
     ``run_on_cpu`` the cache lives in host memory and hits are copied to the
     compute device; otherwise entries stay on the encoder's device and the
     returned tensor must not be modified in place. Each full-concat entry is
     about 100 MiB per prompt. ``0`` disables the cache.
+
+    Eviction is by insertion, not by use, so that a hit is a plain lookup:
+    the cache is small enough that the difference in hit rate is noise, and
+    a read that reorders would have to hold a lock against callers encoding
+    on another thread.
     """
 
 
@@ -135,6 +141,7 @@ class CosmosReason1TextEncoder(Encoder):
         self.model.eval().requires_grad_(False)
         self._compute_device: torch.device | None = None
         self._embedding_cache: OrderedDict[tuple[str, ...], Tensor] = OrderedDict()
+        self._cache_lock = threading.Lock()
 
         # ``transformers>=5.8`` nests LM dims under ``text_config``.
         text_cfg = getattr(self.model.config, "text_config", self.model.config)
@@ -166,7 +173,8 @@ class CosmosReason1TextEncoder(Encoder):
             # Meta tensors cannot be copied out; probe from the host instead.
             probe = fn(torch.zeros((), dtype=self.dtype))
         self._compute_device = None if probe.device.type == "cpu" else probe.device
-        self._embedding_cache.clear()
+        with self._cache_lock:
+            self._embedding_cache.clear()
         if probe.dtype != self.dtype:
             self.dtype = probe.dtype
             return super()._apply(
@@ -178,9 +186,10 @@ class CosmosReason1TextEncoder(Encoder):
     @torch.no_grad()
     def forward(self, input: list[str]) -> Tensor:
         key = tuple(input)
+        # One lookup, no mutation: a hit that races an insert or an eviction
+        # reads either the old mapping or the new one, and both are valid.
         cached = self._embedding_cache.get(key)
         if cached is not None:
-            self._embedding_cache.move_to_end(key)
             return self._to_compute_device(cached)
         started = time.perf_counter()
         text_embeddings = self._encode(input)
@@ -191,9 +200,10 @@ class CosmosReason1TextEncoder(Encoder):
                 time.perf_counter() - started,
             )
         if self.config.embedding_cache_size > 0:
-            self._embedding_cache[key] = text_embeddings
-            while len(self._embedding_cache) > self.config.embedding_cache_size:
-                self._embedding_cache.popitem(last=False)
+            with self._cache_lock:
+                self._embedding_cache[key] = text_embeddings
+                while len(self._embedding_cache) > self.config.embedding_cache_size:
+                    self._embedding_cache.popitem(last=False)
         return self._to_compute_device(text_embeddings)
 
     def _to_compute_device(self, embeddings: Tensor) -> Tensor:
