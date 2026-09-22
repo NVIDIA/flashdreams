@@ -981,9 +981,9 @@ def test_slangpy_overlay_finishes_after_drawing_the_final_model_frame() -> None:
         session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
         presentation_manager=presentation_manager,
     )
-    ui_loop._set_model_loop(
-        SimpleNamespace(inference_state=ModelInferenceState.FINISHED)
-    )
+    model_loop, _, _ = _input_test_model_loop()
+    ui_loop._set_model_loop(model_loop)
+    model_loop._set_inference_state(ModelInferenceState.FINISHED)
 
     assert not ui_loop.is_finished()
     assert presentation_manager.advance(0, now=1.0)[0]
