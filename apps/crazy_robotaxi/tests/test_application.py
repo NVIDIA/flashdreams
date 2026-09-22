@@ -949,6 +949,63 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
         app.create_session(desc)
 
 
+def test_user_settings_resize_window_to_presentation_resolution(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "presentation:\n  width: 1920\n  height: 1080\n",
+        encoding="utf-8",
+    )
+    app = _application()
+    model_desc = app.session_desc()
+    app.init(["--config", str(config_path), "--device", "cpu"])
+
+    session = cast(CrazyRobotaxiSession, app.create_session(model_desc))
+    session.init()
+    ui_loop = session.ui_loop
+    request = ui_loop.flush_ui_loop_requests()
+
+    assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    assert session.session_desc.video_width == 1280
+    assert session.session_desc.video_height == 704
+    assert session._config.renderer.raster.resolution_wh == (1280, 704)
+    assert (ui_loop.state.width, ui_loop.state.height) == (1920, 1080)
+    renderer = cast(Any, ui_loop.renderer)
+    assert (renderer.width, renderer.height) == (1920, 1080)
+    assert request is not None
+    assert request.new_window_size == (1920, 1080)
+
+
+def test_display_cli_overrides_saved_presentation_resolution(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "presentation:\n  width: 1920\n  height: 1080\n",
+        encoding="utf-8",
+    )
+    app = _application()
+    model_desc = app.session_desc()
+    app.init(
+        [
+            "--config",
+            str(config_path),
+            "--display-width",
+            "2560",
+            "--display-height",
+            "1440",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    session = cast(CrazyRobotaxiSession, app.create_session(model_desc))
+    session.init()
+    request = session.ui_loop.flush_ui_loop_requests()
+
+    assert request is not None
+    assert request.new_window_size == (2560, 1440)
+
+
 def test_application_rejects_mismatched_generation_rate() -> None:
     app = _application(
         pipeline_factory=lambda config, device: object(),

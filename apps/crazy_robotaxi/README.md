@@ -36,6 +36,30 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
+The presentation resolution is independent of the world model's raster. Set it
+from **OPTIONS > PRESENTATION** and restart the application, or use application
+arguments for a one-off override. For example, this keeps the model at its
+preset resolution while scaling the world frame and rendering the HUD directly
+at 1920x1080:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams --mode native-window -- \
+  --display-width 1920 --display-height 1080
+```
+
+The persisted equivalent is:
+
+```yaml
+presentation:
+  width: 1920
+  height: 1080
+```
+
+The application arguments `--width` and `--height` continue to configure the
+model and semantic renderer. Presentation sizing applies to native-window,
+WebRTC, and MP4 output.
+
 Ten OmniDreams runner configurations are registered:
 
 | Runner | Configuration |
@@ -74,9 +98,10 @@ generated from the same typed settings tree used at startup, with pages for
 game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
 atomically updates the user YAML without leaving the screen. **EXIT** returns
 to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
-dirty. **RESET TO DEFAULTS** resets the draft. Presentation settings apply when
-saved; the screen displays **RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT**
-when other changes need a new process.
+dirty. **RESET TO DEFAULTS** resets the draft. HUD visibility settings apply
+when saved; presentation dimensions and other startup settings display
+**RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT** because they need a new
+process.
 
 By default, settings are loaded from
 `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or

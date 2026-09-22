@@ -1144,6 +1144,20 @@ def test_presentation_back_buffer_is_cached_without_a_bev_frame() -> None:
     torch.testing.assert_close(first, video.float())
 
 
+def test_presentation_back_buffer_scales_to_ui_resolution() -> None:
+    state = TaxiHudState(16, 12, _calibration())
+    state._bev_rect = (8, 12, 4, 4)
+    video = torch.full((3, 6, 8), -0.5, dtype=torch.bfloat16)
+    bev = torch.full((4, 4, 4), 255, dtype=torch.uint8)
+
+    output = state.composite_bev(video, bev)
+
+    assert output.shape == (3, 12, 16)
+    assert output.dtype is torch.float32
+    torch.testing.assert_close(output[:, 0, 0], torch.full((3,), -0.5))
+    torch.testing.assert_close(output[:, 8, 12], torch.ones(3))
+
+
 def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
     video = torch.zeros(1, 3, 96, 160)
     snapshot = replace(
@@ -2854,6 +2868,35 @@ def test_options_save_persists_and_applies_presentation_setting(
     menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
     assert state._settings_notice not in menu_lines
     assert not any("RESTART REQUIRED" in line for line in menu_lines)
+
+
+def test_options_save_persists_presentation_resolution_for_restart(
+    tmp_path: Path,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.input_values["##presentation.width"] = "1920"
+    imgui.input_values["##presentation.height"] = "1080"
+    imgui.clicked_buttons.add("SAVE")
+
+    state.draw(imgui)
+
+    assert document.settings.presentation.width == 1920
+    assert document.settings.presentation.height == 1080
+    assert (state.width, state.height) == (640, 360)
+    assert "width: 1920" in document.path.read_text(encoding="utf-8")
+    assert "height: 1080" in document.path.read_text(encoding="utf-8")
+    assert state._settings_restart_notice
+    assert "presentation.width" in state._settings_requiring_restart
+    assert "presentation.height" in state._settings_requiring_restart
 
 
 def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:

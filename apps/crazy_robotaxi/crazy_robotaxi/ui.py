@@ -3303,9 +3303,17 @@ class TaxiHudState:
         ):
             return self._bev_composite
 
-        # The shared ImGui overlay is float32. Converting once here avoids a
-        # full-frame overlay cast and extra BF16 blend kernels downstream.
+        # Scale before placing the BEV because its rectangle is expressed in
+        # presentation pixels. The shared ImGui overlay is also float32, so
+        # converting once here avoids an extra full-frame cast.
         output = video.to(dtype=torch.float32, copy=True)
+        if tuple(output.shape[-2:]) != (self.height, self.width):
+            output = functional.interpolate(
+                output.unsqueeze(0),
+                size=(self.height, self.width),
+                mode="bilinear",
+                align_corners=False,
+            )[0]
         if frame is None or rect is None:
             self._bev_composite_source_key = composite_source_key
             self._bev_composite = output
@@ -3318,8 +3326,8 @@ class TaxiHudState:
             raise ValueError("BEV and video presentation frames must share a device")
 
         top, left, image_height, image_width = rect
-        bottom = min(int(video.shape[-2]), top + image_height)
-        right = min(int(video.shape[-1]), left + image_width)
+        bottom = min(int(output.shape[-2]), top + image_height)
+        right = min(int(output.shape[-1]), left + image_width)
         if bottom <= top or right <= left:
             self._bev_composite_source_key = composite_source_key
             self._bev_composite = output
