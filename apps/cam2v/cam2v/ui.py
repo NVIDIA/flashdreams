@@ -12,7 +12,7 @@ from typing import Any
 
 from torch import Tensor
 
-from flashdreams.api_v2.loop import invoke_async
+from flashdreams.api_v2.loop import ModelInferenceState, invoke_async
 from flashdreams.runtime.keyboard import KeyboardState
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateSnapshot
 from flashdreams.runtime_v2.slangpy_ui_loop import SlangPyUILoop
@@ -145,6 +145,15 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         _refresh_widgets(self.state, sampled_at=sampled_at)
 
         return frame
+
+    def is_finished(self) -> bool:
+        """Return whether model inference has finished and the last presented frame has been drawn."""
+        return (
+            self.model_inference_state is ModelInferenceState.FINISHED
+            and not self._presentation_manager.has_pending_frames()
+            and self.state.frames_presented
+            == self._presentation_manager.presented_frame_count
+        )
 
     def reset(self) -> None:
         """Clear UI-loop state for a new generation."""

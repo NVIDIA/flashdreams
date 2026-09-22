@@ -55,10 +55,9 @@ def run_session(
 
     The calling UI thread handles the window and UI. A model thread runs the
     model loop. Returns when the client closes the window, requests a new
-    session, when the UI finishes, when a window that does not wait for close
-    has presented the drained generation, or when either loop fails. While the
-    model is not running, an unfinished UI ticks on a window that waits for
-    close so it can request another session.
+    session, when the UI finishes, or when either loop fails. While the model
+    is not running, an unfinished UI ticks regardless of presentation mode so
+    it can request another session.
 
     Both loops, the metrics sink, and the session are closed before this returns
     or raises. The client window stays open only when a clean replacement was
@@ -70,8 +69,7 @@ def run_session(
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
         steps: Maximum model steps before ending the session; ``None`` leaves
-            session completion to the UI, a close event, or a window that does
-            not wait for close and ends when generation drains.
+            session completion to the UI or client window.
         timeout_seconds: Maximum session runtime; ``None`` means session does not have a time-limit. Timeout expiry signals both registered loops to stop.
 
     Returns:
@@ -257,11 +255,9 @@ def run_session(
                     session._failure_queue.empty()
                     and steps is None
                     and not ui_loop.is_finished()
-                    and window.waits_for_close()
                 ):
-                    # Windows that wait for close stay up after generation until
-                    # the UI finishes or the client closes. Windows that never
-                    # send close end once the last presented frame has drained.
+                    # If there are no failures, no steps limit, and the UI is not finished,
+                    # the run should continue.
                     return False
                 collect_input()
                 run_ui_once(step_requested=False)

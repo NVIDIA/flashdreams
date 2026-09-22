@@ -62,7 +62,7 @@ Cam2V application arguments, after `--`:
 | `--example-data`, `--no-example-data` | Enable or disable packaged/example inputs |
 | `--example-idx INT` | Select an example input |
 | `--device DEVICE` | Select the model device |
-| `--total-blocks INT` | Set autoregressive chunks per rollout |
+| `--total-blocks INT` | Autoregressive chunks per rollout; reaching this count finishes the UI and ends the run |
 | `--warmup-blocks INT` | Set chunks excluded from steady-state FPS |
 | `--ui`, `--no-ui` | Enable or disable the controls/status overlay |
 | `--compile`, `--no-compile` | Enable or disable model compilation |
@@ -102,6 +102,9 @@ Defaults supplied by each registered Cam2V application:
 | Output layout | `tchw` | `tchw` | `tchw` | `tchw` |
 | Backpressure | `block` | `block` | `block` | `block` |
 | Presentation | `continuous` | `continuous` | `continuous` | `continuous` |
+
+Reaching `--total-blocks` finishes the UI (overlay or blit), so `mp4`,
+`webrtc`, and `native-window` all end at that count.
 
 For all four applications, the controls/status UI is enabled,
 `--example-data` is disabled, and `--example-idx` is 0. Prompt and input paths

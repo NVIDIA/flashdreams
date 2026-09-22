@@ -35,11 +35,3 @@ class IClientWindow(InputSource, OutputSink, ABC):
     def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
         """Release or capture pointer motion for this client window."""
         pass
-
-    def waits_for_close(self) -> bool:
-        """Return whether this window can send a close event.
-
-        The default is ``True``. Override to ``False`` when no close event
-        will ever arrive.
-        """
-        return True

@@ -125,7 +125,6 @@ def test_there_is_never_any_input_to_report(tmp_path: Path) -> None:
 
     assert window.get_user_input_events().get_events() == []
     assert window.get_user_input_events().get_events() == []
-    assert not window.waits_for_close()
 
 
 @needs_ffmpeg
