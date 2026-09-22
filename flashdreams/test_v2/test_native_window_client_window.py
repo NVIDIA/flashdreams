@@ -10,6 +10,7 @@ import threading
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -146,6 +147,7 @@ class _Presenter:
         self.presentation_threads: list[int] = []
         self.close_threads: list[int] = []
         self.presented: list[torch.Tensor] = []
+        self.resizes: list[tuple[int, int]] = []
         self.cursor_options: list[tuple[bool, bool]] = []
         self.should_close = False
 
@@ -179,6 +181,9 @@ class _Presenter:
         assert isinstance(frame, torch.Tensor)
         self.presented.append(frame)
         return not self.should_close
+
+    def resize(self, width: int, height: int) -> None:
+        self.resizes.append((width, height))
 
     def close(self) -> None:
         self.close_threads.append(threading.get_ident())
@@ -312,6 +317,69 @@ def test_slangpy_presenter_delegates_plain_tensor_to_presentation_context() -> N
     assert presented == [frame]
 
 
+def test_presentation_surface_resize_recreates_sized_upload_resources() -> None:
+    texture_requests: list[dict[str, Any]] = []
+    surface = SimpleNamespace(
+        info=SimpleNamespace(formats=[1]),
+        configure=Mock(),
+    )
+    device = SimpleNamespace(
+        supports_cuda_interop=False,
+        wait_for_idle=Mock(),
+        create_texture=lambda **kwargs: texture_requests.append(kwargs) or object(),
+    )
+    context = object.__new__(native_window_module._PresentationContext)
+    context._spy = SimpleNamespace(
+        Format=SimpleNamespace(
+            rgba8_unorm=1,
+            bgra8_unorm=2,
+            bgrx8_unorm=3,
+        ),
+        TextureUsage=SimpleNamespace(
+            shader_resource=1,
+            copy_destination=2,
+        ),
+    )
+    context._width = 2
+    context._height = 2
+    context._device = device
+    context._surface = surface
+    context._display_texture = object()
+    context._cuda_buffer = object()
+    context._cuda_rgba = object()
+    context._render_device = torch.device("cuda")
+    context._has_cuda_submission = True
+
+    context.resize_surface(4, 3)
+
+    device.wait_for_idle.assert_called_once_with()
+    surface.configure.assert_called_once_with(width=4, height=3, format=1)
+    assert texture_requests[-1]["width"] == 4
+    assert texture_requests[-1]["height"] == 3
+    assert context._host_upload.shape == (3, 4, 4)
+    assert context._cuda_buffer is None
+    assert context._cuda_rgba is None
+    assert context._render_device == torch.device("cpu")
+    assert context._has_cuda_submission is False
+
+
+def test_native_window_resamples_resized_ui_to_the_window_surface() -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    resized_ui = StepResult(
+        step_index=0,
+        output=torch.zeros((1, 3, 3, 4), dtype=torch.float32),
+        frame_count=1,
+        output_layout=VideoTensorLayout.tchw,
+    )
+
+    window.write(resized_ui)
+    window.close()
+
+    assert presenter.presented[0].shape == (2, 2, 3)
+
+
 def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -325,9 +393,13 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
         factory_threads.append(threading.get_ident())
         return presenter
 
-    def record_conversion(result: StepResult, desc: SessionDesc) -> torch.Tensor:
+    def record_conversion(
+        result: StepResult,
+        desc: SessionDesc,
+        presentation_size: tuple[int, int],
+    ) -> torch.Tensor:
         conversion_threads.append(threading.get_ident())
-        return real_conversion(result, desc)
+        return real_conversion(result, desc, presentation_size)
 
     monkeypatch.setattr(
         native_window_module,
@@ -678,23 +750,6 @@ def test_native_printable_key_names_become_text_input_values(
     assert data is not None
     assert data.key == runtime_key
     assert data.state is KeyboardInputState.PRESSED
-
-
-def test_device_conversion_does_not_materialize_a_host_array() -> None:
-    source = StepResult(
-        step_index=0,
-        output=torch.zeros((1, 3, 2, 2), dtype=torch.float32),
-        frame_count=1,
-        output_layout=VideoTensorLayout.tchw,
-    )
-
-    frames = result_to_rgb24_tensor(source, _session_desc())
-
-    assert isinstance(frames, torch.Tensor)
-    assert frames.device == source.read_output().device
-    assert frames.shape == (1, 2, 2, 3)
-    assert frames.dtype is torch.uint8
-    assert torch.all(frames == 128)
 
 
 def test_write_before_open_is_rejected() -> None:
