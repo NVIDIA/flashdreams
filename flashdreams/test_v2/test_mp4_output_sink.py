@@ -6,6 +6,7 @@
 import shutil
 import subprocess
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -150,12 +151,18 @@ def test_write_rejects_a_layout_the_sink_was_not_opened_for(tmp_path: Path) -> N
         sink.write(_result([_RED], layout=VideoTensorLayout.tchw))
 
 
-def test_write_rejects_frames_of_another_size(tmp_path: Path) -> None:
+def test_write_resamples_resized_ui_frames_to_the_presentation_size(
+    tmp_path: Path,
+) -> None:
     sink = Mp4OutputSink(tmp_path / "out.mp4")
     sink.open(_session_desc(width=_WIDTH * 2))
+    encoder = Mock()
+    sink._encoder = encoder
 
-    with pytest.raises(ValueError, match=f"{_WIDTH}x{_HEIGHT}"):
-        sink.write(_result([_RED]))
+    sink.write(_result([_RED]))
+
+    frames = encoder.write.call_args.args[0]
+    assert frames.shape == (1, _HEIGHT, _WIDTH * 2, 3)
 
 
 def test_write_rejects_a_frame_count_the_tensor_does_not_carry(tmp_path: Path) -> None:

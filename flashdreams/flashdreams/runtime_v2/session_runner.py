@@ -141,6 +141,8 @@ def run_session(
                         window.request_lock_cursor_to_window(
                             request.lock_cursor_to_window
                         )
+                    if request.new_window_size is not None:
+                        window.request_new_window_size(request.new_window_size)
                     if request.new_session is not None:
                         next_session_desc = request.new_session
                         stop.set()

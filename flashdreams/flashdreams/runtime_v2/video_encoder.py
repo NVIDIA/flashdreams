@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from torch import Tensor
+from torch.nn import functional as F
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -55,11 +56,7 @@ class Mp4Encoder:
             ValueError: A dimension is odd. Rounding one up would write a file
                 of a size nobody asked for, so it is refused instead.
         """
-        # yuv420p stores one chroma sample per two pixels in each direction.
-        if width % 2 or height % 2:
-            raise ValueError(
-                f"An MP4 needs even frame dimensions, got {width}x{height}."
-            )
+        _validate_frame_size(width, height)
         self._path = Path(path)
         self._width = width
         self._height = height
@@ -67,6 +64,90 @@ class Mp4Encoder:
         self._process: subprocess.Popen[bytes] | None = None
         self._errors: list[bytes] = []
         self._error_reader: threading.Thread | None = None
+
+    def request_frame_size(self, *, width: int, height: int) -> None:
+        """Change the expected frame size before ffmpeg starts.
+
+        Args:
+            width: New frame width in pixels.
+            height: New frame height in pixels.
+
+        Raises:
+            RuntimeError: At least one frame has already been submitted.
+            ValueError: A dimension is odd and cannot be encoded as
+                ``yuv420p``.
+        """
+        if (width, height) == (self._width, self._height):
+            return
+        if self._process is not None:
+            raise RuntimeError(
+                "An MP4 cannot change dimensions after encoding has started."
+            )
+        _validate_frame_size(width, height)
+        self._width = width
+        self._height = height
+
+    @property
+    def has_started(self) -> bool:
+        """Return whether ffmpeg has received this video's first frame."""
+        return self._process is not None
+
+    def copy_from_mp4(self, source_path: str | Path) -> None:
+        """Decode an MP4 into this encoder's top-left-aligned canvas.
+
+        Args:
+            source_path: Existing MP4 whose frames fit within this encoder's
+                dimensions.
+
+        Raises:
+            RuntimeError: ffmpeg is unavailable or decoding fails.
+        """
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg is None:
+            raise RuntimeError("Writing an MP4 needs an ffmpeg executable on PATH.")
+        encoder_process = self._process or self._start()
+        assert encoder_process.stdin is not None
+        decoder = subprocess.Popen(
+            [
+                ffmpeg,
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source_path),
+                "-an",
+                "-vf",
+                f"pad={self._width}:{self._height}:0:0:color=black",
+                "-fps_mode",
+                "passthrough",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-",
+            ],
+            stdout=encoder_process.stdin,
+            stderr=subprocess.PIPE,
+        )
+        decoder_errors: list[bytes] = []
+        assert decoder.stderr is not None
+        error_reader = threading.Thread(
+            target=_read_errors,
+            args=(decoder.stderr, decoder_errors),
+            name="flashdreams-mp4-resize-errors",
+            daemon=True,
+        )
+        error_reader.start()
+        exit_code = decoder.wait()
+        error_reader.join()
+        if exit_code != 0:
+            reported = (
+                b"".join(decoder_errors).decode("utf-8", errors="replace").strip()
+            )
+            raise RuntimeError(
+                f"ffmpeg failed while expanding {source_path}: "
+                f"{reported or 'no output'}"
+            )
 
     def write(self, frames: npt.NDArray[np.uint8]) -> None:
         """Encode ``[T, H, W, C]`` uint8 frames.
@@ -202,7 +283,11 @@ def result_to_rgb24_frames(
     return result_to_rgb24_tensor(result, session_desc).cpu().numpy()
 
 
-def result_to_rgb24_tensor(result: StepResult, session_desc: SessionDesc) -> Tensor:
+def result_to_rgb24_tensor(
+    result: StepResult,
+    session_desc: SessionDesc,
+    presentation_size: tuple[int, int] | None = None,
+) -> Tensor:
     """Convert one result to device-resident ``[T, H, W, C]`` uint8 frames.
 
     Floating-point tensors hold normalized ``[-1, 1]`` pixels and integer
@@ -213,6 +298,8 @@ def result_to_rgb24_tensor(result: StepResult, session_desc: SessionDesc) -> Ten
     Args:
         result: Generated output for one step.
         session_desc: Description the output is expected to match.
+        presentation_size: Optional output width and height. Frames from a
+            resize-capable UI loop are resampled to these dimensions.
 
     Returns:
         Contiguous uint8 RGB frames on the result's output device.
@@ -237,19 +324,25 @@ def result_to_rgb24_tensor(result: StepResult, session_desc: SessionDesc) -> Ten
         raise ValueError(
             f"Expected one or {_RGB_CHANNELS} colour channels, got {frames.shape[1]}."
         )
-    if frames.shape[2:] != (session_desc.video_height, session_desc.video_width):
-        height, width = frames.shape[2:]
-        described = f"{session_desc.video_width}x{session_desc.video_height}"
+
+    if presentation_size is None:
         raise ValueError(
-            f"Output was described as {described} but arrived as {width}x{height}."
+            f"Output is missing a downstream presentation frame size."
         )
+    if presentation_size is not None and (
+        presentation_size[0] <= 0 or presentation_size[1] <= 0
+    ):
+        raise ValueError("Presentation width and height must be > 0.")
 
     if frames.shape[1] == 1:
         frames = frames.repeat(1, _RGB_CHANNELS, 1, 1)
     if frames.is_floating_point():
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
-    return frames.permute(0, 2, 3, 1).contiguous()
+    rgb24_frames = frames.permute(0, 2, 3, 1).contiguous()
+    if presentation_size is not None:
+        rgb24_frames = _resize_rgb24_frames(rgb24_frames, presentation_size)
+    return rgb24_frames
 
 
 def _to_tchw(output: Tensor, layout: VideoTensorLayout) -> Tensor:
@@ -305,3 +398,29 @@ def _read_errors(stream: Any, chunks: list[bytes]) -> None:
         if not chunk:
             return
         chunks.append(chunk)
+
+
+def _validate_frame_size(width: int, height: int) -> None:
+    """Require dimensions compatible with the encoder's pixel format."""
+    # yuv420p stores one chroma sample per two pixels in each direction.
+    if width % 2 or height % 2:
+        raise ValueError(f"An MP4 needs even frame dimensions, got {width}x{height}.")
+
+
+def _resize_rgb24_frames(
+    frames: Tensor,
+    presentation_size: tuple[int, int],
+) -> Tensor:
+    """Resample RGB byte frames on their current device."""
+    width, height = presentation_size
+    if frames.shape[1:3] == (height, width):
+        return frames
+    resized = F.interpolate(
+        frames.permute(0, 3, 1, 2).to(torch.float32),
+        size=(height, width),
+        mode="bilinear",
+        align_corners=False,
+    )
+    return (
+        resized.round().clamp_(0, 255).to(torch.uint8).permute(0, 2, 3, 1).contiguous()
+    )
