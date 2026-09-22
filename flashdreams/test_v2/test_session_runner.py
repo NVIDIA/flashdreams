@@ -1424,6 +1424,26 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     ] == [0, 1]
 
 
+def test_run_session_ends_when_the_window_does_not_wait_for_close() -> None:
+    """Generation draining ends the run when the window never sends close."""
+    log = CallLog()
+    session = FiniteSession(_session_desc(), log, length=2)
+
+    class WindowThatDoesNotWaitForClose(RecordingClientWindow):
+        def waits_for_close(self) -> bool:
+            return False
+
+    window = WindowThatDoesNotWaitForClose(log)
+
+    run_session(session, window, steps=None, timeout_seconds=5)
+
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
+    assert session.is_finished()
+    assert "window.close" in log.calls
+
+
 def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None:
     """Model completion alone does not end an interactive session."""
     log = CallLog()
@@ -1437,6 +1457,7 @@ def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None
 
     window = ClosingAfterFinalFrame(log)
 
+    assert window.waits_for_close()
     run_session(session, window, steps=None)
 
     assert [

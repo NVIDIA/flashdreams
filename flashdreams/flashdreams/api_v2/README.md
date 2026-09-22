@@ -68,7 +68,8 @@ The UI thread initially selects frames from model chunks at
 `PresentationMode.CONTINUOUS` runs an `IUILoop` every UI tick while model
 inference is active; `PresentationMode.ON_DEMAND` runs it only when the selected
 model frame changes. An unfinished UI also ticks while model inference has not
-started or has finished, independent of presentation mode.
+started, and on a window that waits for close after it has finished, independent
+of presentation mode.
 
 ## Loops
 
@@ -89,9 +90,11 @@ what was in it. Operations must return `None`. Anything still queued at shutdown
 is dropped, so two loops cannot keep each other alive by messaging back and
 forth.
 
-`ILoop.is_finished` returns `False` by default. Override it when the model should
-end the run on its own, which is what a run writing an MP4 depends on, an MP4
-window never sends a close event, so nothing else will stop it.
+`ILoop.is_finished` returns `False` by default. Override it on a model loop when
+generation has a natural end. A window that never sends close ends the run once
+that generation has been presented. Override it on a UI loop when the UI has its
+own terminal condition; a window that waits for close keeps an unfinished UI
+ticking after inference so it can stay responsive or request another session.
 
 `ILoop.reset` raises `NotImplementedError` by default. A reset arrives as a
 client event, and when one does, every loop's `reset` is called, its
@@ -191,8 +194,10 @@ model-generation-loop produces frames:
 An `IModelLoop` owns its `inference_state`. An `IUILoop` can query that state
 through `model_inference_state` to distinguish `NOT_STARTED`, `RUNNING`, and
 `FINISHED`; it does not store a second copy. An unfinished UI continues ticking
-after inference so it can remain responsive and request another session.
-Override `is_finished` when the UI has its own terminal condition.
+after inference on a window that waits for close so it can remain responsive
+and request another session. Override `is_finished` when the UI has its own
+terminal condition. A window that never sends close ends once generation has
+drained.
 
 Use `PresentationMode.ON_DEMAND` with `BackpressureMode.BLOCK` when every
 generated model frame must be selected and written exactly once in order.

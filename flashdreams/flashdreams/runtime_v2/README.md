@@ -83,8 +83,9 @@ declare arguments this command also has.
 
 | Mode | Takes | Input | Ends when |
 | --- | --- | --- | --- |
-| `mp4` (default) | `--output-path` | none | the application UI finishes |
+| `mp4` (default) | `--output-path` | none | generation drains |
 | `webrtc` | `--host`, `--port` | keyboard, mouse, focus, query string, reset, close | the application UI finishes or the client closes it |
+| `native-window` | `--window-title` | keyboard, mouse, gamepad, close | the application UI finishes or the client closes it |
 
 `--host` and `--port` choose the listener. When a browser connects with a
 non-empty query string, an `ILoop` receives a `QueryStringUserInputEvent` whose
@@ -206,9 +207,11 @@ ready:
 - `ON_DEMAND` runs the UI loop only when `advance` moves to a new model frame.
 
 While inference has not started or has finished, an unfinished UI runs every
-tick in either mode. The model loop owns `inference_state`; the UI can query it
-through `model_inference_state`. The UI remains active after model output drains
-and may use `is_finished` to declare its own terminal condition.
+tick in either mode on a window that waits for close. The model loop owns
+`inference_state`; the UI can query it through `model_inference_state`. A window
+that waits for close remains active after model output drains and may use
+`is_finished` to declare its own terminal condition. A window that never sends
+close ends once the presented generation has drained.
 
 For output that has to be compared frame by frame, use `BLOCK` with
 `ON_DEMAND`: together they keep every frame in the presentation manager

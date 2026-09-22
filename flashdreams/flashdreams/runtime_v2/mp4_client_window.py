@@ -15,8 +15,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 class Mp4ClientWindow(IClientWindow):
     """Write UI frames to an MP4 file and report no input.
 
-    The session must finish on its own because this window never sends a close
-    event. Use ``BackpressureMode.BLOCK`` with
+    This window never sends a close event. Use ``BackpressureMode.BLOCK`` with
     ``PresentationMode.ON_DEMAND`` to write every frame once.
     """
 
@@ -32,6 +31,10 @@ class Mp4ClientWindow(IClientWindow):
     def path(self) -> Path:
         """Return the output path."""
         return self._path
+
+    def waits_for_close(self) -> bool:
+        """Return ``False``; this window never sends a close event."""
+        return False
 
     def get_user_input_events(self) -> UserInputEvents:
         """Return an empty input batch."""
