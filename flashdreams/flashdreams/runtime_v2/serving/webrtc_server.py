@@ -1287,7 +1287,7 @@ def _controller_action(
 def _validated_result_frames(
     result: StepResult,
     session_desc: SessionDesc,
-    presentation_size: tuple[int, int] | None = None,
+    presentation_size: tuple[int, int],
 ) -> torch.Tensor:
     """Return validated time-major frames without materializing them on the host."""
     # This path may inspect metadata and create views only. The transfer-stream
@@ -1319,8 +1319,6 @@ def _validated_result_frames(
     if frames.shape[1] not in (1, 3):
         raise ValueError("WebRTC output must have one or three color channels.")
 
-    if presentation_size is None:
-        raise ValueError("WebRTC is missing a downstream presentation frame size.")
     if result.output_layout != session_desc.output_layout:
         raise ValueError("StepResult.output_layout does not match SessionDesc.")
 

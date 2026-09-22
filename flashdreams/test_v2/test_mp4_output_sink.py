@@ -256,6 +256,47 @@ def test_sink_writes_every_frame_a_result_carries(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
+def test_rejected_canvas_expansion_preserves_started_encoder(tmp_path: Path) -> None:
+    path = tmp_path / "out.mp4"
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
+
+    with pytest.raises(ValueError, match=f"{_WIDTH + 1}x{_HEIGHT}"):
+        sink.request_new_window_size((_WIDTH + 1, _HEIGHT))
+
+    sink.write(_result([_BLACK]))
+    sink.close()
+
+    assert len(_decode(path)) == 2
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@needs_ffmpeg
+def test_failed_canvas_migration_does_not_overwrite_existing_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "out.mp4"
+    sink = Mp4OutputSink(path)
+    sink.open(_session_desc())
+    sink.write(_result([_RED]))
+    monkeypatch.setattr(
+        Mp4Encoder,
+        "copy_from_mp4",
+        Mock(side_effect=RuntimeError("migration failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="migration failed"):
+        sink.request_new_window_size((_WIDTH + 2, _HEIGHT))
+    with pytest.raises(RuntimeError, match="open"):
+        sink.write(_result([_BLACK]))
+    sink.close()
+
+    assert len(_decode(path)) == 1
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@needs_ffmpeg
 def test_a_floating_point_result_is_read_as_minus_one_to_one(tmp_path: Path) -> None:
     # Zero is the middle of that range, so a frame of zeros is mid grey rather
     # than black, and an application emitting [0, 1] would come out washed out.

@@ -259,7 +259,7 @@ class Mp4Encoder:
 
 
 def result_to_rgb24_frames(
-    result: StepResult, session_desc: SessionDesc
+    result: StepResult, session_desc: SessionDesc, presentation_size: tuple[int, int]
 ) -> npt.NDArray[np.uint8]:
     """Convert one result to the ``[T, H, W, C]`` uint8 frames an encoder reads.
 
@@ -280,13 +280,13 @@ def result_to_rgb24_frames(
             one sequence of frames, or disagrees with itself over how many frames
             it carries.
     """
-    return result_to_rgb24_tensor(result, session_desc).cpu().numpy()
+    return result_to_rgb24_tensor(result, session_desc, presentation_size).cpu().numpy()
 
 
 def result_to_rgb24_tensor(
     result: StepResult,
     session_desc: SessionDesc,
-    presentation_size: tuple[int, int] | None = None,
+    presentation_size: tuple[int, int],
 ) -> Tensor:
     """Convert one result to device-resident ``[T, H, W, C]`` uint8 frames.
 
@@ -298,7 +298,7 @@ def result_to_rgb24_tensor(
     Args:
         result: Generated output for one step.
         session_desc: Description the output is expected to match.
-        presentation_size: Optional output width and height. Frames from a
+        presentation_size: output width and height. Frames from a
             resize-capable UI loop are resampled to these dimensions.
 
     Returns:
@@ -325,11 +325,7 @@ def result_to_rgb24_tensor(
             f"Expected one or {_RGB_CHANNELS} colour channels, got {frames.shape[1]}."
         )
 
-    if presentation_size is None:
-        raise ValueError(f"Output is missing a downstream presentation frame size.")
-    if presentation_size is not None and (
-        presentation_size[0] <= 0 or presentation_size[1] <= 0
-    ):
+    if presentation_size[0] <= 0 or presentation_size[1] <= 0:
         raise ValueError("Presentation width and height must be > 0.")
 
     if frames.shape[1] == 1:
@@ -338,9 +334,7 @@ def result_to_rgb24_tensor(
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
     rgb24_frames = frames.permute(0, 2, 3, 1).contiguous()
-    if presentation_size is not None:
-        rgb24_frames = _resize_rgb24_frames(rgb24_frames, presentation_size)
-    return rgb24_frames
+    return _resize_rgb24_frames(rgb24_frames, presentation_size)
 
 
 def _to_tchw(output: Tensor, layout: VideoTensorLayout) -> Tensor:

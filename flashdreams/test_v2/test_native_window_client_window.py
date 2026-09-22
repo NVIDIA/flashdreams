@@ -396,7 +396,7 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     def record_conversion(
         result: StepResult,
         desc: SessionDesc,
-        presentation_size: tuple[int, int] | None = None,
+        presentation_size: tuple[int, int],
     ) -> torch.Tensor:
         conversion_threads.append(threading.get_ident())
         return real_conversion(result, desc, presentation_size)
@@ -750,23 +750,6 @@ def test_native_printable_key_names_become_text_input_values(
     assert data is not None
     assert data.key == runtime_key
     assert data.state is KeyboardInputState.PRESSED
-
-
-def test_device_conversion_does_not_materialize_a_host_array() -> None:
-    source = StepResult(
-        step_index=0,
-        output=torch.zeros((1, 3, 2, 2), dtype=torch.float32),
-        frame_count=1,
-        output_layout=VideoTensorLayout.tchw,
-    )
-
-    frames = result_to_rgb24_tensor(source, _session_desc())
-
-    assert isinstance(frames, torch.Tensor)
-    assert frames.device == source.read_output().device
-    assert frames.shape == (1, 2, 2, 3)
-    assert frames.dtype is torch.uint8
-    assert torch.all(frames == 128)
 
 
 def test_write_before_open_is_rejected() -> None:

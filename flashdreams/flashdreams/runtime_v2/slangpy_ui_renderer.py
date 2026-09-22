@@ -18,27 +18,6 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
-class _UIRenderer(Protocol):
-    """Rendering backend needed by the public SlangPy UI thread."""
-
-    def render(
-        self,
-        step_index: int,
-        events: UserInputEvents,
-        step_ui: Callable[[Any, int, UserInputEvents], None],
-    ) -> Tensor:
-        """Render one UI frame as normalized ``[C, H, W]`` output."""
-        ...
-
-    def reset(self) -> None:
-        """Reset renderer input and transient state."""
-        ...
-
-    def close(self) -> None:
-        """Release renderer resources."""
-        ...
-
-
 class _SlangPyUIRenderer:
     """Render SlangPy's native widgets through CUDA interop."""
 

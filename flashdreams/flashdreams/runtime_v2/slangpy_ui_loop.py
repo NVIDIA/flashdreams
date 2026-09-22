@@ -11,7 +11,6 @@ from torch import Tensor
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.slangpy_ui_renderer import (
     _SlangPyUIRenderer,
-    _UIRenderer,
 )
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.ui_compositing import prepare_ui_back_buffer
@@ -32,7 +31,7 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     def __init__(
         self,
         *,
-        renderer: _UIRenderer | None = None,
+        renderer: _SlangPyUIRenderer | None = None,
         width: int | None = None,
         height: int | None = None,
     ) -> None:

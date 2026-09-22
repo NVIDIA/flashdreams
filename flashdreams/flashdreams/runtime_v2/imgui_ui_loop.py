@@ -10,9 +10,6 @@ from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.imgui_ui_renderer import _ImGuiUIRenderer
-from flashdreams.runtime_v2.slangpy_ui_renderer import (
-    _UIRenderer,
-)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.ui_compositing import prepare_ui_back_buffer
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -31,7 +28,7 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     def __init__(
         self,
         *,
-        renderer: _UIRenderer | None = None,
+        renderer: _ImGuiUIRenderer | None = None,
         width: int | None = None,
         height: int | None = None,
         cuda_device: str | None = None,

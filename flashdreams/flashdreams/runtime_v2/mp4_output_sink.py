@@ -87,12 +87,7 @@ class Mp4OutputSink(OutputSink):
         encoder = self._encoder
         canvas_size = self._canvas_size
         presentation_size = self._presentation_size
-        if (
-            session_desc is None
-            or encoder is None
-            or canvas_size is None
-            or presentation_size is None
-        ):
+        if session_desc is None or encoder is None or canvas_size is None:
             raise RuntimeError("Mp4OutputSink.open() must run before resizing.")
         width, height = new_window_size
         canvas_width = max(canvas_size[0], width)
@@ -172,19 +167,29 @@ class Mp4OutputSink(OutputSink):
         if encoder is None or encoder_path is None or session_desc is None:
             raise RuntimeError("Mp4OutputSink.open() must run before resizing.")
 
-        encoder.close()
-        if encoder_path != self._path:
-            encoder_path.replace(self._path)
-            self._encoder_path = self._path
-
         temporary_path = self._temporary_path()
-        expanded_encoder = Mp4Encoder(
-            temporary_path,
-            width=width,
-            height=height,
-            frames_per_second=session_desc.frames_per_second_for_step,
-        )
         try:
+            expanded_encoder = Mp4Encoder(
+                temporary_path,
+                width=width,
+                height=height,
+                frames_per_second=session_desc.frames_per_second_for_step,
+            )
+        except BaseException as error:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except BaseException as cleanup_error:
+                raise error from cleanup_error
+            raise
+
+        # Do not leave a closed encoder active: writing to it again would
+        # overwrite the existing MP4.
+        self._encoder = None
+        try:
+            encoder.close()
+            if encoder_path != self._path:
+                encoder_path.replace(self._path)
+                self._encoder_path = self._path
             # When MPEG-DASH is supported, this rewrite should become a new
             # segment boundary carrying the expanded video descriptor.
             expanded_encoder.copy_from_mp4(self._path)

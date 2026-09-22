@@ -362,7 +362,11 @@ class _FrameInspector(MetricsOutputSink):
     def write(self, result: StepResult) -> None:
         if self._session_desc is None:
             raise RuntimeError("open() must run before write().")
-        frames = result_to_rgb24_frames(result, self._session_desc)
+        frames = result_to_rgb24_frames(
+            result,
+            self._session_desc,
+            (self._session_desc.video_width, self._session_desc.video_height),
+        )
         self.frames_per_step.append(len(frames))
         self.metrics.append(dict(result.metrics or {}))
         self.luminance_sum += float(frames.mean()) * len(frames)
