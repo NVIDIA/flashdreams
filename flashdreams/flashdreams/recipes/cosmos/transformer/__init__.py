@@ -179,6 +179,12 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
     network: CosmosDiTNetwork
 
     def __init__(self, config: CosmosTransformerConfig) -> None:
+        if config.network.self_attention_backend == "sage2" and config.use_cuda_graph:
+            raise ValueError(
+                "Cosmos SageAttention 2 self-attention is incompatible with "
+                "use_cuda_graph=True. Set use_cuda_graph=False or "
+                "self_attention_backend='cudnn'."
+            )
         super().__init__(config)
         self.config = config
 

@@ -28,6 +28,15 @@ void bind_optimized_dit(py::module_& module) {
       py::arg("self_attn_write_start"),
       py::arg("weights"),
       py::arg("config"));
+  module.def("sage2_is_built", &sage2_is_built);
+  module.def("sage2_is_runtime_supported", &sage2_is_runtime_supported, py::arg("device"));
+  module.def(
+      "sage2_test_attention",
+      &sage2_test_attention,
+      py::arg("q_bmhd"),
+      py::arg("k_bmhd"),
+      py::arg("v_bmhd"),
+      py::arg("causal") = false);
   module.def(
       "sage3_quantize_cross_kv_bf16",
       &sage3_quantize_cross_kv_bf16,

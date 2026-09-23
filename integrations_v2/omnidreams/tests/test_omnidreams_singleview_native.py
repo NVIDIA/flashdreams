@@ -166,6 +166,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     monkeypatch.delenv("MAX_JOBS", raising=False)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2", raising=False)
     monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3", raising=False)
 
     extension = native.load_extension(build_root=build_root)
@@ -232,6 +233,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         "cosmos_gemm_bf16.cu",
         "cosmos_modulate.cu",
         "ops.cu",
+        "sage2_attention_stub.cu",
         "sage3_attention_stub.cu",
         "sparge_attention_sm89_inst.cu",
         "transformer_block.cu",
@@ -275,6 +277,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
         '-DOMNIDREAMS_SINGLEVIEW_SAGE_ATTENTION_SHA=\\"sage-test-sha\\"'
         in captured["extra_cflags"]
     )
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE2=0" in captured["extra_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=0" in captured["extra_cflags"]
     assert (
         '-DOMNIDREAMS_SINGLEVIEW_SPARGE_ATTN_SHA=\\"sparge-test-sha\\"'
@@ -288,6 +291,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cuda_cflags"]
     if os.name == "nt":
         assert "-Xcompiler=/Zc:preprocessor" in captured["extra_cuda_cflags"]
+    assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE2=0" in captured["extra_cuda_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3=0" in captured["extra_cuda_cflags"]
     assert "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1" in captured["extra_cuda_cflags"]
     assert captured["with_cuda"] is True
@@ -304,11 +308,13 @@ def test_load_extension_uses_build_root_for_torch_cache(
         ((12, 0), "NVIDIA GeForce RTX 5090", "12.0a"),
         ((12, 0), "NVIDIA RTX PRO 6000 Blackwell", "12.0a"),
         ((12, 0), "Unvalidated Compute Capability 12.0 GPU", None),
+        ((9, 0), "NVIDIA H100 80GB HBM3", "9.0a"),
+        ((9, 0), "NVIDIA H20-3e", "9.0a"),
         ((10, 3), "NVIDIA GB300", None),
         ((8, 9), "NVIDIA RTX 6000 Ada Generation", None),
     ],
 )
-def test_detected_cuda_arch_list_only_selects_validated_sm120a_devices(
+def test_detected_cuda_arch_list_selects_supported_architecture_targets(
     capability: tuple[int, int],
     device_name: str,
     expected: str | None,
@@ -348,6 +354,62 @@ def test_effective_cuda_arch_list_uses_pytorch_default_without_sm120a(
 
     assert native._effective_cuda_arch_list() is None
     assert native._cuda_arch_identity(None) == "pytorch-default"
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, False),
+        ("", False),
+        ("0", False),
+        ("false", False),
+        ("yes", False),
+        ("1", True),
+        ("true", True),
+        ("TRUE", True),
+    ],
+)
+def test_sage2_build_opt_out_parses_affirmative_values(
+    value: str | None,
+    expected: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "9.0a")
+    if value is None:
+        monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2", raising=False)
+    else:
+        monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2", value)
+
+    assert native._sage2_disabled() is expected
+    sources = {source.name for source in native._extension_sources()}
+    if expected:
+        assert "sage2_attention_stub.cu" in sources
+        assert "sage2_fused_shim.cu" not in sources
+        assert "sage2_hopper_api_shim.cu" not in sources
+        assert "sage2_attention.cu" not in sources
+    else:
+        assert "sage2_attention_stub.cu" not in sources
+        assert "sage2_fused_shim.cu" in sources
+        assert "sage2_hopper_api_shim.cu" in sources
+        assert "sage2_attention.cu" in sources
+
+
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize(
+    ("cuda_arch_list", "expected"),
+    [
+        ("9.0a", False),
+        ("pytorch-default", True),
+        ("9.0", True),
+        ("12.0a", True),
+    ],
+)
+def test_sage2_build_requires_exact_sm90a_target(
+    cuda_arch_list: str,
+    expected: bool,
+) -> None:
+    assert native._sage2_disabled(cuda_arch_list) is expected
 
 
 @pytest.mark.ci_cpu
@@ -1019,6 +1081,129 @@ def test_optimized_dit_default_attention_backend_uses_cudnn(
 
 
 @pytest.mark.ci_cpu
+def test_optimized_dit_explicit_sage2_resolves_for_fp8_native_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sage2_status",
+        lambda self, device=None: (True, ""),
+    )
+    transformer = SimpleNamespace(
+        config=SimpleNamespace(
+            network=SimpleNamespace(
+                num_blocks=28,
+                num_heads=16,
+                model_channels=2048,
+                adaln_lora_dim=256,
+                timestep_scale=0.001,
+            ),
+            num_views=1,
+            use_cuda_graph=False,
+            cuda_graph_warmup_iters=0,
+        ),
+        network=SimpleNamespace(),
+    )
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        optimized_dit_supports_block_mod_cache=lambda: True,
+        optimized_dit_supports_hdmap_cache=lambda: True,
+    )
+
+    executor = optimized_dit.OptimizedDiTExecutor(
+        transformer,
+        extension,
+        dit_backend="fp8_kvcache_cudnn",
+        attention_backend="sage2",
+    )
+    executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+
+    assert executor._attention_backend == "sage2"
+
+
+@pytest.mark.ci_cpu
+def test_optimized_dit_explicit_sage2_rejects_bf16_native_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sage2_status",
+        lambda self, device=None: (True, ""),
+    )
+    transformer = SimpleNamespace(
+        config=SimpleNamespace(
+            network=SimpleNamespace(
+                num_blocks=28,
+                num_heads=16,
+                model_channels=2048,
+                adaln_lora_dim=256,
+                timestep_scale=0.001,
+            ),
+            num_views=1,
+            use_cuda_graph=False,
+            cuda_graph_warmup_iters=0,
+        ),
+        network=SimpleNamespace(),
+    )
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        optimized_dit_supports_block_mod_cache=lambda: True,
+        optimized_dit_supports_hdmap_cache=lambda: True,
+    )
+    executor = optimized_dit.OptimizedDiTExecutor(
+        transformer,
+        extension,
+        dit_backend="bf16",
+        attention_backend="sage2",
+    )
+
+    with pytest.raises(ValueError, match="fp8_kvcache_cudnn"):
+        executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+
+
+@pytest.mark.ci_cpu
+def test_optimized_dit_explicit_sage2_reports_unavailable_extension(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimized_dit = native.load_python_module("optimized_dit")
+    monkeypatch.setattr(
+        optimized_dit.OptimizedDiTExecutor,
+        "_sage2_status",
+        lambda self, device=None: (False, "native extension has Sage2 stubs"),
+    )
+    transformer = SimpleNamespace(
+        config=SimpleNamespace(
+            network=SimpleNamespace(
+                num_blocks=28,
+                num_heads=16,
+                model_channels=2048,
+                adaln_lora_dim=256,
+                timestep_scale=0.001,
+            ),
+            num_views=1,
+            use_cuda_graph=False,
+            cuda_graph_warmup_iters=0,
+        ),
+        network=SimpleNamespace(),
+    )
+    extension = SimpleNamespace(
+        optimized_dit_forward=lambda *args, **kwargs: None,
+        optimized_dit_supports_block_mod_cache=lambda: True,
+        optimized_dit_supports_hdmap_cache=lambda: True,
+    )
+    executor = optimized_dit.OptimizedDiTExecutor(
+        transformer,
+        extension,
+        attention_backend="sage2",
+    )
+
+    with pytest.raises(ValueError, match="native extension has Sage2 stubs"):
+        executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+
+
+@pytest.mark.ci_cpu
 def test_optimized_dit_sparge_period_one_is_pure_sparge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1194,6 +1379,7 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert hasattr(extension, "omnidreams_vae_reset_wan_encoder_fp8")
     assert hasattr(extension, "omnidreams_vae_encode_wan_fp8")
     assert hasattr(extension, "lightvae_fp8_prepare_conv2d_weight_krsc")
+    assert hasattr(extension, "sage2_test_attention")
     vae_fp8_status = extension.omnidreams_vae_backend_status("vae_encoder", "fp8")
     assert vae_fp8_status["available"] is True
 
@@ -1218,6 +1404,24 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert tuple(descriptor["shape"]) == tuple(transposed.shape)
     assert tuple(descriptor["stride"]) == tuple(transposed.stride())
     assert descriptor["nbytes"] == transposed.numel() * transposed.element_size()
+
+    if extension.sage2_is_built() and extension.sage2_is_runtime_supported(0):
+        q = torch.randn((1, 256, 4, 128), device="cuda", dtype=torch.bfloat16)
+        k = torch.randn((1, 1024, 4, 128), device="cuda", dtype=torch.bfloat16)
+        v = torch.randn_like(k)
+        actual = extension.sage2_test_attention(q, k, v, False)
+        expected = torch.nn.functional.scaled_dot_product_attention(
+            q.transpose(1, 2),
+            k.transpose(1, 2),
+            v.transpose(1, 2),
+        ).transpose(1, 2)
+        torch.cuda.synchronize()
+        cosine = torch.nn.functional.cosine_similarity(
+            actual.float().flatten(),
+            expected.float().flatten(),
+            dim=0,
+        )
+        assert cosine.item() > 0.995
 
     byte_workspace = torch.empty((128,), device="cuda", dtype=torch.uint8)
     plan = extension.workspace_allocation_plan(byte_workspace, [13, 16, 32], 16)

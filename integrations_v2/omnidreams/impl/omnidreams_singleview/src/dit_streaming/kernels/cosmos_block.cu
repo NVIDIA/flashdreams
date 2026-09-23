@@ -1181,6 +1181,7 @@ static cudaError_t cosmos_attention_bf16_or_fp8(
     bool write_bf16_output,
     bool write_fp8_output,
     bool allow_sparge_backend,
+    bool allow_sage2_backend,
     cudaStream_t stream)
 {
   if (p.attention_backend == CosmosAttentionBackend::SPARGE) {
@@ -1213,6 +1214,33 @@ static cudaError_t cosmos_attention_bf16_or_fp8(
         p.buf.linear_half_scratch,
         p.M, Mk, p.H, p.D, p.sparge_topk_ratio,
         p.sparge_attention_sink, stream);
+  }
+
+  if (p.attention_backend == CosmosAttentionBackend::SAGE2) {
+    if (!write_bf16_output || write_fp8_output || !q || !k || !v || !out) {
+      return cudaErrorInvalidValue;
+    }
+    // The public OmniDreams switch controls self-attention. Keep the shorter
+    // text cross-attention on cuDNN, matching the Python/framework path.
+    if (!allow_sage2_backend) {
+      if (p.fp8_kv_cache_enabled) {
+        return cosmos_attention_fp8_cudnn(
+            p, q, k, v,
+            q_fp8, q_fp8_bhmd, q_fp8_bhmd_tokens,
+            k_fp8, v_fp8,
+            k_fp8_bhmd, v_fp8_bhmd,
+            k_fp8_bhmd_tokens, v_fp8_bhmd_tokens,
+            v_fp8_bhdm,
+            out, out_fp8, Mk,
+            write_bf16_output, write_fp8_output, stream);
+      }
+      return run_cudnn_fmha_packed_qkv(
+          q, k, v, out,
+          p.B, p.M, Mk, p.H, p.D, /*causal=*/false, /*scale=*/0.f, stream);
+    }
+    return run_sage2_fmha_packed_qkv(
+        q, k, v, out,
+        p.B, p.M, Mk, p.H, p.D, /*causal=*/false, /*scale=*/0.f, stream);
   }
 
   if (p.attention_backend == CosmosAttentionBackend::SAGE3) {
@@ -2634,7 +2662,8 @@ cudaError_t cosmos_run_transformer_block_streaming(
       reinterpret_cast<cutlass::bfloat16_t*>(o_bmhk),
       sa_attn_writes_fp8 ? p.buf.linear_fp8_scratch : nullptr,
       read_end, !sa_out_proj_from_quantized_attention, sa_attn_writes_fp8,
-      /*allow_sparge_backend=*/true, stream);
+      /*allow_sparge_backend=*/true,
+      /*allow_sage2_backend=*/true, stream);
   if (err != cudaSuccess) return err;
   rec(EV_AFTER_SA_FMHA);
 
@@ -2792,7 +2821,8 @@ cudaError_t cosmos_run_transformer_block_streaming(
       reinterpret_cast<cutlass::bfloat16_t*>(o_bmhk),
       ca_attn_writes_fp8 ? p.buf.linear_fp8_scratch : nullptr,
       Mk_c, !ca_out_proj_from_quantized_attention, ca_attn_writes_fp8,
-      /*allow_sparge_backend=*/false, stream);
+      /*allow_sparge_backend=*/false,
+      /*allow_sage2_backend=*/false, stream);
   if (err != cudaSuccess) return err;
   rec(EV_AFTER_CA_FMHA);
 

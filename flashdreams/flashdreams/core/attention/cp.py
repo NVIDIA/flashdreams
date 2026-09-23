@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Context-parallel attention (ring / ulysses) built on native SDPA primitives."""
+"""Context-parallel attention using ring or Ulysses collectives."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from typing import Any, Callable, ContextManager, Literal, cast
 import torch
 import torch.distributed._functional_collectives as funcol
 from torch import Tensor
-from torch.distributed.tensor.device_mesh import DeviceMesh
 
 from flashdreams.core.attention.native import NativeAttention
 
@@ -61,12 +60,12 @@ def torch_sdpa_flash(
 
 
 class ContextParallelAttention(NativeAttention):
-    """Context-parallel attention with selectable method and SDPA backend."""
+    """Context-parallel attention with selectable method and kernel backend."""
 
     def __init__(
         self,
         qkv_format: Literal["bhsd", "bshd"] = "bhsd",
-        backend: Literal["cudnn", "flash"] = "cudnn",
+        backend: Literal["cudnn", "flash", "sage2"] = "cudnn",
         method: Literal["ring", "ulysses"] = "ring",
         convert_to_fp32: bool = True,
     ) -> None:
@@ -74,18 +73,14 @@ class ContextParallelAttention(NativeAttention):
 
         Args:
             qkv_format: Layout of the QKV tensors; ``"bhsd"`` or ``"bshd"``.
-            backend: SDPA backend; ``"cudnn"`` or ``"flash"``.
+            backend: Attention kernel backend. ``"sage2"`` loads the optional
+                SageAttention 2 package.
             method: Context-parallelism strategy; ``"ring"`` or ``"ulysses"``.
             convert_to_fp32: Promote LSE accumulators to fp32 during ring merges.
         """
-        super().__init__()
-        assert qkv_format in ["bhsd", "bshd"], f"Invalid qkv format: {qkv_format}"
-        assert backend in ["cudnn", "flash"], f"Invalid backend: {backend}"
+        super().__init__(qkv_format=qkv_format, backend=backend)
         assert method in ["ring", "ulysses"], f"Invalid cp method: {method}"
-        self.qkv_format = qkv_format
-        self.backend = backend
         self.method = method
-        self.device_mesh: DeviceMesh | None = None
         self.convert_to_fp32 = convert_to_fp32
 
     @staticmethod
@@ -103,21 +98,37 @@ class ContextParallelAttention(NativeAttention):
             return self._impl_ulysses(query, key, value)
         raise ValueError(f"Unsupported context parallel method: {self.method}")
 
-    def _impl_ring(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
-        """Ring attention: all-gather KV across CP ranks and LSE-merge outputs."""
+    def _local_attention(
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        return_lse: bool,
+    ) -> tuple[Tensor, Tensor | None]:
+        """Run one local attention shard with the configured backend."""
+        if self.backend == "sage2":
+            return self._run_sage2(
+                query,
+                key,
+                value,
+                return_lse=return_lse,
+            )
         attn_op = {
             "cudnn": torch_sdpa_cudnn,
             "flash": torch_sdpa_flash,
         }[self.backend]
+        return attn_op(query, key, value, return_lse=return_lse)
 
+    def _impl_ring(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
+        """Ring attention: all-gather KV across CP ranks and LSE-merge outputs."""
         if self.device_mesh is None:
-            return attn_op(query, key, value, return_lse=False)[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         rank = self.device_mesh.get_rank()
         world_size = self.device_mesh.size()
         group = self.device_mesh.get_group()
         if world_size == 1:
-            return attn_op(query, key, value, return_lse=False)[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         next_rank = (rank + 1) % world_size
         prev_out = prev_lse = None
@@ -126,16 +137,20 @@ class ContextParallelAttention(NativeAttention):
         kv_buffer_gathered = funcol.all_gather_tensor(
             kv_buffer_local, gather_dim=0, group=group
         )
-        kv_buffer = kv_buffer_gathered.chunk(world_size)
+        kv_buffer: tuple[Tensor, ...] | None = None
 
         for i in range(world_size):
             if i > 0:
+                if kv_buffer is None:
+                    kv_buffer = self._wait_collective(kv_buffer_gathered).chunk(
+                        world_size
+                    )
                 kv = kv_buffer[next_rank]
                 key = kv[: key.numel()].reshape_as(key)
                 value = kv[key.numel() :].reshape_as(value)
                 next_rank = (next_rank + 1) % world_size
 
-            out, lse = attn_op(query, key, value, return_lse=True)
+            out, lse = self._local_attention(query, key, value, return_lse=True)
             if lse is None:
                 raise AssertionError("LSE is None")
 
@@ -151,9 +166,10 @@ class ContextParallelAttention(NativeAttention):
                     lse = lse.to(torch.float32)
 
                 if prev_out is not None and prev_lse is not None:
-                    out = prev_out - torch.nn.functional.sigmoid(lse - prev_lse) * (
-                        prev_out - out
-                    )
+                    merge_weight = torch.nn.functional.sigmoid(lse - prev_lse)
+                    while merge_weight.ndim < out.ndim:
+                        merge_weight = merge_weight.unsqueeze(-1)
+                    out = prev_out - merge_weight * (prev_out - out)
                     lse = prev_lse - torch.nn.functional.logsigmoid(prev_lse - lse)
             prev_out = out
             prev_lse = lse
@@ -163,42 +179,31 @@ class ContextParallelAttention(NativeAttention):
 
     def _impl_ulysses(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
         """Ulysses attention: all-to-all QKV, local SDPA, all-to-all output restore."""
-        attn_op = {
-            "cudnn": torch_sdpa_cudnn,
-            "flash": torch_sdpa_flash,
-        }[self.backend]
-
         if self.device_mesh is None:
-            return attn_op(query, key, value, return_lse=False)[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         world_size = self.device_mesh.size()
         if world_size == 1:
-            return attn_op(query, key, value, return_lse=False)[0]
+            return self._local_attention(query, key, value, return_lse=False)[0]
 
         B, H, Sq_local, D = query.shape
         _, _, Sk_local, _ = key.shape
         if H % world_size != 0:
             raise ValueError(
-                f"Number of heads ({H}) must be divisible by CP size ({world_size}) for Ulysses."
+                f"Number of heads ({H}) must be divisible by CP size "
+                f"({world_size}) for Ulysses."
             )
         H_local = H // world_size
         group = self.device_mesh.get_group()
 
-        query = (
-            query.reshape(B, world_size, H_local, Sq_local, D)
-            .permute(1, 3, 0, 2, 4)
-            .contiguous()
+        query = query.reshape(B, world_size, H_local, Sq_local, D).permute(
+            1, 3, 0, 2, 4
         )
-        key = (
-            key.reshape(B, world_size, H_local, Sk_local, D)
-            .permute(1, 3, 0, 2, 4)
-            .contiguous()
+        key = key.reshape(B, world_size, H_local, Sk_local, D).permute(1, 3, 0, 2, 4)
+        value = value.reshape(B, world_size, H_local, Sk_local, D).permute(
+            1, 3, 0, 2, 4
         )
-        value = (
-            value.reshape(B, world_size, H_local, Sk_local, D)
-            .permute(1, 3, 0, 2, 4)
-            .contiguous()
-        )
+        query, key, value = (tensor.contiguous() for tensor in (query, key, value))
         query, key, value = (
             self._wait_collective(funcol.all_to_all_single(x, None, None, group=group))
             for x in (query, key, value)
@@ -208,13 +213,10 @@ class ContextParallelAttention(NativeAttention):
             for x in (query, key, value)
         )
 
-        out, _ = attn_op(query, key, value, return_lse=True)
+        out, _ = self._local_attention(query, key, value, return_lse=False)
 
-        out = (
-            out.reshape(B, H_local, world_size, Sq_local, D)
-            .permute(2, 1, 0, 3, 4)
-            .contiguous()
-        )
+        out = out.reshape(B, H_local, world_size, Sq_local, D).permute(2, 1, 0, 3, 4)
+        out = out.contiguous()
         out = self._wait_collective(
             funcol.all_to_all_single(out, None, None, group=group)
         )

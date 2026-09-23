@@ -54,6 +54,7 @@ _VAE_STREAMING_DIR = _SOURCE_DIR / "vae_streaming"
 _PYTORCH_MAX_JOBS_ENV = "MAX_JOBS"
 _DEFAULT_MAX_JOBS_CAP = 8
 _NATIVE_CUDA_ARCH_LIST_ENV = "OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST"
+_DISABLE_SAGE2_ENV = "OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2"
 _DISABLE_SAGE3_ENV = "OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE3"
 _PYTORCH_CUDA_ARCH_LIST_ENV = "TORCH_CUDA_ARCH_LIST"
 _PYTORCH_DEFAULT_CUDA_ARCH_LIST = "pytorch-default"
@@ -66,7 +67,7 @@ _SM120A_DEVICE_NAME_MARKERS = (
 )
 
 _native_build_module: ModuleType | None = None
-_extension: dict[tuple[bool, str], ModuleType] = {}
+_extension: dict[tuple[bool, bool, str], ModuleType] = {}
 _extension_load_error: Exception | None = None
 _state_lock = threading.RLock()
 _dll_directory_handles: list[object] = []
@@ -389,7 +390,18 @@ def _sage3_disabled(cuda_arch_list: str | None = None) -> bool:
     return cuda_arch_list != "12.0a"
 
 
+def _sage2_disabled(cuda_arch_list: str | None = None) -> bool:
+    if os.name == "nt":
+        return True
+    if os.environ.get(_DISABLE_SAGE2_ENV, "").strip().lower() in {"1", "true"}:
+        return True
+    if cuda_arch_list is None:
+        cuda_arch_list = _cuda_arch_identity(_effective_cuda_arch_list())
+    return cuda_arch_list != "9.0a"
+
+
 def _extension_sources() -> list[Path]:
+    disable_sage2 = _sage2_disabled()
     disable_sage3 = _sage3_disabled()
     return [
         _EXTENSION_SOURCE,
@@ -403,6 +415,14 @@ def _extension_sources() -> list[Path]:
         _VAE_STREAMING_DIR / "lightvae_fp8_warp_mma_stages.cu",
         _VAE_STREAMING_DIR / "lightvae_fp8_attention.cu",
         _DIT_STREAMING_PYEXT_DIR / "streaming_dit_bridge.cu",
+        *(
+            []
+            if disable_sage2
+            else [
+                _DIT_STREAMING_PYEXT_DIR / "sage2_fused_shim.cu",
+                _DIT_STREAMING_PYEXT_DIR / "sage2_hopper_api_shim.cu",
+            ]
+        ),
         *(
             []
             if disable_sage3
@@ -422,6 +442,8 @@ def _extension_sources() -> list[Path]:
         _DIT_STREAMING_KERNEL_DIR / "cosmos_gemm_bf16.cu",
         _DIT_STREAMING_KERNEL_DIR / "cosmos_modulate.cu",
         _DIT_STREAMING_KERNEL_DIR / "ops.cu",
+        _DIT_STREAMING_KERNEL_DIR
+        / ("sage2_attention_stub.cu" if disable_sage2 else "sage2_attention.cu"),
         _DIT_STREAMING_KERNEL_DIR
         / ("sage3_attention_stub.cu" if disable_sage3 else "sage3_attention.cu"),
         _DIT_STREAMING_KERNEL_DIR / "sparge_attention_sm89_inst.cu",
@@ -460,13 +482,18 @@ def _extension_name(
     cuda_arch_list = _cuda_arch_identity(
         _effective_cuda_arch_list() if cuda_arch_list is None else cuda_arch_list
     )
+    has_sage2 = int(not _sage2_disabled(cuda_arch_list))
     has_sage3 = int(not _sage3_disabled(cuda_arch_list))
     digest = hashlib.sha256()
     digest.update(_source_fingerprint().encode("ascii"))
     digest.update(json.dumps(thirdparty_info, sort_keys=True).encode("utf-8"))
+    digest.update(f"sage2={has_sage2}".encode("ascii"))
     digest.update(f"sage3={has_sage3}".encode("ascii"))
     digest.update(f"cuda_arch_list={cuda_arch_list}".encode("ascii"))
-    return f"omnidreams_singleview_native_sage3_{has_sage3}_{digest.hexdigest()[:12]}"
+    return (
+        f"omnidreams_singleview_native_sage2_{has_sage2}_sage3_{has_sage3}_"
+        f"{digest.hexdigest()[:12]}"
+    )
 
 
 def _validate_max_jobs(value: int | str) -> str:
@@ -496,7 +523,10 @@ def _detected_cuda_arch_list() -> str | None:
 
         if not torch.cuda.is_available():
             return None
-        if torch.cuda.get_device_capability() != (12, 0):
+        capability = torch.cuda.get_device_capability()
+        if capability == (9, 0):
+            return "9.0a"
+        if capability != (12, 0):
             return None
         device_name = torch.cuda.get_device_name()
         if not any(marker in device_name for marker in _SM120A_DEVICE_NAME_MARKERS):
@@ -583,8 +613,9 @@ def load_extension(
     with _state_lock:
         cuda_arch_list = _effective_cuda_arch_list()
         cuda_arch_identity = _cuda_arch_identity(cuda_arch_list)
+        sage2_disabled = _sage2_disabled(cuda_arch_identity)
         sage3_disabled = _sage3_disabled(cuda_arch_identity)
-        extension_key = (sage3_disabled, cuda_arch_identity)
+        extension_key = (sage2_disabled, sage3_disabled, cuda_arch_identity)
         if (extension := _extension.get(extension_key)) is not None:
             return extension
         _extension_load_error = None
@@ -602,6 +633,7 @@ def load_extension(
                 thirdparty_info,
                 cuda_arch_list=cuda_arch_identity,
             )
+            has_sage2 = int(not sage2_disabled)
             has_sage3 = int(not sage3_disabled)
             cutlass_dir = Path(thirdparty_info["cutlass"]["path"])
             cutlass_include = cutlass_dir / "include"
@@ -670,6 +702,7 @@ def load_extension(
                         "-std=c++20",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
+                        f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE2={has_sage2}",
                         f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3={has_sage3}",
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                         "-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA="
@@ -715,6 +748,7 @@ def load_extension(
                         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
+                        f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE2={has_sage2}",
                         f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3={has_sage3}",
                         "-DOMNIDREAMS_SINGLEVIEW_HAS_SPARGE=1",
                     ],

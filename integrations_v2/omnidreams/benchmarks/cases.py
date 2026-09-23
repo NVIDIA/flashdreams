@@ -63,11 +63,16 @@ class AttentionBenchmarkCase:
     native_dit_backend: Literal["fp8_kvcache_cudnn", "bf16"] = "fp8_kvcache_cudnn"
     """Native DiT compute backend used when ``native_dit`` is enabled."""
 
-    native_attention_backend: Literal["cudnn", "sparge", "sage3", "sage3_fp8"] = "cudnn"
+    native_attention_backend: Literal[
+        "cudnn", "sage2", "sparge", "sage3", "sage3_fp8"
+    ] = "cudnn"
     """Native attention backend used when ``native_dit`` is enabled."""
 
     minimum_compute_capability: tuple[int, int] | None = None
     """Minimum CUDA compute capability; ``None`` accepts any CUDA device."""
+
+    maximum_compute_capability: tuple[int, int] | None = None
+    """Maximum CUDA compute capability; ``None`` accepts any CUDA device."""
 
     @property
     def pytest_id(self) -> str:
@@ -128,6 +133,15 @@ BENCHMARK_CASES = [
         native_dit=True,
     ),
     AttentionBenchmarkCase(
+        implementation="cuda_sage2",
+        self_attention_backend=AttentionBackend.OMNIDREAMS,
+        cross_attention_backend=AttentionBackend.OMNIDREAMS,
+        native_dit=True,
+        native_attention_backend="sage2",
+        minimum_compute_capability=(9, 0),
+        maximum_compute_capability=(9, 0),
+    ),
+    AttentionBenchmarkCase(
         implementation="cuda_sparge",
         self_attention_backend=AttentionBackend.OMNIDREAMS,
         cross_attention_backend=AttentionBackend.OMNIDREAMS,
@@ -164,12 +178,17 @@ def skip_unsupported_device(
     case: AttentionBenchmarkCase,
     device: torch.device,
 ) -> None:
-    """Skip a benchmark case when device is older than its minimum capability."""
+    """Skip a benchmark case outside its supported compute capabilities."""
     minimum = case.minimum_compute_capability
-    if minimum is None:
-        return
-    if torch.cuda.get_device_capability(device) < minimum:
+    maximum = case.maximum_compute_capability
+    capability = torch.cuda.get_device_capability(device)
+    if minimum is not None and capability < minimum:
         pytest.skip(
             f"{case.implementation} attention requires compute capability "
             f"{minimum[0]}.{minimum[1]}+"
+        )
+    if maximum is not None and capability > maximum:
+        pytest.skip(
+            f"{case.implementation} attention requires compute capability "
+            f"at most {maximum[0]}.{maximum[1]}"
         )

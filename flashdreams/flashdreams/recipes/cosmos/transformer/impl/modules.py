@@ -238,6 +238,7 @@ class MultiHeadAttention(nn.Module):
         n_heads: int = 8,
         head_dim: int = 64,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        attention_backend: Literal["cudnn", "sage2"] = "cudnn",
     ) -> None:
         """Initialize a multi-head attention module.
 
@@ -246,6 +247,7 @@ class MultiHeadAttention(nn.Module):
             context_dim: Feature dimension of key/value tokens. Defaults to ``query_dim``.
             n_heads: Number of attention heads.
             head_dim: Per-head feature dimension. Inner dimension is ``n_heads * head_dim``.
+            attention_backend: Kernel backend for this attention module.
         """
         super().__init__()
         context_dim = query_dim if context_dim is None else context_dim
@@ -265,7 +267,7 @@ class MultiHeadAttention(nn.Module):
         self.k_norm = nn.RMSNorm(self.head_dim, eps=1e-6)
 
         self.attn_op = ContextParallelAttention(
-            qkv_format="bshd", backend="cudnn", method=cp_method
+            qkv_format="bshd", backend=attention_backend, method=cp_method
         )
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
@@ -480,6 +482,7 @@ class Block(nn.Module):
         use_adaln_lora: bool = False,
         adaln_lora_dim: int = 256,
         cp_method: Literal["ring", "ulysses"] = "ring",
+        self_attention_backend: Literal["cudnn", "sage2"] = "cudnn",
     ) -> None:
         super().__init__()
         self.x_dim = x_dim
@@ -494,6 +497,7 @@ class Block(nn.Module):
             n_heads=num_heads,
             head_dim=x_dim // num_heads,
             cp_method=cp_method,
+            attention_backend=self_attention_backend,
         )
 
         # Cross-attention
@@ -506,6 +510,7 @@ class Block(nn.Module):
             n_heads=num_heads,
             head_dim=x_dim // num_heads,
             cp_method=cp_method,
+            attention_backend="cudnn",
         )
 
         # MLP

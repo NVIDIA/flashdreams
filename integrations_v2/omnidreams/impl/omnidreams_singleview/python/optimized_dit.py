@@ -754,13 +754,15 @@ class OptimizedDiTExecutor:
         if self._requested_attention_backend not in {
             "auto",
             "cudnn",
+            "sage2",
             "sparge",
             "sage3",
             "sage3_fp8",
         }:
             raise ValueError(
                 "--native-attention-backend must be 'auto', 'cudnn', "
-                f"'sparge', 'sage3', or 'sage3_fp8' (got {self._requested_attention_backend!r})"
+                "'sage2', 'sparge', 'sage3', or 'sage3_fp8' "
+                f"(got {self._requested_attention_backend!r})"
             )
         self._requested_sparge_topk = sparge_topk
         self._requested_sparge_hybrid_period = sparge_hybrid_period
@@ -880,6 +882,32 @@ class OptimizedDiTExecutor:
             return False, f"native_extension.sage3_is_runtime_supported() failed: {e}"
         return True, ""
 
+    def _sage2_status(
+        self, device: torch.device | int | None = None
+    ) -> tuple[bool, str]:
+        if sys.platform == "win32":
+            return False, "Sage2 is not supported on Windows"
+        built_fn = getattr(self._native_extension, "sage2_is_built", None)
+        supported_fn = getattr(
+            self._native_extension, "sage2_is_runtime_supported", None
+        )
+        if built_fn is None or supported_fn is None:
+            return False, "native_extension does not expose Sage2 availability probes"
+        try:
+            if not bool(built_fn()):
+                return False, "native_extension was built with Sage2 stubs"
+        except Exception as e:
+            return False, f"native_extension.sage2_is_built() failed: {e}"
+        device_index, reason = self._cuda_device_index(device)
+        if device_index is None:
+            return False, reason
+        try:
+            if not bool(supported_fn(device_index)):
+                return False, f"CUDA device {device_index} is not enabled for Sage2"
+        except Exception as e:
+            return False, f"native_extension.sage2_is_runtime_supported() failed: {e}"
+        return True, ""
+
     def _sparge_status(
         self, device: torch.device | int | None = None
     ) -> tuple[bool, str]:
@@ -930,19 +958,49 @@ class OptimizedDiTExecutor:
         device: torch.device | int | None = None,
     ) -> tuple[str, bool]:
         requested = (requested or "auto").strip().lower()
-        if requested not in {"auto", "cudnn", "sparge", "sage3", "sage3_fp8"}:
+        if requested not in {
+            "auto",
+            "cudnn",
+            "sage2",
+            "sparge",
+            "sage3",
+            "sage3_fp8",
+        }:
             raise ValueError(
                 "--native-attention-backend must be 'auto', 'cudnn', "
-                f"'sparge', 'sage3', or 'sage3_fp8' (got {requested!r})"
+                "'sage2', 'sparge', 'sage3', or 'sage3_fp8' "
+                f"(got {requested!r})"
             )
 
         if requested == "auto":
             return "cudnn", False
 
+        sage2_available, sage2_reason = (
+            self._sage2_status(device) if requested == "sage2" else (False, "")
+        )
         sage3_available, sage3_reason = self._sage3_status(device)
         sparge_available, sparge_reason = self._sparge_status(device)
         head_dim = self.config.network.model_channels // self.config.network.num_heads
+        sage2_supported = head_dim in {64, 128}
         sparge_supported = head_dim == 128
+
+        if requested == "sage2" and not sage2_available:
+            raise ValueError(
+                f"--native-attention-backend={requested} requested Sage2, "
+                f"but {sage2_reason}. Use --native-attention-backend=cudnn "
+                "for the portable cuDNN attention path."
+            )
+        if requested == "sage2" and not sage2_supported:
+            raise ValueError(
+                "--native-attention-backend=sage2 requires head_dim=64 or 128, "
+                f"got {head_dim}"
+            )
+        if requested == "sage2" and not self._uses_fp8_dit:
+            raise ValueError(
+                "--native-attention-backend=sage2 currently requires the "
+                "'fp8_kvcache_cudnn' optimized native DiT backend so text "
+                "cross-attention can use the validated FP8 cuDNN path."
+            )
 
         if requested == "sage3_fp8" and not self._uses_fp8_dit:
             raise ValueError(
@@ -1182,6 +1240,7 @@ class OptimizedDiTExecutor:
             self._attention_backend == "sage3_fp8" or use_sparge_hybrid
         )
         use_sparge_attention = self._attention_backend == "sparge"
+        use_sage2_attention = self._attention_backend == "sage2"
         workspace = _make_cosmos_streaming_workspace(
             batch=int(k_self[0].size(0)),
             tokens=tokens,
@@ -1202,14 +1261,18 @@ class OptimizedDiTExecutor:
             "cosmos_linear_backend": "fp8",
             "cosmos_attention_backend": (
                 self._attention_backend
-                if (use_sage3_fp8_attention or use_sparge_attention)
+                if (
+                    use_sage2_attention
+                    or use_sage3_fp8_attention
+                    or use_sparge_attention
+                )
                 else "fp8_cudnn"
             ),
             "cosmos_kv_cache_backend": "fp8",
             # Hybrid schedules need BF16 self-KV only on Sparge blocks; the
             # bridge forces those per block while leaving Sage3 blocks FP8-only.
-            "cosmos_write_bf16_kv_cache": use_sparge_attention
-            and not use_sparge_hybrid,
+            "cosmos_write_bf16_kv_cache": use_sage2_attention
+            or (use_sparge_attention and not use_sparge_hybrid),
             "cosmos_sparge_topk_ratio": self._sparge_topk,
             "cosmos_sparge_hybrid_period": self._sparge_hybrid_period,
             "cosmos_sparge_hybrid_phase": self._sparge_hybrid_phase,
@@ -1357,7 +1420,7 @@ class OptimizedDiTExecutor:
             "cosmos_workspace": workspace,
             "cosmos_attn_tc_scale_is_ones": True,
         }
-        if self._attention_backend in {"sage3", "sparge"}:
+        if self._attention_backend in {"sage2", "sage3", "sparge"}:
             self._bf16_runtime["cosmos_attention_backend"] = self._attention_backend
         if self._attention_backend == "sparge":
             self._bf16_runtime["cosmos_sparge_topk_ratio"] = self._sparge_topk
