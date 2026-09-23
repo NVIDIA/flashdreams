@@ -885,7 +885,7 @@ def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> N
         540,
         _calibration(),
         live_edit=LiveEditConfig(
-            map_context=LiveEditMapContextConfig(enabled=True),
+            dynamic_prompts=LiveEditMapContextConfig(enabled=True),
         ),
         show_live_edit_buttons=False,
     )
@@ -2656,6 +2656,34 @@ def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
     assert lines.index("DIFFUSION MODEL") < lines.index("Seed:")
     assert lines.index("Seed:") < lines.index("TRANSFORMER")
     assert lines.index("TRANSFORMER") < lines.index("Dtype:")
+
+
+def test_options_name_dynamic_prompt_controls_explicitly(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "live_edit"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##live_edit.dynamic_prompts.include_taxi_motion_state"] = (
+        False
+    )
+
+    state.draw(imgui)
+
+    lines = imgui.windows["Crazy Robotaxi - Options"]
+    assert state._options_draft is not None
+    assert not state._options_draft.live_edit.dynamic_prompts.include_taxi_motion_state
+    assert "DYNAMIC PROMPTS" in lines
+    assert "Enabled:" in lines
+    assert "Include Current Road Context:" in lines
+    assert "Include Next Map Node Type:" in lines
+    assert "Include Next Map Node Context:" in lines
+    assert "Include Upcoming Road Curve Direction:" in lines
+    assert "Include Taxi Motion State:" in lines
 
 
 def test_options_booleans_use_compact_native_green_checkboxes(
