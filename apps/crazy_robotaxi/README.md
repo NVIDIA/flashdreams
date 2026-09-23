@@ -216,9 +216,11 @@ model assets on first use and caches them under
 Dynamic prompts append selected fragments for the current road context, next
 map-node type, next map-node context, upcoming road-curve direction, and taxi
 motion state. Each fragment can be included independently in the live settings.
-Complete combined prompts are encoded and retained lazily, so the first visit
-to a new combination may pause briefly and sessions with many unique
-combinations retain more GPU memory.
+The RTX 5090 presets pre-encode the complete prompt set while the world model
+loads when it fits their bounded CPU-side cache. Missing or evicted prompts are
+still encoded on demand. Other presets encode and retain complete prompt
+embeddings lazily on the GPU, so the first visit to a new combination may pause
+briefly and sessions with many unique combinations retain more GPU memory.
 
 Style, weather, dynamic prompts, and guided obstacles need the Python
 transformer hooks. When one of those features is enabled, the application
