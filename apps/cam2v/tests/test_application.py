@@ -42,6 +42,7 @@ from cam2v.dummy import create_app as create_dummy_app
 from numpy import uint64
 
 import flashdreams.plugins.registry as registry_module
+from flashdreams.api_v2.loop import ModelInferenceState
 from flashdreams.infra.postprocess import VideoPostProcessorConfig, VideoSpec
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
@@ -937,6 +938,58 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     ui_loop.step(6, UserInputEvents([]))
     displayed = [widget.text for widget in state.status_widgets]
     assert "Presented: 2 frames (24 generated)" in displayed
+
+
+def test_slangpy_overlay_finishes_after_drawing_the_final_model_frame() -> None:
+    """The overlay reports finished after the last presented frame has been drawn."""
+    presentation_manager = PresentationManager()
+    presentation_manager.publish(
+        0,
+        [
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 2, 2), dtype=torch.float32),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        ],
+    )
+    renderer = Mock()
+
+    def render(
+        step_index: int,
+        events: UserInputEvents,
+        draw: Any,
+    ) -> torch.Tensor:
+        ui = SimpleNamespace(
+            screen=object(),
+            Window=Mock(return_value=object()),
+            Text=Mock(side_effect=lambda parent, text: SimpleNamespace(text=text)),
+        )
+        draw(ui, step_index, events)
+        return torch.zeros((4, 2, 2), dtype=torch.float32)
+
+    renderer.render.side_effect = render
+    ui_loop = Cam2VSlangPyUILoop(renderer=renderer)
+    ui_loop.register_session_loop_objects(
+        state=Cam2VUIState(total_blocks=1, target_fps=16, warmup_blocks=0),
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    ui_loop.register_session_ui_loop_objects(
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
+        presentation_manager=presentation_manager,
+    )
+    model_loop, _, _ = _input_test_model_loop()
+    ui_loop._set_model_loop(model_loop)
+    model_loop._set_inference_state(ModelInferenceState.FINISHED)
+
+    assert not ui_loop.is_finished()
+    assert presentation_manager.advance(0, now=1.0)[0]
+    assert not ui_loop.is_finished()
+    assert ui_loop.step(0, UserInputEvents([])) is not None
+    assert ui_loop.is_finished()
 
 
 def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:

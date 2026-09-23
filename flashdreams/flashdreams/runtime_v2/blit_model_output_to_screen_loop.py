@@ -48,9 +48,7 @@ class BlitModelOutputToScreenLoop(IUILoop[_StateT], Generic[_StateT]):
         output = None
         for frame in self.frames_to_blit():
             output = self._presentation_manager.composite(output, frame)
-        self._last_presented_frame_count = (
-            self._presentation_manager.presented_frame_count
-        )
+        self._last_presented_frame_count = self.presented_model_frame_count
         if output is None:
             return None
         return StepResult(
@@ -63,9 +61,8 @@ class BlitModelOutputToScreenLoop(IUILoop[_StateT], Generic[_StateT]):
     def is_finished(self) -> bool:
         return (
             self.model_inference_state is ModelInferenceState.FINISHED
-            and not self._presentation_manager.has_pending_frames()
-            and self._last_presented_frame_count
-            == self._presentation_manager.presented_frame_count
+            and not self.has_pending_model_frames()
+            and self._last_presented_frame_count == self.presented_model_frame_count
         )
 
     def reset(self) -> None:
