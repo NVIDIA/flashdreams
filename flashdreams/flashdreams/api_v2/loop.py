@@ -77,6 +77,9 @@ class UILoopRequests:
     lock_cursor_to_window: bool | None = None
     """Cursor capture change, or ``None`` to leave it unchanged."""
 
+    new_window_size: tuple[int, int] | None = None
+    """Requested downstream window size, or ``None`` to leave it unchanged."""
+
 
 class ILoop(ABC, Generic[StateT]):
     """Shared state, messaging, and lifecycle for a session loop.
@@ -435,6 +438,30 @@ class IUILoop(ILoop[StateT], ABC):
         self.get_or_create_ui_loop_requests().lock_cursor_to_window = (
             lock_cursor_to_window
         )
+
+    @final
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Request a positive downstream client-window width and height.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            TypeError: The size is not a pair of integers.
+            ValueError: Either dimension is not positive.
+        """
+        if (
+            not isinstance(new_window_size, tuple)
+            or len(new_window_size) != 2
+            or any(
+                isinstance(dimension, bool) or not isinstance(dimension, int)
+                for dimension in new_window_size
+            )
+        ):
+            raise TypeError("new_window_size must be a tuple of two integers.")
+        if any(dimension <= 0 for dimension in new_window_size):
+            raise ValueError("new_window_size dimensions must be > 0.")
+        self.get_or_create_ui_loop_requests().new_window_size = new_window_size
 
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:

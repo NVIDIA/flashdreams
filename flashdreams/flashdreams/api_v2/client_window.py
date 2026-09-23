@@ -35,3 +35,14 @@ class IClientWindow(InputSource, OutputSink, ABC):
     def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:
         """Release or capture pointer motion for this client window."""
         pass
+
+    # Optional to implement
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Resize this client window without replacing it.
+
+        Backends whose output dimensions cannot change may leave this unimplemented.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+        """
+        pass

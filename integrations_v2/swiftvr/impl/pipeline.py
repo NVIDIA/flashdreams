@@ -243,6 +243,8 @@ class SwiftVRPipeline(
         dtype: torch.dtype,
         attention_window: tuple[int, int],
         compile_blocks: bool,
+        compile_reae_encoder: bool = False,
+        compile_reae_decoder: bool = False,
         chunk_size: int = 8,
     ) -> "SwiftVRPipeline":
         """Resolve a checkpoint and construct the configured pipeline."""
@@ -257,6 +259,8 @@ class SwiftVRPipeline(
             dtype=dtype,
             attention_window=attention_window,
             compile_blocks=compile_blocks,
+            compile_reae_encoder=compile_reae_encoder,
+            compile_reae_decoder=compile_reae_decoder,
             chunk_size=chunk_size,
         ).setup()
         assert isinstance(pipeline, cls)

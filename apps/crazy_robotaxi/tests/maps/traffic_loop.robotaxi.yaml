@@ -42,7 +42,5 @@ spawns:
     road: south_west
     lane: 1
     distance_m: 30
-    variants:
-      default:
-        image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: A car on a rectangular city loop.
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A car on a rectangular city loop.

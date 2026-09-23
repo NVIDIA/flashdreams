@@ -52,7 +52,5 @@ spawns:
     road: west_road
     lane: 2
     distance_m: 30
-    variants:
-      default:
-        image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: A skewed three-way city intersection.
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A skewed three-way city intersection.

@@ -147,21 +147,7 @@ class LiveEditStyleConfig:
 
     Long holds soften after ~8-10 chunks as the edit window ages out of the
     KV cache; a periodic duty-cycled re-swap keeps the style crisp. ``0``
-    disables the refresh. Skipped entirely when a timed skin
-    (:attr:`skin_duration_chunks`) expires at or before the first refresh
-    would fire — the re-swap would land on an already-reverted world."""
-
-    skin_duration_chunks: int = 0
-    """Timed "power-up" mode: auto-revert an activated skin to the base
-    world after this many generated chunks (at a chunk boundary, through
-    the same plain-swap revert path the K cycle uses). ``0`` (default)
-    keeps the current hold-until-cycled behavior. 11 chunks is ~3 s at the
-    shipped 8-frames-per-chunk / 30 fps recipe. Pressing K while a timed
-    skin is active cycles to the NEXT skin with a fresh timer (same K
-    semantics as untimed mode; mashing K to extend simply re-lands the
-    cycle). Exposed as ``--live-edit-skin-duration-chunks``. Also holds
-    ~10+ chunk scene-content drift in check: the skin never outlives the
-    crisp window."""
+    disables the refresh."""
 
     skins: tuple[StyleSkin, ...] = _DEFAULT_SKINS
     """Selectable skins, cycled by the switch-skin key."""
@@ -180,33 +166,32 @@ class LiveEditStyleConfig:
             raise ValueError("guidance_chunks must be non-negative")
         if self.reswap_interval_chunks < 0:
             raise ValueError("reswap_interval_chunks must be non-negative")
-        if self.skin_duration_chunks < 0:
-            raise ValueError("skin_duration_chunks must be non-negative")
         if self.enabled and not self.skins:
             raise ValueError("live_edit.style requires at least one skin")
 
 
 @dataclass(frozen=True)
 class WeatherPreset:
-    """One selectable weather state driven by a prompt swap.
+    """One selectable weather state appended to the active map prompt.
 
     Weather is a base-world-only ability (design decision 2026-08-20): it
-    never composes with a skin prompt, so each preset carries exactly one
-    standalone scene prompt.
+    never composes with a skin prompt.
     """
 
     name: str
     """Short HUD label, e.g. ``rain``."""
 
-    prompt: str
-    """Full standalone scene prompt describing the weather over the base
-    world. Scene-native declarative phrasing lands much stronger than
-    instruction-style wording (calibration sweeps, 2026-08-08)."""
+    prompt_suffix: str
+    """Context-neutral weather text appended to the active map prompt.
+
+    Scene-native declarative phrasing lands much stronger than instruction-style
+    wording (calibration sweeps, 2026-08-08).
+    """
 
 
-# Daytime-rain phrasing follows the validated RAIN_NIGHT_NATIVE structure
-# (sweep_text_edit.py) adapted to the daylight suburban scenes, with the
-# visible-precipitation cues front-loaded (streaks in the air, droplets on
+# Weather phrasing follows the validated RAIN_NIGHT_NATIVE structure
+# (sweep_text_edit.py), with the visible-precipitation cues front-loaded
+# (streaks in the air, droplets on
 # the windshield/lens, tire spray) — the 2026-08-20 recapture showed wording
 # that leans on wet-road looks alone reads as "no rain" to viewers. Snow
 # extends the scene bundle's snowstorm wording with the same front-loaded
@@ -223,70 +208,49 @@ class WeatherPreset:
 _DEFAULT_WEATHERS: tuple[WeatherPreset, ...] = (
     WeatherPreset(
         name="rain",
-        prompt=(
-            "A dashcam perspective of a suburban street in a heavy daytime "
-            "downpour under a dark gray overcast sky. Dense visible rain "
-            "streaks slice through the air across the whole frame, and "
-            "raindrops and water droplets bead and run down the windshield "
-            "and camera lens. The asphalt road is saturated with sheeting "
-            "water, a glossy wet mirror breaking up reflections, and mist "
-            "and spray kick up from the tires of vehicles. The car's wet "
-            "hood is covered with rain droplets. Photorealistic dashcam "
-            "footage in pouring rain."
+        prompt_suffix=(
+            "Heavy daytime rain falls in a downpour beneath a dark gray overcast "
+            "sky. Dense visible rain streaks cross the whole frame, and water "
+            "droplets bead and run down the windshield and camera lens. The road "
+            "surface is saturated with sheeting water and glossy broken "
+            "reflections, with mist and tire spray in the air. The vehicle hood "
+            "is wet and covered with rain droplets."
         ),
     ),
     WeatherPreset(
         name="snow",
-        prompt=(
-            "A dashcam perspective from inside a vehicle driving down a "
-            "wide suburban residential street in heavy snowfall during a "
-            "snowstorm. Thick white snowflakes fall densely and visibly "
-            "through the air across the whole frame, streaking past the "
-            "windshield. The road is heavily covered in white snow with "
-            "visible parallel tire tracks, and fresh snow keeps "
-            "accumulating on the asphalt. Vehicles parked along the curb "
-            "and the roadsides are coated in a thick layer of snow. The "
-            "surrounding houses, lawns, and large trees are completely "
-            "blanketed in winter snow. The sky is a bright white-out "
-            "overcast winter sky. In the foreground, the bottom of the "
-            "windshield and the car's snow-dusted hood are visible, with "
-            "thick snowflakes and snow accumulating on the hood and around "
-            "the windshield wipers."
+        prompt_suffix=(
+            "Heavy snow falls in a dense snowstorm. Thick white snowflakes fill "
+            "the whole frame and streak past the windshield. The road is heavily "
+            "covered in fresh white snow with visible parallel tire tracks. "
+            "Roadside surfaces, vegetation, buildings, and vehicles are coated "
+            "in a thick layer of snow beneath a bright white-out winter sky. Snow "
+            "accumulates on the vehicle hood and around the windshield wipers."
         ),
     ),
     WeatherPreset(
         name="storm",
-        prompt=(
-            "A dashcam perspective of a suburban street in a violent "
-            "hurricane-force storm. Torrential rain hammers down in dense "
-            "sheets, thick rain streaks slice through the air, and water "
-            "sprays across the windshield and camera lens. The sky is a "
-            "dark green-black wall of storm clouds, so dark that oncoming "
-            "vehicles have their headlights on. Low fog and wind-driven "
-            "mist blow across the road, trees bend hard in the violent "
-            "wind, and loose leaves and debris fly through the air. The "
-            "flooded asphalt sheets with water and heavy spray kicks up "
-            "from the tires. Photorealistic dashcam footage inside a "
-            "severe storm."
+        prompt_suffix=(
+            "A violent storm surrounds the scene. Torrential rain falls in dense "
+            "sheets, thick rain streaks cross the air, and water sprays across "
+            "the windshield and camera lens. A dark green-black wall of storm "
+            "clouds makes vehicle headlights visible. Low fog and wind-driven "
+            "mist cross the road, trees bend in the wind, and loose leaves and "
+            "debris fill the air. The flooded road sheets with water and heavy "
+            "tire spray."
         ),
     ),
     WeatherPreset(
         name="hurricane",
-        prompt=(
-            "A dashcam perspective of a suburban street in the eyewall of "
-            "a landfalling hurricane, visibility collapsed to almost "
-            "nothing. Blinding torrential rain bands and solid walls of "
-            "white spray and mist swallow the street, so only the nearest "
-            "stretch of road is visible before everything dissolves into "
-            "gray-white murk. Fallen tree branches, palm fronds, leaves, "
-            "and scattered debris litter the flooded road surface, lying "
-            "across the lanes in standing water. The sky is an oppressive "
-            "black-green hurricane sky, dark as night at midday, and the "
-            "whole scene is drowned in emergency gloom. Oncoming headlights "
-            "smear into halos through the deluge, windshield wipers thrash "
-            "at full speed, and sheets of water crash over the windshield "
-            "and camera lens. Photorealistic dashcam footage inside a "
-            "catastrophic hurricane."
+        prompt_suffix=(
+            "Landfalling hurricane conditions reduce visibility to almost "
+            "nothing. Blinding torrential rain bands and walls of white spray "
+            "and mist hide everything beyond the nearest road surface. Fallen "
+            "branches, leaves, and scattered debris lie across flooded lanes in "
+            "standing water. An oppressive black-green hurricane sky darkens the "
+            "scene at midday. Headlights smear into halos through the deluge, "
+            "windshield wipers move at full speed, and sheets of water crash over "
+            "the windshield and camera lens."
         ),
     ),
 )
@@ -378,23 +342,10 @@ class LiveEditWeatherConfig:
     :attr:`maintain_interval_chunks` > 0). Exposed as
     ``--live-edit-weather-maintain-chunks``."""
 
-    duration_chunks: int = 90
-    """Timed weather: auto-revert an active weather to clear after this many
-    generated chunks (~24 s at the shipped 8-frames-per-chunk / 30 fps
-    recipe). Applies to every activation path (V key and pickup items).
-    ``0`` holds until cycled. The revert lands GUIDED (see
-    :attr:`clear_guidance_chunks`): unlike a skin revert, clear is itself a
-    weather transition and a plain swap leaves the precipitation running on
-    KV-history momentum. Accepted physics: the revert stops NEW
-    precipitation but does not undo accumulated scene change — wet roads dry
-    gradually and snow lingers then fades, which reads as realistic weather
-    passing. Exposed as ``--live-edit-weather-duration-chunks``."""
-
     clear_guidance_chunks: int = 8
-    """Guided chunks for the weather -> clear landing (both the timed
-    auto-revert and a V-cycle wrap to clear). Slightly longer than the
-    6-chunk activation landing because dense states (hurricane fog walls)
-    dissipate slower than they land. Exposed as
+    """Guided chunks for the weather -> clear landing when the cycle wraps.
+    Slightly longer than the 6-chunk activation landing because dense states
+    (hurricane fog walls) dissipate slower than they land. Exposed as
     ``--live-edit-weather-clear-guidance-chunks``."""
 
     corrector_gain: float = 0.0
@@ -402,9 +353,8 @@ class LiveEditWeatherConfig:
     (default) keeps the corrector off during weather — policy decision
     2026-08-23: the clean-forcing corrector runs ONLY for game-skin states
     (0.15), base and weather states stay uncorrected. A/B note: 0.10
-    measured slightly crisper late-run under long weather holds, but with
-    timed weather (~24 s default) the window is short, so the knob stays
-    for A/B while the default is off."""
+    measured slightly crisper late-run under long weather holds, so the knob
+    stays for A/B while the default is off."""
 
     corrector_checkpoint: Path | None = None
     """Dedicated corrector checkpoint for the weather state (fused mode).
@@ -425,8 +375,6 @@ class LiveEditWeatherConfig:
             raise ValueError("weather maintain_interval_chunks must be non-negative")
         if self.maintain_chunks < 0:
             raise ValueError("weather maintain_chunks must be non-negative")
-        if self.duration_chunks < 0:
-            raise ValueError("weather duration_chunks must be non-negative")
         if self.clear_guidance_chunks < 0:
             raise ValueError("weather clear_guidance_chunks must be non-negative")
         if not 0.0 <= self.corrector_gain <= 1.0:
@@ -571,9 +519,6 @@ class LiveEditCoinsConfig:
     pickup_radius_m: float = 2.5
     """XY distance at which the ego collects a coin."""
 
-    points_per_coin: int = 50
-    """Score awarded per collected coin (HUD counter only for now)."""
-
     max_render_distance_m: float = 120.0
     """Coins farther than this are not composited."""
 
@@ -667,10 +612,9 @@ class LiveEditItemsConfig:
     every kind. Exposed as ``--live-edit-item-types``."""
 
     nitro_boost: float = 1.6
-    """Nitro speed-boost multiplier applied to BOTH the vehicle's max speed
-    and its max acceleration inside the app-authoritative physics tick
-    while a nitro pickup is active (>= 1). 1.6 reads punchy without
-    outrunning the world model at the default ceiling."""
+    """Nitro multiplier applied to the vehicle's max speed while a pickup is
+    active (>= 1). Acceleration is unchanged so the boost does not exaggerate
+    the suspension pitch response."""
 
     nitro_duration_s: float = 4.0
     """Nitro boost duration in game time (simulated seconds, accumulated
@@ -678,18 +622,9 @@ class LiveEditItemsConfig:
     recipe). Picking a second nitro while boosted RESETS the timer to this
     value — no multiplicative stacking."""
 
-    nitro_max_speed_mps: float = 16.0
-    """Hard ceiling on the boosted max speed. Safety knob: the world model
-    sees the faster ego through the conditioning, which stays plausible up
-    to highway speeds, but the scene must not outrun the model's manifold —
-    ~16 m/s is the validated comfort zone on the shipped suburb map. Raise
-    it cautiously on faster maps."""
-
-    mystery_burst_chunks: int = 11
-    """Timed-skin duration granted by a mystery box (~3 s at the shipped
-    recipe). Overrides the global ``skin_duration_chunks`` per activation so
-    the box grants a burst even when the global mode is hold-forever (0);
-    ``0`` makes the granted skin untimed."""
+    nitro_max_speed_mps: float = 50.0
+    """Hard ceiling on the boosted max speed. A ceiling below the vehicle's
+    normal speed limit never slows the vehicle."""
 
     mystery_seed: int | None = None
     """Seed for the mystery-box skin roll (reproducible captures); ``None``
@@ -710,8 +645,6 @@ class LiveEditItemsConfig:
             raise ValueError(
                 "item fade_start_distance_m must be in (0, max_render_distance_m]"
             )
-        if self.mystery_burst_chunks < 0:
-            raise ValueError("mystery_burst_chunks must be non-negative")
         if self.flash_seconds <= 0.0:
             raise ValueError("flash_seconds must be positive")
         if not self.item_types:
@@ -794,6 +727,16 @@ class LiveEditConfig:
             or self.items.enabled
             or self.weather.enabled
             or self.obstacle.enabled
+            or self.map_context.enabled
+        )
+
+    @property
+    def requires_python_dit(self) -> bool:
+        """Return whether enabled abilities need the Python transformer path."""
+        return (
+            self.style.enabled
+            or self.weather.enabled
+            or (self.obstacle.enabled and self.obstacle.guide_scale > 0.0)
             or self.map_context.enabled
         )
 
@@ -960,16 +903,6 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     group.add_argument(
-        "--live-edit-skin-duration-chunks",
-        type=int,
-        default=0,
-        help=(
-            "Timed power-up mode: auto-revert an activated skin to the base "
-            "world after N generated chunks (0 = hold until cycled, the "
-            "default; 11 is ~3 s at 8 frames/chunk, 30 fps)."
-        ),
-    )
-    group.add_argument(
         "--live-edit-weather",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -1010,23 +943,13 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help="Guided chunks per weather maintenance pulse.",
     )
     group.add_argument(
-        "--live-edit-weather-duration-chunks",
-        type=int,
-        default=90,
-        help=(
-            "Timed weather: auto-revert to clear after N generated chunks "
-            "via a guided clear landing (~24 s at 8 frames/chunk, 30 fps; "
-            "0 = hold until cycled). Applies to V-key and item pickups."
-        ),
-    )
-    group.add_argument(
         "--live-edit-weather-clear-guidance-chunks",
         type=int,
         default=8,
         help=(
-            "Guided chunks for the weather->clear landing (auto-revert and "
-            "V-cycle wrap; a bit longer than the activation landing so "
-            "dense states like hurricane fog dissipate)."
+            "Guided chunks for the weather->clear landing when the cycle "
+            "wraps; a bit longer than the activation landing so dense states "
+            "like hurricane fog dissipate."
         ),
     )
     group.add_argument(
@@ -1045,8 +968,8 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "Absolute drift-corrector gain while weather is active. Default "
             "0 = off (policy: the clean-forcing corrector runs only for "
-            "game-skin states; 0.10 was slightly crisper on long holds but "
-            "timed weather keeps windows short). Knob kept for A/B."
+            "game-skin states; 0.10 was slightly crisper on long holds). "
+            "Knob kept for A/B."
         ),
     )
     group.add_argument(
@@ -1176,7 +1099,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         help=(
             "Enable sparse effect-pickup items along the route (rain/snow "
-            "icons trigger weather, mystery boxes a random timed skin burst)."
+            "icons trigger weather, mystery boxes select a random skin)."
         ),
     )
     group.add_argument(
@@ -1223,10 +1146,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-nitro-boost",
         type=float,
         default=1.6,
-        help=(
-            "Nitro multiplier on max speed AND max acceleration while a "
-            "nitro pickup is active (>= 1)."
-        ),
+        help="Nitro multiplier on max speed while a pickup is active (>= 1).",
     )
     group.add_argument(
         "--live-edit-nitro-duration-s",
@@ -1240,19 +1160,10 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--live-edit-nitro-max-speed",
         type=float,
-        default=16.0,
+        default=50.0,
         help=(
-            "Ceiling on the boosted max speed, m/s (keeps the ego inside "
-            "the world model's manifold; ~16 validated on the suburb map)."
-        ),
-    )
-    group.add_argument(
-        "--live-edit-item-mystery-burst-chunks",
-        type=int,
-        default=11,
-        help=(
-            "Timed-skin duration a mystery box grants (overrides the global "
-            "skin duration per activation; 0 = untimed)."
+            "Ceiling on the boosted max speed, m/s; never lowers the normal "
+            "vehicle speed limit."
         ),
     )
     group.add_argument(
@@ -1293,7 +1204,6 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             gate_alpha_json=args.live_edit_gate_alpha_json,
             guidance_chunks=int(args.live_edit_skin_guidance_chunks),
             reswap_interval_chunks=int(args.live_edit_style_reswap_chunks),
-            skin_duration_chunks=int(args.live_edit_skin_duration_chunks),
             skins=skins_starting_with(args.live_edit_skin_first),
         ),
         coins=LiveEditCoinsConfig(
@@ -1320,7 +1230,6 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             nitro_boost=float(args.live_edit_nitro_boost),
             nitro_duration_s=float(args.live_edit_nitro_duration_s),
             nitro_max_speed_mps=float(args.live_edit_nitro_max_speed),
-            mystery_burst_chunks=int(args.live_edit_item_mystery_burst_chunks),
             mystery_seed=(
                 None
                 if args.live_edit_item_mystery_seed is None
@@ -1333,7 +1242,6 @@ def live_edit_config_from_args(args: argparse.Namespace) -> LiveEditConfig:
             guidance_chunks=int(args.live_edit_weather_guidance_chunks),
             maintain_interval_chunks=int(args.live_edit_weather_maintain_interval),
             maintain_chunks=int(args.live_edit_weather_maintain_chunks),
-            duration_chunks=int(args.live_edit_weather_duration_chunks),
             clear_guidance_chunks=int(args.live_edit_weather_clear_guidance_chunks),
             corrector_gain=float(args.live_edit_weather_corrector_gain),
             corrector_checkpoint=args.live_edit_weather_corrector,
@@ -1409,7 +1317,6 @@ def apply_live_edit_cli(
                 "live_edit_base_corrector_gain": ("base_corrector_gain", float),
                 "live_edit_gate_alpha_json": ("gate_alpha_json", lambda value: value),
                 "live_edit_style_reswap_chunks": ("reswap_interval_chunks", int),
-                "live_edit_skin_duration_chunks": ("skin_duration_chunks", int),
             }
         ),
     )
@@ -1430,7 +1337,6 @@ def apply_live_edit_cli(
                     int,
                 ),
                 "live_edit_weather_maintain_chunks": ("maintain_chunks", int),
-                "live_edit_weather_duration_chunks": ("duration_chunks", int),
                 "live_edit_weather_clear_guidance_chunks": (
                     "clear_guidance_chunks",
                     int,
@@ -1508,10 +1414,6 @@ def apply_live_edit_cli(
                 "live_edit_nitro_boost": ("nitro_boost", float),
                 "live_edit_nitro_duration_s": ("nitro_duration_s", float),
                 "live_edit_nitro_max_speed": ("nitro_max_speed_mps", float),
-                "live_edit_item_mystery_burst_chunks": (
-                    "mystery_burst_chunks",
-                    int,
-                ),
                 "live_edit_item_mystery_seed": (
                     "mystery_seed",
                     lambda value: None if value is None else int(value),

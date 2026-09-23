@@ -55,6 +55,80 @@ def cache() -> FixedSlotKVCache:
     )
 
 
+def test_cache_can_use_caller_owned_storage() -> None:
+    """Embed fixed-slot storage in an allocation owned by an adapter."""
+    prefilled = [layer(5, 1.0), layer(5, 2.0)]
+    storage = [layer(11, -9.0), layer(11, -9.0)]
+    memory = FixedSlotKVCache(
+        prefilled,
+        capacity=11,
+        regions=[
+            SlotRegion(
+                name="history",
+                start=5,
+                slots=2,
+                slot_tokens=3,
+                extends_length=True,
+            )
+        ],
+        storage=storage,
+    )
+
+    assert [
+        (key.data_ptr(), value.data_ptr())
+        for key, value in zip(memory._k, memory._v, strict=True)
+    ] == [(key.data_ptr(), value.data_ptr()) for key, value in storage]
+    for (key, value), (prefill_key, prefill_value) in zip(
+        memory.layers(), prefilled, strict=True
+    ):
+        assert torch.equal(key, prefill_key)
+        assert torch.equal(value, prefill_value)
+    for key, value in storage:
+        assert torch.count_nonzero(key[:, :, 5:]) == 0
+        assert torch.count_nonzero(value[:, :, 5:]) == 0
+
+
+def test_invalid_caller_storage_does_not_mutate_any_layer() -> None:
+    """Validate every supplied buffer before clearing or copying any of them."""
+    prefilled = [layer(5, 1.0), layer(5, 2.0)]
+    storage = [layer(11, -9.0), layer(11, -8.0)]
+    storage[1] = (torch.zeros(2, 2, 11, 3), storage[1][1])
+    before = [(key.clone(), value.clone()) for key, value in storage]
+
+    with pytest.raises(ValueError, match="storage layer 1 key dimension 0"):
+        FixedSlotKVCache(
+            prefilled,
+            capacity=11,
+            regions=[],
+            storage=storage,
+        )
+
+    for (key, value), (old_key, old_value) in zip(storage, before, strict=True):
+        assert torch.equal(key, old_key)
+        assert torch.equal(value, old_value)
+
+
+def test_prefill_can_alias_unused_caller_storage() -> None:
+    """Copy aliased prefill values before clearing the unused suffix."""
+    storage = [layer(11, -9.0)]
+    key_buffer, value_buffer = storage[0]
+    prefilled = [(key_buffer[:, :, 6:], value_buffer[:, :, 6:])]
+    expected = [(key.clone(), value.clone()) for key, value in prefilled]
+
+    memory = FixedSlotKVCache(
+        prefilled,
+        capacity=11,
+        regions=[],
+        storage=storage,
+    )
+
+    key, value = memory.layers()[0]
+    assert torch.equal(key, expected[0][0])
+    assert torch.equal(value, expected[0][1])
+    assert torch.count_nonzero(key_buffer[:, :, 5:]) == 0
+    assert torch.count_nonzero(value_buffer[:, :, 5:]) == 0
+
+
 def chunks(tokens: int, value: float) -> list[LayerKV]:
     """Build a two-layer cache write."""
     return [layer(tokens, value), layer(tokens, value + 1.0)]

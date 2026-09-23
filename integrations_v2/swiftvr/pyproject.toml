@@ -32,6 +32,7 @@ dev = ["pytest>=8.0"]
 
 [project.entry-points."flashdreams.postprocess_presets"]
 "swiftvr-2x" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_2X"
+"swiftvr-2x-compiled" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_2X_COMPILED"
 "swiftvr-4x" = "swiftvr.impl.postprocess:POSTPROCESS_PRESET_SWIFTVR_4X"
 
 [tool.setuptools]

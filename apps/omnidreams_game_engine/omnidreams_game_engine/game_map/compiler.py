@@ -28,9 +28,10 @@ from shapely.ops import substring, unary_union
 from omnidreams_game_engine import camera_defaults
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.game_map import spawn_render
-from omnidreams_game_engine.game_map._schema import resolve_seed_asset
+from omnidreams_game_engine.game_map._schema import GameMapError, resolve_seed_asset
 from omnidreams_game_engine.game_map.loader import load_game_map
 from omnidreams_game_engine.game_map.types import (
+    GameMapSpawn,
     ResolvedGameMap,
     game_map_to_dict,
 )
@@ -87,17 +88,14 @@ def _digest(game_map: ResolvedGameMap) -> str:
     resolved.pop("source_path", None)
     hasher.update(json.dumps(resolved, sort_keys=True, separators=(",", ":")).encode())
     for spawn in game_map.spawns:
-        for variant in spawn.variants:
-            hasher.update(variant.name.encode())
-            hasher.update(variant.prompt.encode())
-            if variant.image is None:
-                hasher.update(b"generated-spawn-first-frame")
-                hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
-                hasher.update(Path(spawn_render.__file__).read_bytes())
-                hasher.update(Path(camera_defaults.__file__).read_bytes())
-            else:
-                asset = resolve_seed_asset(game_map.source_path, variant.image)
-                hasher.update(asset.read_bytes())
+        if spawn.image is None:
+            hasher.update(b"generated-spawn-first-frame")
+            hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
+            hasher.update(Path(spawn_render.__file__).read_bytes())
+            hasher.update(Path(camera_defaults.__file__).read_bytes())
+        else:
+            asset = resolve_seed_asset(game_map.source_path, spawn.image)
+            hasher.update(asset.read_bytes())
     return hasher.hexdigest()
 
 
@@ -391,8 +389,7 @@ def _metadata(game_map: ResolvedGameMap) -> dict[str, object]:
     }
 
 
-def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
-    spawn = game_map.default_spawn
+def _trajectory(spawn: GameMapSpawn) -> dict[str, object]:
     pose = rig_pose_from_state(
         float(spawn.position_world[0]),
         float(spawn.position_world[1]),
@@ -412,14 +409,18 @@ def _trajectory(game_map: ResolvedGameMap) -> dict[str, object]:
     }
 
 
-def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
-    spawn = game_map.default_spawn
-    generated_image: np.ndarray | None = None
+def _write_archive(
+    path: Path,
+    game_map: ResolvedGameMap,
+    spawn: GameMapSpawn,
+    *,
+    use_prompt_context: bool,
+) -> None:
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "metadata.yaml", yaml.safe_dump(_metadata(game_map), sort_keys=True)
         )
-        archive.writestr("rig_trajectories.json", json.dumps(_trajectory(game_map)))
+        archive.writestr("rig_trajectories.json", json.dumps(_trajectory(spawn)))
         archive.writestr(
             "game_map.json",
             json.dumps(game_map_to_dict(game_map), separators=(",", ":")),
@@ -428,26 +429,24 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
             "mesh_ground.ply",
             save_mesh_vf(game_map.ground_vertices, game_map.ground_faces),
         )
-        for variant in spawn.variants:
-            suffix = "" if variant.name == "default" else f"_{variant.name}"
-            archive.writestr(f"prompt{suffix}.txt", variant.prompt)
-            image_name = f"first_image{suffix}.png"
-            if variant.image is None:
-                if generated_image is None:
-                    generated_image = spawn_render.render_spawn_first_frame(
-                        game_map, spawn
-                    )
-                _write_image_array(
-                    archive,
-                    image_name,
-                    generated_image,
-                )
-            else:
-                _write_image(
-                    archive,
-                    image_name,
-                    resolve_seed_asset(game_map.source_path, variant.image),
-                )
+        archive.writestr(
+            "prompt.txt",
+            spawn.prompt_context or spawn.prompt
+            if use_prompt_context
+            else spawn.prompt,
+        )
+        if spawn.image is None:
+            _write_image_array(
+                archive,
+                "first_image.png",
+                spawn_render.render_spawn_first_frame(game_map, spawn),
+            )
+        else:
+            _write_image(
+                archive,
+                "first_image.png",
+                resolve_seed_asset(game_map.source_path, spawn.image),
+            )
         _write_parquet(
             archive, "clipgt/calibration_estimate.parquet", _calibration_row()
         )
@@ -467,15 +466,34 @@ def _write_archive(path: Path, game_map: ResolvedGameMap) -> None:
 def compile_game_map(
     path: Path,
     *,
+    spawn_id: str | None = None,
+    use_prompt_context: bool = False,
     cache_root: Path | None = None,
     force: bool = False,
 ) -> CompiledGameMap:
-    """Compile a map, optionally replacing its valid cached archive."""
+    """Compile one map spawn, optionally replacing its valid cached archive."""
     game_map = load_game_map(path)
+    spawn = (
+        game_map.default_spawn
+        if spawn_id is None
+        else next(
+            (item for item in game_map.spawns if item.spawn_id == spawn_id),
+            None,
+        )
+    )
+    if spawn is None:
+        available = ", ".join(item.spawn_id for item in game_map.spawns)
+        raise GameMapError(f"Unknown spawn {spawn_id!r}; available spawns: {available}")
     digest = _digest(game_map)
     root = _cache_root() if cache_root is None else Path(cache_root)
     output_dir = root / digest
-    archive_path = output_dir / f"{game_map.map_id}.usdz"
+    spawn_suffix = (
+        ""
+        if spawn is game_map.default_spawn
+        else "-" + hashlib.sha256(spawn.spawn_id.encode()).hexdigest()
+    )
+    context_suffix = "-context" if use_prompt_context else ""
+    archive_path = output_dir / f"{game_map.map_id}{spawn_suffix}{context_suffix}.usdz"
     lock = FileLock(str(root / f"{digest}.lock"))
     root.mkdir(parents=True, exist_ok=True)
     with lock:
@@ -495,7 +513,12 @@ def compile_game_map(
         os.close(file_descriptor)
         temporary = Path(temporary_name)
         try:
-            _write_archive(temporary, game_map)
+            _write_archive(
+                temporary,
+                game_map,
+                spawn,
+                use_prompt_context=use_prompt_context,
+            )
             temporary.replace(archive_path)
         finally:
             temporary.unlink(missing_ok=True)

@@ -66,6 +66,49 @@ def test_built_in_scenarios_are_selectable() -> None:
     assert scenario.warmup_steps == 1
 
 
+def test_benchmark_cli_prints_failed_scenario_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    log_path = tmp_path / "failure.log"
+    log_path.write_text("first failure line\nroot cause", encoding="utf-8")
+    scenario = BenchmarkScenario(
+        id="broken-runner",
+        name="Broken runner",
+        command=("false",),
+    )
+    monkeypatch.setattr(
+        benchmark_cli,
+        "_load_scenarios",
+        lambda _paths: {scenario.id: scenario},
+    )
+    monkeypatch.setattr(
+        benchmark_cli,
+        "run_benchmark_suite",
+        lambda *_args, **_kwargs: {
+            "output_root": str(tmp_path),
+            "report_path": "report.html",
+            "failed_scenario_count": 1,
+            "scenarios": [
+                {
+                    "id": scenario.id,
+                    "status": "fail",
+                    "returncode": 1,
+                    "log_path": log_path.name,
+                }
+            ],
+        },
+    )
+
+    assert benchmark_cli.main(["--scenario", scenario.id]) == 1
+
+    stderr = capsys.readouterr().err
+    assert "benchmark failed: 1 scenario(s)" in stderr
+    assert "broken-runner: fail (exit 1)" in stderr
+    assert "root cause" in stderr
+
+
 def test_scenario_renders_placeholders_and_injects_output_dir(tmp_path: Path) -> None:
     scenario = BenchmarkScenario(
         id="demo",

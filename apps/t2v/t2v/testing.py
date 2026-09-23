@@ -34,7 +34,7 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_encoder import result_to_rgb24_frames
+from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from t2v.application import T2VApplication
 from t2v.ui import T2VImGuiUILoop
 
@@ -362,7 +362,15 @@ class _FrameInspector(MetricsOutputSink):
     def write(self, result: StepResult) -> None:
         if self._session_desc is None:
             raise RuntimeError("open() must run before write().")
-        frames = result_to_rgb24_frames(result, self._session_desc)
+        frames = (
+            result_to_rgb24_tensor(
+                result,
+                self._session_desc,
+                (self._session_desc.video_width, self._session_desc.video_height),
+            )
+            .cpu()
+            .numpy()
+        )
         self.frames_per_step.append(len(frames))
         self.metrics.append(dict(result.metrics or {}))
         self.luminance_sum += float(frames.mean()) * len(frames)

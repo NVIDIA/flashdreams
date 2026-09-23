@@ -451,7 +451,6 @@ class ObstacleAbility:
         self._chunk_index = 0
         self._event_count = 0
         self._burst_count = 0
-        self._hit_count = 0
         self._static_initialized = False
         self._owned_ids: set[str] = set()
         self._drive_speeds_mps: dict[str, float] = {}
@@ -475,10 +474,6 @@ class ObstacleAbility:
         return tuple(
             event for event in self._events if event.phase is not ObstaclePhase.EXPIRED
         )
-
-    @property
-    def hit_count(self) -> int:
-        return self._hit_count
 
     @property
     def objects(self) -> tuple[SceneObject, ...]:
@@ -706,7 +701,6 @@ class ObstacleAbility:
             event.phase = ObstaclePhase.DETACHED
             if not event.hit_logged:
                 event.hit_logged = True
-                self._hit_count += 1
                 logger.info("[live-edit] obstacle HIT {}", event.entity_id)
         return ActorControlDecision(
             drive_enabled=event.phase is ObstaclePhase.SCRIPTED,
@@ -730,7 +724,6 @@ class ObstacleAbility:
                 <= self._config.collision_radius_m
             ):
                 event.hit_logged = True
-                self._hit_count += 1
                 logger.info("[live-edit] obstacle HIT {}", event.entity_id)
                 return
 

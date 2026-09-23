@@ -86,7 +86,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"benchmark manifest: {Path(manifest['output_root']) / 'manifest.json'}")
     failed = int(manifest.get("failed_scenario_count", 0))
-    return 1 if failed else 0
+    if not failed:
+        return 0
+
+    print(f"benchmark failed: {failed} scenario(s)", file=sys.stderr)
+    for scenario in manifest["scenarios"]:
+        if scenario["status"] in ("pass", "dry_run"):
+            continue
+        log_path = Path(manifest["output_root"]) / scenario["log_path"]
+        print(
+            f"\n{scenario['id']}: {scenario['status']} "
+            f"(exit {scenario['returncode']}); log: {log_path}",
+            file=sys.stderr,
+        )
+        if log_path.is_file():
+            print(
+                "\n".join(log_path.read_text(errors="replace").splitlines()[-80:]),
+                file=sys.stderr,
+            )
+    return 1
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

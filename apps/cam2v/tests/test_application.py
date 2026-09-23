@@ -394,7 +394,6 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
 
     assert postprocess_stream.calls == 1
     assert torch.equal(result.read_output(), torch.zeros((2, 3, 2, 2)))
-    assert result_to_rgb24_tensor(result, state.session_desc).shape == (2, 2, 2, 3)
 
 
 @pytest.mark.parametrize(

@@ -3,6 +3,8 @@
 
 """CPU contracts for the FlashDreams-native SwiftVR pipeline."""
 
+import copy
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -12,7 +14,11 @@ import torch
 from swiftvr.config import build_swiftvr_pipeline
 from swiftvr.impl.attention import SwiftVRBlock, _axis_starts
 from swiftvr.impl.decoder import SwiftVRDecoderConfig
-from swiftvr.impl.decoder.network import SwiftVRTAEHV, SwiftVRTemporalGrow
+from swiftvr.impl.decoder.network import (
+    SwiftVRTAEHV,
+    SwiftVRTemporalGrow,
+    _SwiftVRCompiledDecoder,
+)
 from swiftvr.impl.encoder import (
     SwiftVREncoder,
     SwiftVREncoderConfig,
@@ -28,7 +34,7 @@ from swiftvr.impl.transformer.network import (
 from flashdreams.infra.pipeline import StreamInferencePipeline
 from flashdreams.infra.profiler import EventProfiler
 from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
-from flashdreams.recipes.taehv.impl import TAEHV, MemBlock, TGrow, TPool
+from flashdreams.recipes.taehv.impl import TAEHV, Decoder, MemBlock, TGrow, TPool
 from flashdreams.recipes.taehv.impl import Encoder as TAEHVEncoder
 from flashdreams.recipes.wan import wan_dit_state_dict_from_diffusers
 from flashdreams.recipes.wan.transformer.impl.network import (
@@ -52,6 +58,8 @@ def test_pipeline_config_follows_stream_inference_component_contracts(
         checkpoint=str(tmp_path),
         revision=None,
         attention_window=(8, 12),
+        compile_reae_encoder=True,
+        compile_reae_decoder=True,
         chunk_size=24,
     )
 
@@ -61,6 +69,8 @@ def test_pipeline_config_follows_stream_inference_component_contracts(
     assert isinstance(config.encoder, SwiftVREncoderConfig)
     assert isinstance(config.diffusion_model.transformer, SwiftVRTransformerConfig)
     assert isinstance(config.decoder, SwiftVRDecoderConfig)
+    assert config.encoder.use_compile
+    assert config.decoder.use_compile
     assert config.diffusion_model.transformer.network.attention_window == (8, 12)
     assert config.diffusion_model.transformer.latent_frames == 6
 
@@ -224,6 +234,79 @@ def test_reae_complete_group_adapter_preserves_stream_boundaries() -> None:
 
     assert len(state) == 9
     torch.testing.assert_close(chunked, whole)
+
+
+def test_reae_compiled_decoder_layout_preserves_stream_output() -> None:
+    torch.manual_seed(0)
+    decoder = Decoder(
+        n_f=(4, 4, 4, 4),
+        latent_channels=2,
+        image_channels=3,
+        patch_size=2,
+        decoder_time_upscale=(True, True),
+        decoder_space_upscale=(False, False, False),
+        act_func=torch.nn.ReLU(inplace=True),
+    ).eval()
+    for index, block in enumerate(decoder.blocks):
+        if isinstance(block, TGrow):
+            decoder.blocks[index] = SwiftVRTemporalGrow(
+                int(block.conv.in_channels), block.stride
+            )
+
+    baseline = copy.deepcopy(decoder)
+    candidate = _SwiftVRCompiledDecoder(copy.deepcopy(decoder)).eval()
+    baseline_state: dict[int, torch.Tensor] = {}
+    candidate_state: dict[int, torch.Tensor] = {}
+    chunks = [torch.randn(1, 2, 2, 4, 4) for _ in range(2)]
+    baseline.initialize_state(
+        (1, 2, 2, 4, 4),
+        chunks[0].dtype,
+        chunks[0].device,
+        baseline_state,
+    )
+    candidate.initialize_state(
+        (1, 2, 2, 4, 4),
+        chunks[0].dtype,
+        chunks[0].device,
+        candidate_state,
+    )
+
+    expected = torch.cat(
+        [baseline(chunk, baseline_state, chunk.shape[0]) for chunk in chunks],
+        dim=1,
+    )
+    actual = torch.cat(
+        [candidate(chunk, candidate_state, chunk.shape[0]) for chunk in chunks],
+        dim=1,
+    )
+
+    torch.testing.assert_close(actual, expected)
+    assert all(
+        convolution.weight.is_contiguous(memory_format=torch.channels_last_3d)
+        for convolution in candidate.modules()
+        if isinstance(convolution, torch.nn.Conv3d)
+    )
+
+
+def test_reae_encoder_compile_callable_is_bound_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiled: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+
+    def compile_function(
+        function: Callable[..., Any], **kwargs: Any
+    ) -> Callable[..., Any]:
+        compiled.append((function, kwargs))
+        return function
+
+    monkeypatch.setattr(torch, "compile", compile_function)
+    encoder = SwiftVREncoder(
+        SwiftVREncoderConfig(dtype=torch.float32, use_compile=True)
+    )
+
+    assert compiled == [
+        (encoder._encode_complete_groups, {"mode": "default", "fullgraph": False})
+    ]
 
 
 def _diffusers_checkpoint_key(native_key: str) -> str:

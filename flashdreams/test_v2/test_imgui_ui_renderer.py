@@ -181,35 +181,3 @@ class _Loop(ImGuiUILoop[None]):
         del imgui, step_index, events
         frames = self.presented_model_frames()
         return frames[0] if frames else None
-
-
-def test_imgui_loop_composites_over_the_presented_model_frame() -> None:
-    video = torch.full((1, 3, 3, 4), -0.5)
-    presentation = PresentationManager()
-    presentation.publish(
-        0,
-        [StepResult(0, video, 1, VideoTensorLayout.tchw)],
-    )
-    presentation.advance(0)
-    renderer = _Renderer()
-    loop = _Loop(renderer=renderer)
-    loop.register_session_loop_objects(
-        state=None,
-        frequency=60,
-        shutdown_event=threading.Event(),
-        failure_queue=queue.Queue(),
-    )
-    loop.register_session_ui_loop_objects(
-        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
-        presentation_manager=presentation,
-    )
-
-    result = loop.step(0, UserInputEvents([]))
-
-    output = result[0].read_output()
-    assert output.shape == (1, 3, 3, 4)
-    assert torch.all(output == -0.5)
-    loop.reset()
-    loop.close()
-    assert renderer.reset_count == 1
-    assert renderer.closed

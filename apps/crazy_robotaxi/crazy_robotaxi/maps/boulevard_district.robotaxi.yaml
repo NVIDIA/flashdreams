@@ -355,6 +355,7 @@ roads:
 
 race_courses:
   - id: eastbound-boulevard-sprint
+    spawn: original_area_start
     start: spawn_arterial
     checkpoints:
       - central_arterial_crossing
@@ -418,12 +419,10 @@ spawns:
     road: spawn_arterial
     lane: 2
     distance_m: 128
-    variants:
-      default:
-        image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: >-
-          A forward-facing view from a taxi moving through a quiet suburban
-          district in daylight, with low commercial buildings, houses,
-          landscaping, and parked cars.
-        prompt_context: >-
-          A forward-facing view from a taxi on a road through a city in daylight.
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: >-
+      A forward-facing view from a taxi moving through a quiet suburban
+      district in daylight, with low commercial buildings, houses,
+      landscaping, and parked cars.
+    prompt_context: >-
+      A forward-facing view from a taxi on a road through a city in daylight.

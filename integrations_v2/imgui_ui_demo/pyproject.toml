@@ -16,7 +16,9 @@ dependencies = [
 ]
 
 [project.entry-points."flashdreams.applications_v2"]
+"imgui-ui-query-string" = "imgui_ui_demo.query_string_app:create_app"
 "imgui-ui-text-input" = "imgui_ui_demo.text_input_app:create_app"
+"imgui-ui-window-size" = "imgui_ui_demo.window_size_app:create_app"
 
 [tool.uv.sources]
 flashdreams = { workspace = true }

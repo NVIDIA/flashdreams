@@ -188,6 +188,7 @@ class ChunkRollout:
         history_frames: int | None = None,
         token_frames: int | None = None,
         use_block_mask: bool = False,
+        mask_block_size: int | tuple[int, int] = 128,
     ) -> None:
         """Validate rollout geometry, allocate output, and prefill model state."""
         plan = ar_chunk_plan(geometry)
@@ -252,6 +253,7 @@ class ChunkRollout:
         self._sample_type = sample_type
         self._history_slots = history_slots
         self._use_block_mask = use_block_mask
+        self._mask_block_size = mask_block_size
         self._offset = vision_temporal_offset(self._state.num_text_tokens)
 
         minimum_token_frames = geometry.condition_frames + geometry.frames_per_chunk
@@ -458,7 +460,11 @@ class ChunkRollout:
             pass_kind=pass_kind,
             device=self._model.device,
         )
-        return metadata.block_mask() if self._use_block_mask else metadata.mask()
+        return (
+            metadata.block_mask(block_size=self._mask_block_size)
+            if self._use_block_mask
+            else metadata.mask()
+        )
 
     def latent_for(self, start: int, end: int) -> Tensor:
         """Return decoder-ready latents for an available frame range."""
@@ -513,6 +519,7 @@ def run_rollout(
     sample_type: Literal["sde", "ode"] = "sde",
     history_frames: int | None = None,
     use_block_mask: bool = False,
+    mask_block_size: int | tuple[int, int] = 128,
     on_chunk: Callable[[ChunkTrace, Tensor], None] | None = None,
 ) -> Rollout:
     """Build and drain a model-independent multi-view rollout."""
@@ -528,6 +535,7 @@ def run_rollout(
         sample_type=sample_type,
         history_frames=history_frames,
         use_block_mask=use_block_mask,
+        mask_block_size=mask_block_size,
     )
     while not rollout.is_finished:
         trace, chunk = rollout.step()

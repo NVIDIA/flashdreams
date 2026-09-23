@@ -38,9 +38,14 @@ def test_entry_point_binds_swiftvr_defaults() -> None:
 def test_postprocess_preset_is_discoverable() -> None:
     preset = resolve_postprocess_preset("swiftvr-4x")
     twice = resolve_postprocess_preset("swiftvr-2x")
+    compiled = resolve_postprocess_preset("swiftvr-2x-compiled")
 
     assert isinstance(preset, SwiftVRPostProcessorConfig)
     assert preset.scale == 4
     assert isinstance(twice, SwiftVRPostProcessorConfig)
     assert twice.scale == 2
     assert twice.chunk_size == 8
+    assert isinstance(compiled, SwiftVRPostProcessorConfig)
+    assert compiled.compile_blocks
+    assert not compiled.compile_reae_encoder
+    assert compiled.compile_reae_decoder

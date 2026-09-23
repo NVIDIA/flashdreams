@@ -4,14 +4,13 @@
 """UI loop drawing SlangPy widgets over the model output."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, final
+from typing import Any, Generic, TypeVar, cast, final
 
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.slangpy_ui_renderer import (
     _SlangPyUIRenderer,
-    _UIRenderer,
 )
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.ui_compositing import prepare_ui_back_buffer
@@ -32,7 +31,7 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     def __init__(
         self,
         *,
-        renderer: _UIRenderer | None = None,
+        renderer: _SlangPyUIRenderer | None = None,
         width: int | None = None,
         height: int | None = None,
     ) -> None:
@@ -53,6 +52,14 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
                 )
             renderer = _SlangPyUIRenderer(width=width, height=height)
         self.renderer = renderer
+
+    def resize_ui_loop(self, width: int, height: int) -> None:
+        """Resize the SlangPy renderer."""
+        self.renderer.resize(width, height)
+
+    def get_ui_loop_size(self) -> tuple[int, int]:
+        """Return the current SlangPy render-target size."""
+        return self.renderer.width, self.renderer.height
 
     @abstractmethod
     def step_ui(

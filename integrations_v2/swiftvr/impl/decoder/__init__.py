@@ -34,6 +34,9 @@ class SwiftVRDecoderConfig(DecoderConfig):
     dtype: torch.dtype = torch.bfloat16
     """Decoder compute dtype."""
 
+    use_compile: bool = False
+    """Compile the ReAE decoder compute path."""
+
 
 @dataclass(kw_only=True)
 class SwiftVRDecoderCache(StreamingDecoderCache):
@@ -50,7 +53,10 @@ class SwiftVRDecoder(StreamingDecoder[SwiftVRDecoderCache]):
     def __init__(self, config: SwiftVRDecoderConfig) -> None:
         super().__init__(config)
         self.config: SwiftVRDecoderConfig = config
-        self.network = SwiftVRTAEHV(config.checkpoint_path)
+        self.network = SwiftVRTAEHV(
+            config.checkpoint_path,
+            use_compile=config.use_compile,
+        )
         if config.checkpoint_path is None:
             self.network.to_empty(device="cpu")
             for module in self.network.modules():

@@ -116,6 +116,12 @@ class SwiftVRPostProcessorConfig(VideoPostProcessorConfig):
     compile_blocks: bool = False
     """Compile transformer blocks. Disabled by default to avoid long startup."""
 
+    compile_reae_encoder: bool = False
+    """Compile ReAE encoder compute while keeping causal stream state explicit."""
+
+    compile_reae_decoder: bool = False
+    """Compile ReAE decoder compute while keeping causal stream state explicit."""
+
     prewarm: bool = True
     """Warm model kernels before the first measured rollout chunk."""
 
@@ -365,6 +371,8 @@ def _load_swiftvr_pipeline(config: SwiftVRPostProcessorConfig) -> SwiftVRPipelin
         dtype=_resolve_dtype(config.dtype),
         attention_window=config.attention_window,
         compile_blocks=config.compile_blocks,
+        compile_reae_encoder=config.compile_reae_encoder,
+        compile_reae_decoder=config.compile_reae_decoder,
         chunk_size=config.chunk_size,
     )
 
@@ -383,9 +391,18 @@ POSTPROCESS_PRESET_SWIFTVR_4X = SwiftVRPostProcessorConfig()
 POSTPROCESS_PRESET_SWIFTVR_2X = SwiftVRPostProcessorConfig(scale=2, chunk_size=8)
 """SwiftVR 2x preset with an 8-frame streaming chunk."""
 
+POSTPROCESS_PRESET_SWIFTVR_2X_COMPILED = SwiftVRPostProcessorConfig(
+    scale=2,
+    chunk_size=8,
+    compile_blocks=True,
+    compile_reae_decoder=True,
+)
+"""Opt-in SwiftVR 2x preset with compiled transformer and ReAE decoder."""
+
 
 __all__ = [
     "POSTPROCESS_PRESET_SWIFTVR_2X",
+    "POSTPROCESS_PRESET_SWIFTVR_2X_COMPILED",
     "POSTPROCESS_PRESET_SWIFTVR_4X",
     "SwiftVRPostProcessor",
     "SwiftVRPostProcessorConfig",
