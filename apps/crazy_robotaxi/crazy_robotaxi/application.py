@@ -292,7 +292,7 @@ class CrazyRobotaxiApplication(IApplication):
             scene_request=SceneRequest(
                 map_path=map_path.expanduser(),
                 camera_name=DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
-                use_prompt_context=settings.live_edit.map_context.enabled,
+                use_prompt_context=settings.live_edit.dynamic_prompts.active,
                 force_recompile=bool(args.force_map_recompile),
             ),
             renderer=renderer,

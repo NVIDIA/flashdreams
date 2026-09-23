@@ -174,6 +174,46 @@ def test_load_can_append_style_skin(tmp_path: Path) -> None:
     assert document.settings.live_edit.style.skins[-1].prompt == "prompt-4"
 
 
+def test_deprecated_map_context_setting_is_ignored(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "live_edit:\n  map_context:\n    enabled: true\n",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+
+    assert not document.settings.live_edit.dynamic_prompts.enabled
+
+    document.save(document.settings)
+
+    saved = path.read_text(encoding="utf-8")
+    assert "map_context:" not in saved
+    assert "dynamic_prompts:" not in saved
+
+
+def test_deprecated_map_context_does_not_override_dynamic_prompts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """\
+live_edit:
+  map_context:
+    enabled: false
+  dynamic_prompts:
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+
+    assert document.settings.live_edit.dynamic_prompts.enabled
+
+
 def test_load_nullable_torch_dtype(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(
