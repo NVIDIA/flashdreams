@@ -28,9 +28,11 @@ from torch import Tensor
 from torch.nn.attention.flex_attention import BlockMask
 
 from flashdreams.core.attention.kvcache import TokenWindow
+from flashdreams.core.attention.multiview.mask import AttentionPattern, AttentionScope
 from flashdreams.core.attention.multiview.packing import (
     ClipGeometry,
     MemoryLayout,
+    _check_view_text_tokens,
     ar_chunk_plan,
     ar_chunk_range,
     build_chunk_metadata,
@@ -126,11 +128,16 @@ class MultiViewRolloutModel(Protocol):
         geometry: ClipGeometry,
         controls: Tensor | ControlSource,
         text_ids: Tensor,
+        view_text_tokens: tuple[int, ...] | None,
         condition_tokens: Tensor | None,
         fps: float,
         history_slots: int,
         control_ranges: tuple[tuple[int, int], ...] | None,
         control_slot_frames: int | None,
+        attention_pattern: AttentionPattern,
+        attention_scope: AttentionScope,
+        decomposed_temporal_window_seconds: float | None,
+        view_offsets: bool,
         use_block_mask: bool,
     ) -> MultiViewRolloutState:
         """Prefill checkpoint-specific caches and return mutable rollout state."""
@@ -180,6 +187,7 @@ class ChunkRollout:
         geometry: ClipGeometry,
         controls: Tensor | ControlSource,
         text_ids: Tensor,
+        view_text_tokens: Sequence[int] | None = None,
         condition_tokens: Tensor | None = None,
         fps: float = 30.0,
         seed: int = 0,
@@ -187,6 +195,10 @@ class ChunkRollout:
         sample_type: Literal["sde", "ode"] = "sde",
         history_frames: int | None = None,
         token_frames: int | None = None,
+        attention_pattern: AttentionPattern = "causal",
+        attention_scope: AttentionScope = "all_views",
+        decomposed_temporal_window_seconds: float | None = None,
+        view_offsets: bool = True,
         use_block_mask: bool = False,
         mask_block_size: int | tuple[int, int] = 128,
     ) -> None:
@@ -223,6 +235,16 @@ class ChunkRollout:
             raise ValueError("history_frames must be positive when supplied.")
         if token_frames is not None and token_frames < 1:
             raise ValueError("token_frames must be positive when supplied.")
+        view_text_tokens = None if view_text_tokens is None else tuple(view_text_tokens)
+        _check_view_text_tokens(geometry, view_text_tokens)
+        if view_text_tokens is not None:
+            if any(tokens < 0 for tokens in view_text_tokens):
+                raise ValueError("view_text_tokens cannot contain negative counts.")
+            if sum(view_text_tokens) != int(text_ids.shape[0]):
+                raise ValueError(
+                    f"view_text_tokens sums to {sum(view_text_tokens)}, but text_ids "
+                    f"contains {text_ids.shape[0]} tokens."
+                )
 
         committed = plan.committed_frames
         kept = committed if history_frames is None else min(history_frames, committed)
@@ -239,11 +261,16 @@ class ChunkRollout:
                 geometry=geometry,
                 controls=controls,
                 text_ids=text_ids,
+                view_text_tokens=view_text_tokens,
                 condition_tokens=condition_tokens,
                 fps=fps,
                 history_slots=history_slots,
                 control_ranges=control_ranges,
                 control_slot_frames=(geometry.frames_per_chunk if streaming else None),
+                attention_pattern=attention_pattern,
+                attention_scope=attention_scope,
+                decomposed_temporal_window_seconds=decomposed_temporal_window_seconds,
+                view_offsets=view_offsets,
                 use_block_mask=use_block_mask,
             )
         self._geometry = geometry
@@ -252,9 +279,19 @@ class ChunkRollout:
         self._schedule = raw_schedule
         self._sample_type = sample_type
         self._history_slots = history_slots
+        self._view_text_tokens = view_text_tokens
+        self._attention_pattern = attention_pattern
+        self._attention_scope = attention_scope
+        self._decomposed_temporal_window_seconds = decomposed_temporal_window_seconds
+        self._view_offsets = view_offsets
         self._use_block_mask = use_block_mask
         self._mask_block_size = mask_block_size
-        self._offset = vision_temporal_offset(self._state.num_text_tokens)
+        text_position_span = (
+            self._state.num_text_tokens
+            if view_text_tokens is None
+            else max(view_text_tokens)
+        )
+        self._offset = vision_temporal_offset(text_position_span)
 
         minimum_token_frames = geometry.condition_frames + geometry.frames_per_chunk
         self._token_frames = (
@@ -375,6 +412,7 @@ class ChunkRollout:
             chunk_frames=frames,
             fps=self._fps,
             temporal_offset=self._offset,
+            view_offsets=self._view_offsets,
             device=self._model.device,
         )
         noisy_mask = self._mask(
@@ -457,13 +495,27 @@ class ChunkRollout:
             chunk_start=chunk_start,
             chunk_frames=chunk_frames,
             text_tokens=self._state.num_text_tokens,
+            view_text_tokens=self._view_text_tokens,
             pass_kind=pass_kind,
             device=self._model.device,
         )
         return (
-            metadata.block_mask(block_size=self._mask_block_size)
+            metadata.block_mask(
+                pattern=self._attention_pattern,
+                scope=self._attention_scope,
+                decomposed_temporal_window_seconds=(
+                    self._decomposed_temporal_window_seconds
+                ),
+                block_size=self._mask_block_size,
+            )
             if self._use_block_mask
-            else metadata.mask()
+            else metadata.mask(
+                pattern=self._attention_pattern,
+                scope=self._attention_scope,
+                decomposed_temporal_window_seconds=(
+                    self._decomposed_temporal_window_seconds
+                ),
+            )
         )
 
     def latent_for(self, start: int, end: int) -> Tensor:
@@ -512,12 +564,17 @@ def run_rollout(
     geometry: ClipGeometry,
     controls: Tensor | ControlSource,
     text_ids: Tensor,
+    view_text_tokens: Sequence[int] | None = None,
     condition_tokens: Tensor | None = None,
     fps: float = 30.0,
     seed: int = 0,
     schedule: Sequence[float] | None = None,
     sample_type: Literal["sde", "ode"] = "sde",
     history_frames: int | None = None,
+    attention_pattern: AttentionPattern = "causal",
+    attention_scope: AttentionScope = "all_views",
+    decomposed_temporal_window_seconds: float | None = None,
+    view_offsets: bool = True,
     use_block_mask: bool = False,
     mask_block_size: int | tuple[int, int] = 128,
     on_chunk: Callable[[ChunkTrace, Tensor], None] | None = None,
@@ -528,12 +585,17 @@ def run_rollout(
         geometry=geometry,
         controls=controls,
         text_ids=text_ids,
+        view_text_tokens=view_text_tokens,
         condition_tokens=condition_tokens,
         fps=fps,
         seed=seed,
         schedule=schedule,
         sample_type=sample_type,
         history_frames=history_frames,
+        attention_pattern=attention_pattern,
+        attention_scope=attention_scope,
+        decomposed_temporal_window_seconds=decomposed_temporal_window_seconds,
+        view_offsets=view_offsets,
         use_block_mask=use_block_mask,
         mask_block_size=mask_block_size,
     )

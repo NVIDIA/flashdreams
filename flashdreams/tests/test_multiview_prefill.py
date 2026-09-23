@@ -178,6 +178,26 @@ def test_prefill_pack_contains_control_condition_and_clean_target_roles() -> Non
     assert torch.all(pack.und.token_role_id == ROLE_UND)
 
 
+def test_prefill_pack_preserves_view_caption_runs() -> None:
+    pack = build_prefill_pack(
+        CLIP,
+        text_tokens=6,
+        view_text_tokens=(2, 1, 3),
+    )
+
+    assert pack.und.view_id.tolist() == [0, 0, 1, 2, 2, 2]
+    text_visibility = pack.mask()[:, :6]
+    for view in range(CLIP.num_views):
+        rows = pack.gen.view_id == view
+        expected = pack.und.view_id == view
+        assert torch.equal(text_visibility[rows], expected.expand(int(rows.sum()), -1))
+
+
+def test_prefill_pack_rejects_too_many_view_caption_counts() -> None:
+    with pytest.raises(ValueError, match="expected 3, got 4"):
+        build_prefill_pack(CLIP, text_tokens=1, view_text_tokens=(1, 0, 0, 0))
+
+
 def test_every_prefill_query_can_reach_a_key() -> None:
     pack = build_prefill_pack(
         CLIP,
