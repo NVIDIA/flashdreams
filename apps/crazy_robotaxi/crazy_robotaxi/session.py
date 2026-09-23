@@ -28,6 +28,7 @@ from crazy_robotaxi.controls import (
 )
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
+from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -456,7 +457,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 vehicle.speed_mps for vehicle in engine_step.trajectory.vehicle_states
             )
             bev = engine_step.condition.bev_tchw
-            finalize_metrics = generated.finalize_metrics
             metrics = dict(generated.metrics)
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
@@ -479,7 +479,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             poses = state.last_pose[None, ...]
             speeds_mps = (state.last_speed_mps,)
             bev = state.last_bev
-            finalize_metrics = {}
             metrics = {}
             transition_timestamps_us = (None,) * int(video.shape[0])
 
@@ -564,7 +563,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 output=video,
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
-                metrics=finalize_metrics,
+                metrics=metrics,
             ),
             StepResult(
                 step_index=step_index,
@@ -580,7 +579,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     output=bev,
                     frame_count=count,
                     output_layout=VideoTensorLayout.tchw,
-                    metrics=finalize_metrics,
                 )
             )
         return results
@@ -648,12 +646,34 @@ class CrazyRobotaxiSession(ISession):
             initial_map_path=self._config.initial_map_path,
             initial_race_course_id=self._config.initial_race_course_id,
         )
-        ui_loop = self.register_ui_loop(
-            CrazyRobotaxiImGuiUILoop,
-            state=hud_state,
-            width=self._session_desc.video_width,
-            height=self._session_desc.video_height,
-        )
+        if self._config.no_ui:
+            if (
+                self._config.initial_game_mode is None
+                or self._config.initial_map_path is None
+                or self._config.total_blocks is None
+            ):
+                raise ValueError(
+                    "--no-ui requires explicit --game-mode, --map, and --total-blocks"
+                )
+            if (
+                self._config.initial_game_mode == "race"
+                and self._config.initial_race_course_id is None
+            ):
+                # Without one the HUD stops at the course menu, which a
+                # headless run has no way to answer: it would publish menu
+                # frames forever instead of generating --total-blocks.
+                raise ValueError("--no-ui in race mode requires --race-course")
+            ui_loop = self.register_ui_loop(
+                CrazyRobotaxiHeadlessUILoop,
+                state=hud_state,
+            )
+        else:
+            ui_loop = self.register_ui_loop(
+                CrazyRobotaxiImGuiUILoop,
+                state=hud_state,
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
             state=ModelState(
