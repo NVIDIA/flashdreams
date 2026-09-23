@@ -37,6 +37,7 @@ from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
     CrazyRobotaxiSession,
     ModelState,
+    _pace_realtime_chunk,
     _taxi_driver_command,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
@@ -446,6 +447,45 @@ def test_model_input_is_applied_before_rollout_work() -> None:
 
     with pytest.raises(InputOrderVerified):
         loop.step(0, UserInputEvents([pressed]))
+
+
+@pytest.mark.parametrize(
+    ("frame_count", "model_step_wall_ms", "expected_duration_ms", "expected_wait_s"),
+    [
+        (8, 100.0, 800.0 / 3.0, 1.0 / 6.0),
+        (4, 100.0, 400.0 / 3.0, 1.0 / 30.0),
+        (8, 300.0, 800.0 / 3.0, None),
+    ],
+)
+def test_pace_realtime_chunk_waits_for_remaining_frame_budget(
+    frame_count: int,
+    model_step_wall_ms: float,
+    expected_duration_ms: float,
+    expected_wait_s: float | None,
+) -> None:
+    class RecordingEvent:
+        def __init__(self) -> None:
+            self.waits: list[float] = []
+
+        def wait(self, timeout: float) -> None:
+            self.waits.append(timeout)
+
+    event = RecordingEvent()
+
+    chunk_duration_ms, realtime_margin_ms = _pace_realtime_chunk(
+        cast(threading.Event, event),
+        frame_count=frame_count,
+        frames_per_second=30,
+        model_step_wall_ms=model_step_wall_ms,
+    )
+
+    assert chunk_duration_ms == pytest.approx(expected_duration_ms)
+    assert realtime_margin_ms == pytest.approx(
+        expected_duration_ms - model_step_wall_ms
+    )
+    assert event.waits == (
+        [] if expected_wait_s is None else [pytest.approx(expected_wait_s)]
+    )
 
 
 def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:
