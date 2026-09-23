@@ -36,30 +36,6 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-The presentation resolution is independent of the world model's raster. Set it
-from **OPTIONS > PRESENTATION** and restart the application, or use application
-arguments for a one-off override. For example, this keeps the model at its
-preset resolution while scaling the world frame and rendering the HUD directly
-at 1920x1080:
-
-```bash
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode native-window -- \
-  --display-width 1920 --display-height 1080
-```
-
-The persisted equivalent is:
-
-```yaml
-presentation:
-  width: 1920
-  height: 1080
-```
-
-The application arguments `--width` and `--height` continue to configure the
-model and semantic renderer. Presentation sizing applies to native-window,
-WebRTC, and MP4 output.
-
 Ten OmniDreams runner configurations are registered:
 
 | Runner | Configuration |
@@ -127,6 +103,8 @@ model:
     diffusion_model:
       seed: 5678
 presentation:
+  width: 1920
+  height: 1080
   show_fps: true
 live_edit:
   weather:
