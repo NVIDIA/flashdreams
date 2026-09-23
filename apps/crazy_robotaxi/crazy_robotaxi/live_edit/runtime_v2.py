@@ -215,7 +215,7 @@ class LiveEditGameplay:
                         "live-edit dynamic prompts require a resolved game map"
                     )
                 self.style.configure_map(self._game_map)
-            self.style.reset_v2(cache)
+            self.style.reset_v2(cache, pipeline=pipeline)
             if self.items is not None:
                 self.effects = ItemEffects(
                     self.style,

@@ -564,29 +564,18 @@ def test_visual_swap_absorbs_pending_map_change_once() -> None:
     assert ability._pending_map_suffix is None
 
 
-def test_combined_map_prompts_are_encoded_lazily() -> None:
+def test_combined_map_prompts_use_the_text_encoder_cache() -> None:
     ability = StyleAbility(
         LiveEditStyleConfig(),
         map_context_config=LiveEditMapContextConfig(enabled=True),
     )
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    pipeline = SimpleNamespace(
-        replace_text_from_embeddings=lambda *args, **kwargs: calls.append(
-            (args, kwargs)
-        )
-    )
+    prompt_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    pipeline = SimpleNamespace(replace_text_from_embeddings=pytest.fail)
     session = SimpleNamespace(
         pipeline=pipeline,
         _cache=object(),
         _pending_finalization_index=None,
-        replace_prompt=lambda *args, **kwargs: pytest.fail("expected cached swap"),
-    )
-    setattr(
-        ability,
-        "_encode_prompt",
-        lambda active_pipeline, prompt: ability._prompt_embeddings.__setitem__(
-            prompt, "cached"
-        ),
+        replace_prompt=lambda *args, **kwargs: prompt_calls.append((args, kwargs)),
     )
     target = SimpleNamespace(
         prompt="A sunny suburb. The taxi is stationary.",
@@ -597,8 +586,73 @@ def test_combined_map_prompts_are_encoded_lazily() -> None:
 
     ability._replace_text(session, target)
 
-    assert target.prompt in ability._prompt_embeddings
-    assert calls[0][0][1] == "cached"
+    assert target.prompt not in ability._prompt_embeddings
+    assert prompt_calls == [
+        (
+            (target.prompt,),
+            {"guidance_scale": 1.0, "guidance_chunks": 0},
+        )
+    ]
+
+
+def test_dynamic_prompts_preencode_when_complete_set_fits_host_cache() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(
+            enabled=True,
+            include_current_road_context=False,
+            include_next_map_node_type=False,
+            include_next_map_node_context=False,
+            include_upcoming_road_curve_direction=False,
+        ),
+    )
+    game_map = load_game_map(
+        Path(__file__).parent / "maps" / "traffic_loop.robotaxi.yaml"
+    )
+    ability.configure_map(game_map)
+    ability._base_prompt = "A sunny suburb."
+    preencoded: list[tuple[str, ...]] = []
+    text_encoder = SimpleNamespace(
+        config=SimpleNamespace(run_on_cpu=True, embedding_cache_size=4),
+        preencode=lambda prompts: preencoded.append(tuple(prompts)),
+    )
+
+    ability._preencode_dynamic_prompts(SimpleNamespace(text_encoder=text_encoder))
+
+    assert set(preencoded) == {
+        ("A sunny suburb. The taxi is driving forward.",),
+        (
+            "A sunny suburb. The taxi is reversing; scenery moves forward "
+            "relative to the camera.",
+        ),
+        ("A sunny suburb. The taxi is stationary.",),
+    }
+
+
+def test_dynamic_prompt_preencoding_skips_sets_larger_than_host_cache() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(
+            enabled=True,
+            include_current_road_context=False,
+            include_next_map_node_type=False,
+            include_next_map_node_context=False,
+            include_upcoming_road_curve_direction=False,
+        ),
+    )
+    game_map = load_game_map(
+        Path(__file__).parent / "maps" / "traffic_loop.robotaxi.yaml"
+    )
+    ability.configure_map(game_map)
+    ability._base_prompt = "A sunny suburb."
+    text_encoder = SimpleNamespace(
+        config=SimpleNamespace(run_on_cpu=True, embedding_cache_size=3),
+        preencode=lambda prompts: pytest.fail(
+            f"oversized prompt set must not be partially pre-encoded: {prompts}"
+        ),
+    )
+
+    ability._preencode_dynamic_prompts(SimpleNamespace(text_encoder=text_encoder))
 
 
 def test_map_only_postprocessing_returns_original_video() -> None:
