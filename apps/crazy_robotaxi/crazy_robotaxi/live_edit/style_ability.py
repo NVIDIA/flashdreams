@@ -118,6 +118,7 @@ class StyleAbility:
         self._dispatch: Any | None = None
         self._corrector_states: set[str] = set()
         self._prompt_embeddings: dict[str, Any] = {}
+        self._dynamic_prompts_use_host_cache = False
 
     def configure_map(self, game_map: Any) -> None:
         """Bind the selected resolved map before a rollout starts."""
@@ -273,7 +274,7 @@ class StyleAbility:
             else:
                 self._attach_corrector(pipeline, transformer)
         self._precompute_prompt_embeddings(pipeline)
-        if self._map_context_config is None:
+        if not self._dynamic_prompts_use_host_cache:
             self._encode_prompt(pipeline, base_prompt)
         self._session = _V2PromptSession(pipeline, cache)
         self.reset_v2(cache)
@@ -289,7 +290,7 @@ class StyleAbility:
         self._chunks_since_swap = 0
         self.reset_map_context()
         self._update_corrector(None, None, 0.0)
-        if pipeline is not None:
+        if pipeline is not None and self._dynamic_prompts_use_host_cache:
             self._preencode_dynamic_prompts(pipeline)
 
     def before_v2_chunk(self) -> None:
@@ -343,8 +344,13 @@ class StyleAbility:
             )
         if self._map_context_config is not None:
             # Static combinations are never issued while map context is active;
-            # complete combinations use the text encoder's bounded host cache.
-            self._preencode_dynamic_prompts(pipeline)
+            # CPU-encoder presets use the bounded host cache; GPU presets keep
+            # the existing lazy device-embedding path.
+            self._dynamic_prompts_use_host_cache = self._uses_bounded_host_prompt_cache(
+                pipeline
+            )
+            if self._dynamic_prompts_use_host_cache:
+                self._preencode_dynamic_prompts(pipeline)
             return
         start = time.perf_counter()
         for prompt in prompts:
@@ -357,19 +363,17 @@ class StyleAbility:
 
     def _preencode_dynamic_prompts(self, pipeline: Any) -> None:
         """Warm a complete dynamic-prompt set when it fits the host cache."""
+        if not self._uses_bounded_host_prompt_cache(pipeline):
+            return
         tracker = self._map_tracker
         base_prompt = self._base_prompt
         if tracker is None or base_prompt is None:
             return
-        text_encoder = getattr(pipeline, "text_encoder", None)
-        encoder_config = getattr(text_encoder, "config", None)
+        text_encoder = pipeline.text_encoder
+        encoder_config = text_encoder.config
         preencode = getattr(text_encoder, "preencode", None)
         cache_size = int(getattr(encoder_config, "embedding_cache_size", 0))
-        if (
-            not callable(preencode)
-            or not getattr(encoder_config, "run_on_cpu", False)
-            or cache_size <= 0
-        ):
+        if not callable(preencode) or cache_size <= 0:
             return
 
         prompts = {
@@ -392,6 +396,17 @@ class StyleAbility:
         logger.info(
             f"[dynamic-prompts] pre-encoded {len(prompts)} prompts into the "
             f"bounded host cache in {elapsed_ms:.0f} ms"
+        )
+
+    @staticmethod
+    def _uses_bounded_host_prompt_cache(pipeline: Any) -> bool:
+        """Return whether the pipeline has the bounded CPU prompt cache."""
+        text_encoder = getattr(pipeline, "text_encoder", None)
+        encoder_config = getattr(text_encoder, "config", None)
+        return (
+            callable(getattr(text_encoder, "preencode", None))
+            and bool(getattr(encoder_config, "run_on_cpu", False))
+            and int(getattr(encoder_config, "embedding_cache_size", 0)) > 0
         )
 
     def _encode_prompt(self, pipeline: Any, prompt: str) -> None:
@@ -944,8 +959,8 @@ class StyleAbility:
         Static prompts pre-encoded at attach time (see
         :meth:`_precompute_prompt_embeddings`) inject their cached
         GPU embeddings through ``replace_text_from_embeddings``. Dynamic
-        prompts deliberately use ``replace_prompt`` so the bounded host cache
-        owned by the CPU text encoder remains the single source of truth.
+        prompts use the bounded host cache only on CPU-encoder presets; GPU
+        presets retain the existing lazy device-embedding cache.
 
         Both paths flush the adapter's deferred chunk finalize first:
         finalize must run under the OLD text. ``session.replace_prompt``
@@ -964,7 +979,7 @@ class StyleAbility:
             edit_lora = transformer._text_edit_lora
             transformer.set_text_edit_lora(None)
         embeddings = self._prompt_embeddings.get(target.prompt)
-        if embeddings is None and self._map_context_config is None:
+        if embeddings is None and not self._dynamic_prompts_use_host_cache:
             self._encode_prompt(session.pipeline, target.prompt)
             embeddings = self._prompt_embeddings.get(target.prompt)
         replace_from_embeddings = getattr(
