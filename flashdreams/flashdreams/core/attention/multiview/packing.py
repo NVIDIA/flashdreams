@@ -480,6 +480,16 @@ def text_stream(
     )
 
 
+def _check_view_text_tokens(
+    geometry: ClipGeometry, view_text_tokens: Sequence[int] | None
+) -> None:
+    if view_text_tokens is not None and len(view_text_tokens) != geometry.num_views:
+        raise ValueError(
+            "view_text_tokens must contain one entry per view; "
+            f"expected {geometry.num_views}, got {len(view_text_tokens)}."
+        )
+
+
 @dataclass(frozen=True)
 class MemoryLayout:
     """The cached tokens: controls, then supplied frames, then generated history.
@@ -711,6 +721,7 @@ def build_chunk_metadata(
     only the prompt and earlier control in its own view.
     """
     device = device or torch.device("cpu")
+    _check_view_text_tokens(geometry, view_text_tokens)
     if chunk_frames < 1:
         raise ValueError(f"chunk_frames must be >= 1, got {chunk_frames}.")
     # Control covers the frames it describes, conditioned or not; only a target

@@ -331,7 +331,7 @@ def test_rollout_validates_conditioning_and_schedule_before_prefill() -> None:
             condition_tokens=condition,
             schedule=[0.5, 0.75],
         )
-    with pytest.raises(ValueError, match="entries for 2 views"):
+    with pytest.raises(ValueError, match="one entry per view"):
         ChunkRollout(
             _Model(),
             geometry=GEOMETRY,

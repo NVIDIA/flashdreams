@@ -32,6 +32,7 @@ from flashdreams.core.attention.multiview.mask import AttentionPattern, Attentio
 from flashdreams.core.attention.multiview.packing import (
     ClipGeometry,
     MemoryLayout,
+    _check_view_text_tokens,
     ar_chunk_plan,
     ar_chunk_range,
     build_chunk_metadata,
@@ -235,12 +236,8 @@ class ChunkRollout:
         if token_frames is not None and token_frames < 1:
             raise ValueError("token_frames must be positive when supplied.")
         view_text_tokens = None if view_text_tokens is None else tuple(view_text_tokens)
+        _check_view_text_tokens(geometry, view_text_tokens)
         if view_text_tokens is not None:
-            if len(view_text_tokens) != geometry.num_views:
-                raise ValueError(
-                    f"view_text_tokens has {len(view_text_tokens)} entries for "
-                    f"{geometry.num_views} views."
-                )
             if any(tokens < 0 for tokens in view_text_tokens):
                 raise ValueError("view_text_tokens cannot contain negative counts.")
             if sum(view_text_tokens) != int(text_ids.shape[0]):

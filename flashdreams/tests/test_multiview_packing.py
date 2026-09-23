@@ -168,6 +168,11 @@ def test_chunk_metadata_preserves_view_caption_runs() -> None:
     assert chunk.kv.view_id[:6].tolist() == [0, 0, 1, 1, 1, 1]
 
 
+def test_chunk_metadata_rejects_too_few_view_caption_counts() -> None:
+    with pytest.raises(ValueError, match="expected 2, got 1"):
+        rolled_out_chunk(text_tokens=1, view_text_tokens=(1,))
+
+
 def test_causal_partition_makes_frame_zero_a_singleton() -> None:
     """The ``[1, C, C, ...]`` partition, and the ``frame // C`` answer it is not."""
     frames = torch.tensor([-1, 0, 1, 2, 3, 4, 5])

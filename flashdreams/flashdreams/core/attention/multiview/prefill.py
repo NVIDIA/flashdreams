@@ -38,6 +38,7 @@ from flashdreams.core.attention.multiview.mask import (
 from flashdreams.core.attention.multiview.packing import (
     ClipGeometry,
     _check_ranges,
+    _check_view_text_tokens,
     _stamp_view_major,
     _vision,
     concat,
@@ -130,6 +131,7 @@ def build_prefill_pack(
     """
     if text_tokens < 0:
         raise ValueError(f"text_tokens must be non-negative, got {text_tokens}.")
+    _check_view_text_tokens(geometry, view_text_tokens)
     device = device or torch.device("cpu")
     target_frames = (
         geometry.condition_frames if target_frames is None else target_frames

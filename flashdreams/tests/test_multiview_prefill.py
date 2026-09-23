@@ -193,6 +193,11 @@ def test_prefill_pack_preserves_view_caption_runs() -> None:
         assert torch.equal(text_visibility[rows], expected.expand(int(rows.sum()), -1))
 
 
+def test_prefill_pack_rejects_too_many_view_caption_counts() -> None:
+    with pytest.raises(ValueError, match="expected 3, got 4"):
+        build_prefill_pack(CLIP, text_tokens=1, view_text_tokens=(1, 0, 0, 0))
+
+
 def test_every_prefill_query_can_reach_a_key() -> None:
     pack = build_prefill_pack(
         CLIP,
