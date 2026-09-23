@@ -185,12 +185,22 @@ class CosmosReason1TextEncoder(Encoder):
 
     @torch.no_grad()
     def forward(self, input: list[str]) -> Tensor:
+        """Encode prompts or return their cached host embeddings."""
+        return self._to_compute_device(self._cached_or_encode(input))
+
+    @torch.no_grad()
+    def preencode(self, input: list[str]) -> None:
+        """Populate the bounded embedding cache without copying to the GPU."""
+        self._cached_or_encode(input)
+
+    def _cached_or_encode(self, input: list[str]) -> Tensor:
+        """Return host/device embeddings after populating the configured cache."""
         key = tuple(input)
         # One lookup, no mutation: a hit that races an insert or an eviction
         # reads either the old mapping or the new one, and both are valid.
         cached = self._embedding_cache.get(key)
         if cached is not None:
-            return self._to_compute_device(cached)
+            return cached
         started = time.perf_counter()
         text_embeddings = self._encode(input)
         if self.config.run_on_cpu:
@@ -204,7 +214,7 @@ class CosmosReason1TextEncoder(Encoder):
                 self._embedding_cache[key] = text_embeddings
                 while len(self._embedding_cache) > self.config.embedding_cache_size:
                     self._embedding_cache.popitem(last=False)
-        return self._to_compute_device(text_embeddings)
+        return text_embeddings
 
     def _to_compute_device(self, embeddings: Tensor) -> Tensor:
         device = self._compute_device

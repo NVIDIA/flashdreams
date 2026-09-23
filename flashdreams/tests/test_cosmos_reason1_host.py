@@ -130,6 +130,18 @@ def test_embedding_cache_hits_and_evicts_in_insertion_order(make_encoder) -> Non
     assert not encoder._embedding_cache
 
 
+def test_preencode_populates_host_cache_without_returning_embeddings(
+    make_encoder,
+) -> None:
+    encoder = make_encoder(run_on_cpu=True, embedding_cache_size=2)
+
+    assert encoder.preencode(["one"]) is None
+    assert encoder.model.calls == 1
+
+    encoder(["one"])
+    assert encoder.model.calls == 1
+
+
 def test_cache_disabled_by_default(make_encoder) -> None:
     encoder = make_encoder()
     encoder(["one"])

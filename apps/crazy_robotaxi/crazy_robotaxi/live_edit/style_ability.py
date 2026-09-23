@@ -273,11 +273,12 @@ class StyleAbility:
             else:
                 self._attach_corrector(pipeline, transformer)
         self._precompute_prompt_embeddings(pipeline)
-        self._encode_prompt(pipeline, base_prompt)
+        if self._map_context_config is None:
+            self._encode_prompt(pipeline, base_prompt)
         self._session = _V2PromptSession(pipeline, cache)
         self.reset_v2(cache)
 
-    def reset_v2(self, cache: Any) -> None:
+    def reset_v2(self, cache: Any, *, pipeline: Any | None = None) -> None:
         """Bind a new V2 cache and reset all live-edit state."""
         if isinstance(self._session, _V2PromptSession):
             self._session._cache = cache
@@ -288,6 +289,8 @@ class StyleAbility:
         self._chunks_since_swap = 0
         self.reset_map_context()
         self._update_corrector(None, None, 0.0)
+        if pipeline is not None:
+            self._preencode_dynamic_prompts(pipeline)
 
     def before_v2_chunk(self) -> None:
         """Apply queued edits at the model-thread chunk boundary."""
@@ -307,7 +310,7 @@ class StyleAbility:
             self._chunks_since_swap += 1
 
     def _precompute_prompt_embeddings(self, pipeline: Any) -> None:
-        """Encode every configured swap prompt once at session start.
+        """Encode configured static swap prompts once at session start.
 
         A swap's dominant cost is the text-encoder forward inside
         ``replace_text`` (450-930 ms at the chunk boundary); the prompts are
@@ -340,8 +343,9 @@ class StyleAbility:
             )
         if self._map_context_config is not None:
             # Static combinations are never issued while map context is active;
-            # complete combinations are encoded lazily at the chunk boundary.
-            prompts.clear()
+            # complete combinations use the text encoder's bounded host cache.
+            self._preencode_dynamic_prompts(pipeline)
+            return
         start = time.perf_counter()
         for prompt in prompts:
             self._encode_prompt(pipeline, prompt)
@@ -349,6 +353,45 @@ class StyleAbility:
         logger.info(
             f"[live-edit] pre-encoded {len(prompts)} swap prompts in "
             f"{elapsed_ms:.0f} ms (swaps now inject cached embeddings)"
+        )
+
+    def _preencode_dynamic_prompts(self, pipeline: Any) -> None:
+        """Warm a complete dynamic-prompt set when it fits the host cache."""
+        tracker = self._map_tracker
+        base_prompt = self._base_prompt
+        if tracker is None or base_prompt is None:
+            return
+        text_encoder = getattr(pipeline, "text_encoder", None)
+        encoder_config = getattr(text_encoder, "config", None)
+        preencode = getattr(text_encoder, "preencode", None)
+        cache_size = int(getattr(encoder_config, "embedding_cache_size", 0))
+        if (
+            not callable(preencode)
+            or not getattr(encoder_config, "run_on_cpu", False)
+            or cache_size <= 0
+        ):
+            return
+
+        prompts = {
+            compose_prompt(base_prompt=base_prompt, map_prompt_suffix=suffix)
+            for suffix in tracker.possible_suffixes()
+        }
+        required_cache_entries = prompts | {base_prompt}
+        if len(required_cache_entries) > cache_size:
+            logger.info(
+                "[dynamic-prompts] skipped startup pre-encoding: "
+                f"{len(required_cache_entries)} prompts exceed the bounded "
+                f"host cache capacity of {cache_size}"
+            )
+            return
+
+        start = time.perf_counter()
+        for prompt in sorted(prompts):
+            preencode([prompt])
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            f"[dynamic-prompts] pre-encoded {len(prompts)} prompts into the "
+            f"bounded host cache in {elapsed_ms:.0f} ms"
         )
 
     def _encode_prompt(self, pipeline: Any, prompt: str) -> None:
@@ -898,11 +941,11 @@ class StyleAbility:
         style prompts), so the LoRA is detached around the call. Plain swaps
         (scale 1.0) never open a LoRA window and need no bypass.
 
-        Prompts pre-encoded at attach time (see
+        Static prompts pre-encoded at attach time (see
         :meth:`_precompute_prompt_embeddings`) inject their cached
-        embeddings through ``replace_text_from_embeddings`` — no text
-        encoder forward at the boundary; anything else falls back to the
-        session's encode-per-swap ``replace_prompt``.
+        GPU embeddings through ``replace_text_from_embeddings``. Dynamic
+        prompts deliberately use ``replace_prompt`` so the bounded host cache
+        owned by the CPU text encoder remains the single source of truth.
 
         Both paths flush the adapter's deferred chunk finalize first:
         finalize must run under the OLD text. ``session.replace_prompt``
@@ -921,9 +964,7 @@ class StyleAbility:
             edit_lora = transformer._text_edit_lora
             transformer.set_text_edit_lora(None)
         embeddings = self._prompt_embeddings.get(target.prompt)
-        if embeddings is None:
-            # ponytail: raw GPU embeddings grow with unique combined prompts;
-            # switch to compact projected CPU contexts if large maps make it material.
+        if embeddings is None and self._map_context_config is None:
             self._encode_prompt(session.pipeline, target.prompt)
             embeddings = self._prompt_embeddings.get(target.prompt)
         replace_from_embeddings = getattr(
@@ -955,7 +996,7 @@ class StyleAbility:
                 transformer.set_text_edit_lora(edit_lora)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
-            f"[live-edit] swap issued cached_embeddings={cached} "
+            f"[live-edit] swap issued cached_gpu_embeddings={cached} "
             f"swap_ms={elapsed_ms:.1f}"
         )
 
