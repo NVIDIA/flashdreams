@@ -631,8 +631,8 @@ class CrazyRobotaxiSession(ISession):
             )
         )
         hud_state = TaxiHudState(
-            width=presentation_width,
-            height=presentation_height,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
             calibration=None,
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
@@ -658,17 +658,10 @@ class CrazyRobotaxiSession(ISession):
         ui_loop = self.register_ui_loop(
             CrazyRobotaxiImGuiUILoop,
             state=hud_state,
-            width=presentation_width,
-            height=presentation_height,
+            width=self._session_desc.video_width,
+            height=self._session_desc.video_height,
+            presentation_size=(presentation_width, presentation_height),
         )
-        if (
-            presentation_width,
-            presentation_height,
-        ) != (
-            self._session_desc.video_width,
-            self._session_desc.video_height,
-        ):
-            ui_loop.request_new_window_size((presentation_width, presentation_height))
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
             state=ModelState(

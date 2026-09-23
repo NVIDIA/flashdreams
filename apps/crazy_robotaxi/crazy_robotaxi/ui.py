@@ -3770,6 +3770,24 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     """Present generated frames beneath a responsive Dear ImGui taxi HUD."""
 
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+        presentation_size: tuple[int, int],
+    ) -> None:
+        """Configure the initial and requested presentation dimensions.
+
+        Args:
+            width: Initial UI render-target width.
+            height: Initial UI render-target height.
+            presentation_size: Requested client-window and UI render-target size.
+        """
+        super().__init__(width=width, height=height)
+        self._presentation_size = presentation_size
+        self._window_resize_requested = False
+
     def is_finished(self) -> bool:
         """Return whether the root menu requested application shutdown."""
         return self.state._exit_requested
@@ -3778,6 +3796,14 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
+        if self.get_ui_loop_size() != self._presentation_size:
+            if self._window_resize_requested:
+                self.state.width, self.state.height = self._presentation_size
+                self.resize_ui_loop(*self._presentation_size)
+                self._window_resize_requested = False
+            else:
+                self.request_new_window_size(self._presentation_size)
+                self._window_resize_requested = True
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
