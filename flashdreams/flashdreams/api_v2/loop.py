@@ -375,6 +375,9 @@ class IUILoop(ILoop[StateT], ABC):
     :meth:`ILoop.step` must return one :class:`StepResult` or ``None`` here.
     Model frames to draw come from :meth:`presented_model_frame` and
     :meth:`presented_model_frames` rather than from the model loop directly.
+    :meth:`has_pending_model_frames` and :attr:`presented_model_frame_count`
+    report whether more model frames are waiting and how many have been
+    selected.
     """
 
     @final
@@ -502,6 +505,17 @@ class IUILoop(ILoop[StateT], ABC):
                 from a presented result.
         """
         return self._presentation_manager.presented_frames()
+
+    @property
+    @final
+    def presented_model_frame_count(self) -> int:
+        """Return how many model frames have been selected in this generation."""
+        return self._presentation_manager.presented_frame_count
+
+    @final
+    def has_pending_model_frames(self) -> bool:
+        """Return whether another model frame is ready to present."""
+        return self._presentation_manager.has_pending_frames()
 
 
 def _parse_lifecycle_events(

@@ -114,6 +114,8 @@ runtime presents them one per UI tick rather than dropping all but the last.
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.
+`has_pending_model_frames` and `presented_model_frame_count` say whether more
+model frames are waiting and how many have already been selected.
 
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some

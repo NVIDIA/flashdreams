@@ -133,7 +133,7 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         del step_index
         _apply_ui_input(self.state, events)
         frame = self.presented_model_frame()
-        self.state.frames_presented = self._presentation_manager.presented_frame_count
+        self.state.frames_presented = self.presented_model_frame_count
         sampled_at = time.perf_counter()
         _ensure_widgets(
             ui,
@@ -150,9 +150,8 @@ class Cam2VSlangPyUILoop(SlangPyUILoop[Cam2VUIState]):
         """Return whether model inference has finished and the last presented frame has been drawn."""
         return (
             self.model_inference_state is ModelInferenceState.FINISHED
-            and not self._presentation_manager.has_pending_frames()
-            and self.state.frames_presented
-            == self._presentation_manager.presented_frame_count
+            and not self.has_pending_model_frames()
+            and self.state.frames_presented == self.presented_model_frame_count
         )
 
     def reset(self) -> None:
