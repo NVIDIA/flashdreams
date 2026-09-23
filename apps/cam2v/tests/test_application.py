@@ -836,7 +836,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     )
 
     result = ui_loop.step(0, pressed)
-    output = result.read_output()
+    output = result[0].read_output()
 
     assert output.shape == (1, 3, 2, 2)
     assert output.dtype is torch.bfloat16

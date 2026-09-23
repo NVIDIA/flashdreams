@@ -42,7 +42,7 @@ class BlitModelOutputToScreenLoop(IUILoop[_StateT], Generic[_StateT]):
         return self.presented_model_frames()
 
     @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Draw the model channels in list order."""
         del events
         output = None
@@ -52,13 +52,15 @@ class BlitModelOutputToScreenLoop(IUILoop[_StateT], Generic[_StateT]):
             self._presentation_manager.presented_frame_count
         )
         if output is None:
-            return None
-        return StepResult(
-            step_index=step_index,
-            output=_frame_to_layout(output, self.output_layout),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
+            return []
+        return [
+            StepResult(
+                step_index=step_index,
+                output=_frame_to_layout(output, self.output_layout),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
+        ]
 
     def is_finished(self) -> bool:
         return (
