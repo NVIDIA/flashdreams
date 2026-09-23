@@ -1134,12 +1134,23 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
+        overrides = document.cli_overrides
+        presentation = draft.presentation
+        for field_name in ("width", "height"):
+            path = "presentation", field_name
+            if path in overrides:
+                presentation = replace(
+                    presentation,
+                    **{field_name: overrides[path]},
+                )
         try:
+            presentation_size = (
+                presentation_resolution_wh(presentation) or self._model_size
+            )
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
             self._options_error = str(exc)
             return
-        overrides = document.cli_overrides
         if ("presentation", "hud_enabled") not in overrides:
             self.hud_enabled = draft.presentation.hud_enabled
         if ("presentation", "show_fps") not in overrides:
@@ -1154,17 +1165,7 @@ class TaxiHudState:
             self.live_edit_mapping_location = (
                 draft.presentation.live_edit_mapping_location
             )
-        presentation = document.settings.presentation
-        for field_name in ("width", "height"):
-            path = "presentation", field_name
-            if path in overrides:
-                presentation = replace(
-                    presentation,
-                    **{field_name: overrides[path]},
-                )
-        self.presentation_size = (
-            presentation_resolution_wh(presentation) or self._model_size
-        )
+        self.presentation_size = presentation_size
         self._settings_notice = f"SAVED {document.path}"
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S

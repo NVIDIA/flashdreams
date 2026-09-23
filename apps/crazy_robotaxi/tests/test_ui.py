@@ -2912,6 +2912,41 @@ def test_options_save_persists_and_applies_presentation_resolution(
     assert "presentation.height" not in state._settings_requiring_restart
 
 
+def test_options_rejects_incomplete_resolution_after_cli_override(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "presentation:\n  width: 1920\n  height: 1080\n",
+        encoding="utf-8",
+    )
+    document = _settings_document(config_path)
+    document.cli_overrides[("presentation", "width")] = 2560
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        presentation_size=(2560, 1080),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.input_values["##presentation.width"] = ""
+    imgui.input_values["##presentation.height"] = ""
+    imgui.clicked_buttons.add("SAVE")
+
+    state.draw(imgui)
+
+    assert state._options_error == "presentation width and height must be set together"
+    assert document.settings.presentation.width == 1920
+    assert document.settings.presentation.height == 1080
+    assert state.presentation_size == (2560, 1080)
+    assert config_path.read_text(encoding="utf-8") == (
+        "presentation:\n  width: 1920\n  height: 1080\n"
+    )
+
+
 def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:
     document = _settings_document(tmp_path / "config.yaml")
     state = TaxiHudState(
