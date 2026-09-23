@@ -634,6 +634,7 @@ class CrazyRobotaxiSession(ISession):
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
             calibration=None,
+            presentation_size=(presentation_width, presentation_height),
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
@@ -660,7 +661,6 @@ class CrazyRobotaxiSession(ISession):
             state=hud_state,
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
-            presentation_size=(presentation_width, presentation_height),
         )
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,

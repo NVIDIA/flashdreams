@@ -970,19 +970,25 @@ def test_user_settings_resize_window_to_presentation_resolution(
     assert session.session_desc.video_height == 704
     assert session._config.renderer.raster.resolution_wh == (1280, 704)
     assert (ui_loop.state.width, ui_loop.state.height) == (1280, 704)
+    assert ui_loop.state.presentation_size == (1920, 1080)
     renderer = cast(Any, ui_loop.renderer)
     assert (renderer.width, renderer.height) == (1280, 704)
     assert ui_loop.flush_ui_loop_requests() is None
 
-    ui_loop.state = cast(
-        Any,
-        SimpleNamespace(
-            width=1280,
-            height=704,
-            consume_input_events=lambda _events: None,
-            draw=lambda *_args, **_kwargs: None,
-        ),
+    state = SimpleNamespace(
+        width=1280,
+        height=704,
+        presentation_size=(1920, 1080),
+        consume_input_events=lambda _events: None,
+        draw=lambda *_args, **_kwargs: None,
     )
+
+    def resize(width: int, height: int) -> None:
+        state.width = width
+        state.height = height
+
+    state.resize = resize
+    ui_loop.state = cast(Any, state)
     assert ui_loop.step_ui(None, 0, UserInputEvents([])) is None
     request = ui_loop.flush_ui_loop_requests()
 
@@ -993,6 +999,18 @@ def test_user_settings_resize_window_to_presentation_resolution(
     assert ui_loop.step_ui(None, 1, UserInputEvents([])) is None
     assert (ui_loop.state.width, ui_loop.state.height) == (1920, 1080)
     assert (renderer.width, renderer.height) == (1920, 1080)
+    assert ui_loop.flush_ui_loop_requests() is None
+
+    state.presentation_size = (1600, 900)
+    assert ui_loop.step_ui(None, 2, UserInputEvents([])) is None
+    request = ui_loop.flush_ui_loop_requests()
+    assert request is not None
+    assert request.new_window_size == (1600, 900)
+    assert (renderer.width, renderer.height) == (1920, 1080)
+
+    assert ui_loop.step_ui(None, 3, UserInputEvents([])) is None
+    assert (ui_loop.state.width, ui_loop.state.height) == (1600, 900)
+    assert (renderer.width, renderer.height) == (1600, 900)
     assert ui_loop.flush_ui_loop_requests() is None
 
 

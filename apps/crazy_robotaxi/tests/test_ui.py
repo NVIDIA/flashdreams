@@ -1158,6 +1158,18 @@ def test_presentation_back_buffer_scales_to_ui_resolution() -> None:
     torch.testing.assert_close(output[:, 8, 12], torch.ones(3))
 
 
+def test_presentation_back_buffer_cache_is_invalidated_on_resize() -> None:
+    state = TaxiHudState(4, 4, _calibration())
+    video = torch.full((3, 4, 4), -0.5, dtype=torch.bfloat16)
+    initial = state.composite_bev(video, None)
+
+    state.resize(8, 6)
+    resized = state.composite_bev(video, None)
+
+    assert resized is not initial
+    assert resized.shape == (3, 6, 8)
+
+
 def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
     video = torch.zeros(1, 3, 96, 160)
     snapshot = replace(
@@ -2870,7 +2882,7 @@ def test_options_save_persists_and_applies_presentation_setting(
     assert not any("RESTART REQUIRED" in line for line in menu_lines)
 
 
-def test_options_save_persists_presentation_resolution_for_restart(
+def test_options_save_persists_and_applies_presentation_resolution(
     tmp_path: Path,
 ) -> None:
     document = _settings_document(tmp_path / "config.yaml")
@@ -2892,11 +2904,12 @@ def test_options_save_persists_presentation_resolution_for_restart(
     assert document.settings.presentation.width == 1920
     assert document.settings.presentation.height == 1080
     assert (state.width, state.height) == (640, 360)
+    assert state.presentation_size == (1920, 1080)
     assert "width: 1920" in document.path.read_text(encoding="utf-8")
     assert "height: 1080" in document.path.read_text(encoding="utf-8")
-    assert state._settings_restart_notice
-    assert "presentation.width" in state._settings_requiring_restart
-    assert "presentation.height" in state._settings_requiring_restart
+    assert not state._settings_restart_notice
+    assert "presentation.width" not in state._settings_requiring_restart
+    assert "presentation.height" not in state._settings_requiring_restart
 
 
 def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:

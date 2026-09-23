@@ -757,6 +757,8 @@ def restart_required_settings(
         return tuple(changed)
 
     live_paths = {
+        "presentation.width",
+        "presentation.height",
         "presentation.hud_enabled",
         "presentation.show_fps",
         "presentation.show_current_prompt",
