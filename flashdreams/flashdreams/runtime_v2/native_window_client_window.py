@@ -115,6 +115,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._clock_ns = clock_ns
         self._session_started_ns: int | None = None
         self._session_desc: SessionDesc | None = None
+        self._window_size: tuple[int, int] | None = None
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
         self._close_event_enqueued = False
         self._presenter: _SlangPyNativeWindowPresenter | None = None
@@ -146,6 +147,23 @@ class NativeWindowClientWindow(IClientWindow):
                 lock_cursor_to_window=lock_cursor_to_window,
             )
         self._lock_cursor_to_window = lock_cursor_to_window
+
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Resize the open native window without replacing it.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            RuntimeError: The window is not open or cannot be resized.
+        """
+        presenter = self._presenter
+        if presenter is None:
+            raise RuntimeError(
+                "NativeWindowClientWindow.open() must run before resizing."
+            )
+        presenter.resize(*new_window_size)
+        self._window_size = new_window_size
 
     def open(self, session_desc: SessionDesc) -> None:
         """Create the GLFW window on the runtime's UI thread.
@@ -186,6 +204,7 @@ class NativeWindowClientWindow(IClientWindow):
 
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
+        self._window_size = (session_desc.video_width, session_desc.video_height)
         self._input_events = queue.SimpleQueue()
         self._close_event_enqueued = False
         self._poll_input_events = None
@@ -247,7 +266,14 @@ class NativeWindowClientWindow(IClientWindow):
             )
         if self._close_event_enqueued:
             return
-        frames = result_to_rgb24_tensor(result, self._session_desc_or_raise())
+        window_size = self._window_size
+        if window_size is None:
+            raise RuntimeError("Native window has no active presentation size.")
+        frames = result_to_rgb24_tensor(
+            result,
+            self._session_desc_or_raise(),
+            window_size,
+        )
         for frame in frames:
             if self._close_event_enqueued:
                 return
@@ -261,6 +287,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._presenter = None
         self._session_started_ns = None
         self._session_desc = None
+        self._window_size = None
         self._input_events = queue.SimpleQueue()
         self._poll_input_events = None
         self._pending_printable_keys.clear()
@@ -326,13 +353,13 @@ class NativeWindowClientWindow(IClientWindow):
         self._put_input(keyboard_event)
 
     def _on_mouse_event(self, event: spy.MouseEvent) -> None:
-        session_desc = self._session_desc
-        if session_desc is None:
+        window_size = self._window_size
+        if window_size is None:
             return
         mouse_event = _mouse_event(
             event,
-            width=session_desc.video_width,
-            height=session_desc.video_height,
+            width=window_size[0],
+            height=window_size[1],
             lock_cursor_to_window=self._lock_cursor_to_window,
         )
         if mouse_event is not None:
@@ -421,6 +448,13 @@ class _SlangPyNativeWindowPresenter:
         else:
             cursor_mode = self._spy.CursorMode.normal
         self._window.cursor_mode = cursor_mode
+
+    def resize(self, width: int, height: int) -> None:
+        """Resize the native window and its presentation surface."""
+        if self._closed:
+            raise RuntimeError("Cannot resize a closed native window.")
+        self._window.resize(width, height)
+        self._presentation.resize_surface(width, height)
 
     def set_input_callbacks(
         self,
@@ -517,22 +551,13 @@ class _PresentationContext:
             height=height,
             format=self._choose_surface_format(),
         )
-        self._display_texture = self._device.create_texture(
-            format=spy.Format.rgba8_unorm,
-            width=width,
-            height=height,
-            usage=(
-                spy.TextureUsage.shader_resource | spy.TextureUsage.copy_destination
-            ),
-            label="flashdreams_v2_native_window_texture",
-        )
-        self._host_upload = np.empty((height, width, 4), dtype=np.uint8)
-        self._host_upload[..., 3] = 255
+        self._display_texture: Any = None
+        self._host_upload = np.empty((0, 0, 4), dtype=np.uint8)
         self._cuda_buffer: spy.Buffer | None = None
         self._cuda_rgba: Tensor | None = None
         self._render_device = torch.device("cpu")
         self._has_cuda_submission = False
-        self._create_cuda_upload()
+        self._create_frame_resources(width, height)
 
     def present(self, frame: Tensor) -> None:
         """Copy one RGB tensor to the render device and present it."""
@@ -563,6 +588,21 @@ class _PresentationContext:
         if self._cuda_rgba is not None:
             self._has_cuda_submission = True
         del surface_texture
+
+    def resize_surface(self, width: int, height: int) -> None:
+        """Reconfigure the output surface after pending presentation completes."""
+        if (width, height) == (self._width, self._height):
+            return
+        self._device.wait_for_idle()
+        self._cuda_rgba = None
+        self._cuda_buffer = None
+        self._display_texture = None
+        self._surface.configure(
+            width=width,
+            height=height,
+            format=self._choose_surface_format(),
+        )
+        self._create_frame_resources(width, height)
 
     def close(self) -> None:
         """Wait for pending presentation work before releasing resources."""
@@ -616,6 +656,26 @@ class _PresentationContext:
             self._width * 4,
             [self._width, self._height, 1],
         )
+
+    def _create_frame_resources(self, width: int, height: int) -> None:
+        """Create upload resources matching the presentation surface."""
+        self._width = width
+        self._height = height
+        self._display_texture = self._device.create_texture(
+            format=self._spy.Format.rgba8_unorm,
+            width=width,
+            height=height,
+            usage=(
+                self._spy.TextureUsage.shader_resource
+                | self._spy.TextureUsage.copy_destination
+            ),
+            label="flashdreams_v2_native_window_texture",
+        )
+        self._host_upload = np.empty((height, width, 4), dtype=np.uint8)
+        self._host_upload[..., 3] = 255
+        self._render_device = torch.device("cpu")
+        self._has_cuda_submission = False
+        self._create_cuda_upload()
 
     def _create_device(self) -> spy.Device:
         """Create a Vulkan device sharing the UI thread's CUDA context."""

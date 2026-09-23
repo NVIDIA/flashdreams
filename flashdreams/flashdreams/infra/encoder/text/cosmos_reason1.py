@@ -17,6 +17,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Annotated
 
@@ -60,6 +63,31 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
 
     n_layers_per_group: int = 5
     """Group size for the pool-every-N strategy."""
+
+    run_on_cpu: bool = False
+    """Keep the bf16 model on the host and run it there.
+
+    ``.to(device)`` then records the compute device instead of moving the
+    weights, and ``forward`` returns embeddings on that device. A 512-token
+    encode takes seconds on a desktop CPU, and prompt encodes are rare
+    (rollout start, prompt edits), so the encoder's VRAM is freed for the
+    rollout on 32 GB GPUs.
+    """
+
+    embedding_cache_size: int = 0
+    """Number of most recently encoded prompt batches whose embeddings are kept.
+
+    Game hosts re-encode the same scene prompt on every restart. With
+    ``run_on_cpu`` the cache lives in host memory and hits are copied to the
+    compute device; otherwise entries stay on the encoder's device and the
+    returned tensor must not be modified in place. Each full-concat entry is
+    about 100 MiB per prompt. ``0`` disables the cache.
+
+    Eviction is by insertion, not by use, so that a hit is a plain lookup:
+    the cache is small enough that the difference in hit rate is noise, and
+    a read that reorders would have to hold a lock against callers encoding
+    on another thread.
+    """
 
 
 class CosmosReason1TextEncoder(Encoder):
@@ -111,6 +139,9 @@ class CosmosReason1TextEncoder(Encoder):
             dtype=config.dtype,
         )
         self.model.eval().requires_grad_(False)
+        self._compute_device: torch.device | None = None
+        self._embedding_cache: OrderedDict[tuple[str, ...], Tensor] = OrderedDict()
+        self._cache_lock = threading.Lock()
 
         # ``transformers>=5.8`` nests LM dims under ``text_config``.
         text_cfg = getattr(self.model.config, "text_config", self.model.config)
@@ -122,8 +153,66 @@ class CosmosReason1TextEncoder(Encoder):
             tensor.std(dim=-1, keepdim=True) + 1e-8
         )
 
+    def _apply(self, fn, recurse=True):
+        """Keep host-resident weights on the host across device moves.
+
+        ``to``/``cuda``/``half`` all funnel through ``_apply``. With
+        ``run_on_cpu`` a probe decides what the call asked for: a device move
+        records the compute device (or clears it for ``cpu``) instead of
+        moving the weights, and a dtype change is applied to the host weights.
+        Every such change invalidates the embedding cache.
+        """
+        if not self.config.run_on_cpu:
+            return super()._apply(fn, recurse)
+        # Probe from the current compute device so a dtype-only call (``half``)
+        # leaves the recorded device alone while ``cpu()`` clears it.
+        probe_device = self._compute_device or torch.device("cpu")
+        try:
+            probe = fn(torch.zeros((), dtype=self.dtype, device=probe_device))
+        except NotImplementedError:
+            # Meta tensors cannot be copied out; probe from the host instead.
+            probe = fn(torch.zeros((), dtype=self.dtype))
+        self._compute_device = None if probe.device.type == "cpu" else probe.device
+        with self._cache_lock:
+            self._embedding_cache.clear()
+        if probe.dtype != self.dtype:
+            self.dtype = probe.dtype
+            return super()._apply(
+                lambda t: t.to(dtype=probe.dtype) if t.is_floating_point() else t,
+                recurse,
+            )
+        return self
+
     @torch.no_grad()
     def forward(self, input: list[str]) -> Tensor:
+        key = tuple(input)
+        # One lookup, no mutation: a hit that races an insert or an eviction
+        # reads either the old mapping or the new one, and both are valid.
+        cached = self._embedding_cache.get(key)
+        if cached is not None:
+            return self._to_compute_device(cached)
+        started = time.perf_counter()
+        text_embeddings = self._encode(input)
+        if self.config.run_on_cpu:
+            logger.info(
+                "Cosmos-Reason1 host encode of {} prompt(s) took {:.1f}s",
+                len(input),
+                time.perf_counter() - started,
+            )
+        if self.config.embedding_cache_size > 0:
+            with self._cache_lock:
+                self._embedding_cache[key] = text_embeddings
+                while len(self._embedding_cache) > self.config.embedding_cache_size:
+                    self._embedding_cache.popitem(last=False)
+        return self._to_compute_device(text_embeddings)
+
+    def _to_compute_device(self, embeddings: Tensor) -> Tensor:
+        device = self._compute_device
+        if device is None or embeddings.device == device:
+            return embeddings
+        return embeddings.to(device)
+
+    def _encode(self, input: list[str]) -> Tensor:
         assert isinstance(input, list) and len(input) > 0, (
             "input must be a non-empty list of strings"
         )

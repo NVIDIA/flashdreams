@@ -211,6 +211,50 @@ OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG = cast(
 """Fast config that uses native FP8 LightVAE with cached calibration."""
 
 
+OMNIDREAMS_RTX_5090_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        name="omnidreams-rtx-5090",
+        text_encoder=dict(run_on_cpu=True, embedding_cache_size=8),
+        diffusion_model=dict(
+            transformer=dict(
+                native_dit_attention_backend="prefer_sage3_fp8",
+                window_size_t=4,
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""Perf config that fits a 32 GB GeForce RTX 5090.
+
+The Cosmos-Reason1 text encoder runs on the host CPU instead of holding
+~15 GiB of VRAM, the 4-chunk temporal window keeps the native KV-cache roll
+buffer small enough that the process fits without unified-memory spill, and
+SageAttention-3 FP8 attention is used where the native build supports it.
+"""
+
+
+OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG = cast(
+    OmnidreamsPipelineConfig,
+    derive_config(
+        OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        name="omnidreams-rtx-5090-fast",
+        text_encoder=dict(run_on_cpu=True, embedding_cache_size=8),
+        diffusion_model=dict(
+            transformer=dict(
+                native_dit_attention_backend="prefer_sage3_fp8",
+                window_size_t=4,
+            ),
+        ),
+    ),
+)  # ty:ignore[redundant-cast]
+"""RTX 5090 config on the fast-perf base (native FP8 LightVAE).
+
+Applications pair it with a smaller frame so the whole game loop, engine
+included, stays inside the 30 fps budget.
+"""
+
+
 OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG = cast(
     OmnidreamsPipelineConfig,
     derive_config(
@@ -309,6 +353,8 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
         OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
         OMNIDREAMS_PERF_PIPELINE_CONFIG,
         OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
+        OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
         OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
         OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
         OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
