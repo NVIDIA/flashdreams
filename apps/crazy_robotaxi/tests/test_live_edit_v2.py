@@ -569,6 +569,7 @@ def test_combined_map_prompts_use_the_text_encoder_cache() -> None:
         LiveEditStyleConfig(),
         map_context_config=LiveEditMapContextConfig(enabled=True),
     )
+    ability._dynamic_prompts_use_host_cache = True
     prompt_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
     pipeline = SimpleNamespace(replace_text_from_embeddings=pytest.fail)
     session = SimpleNamespace(
@@ -593,6 +594,60 @@ def test_combined_map_prompts_use_the_text_encoder_cache() -> None:
             {"guidance_scale": 1.0, "guidance_chunks": 0},
         )
     ]
+
+
+def test_gpu_encoder_dynamic_prompts_keep_lazy_device_cache() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(enabled=True),
+    )
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    pipeline = SimpleNamespace(
+        replace_text_from_embeddings=lambda *args, **kwargs: calls.append(
+            (args, kwargs)
+        )
+    )
+    session = SimpleNamespace(
+        pipeline=pipeline,
+        _cache=object(),
+        _pending_finalization_index=None,
+        replace_prompt=lambda *args, **kwargs: pytest.fail("expected device cache"),
+    )
+    setattr(
+        ability,
+        "_encode_prompt",
+        lambda active_pipeline, prompt: ability._prompt_embeddings.__setitem__(
+            prompt, "cached"
+        ),
+    )
+    target = SimpleNamespace(
+        prompt="A sunny suburb. The taxi is stationary.",
+        guidance_scale=1.0,
+        guidance_chunks=0,
+        use_lora=False,
+    )
+
+    ability._replace_text(session, target)
+
+    assert target.prompt in ability._prompt_embeddings
+    assert calls[0][0][1] == "cached"
+
+
+@pytest.mark.parametrize(("run_on_cpu", "expected"), [(False, False), (True, True)])
+def test_bounded_host_prompt_cache_requires_cpu_encoder(
+    run_on_cpu: bool, expected: bool
+) -> None:
+    pipeline = SimpleNamespace(
+        text_encoder=SimpleNamespace(
+            config=SimpleNamespace(
+                run_on_cpu=run_on_cpu,
+                embedding_cache_size=8,
+            ),
+            preencode=lambda prompts: None,
+        )
+    )
+
+    assert StyleAbility._uses_bounded_host_prompt_cache(pipeline) is expected
 
 
 def test_dynamic_prompts_preencode_when_complete_set_fits_host_cache() -> None:
