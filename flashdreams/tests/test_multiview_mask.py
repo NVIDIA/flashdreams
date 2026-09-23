@@ -66,7 +66,7 @@ def build_stream(
 
 # One two-view, three-frame sample at one frame per chunk, so causal_step == frame.
 def _sample_tokens() -> list[tuple[int, int, int, int]]:
-    tokens: list[tuple[int, int, int, int]] = [(ROLE_UND, 0, 0, 0)]
+    tokens: list[tuple[int, int, int, int]] = [(ROLE_UND, -1, -1, -1)]
     for frame in range(3):
         for view in range(2):
             tokens.append((ROLE_CONTROL, frame, view, frame))
@@ -166,6 +166,23 @@ def test_current_target_visibility(tokens, pattern, sees_control_history) -> Non
     assert mask[q, index_of(tokens, ROLE_CURRENT_TARGET, 1, 0)].item() is False
     assert mask[q, index_of(tokens, ROLE_CLEAN_TARGET, 1, 1)].item() is True
     assert mask[q, index_of(tokens, ROLE_CLEAN_TARGET, 2, 0)].item() is False
+
+
+def test_view_captions_are_visible_only_to_their_view() -> None:
+    tokens = [
+        (ROLE_UND, -1, -1, -1),
+        (ROLE_UND, -1, 0, -1),
+        (ROLE_UND, -1, 1, -1),
+        (ROLE_CURRENT_TARGET, 0, 0, 0),
+        (ROLE_CURRENT_TARGET, 0, 1, 0),
+    ]
+    stream = build_stream(tokens)
+    mask = visibility(stream, stream)
+
+    view_zero = index_of(tokens, ROLE_CURRENT_TARGET, frame=0, view=0)
+    view_one = index_of(tokens, ROLE_CURRENT_TARGET, frame=0, view=1)
+    assert mask[view_zero, :3].tolist() == [True, True, False]
+    assert mask[view_one, :3].tolist() == [True, False, True]
 
 
 def test_control_queries_are_causal_and_view_local(tokens) -> None:

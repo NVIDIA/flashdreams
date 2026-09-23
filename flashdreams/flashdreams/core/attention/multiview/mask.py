@@ -121,10 +121,11 @@ def visibility(
     control_step_allowed = (
         (kv_step <= q_step) if control_uses_history else (kv_step == q_step)
     )
+    caption_reaches = kv_row(kv.view_id < 0) | same_view
 
     allowed = (
-        (q_is_target & (kv_role == ROLE_UND))
-        | (q_is_condition & (kv_role == ROLE_UND))
+        (q_is_target & (kv_role == ROLE_UND) & caption_reaches)
+        | (q_is_condition & (kv_role == ROLE_UND) & caption_reaches)
         | (q_is_control & (kv_role == ROLE_CONTROL) & same_view & (kv_step <= q_step))
         | (
             q_is_target_condition
@@ -212,10 +213,11 @@ def visibility_mask_mod(
         control_step_allowed = (
             (kv_step <= q_step) if control_uses_history else (kv_step == q_step)
         )
+        caption_reaches = (kv.view_id[kv_idx] < 0) | same_view
 
         allowed = (
-            (q_is_target & (kv_role == ROLE_UND))
-            | (q_is_condition & (kv_role == ROLE_UND))
+            (q_is_target & (kv_role == ROLE_UND) & caption_reaches)
+            | (q_is_condition & (kv_role == ROLE_UND) & caption_reaches)
             | (
                 q_is_control
                 & (kv_role == ROLE_CONTROL)
