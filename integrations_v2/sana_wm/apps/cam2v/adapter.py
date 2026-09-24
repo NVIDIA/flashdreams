@@ -224,6 +224,13 @@ class SanaWMCam2VApplication(Cam2VApplication):
     def __init__(self) -> None:
         super().__init__(defaults=SANA_WM_CAM2V_DEFAULTS)
 
+    def _apply_parsed_arguments(self, args: Any) -> None:
+        """Preload SANA-WM assets after shared argument parsing."""
+        super()._apply_parsed_arguments(args)
+        from sana_wm.impl._preparation import preload_sana_wm_streaming_paths
+
+        preload_sana_wm_streaming_paths()
+
     def _validate_frame_size(self, session_desc: Any, pipeline: Any) -> None:
         """Reject output sizes outside SANA-WM's fixed trained resolution."""
         super()._validate_frame_size(session_desc, pipeline)

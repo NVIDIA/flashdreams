@@ -47,6 +47,8 @@ class Cam2VApplication(IApplication):
         self._warmup_blocks = defaults.warmup_blocks
         self._use_ui = True
         self._input_values: dict[str, Any] | None = None
+        self._conditioning: Cam2VConditioning | None = None
+        self._conditioning_spec: tuple[int, int, int] | None = None
         self._pipeline: Any | None = None
         self._postprocess = VideoPostprocessChainConfig()
         self._postprocess_comparison_ui = False
@@ -57,7 +59,7 @@ class Cam2VApplication(IApplication):
         return self._pipeline_config
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse shared camera-to-video inputs without loading the model."""
+        """Parse shared camera-to-video inputs and prepare the model."""
         parser = argparse.ArgumentParser(
             prog="flashdreams-run-v2 CAM2V_SLUG --",
             description="Generate video from a first frame and keyboard camera input.",
@@ -203,6 +205,25 @@ class Cam2VApplication(IApplication):
             "example_idx": args.example_idx,
             "total_blocks": args.total_blocks,
         }
+        if args.example_data:
+            desc = self.session_desc()
+            self._conditioning_spec = (
+                desc.video_height,
+                desc.video_width,
+                desc.frames_per_second_for_step,
+            )
+            self._conditioning = self.defaults.input_resolver(
+                {
+                    **self._input_values,
+                    "pixel_height": desc.video_height,
+                    "pixel_width": desc.video_width,
+                    "fps": desc.frames_per_second_for_step,
+                },
+            )
+        else:
+            self._conditioning = None
+            self._conditioning_spec = None
+        self._pipeline = self._pipeline_config.setup().to(self._device).eval()
 
     def session_desc(self) -> SessionDesc:
         """Return the model's default output shape and interactive rates."""
@@ -235,7 +256,17 @@ class Cam2VApplication(IApplication):
             "pixel_width": input_spec.width,
             "fps": session_desc.frames_per_second_for_step,
         }
-        conditioning = self.defaults.input_resolver(resolved_values)
+        prepared_spec = (
+            input_spec.height,
+            input_spec.width,
+            session_desc.frames_per_second_for_step,
+        )
+        conditioning = (
+            self._conditioning
+            if self._conditioning is not None
+            and self._conditioning_spec == prepared_spec
+            else self.defaults.input_resolver(resolved_values)
+        )
         if not isinstance(conditioning, Cam2VConditioning):
             raise TypeError(
                 "Cam2VApplicationDefaults.input_resolver must return Cam2VConditioning."
@@ -243,8 +274,7 @@ class Cam2VApplication(IApplication):
 
         pipeline = self._pipeline
         if pipeline is None:
-            pipeline = self._pipeline_config.setup().to(self._device).eval()
-            self._pipeline = pipeline
+            raise RuntimeError("init() must run before loading the pipeline")
         self._validate_frame_size(session_desc, pipeline)
         output_spec = (
             self._postprocess.output_spec(input_spec)
@@ -300,6 +330,8 @@ class Cam2VApplication(IApplication):
         pipeline = self._pipeline
         self._pipeline = None
         self._input_values = None
+        self._conditioning = None
+        self._conditioning_spec = None
         close = getattr(pipeline, "close", None)
         if callable(close):
             close()

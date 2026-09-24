@@ -38,8 +38,8 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def _cuda_and_plugin_available() -> tuple[bool, str]:
-    """Check whether CUDA is usable and the renderer plugin can be loaded."""
+def _cuda_available() -> tuple[bool, str]:
+    """Check CUDA without compiling the renderer plugin during collection."""
     try:
         import torch
     except ModuleNotFoundError:
@@ -48,18 +48,11 @@ def _cuda_and_plugin_available() -> tuple[bool, str]:
     if not torch.cuda.is_available():
         return False, "CUDA is not available"
 
-    try:
-        from ludus_renderer._ops._plugin import _get_plugin
-
-        _get_plugin()
-    except Exception as exc:
-        return False, f"ludus_renderer plugin failed to load: {exc}"
-
     return True, ""
 
 
 # Evaluate once at collection time.
-_GPU_OK, _GPU_SKIP_REASON = _cuda_and_plugin_available()
+_GPU_OK, _GPU_SKIP_REASON = _cuda_available()
 
 
 def pytest_collection_modifyitems(

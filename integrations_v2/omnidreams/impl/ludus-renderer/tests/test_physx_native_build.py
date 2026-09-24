@@ -108,7 +108,7 @@ def test_build_lock_heartbeat_refreshes_active_lock(
     assert not lock_path.exists()
 
 
-def test_load_native_physx_runs_cmake_path_once_per_process(
+def test_prepare_native_physx_populates_runtime_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     module_path = tmp_path / "ludus_physx_native.pyd"
@@ -147,12 +147,21 @@ def test_load_native_physx_runs_cmake_path_once_per_process(
         _physx_native.sys.modules, _physx_native._MODULE_NAME, raising=False
     )
 
-    first = _physx_native.load_native_physx()
+    first = _physx_native.prepare_native_physx()
     second = _physx_native.load_native_physx()
 
     assert first is loaded_module
     assert second is loaded_module
     assert configure_calls == [(tmp_path, tmp_path / "physx")]
+
+
+def test_load_native_physx_rejects_missing_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_physx_native, "_CACHED_MODULE", None)
+
+    with pytest.raises(RuntimeError, match=r"prepare_physx\(\).*IApplication.init"):
+        _physx_native.load_native_physx()
 
 
 def test_configure_and_build_delegates_freshness_to_cmake(

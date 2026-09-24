@@ -126,6 +126,7 @@ class Action2VApplication(IApplication):
         self._mouse_sensitivity = 1.0
         self._reset_key = _DEFAULT_RESET_KEY
         self._input_values: dict[str, Any] | None = None
+        self._prepared_input: Path | None = None
         self._pipeline: Any | None = None
         self._pipeline_lock = threading.Lock()
 
@@ -205,6 +206,12 @@ class Action2VApplication(IApplication):
             "image_path": args.image_path,
             "example_data": args.example_data,
         }
+        self._prepared_input = (
+            self.defaults.input_resolver(self._input_values)
+            if args.example_data
+            else None
+        )
+        self._pipeline = self._pipeline_config.setup().to(self._device).eval()
 
     def session_desc(self) -> SessionDesc:
         """Return the model's native output shape and interactive rates."""
@@ -227,7 +234,11 @@ class Action2VApplication(IApplication):
                 f"{type(self).__name__}.init() must run before create_session()."
             )
         self._validate_session_desc(session_desc)
-        first_frame = self.defaults.input_resolver(input_values)
+        first_frame = (
+            self.defaults.input_resolver(input_values)
+            if self._prepared_input is None
+            else self._prepared_input
+        )
         seed_frames = self.defaults.seed_loader(first_frame, session_desc)
         seed = self._pipeline_config.diffusion_model.seed
         if seed is None:
@@ -252,13 +263,14 @@ class Action2VApplication(IApplication):
         pipeline = self._pipeline
         self._pipeline = None
         self._input_values = None
+        self._prepared_input = None
         close = getattr(pipeline, "close", None)
         if callable(close):
             close()
 
     def _ensure_pipeline(self) -> Any:
         if self._pipeline is None:
-            self._pipeline = self._pipeline_config.setup().to(self._device).eval()
+            raise RuntimeError("init() must run before loading the pipeline")
         return self._pipeline
 
     def _validate_session_desc(self, session_desc: SessionDesc) -> None:

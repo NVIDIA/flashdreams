@@ -629,6 +629,24 @@ class HelpfulApplication(IApplication):
         return OneStepSession(session_desc)
 
 
+class PreloadApplication(IApplication):
+    """Record preload initialization without allowing session creation."""
+
+    def __init__(self) -> None:
+        self.arguments: list[str] = []
+        self.closed = False
+
+    def init(self, commandline_args: Sequence[str]) -> None:
+        self.arguments = list(commandline_args)
+
+    def create_session(self, session_desc: SessionDesc) -> ISession:
+        del session_desc
+        raise AssertionError("Preloading must not create a session.")
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class RefusingMode(ClientWindowMode):
     """A mode that fails if a run reaches its arguments or its window."""
 
@@ -642,6 +660,41 @@ class RefusingMode(ClientWindowMode):
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         del parsed_args
         raise AssertionError("Application help must not create a window.")
+
+
+@pytest.mark.parametrize(
+    ("preload_mode", "expected_arguments"),
+    [
+        ("validate", []),
+        ("full", ["--model-option", "value"]),
+    ],
+)
+def test_the_command_validates_or_preloads_the_application_without_a_window(
+    preload_mode: str,
+    expected_arguments: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = PreloadApplication()
+    _install(monkeypatch, application)
+    monkeypatch.setattr(cli, "client_window_mode", RefusingMode)
+    analyzed: list[set[str]] = []
+    monkeypatch.setattr(cli, "_run_preload_static_analysis", analyzed.append)
+
+    cli.entrypoint(
+        [
+            "stub",
+            "--preload-application",
+            preload_mode,
+            "--",
+            "--model-option",
+            "value",
+        ]
+    )
+
+    assert application.arguments == expected_arguments
+    assert application.closed
+    assert len(analyzed) == 1
+    assert PreloadApplication.__module__ in analyzed[0]
 
 
 def test_an_application_describes_itself_without_a_window(

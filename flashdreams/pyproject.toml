@@ -149,6 +149,7 @@ exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 [tool.setuptools.package-data]
 "flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
+"flashdreams.runtime_v2" = ["preload-static-analysis.py"]
 "flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js"]
 
 [dependency-groups]

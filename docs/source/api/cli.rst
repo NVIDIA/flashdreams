@@ -47,6 +47,27 @@ Launch the LingBot v2 Cam2V application:
    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
        --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
+Validate a v2 application without initializing it or opening a window:
+
+.. code-block:: bash
+
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --preload-application validate
+
+``validate`` constructs the application, runs preparation static analysis, and
+closes it without calling ``IApplication.init``.
+
+To run the same validation and then call ``IApplication.init``:
+
+.. code-block:: bash
+
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --preload-application full -- --example-data
+
+Use ``full`` to run initialization as the preload step. Application-specific
+arguments still follow ``--``. Both modes warn about preparation calls outside
+``IApplication.init`` that static analysis finds.
+
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
 initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and

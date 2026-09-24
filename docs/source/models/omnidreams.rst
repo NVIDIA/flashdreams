@@ -179,12 +179,13 @@ First-time setup:
    export HF_TOKEN=<your-hf-token>
    uv sync --package flashdreams-omnidreams --extra interactive-drive
 
-Optionally, pre-download scenes and checkpoints so the first launch
-isn't blocked on network I/O:
+Optionally, preload the application so scene/checkpoint downloads and native
+CUDA compilation finish before the first interactive launch:
 
 .. code-block:: bash
 
-   uv run --package flashdreams-omnidreams omnidreams-prepare
+   uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+       interactive-drive-omnidreams --preload-application full
 
 Run the WebRTC demo:
 

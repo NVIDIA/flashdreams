@@ -77,6 +77,9 @@ class ModelState:
     pipeline: Any | None = None
     """Lazily constructed after the client opens and a game is selected."""
 
+    owns_pipeline: bool = True
+    """Whether shutdown closes the pipeline instead of its application owner."""
+
     scene: SceneDefinition | None = None
     """Selected immutable scene; ``None`` while the startup menu is active."""
 
@@ -302,9 +305,10 @@ class ModelState:
         self.close()
         pipeline = self.pipeline
         self.pipeline = None
-        close = getattr(pipeline, "close", None)
-        if callable(close):
-            close()
+        if self.owns_pipeline:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
 
     def submit_player_name(self, name: str) -> None:
         """Submit a UI-validated leaderboard name on the model thread."""
@@ -679,6 +683,7 @@ class CrazyRobotaxiSession(ISession):
             state=ModelState(
                 pipeline_factory=self._pipeline_factory,
                 scene_factory=self._scene_factory,
+                owns_pipeline=False,
                 config=self._config,
                 session_desc=self._session_desc,
                 driver_input=DriverInput(

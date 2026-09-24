@@ -189,6 +189,7 @@ class InteractiveDriveModelState:
     controller_reset_pressed: bool = False
     ui_loop: IUILoop[Any] | None = None
     backend: RenderBackend | None = None
+    owns_backend: bool = True
     physics_world: GamePhysicsWorld | None = None
 
     def restart(self, prompt: str) -> None:
@@ -377,9 +378,9 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         self.state.reset_pending = True
 
     def close(self) -> None:
-        if self.state.backend is not None:
+        if self.state.backend is not None and self.state.owns_backend:
             self.state.backend.close()
-            self.state.backend = None
+        self.state.backend = None
         if self.state.physics_world is not None:
             self.state.physics_world.close()
             self.state.physics_world = None
@@ -465,6 +466,8 @@ class _InteractiveDriveApplicationBase(IApplication):
             _build_backend,
             pipeline_config=defaults.pipeline_config,
         )
+        self._backend_can_prepare = defaults.pipeline_config is not None
+        self._backend: RenderBackend | None = None
         self._scene_loader = scene_loader
         self._config: InteractiveDriveConfig | None = None
         self._desc = SessionDesc(
@@ -477,6 +480,13 @@ class _InteractiveDriveApplicationBase(IApplication):
             video_width=defaults.width,
             video_height=defaults.height,
         )
+
+    def close(self) -> None:
+        """Release the application-owned model backend."""
+        backend = self._backend
+        self._backend = None
+        if backend is not None:
+            backend.close()
 
     def init(self, commandline_args: Sequence[str]) -> None:
         parser = argparse.ArgumentParser(prog=f"flashdreams-run-v2 {self._slug} --")

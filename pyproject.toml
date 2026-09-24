@@ -155,6 +155,7 @@ replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
 norecursedirs = [
+    "artifacts",
     "parity_check",
     "parity_check_v2",
     "baseline_fastvideo",

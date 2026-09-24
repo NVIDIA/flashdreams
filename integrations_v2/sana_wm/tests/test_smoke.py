@@ -24,6 +24,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+import sana_wm.impl._preparation as preparation_module
 import sana_wm.impl._tools as tools_module
 import sana_wm.impl.conditioning as conditioning_module
 import sana_wm.impl.decoder as decoder_module
@@ -1632,11 +1633,11 @@ def test_vae_tiling_avoids_degenerate_latent_tails() -> None:
     )
 
 
-def test_resolve_hf_path_preloads_on_rank0_then_reads_cache(
+def test_preload_hf_path_downloads_then_runtime_reads_prepared_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Route hf:// resolution through the shared rank-0 download helper."""
+    """Keep downloads in preparation and runtime resolution local-only."""
     preloads: list[tuple[str, object]] = []
     snapshots: list[dict[str, object]] = []
 
@@ -1647,14 +1648,24 @@ def test_resolve_hf_path_preloads_on_rank0_then_reads_cache(
         snapshots.append(kwargs)
         return str(tmp_path / "snapshot")
 
-    monkeypatch.setattr(tools_module, "maybe_download_hf_repo_on_rank0", _preload)
+    monkeypatch.setattr(tools_module, "_PREPARED_HF_PATHS", {})
+    monkeypatch.setattr(
+        preparation_module,
+        "maybe_download_hf_repo_on_rank0",
+        _preload,
+    )
     monkeypatch.setattr(
         "huggingface_hub.snapshot_download",
         _snapshot_download,
     )
 
+    with pytest.raises(RuntimeError, match="was not prepared"):
+        tools_module.resolve_hf_path(SANA_WM_STREAMING_REFINER_ROOT)
+
+    prepared = preparation_module.preload_hf_path(SANA_WM_STREAMING_REFINER_ROOT)
     resolved = tools_module.resolve_hf_path(SANA_WM_STREAMING_REFINER_ROOT)
 
+    assert prepared == str(tmp_path / "snapshot" / "refiner_diffusers")
     assert resolved == str(tmp_path / "snapshot" / "refiner_diffusers")
     assert preloads == [
         (
@@ -1670,17 +1681,26 @@ def test_resolve_hf_path_preloads_on_rank0_then_reads_cache(
     assert snapshots[0]["local_files_only"] is True
 
 
-def test_resolve_hf_path_leaves_local_paths_alone(
-    tmp_path: Path,
+def test_preload_sana_wm_streaming_paths_covers_lazy_assets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Prepare every Hugging Face path consumed by lazy streaming components."""
+    paths: list[str] = []
+    monkeypatch.setattr(preparation_module, "preload_hf_path", paths.append)
+
+    preparation_module.preload_sana_wm_streaming_paths()
+
+    assert paths == [
+        SANA_WM_STREAMING_CAUSAL_VAE_ROOT,
+        SANA_WM_STREAMING_REFINER_ROOT,
+        SANA_WM_STREAMING_REFINER_GEMMA_ROOT,
+    ]
+
+
+def test_resolve_hf_path_leaves_local_paths_alone(
+    tmp_path: Path,
+) -> None:
     """Keep local roots download-free."""
-
-    def _fail_preload(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("local paths must not trigger a download")
-
-    monkeypatch.setattr(tools_module, "maybe_download_hf_repo_on_rank0", _fail_preload)
-
     assert tools_module.resolve_hf_path(str(tmp_path)) == str(tmp_path)
 
 

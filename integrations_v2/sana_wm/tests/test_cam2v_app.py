@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sana_wm.impl._preparation as preparation_module
 import sana_wm.impl.conditioning as conditioning_module
 import sana_wm.impl.transformer as transformer_module
 import tomli as tomllib
@@ -74,12 +75,27 @@ def test_application_passes_sana_owned_adapters_to_cam2v() -> None:
 @pytest.mark.parametrize(
     ("flag", "enabled"), [("--compile", True), ("--no-compile", False)]
 )
-def test_application_applies_compile_flag(flag: str, enabled: bool) -> None:
+def test_application_applies_compile_flag(
+    flag: str,
+    enabled: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Keep the shared compile override valid for the SANA-WM config."""
     application = SanaWMCam2VApplication()
+    pipeline = SimpleNamespace()
+    pipeline.to = lambda _: pipeline
+    pipeline.eval = lambda: pipeline
+    preloads: list[None] = []
+    monkeypatch.setattr(
+        preparation_module,
+        "preload_sana_wm_streaming_paths",
+        lambda: preloads.append(None),
+    )
+    monkeypatch.setattr(type(application.pipeline_config), "setup", lambda _: pipeline)
 
     application.init([flag])
 
+    assert preloads == [None]
     transformer = application.pipeline_config.diffusion_model.transformer
     assert isinstance(transformer, SanaWMStreamingTransformerConfig)
     assert transformer.compile_network is enabled

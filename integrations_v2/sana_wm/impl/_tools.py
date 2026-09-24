@@ -17,22 +17,38 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
-
 HF_URI_SCHEME = "hf://"
+
+_PREPARED_HF_PATHS: dict[str, str] = {}
+"""Process-local paths populated during SANA-WM application initialization."""
+
+
+def _hf_uri_parts(path: str) -> tuple[str, str, list[str] | None]:
+    """Parse an ``hf://`` URI into its repository and optional subpath."""
+    parts = path[len(HF_URI_SCHEME) :].split("/", 2)
+    if len(parts) < 2 or not parts[0] or not parts[1]:
+        raise ValueError(
+            f"Invalid HF path {path!r}; expected hf://<owner>/<repo>[/<subpath>]."
+        )
+    repo_id = f"{parts[0]}/{parts[1]}"
+    subpath = parts[2] if len(parts) > 2 else ""
+    allow_patterns = None
+    if subpath:
+        allow_patterns = [subpath, f"{subpath}/*", f"{subpath}/**"]
+    return repo_id, subpath, allow_patterns
+
+
+def _remember_prepared_hf_path(path: str, local_path: str) -> None:
+    _PREPARED_HF_PATHS[path] = local_path
 
 
 def resolve_hf_path(path: str | Path) -> str:
     """Resolve a local path or ``hf://owner/repo/subpath`` URI to a local path.
 
-    Remote repos are preloaded through
-    :func:`~flashdreams.core.io.hf.maybe_download_hf_repo_on_rank0` so that
-    multi-rank jobs do not race on the shared cache and so that the free-disk
-    preflight applies, then resolved from that cache. Local paths and
-    offline/local-only modes stay download-free.
+    Remote paths must be prepared during application initialization. Runtime
+    callers only read the process-local prepared-path cache.
 
     Args:
         path: Local path or ``hf://<owner>/<repo>[/<subpath>]`` URI.
@@ -42,6 +58,7 @@ def resolve_hf_path(path: str | Path) -> str:
 
     Raises:
         ValueError: Malformed ``hf://`` URI.
+        RuntimeError: The remote path was not prepared during initialization.
     """
     path_str = str(path)
     if not path_str or Path(path_str).exists():
@@ -49,25 +66,14 @@ def resolve_hf_path(path: str | Path) -> str:
     if not path_str.startswith(HF_URI_SCHEME):
         return path_str
 
-    from huggingface_hub import snapshot_download
-
-    parts = path_str[len(HF_URI_SCHEME) :].split("/", 2)
-    if len(parts) < 2 or not parts[0] or not parts[1]:
-        raise ValueError(
-            f"Invalid HF path {path_str!r}; expected hf://<owner>/<repo>[/<subpath>]."
-        )
-    repo_id = f"{parts[0]}/{parts[1]}"
-    subpath = parts[2] if len(parts) > 2 else ""
-    allow_patterns = None
-    if subpath:
-        allow_patterns = [subpath, f"{subpath}/*", f"{subpath}/**"]
-    maybe_download_hf_repo_on_rank0(repo_id, allow_patterns=allow_patterns)
-    local_root = snapshot_download(
-        repo_id=repo_id,
-        allow_patterns=allow_patterns,
-        local_files_only=True,
-    )
-    return os.path.join(local_root, subpath) if subpath else local_root
+    _hf_uri_parts(path_str)
+    try:
+        return _PREPARED_HF_PATHS[path_str]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"SANA-WM Hugging Face path {path_str!r} was not prepared during "
+            "application initialization."
+        ) from exc
 
 
 __all__ = [

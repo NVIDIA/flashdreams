@@ -16,9 +16,11 @@ argument that only one of them uses.
 import argparse
 import math
 import os
+import runpy
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
@@ -70,19 +72,37 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     # so a run that only wants its help neither checks the arguments for a
     # window nor opens one.
     wants_application_help = bool(_HELP_FLAGS.intersection(application_args))
-    if not wants_application_help:
+    if not wants_application_help and not parsed.preload_application:
         try:
             mode.check_arguments(parsed)
         except ValueError as error:
             parser.error(str(error))
 
     # Before the window, so a slug this cannot run costs nothing to find out.
+    modules_before_application = (
+        set(sys.modules) if parsed.preload_application else set()
+    )
     application = create_application(parsed.slug)
+    if parsed.preload_application:
+        _run_preload_static_analysis(
+            (set(sys.modules) - modules_before_application)
+            | {type(application).__module__}
+        )
+    if parsed.preload_application == "validate":
+        application.close()
+        return
     if wants_application_help:
         # Parsing is init's first job, so this prints the help and exits.
         application.init(application_args)
         return
     session_desc = _session_desc(application, parsed)
+    if parsed.preload_application == "full":
+        ApplicationRunner(application, None).run(
+            session_desc,
+            application_args,
+            timeout_seconds=parsed.timeout,
+        )
+        return
     window = mode.create(parsed)
     _report(mode.starting(window))
     # The session's UI and client input decide when the run ends.
@@ -99,6 +119,13 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         timeout_seconds=parsed.timeout,
     )
     _report(mode.finished(window))
+
+
+def _run_preload_static_analysis(module_names: set[str]) -> None:
+    analyzer = runpy.run_path(
+        str(Path(__file__).with_name("preload-static-analysis.py"))
+    )
+    analyzer["warn_about_preparation_calls"](module_names)
 
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -132,6 +159,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("slug", help="Application to run.")
+    parser.add_argument(
+        "--preload-application",
+        choices=("validate", "full"),
+        metavar="{validate,full}",
+        help=(
+            "Run preparation static analysis only (validate), or also initialize "
+            "the application without starting a session (full)."
+        ),
+    )
     parser.add_argument(
         "--timeout",
         type=float,

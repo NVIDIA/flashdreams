@@ -215,17 +215,17 @@ def test_application_description_is_cheap_and_mp4_complete() -> None:
 
 def test_application_requires_an_image_source() -> None:
     """Reject a rollout without an explicit image or example data."""
-    app = WaypointApplication()
+    app = WaypointApplication(pipeline_config=_pipeline_config(_pipeline(11)))
     app.init([])
 
     with pytest.raises(ValueError, match="--image-path or --example-data"):
         app.create_session(app.session_desc())
 
 
-def test_example_image_is_downloaded_lazily(
+def test_example_image_preparation_starts_during_application_init(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Resolve example data only when a session starts."""
+    """Start example-data downloads while application initialization is active."""
     downloaded = tmp_path / "crystal_desert_blade.jpg"
     download_calls: list[tuple[str, Path, str | None]] = []
     seed_calls: list[Path] = []
@@ -247,7 +247,8 @@ def test_example_image_is_downloaded_lazily(
     )
     app.init(["--example-data", "--seed", "11"])
 
-    assert download_calls == []
+    assert app._prepared_input is not None
+    assert len(download_calls) == 1
     app.create_session(app.session_desc())
 
     assert download_calls == [

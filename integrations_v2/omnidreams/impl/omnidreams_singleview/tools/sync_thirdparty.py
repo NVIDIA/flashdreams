@@ -129,7 +129,13 @@ def _hash_tree(path: Path, *, exclude_top_level: set[str] | None = None) -> str:
     if not path.exists():
         return digest.hexdigest()
     for file_path in sorted(p for p in path.rglob("*") if p.is_file()):
-        rel = file_path.relative_to(path).as_posix()
+        relative_path = file_path.relative_to(path)
+        if "__pycache__" in relative_path.parts or relative_path.suffix in {
+            ".pyc",
+            ".pyo",
+        }:
+            continue
+        rel = relative_path.as_posix()
         if rel.split("/", 1)[0] in excluded:
             continue
         digest.update(rel.encode("utf-8"))

@@ -25,14 +25,15 @@ class ApplicationRunner:
     def __init__(
         self,
         application: IApplication,
-        client_window: IClientWindow,
+        client_window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
     ) -> None:
         """
         Args:
             application: Long-lived application that creates the session.
-            client_window: Window that supplies input and presents generated output.
+            client_window: Window that supplies input and presents generated output;
+                ``None`` is valid only for application preloading.
             metrics_output_sink: Optional sink for model-step metrics. It is
                 opened and closed once for each session.
         """
@@ -81,6 +82,8 @@ class ApplicationRunner:
         window_needs_close = True
         try:
             self._application.init(commandline_args)
+            if self._client_window is None:
+                return
             next_session_desc: SessionDesc | None = session_desc
             while next_session_desc is not None:
                 if deadline is not None and time.monotonic() >= deadline:
@@ -103,7 +106,7 @@ class ApplicationRunner:
                     raise
                 window_needs_close = next_session_desc is not None
         finally:
-            if window_needs_close:
+            if window_needs_close and self._client_window is not None:
                 _close_client_window(self._client_window)
             if not session_run_started and self._metrics_output_sink is not None:
                 _close_output_sink(self._metrics_output_sink)
