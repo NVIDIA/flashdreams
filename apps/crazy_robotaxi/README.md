@@ -81,9 +81,10 @@ generated from the same typed settings tree used at startup, with pages for
 game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
 atomically updates the user YAML without leaving the screen. **EXIT** returns
 to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
-dirty. **RESET TO DEFAULTS** resets the draft. Presentation settings apply when
-saved; the screen displays **RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT**
-when other changes need a new process.
+dirty. **RESET TO DEFAULTS** resets the draft. HUD visibility settings apply
+when saved; presentation dimensions and other startup settings display
+**RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT** because they need a new
+process.
 
 By default, settings are loaded from
 `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
@@ -109,6 +110,8 @@ model:
     diffusion_model:
       seed: 5678
 presentation:
+  width: 1920
+  height: 1080
   show_fps: true
 live_edit:
   weather:

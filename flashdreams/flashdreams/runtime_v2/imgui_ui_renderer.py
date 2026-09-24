@@ -317,6 +317,7 @@ class _ImGuiUIRenderer:
         device = slangpy.Device(
             type=slangpy.DeviceType.vulkan,
             enable_debug_layers=False,
+            enable_hot_reload=False,
             enable_cuda_interop=True,
             enable_cuda_launch_from_gfx=False,
             enable_ray_tracing=False,

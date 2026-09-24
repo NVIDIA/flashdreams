@@ -621,10 +621,18 @@ class CrazyRobotaxiSession(ISession):
         return PresentationManager(device=torch.device(self._config.device))
 
     def init(self) -> None:
+        presentation_width, presentation_height = (
+            self._config.presentation_resolution_wh
+            or (
+                self._session_desc.video_width,
+                self._session_desc.video_height,
+            )
+        )
         hud_state = TaxiHudState(
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
             calibration=None,
+            presentation_size=(presentation_width, presentation_height),
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
