@@ -950,8 +950,15 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
         video_height=desc.video_height,
     )
 
-    with pytest.raises(ValueError, match="do not match renderer"):
+    with pytest.raises(ValueError) as exc_info:
         app.create_session(desc)
+    assert str(exc_info.value) == (
+        "Session/model dimensions (640, 704) do not match renderer raster dimensions "
+        "(1280, 704). You may have changed Width or Height under Options > Renderer > "
+        "Raster, or used --width or --height; those settings control model rendering. "
+        "To resize only the displayed output, use Options > Presentation > Width and "
+        "Height or --display-width and --display-height."
+    )
 
 
 def test_user_settings_resize_window_to_presentation_resolution(

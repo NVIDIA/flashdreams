@@ -499,7 +499,12 @@ class CrazyRobotaxiApplication(IApplication):
         expected = config.renderer.raster.resolution_wh
         if actual != expected:
             raise ValueError(
-                f"Session dimensions {actual} do not match renderer {expected}"
+                f"Session/model dimensions {actual} do not match renderer raster "
+                f"dimensions {expected}. You may have changed Width or Height under "
+                "Options > Renderer > Raster, or used --width or --height; those "
+                "settings control model rendering. To resize only the displayed "
+                "output, use Options > Presentation > Width and Height or "
+                "--display-width and --display-height."
             )
         transformer = pipeline_config.diffusion_model.transformer
         scheduler = pipeline_config.diffusion_model.scheduler
