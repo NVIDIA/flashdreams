@@ -162,8 +162,7 @@ class NativeWindowClientWindow(IClientWindow):
             raise RuntimeError(
                 "NativeWindowClientWindow.open() must run before resizing."
             )
-        presenter.resize(*new_window_size)
-        self._window_size = new_window_size
+        self._window_size = presenter.resize(*new_window_size)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Create the GLFW window on the runtime's UI thread.
@@ -204,7 +203,7 @@ class NativeWindowClientWindow(IClientWindow):
 
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
-        self._window_size = (session_desc.video_width, session_desc.video_height)
+        self._window_size = presenter.size
         self._input_events = queue.SimpleQueue()
         self._close_event_enqueued = False
         self._poll_input_events = None
@@ -220,6 +219,7 @@ class NativeWindowClientWindow(IClientWindow):
             self._poll_input_events = []
             try:
                 presenter.process_events()
+                self._window_size = presenter.size
                 # ponytail: Text delayed by more than one poll can still arrive
                 # as a second press. Split physical and text runtime events if a
                 # client needs a longer coalescing window.
@@ -390,7 +390,7 @@ class _SlangPyNativeWindowPresenter:
         height: int,
         title: str,
     ) -> None:
-        """Create a fixed-size SlangPy window and Vulkan surface.
+        """Create a programmatically resizable SlangPy window and Vulkan surface.
 
         Args:
             width: Window width in pixels.
@@ -428,6 +428,8 @@ class _SlangPyNativeWindowPresenter:
         except BaseException:
             self._window.close()
             raise
+        self._width, self._height = self._presentation.size
+        self._pending_resize: tuple[int, int] | None = None
         self._keyboard_event_callback: Callable[[spy.KeyboardEvent], None] | None = None
         self._mouse_event_callback: Callable[[spy.MouseEvent], None] | None = None
         self._gamepad_event_callback: Callable[[spy.GamepadEvent], None] | None = None
@@ -436,6 +438,12 @@ class _SlangPyNativeWindowPresenter:
         self._window.on_mouse_event = self._on_mouse_event
         self._window.on_gamepad_event = self._on_gamepad_event
         self._window.on_gamepad_state = self._on_gamepad_state
+        self._window.on_resize = self._on_resize
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """Return the current presentation-surface size in pixels."""
+        return self._width, self._height
 
     def configure_cursor(
         self, *, hide_cursor: bool, lock_cursor_to_window: bool
@@ -449,12 +457,12 @@ class _SlangPyNativeWindowPresenter:
             cursor_mode = self._spy.CursorMode.normal
         self._window.cursor_mode = cursor_mode
 
-    def resize(self, width: int, height: int) -> None:
-        """Resize the native window and its presentation surface."""
+    def resize(self, width: int, height: int) -> tuple[int, int]:
+        """Request a native resize and return the last acknowledged size."""
         if self._closed:
             raise RuntimeError("Cannot resize a closed native window.")
         self._window.resize(width, height)
-        self._presentation.resize_surface(width, height)
+        return self.size
 
     def set_input_callbacks(
         self,
@@ -476,9 +484,15 @@ class _SlangPyNativeWindowPresenter:
         return self._closed or self._window.should_close()
 
     def process_events(self) -> None:
-        """Pump pending events with SlangPy's standard window API."""
+        """Pump events and apply the latest acknowledged native resize."""
         if not self._closed:
             self._window.process_events()
+            pending_resize = self._pending_resize
+            if pending_resize is not None:
+                self._pending_resize = None
+                self._width, self._height = self._presentation.resize_surface(
+                    *pending_resize
+                )
 
     def present_frame(self, frame: Tensor) -> bool:
         """Present one RGB frame without pumping window events."""
@@ -503,11 +517,13 @@ class _SlangPyNativeWindowPresenter:
         window.on_mouse_event = None
         window.on_gamepad_event = None
         window.on_gamepad_state = None
+        window.on_resize = None
         self._keyboard_event_callback = None
         self._mouse_event_callback = None
         self._gamepad_event_callback = None
         self._gamepad_state_callback = None
         self._presentation = cast(Any, None)
+        self._pending_resize = None
 
         try:
             presentation.close()
@@ -534,6 +550,12 @@ class _SlangPyNativeWindowPresenter:
         if self._gamepad_state_callback is not None:
             self._gamepad_state_callback(state)
 
+    def _on_resize(self, width: int, height: int) -> None:
+        """Record a resize acknowledged by the native window system."""
+        if self._closed or width <= 0 or height <= 0:
+            return
+        self._pending_resize = int(width), int(height)
+
 
 class _PresentationContext:
     """Own one render device and normalize every frame onto it."""
@@ -557,7 +579,12 @@ class _PresentationContext:
         self._cuda_rgba: Tensor | None = None
         self._render_device = torch.device("cpu")
         self._has_cuda_submission = False
-        self._create_frame_resources(width, height)
+        self._create_frame_resources(*self._configured_surface_size())
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """Return the configured swapchain extent."""
+        return self._width, self._height
 
     def present(self, frame: Tensor) -> None:
         """Copy one RGB tensor to the render device and present it."""
@@ -569,7 +596,16 @@ class _PresentationContext:
             )
         if not self._surface.config:
             return
-        surface_texture = self._surface.acquire_next_image()
+        try:
+            surface_texture = self._surface.acquire_next_image()
+        except RuntimeError as error:
+            _LOGGER.warning(
+                "Native surface acquisition failed; recreating swapchain: %s", error
+            )
+            # SlangRHI collapses recoverable out-of-date acquisition into a
+            # generic failure. Recreate the swapchain and drop this frame.
+            self.resize_surface(self._width, self._height, force=True)
+            return
         if not surface_texture:
             return
 
@@ -589,10 +625,12 @@ class _PresentationContext:
             self._has_cuda_submission = True
         del surface_texture
 
-    def resize_surface(self, width: int, height: int) -> None:
+    def resize_surface(
+        self, width: int, height: int, *, force: bool = False
+    ) -> tuple[int, int]:
         """Reconfigure the output surface after pending presentation completes."""
-        if (width, height) == (self._width, self._height):
-            return
+        if not force and (width, height) == (self._width, self._height):
+            return self.size
         self._device.wait_for_idle()
         self._cuda_rgba = None
         self._cuda_buffer = None
@@ -602,7 +640,8 @@ class _PresentationContext:
             height=height,
             format=self._choose_surface_format(),
         )
-        self._create_frame_resources(width, height)
+        self._create_frame_resources(*self._configured_surface_size())
+        return self.size
 
     def close(self) -> None:
         """Wait for pending presentation work before releasing resources."""
@@ -676,6 +715,13 @@ class _PresentationContext:
         self._render_device = torch.device("cpu")
         self._has_cuda_submission = False
         self._create_cuda_upload()
+
+    def _configured_surface_size(self) -> tuple[int, int]:
+        """Return the pixel extent SlangRHI accepted for the swapchain."""
+        config = self._surface.config
+        if config is None:
+            raise RuntimeError("SlangRHI did not configure the native surface.")
+        return int(config.width), int(config.height)
 
     def _create_device(self) -> spy.Device:
         """Create a Vulkan device sharing the UI thread's CUDA context."""
