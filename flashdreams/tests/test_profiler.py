@@ -299,6 +299,29 @@ def test_pipeline_ranges_come_from_the_profiler_in_context() -> None:
     ]
 
 
+def test_pipeline_reports_timings_a_caller_recorded_on_the_cache(
+    stub_events: None,
+) -> None:
+    """FlashVSR overrides generate() and times its own stages onto the cache.
+
+    finalize() is the shared one, so it must report those rather than the
+    injected profiler's, which saw no pipeline stages at all.
+    """
+    null_model = pytest.importorskip("null_model")
+    pipeline = null_model.NULL_MODEL_CONFIG.setup().to("cpu")
+    recording = _RecordingProfiler()
+    cache = pipeline.initialize_cache()
+
+    with set_flashdreams_inference_profiler(recording):
+        pipeline.generate(0, cache, input=torch.tensor([[1]]))
+        cache.event_profiler = profiler_module.EventProfiler()
+        cache.event_profiler.record("denoise")
+        stats = pipeline.finalize(0, cache)
+
+    assert stats is not None, "a caller's own timings must not be discarded"
+    assert "denoise_ms" in stats and "finalize_ms" in stats
+
+
 def test_loops_run_with_the_profiler_the_session_injects() -> None:
     class _Loop(IModelLoop[None]):
         def step(self, step_index: int, events: object) -> list[object]:
