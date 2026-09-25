@@ -27,6 +27,7 @@ from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".webp"})
 """Image filename suffixes treated as still images by runner helpers."""
@@ -37,9 +38,19 @@ DEFAULT_RUNNER_INSTALL_HINT = (
 """Default install hint for optional runner I/O dependencies."""
 
 ResizeInterpolation: TypeAlias = Literal[
-    "default", "nearest", "linear", "area", "cubic", "lanczos4"
+    "default",
+    "nearest",
+    "linear",
+    "area",
+    "cubic",
+    "lanczos4",
+    "torch_bicubic",
 ]
-"""OpenCV resize interpolation names accepted by runner image/video helpers."""
+"""Resize interpolation names accepted by runner image/video helpers.
+
+``torch_bicubic`` is first-frame-only and preserves floating-point samples for
+model pipelines whose reference preprocessing uses ``F.interpolate``.
+"""
 
 VideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "btchw", "bcthw"]
 """Tensor layouts accepted by ``write_video_tensor``."""
@@ -300,6 +311,18 @@ def load_first_frame_tensor(
         image = read_first_frame_rgb(path, install_hint=install_hint)
     else:
         image = read_image_rgb(path, install_hint=install_hint)
+    if interpolation == "torch_bicubic":
+        tensor = rgb_image_to_normalized_tensor(
+            image,
+            device=device,
+            dtype=torch.float32,
+        )
+        return F.interpolate(
+            tensor,
+            size=(pixel_height, pixel_width),
+            mode="bicubic",
+            align_corners=False,
+        ).to(dtype=dtype)
     image = resize_rgb_image(
         image,
         pixel_height=pixel_height,

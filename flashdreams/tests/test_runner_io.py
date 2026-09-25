@@ -436,3 +436,38 @@ def test_load_first_frame_tensor_uses_requested_resize_interpolation(
     assert tensor.shape == (1, 3, 4, 5)
     assert tensor.dtype == torch.float32
     assert torch.allclose(tensor, torch.full_like(tensor, 127.0 / 127.5 - 1.0))
+
+
+def test_load_first_frame_tensor_supports_float_torch_bicubic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve reference float samples instead of quantizing a resized uint8 image."""
+    fake_media = types.ModuleType("mediapy")
+    image = np.array(
+        [
+            [[0, 32, 64], [96, 128, 160], [192, 224, 255]],
+            [[255, 224, 192], [160, 128, 96], [64, 32, 0]],
+        ],
+        dtype=np.uint8,
+    )
+    setattr(fake_media, "read_image", lambda _path: image)
+    monkeypatch.setitem(sys.modules, "mediapy", fake_media)
+
+    tensor = load_first_frame_tensor(
+        Path("frame.png"),
+        pixel_height=4,
+        pixel_width=5,
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+        interpolation="torch_bicubic",
+    )
+    source = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0)
+    source = source / 127.5 - 1.0
+    expected = torch.nn.functional.interpolate(
+        source,
+        size=(4, 5),
+        mode="bicubic",
+        align_corners=False,
+    )
+
+    torch.testing.assert_close(tensor, expected, rtol=0, atol=0)

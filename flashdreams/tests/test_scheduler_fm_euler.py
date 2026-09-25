@@ -22,9 +22,9 @@ import pytest
 import torch
 
 from flashdreams.infra.diffusion.scheduler import (
-    FlowMatchEulerDiscreteScheduler,
     FlowMatchEulerDiscreteSchedulerConfig,
 )
+from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -213,3 +213,37 @@ def test_to_bf16_preserves_fp32_schedule() -> None:
     assert scheduler.timesteps.dtype == torch.float32
     assert scheduler.sigmas.dtype == torch.float32
     assert float(scheduler.timesteps[0]) == 1000.0
+
+
+def test_reference_sampling_contract() -> None:
+    """Match Lingbot's upstream timestep lookup, precision, and RNG layout."""
+    scheduler = FlowMatchSchedulerConfig(
+        num_inference_steps=4,
+        denoising_timesteps=[1000, 750, 500, 250],
+        shift=5.0,
+        sigma_max=0.999,
+        extra_one_step=True,
+        timestep_dtype=torch.int64,
+        reference_sampling=True,
+    ).setup()
+
+    assert scheduler.denoising_step_list.tolist() == [999, 937, 833, 624]
+    assert [
+        int(torch.argmin((scheduler._full_sigmas - sigma).abs()))
+        for sigma in scheduler.renoising_sigmas
+    ][1:] == [249, 500, 750]
+
+    generator = torch.Generator().manual_seed(7)
+    clean = scheduler.sample(
+        torch.ones(2, 3, 1, 1),
+        lambda noisy, _timestep: torch.zeros_like(noisy, dtype=torch.bfloat16),
+        rng=generator,
+    )
+    expected = torch.ones_like(clean)
+    expected_generator = torch.Generator().manual_seed(7)
+    for sigma in scheduler.renoising_sigmas[1:]:
+        noise = torch.randn(
+            3, 2, 1, 1, dtype=torch.bfloat16, generator=expected_generator
+        ).transpose(0, 1)
+        expected = ((1 - sigma) * expected + sigma * noise).to(torch.bfloat16)
+    assert torch.equal(clean, expected)

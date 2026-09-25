@@ -249,16 +249,29 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         )
         segments = state.keyboard_track.segments(input_window)
         frame_times = list(input_window.sample_times_s)
-        poses = state.pose_integrator.integrate_chunk(
-            segments=segments,
-            frame_times=frame_times,
-        )
+        replay_poses = conditioning.camera_poses
+        if replay_poses is None:
+            poses = torch.from_numpy(
+                state.pose_integrator.integrate_chunk(
+                    segments=segments,
+                    frame_times=frame_times,
+                )
+            )
+        else:
+            frame_end = state.frames_generated + frame_count
+            if frame_end > replay_poses.shape[0]:
+                raise ValueError(
+                    f"Cam2V camera replay has {replay_poses.shape[0]} frames, but "
+                    f"step {step_index} needs frames "
+                    f"[{state.frames_generated}, {frame_end})."
+                )
+            poses = replay_poses[state.frames_generated : frame_end]
         camera_input = CameraControlInput(
             intrinsics=conditioning.base_intrinsics.repeat(frame_count, 1).to(
                 device=state.config.device,
                 dtype=torch.float32,
             ),
-            poses=torch.from_numpy(poses).to(
+            poses=poses.to(
                 device=state.config.device,
                 dtype=torch.float32,
             ),
