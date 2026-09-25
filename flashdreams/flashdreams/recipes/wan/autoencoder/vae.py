@@ -1496,7 +1496,7 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
 
         *batch_shape, T, C, H, W = input.shape
         batch_size = math.prod(batch_shape)
-        z = input.reshape(batch_size, T, C, H, W)
+        z = input.reshape(batch_size, T, C, H, W).to(dtype=self.config.dtype)
 
         x = self.vae.decode(z.transpose(1, 2), cache=cache).transpose(1, 2)
         return x.reshape(*batch_shape, *x.shape[1:])
