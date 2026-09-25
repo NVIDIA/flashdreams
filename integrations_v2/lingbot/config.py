@@ -34,6 +34,7 @@ from lingbot.impl.encoder.camctrl import (
 from lingbot.impl.pipeline import LingbotWorldInferencePipelineConfig
 from lingbot.impl.transformer import LingbotWorldTransformerConfig
 from lingbot.impl.transformer.impl.network import (
+    LingbotWorldDiTNetwork1pt3BConfig,
     LingbotWorldDiTNetwork14BConfig,
 )
 
@@ -48,6 +49,12 @@ LINGBOT_WORLD_V2_CHECKPOINT_PATH = (
     "transformers/diffusion_pytorch_model.safetensors.index.json"
 )
 """LingBot-World v2 transformer checkpoint index."""
+
+LINGBOT_WORLD_V2_1P3B_CHECKPOINT_PATH = (
+    "https://huggingface.co/robbyant/lingbot-world-v2-1.3b-causal-fast/blob/main/"
+    "model.safetensors.index.json"
+)
+"""LingBot-World v2 1.3B transformer checkpoint index."""
 
 CHECKPOINT_PATH = LINGBOT_WORLD_V1_CHECKPOINT_PATH
 """Backward-compatible alias for the LingBot-World v1 checkpoint."""
@@ -141,6 +148,70 @@ PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
         ),
     ),
 )
+PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF = derive_config(
+    PIPELINE_LINGBOT_WORLD_FAST,
+    name="lingbot-world-v2-1p3b-causal-fast-max-perf",
+    encoder=I2VCamCtrlEncoderConfig(
+        i2v=LingbotI2VCtrlEncoderConfig(
+            encoder=WanVAEEncoderConfig(),
+        ),
+    ),
+    decoder=WanVAEDecoderConfig(
+        dtype=torch.bfloat16,
+        use_compile=True,
+        channels_last=True,
+    ),
+    diffusion_model=dict(
+        noise_in_unpatchified_shape=True,
+        transformer=dict(
+            network=LingbotWorldDiTNetwork1pt3BConfig(
+                patch_embedding_type="conv3d",
+                control_type="cam",
+                in_dim=16 + 4 + 16,
+                linear_backend="rowwise_fp8",
+                self_attention_backend="fp8_tma",
+                self_attention_use_tma=True,
+            ),
+            checkpoint_min_free_gb=20.0,
+            checkpoint_path=LINGBOT_WORLD_V2_1P3B_CHECKPOINT_PATH,
+            stream_checkpoint=True,
+            # Single-rollout layout: tensors flow through the stack as
+            # ``[T, C, H, W]`` (or ``[T, ...]``) with no leading batch/view dim.
+            batch_shape=(),
+            len_t=4,
+            guidance_scale=1.0,
+            reference_noise_steps=20,
+            window_size_t=12,
+            sink_size_t=6,
+            stamp_image_latent=False,
+            concat_image_mask_to_latent=True,
+            compile_network=True,
+            compile_dynamic=True,
+            use_cuda_graph=False,
+        ),
+        scheduler=FlowMatchSchedulerConfig(
+            num_inference_steps=4,
+            denoising_timesteps=[1000, 750, 500, 250],
+            warp_denoising_step=True,
+            shift=5.0,
+            sigma_max=0.999,
+            sigma_min=0.0,
+            extra_one_step=True,
+            num_train_timesteps=1000,
+            timestep_dtype=torch.int64,
+            reference_sampling=True,
+        ),
+    ),
+)
+"""Maximum-throughput 1.3B preset with the upstream 18-frame context."""
+
+PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV = derive_config(
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
+    name="lingbot-world-v2-1p3b-causal-fast-max-perf-taehv",
+    decoder=TeahvVAEDecoderConfig(),
+)
+"""Maximum-throughput 1.3B preset with the approximate TAEHV decoder."""
+
 PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
     cfg.name: cfg
     for cfg in (
@@ -148,6 +219,8 @@ PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
+        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
+        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV,
     )
 }
 """All shipped LingBot-World pipeline configs, keyed by ``name``."""

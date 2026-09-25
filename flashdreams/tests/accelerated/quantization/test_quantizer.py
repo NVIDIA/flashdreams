@@ -24,6 +24,10 @@ from flashdreams.accelerated.quantization.quantizer import (
     dequantize,
     quantize,
 )
+from flashdreams.accelerated.quantization.quantizer_kernel import (
+    requires_triton_rowwise_fp8_mm,
+    rowwise_fp8_mm_triton,
+)
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -286,13 +290,23 @@ def test_quantized_gemm(
         scaled_out_dtype = (
             torch.bfloat16 if granularity is Granularity.SLICE else torch.float32
         )
-        restored = torch._scaled_mm(
-            left_quantized,
-            right_quantized,
-            left_scale,
-            right_scale,
-            out_dtype=scaled_out_dtype,
-        ).float()
+        if granularity is Granularity.SLICE and requires_triton_rowwise_fp8_mm(
+            left_quantized
+        ):
+            restored = rowwise_fp8_mm_triton(
+                left_quantized,
+                right_quantized,
+                left_scale,
+                right_scale,
+            ).float()
+        else:
+            restored = torch._scaled_mm(
+                left_quantized,
+                right_quantized,
+                left_scale,
+                right_scale,
+                out_dtype=scaled_out_dtype,
+            ).float()
     expected = left @ right
 
     if granularity is Granularity.SLICE:

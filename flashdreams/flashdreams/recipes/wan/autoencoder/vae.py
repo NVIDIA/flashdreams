@@ -1013,6 +1013,7 @@ class WanVAE(nn.Module):
             [Dict[str, torch.Tensor]], Dict[str, torch.Tensor]
         ]
         | None = None,
+        channels_last: bool = False,
     ):
         super().__init__()
         assert enable_encoder or enable_decoder, (
@@ -1100,6 +1101,17 @@ class WanVAE(nn.Module):
         if state_dict_transform is not None:
             state_dict = state_dict_transform(state_dict)
         self.load_state_dict(state_dict, strict=False, assign=True)
+
+        if channels_last:
+            for module in self.modules():
+                if isinstance(module, nn.Conv2d):
+                    module.weight.data = module.weight.data.contiguous(
+                        memory_format=torch.channels_last
+                    )
+                elif isinstance(module, nn.Conv3d):
+                    module.weight.data = module.weight.data.contiguous(
+                        memory_format=torch.channels_last_3d
+                    )
 
         self.register_buffer(
             "mean",
@@ -1360,7 +1372,7 @@ class WanVAEEncoder(StreamingVideoEncoder[WanVAECache]):
 
         *batch_shape, T, C, H, W = input.shape
         batch_size = math.prod(batch_shape)
-        x = input.reshape(batch_size, T, C, H, W)
+        x = input.reshape(batch_size, T, C, H, W).to(dtype=self.config.dtype)
 
         z = self.vae.encode(x.transpose(1, 2), cache=cache).transpose(1, 2)
         return z.reshape(*batch_shape, *z.shape[1:])
@@ -1423,6 +1435,9 @@ class WanVAEDecoderConfig(DecoderConfig):
     """``torch.compile(mode="max-autotune-no-cudagraphs")``. See
     ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
 
+    channels_last: bool = False
+    """Store Conv2d/Conv3d weights in channels-last memory format."""
+
     # Wan 2.x VAE architecture knobs (default = Wan 2.1). The decoder
     # needs the encoder's ``base_dim`` too because the checkpoint's
     # encoder weights are loaded by the same ``WanVAE`` instance (with
@@ -1477,6 +1492,7 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
             latent_mean=config.latent_mean,
             latent_std=config.latent_std,
             state_dict_transform=config.state_dict_transform,
+            channels_last=config.channels_last,
         ).to(dtype=config.dtype)
 
     def initialize_autoregressive_cache(self) -> WanVAECache:

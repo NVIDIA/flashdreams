@@ -15,6 +15,7 @@ from cam2v import Cam2VConditioning
 
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
+from lingbot.impl.encoder.utils import preprocess_example_poses
 
 _EXAMPLE_DATA_BASE_URL = (
     "https://raw.githubusercontent.com/Robbyant/lingbot-world-v2/main/examples"
@@ -26,11 +27,13 @@ _INTRINSICS_REFERENCE_HEIGHT = 480
 _INTRINSICS_REFERENCE_WIDTH = 832
 _DEFAULT_PIXEL_HEIGHT = 464
 _DEFAULT_PIXEL_WIDTH = 832
-_TEMPORAL_COMPRESSION_RATIO = 4
-_TRANSFORMER_CHUNK_FRAMES = 3
 
 
-def resolve_lingbot_conditioning(values: Mapping[str, Any]) -> Cam2VConditioning:
+def resolve_lingbot_conditioning(
+    values: Mapping[str, Any],
+    *,
+    transformer_len_t: int = 3,
+) -> Cam2VConditioning:
     """Resolve application arguments without the legacy input-mapping runtime."""
     example_idx = int(values.get("example_idx", 0))
     if example_idx not in _EXAMPLE_DATA_INDICES:
@@ -66,9 +69,17 @@ def resolve_lingbot_conditioning(values: Mapping[str, Any]) -> Cam2VConditioning
         prompt = _read_first_line(
             _require_existing_path(prompt_path, label="prompt_path")
         )
-    if world_scale is None:
+    camera_poses = None
+    if pose_path is not None:
         poses_path = _require_existing_path(pose_path, label="pose_path")
-        world_scale = _infer_world_scale(poses_path)
+        camera_poses, inferred_world_scale = preprocess_example_poses(
+            np.asarray(np.load(poses_path)),
+            transformer_len_t=transformer_len_t,
+        )
+        if world_scale is None:
+            world_scale = inferred_world_scale
+    elif world_scale is None:
+        raise ValueError("Lingbot Cam2V requires pose_path to infer world_scale.")
 
     return Cam2VConditioning(
         prompt=prompt,
@@ -79,6 +90,11 @@ def resolve_lingbot_conditioning(values: Mapping[str, Any]) -> Cam2VConditioning
             pixel_width=int(values.get("pixel_width", _DEFAULT_PIXEL_WIDTH)),
         ),
         world_scale=world_scale,
+        camera_poses=(
+            None
+            if camera_poses is None
+            else torch.from_numpy(np.ascontiguousarray(camera_poses))
+        ),
     )
 
 
@@ -125,47 +141,6 @@ def _load_base_intrinsics(
         dtype=np.float32,
     )
     return torch.from_numpy(np.ascontiguousarray(intrinsics[0] * scale))
-
-
-def _infer_world_scale(path: Path) -> float:
-    """Return the legacy pose normalizer without constructing a camera trace."""
-    poses = np.asarray(np.load(path), dtype=np.float64)
-    if poses.ndim != 3 or poses.shape[1:] != (4, 4):
-        raise ValueError(
-            f"Lingbot poses must have shape [T, 4, 4], got {tuple(poses.shape)}."
-        )
-
-    raw_frame_count = poses.shape[0]
-    compatible_frame_count = (
-        (raw_frame_count - 1) // _TEMPORAL_COMPRESSION_RATIO
-    ) * _TEMPORAL_COMPRESSION_RATIO + 1
-    encoded_frame_count = (
-        (compatible_frame_count - 1) // _TEMPORAL_COMPRESSION_RATIO
-    ) + 1
-    if encoded_frame_count < _TRANSFORMER_CHUNK_FRAMES:
-        minimum = (_TRANSFORMER_CHUNK_FRAMES - 1) * _TEMPORAL_COMPRESSION_RATIO + 1
-        raise ValueError(
-            f"Expected at least {minimum} poses to infer world scale, "
-            f"got {raw_frame_count}."
-        )
-    encoded_frame_count -= encoded_frame_count % _TRANSFORMER_CHUNK_FRAMES
-
-    source_indices = np.arange(compatible_frame_count, dtype=np.float64)
-    target_indices = np.linspace(
-        0,
-        compatible_frame_count - 1,
-        encoded_frame_count,
-    )
-    translations = poses[:compatible_frame_count, :3, 3]
-    encoded_translations = np.stack(
-        [
-            np.interp(target_indices, source_indices, translations[:, axis])
-            for axis in range(3)
-        ],
-        axis=1,
-    )
-    step_distances = np.linalg.norm(np.diff(encoded_translations, axis=0), axis=1)
-    return float(step_distances.max(initial=0.0))
 
 
 def _optional_path(value: str | Path | None) -> Path | None:

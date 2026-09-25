@@ -229,8 +229,31 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_updates_status() -> Non
     assert model_loop.is_finished()
 
 
+def test_model_loop_replays_fixed_camera_poses() -> None:
+    """A resolved replay trajectory takes precedence over live keyboard input."""
+    replay_poses = torch.eye(4).repeat(4, 1, 1)
+    replay_poses[:, 0, 3] = torch.arange(4)
+    model_loop, _, pipeline = _input_test_model_loop(
+        conditioning=replace(_conditioning(), camera_poses=replay_poses),
+        total_blocks=2,
+        warmup_blocks=0,
+    )
+
+    model_loop.step(0, UserInputEvents([]))
+    assert pipeline.camera_input is not None
+    torch.testing.assert_close(pipeline.camera_input.poses, replay_poses[:2])
+
+    model_loop.step(1, UserInputEvents([]))
+    assert pipeline.camera_input is not None
+    torch.testing.assert_close(pipeline.camera_input.poses, replay_poses[2:])
+
+
 def _input_test_model_loop(
-    *, log_model_timing: bool = False
+    *,
+    log_model_timing: bool = False,
+    conditioning: Cam2VConditioning | None = None,
+    total_blocks: int = 4,
+    warmup_blocks: int = 4,
 ) -> tuple[Cam2VModelLoop, Cam2VModelState, _Pipeline]:
     """Return a registered CPU model loop for camera-input tests."""
     pipeline = _Pipeline()
@@ -243,12 +266,12 @@ def _input_test_model_loop(
             video_height=1,
         ),
         config=Cam2VSessionConfig(
-            conditioning=_conditioning(),
-            total_blocks=4,
+            conditioning=conditioning or _conditioning(),
+            total_blocks=total_blocks,
             device=torch.device("cpu"),
             first_frame_dtype=torch.float32,
             first_frame_interpolation="linear",
-            warmup_blocks=4,
+            warmup_blocks=warmup_blocks,
             log_model_timing=log_model_timing,
         ),
         keyboard_resampler=KeyboardResampler(fps=16),

@@ -129,6 +129,7 @@ def compile_module(
     module: M,
     *,
     mode: CompileMode = "max-autotune-no-cudagraphs",
+    dynamic: bool | None = None,
 ) -> M:
     """``torch.compile`` returning the same static type as ``module``.
 
@@ -139,6 +140,7 @@ def compile_module(
     Args:
         module: ``nn.Module`` to compile.
         mode: One of the four ``torch.compile`` modes; see :data:`CompileMode`.
+        dynamic: Dynamic-shape policy forwarded to ``torch.compile``.
 
     Returns:
         The compiled module, statically typed as the same ``M`` so attribute
@@ -146,4 +148,4 @@ def compile_module(
     """
     _configure_inductor_cache()
     _patch_triton_bundle_collection()
-    return cast(M, torch.compile(module, mode=mode))
+    return cast(M, torch.compile(module, mode=mode, dynamic=dynamic))

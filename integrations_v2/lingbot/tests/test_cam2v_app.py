@@ -18,10 +18,22 @@ from lingbot.apps.cam2v.adapter import LingbotCam2VApplication, create_app
 from lingbot.config import (
     PIPELINE_LINGBOT_WORLD_FAST,
     PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
 )
 from lingbot.impl import conditioning
+from lingbot.impl.transformer import (
+    LingbotWorldTransformer,
+    LingbotWorldTransformerCache,
+    LingbotWorldTransformerConfig,
+)
+from lingbot.impl.transformer.impl.modules import CamCtrlBlockCache
+from lingbot.impl.transformer.impl.network import (
+    LingbotWorldDiTNetwork,
+    LingbotWorldDiTNetworkConfig,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -42,6 +54,12 @@ def test_package_registers_the_shared_cam2v_application() -> None:
         "cam2v-lingbot-world-fast": f"{target}create_app_fast",
         "cam2v-lingbot-world-fast-taehv-window15-sink3": (
             f"{target}create_app_fast_taehv_window15_sink3"
+        ),
+        "cam2v-lingbot-world-v2-1p3b-causal-fast-max-perf": (
+            f"{target}create_app_v2_1p3b_causal_fast_max_perf"
+        ),
+        "cam2v-lingbot-world-v2-1p3b-causal-fast-max-perf-taehv": (
+            f"{target}create_app_v2_1p3b_causal_fast_max_perf_taehv"
         ),
         "cam2v-lingbot-world-v2-14b-causal-fast": (
             f"{target}create_app_v2_14b_causal_fast"
@@ -81,8 +99,8 @@ def test_application_uses_lingbot_pipeline_config() -> None:
     assert application.session_desc().video_width == 832
     assert application.session_desc().video_height == 464
     assert application.session_desc().frames_per_second_for_step == 16
-    assert application.defaults.first_frame_dtype is torch.bfloat16
-    assert application.defaults.first_frame_interpolation == "cubic"
+    assert application.defaults.first_frame_dtype is torch.float32
+    assert application.defaults.first_frame_interpolation == "torch_bicubic"
     assert isinstance(create_app(), LingbotCam2VApplication)
 
 
@@ -93,6 +111,14 @@ def test_application_uses_lingbot_pipeline_config() -> None:
         (
             adapter.create_app_fast_taehv_window15_sink3,
             PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
+        ),
+        (
+            adapter.create_app_v2_1p3b_causal_fast_max_perf,
+            PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
+        ),
+        (
+            adapter.create_app_v2_1p3b_causal_fast_max_perf_taehv,
+            PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV,
         ),
         (
             adapter.create_app_v2_14b_causal_fast,
@@ -120,6 +146,66 @@ def test_variant_factories_select_their_pipeline_config(
     )
 
 
+def test_max_perf_rollout_caches_reference_noise_and_camera_modulation() -> None:
+    """Cover the two caches added to the retained max-performance path."""
+    transformer = LingbotWorldTransformer(
+        LingbotWorldTransformerConfig(
+            network=LingbotWorldDiTNetworkConfig(
+                patch_size=(1, 1, 1),
+                text_len=2,
+                in_dim=4,
+                dim=24,
+                ffn_dim=32,
+                freq_dim=8,
+                text_dim=8,
+                out_dim=4,
+                num_heads=2,
+                num_layers=1,
+                patch_embedding_type="linear",
+            ),
+            dtype=torch.float32,
+            checkpoint_min_free_gb=None,
+            len_t=2,
+            window_size_t=2,
+            compile_network=False,
+            use_cuda_graph=False,
+            reference_noise_steps=3,
+        )
+    )
+    cache = transformer.initialize_autoregressive_cache(
+        height=1,
+        width=1,
+        text_embeddings=torch.randn(1, 2, 8),
+    )
+    assert isinstance(cache, LingbotWorldTransformerCache)
+
+    generator = torch.Generator().manual_seed(42)
+    expected = torch.randn(
+        4, 6, 1, 1, generator=torch.Generator().manual_seed(42)
+    ).transpose(0, 1)
+    chunks = []
+    for cache.autoregressive_index in range(3):
+        chunks.append(
+            transformer.initial_noise(
+                latent_shape=(2, 4, 1, 1), rng=generator, cache=cache
+            )
+        )
+    assert torch.equal(torch.cat(chunks), expected)
+
+    network = transformer.network
+    assert isinstance(network, LingbotWorldDiTNetwork)
+    block_cache = cache.network_cache[0]
+    assert isinstance(block_cache, CamCtrlBlockCache)
+    plucker = torch.zeros(1, 2, 6 * 64)
+    network.prepare_camera_cache(plucker, cache.network_cache)
+    assert block_cache.camera_scale is not None
+    scale_id = id(block_cache.camera_scale)
+    first_scale = block_cache.camera_scale.clone()
+    network.prepare_camera_cache(torch.ones_like(plucker), cache.network_cache)
+    assert id(block_cache.camera_scale) == scale_id
+    assert not torch.equal(block_cache.camera_scale, first_scale)
+
+
 def test_resolver_builds_conditioning_without_legacy_runtime(tmp_path: Path) -> None:
     """Resolve prompt, calibration, and scale entirely in the v2 package."""
     image_path = tmp_path / "image.jpg"
@@ -133,7 +219,9 @@ def test_resolver_builds_conditioning_without_legacy_runtime(tmp_path: Path) -> 
     poses[:, 0, 3] = np.arange(13)
     np.save(pose_path, poses)
 
-    result = conditioning.resolve_lingbot_conditioning(
+    application = adapter.create_app_v2_1p3b_causal_fast_max_perf()
+    assert isinstance(application, LingbotCam2VApplication)
+    result = application.defaults.input_resolver(
         {
             "prompt": "",
             "prompt_path": prompt_path,
@@ -155,7 +243,13 @@ def test_resolver_builds_conditioning_without_legacy_runtime(tmp_path: Path) -> 
         result.base_intrinsics,
         torch.tensor([[416.0, 240.0, 208.0, 120.0]]),
     )
-    assert result.world_scale == pytest.approx(6.0)
+    assert result.world_scale == pytest.approx(4.0)
+    assert result.camera_poses is not None
+    assert result.camera_poses.shape == (13, 4, 4)
+    torch.testing.assert_close(
+        result.camera_poses[[0, 4, 8]],
+        torch.from_numpy(poses[[0, 4, 8]]).to(torch.float32),
+    )
 
 
 def test_explicit_world_scale_does_not_require_replay_poses(tmp_path: Path) -> None:
@@ -212,3 +306,4 @@ def test_example_data_fills_missing_assets(
     assert result.prompt == "example prompt"
     assert result.first_frame_path == tmp_path / "image.jpg"
     assert result.world_scale == 0.0
+    assert result.camera_poses is not None

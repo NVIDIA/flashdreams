@@ -130,10 +130,15 @@ def test_compile_module_installs_cache_repairs_before_compile(monkeypatch) -> No
     monkeypatch.setattr(
         compile_module_impl.torch,
         "compile",
-        lambda value, *, mode: calls.append(f"compile:{mode}") or value,
+        lambda value, *, mode, dynamic: calls.append(f"compile:{mode}:{dynamic}")
+        or value,
     )
 
     result = compile_module_impl.compile_module(module)
 
     assert result is module
-    assert calls == ["cache", "bundle", "compile:max-autotune-no-cudagraphs"]
+    assert calls == [
+        "cache",
+        "bundle",
+        "compile:max-autotune-no-cudagraphs:None",
+    ]
