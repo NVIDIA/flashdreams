@@ -76,6 +76,35 @@ Application arguments follow ``--``. Run
 ``flashdreams-run-v2 cam2v-lingbot -- --help`` for custom first-frame,
 intrinsics, prompt, and motion-normalizer inputs.
 
+Browser UI
+----------
+
+The run above serves two clients:
+
+- ``http://<host>:8089/`` — the runtime's minimal viewer, offered by every v2
+  application.
+- ``http://<host>:8089/request_session`` — the Lingbot scene UI, with a preset
+  picker, first-frame upload, prompt box, and buttons for the scene's text
+  events.
+
+A scene is a prompt, a first frame, and a catalog of text events. Triggering an
+event replaces the rollout's cross-attention text context in place, so the
+scene changes without restarting the session; clearing it restores the base
+prompt. Changing the prompt — including by picking another preset — swaps that
+context too, so the scene changes while the rollout keeps running. The first
+frame is the exception: a rollout cannot replace the frame it was initialized
+from, so pick a preset before connecting to start from its image.
+
+Append ``?manual`` to skip auto-connect — only one session runs per process, so
+a stray browser tab can otherwise claim it — or ``?preset=<slug>`` to open a
+specific scene, such as ``?preset=water-blaster``.
+
+The page and its presets ship in ``integrations_v2/lingbot/apps/cam2v/web/``.
+It is served because ``LingbotCam2VApplication`` implements
+``flashdreams.api_v2.web_ui.IWebUiProvider``, which also adds the
+``/api/session/initial_scene``, ``/api/session/first_frame``, and
+``/api/session/input`` endpoints the page calls.
+
 Sample data is downloaded from the
 `LingBot-World v2 repository <https://github.com/Robbyant/lingbot-world-v2/tree/main/examples>`_.
 Valid ``--example-idx`` values are ``0, 1, 2, 5``. Note the single GPU command might run
