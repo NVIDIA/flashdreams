@@ -286,8 +286,10 @@ class StreamInferencePipeline(
                 ``cache.final_state``.
 
         Returns:
-            ``None`` unless the injected profiler times stages. Otherwise a
-            snapshot of this AR step's per-stage timings (ms) and GPU memory (GiB):
+            ``None`` unless stages were timed, either by the injected profiler
+            or by a pipeline that recorded onto ``cache.event_profiler``.
+            Otherwise a snapshot of this AR step's per-stage timings (ms) and
+            GPU memory (GiB):
             ``{<stage>_ms, total_ms, total_ms_wo_finalize, mem_alloc_gib,
             mem_reserved_gib, mem_peak_gib}``. The same numbers are also
             logged via ``logger.info``.
@@ -303,7 +305,13 @@ class StreamInferencePipeline(
         profiler = get_inference_profiler()
         with profiler.range("pipeline.finalize"):
             self.diffusion_model.finalize(final_state=cache.final_state)
-        stats_ms = profiler.collect_stage_ms()
+        if cache.event_profiler is not None:
+            # A pipeline that overrides generate() times its own stages onto
+            # the cache. Those are the ones to report.
+            cache.event_profiler.record("finalize")
+            stats_ms = cache.event_profiler.sync_and_summarize()
+        else:
+            stats_ms = profiler.collect_stage_ms()
         if not stats_ms:
             return None
 
