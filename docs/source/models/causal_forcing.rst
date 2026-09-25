@@ -116,19 +116,13 @@ Some generated samples from the above commands:
 
    <div class="model-video-grid zoomable">
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="Causal-Forcing text-to-video sample clip.">
        <div class="model-video-overlay">
          prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
        </div>
      </div>
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.avif" alt="Causal-Forcing image-to-video sample clip.">
        <div class="model-video-overlay">
          prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
          <br/>

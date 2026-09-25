@@ -33,18 +33,16 @@ Introduced by `Robbyant <https://technology.robbyant.com/>`_, LingBot-World is a
 `LingBot-World v1 <https://github.com/robbyant/lingbot-world>`_ and the newer 14B causal-fast
 `LingBot-World v2 <https://github.com/Robbyant/lingbot-world-v2>`_ checkpoints.
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-   <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-     <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-       <source src="https://gw.alipayobjects.com/v/huamei_u94ywh/afts/video/XQk7Rb44qJwAAAAAgfAAAAgAfoeUAQBr" type="video/mp4">
-       Your browser does not support the video tag.
-     </video>
-   </div>
-   <p class="model-footnote">
-     Teaser video source:
-     <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
-   </p>
+   .. image:: /_static/model_clips/lingbot_world/lingbot-world-teaser.avif
+      :alt: LingBot-World teaser clip.
+      :class: model-video-player
+
+.. rst-class:: model-footnote
+
+Teaser video source:
+`LingBot-World project page <https://technology.robbyant.com/lingbot-world>`_.
 
 Requirements
 ------------
@@ -159,27 +157,15 @@ Some generated samples from the above commands:
 
    <div class="model-video-grid zoomable">
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-01.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
-       <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-01.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/lingbot_world/lingbot-world-fast-01.avif" alt="LingBot-World sample clip for example index 01.">
+       <img src="../_static/model_clips/lingbot_world/lingbot-world-traj-01.avif" alt="LingBot-World camera trajectory overlay for example index 01." style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
        <div class="model-video-overlay">
          example_idx: 01
        </div>
      </div>
      <div class="model-video-card">
-       <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-fast-02.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
-       <video autoplay muted loop playsinline preload="metadata" style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
-         <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-traj-02.mp4" type="video/mp4">
-         Your browser does not support the video tag.
-       </video>
+       <img class="model-video-player" src="../_static/model_clips/lingbot_world/lingbot-world-fast-02.avif" alt="LingBot-World sample clip for example index 02.">
+       <img src="../_static/model_clips/lingbot_world/lingbot-world-traj-02.avif" alt="LingBot-World camera trajectory overlay for example index 02." style="position: absolute; right: 10px; bottom: 10px; width: 33.3333%; opacity: 0.7; border-radius: 8px; pointer-events: none;">
        <div class="model-video-overlay">
          example_idx: 02
        </div>
@@ -199,14 +185,11 @@ Run the same Cam2V application in WebRTC mode:
 
 When successfully connected, the browser-based UI looks like this:
 
-.. raw:: html
+.. container:: model-video-card model-hero-media zoomable
 
-  <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/lingbot_world/lingbot-world-webrtc-recording-0529.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
-  </div>
+   .. image:: /_static/model_clips/lingbot_world/lingbot-world-webrtc-recording-0529.avif
+      :alt: LingBot-World browser UI recording.
+      :class: model-video-player
 
 Profiling benchmark
 -------------------
