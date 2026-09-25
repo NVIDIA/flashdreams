@@ -28,7 +28,6 @@ from flashdreams.infra.diffusion.scheduler import (
     Scheduler,
     SchedulerConfig,
 )
-from flashdreams.infra.nvtx import nvtx_range
 
 
 def _warp(sigmas: Tensor, shift: float) -> Tensor:
@@ -238,13 +237,12 @@ class FlowMatchScheduler(Scheduler):
             # network expects timesteps in the input dtype so that
             # downstream modulation / Linear layers stay consistent.
             timestep = timesteps[i].to(dtype=input_dtype)
-            with nvtx_range(f"denoise[{i}]"):
-                if i > 0:
-                    assert clean is not None
-                    noise = torch.empty_like(noisy).normal_(generator=rng)
-                    noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
-                flow = predict_flow(noisy, timestep)
-                clean = noisy - sigma * flow
+            if i > 0:
+                assert clean is not None
+                noise = torch.empty_like(noisy).normal_(generator=rng)
+                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
+            flow = predict_flow(noisy, timestep)
+            clean = noisy - sigma * flow
         assert clean is not None, "denoising_step_list is empty"
         return clean.to(input_dtype)
 

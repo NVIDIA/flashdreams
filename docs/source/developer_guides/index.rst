@@ -59,8 +59,8 @@ Developer Guides
       :link: nvtx_profiling
       :link-type: doc
 
-      How to collect an nsys report with NVTX ranges, and how to read
-      generation against presentation on the timeline.
+      Learn how to capture and read an Nsight Systems trace to see what the
+      model thread, UI thread, and GPU are doing at any given moment.
 
    .. grid-item-card:: flashdreams.accelerated
       :link: flashdreams_accelerated

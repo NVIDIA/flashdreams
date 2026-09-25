@@ -13,7 +13,6 @@ from pathlib import Path
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, ModelInferenceState
 from flashdreams.api_v2.session import ISession
-from flashdreams.infra.nvtx import nvtx_range
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -148,7 +147,7 @@ def run_session(
                         return
                 if loop_result.step_index is None or not step_requested:
                     return
-                with nvtx_range("ui.step"):
+                with ui_loop.profiler.range("ui.step"):
                     raw_result = ui_loop.step(
                         loop_result.step_index, ui_loop.user_events
                     )

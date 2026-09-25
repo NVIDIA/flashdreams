@@ -17,11 +17,15 @@
 Profiling with Nsight Systems
 =============================
 
-An Nsight Systems trace records the model thread, the UI thread and the GPU on
-one clock. Use it to analyze CPU <-> GPU overlap.
+Nsight Systems puts the model thread, the UI thread and the GPU on a single
+timeline, so you can see when each stage runs, which stages overlap, and where
+time is spent waiting. If you only need per-stage timings, ``--stats-path`` is
+simpler.
 
 Collecting a report
 -------------------
+
+Install the model package and launch the app through the profiler:
 
 .. code-block:: bash
 
@@ -29,28 +33,31 @@ Collecting a report
    uv run flashdreams-profile -- t2v-self-forcing-wan2.1-t2v-1.3b --timeout 300 \
        --output-path artifacts/run.mp4 -- --prompt "A city street at night" --total-blocks 7
 
-The report lands in ``artifacts/profiles/``. ``flashdreams-profile`` sets
-``FLASHDREAMS_NVTX=1`` for the child process; without it the ranges are no-ops
-and the trace has no labels. The t2v app keeps its window open after the last
-block, so pass the runner's ``--timeout`` to end the run.
+By default the report is saved under ``artifacts/profiles/`` and the trace
+captures ``cuda,nvtx,osrt,vulkan``. Use ``--report-path PATH`` and ``--trace``
+to change either. The example passes the runner's ``--timeout`` because the t2v
+app keeps its window open after the last block, and the timeout ends the run
+instead.
 
-``--report-path PATH`` writes the report to ``PATH`` instead. ``--trace``
-defaults to ``cuda,nvtx,osrt,vulkan``; the native-window and ImGui renderers
-draw through Vulkan, so their submissions land beside the CUDA work.
+Leave ``--stats-path`` and ``FLASHDREAMS_SYNC_AND_PROFILE=1`` off while
+tracing. Each of them adds two ``torch.cuda.synchronize()`` calls per step, and
+those calls change the timeline you are trying to measure.
 
 Reading the report
 ------------------
 
-Open the ``.nsys-rep`` in the Nsight Systems GUI, or summarize it from the
-terminal:
+Open the ``.nsys-rep`` file in the Nsight Systems GUI to explore the timeline,
+or summarize the annotated stages from the terminal:
 
 .. code-block:: bash
 
    nsys stats --report nvtx_sum artifacts/profiles/<report>.nsys-rep
-   nsys stats --report nvtx_gpu_proj_sum artifacts/profiles/<report>.nsys-rep
 
-``nvtx_sum`` gives each range's CPU time. ``nvtx_gpu_proj_sum`` projects each
-range onto the GPU work it launched, so the two can be compared row by row.
+Each row is one NVTX range, showing how many times it ran and how long it took
+on the CPU timeline. Ranges nest, so a parent's duration overlaps its children.
+These durations also include time spent waiting, so they do not measure GPU
+execution. To see the GPU work a range launched, run the same command with
+``--report nvtx_gpu_proj_sum`` and match the rows by range name.
 
 .. list-table::
    :header-rows: 1
@@ -59,32 +66,20 @@ range onto the GPU work it launched, so the two can be compared row by row.
    * - Range
      - Meaning
    * - ``model.pace``
-     - Wait for the next cadence slot.
+     - Waiting to hold the target step rate.
    * - ``model.step[i]``
      - One autoregressive step.
    * - ``model.publish``
-     - Publish of the chunk to the presentation queue.
+     - Handing the chunk to the presentation queue.
    * - ``pipeline.encode`` / ``diffuse`` / ``decode``
      - Conditioning encode, denoising loop, VAE decode. The names match the
-       stage timings :class:`~flashdreams.infra.profiler.EventProfiler` logs.
+       stage timings ``finalize`` returns.
    * - ``pipeline.finalize``
      - Deferred KV-cache update for the next step.
-   * - ``denoise[i]``
-     - One denoising iteration: a single transformer forward pass.
    * - ``ui.step``
      - One UI loop iteration on the main thread.
 
-FlashVSR and SwiftVR implement ``generate`` themselves, so they emit no
-``pipeline.*`` ranges. Waypoint's scheduler has its own sampling loop and emits
-no ``denoise[i]``.
-
-Notes
------
-
-- Under CUDA graphs, ``denoise[i]`` measures only the launch of the replay.
-- Percentages in ``nvtx_sum`` double-count nested ranges: a ``denoise[i]`` is
-  also inside ``pipeline.diffuse``, which is inside ``model.step``. Read the
-  instance counts and medians instead.
-- The ranges call only NVTX. ``--stats-path`` and
-  ``FLASHDREAMS_SYNC_AND_PROFILE=1`` synchronize once per stage, so leave them
-  off when you are studying CPU <-> GPU overlap.
+The ranges are added in the shared runtime and pipeline, so individual
+schedulers do not add any of their own. FlashVSR and SwiftVR provide their own
+``generate`` implementations, so their traces do not include the
+``pipeline.*`` ranges.

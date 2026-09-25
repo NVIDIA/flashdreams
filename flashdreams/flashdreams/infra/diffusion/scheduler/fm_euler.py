@@ -40,7 +40,6 @@ from flashdreams.infra.diffusion.scheduler import (
     Scheduler,
     SchedulerConfig,
 )
-from flashdreams.infra.nvtx import nvtx_range
 
 
 @dataclass(kw_only=True)
@@ -214,12 +213,11 @@ class FlowMatchEulerDiscreteScheduler(Scheduler):
             # both the timestep handed to the network and the per-step
             # ``dt`` to the input dtype so downstream modulation /
             # Linear layers stay consistent.
-            with nvtx_range(f"denoise[{i}]"):
-                timestep = self.timesteps[i].to(dtype=input_dtype)
-                dt = (self.sigmas[i + 1] - self.sigmas[i]).to(dtype=input_dtype)
+            timestep = self.timesteps[i].to(dtype=input_dtype)
+            dt = (self.sigmas[i + 1] - self.sigmas[i]).to(dtype=input_dtype)
 
-                flow = predict_flow(noisy, timestep)
-                noisy = noisy + dt * flow
+            flow = predict_flow(noisy, timestep)
+            noisy = noisy + dt * flow
 
         return noisy.to(input_dtype)
 
