@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 import torch
 from torch import Tensor
 
-from flashdreams.infra.nvtx import nvtx_range
+from flashdreams.infra.profiler import (
+    IProfiler,
+    NullProfiler,
+    bind_inference_profiler,
+    unbind_inference_profiler,
+)
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -110,6 +115,7 @@ class ILoop(ABC, Generic[StateT]):
         frequency: int,
         shutdown_event: threading.Event,
         failure_queue: queue.Queue[BaseException],
+        profiler: IProfiler | None = None,
     ) -> None:
         """Store objects supplied when this loop is registered with a session.
 
@@ -118,6 +124,8 @@ class ILoop(ABC, Generic[StateT]):
             frequency: Maximum steps per second; zero disables pacing.
             shutdown_event: Event to signal that the loop should shutdown.
             failure_queue: Queue that stores loop failures/exceptions.
+            profiler: Profiler the session runs with; records nothing by
+                default.
 
         Raises:
             TypeError: ``frequency`` is not an integer.
@@ -129,6 +137,7 @@ class ILoop(ABC, Generic[StateT]):
             raise ValueError("frequency must be >= 0.")
         self.state = state
         self.frequency = frequency
+        self.profiler: IProfiler = profiler if profiler is not None else NullProfiler()
         self._message_queue: queue.Queue[_Message[StateT]] = queue.Queue()
         self.user_events = UserInputEvents([])
         self._pending_user_events: list[UserInputEvent] = []
@@ -355,6 +364,7 @@ class IModelLoop(ILoop[StateT], ABC):
             step_control: Admission and input synchronization; ``None`` runs locally.
             device: Mesh device to bind on this model thread before running hooks.
         """
+        profiler_token = bind_inference_profiler(self.profiler)
         steps_run = 0
         last_run_started: float | None = None
         unpublished_step_elapsed_s = 0.0
@@ -384,7 +394,7 @@ class IModelLoop(ILoop[StateT], ABC):
                     try:
                         run = self._begin_run(events, generation)
                         if run.step_index is not None:
-                            with nvtx_range("model.pace"):
+                            with self.profiler.range("model.pace"):
                                 last_run_started = self._pace(last_run_started)
                     except BaseException:
                         if step_control is not None:
@@ -404,7 +414,7 @@ class IModelLoop(ILoop[StateT], ABC):
                     # handled at the next boundary, never by skipping a collective.
                     assert run.step_index is not None
                     step_started_at = time.monotonic()
-                    with nvtx_range(f"model.step[{run.step_index}]"):
+                    with self.profiler.range(f"model.step[{run.step_index}]"):
                         raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
                     result = _model_results(raw_result)
@@ -415,7 +425,7 @@ class IModelLoop(ILoop[StateT], ABC):
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
-                    with nvtx_range("model.publish"):
+                    with self.profiler.range("model.publish"):
                         publish(generation, result, unpublished_step_elapsed_s)
                     unpublished_step_elapsed_s = 0.0
                 steps_run += 1
@@ -424,6 +434,7 @@ class IModelLoop(ILoop[StateT], ABC):
         finally:
             if steps_run_out is not None:
                 steps_run_out.append(steps_run)
+            unbind_inference_profiler(profiler_token)
             self._set_inference_state(ModelInferenceState.FINISHED)
             try:
                 self._shutdown()

@@ -98,7 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_path=report_path,
         trace=args.trace,
     )
-    # infra.nvtx reads this once at import, so the child must start with it set.
+    # The session reads this when it builds its profiler, so set it in the child.
     env = {**os.environ, "FLASHDREAMS_NVTX": "1"}
     completed = subprocess.run(command, env=env, check=False)
     if completed.returncode == 0:

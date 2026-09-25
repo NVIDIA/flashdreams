@@ -11,6 +11,7 @@ from typing import Any, final
 
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.core.distributed.parallel import ParallelContext
+from flashdreams.infra.profiler import IProfiler, get_inference_profiler
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -52,6 +53,15 @@ class ISession(ABC):
     def _presentation_manager(self) -> PresentationManager:
         """Return this session's model frame buffer."""
         return PresentationManager()
+
+    @cached_property
+    def _profiler(self) -> IProfiler:
+        """Return the profiler this session's loops run with.
+
+        Taken from the application, which sets it before creating sessions.
+        Assign before :meth:`init` to run with a different one.
+        """
+        return get_inference_profiler()
 
     @abstractmethod
     def init(self) -> None:
@@ -108,6 +118,7 @@ class ISession(ABC):
             frequency=self.session_desc.frames_per_second_for_ui,
             shutdown_event=self._shutdown_event,
             failure_queue=self._failure_queue,
+            profiler=self._profiler,
         )
         loop.register_session_ui_loop_objects(
             session_desc=self.session_desc,
@@ -151,6 +162,7 @@ class ISession(ABC):
             frequency=self.session_desc.frames_per_second_for_step,
             shutdown_event=self._shutdown_event,
             failure_queue=self._failure_queue,
+            profiler=self._profiler,
         )
         self._registered_model_loop = loop
         return loop

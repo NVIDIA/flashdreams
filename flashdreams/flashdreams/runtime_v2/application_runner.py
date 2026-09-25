@@ -13,6 +13,10 @@ from enum import Enum
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.infra.profiler import (
+    create_profiler,
+    set_flashdreams_inference_profiler,
+)
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.preparation_guard import (
     PreparationGuard,
@@ -137,7 +141,11 @@ class ApplicationRunner:
             self._application.init(commandline_args)
             if self._application_flags.skip_preload_validation:
                 return
-            with preparation_guard:
+            # Every session this application creates profiles the same way.
+            with (
+                preparation_guard,
+                set_flashdreams_inference_profiler(create_profiler()),
+            ):
                 next_session_desc: SessionDesc | None = session_desc
                 while next_session_desc is not None:
                     # Only multi-rank replacements have an agreed decision that

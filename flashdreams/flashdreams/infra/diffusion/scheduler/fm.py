@@ -16,7 +16,6 @@ from flashdreams.infra.diffusion.scheduler import (
     Scheduler,
     SchedulerConfig,
 )
-from flashdreams.infra.nvtx import nvtx_range
 
 
 def _warp(sigmas: Tensor, shift: float) -> Tensor:
@@ -242,21 +241,20 @@ class FlowMatchScheduler(Scheduler):
                 if reference_sampling
                 else timesteps[i].to(dtype=input_dtype)
             )
-            with nvtx_range(f"denoise[{i}]"):
-                if i > 0:
-                    assert clean is not None
-                    if reference_sampling:
-                        noise = torch.empty_like(clean).normal_(generator=rng)
-                        state_dtype = clean.dtype
-                    else:
-                        noise = torch.empty_like(noisy).normal_(generator=rng)
-                        state_dtype = input_dtype
-                    noisy = ((1.0 - sigma) * clean + sigma * noise).to(state_dtype)
-                flow = predict_flow(noisy, timestep)
+            if i > 0:
+                assert clean is not None
                 if reference_sampling:
-                    clean = (noisy - sigma * flow).to(flow.dtype)
+                    noise = torch.empty_like(clean).normal_(generator=rng)
+                    state_dtype = clean.dtype
                 else:
-                    clean = noisy - sigma * flow
+                    noise = torch.empty_like(noisy).normal_(generator=rng)
+                    state_dtype = input_dtype
+                noisy = ((1.0 - sigma) * clean + sigma * noise).to(state_dtype)
+            flow = predict_flow(noisy, timestep)
+            if reference_sampling:
+                clean = (noisy - sigma * flow).to(flow.dtype)
+            else:
+                clean = noisy - sigma * flow
         assert clean is not None, "denoising_step_list is empty"
         return clean if reference_sampling else clean.to(input_dtype)
 
