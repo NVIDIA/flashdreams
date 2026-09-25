@@ -44,7 +44,11 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCacheT,
 )
-from flashdreams.infra.profiler import EventProfiler
+from flashdreams.infra.profiler import (
+    EventProfiler,
+    format_result_as_ms,
+    get_inference_profiler,
+)
 
 
 @dataclass(kw_only=True)
@@ -110,7 +114,8 @@ class StreamInferencePipelineCache(
     """AR step index of the most recent ``generate``."""
 
     event_profiler: EventProfiler | None = None
-    """Per-step profiler, populated only when profiling is on."""
+    """Per-step CUDA-event timer for pipelines that time their own stages.
+    The shared path times stages through the pipeline's ``profiler`` instead."""
 
 
 class StreamInferencePipeline(
@@ -226,50 +231,41 @@ class StreamInferencePipeline(
             f"{expected}, got {autoregressive_index}"
         )
         cache.autoregressive_index = autoregressive_index
+        profiler = get_inference_profiler()
 
-        events: EventProfiler | None = None
-        if self.config.enable_sync_and_profile:
-            events = EventProfiler()
-            cache.event_profiler = events
+        # Opened even with no encoder, so the stage is timed either way.
+        with profiler.range("pipeline.encode"):
+            if input is not None:
+                assert self.encoder is not None, (
+                    "input was provided but the pipeline has no encoder. "
+                    "Configure StreamInferencePipelineConfig.encoder (e.g. with "
+                    "NullEncoderConfig() for an identity passthrough)."
+                )
+                assert cache.encoder_cache is not None  # invariant: paired with encoder
+                input = self.encoder(
+                    input=input,
+                    autoregressive_index=autoregressive_index,
+                    cache=cache.encoder_cache,
+                )
 
-        if input is not None:
-            assert self.encoder is not None, (
-                "input was provided but the pipeline has no encoder. "
-                "Configure StreamInferencePipelineConfig.encoder (e.g. with "
-                "NullEncoderConfig() for an identity passthrough)."
-            )
-            assert cache.encoder_cache is not None  # invariant: paired with encoder
-            input = self.encoder(
-                input=input,
+        with profiler.range("pipeline.diffuse"):
+            clean_latent, final_state = self.diffusion_model.generate(
                 autoregressive_index=autoregressive_index,
-                cache=cache.encoder_cache,
+                cache=cache.transformer_cache,
+                input=input,
             )
-
-        if events is not None:
-            events.record("encode")
-
-        clean_latent, final_state = self.diffusion_model.generate(
-            autoregressive_index=autoregressive_index,
-            cache=cache.transformer_cache,
-            input=input,
-        )
         cache.final_state = final_state
-
-        if events is not None:
-            events.record("diffuse")
 
         if self.decoder is not None:
             assert cache.decoder_cache is not None  # invariant: paired with decoder
-            output = self.decoder(
-                input=clean_latent,
-                autoregressive_index=autoregressive_index,
-                cache=cache.decoder_cache,
-            )
+            with profiler.range("pipeline.decode"):
+                output = self.decoder(
+                    input=clean_latent,
+                    autoregressive_index=autoregressive_index,
+                    cache=cache.decoder_cache,
+                )
         else:
             output = clean_latent
-
-        if events is not None:
-            events.record("decode")
 
         return output
 
@@ -290,8 +286,10 @@ class StreamInferencePipeline(
                 ``cache.final_state``.
 
         Returns:
-            ``None`` when profiling is disabled. Otherwise a snapshot of this
-            AR step's per-stage timings (ms) and GPU memory (GiB):
+            ``None`` unless stages were timed, either by the injected profiler
+            or by a pipeline that recorded onto ``cache.event_profiler``.
+            Otherwise a snapshot of this AR step's per-stage timings (ms) and
+            GPU memory (GiB):
             ``{<stage>_ms, total_ms, total_ms_wo_finalize, mem_alloc_gib,
             mem_reserved_gib, mem_peak_gib}``. The same numbers are also
             logged via ``logger.info``.
@@ -304,16 +302,20 @@ class StreamInferencePipeline(
         assert cache.final_state is not None, (
             "finalize() called before generate() — no FinalState on the cache."
         )
-        self.diffusion_model.finalize(final_state=cache.final_state)
-        if not self.config.enable_sync_and_profile:
+        profiler = get_inference_profiler()
+        with profiler.range("pipeline.finalize"):
+            self.diffusion_model.finalize(final_state=cache.final_state)
+        if cache.event_profiler is not None:
+            # A pipeline that overrides generate() times its own stages onto
+            # the cache. Those are the ones to report.
+            cache.event_profiler.record("finalize")
+            stats_ms = cache.event_profiler.sync_and_summarize()
+        else:
+            stats_ms = profiler.collect_stage_ms()
+        if not stats_ms:
             return None
 
-        assert cache.event_profiler is not None, (
-            "finalize() called before any generate() — no EventProfiler on the cache."
-        )
-        cache.event_profiler.record("finalize")
-        stats_ms = cache.event_profiler.sync_and_summarize()
-        stats = cache.event_profiler.format_result_as_ms(
+        stats = format_result_as_ms(
             stats_ms, collect_totals=True, collect_vram_info=True
         )
 

@@ -11,6 +11,10 @@ from collections.abc import Sequence
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.infra.profiler import (
+    create_profiler,
+    set_flashdreams_inference_profiler,
+)
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
@@ -80,28 +84,32 @@ class ApplicationRunner:
         session_run_started = False
         window_needs_close = True
         try:
-            self._application.init(commandline_args)
-            next_session_desc: SessionDesc | None = session_desc
-            while next_session_desc is not None:
-                if deadline is not None and time.monotonic() >= deadline:
-                    break
-                session = self._application.create_session(next_session_desc)
-                session_run_started = True
-                remaining_seconds = (
-                    None if deadline is None else max(0.0, deadline - time.monotonic())
-                )
-                try:
-                    next_session_desc = run_session(
-                        session,
-                        self._client_window,
-                        metrics_output_sink=self._metrics_output_sink,
-                        timeout_seconds=remaining_seconds,
+            # Every session this application creates profiles the same way.
+            with set_flashdreams_inference_profiler(create_profiler()):
+                self._application.init(commandline_args)
+                next_session_desc: SessionDesc | None = session_desc
+                while next_session_desc is not None:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        break
+                    session = self._application.create_session(next_session_desc)
+                    session_run_started = True
+                    remaining_seconds = (
+                        None
+                        if deadline is None
+                        else max(0.0, deadline - time.monotonic())
                     )
-                except BaseException:
-                    # ``run_session`` closes the window on every failure.
-                    window_needs_close = False
-                    raise
-                window_needs_close = next_session_desc is not None
+                    try:
+                        next_session_desc = run_session(
+                            session,
+                            self._client_window,
+                            metrics_output_sink=self._metrics_output_sink,
+                            timeout_seconds=remaining_seconds,
+                        )
+                    except BaseException:
+                        # ``run_session`` closes the window on every failure.
+                        window_needs_close = False
+                        raise
+                    window_needs_close = next_session_desc is not None
         finally:
             if window_needs_close:
                 _close_client_window(self._client_window)

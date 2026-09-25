@@ -149,7 +149,10 @@ def run_session(
                         return
                 if loop_result.step_index is None or not step_requested:
                     return
-                raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
+                with ui_loop.profiler.range("ui.step"):
+                    raw_result = ui_loop.step(
+                        loop_result.step_index, ui_loop.user_events
+                    )
                 if raw_result is not None and not isinstance(raw_result, StepResult):
                     raise TypeError("A UI loop must return StepResult or None.")
                 result = raw_result
