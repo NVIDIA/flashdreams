@@ -11,6 +11,7 @@ from interactive_drive import (
 )
 from omnidreams.config import (
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+    OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
@@ -27,6 +28,17 @@ OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = InteractiveDriveApplicationDefaults(
     width=1280,
     height=704,
     pipeline_config=OMNIDREAMS_PIPELINE_CONFIG,
+)
+OMNIDREAMS_INTERACTIVE_DRIVE_LAYERWISE_OFFLOAD_DEFAULTS = (
+    InteractiveDriveApplicationDefaults(
+        title="Interactive Drive (Layer-wise Offload)",
+        slug="interactive-drive-layerwise-offload",
+        total_blocks=0,
+        fps=30,
+        width=1280,
+        height=704,
+        pipeline_config=OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG,
+    )
 )
 OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS = (
     InteractiveDriveApplicationDefaults(
@@ -78,6 +90,13 @@ def create_app() -> IApplication:
     )
 
 
+def create_layerwise_offload_app() -> IApplication:
+    """Create Interactive Drive with layer-wise DiT parameter offload."""
+    return InteractiveDriveApplication(
+        defaults=OMNIDREAMS_INTERACTIVE_DRIVE_LAYERWISE_OFFLOAD_DEFAULTS,
+    )
+
+
 def create_optimized_gb300_app() -> IApplication:
     """Create Interactive Drive with the GB300-optimized OmniDreams config."""
     return InteractiveDriveApplication(
@@ -109,6 +128,7 @@ def create_fast_perf_app() -> IApplication:
 __all__ = [
     "create_app",
     "create_fast_perf_app",
+    "create_layerwise_offload_app",
     "create_optimized_gb300_app",
     "create_optimized_rtx_pro_6000_app",
     "create_perf_app",
