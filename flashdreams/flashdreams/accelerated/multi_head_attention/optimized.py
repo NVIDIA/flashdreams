@@ -47,6 +47,10 @@ from flashdreams.accelerated.multi_head_attention.flex import (
     FlexAttentionOptions,
     compiled_flex_attention,
 )
+from flashdreams.accelerated.multi_head_attention.functional import (
+    DenseSDPABackend,
+    dense_attention,
+)
 from flashdreams.accelerated.multi_head_attention.triton import (
     flash_attention_2,
     flash_attention_2_tma,
@@ -70,6 +74,9 @@ class SDPABackend(str, Enum):
 
     CUDNN = "cudnn"
     """Use Torch cuDNN for FP16/BF16 and native cuDNN Frontend for FP8."""
+
+    EFFICIENT = "efficient"
+    """Use PyTorch memory-efficient SDPA, with a math reference on CPU."""
 
     FA2 = "fa2"
     """Use Triton FlashAttention2 (FA2)."""
@@ -801,6 +808,21 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
 
             # Restore the module-wide ``[B, L, H, D]`` contract for head merging.
             output = output.transpose(1, 2)
+            return output if output_dtype is None else output.to(output_dtype)
+
+        if self.sdpa_backend is SDPABackend.EFFICIENT:
+            if isinstance(attn_mask, BlockMask):
+                raise TypeError(
+                    "memory-efficient attention requires a dense Tensor mask"
+                )
+            output = dense_attention(
+                query.transpose(1, 2),
+                key.transpose(1, 2),
+                value.transpose(1, 2),
+                attn_mask,
+                enable_gqa=enable_gqa,
+                backend=DenseSDPABackend.EFFICIENT,
+            ).transpose(1, 2)
             return output if output_dtype is None else output.to(output_dtype)
 
         if self.sdpa_backend is SDPABackend.FLEX:
