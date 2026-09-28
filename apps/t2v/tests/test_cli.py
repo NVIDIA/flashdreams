@@ -353,6 +353,8 @@ def test_a_run_writes_what_the_application_generated(
             "stub",
             "--output-path",
             str(path),
+            "--timeout",
+            "unbound",
             "--",
             "--prompt",
             _PROMPT,
@@ -418,6 +420,8 @@ def test_a_run_can_record_what_generating_the_clip_cost(
             str(clip_path),
             "--stats-path",
             str(stats_path),
+            "--timeout",
+            "unbound",
             "--",
             "--prompt",
             _PROMPT,
@@ -447,6 +451,8 @@ def test_nothing_is_measured_unless_a_run_asks(
             "stub",
             "--output-path",
             str(tmp_path / "clip.mp4"),
+            "--timeout",
+            "unbound",
             "--",
             "--prompt",
             _PROMPT,
@@ -477,7 +483,18 @@ def test_mp4_mode_defaults_to_on_demand_presentation(
     window = RecordingWindow()
     _install(monkeypatch, StubT2VApplication(_stand_in()), window)
 
-    cli.entrypoint(["stub", "--output-path", "clip.mp4", "--", "--prompt", _PROMPT])
+    cli.entrypoint(
+        [
+            "stub",
+            "--output-path",
+            "clip.mp4",
+            "--timeout",
+            "unbound",
+            "--",
+            "--prompt",
+            _PROMPT,
+        ]
+    )
 
     assert window.session_desc.presentation_mode is PresentationMode.ON_DEMAND
 
@@ -594,8 +611,9 @@ def test_the_command_passes_its_timeout_to_the_application_runner(
         commandline_args: Sequence[str],
         *,
         timeout_seconds: float | None = None,
+        steps: int | None = None,
     ) -> None:
-        del self, session_desc, commandline_args
+        del self, session_desc, commandline_args, steps
         received.append(timeout_seconds)
 
     _install(monkeypatch, UndescribedApplication(), ClosingWindow())

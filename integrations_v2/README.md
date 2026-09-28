@@ -209,12 +209,13 @@ channel into one frame, which is what most demos need (Refer to `slangpy_ui_demo
 
 ```bash
 uv sync --package flashdreams-color-fade --inexact
-uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 -- --seconds 4
+uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 --timeout unbound -- --seconds 4
 ```
 
 Arguments before `--` belong to the runtime, after it to the application, so
 `flashdreams-run-v2 color-fade -- --help` describes the application. Writing an
-MP4 needs `ffmpeg` on `PATH` and a frame size even in both directions.
+MP4 needs `ffmpeg` on `PATH`, a frame size even in both directions, and
+`--timeout` and/or `--total-model-steps` (a number or `unbound`).
 
 To stream to a browser instead:
 

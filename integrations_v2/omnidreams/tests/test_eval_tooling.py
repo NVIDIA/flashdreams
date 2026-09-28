@@ -231,6 +231,7 @@ def test_generation_command_uses_interactive_drive_mp4_output(tmp_path: Path) ->
     command = list(result.command)
     assert command[:2] == ["flashdreams-run-v2", "interactive-drive-omnidreams"]
     assert command[command.index("--mode") + 1] == "mp4"
+    assert command[command.index("--timeout") + 1] == "unbound"
     assert command[command.index("--output-path") + 1] == str(
         tmp_path / "run/generated/uuid-a/generated.mp4"
     )

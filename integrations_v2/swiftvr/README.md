@@ -74,7 +74,7 @@ The integration binds the reusable V2V application:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
-  --output-path artifacts/swiftvr.mp4 -- \
+  --output-path artifacts/swiftvr.mp4 --timeout unbound -- \
   --video-path input.mp4
 ```
 
@@ -83,7 +83,7 @@ The V2V binding uses the 2x preset. For a reproducible 704p run, use a
 
 ```bash
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
-  --output-path artifacts/swiftvr-1408p.mp4 \
+  --output-path artifacts/swiftvr-1408p.mp4 --timeout unbound \
   --stats-path artifacts/swiftvr-1408p.json -- \
   --video-path input-1280x704-30fps.mp4
 ```

@@ -10,7 +10,9 @@ would generate, with whatever the frame arguments here override.
 
 What the modes are, and what each one takes, belongs to
 :mod:`flashdreams.runtime_v2.client_window_factory`. Nothing here reads an
-argument that only one of them uses.
+argument that only one of them uses. ``--timeout`` and ``--total-model-steps``
+belong to this command; ``--mode mp4`` requires that at least one of them is
+present.
 """
 
 import argparse
@@ -49,6 +51,25 @@ command also has, so the split is stated rather than guessed.
 _HELP_FLAGS = frozenset({"-h", "--help"})
 """What an application's own arguments use to ask for its help."""
 
+_UNBOUND = "unbound"
+"""CLI token for no time-limit or no steps limit."""
+
+
+class _Omitted:
+    """Sentinel for ``--timeout`` or ``--total-model-steps`` when it was not given.
+
+    After parsing, ``None`` means ``unbound``. ``--mode mp4`` still requires
+    the argument to have been named.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "OMITTED"
+
+
+_OMITTED = _Omitted()
+
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
     """Run the command, reporting where to watch what it generates."""
@@ -56,10 +77,6 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     own_args, application_args = split_arguments(arguments)
     parser = _parser()
     parsed = parser.parse_args(own_args)
-    if parsed.timeout is not None and (
-        not math.isfinite(parsed.timeout) or parsed.timeout <= 0
-    ):
-        parser.error("--timeout must be a finite number greater than zero.")
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
 
@@ -75,6 +92,12 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
             mode.check_arguments(parsed)
         except ValueError as error:
             parser.error(str(error))
+        if (
+            parsed.mode == "mp4"
+            and parsed.timeout is _OMITTED
+            and parsed.total_model_steps is _OMITTED
+        ):
+            parser.error("--mode mp4 requires --timeout and/or --total-model-steps.")
 
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
@@ -85,7 +108,6 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     session_desc = _session_desc(application, parsed)
     window = mode.create(parsed)
     _report(mode.starting(window))
-    # The session's UI and client input decide when the run ends.
     metrics_output_sink = (
         None if parsed.stats_path is None else MetricsOutputSink(parsed.stats_path)
     )
@@ -96,7 +118,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     ).run(
         session_desc,
         application_args,
-        timeout_seconds=parsed.timeout,
+        timeout_seconds=_resolved_limit(parsed.timeout),
+        steps=_resolved_limit(parsed.total_model_steps),
     )
     _report(mode.finished(window))
 
@@ -134,10 +157,25 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("slug", help="Application to run.")
     parser.add_argument(
         "--timeout",
-        type=float,
-        default=None,
-        metavar="SECONDS",
-        help="Stop the application after this many seconds.",
+        type=_parse_timeout_seconds,
+        default=_OMITTED,
+        metavar=f"{{SECONDS,{_UNBOUND}}}",
+        help=(
+            "Stop the application after this many seconds. "
+            f"{_UNBOUND} means no time-limit. Remaining time is what a "
+            "replacement session receives."
+        ),
+    )
+    parser.add_argument(
+        "--total-model-steps",
+        type=_parse_total_model_steps,
+        default=_OMITTED,
+        metavar=f"{{N,{_UNBOUND}}}",
+        help=(
+            "Maximum model steps before ending the session. "
+            f"{_UNBOUND} means no steps limit. A replacement session gets N "
+            "again, not remaining steps."
+        ),
     )
     add_client_window_arguments(parser)
     _add_session_arguments(parser)
@@ -148,6 +186,45 @@ def _report(message: str | None) -> None:
     """Print what the mode has to say about the run, if it has anything."""
     if message is not None:
         print(message, flush=True)
+
+
+def _resolved_limit(parsed_value: object) -> Any:
+    """Return ``None`` when the argument was omitted, otherwise the parsed value."""
+    return None if parsed_value is _OMITTED else parsed_value
+
+
+def _parse_timeout_seconds(value: str) -> float | None:
+    """Parse ``--timeout`` as seconds, or ``unbound`` as no time-limit."""
+    if value == _UNBOUND:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            f"--timeout must be a finite number greater than zero, or {_UNBOUND}."
+        ) from error
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--timeout must be a finite number greater than zero, or {_UNBOUND}."
+        )
+    return seconds
+
+
+def _parse_total_model_steps(value: str) -> int | None:
+    """Parse ``--total-model-steps`` as a count, or ``unbound`` as no steps limit."""
+    if value == _UNBOUND:
+        return None
+    try:
+        steps = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            f"--total-model-steps must be a non-negative integer, or {_UNBOUND}."
+        ) from error
+    if steps < 0:
+        raise argparse.ArgumentTypeError(
+            f"--total-model-steps must be a non-negative integer, or {_UNBOUND}."
+        )
+    return steps
 
 
 def _add_session_arguments(parser: argparse.ArgumentParser) -> None:

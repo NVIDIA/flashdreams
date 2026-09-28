@@ -147,7 +147,8 @@ What to expect
 - **First launch**: a few minutes (download + Triton autotuning +
   CUDA-graph warmup). Subsequent launches reuse the caches.
 - **Outputs**: select MP4, WebRTC, or native-window presentation with the
-  ``flashdreams-run-v2`` runtime arguments. The Cam2V defaults are 16 FPS and
+  ``flashdreams-run-v2`` runtime arguments. ``--mode mp4`` requires
+  ``--timeout`` and/or ``--total-model-steps``. The Cam2V defaults are 16 FPS and
   464×832.
 
 See :doc:`/developer_guides/inference_pipeline_overview` for what one

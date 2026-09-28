@@ -22,14 +22,15 @@ Launch through a model integration. For FlashVSR:
 
 ```bash
 uv sync --package flashdreams-flashvsr --inexact
-uv run --no-sync flashdreams-run-v2 v2v-flashvsr-v1.1-sparse-ratio-2.0 --output-path upscaled.mp4 -- --video-path input.mp4
+uv run --no-sync flashdreams-run-v2 v2v-flashvsr-v1.1-sparse-ratio-2.0 --output-path upscaled.mp4 --timeout unbound -- --video-path input.mp4
 ```
 
 Omit `--video-path` to download and process the bounded Big Buck
 Bunny default used by the original demo. Input paths may also be HTTP(S) URLs.
 
 Use `--mode webrtc` or `--mode native-window` instead of
-`--output-path` to watch the run live.
+`--output-path` to watch the run live. `--mode mp4` (the default) requires
+`--timeout` and/or `--total-model-steps`.
 
 Application arguments follow the final `--`:
 

@@ -46,6 +46,7 @@ class ApplicationRunner:
         commandline_args: Sequence[str] = (),
         *,
         timeout_seconds: float | None = None,
+        steps: int | None = None,
     ) -> None:
         """Initialize the application and run sessions until the window exits.
 
@@ -65,14 +66,21 @@ class ApplicationRunner:
             timeout_seconds: Maximum application runtime; ``None`` waits for a
                 normal lifecycle exit. The deadline includes initialization and
                 every replacement session.
+            steps: Maximum model steps for each session; ``None`` leaves that
+                session's length to the UI, the client window, or
+                ``timeout_seconds``. A replacement session gets the same
+                ``steps``, not remaining steps from the previous session.
 
         Raises:
-            ValueError: ``timeout_seconds`` is not finite and greater than zero.
+            ValueError: ``timeout_seconds`` is not finite and greater than
+                zero, or ``steps`` is negative.
         """
         if timeout_seconds is not None and (
             not math.isfinite(timeout_seconds) or timeout_seconds <= 0
         ):
             raise ValueError("timeout_seconds must be finite and greater than zero.")
+        if steps is not None and steps < 0:
+            raise ValueError(f"steps must be >= 0 or None, got {steps}.")
 
         deadline = (
             None if timeout_seconds is None else time.monotonic() + timeout_seconds
@@ -95,6 +103,7 @@ class ApplicationRunner:
                         session,
                         self._client_window,
                         metrics_output_sink=self._metrics_output_sink,
+                        steps=steps,
                         timeout_seconds=remaining_seconds,
                     )
                 except BaseException:

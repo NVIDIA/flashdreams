@@ -20,11 +20,13 @@ CPU-only tests for the v2 protocols themselves:
 - `test_mp4_output_sink.py` covers the sink that writes an MP4, reading each file
   back to check what was encoded. Its encoding tests are skipped when `ffmpeg` is
   missing from `PATH`.
-- `test_client_window_factory.py` covers each way of watching a run answering for
-  itself: the window its arguments ask for, the usage error when they are
-  incomplete, and what it says about where the output went. The WebRTC tests are
-  skipped when the serving packages are missing, which is also why a run writing
-  a file does not import them.
+- `test_application_runner.py` covers `ApplicationRunner`: init, session
+  replacement, timeout, remaining time on a replacement session, and the
+  per-session `--total-model-steps` limit.
+- `test_cli.py` covers `flashdreams-run-v2` `--timeout` and
+  `--total-model-steps`: MP4 requires one or both, native-window and WebRTC
+  may omit both, every mode forwards a named flag, and `unbound` means no
+  time-limit or no steps limit.
 - [`apps/t2v/tests`](../../apps/t2v/tests) covers the reusable text-to-video
   application, session, model loop, and stand-in model checks. Its
   [`test_cli.py`](../../apps/t2v/tests/test_cli.py) also covers

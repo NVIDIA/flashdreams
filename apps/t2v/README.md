@@ -26,9 +26,12 @@ follow `--`:
 
 ```bash
 uv run --package flashdreams-self-forcing flashdreams-run-v2 \
-  t2v-self-forcing-wan2.1-t2v-1.3b --output-path clip.mp4 -- \
+  t2v-self-forcing-wan2.1-t2v-1.3b --output-path clip.mp4 --timeout unbound -- \
   --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
+
+`--mode mp4` (the default) requires `--timeout` and/or `--total-model-steps`.
+`unbound` means no runner time-limit; `--total-blocks` still ends the clip.
 
 To keep the model resident and submit prompts from a browser:
 

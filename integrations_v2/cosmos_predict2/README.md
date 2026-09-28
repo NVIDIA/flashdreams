@@ -59,7 +59,7 @@ export HF_HOME=~/.cache/huggingface  # default
 
 ```bash
 uv run --package flashdreams-cosmos-predict2 flashdreams-run-v2 \
-  t2v-cosmos2-t2v-2b-720p --output-path artifacts/t2v-cosmos2-t2v-2b-720p.mp4 -- \
+  t2v-cosmos2-t2v-2b-720p --output-path artifacts/t2v-cosmos2-t2v-2b-720p.mp4 --timeout unbound -- \
   --prompt "A cat surfing." --no-compile
 ```
 
