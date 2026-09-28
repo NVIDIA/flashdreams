@@ -622,8 +622,8 @@ SPDX-License-Identifier: Apache-2.0
             <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="c1"># Postpone KV cache update to the finalization step. No runtime</span>
-        <span class="c1"># subscript: ``_FinalStateCacheT`` is bound from ``cache``&#39;s type.</span>
+        <span class="c1"># Retain the clean state for finalization. A transformer may already</span>
+        <span class="c1"># have refreshed specialized cache state in ``postprocess_clean_latent``.</span>
         <span class="n">final_state</span> <span class="o">=</span> <span class="n">DiffusionModel</span><span class="o">.</span><span class="n">FinalState</span><span class="p">(</span>
             <span class="n">clean_latent</span><span class="o">=</span><span class="n">clean_latent</span><span class="p">,</span>
             <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
