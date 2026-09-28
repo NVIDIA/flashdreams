@@ -22,6 +22,8 @@ Available application slugs:
 | `cam2v-lingbot-world-fast-taehv-window15-sink3` | `PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3` |
 | `cam2v-lingbot-world-v2-14b-causal-fast` | `PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST` |
 | `cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3` | `PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3` |
+| `cam2v-lingbot-world-v2-1p3b-causal-fast-max-perf` | `PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF` |
+| `cam2v-lingbot-world-v2-1p3b-causal-fast-max-perf-taehv` | `PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV` |
 
 `cam2v-lingbot` remains the short compatibility alias for the bounded-window
 TAEHV default. All variants use the same Cam2V application defaults.

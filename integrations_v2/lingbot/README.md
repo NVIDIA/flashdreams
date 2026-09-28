@@ -15,6 +15,8 @@ Its public model variants are `StreamInferencePipelineConfig` literals in
 - `PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3`
 - `PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST`
 - `PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3`
+- `PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF`
+- `PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV`
 
 ## Install
 
@@ -49,3 +51,17 @@ pipeline = PIPELINE_LINGBOT_WORLD_FAST.setup().to("cuda").eval()
 ```bash
 uv run --no-sync pytest integrations_v2/lingbot -m ci_cpu
 ```
+
+### Notes on performance options
+
+These options are fields on `LingbotWorldDiTNetworkConfig`:
+
+| Option | Values | Purpose |
+| --- | --- | --- |
+| `linear_backend` | `torch`, `rowwise_fp8` | Use standard Torch linears for the accuracy baseline or row-wise FP8 for faster large projections. |
+| `self_attention_backend` | `wan`, `fp8_tma`, `scaled_fp8` | Use WAN attention for the accuracy baseline, direct FP8 for maximum speed, or dynamically scaled FP8 to preserve more range. |
+| `self_attention_use_tma` | `true`, `false` | Prefer the TMA attention kernel on supported GPUs; otherwise use the pointer-based kernel. |
+
+The max-performance presets select `rowwise_fp8`, `fp8_tma`, and TMA. Direct
+FP8 is faster than scaled FP8 but gives up the latter's per-tensor scale
+compensation.
