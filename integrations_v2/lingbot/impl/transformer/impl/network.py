@@ -152,6 +152,10 @@ class LingbotWorldDiTNetwork(WanDiTNetwork):
         if self._parameters_updated_after_loading_checkpoint:
             return
         super().update_parameters_after_loading_checkpoint()
+        for block in self.blocks:
+            assert isinstance(block, CamCtrlBlock)
+            if isinstance(block.self_attn, OptimizedSelfAttention):
+                block.self_attn.refresh_derived_weights()
         if self.linear_backend == "rowwise_fp8":
             _replace_large_block_linears_with_fp8(self.blocks)
 

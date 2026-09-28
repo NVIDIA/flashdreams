@@ -125,13 +125,14 @@ class OptimizedSelfAttention(SelfAttention):
         )
         self.attention_backend = attention_backend
         self.use_tma = use_tma
-        self._refresh_derived_weights()
-        self.register_load_state_dict_post_hook(self._refresh_derived_weights)
+        self.refresh_derived_weights()
+        self.register_load_state_dict_post_hook(
+            self._refresh_derived_weights_after_load
+        )
 
     @torch.no_grad()
-    def _refresh_derived_weights(self, *args: object) -> None:
+    def refresh_derived_weights(self) -> None:
         """Rebuild nonpersistent fused weights from checkpoint-native linears."""
-        del args
         biases = (self.q.bias, self.k.bias, self.v.bias)
         self.fused_qkv = QuantizedNonPersistentLinear(
             torch.cat((self.q.weight, self.k.weight, self.v.weight), dim=0),
@@ -148,6 +149,14 @@ class OptimizedSelfAttention(SelfAttention):
             torch.float8_e4m3fn,
         )
 
+    def _refresh_derived_weights_after_load(
+        self,
+        module: nn.Module,
+        incompatible_keys: object,
+    ) -> None:
+        del module, incompatible_keys
+        self.refresh_derived_weights()
+
     def _apply(
         self,
         fn: Callable[[Tensor], Tensor],
@@ -155,7 +164,7 @@ class OptimizedSelfAttention(SelfAttention):
     ) -> "OptimizedSelfAttention":
         """Move canonical tensors, then rebuild derived FP8 projections."""
         module = super()._apply(fn, recurse=recurse)
-        self._refresh_derived_weights()
+        self.refresh_derived_weights()
         return module
 
     def set_context_parallel_group(self, cp_group: ProcessGroup | None) -> None:
