@@ -155,8 +155,11 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FakeEventProfiler:
-        def __init__(self, *, synchronize_distributed: bool) -> None:
+        def __init__(
+            self, *, synchronize_distributed: bool, device: torch.device
+        ) -> None:
             assert not synchronize_distributed
+            assert device == torch.device("cuda:1")
 
         def record(self, stage: str) -> None:
             assert stage == "postprocess"
@@ -165,8 +168,11 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
             return {"postprocess": 0.125}
 
     monkeypatch.setattr(postprocess_stream_module, "EventProfiler", _FakeEventProfiler)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     stream = VideoPostprocessStream(
-        postprocess=VideoPostprocessChainConfig(processors=(_BufferConfig(),)),
+        postprocess=VideoPostprocessChainConfig(
+            processors=(_BufferConfig(device="cuda:1"),)
+        ),
         output_layout="tchw",
         profile=True,
     )
