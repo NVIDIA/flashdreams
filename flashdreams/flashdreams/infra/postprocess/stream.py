@@ -113,7 +113,7 @@ class VideoPostprocessStream:
         self.last_process_stats = None
         with self._device_context():
             self._prepare(output)
-            if self.profile:
+            if self.profile and self.postprocess.is_enabled():
                 return self._process_profiled(
                     output, autoregressive_index=autoregressive_index
                 )
@@ -215,7 +215,7 @@ class VideoPostprocessStream:
             return None
         self._closed = True
         with self._device_context():
-            if not self.profile:
+            if not self.profile or not self.postprocess.is_enabled():
                 return flush_video_postprocess(
                     postprocess=self.postprocess,
                     output_layout=self.output_layout,
@@ -241,10 +241,7 @@ class VideoPostprocessStream:
     def _create_event_profiler(self) -> EventProfiler:
         # The stream owns its one explicit readiness barrier in ``_prepare``.
         # Profiling must not inject additional collectives between model calls.
-        devices = {
-            torch.device(processor.device)
-            for processor in self.postprocess.resolved_processors()
-        }
+        devices = self._resolved_devices()
         if len(devices) != 1:
             raise ValueError(
                 "postprocess profiling requires every processor to use one "
@@ -259,14 +256,29 @@ class VideoPostprocessStream:
         return EventProfiler(synchronize_distributed=False, device=device)
 
     def _device_context(self):
+        if not torch.cuda.is_available():
+            return nullcontext()
+        devices = self._resolved_devices()
+        if len(devices) != 1:
+            return nullcontext()
+        device = devices.pop()
+        return torch.cuda.device(device) if device.type == "cuda" else nullcontext()
+
+    def _resolved_devices(self) -> set[torch.device]:
+        """Return configured devices with bare ``cuda`` resolved to its ordinal."""
         devices = {
             torch.device(processor.device)
             for processor in self.postprocess.resolved_processors()
         }
-        if len(devices) != 1 or not torch.cuda.is_available():
-            return nullcontext()
-        device = devices.pop()
-        return torch.cuda.device(device) if device.type == "cuda" else nullcontext()
+        if any(device.type == "cuda" and device.index is None for device in devices):
+            current_device = torch.cuda.current_device()
+            devices = {
+                torch.device("cuda", current_device)
+                if device.type == "cuda" and device.index is None
+                else device
+                for device in devices
+            }
+        return devices
 
     def _prepare(self, output: Tensor) -> None:
         """Prepare sessions once, then synchronize distributed readiness."""
