@@ -174,7 +174,7 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
     def __init__(self, config: SwiftVRPostProcessorConfig) -> None:
         super().__init__(config)
         self._pipeline: SwiftVRPipeline | None = None
-        self._warmed_specs: set[VideoSpec] = set()
+        self._warmed_shapes: set[tuple[int, int, int]] = set()
 
     def start(self, spec: VideoSpec) -> VideoPostProcessorSession:
         """Start one causal video stream."""
@@ -193,7 +193,8 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
     def prepare(self, spec: VideoSpec) -> None:
         """Load and optionally warm the model once for this input shape."""
         pipeline = self.pipeline()
-        if not self.config.prewarm or spec in self._warmed_specs:
+        shape = (spec.height, spec.width, spec.channels)
+        if not self.config.prewarm or shape in self._warmed_shapes:
             return
         output = self.config.output_spec(spec)
         stream = SwiftVRStream(
@@ -213,7 +214,7 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
         stream.flush()
         if pipeline.device.type == "cuda":
             torch.cuda.synchronize(pipeline.device)
-        self._warmed_specs.add(spec)
+        self._warmed_shapes.add(shape)
 
 
 class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
