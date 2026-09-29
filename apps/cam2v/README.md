@@ -41,7 +41,7 @@ Runtime arguments, before `--`:
 | `--mode {mp4,webrtc,native-window}` | Select file, browser, or native-window output |
 | `--stats-path PATH` | Write model-step measurements as JSON |
 | `--output-path PATH` | MP4 destination; required in `mp4` mode |
-| `--timeout {SECONDS,unbound}` | Time-limit for the whole run. `--mode mp4` requires this and/or `--total-model-steps` |
+| `--timeout {SECONDS,unbound}` | Time-limit for the whole run |
 | `--total-model-steps {N,unbound}` | Per-session model steps limit |
 | `--host HOST`, `--port PORT` | WebRTC bind address |
 | `--window-title TITLE` | Native-window title |

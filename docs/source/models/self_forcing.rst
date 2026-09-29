@@ -120,8 +120,7 @@ What to expect
   is ``60`` for full rollouts. See
   :doc:`/developer_guides/inference_pipeline_overview` for what one
   chunk does end-to-end.
-- **Outputs**: ``--output-path`` selects the MP4 destination. ``--mode mp4``
-  requires ``--timeout`` and/or ``--total-model-steps``. The application
+- **Outputs**: ``--output-path`` selects the MP4 destination. The application
   emits 16 FPS at 832×480.
 
 Measured runtimes on H100 80GB with ``--total-blocks 7``:

@@ -25,7 +25,7 @@ uv run --package flashdreams-action2v flashdreams-run-v2 action2v-dummy \
 Options after `--` belong to Action2V. Runtime options such as `--mode`,
 `--output-path`, `--timeout`, `--total-model-steps`, `--stats-path`, `--host`,
 and `--port` go before the separator; run `flashdreams-run-v2 --help` for that
-list. `--mode mp4` requires `--timeout` and/or `--total-model-steps`.
+list.
 
 | Option | Default | Description |
 | --- | --- | --- |

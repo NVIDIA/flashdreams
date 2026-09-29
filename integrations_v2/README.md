@@ -214,8 +214,7 @@ uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 --timeout 
 
 Arguments before `--` belong to the runtime, after it to the application, so
 `flashdreams-run-v2 color-fade -- --help` describes the application. Writing an
-MP4 needs `ffmpeg` on `PATH`, a frame size even in both directions, and
-`--timeout` and/or `--total-model-steps` (a number or `unbound`).
+MP4 needs `ffmpeg` on `PATH` and a frame size even in both directions.
 
 To stream to a browser instead:
 

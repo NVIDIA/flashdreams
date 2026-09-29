@@ -29,8 +29,7 @@ Omit `--video-path` to download and process the bounded Big Buck
 Bunny default used by the original demo. Input paths may also be HTTP(S) URLs.
 
 Use `--mode webrtc` or `--mode native-window` instead of
-`--output-path` to watch the run live. `--mode mp4` (the default) requires
-`--timeout` and/or `--total-model-steps`.
+`--output-path` to watch the run live.
 
 Application arguments follow the final `--`:
 

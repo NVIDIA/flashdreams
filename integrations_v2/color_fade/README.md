@@ -23,8 +23,7 @@ uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 \
 ```
 
 Writing an MP4 needs an `ffmpeg` executable on `PATH`, and a frame size that is
-even in both directions. `--mode mp4` requires `--timeout` and/or
-`--total-model-steps`; `unbound` means no runner time-limit. The fade still
+even in both directions. `unbound` means no runner time-limit; the fade still
 ends when the session finishes.
 
 ## Arguments

@@ -38,7 +38,7 @@ ffmpeg -version
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --mode mp4 \
   --timeout unbound \
-  --output-path artifacts/swiftvr-2x.mp4 --timeout unbound -- \
+  --output-path artifacts/swiftvr-2x.mp4 -- \
   --video-path input.mp4
 ```
 
@@ -56,7 +56,7 @@ Use `--max-chunks 1` for a short smoke test:
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --mode mp4 \
   --timeout unbound \
-  --output-path artifacts/swiftvr-smoke.mp4 --timeout unbound -- \
+  --output-path artifacts/swiftvr-smoke.mp4 -- \
   --video-path input.mp4 \
   --max-chunks 1
 ```

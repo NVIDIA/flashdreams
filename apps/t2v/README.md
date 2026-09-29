@@ -30,7 +30,6 @@ uv run --package flashdreams-self-forcing flashdreams-run-v2 \
   --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
 
-`--mode mp4` (the default) requires `--timeout` and/or `--total-model-steps`.
 `unbound` means no runner time-limit; `--total-blocks` still ends the clip.
 
 To keep the model resident and submit prompts from a browser:
