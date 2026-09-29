@@ -54,6 +54,7 @@ from crazy_robotaxi.controls import (
     controls_fields,
     update_binding,
 )
+from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import (
     LEADERBOARD_LIMIT,
@@ -183,6 +184,12 @@ _MPS_TO_MPH = 2.2369362920544
 
 _TAXI_ACCENT_RGB = (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
 _RACE_ACCENT_RGB = (118.0 / 255.0, 185.0 / 255.0, 0.0)
+_FREE_ROAM_ACCENT_RGB = (0.0, 98.0 / 255.0, 1.0)
+_MODE_ACCENT_RGB = {
+    "taxi": _TAXI_ACCENT_RGB,
+    "race": _RACE_ACCENT_RGB,
+    "free-roam": _FREE_ROAM_ACCENT_RGB,
+}
 _OPTION_ENABLED_RGB = (0.25, 0.85, 0.25)
 
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
@@ -203,7 +210,7 @@ class TaxiHudFrame:
     frame_key: int
     """Live tensor data pointer identifying the corresponding video frame."""
 
-    snapshot: TaxiGameSnapshot | RaceGameSnapshot
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot
     """Game-rules snapshot for the corresponding simulation frame."""
 
     rig_pose_world: npt.NDArray[np.float32]
@@ -792,7 +799,7 @@ class TaxiHudState:
         if mode is None:
             self._menu_stage = "mode"
             return
-        if mode == "taxi":
+        if mode != "race":
             self._start_game(option)
             return
         course_id = self.initial_race_course_id
@@ -1210,7 +1217,10 @@ class TaxiHudState:
                 width=self.width,
                 height=self.height,
             )
-        elif source.snapshot.checkpoint_markers:
+        elif (
+            isinstance(source.snapshot, RaceGameSnapshot)
+            and source.snapshot.checkpoint_markers
+        ):
             camera = FThetaCameraModel(
                 calibration,
                 output_width=self.width,
@@ -1301,6 +1311,14 @@ class TaxiHudState:
                 color_rgb=(1.0, 0.18, 0.08),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
+        elif isinstance(snapshot, FreeRoamSnapshot):
+            self._draw_status_strip(
+                imgui,
+                "FREE-ROAM",
+                color_rgb=_FREE_ROAM_ACCENT_RGB,
+                top=35.0 + prompt_offset,
+            )
+            self._draw_bev_window(imgui, bev_frame, hud_frame)
         elif (
             isinstance(snapshot, TaxiGameSnapshot)
             and snapshot.session_state == "playing"
@@ -1318,7 +1336,15 @@ class TaxiHudState:
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if active:
-            self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_speed(
+                imgui,
+                hud_frame.speed_mps,
+                color_rgb=(
+                    _FREE_ROAM_ACCENT_RGB
+                    if isinstance(snapshot, FreeRoamSnapshot)
+                    else _RACE_ACCENT_RGB
+                ),
+            )
             self._draw_coin_counter(
                 imgui,
                 hud_frame.live_edit_status,
@@ -1547,8 +1573,14 @@ class TaxiHudState:
             font=font,
         )
 
-    def _draw_speed(self, imgui: Any, speed_mps: float) -> None:
-        """Draw the source HUD's green speed digit directly over the frame."""
+    def _draw_speed(
+        self,
+        imgui: Any,
+        speed_mps: float,
+        *,
+        color_rgb: tuple[float, float, float],
+    ) -> None:
+        """Draw the speed digit directly over the frame."""
         draw_list = imgui.get_background_draw_list()
         font = self._gameplay_overlay_font(imgui)
         font_size = max(28.0, min(76.0, float(self.height) * 0.12))
@@ -1559,10 +1591,7 @@ class TaxiHudState:
         left = 24.0
         top = max(10.0, float(self.height) - speed_height - 42.0)
         shadow = _imgui_color(imgui, (0.0, 0.0, 0.0, 0.9))
-        green = _imgui_color(
-            imgui,
-            (118.0 / 255.0, 185.0 / 255.0, 0.0, 1.0),
-        )
+        color = _imgui_color(imgui, (*color_rgb, 1.0))
         _draw_overlay_text(
             imgui,
             draw_list,
@@ -1578,7 +1607,7 @@ class TaxiHudState:
             speed,
             position=(left, top),
             font_size=font_size,
-            color=green,
+            color=color,
             font=font,
         )
         unit_size = max(14.0, font_size * 0.28)
@@ -2562,7 +2591,7 @@ class TaxiHudState:
         scale = min(
             1.0,
             max(1.0, float(self.width) - 28.0) / 500.0,
-            max(1.0, float(self.height) - 28.0) / 445.0,
+            max(1.0, float(self.height) - 28.0) / 520.0,
         )
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
@@ -2577,9 +2606,9 @@ class TaxiHudState:
         )
         description_font_size = max(12.0, 13.0 * scale)
         button_labels = (
-            ("TAXI", "RACE", "CONTROLS", "OPTIONS", "EXIT")
+            ("TAXI", "RACE", "FREE-ROAM", "CONTROLS", "OPTIONS", "EXIT")
             if self.settings_document is not None
-            else ("TAXI", "RACE", "CONTROLS", "EXIT")
+            else ("TAXI", "RACE", "FREE-ROAM", "CONTROLS", "EXIT")
         )
         button_width = max(
             _overlay_text_size(
@@ -2590,6 +2619,11 @@ class TaxiHudState:
             _overlay_text_size(
                 imgui,
                 "CHASE THE FASTEST TRACK TIME.",
+                description_font_size,
+            )[0],
+            _overlay_text_size(
+                imgui,
+                "EXPLORE THE MAP AT YOUR OWN PACE.",
                 description_font_size,
             )[0],
             *(_button_content_width(imgui, label) for label in button_labels),
@@ -2646,6 +2680,27 @@ class TaxiHudState:
                 font_size=description_font_size,
                 color=(0.72, 0.72, 0.76, 1.0),
             )
+            for color, alpha in (
+                (imgui.Col_.button, 0.78),
+                (imgui.Col_.button_hovered, 1.0),
+                (imgui.Col_.button_active, 0.62),
+            ):
+                imgui.push_style_color(
+                    color, imgui.ImVec4(*_FREE_ROAM_ACCENT_RGB, alpha)
+                )
+            try:
+                if _centered_imgui_button(
+                    imgui, "FREE-ROAM", imgui.ImVec2(button_width, button_height)
+                ):
+                    self._select_mode("free-roam")
+            finally:
+                imgui.pop_style_color(3)
+            _centered_imgui_text(
+                imgui,
+                "EXPLORE THE MAP AT YOUR OWN PACE.",
+                font_size=description_font_size,
+                color=(0.72, 0.72, 0.76, 1.0),
+            )
             imgui.separator()
             if _centered_imgui_button(
                 imgui, "CONTROLS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
@@ -2687,7 +2742,7 @@ class TaxiHudState:
             max(1.0, float(self.width) - 28.0) / 620.0,
             max(1.0, float(self.height) - 28.0) / 560.0,
         )
-        accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
+        accent_rgb = _MODE_ACCENT_RGB[mode]
         _draw_arcade_backdrop(imgui, self.width, self.height)
         style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
         _prepare_window(
@@ -2714,7 +2769,7 @@ class TaxiHudState:
             )
             _centered_imgui_text(
                 imgui,
-                "RACE MODE" if mode == "race" else "TAXI MODE",
+                f"{mode.upper()} MODE",
                 font_size=max(13.0, 15.0 * scale),
                 color=(0.62, 0.62, 0.68, 1.0),
             )
@@ -3158,6 +3213,8 @@ class TaxiHudState:
         if width <= 0 or height <= 0:
             return
         snapshot = hud_frame.snapshot
+        if isinstance(snapshot, FreeRoamSnapshot):
+            return
         pose = hud_frame.rig_pose_world
         draw_list = imgui.get_background_draw_list()
 
@@ -3397,7 +3454,9 @@ class TaxiHudState:
         )
 
     def _draw_terminal(
-        self, imgui: Any, snapshot: TaxiGameSnapshot | RaceGameSnapshot
+        self,
+        imgui: Any,
+        snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot,
     ) -> None:
         awaiting_name = snapshot.session_state == "awaiting_name"
         leaderboard = snapshot.session_state == "leaderboard"
@@ -3864,7 +3923,9 @@ def build_hud_frames(
     for index, (snapshot, simulation_timestamp_us) in enumerate(
         zip(snapshots, simulation_timestamps_us, strict=True)
     ):
-        if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
+        if not isinstance(
+            snapshot, (TaxiGameSnapshot, RaceGameSnapshot, FreeRoamSnapshot)
+        ):
             raise TypeError("Taxi HUD received an unknown game snapshot")
         pose = poses[index].copy()
         pose.setflags(write=False)

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-GameMode = Literal["taxi", "race"]
+GameMode = Literal["taxi", "race", "free-roam"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,4 +81,4 @@ class GameSelection:
     """Map metadata chosen on the second selection screen."""
 
     race_course_id: str | None = None
-    """Race course selected with the map; ``None`` in taxi mode."""
+    """Race course selected with the map; ``None`` in other modes."""
