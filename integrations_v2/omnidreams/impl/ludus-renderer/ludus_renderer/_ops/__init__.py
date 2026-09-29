@@ -32,6 +32,7 @@ from .context import LudusCudaTimestampedContext
 from .primitives import (
     CAMERA_TYPE_BEV,
     CAMERA_TYPE_REGULAR,
+    CUBE_FLAG_FLAT_FACES,
     CUBE_FLAG_WIREFRAME,
     PRIM_BEV_ROAD_SURFACE,
     PRIM_BUFFER_ZONE,
@@ -111,6 +112,7 @@ __all__ = [
     "CAMERA_TYPE_REGULAR",
     "CAMERA_TYPE_BEV",
     "CUBE_FLAG_WIREFRAME",
+    "CUBE_FLAG_FLAT_FACES",
     # Data classes
     "CapStyle",
     "Polyline",

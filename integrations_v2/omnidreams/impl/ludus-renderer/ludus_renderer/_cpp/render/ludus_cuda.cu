@@ -28,6 +28,8 @@
 #include "ludus_cuda.h"
 #include "ludus_types.h"
 #include "../cudaraster/CudaRaster.hpp"
+#include <climits>
+#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -339,7 +341,10 @@ static __device__ __forceinline__ float get_prim_width(uint32_t prim_type_id, co
 {
     bool is_bev = (p.cameraTypeId == 1);
     float base;
-    if (prim_type_id == 4) {
+    if (p.widthTableSize > 0 && p.widthTable && (int)prim_type_id < p.widthTableSize
+        && p.widthTable[prim_type_id] > 0.0f) {
+        base = p.widthTable[prim_type_id];
+    } else if (prim_type_id == 4) {
         float def = is_bev ? 5.0f : 12.0f;
         float cust = is_bev ? p.widthEgoTrajBev : p.widthEgoTrajRegular;
         base = (cust > 0.0f) ? cust : def;
@@ -354,11 +359,88 @@ static __device__ __forceinline__ float get_prim_width(uint32_t prim_type_id, co
     return base * scale;
 }
 
+// Where a line's two sides go, given its direction in pixels and its half
+// width. In pixels the sides sit square either way up, which is the usual
+// answer. In NDC they step by the same amount along both axes of clip space,
+// taken from the picture's width alone, so a line across the picture comes out
+// narrower than one up it in proportion to the aspect ratio. That is what a
+// caller matching a renderer which offsets in NDC is after.
+static __device__ __forceinline__ void get_line_offset(
+    float dx, float dy, float half_width, float miter_scale,
+    float img_w, float img_h, int width_in_ndc, float clip_w,
+    float& ox, float& oy)
+{
+    if (width_in_ndc) {
+        float ux = dx / img_w, uy = -dy / img_h;
+        float ul = sqrtf(ux*ux + uy*uy);
+        if (ul > 1e-9f) { ux /= ul; uy /= ul; }
+        float ndc_hw = 2.0f * half_width * miter_scale / img_w;
+        ox = -uy * ndc_hw * clip_w;
+        oy =  ux * ndc_hw * clip_w;
+    } else {
+        ox = -dy * half_width * miter_scale * 2.0f / img_w * clip_w;
+        oy = -dx * half_width * miter_scale * 2.0f / img_h * clip_w;
+    }
+}
+
 static __device__ __forceinline__ float get_wireframe_width(const CudaRenderParams& p)
 {
     float base = (p.widthWireframe > 0.0f) ? p.widthWireframe : 2.0f;
     float scale = (p.resolutionScale > 0.0f) ? p.resolutionScale : 1.0f;
     return base * scale;
+}
+
+// Where a cube edge's two sides go. An edge is a line like any other, so it is
+// laid out as a polyline of the same width would be: from its direction in
+// pixels, and narrowing with distance, which leaves a box in the distance
+// outlined as faintly as the lines around it rather than at full thickness.
+// A point on a round cap or a dot, offset from its centre in whatever
+// convention get_line_offset is drawing the body of the line in. `sideways`
+// and `along` are the components of the direction wanted, across the line and
+// down it, so (1, 0) reproduces get_line_offset exactly and the cap meets the
+// body's own side vertices. Each convention builds the pair from its own
+// perpendicular: in ndc the two axes are the same length, in pixels they are
+// not, and a cap built in one while its line is drawn in the other stands out
+// past the line by the ratio of the two -- most visible on the short segments
+// a dashed line is made of, which are nearly all cap.
+static __device__ __forceinline__ void get_cap_offset(
+    float dx, float dy, float half_width, float sideways, float along,
+    float img_w, float img_h, int width_in_ndc, float clip_w,
+    float& ox, float& oy)
+{
+    if (width_in_ndc) {
+        float ux = dx / img_w, uy = -dy / img_h;
+        float ul = sqrtf(ux*ux + uy*uy);
+        if (ul > 1e-9f) { ux /= ul; uy /= ul; }
+        float ndc_hw = 2.0f * half_width / img_w;
+        ox = (-uy * sideways + ux * along) * ndc_hw * clip_w;
+        oy = ( ux * sideways + uy * along) * ndc_hw * clip_w;
+    } else {
+        float rx = -dy * sideways + dx * along;
+        float ry =  dx * sideways + dy * along;
+        ox =  rx * half_width * 2.0f / img_w * clip_w;
+        oy = -ry * half_width * 2.0f / img_h * clip_w;
+    }
+}
+
+// An outline edge's offset, narrowing with distance as the lines in the same
+// scene do -- and only while depth_scaling asks for it, since a caller that
+// turns it off means it of everything it draws, outlines included.
+static __device__ __forceinline__ void get_edge_offset(
+    float4 ca, float4 cb, float wa, float wb,
+    float img_w, float img_h, float width, int width_in_ndc,
+    float depth_scaling, float& ox, float& oy)
+{
+    float dx = (cb.x / wb - ca.x / wa) * 0.5f * img_w;
+    float dy = -(cb.y / wb - ca.y / wa) * 0.5f * img_h;
+    float dl = sqrtf(dx*dx + dy*dy);
+    if (dl > 0.001f) { dx /= dl; dy /= dl; } else { dx = 1.0f; dy = 0.0f; }
+
+    float z_ndc = (ca.z / wa + cb.z / wb) * 0.5f;
+    float depth_scale = (depth_scaling > 0.5f)
+        ? fminf(fmaxf((1.0f - z_ndc) * 0.5f, 0.0f), 1.0f) : 1.0f;
+    get_line_offset(dx, dy, width * 0.5f * depth_scale, 1.0f,
+                    img_w, img_h, width_in_ndc, 1.0f, ox, oy);
 }
 
 static __device__ __forceinline__ bool is_dot_primitive(uint32_t prim_type_id)
@@ -554,7 +636,12 @@ __global__ void cubeGeometryKernel(
         float3 lv = CUBE_VERTS_D[vi];
 
         // Per-vertex gradient: t = local_vert.x + 0.5 (0 at back, 1 at front in FLU)
-        float t = lv.x + 0.5f;
+        // CUBE_FLAG_FLAT_FACES holds each face to one colour instead, the front
+        // face taking the front colour and the other five the back, so a colour
+        // meant for the front alone does not carry round the sides.
+        uint32_t face_flags;
+        memcpy(&face_flags, &cube._pad0, sizeof(uint32_t));
+        float t = (face_flags & 2u) ? ((faceIdx == 3) ? 1.0f : 0.0f) : (lv.x + 0.5f);
         float cr = bc.x + t * (fc.x - bc.x);
         float cg = bc.y + t * (fc.y - bc.y);
         float cb = bc.z + t * (fc.z - bc.z);
@@ -582,6 +669,7 @@ __global__ void cubeWireframeKernel(
     const Cube* __restrict__ cubes, int numCubes,
     const float* __restrict__ camData,
     const float* __restrict__ poseData,
+    float wireframeWidth, int widthInNdc, float depthScaling, int cullBehind,
     float4* __restrict__ outVerts,
     int* __restrict__ outIndices,
     uint32_t* __restrict__ outVertColors,
@@ -620,22 +708,12 @@ __global__ void cubeWireframeKernel(
     float4 clip0 = ftheta_project(wv0, poseData, camData);
     float4 clip1 = ftheta_project(wv1, poseData, camData);
 
-    // Wireframe width matching GL: DEFAULT_WIDTH_WIREFRAME = 2.0
-    // offset = perp * EDGE_WIDTH / vec2(img_w, img_h)  (GL formula)
     float img_w = camData[2], img_h = camData[3];
     float w0 = fmaxf(fabsf(clip0.w), 0.001f);
     float w1 = fmaxf(fabsf(clip1.w), 0.001f);
-    float sx0 = clip0.x / w0, sy0 = clip0.y / w0;
-    float sx1 = clip1.x / w1, sy1 = clip1.y / w1;
-    float dx = sx1 - sx0, dy = sy1 - sy0;
-    float dl = sqrtf(dx*dx + dy*dy);
-    if (dl < 1e-6f) return;
-    dx /= dl; dy /= dl;
-    float px = -dy, py = dx;
-
-    float EDGE_WIDTH = 2.0f;
-    float ox = px * EDGE_WIDTH / img_w;
-    float oy = py * EDGE_WIDTH / img_h;
+    float ox, oy;
+    get_edge_offset(clip0, clip1, w0, w1, img_w, img_h,
+                    wireframeWidth, widthInNdc, depthScaling, ox, oy);
 
     float z_bias0 = -0.001f * clip0.w;
     float z_bias1 = -0.001f * clip1.w;
@@ -711,6 +789,162 @@ static __device__ __forceinline__ bool point_inside_cube_d(
     return fabsf(local.x) <= 0.5f * fabsf(sc.x)
         && fabsf(local.y) <= 0.5f * fabsf(sc.y)
         && fabsf(local.z) <= 0.5f * fabsf(sc.z);
+}
+
+// How far in front of the camera a world point sits, negative behind it.
+__device__ static __forceinline__ float camera_depth(
+    float3 world, const float* __restrict__ poseData)
+{
+    return poseData[2]*world.x + poseData[6]*world.y + poseData[10]*world.z + poseData[14];
+}
+
+// Whether the plane through the camera has all of a cube behind it.
+//
+// A point behind the camera has nowhere to go on the image, and rather than
+// drop it ftheta_project pushes it ten times its own way off centre. That
+// keeps a stray point clear of the frame but not a face: a box behind the
+// camera and across its axis has corners pushed off either side at once, so
+// the face between them is drawn from one edge of the frame to the other, at
+// the far plane and so behind the whole scene. A car following this one is
+// enough.
+//
+// Dropping it is the reference renderer's own rule, taken whatever the lens,
+// which is why cullBehindCamera turns these tests on rather than their being
+// unconditional: a two-hundred degree fisheye can see a hundred degrees off
+// its axis, so a tenth of what it should draw sits behind that plane. Culling
+// by the lens's own field of view would serve both, and needs an angle the
+// camera data does not carry, so the choice is left to the caller: parity with
+// the reference on, whole-lens coverage off, and off is what Ludus did before.
+__device__ static bool cube_in_front(
+    float3 tr, float4 qr, float3 sc, const float* __restrict__ poseData, int culling)
+{
+    if (!culling)
+        return true;
+    for (int corner = 0; corner < 8; corner++) {
+        float3 local = CUBE_VERTS_D[corner];
+        float3 world = quat_rotate_d(
+            qr, make_float3(local.x * sc.x, local.y * sc.y, local.z * sc.z));
+        world.x += tr.x; world.y += tr.y; world.z += tr.z;
+        if (camera_depth(world, poseData) > 0.0f)
+            return true;
+    }
+    return false;
+}
+
+// The same question of one face, for a box the camera has drawn level with.
+__device__ static bool face_in_front(
+    const float3* corners, const float* __restrict__ poseData, int culling)
+{
+    if (!culling)
+        return true;
+    for (int corner = 0; corner < 4; corner++) {
+        if (camera_depth(corners[corner], poseData) > 0.0f)
+            return true;
+    }
+    return false;
+}
+
+// How near the camera a drawn line may begin, which is the reference's own
+// near plane.
+constexpr float NEAR_DEPTH = 1e-3f;
+
+// An edge cut back to the near plane, as the reference cuts its own.
+//
+// An end behind the camera is brought forward along the edge to where the
+// edge crosses the plane, which is where the drawn line should stop. An edge
+// with both ends behind is collapsed to a point rather than skipped, since
+// the room for it in the vertex buffer is already spoken for and a gap left
+// unwritten would be drawn as whatever the buffer last held.
+__device__ static void clip_to_near(
+    float3& from, float3& to, const float* __restrict__ poseData, int culling)
+{
+    if (!culling)
+        return;
+    float at_from = camera_depth(from, poseData), at_to = camera_depth(to, poseData);
+    if (at_from > NEAR_DEPTH && at_to > NEAR_DEPTH)
+        return;
+    if (at_from <= NEAR_DEPTH && at_to <= NEAR_DEPTH) {
+        to = from;
+        return;
+    }
+    float across = (NEAR_DEPTH - at_from) / (at_to - at_from);
+    float3 crossing = make_float3(
+        from.x + across * (to.x - from.x),
+        from.y + across * (to.y - from.y),
+        from.z + across * (to.z - from.z));
+    if (at_from <= NEAR_DEPTH)
+        from = crossing;
+    else
+        to = crossing;
+}
+
+// A point behind the camera brought onto the near plane, along the line from
+// a point in front of it.
+//
+// A line is drawn as a ribbon of points projected one at a time, so an end
+// behind the camera cannot simply be dropped the way a cube's edge can: the
+// strip would close over the gap. It is moved onto the plane instead, which
+// is what the reference does -- `_clip_polyline_to_image_plane` inserts the
+// crossing and carries on -- and leaves the ribbon ending where the line
+// leaves the camera's sight, rather than wherever ftheta_project put a point
+// it has nowhere to put: ten times its own way off centre, which for a
+// ribbon is a quad drawn clear across the frame.
+__device__ static float3 pulled_to_near(
+    float3 anchor, float3 point, const float* __restrict__ poseData)
+{
+    float at_anchor = camera_depth(anchor, poseData);
+    float span = camera_depth(point, poseData) - at_anchor;
+    if (span >= 0.0f)
+        return point;
+    // A shade in front of the plane rather than on it, since the projection
+    // takes anything under NEAR_DEPTH for behind and a crossing solved for in
+    // floats can land the wrong side of the depth it solved for.
+    float across = fminf(fmaxf((NEAR_DEPTH - at_anchor) / span * 0.999f, 0.0f), 1.0f);
+    return make_float3(
+        anchor.x + across * (point.x - anchor.x),
+        anchor.y + across * (point.y - anchor.y),
+        anchor.z + across * (point.z - anchor.z));
+}
+
+// A triangle cut at the near plane, as none, one or two triangles.
+//
+// A face with a corner behind the camera has that corner flung off centre and
+// is drawn from one edge of the frame to the other at the far plane, behind
+// everything else drawn, so what it looks like is not a shape at all: it is
+// the picture's background changing colour for a frame. Cutting keeps the
+// part that is in front, which is the part that was ever visible, and a face
+// with no part in front is dropped.
+//
+// The corners are walked in order and the crossings inserted where the edge
+// changes side, so what comes out is wound as what went in. One plane cuts a
+// triangle into at most a quad, which is why two triangles are always enough.
+__device__ static int near_clipped_triangle(
+    const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3])
+{
+    if (culling) {
+        float3 kept[4];
+        int n = 0;
+        for (int i = 0; i < 3 && n < 4; i++) {
+            float3 here = wp[i], next = wp[(i + 1) % 3];
+            bool here_in = camera_depth(here, poseData) > NEAR_DEPTH;
+            bool next_in = camera_depth(next, poseData) > NEAR_DEPTH;
+            if (here_in)
+                kept[n++] = here;
+            if (here_in != next_in && n < 4)
+                kept[n++] = here_in ? pulled_to_near(here, next, poseData)
+                                    : pulled_to_near(next, here, poseData);
+        }
+        if (n < 3)
+            return 0;
+        out[0][0] = kept[0]; out[0][1] = kept[1]; out[0][2] = kept[2];
+        if (n == 3)
+            return 1;
+        out[1][0] = kept[0]; out[1][1] = kept[2]; out[1][2] = kept[3];
+        return 2;
+    }
+
+    out[0][0] = wp[0]; out[0][1] = wp[1]; out[0][2] = wp[2];
+    return 1;
 }
 
 //------------------------------------------------------------------------
@@ -794,6 +1028,7 @@ __global__ void cubePoolFusedKernel(
     const float* __restrict__ poolColors,
     int numCubes, int64_t queryTs, int maxExtrapUs,
     uint32_t renderFlags,
+    float wireframeWidth, int widthInNdc, float depthScaling, int cullBehind,
     const float* __restrict__ camData,
     const float* __restrict__ poseData,
     float tessThreshold, int maxTessLevel,
@@ -853,6 +1088,9 @@ __global__ void cubePoolFusedKernel(
     float3 tr = make_float3(tx, ty, tz);
     float4 qr = make_float4(qx, qy, qz, qw);
     float3 sc = make_float3(poolScales[cubeIdx*3], poolScales[cubeIdx*3+1], poolScales[cubeIdx*3+2]);
+    if (!cube_in_front(tr, qr, sc, poseData, cullBehind))
+        return;
+
     float3 cw = cube_cam_world(poseData);
     bool cameraInside = point_inside_cube_d(cw, tr, qr, sc);
 
@@ -875,11 +1113,17 @@ __global__ void cubePoolFusedKernel(
             for (int i = 0; i < 4; i++) {
                 int vi = FACE_VERTS_D[faceIdx][i];
                 float3 lv = CUBE_VERTS_D[vi];
-                corner_t[i] = lv.x + 0.5f;
+                // CUBE_FLAG_FLAT_FACES holds a face to one colour, the front
+                // face to the front colour and the other five to the back.
+                corner_t[i] = (renderFlags & 2u)
+                    ? ((faceIdx == 3) ? 1.0f : 0.0f)
+                    : (lv.x + 0.5f);
                 float3 sv = make_float3(lv.x*sc.x, lv.y*sc.y, lv.z*sc.z);
                 corners[i] = quat_rotate_d(qr, sv);
                 corners[i].x += tr.x; corners[i].y += tr.y; corners[i].z += tr.z;
             }
+            if (!face_in_front(corners, poseData, cullBehind))
+                return;
 
             // 2 triangles per face: (c0,c1,c2) and (c0,c2,c3)
             int nV = bary_vertex_count(subdiv);
@@ -956,7 +1200,9 @@ __global__ void cubePoolFusedKernel(
                                        atomicVerts, atomicTris))
             return;
         float img_w = camData[2], img_h = camData[3];
-        float EDGE_WIDTH = 2.0f;
+        float edgeWidth = wireframeWidth;
+        int edgeNdc = widthInNdc;
+        float edgeScaling = depthScaling;
         uint32_t ec = pack_rgba8(0.784f, 0.784f, 0.784f);
 
         for (int seg = 0; seg < numSegs; seg++) {
@@ -964,16 +1210,14 @@ __global__ void cubePoolFusedKernel(
             float tb = (float)(seg + 1) / (float)numSegs;
             float3 pa = make_float3(wv0.x + ta*(wv1.x-wv0.x), wv0.y + ta*(wv1.y-wv0.y), wv0.z + ta*(wv1.z-wv0.z));
             float3 pb = make_float3(wv0.x + tb*(wv1.x-wv0.x), wv0.y + tb*(wv1.y-wv0.y), wv0.z + tb*(wv1.z-wv0.z));
+            clip_to_near(pa, pb, poseData, cullBehind);
             float4 ca = ftheta_project(pa, poseData, camData);
             float4 cb = ftheta_project(pb, poseData, camData);
 
             float wa = fmaxf(fabsf(ca.w), 0.001f), wb = fmaxf(fabsf(cb.w), 0.001f);
-            float dx = cb.x/wb - ca.x/wa, dy = cb.y/wb - ca.y/wa;
-            float dl = sqrtf(dx*dx + dy*dy);
-            if (dl < 1e-6f) { dl = 1.0f; dx = 1.0f; dy = 0.0f; }
-            dx /= dl; dy /= dl;
-            float px = -dy, py = dx;
-            float ox = px*EDGE_WIDTH/img_w, oy = py*EDGE_WIDTH/img_h;
+            float ox, oy;
+            get_edge_offset(ca, cb, wa, wb, img_w, img_h, edgeWidth, edgeNdc,
+                            edgeScaling, ox, oy);
             float zba = -0.001f*ca.w, zbb = -0.001f*cb.w;
 
             int sv = vbase + seg * 4;
@@ -1058,7 +1302,7 @@ __global__ void polylineGeometryKernel(
     const Vertex* __restrict__ vertices,
     const float* __restrict__ camData,
     const float* __restrict__ poseData,
-    float tessThreshold, int maxTessLevel,
+    float tessThreshold, int maxTessLevel, int widthInNdc, int cullBehind,
     float4* __restrict__ outVerts,
     int* __restrict__ outIndices,
     uint32_t* __restrict__ outVertColors,
@@ -1081,6 +1325,24 @@ __global__ void polylineGeometryKernel(
     const int MAX_PTS = 256;
     int safePts = numPts < MAX_PTS ? numPts : MAX_PTS;
     int numSegs = safePts - 1;
+
+    // Where the line first comes in front of the camera, which is the point
+    // the ones behind are pulled back towards. A line with no such point has
+    // nothing to draw and every point of it would land somewhere arbitrary,
+    // so it goes before any of the buffer is spoken for.
+    float3 anchor = make_float3(0.0f, 0.0f, 0.0f);
+    if (cullBehind) {
+        bool infront = false;
+        for (int i = 0; i < safePts && !infront; i++) {
+            const Vertex& vi = vertices[pl.vertex_start + i];
+            float3 wi = make_float3(vi.position[0], vi.position[1], vi.position[2]);
+            if (camera_depth(wi, poseData) > NEAR_DEPTH) {
+                anchor = wi;
+                infront = true;
+            }
+        }
+        if (!infront) return;
+    }
 
     // Phase 1: count total effective points (with subdivision)
     int totalEffPts = 1;
@@ -1124,6 +1386,11 @@ __global__ void polylineGeometryKernel(
                 wp_a.x + t * (wp_b.x - wp_a.x),
                 wp_a.y + t * (wp_b.y - wp_a.y),
                 wp_a.z + t * (wp_b.z - wp_a.z));
+
+            if (cullBehind) {
+                if (camera_depth(wp, poseData) > NEAR_DEPTH) anchor = wp;
+                else wp = pulled_to_near(anchor, wp, poseData);
+            }
 
             float4 clip = ftheta_project(wp, poseData, camData);
             float w = fmaxf(fabsf(clip.w), 0.001f);
@@ -1193,9 +1460,9 @@ __global__ void polylineGeometryKernel(
             float dl = sqrtf(dx*dx + dy*dy);
             if (dl > 0.001f) { dx /= dl; dy /= dl; } else { dx = 1.0f; dy = 0.0f; }
 
-            float px = -dy, py = dx;
-            float ox = px * scaled_hw * miter_scale * 2.0f / img_w * clip.w;
-            float oy = -py * scaled_hw * miter_scale * 2.0f / img_h * clip.w;
+            float ox, oy;
+            get_line_offset(dx, dy, scaled_hw, miter_scale,
+                            img_w, img_h, widthInNdc, clip.w, ox, oy);
 
             outVerts[vbase + ept*2]     = make_float4(clip.x - ox, clip.y - oy, clip.z, clip.w);
             outVerts[vbase + ept*2 + 1] = make_float4(clip.x + ox, clip.y + oy, clip.z, clip.w);
@@ -1285,6 +1552,11 @@ __global__ void polylinePoolKernel(
         for (int di = 0; di < numPts; di++) {
             const Vertex& vt = allVertices[pool.vertices_offset + vStart + di];
             float3 wp = make_float3(vt.position[0], vt.position[1], vt.position[2]);
+            // A dot behind the camera has nowhere on the image to be, and a
+            // hexagon drawn where the projection puts it instead is the one
+            // thing on screen that was never on the road.
+            if (params.cullBehindCamera && camera_depth(wp, poseData) <= NEAR_DEPTH)
+                continue;
             float4 clip = ftheta_project(wp, poseData, camData);
             float w = fmaxf(fabsf(clip.w), 1e-6f);
             float z_ndc = clip.z / w;
@@ -1300,8 +1572,11 @@ __global__ void polylinePoolKernel(
             outVertColors[vbase] = packedColor;
             for (int i = 0; i < 6; i++) {
                 float angle = (float)i * 1.0471975f;
-                float ox = cosf(angle) * r * 2.0f / img_w * clip.w;
-                float oy = -sinf(angle) * r * 2.0f / img_h * clip.w;
+                // Round in whichever convention lines are drawn in, a dot
+                // being a cap with no line to it.
+                float ox, oy;
+                get_cap_offset(1.0f, 0.0f, r, sinf(angle), cosf(angle),
+                               img_w, img_h, params.widthInNdc, clip.w, ox, oy);
                 outVerts[vbase + 1 + i] = make_float4(clip.x + ox, clip.y + oy, clip.z, clip.w);
                 outVertColors[vbase + 1 + i] = packedColor;
             }
@@ -1326,6 +1601,22 @@ __global__ void polylinePoolKernel(
     int safePts = numPts < MAX_PTS ? numPts : MAX_PTS;
     int numSegs = safePts - 1;
 
+    // The point behind the camera are pulled back towards; a line that never
+    // comes in front of it is dropped, before any of the buffer is spoken for.
+    float3 anchor = make_float3(0.0f, 0.0f, 0.0f);
+    if (params.cullBehindCamera) {
+        bool infront = false;
+        for (int i = 0; i < safePts && !infront; i++) {
+            const Vertex& vi = allVertices[pool.vertices_offset + vStart + i];
+            float3 wi = make_float3(vi.position[0], vi.position[1], vi.position[2]);
+            if (camera_depth(wi, poseData) > NEAR_DEPTH) {
+                anchor = wi;
+                infront = true;
+            }
+        }
+        if (!infront) return;
+    }
+
     int totalEffPts = 1;
     for (int seg = 0; seg < numSegs; seg++) {
         const Vertex& va = allVertices[pool.vertices_offset + vStart + seg];
@@ -1348,7 +1639,7 @@ __global__ void polylinePoolKernel(
     int ept = 0;
     float prev_sx = 0.0f, prev_sy = 0.0f;
     float4 capClip[2];
-    float capDx[2], capDy[2], capPx[2], capPy[2], capHW[2];
+    float capDx[2], capDy[2], capHW[2];
 
     for (int seg = 0; seg < numSegs; seg++) {
         const Vertex& va = allVertices[pool.vertices_offset + vStart + seg];
@@ -1369,6 +1660,11 @@ __global__ void polylinePoolKernel(
                 wp_a.x + t * (wp_b.x - wp_a.x),
                 wp_a.y + t * (wp_b.y - wp_a.y),
                 wp_a.z + t * (wp_b.z - wp_a.z));
+
+            if (params.cullBehindCamera) {
+                if (camera_depth(wp, poseData) > NEAR_DEPTH) anchor = wp;
+                else wp = pulled_to_near(anchor, wp, poseData);
+            }
 
             float4 clip = ftheta_project(wp, poseData, camData);
             float w = fmaxf(fabsf(clip.w), 0.001f);
@@ -1431,17 +1727,17 @@ __global__ void polylinePoolKernel(
 
             float dl = sqrtf(dx*dx + dy*dy);
             if (dl > 0.001f) { dx /= dl; dy /= dl; } else { dx = 1.0f; dy = 0.0f; }
-            float px = -dy, py = dx;
+            // Only where the line ends and which way it was going: the cap
+            // builds its own perpendicular, in the convention it is drawn in.
             if (ept == 0) {
-                capClip[0]=clip; capDx[0]=dx; capDy[0]=dy;
-                capPx[0]=px; capPy[0]=py; capHW[0]=scaled_hw;
+                capClip[0]=clip; capDx[0]=dx; capDy[0]=dy; capHW[0]=scaled_hw;
             }
             if (ept == totalEffPts - 1) {
-                capClip[1]=clip; capDx[1]=dx; capDy[1]=dy;
-                capPx[1]=px; capPy[1]=py; capHW[1]=scaled_hw;
+                capClip[1]=clip; capDx[1]=dx; capDy[1]=dy; capHW[1]=scaled_hw;
             }
-            float ox = px * scaled_hw * miter_scale * 2.0f / img_w * clip.w;
-            float oy = -py * scaled_hw * miter_scale * 2.0f / img_h * clip.w;
+            float ox, oy;
+            get_line_offset(dx, dy, scaled_hw, miter_scale,
+                            img_w, img_h, params.widthInNdc, clip.w, ox, oy);
             outVerts[vbase + ept*2]     = make_float4(clip.x - ox, clip.y - oy, clip.z, clip.w);
             outVerts[vbase + ept*2 + 1] = make_float4(clip.x + ox, clip.y + oy, clip.z, clip.w);
             outVertColors[vbase + ept*2]     = packedColor;
@@ -1480,10 +1776,10 @@ __global__ void polylinePoolKernel(
         // Intermediate arc vertices (theta from pi/N to (N-1)*pi/N)
         for (int i = 1; i < CAP_SEGS; i++) {
             float theta = (float)i * 3.14159265f / (float)CAP_SEGS;
-            float rx = cosf(theta) * capPx[cap] + sinf(theta) * fwd_sign * capDx[cap];
-            float ry = cosf(theta) * capPy[cap] + sinf(theta) * fwd_sign * capDy[cap];
-            float aox = rx * hw * 2.0f / img_w * c.w;
-            float aoy = -ry * hw * 2.0f / img_h * c.w;
+            float aox, aoy;
+            get_cap_offset(capDx[cap], capDy[cap], hw,
+                           cosf(theta), sinf(theta) * fwd_sign,
+                           img_w, img_h, params.widthInNdc, c.w, aox, aoy);
             outVerts[capV + i] = make_float4(c.x + aox, c.y + aoy, c.z, c.w);
             outVertColors[capV + i] = packedColor;
         }
@@ -1602,49 +1898,56 @@ __global__ void polygonPoolKernel(
             wp[vi] = make_float3(vtx.position[0], vtx.position[1], vtx.position[2]);
         }
 
-        int level = 0;
-        if (params.tessellationThreshold > 0.0f) {
-            float e01 = estimate_edge_distortion_pixels(wp[0], wp[1], poseData, camData);
-            float e12 = estimate_edge_distortion_pixels(wp[1], wp[2], poseData, camData);
-            float e20 = estimate_edge_distortion_pixels(wp[2], wp[0], poseData, camData);
-            float emax = fmaxf(e01, fmaxf(e12, e20));
-            level = compute_subdiv_level_polygon(emax, params.tessellationThreshold, maxTessLvl);
-        }
+        float3 kept[2][3];
+        int faces = near_clipped_triangle(wp, poseData, params.cullBehindCamera, kept);
 
-        if (level == 0) {
-            int vbase = atomicAdd(atomicVerts, 3);
-            int triOut = atomicAdd(atomicTris, 1);
-            if (!geometry_reservation_fits(vbase, 3, triOut, 1, atomicVerts, atomicTris))
-                return;
-            for (int vi = 0; vi < 3; vi++) {
-                outVerts[vbase + vi] = ftheta_project(wp[vi], poseData, camData);
-                outVertColors[vbase + vi] = color;
+        for (int face = 0; face < faces; face++) {
+            const float3* fp = kept[face];
+
+            int level = 0;
+            if (params.tessellationThreshold > 0.0f) {
+                float e01 = estimate_edge_distortion_pixels(fp[0], fp[1], poseData, camData);
+                float e12 = estimate_edge_distortion_pixels(fp[1], fp[2], poseData, camData);
+                float e20 = estimate_edge_distortion_pixels(fp[2], fp[0], poseData, camData);
+                float emax = fmaxf(e01, fmaxf(e12, e20));
+                level = compute_subdiv_level_polygon(emax, params.tessellationThreshold, maxTessLvl);
             }
-            outIndices[triOut * 3 + 0] = vbase;
-            outIndices[triOut * 3 + 1] = vbase + 1;
-            outIndices[triOut * 3 + 2] = vbase + 2;
-        } else {
-            int nV = bary_vertex_count(level);
-            int nT = bary_triangle_count(level);
-            int vbase = atomicAdd(atomicVerts, nV);
-            int triBase = atomicAdd(atomicTris, nT);
-            if (!geometry_reservation_fits(vbase, nV, triBase, nT, atomicVerts, atomicTris))
-                return;
-            for (int v = 0; v < nV; v++) {
-                float2 uv = bary_vertex_uv(v, level);
-                float wb = 1.0f - uv.x - uv.y;
-                float3 wp_sub = make_float3(
-                    wb * wp[0].x + uv.x * wp[1].x + uv.y * wp[2].x,
-                    wb * wp[0].y + uv.x * wp[1].y + uv.y * wp[2].y,
-                    wb * wp[0].z + uv.x * wp[1].z + uv.y * wp[2].z);
-                outVerts[vbase + v] = ftheta_project(wp_sub, poseData, camData);
-                outVertColors[vbase + v] = color;
-            }
-            for (int ti = 0; ti < nT; ti++) {
-                int3 idx = bary_triangle_indices(ti, level);
-                outIndices[(triBase + ti) * 3 + 0] = vbase + idx.x;
-                outIndices[(triBase + ti) * 3 + 1] = vbase + idx.y;
-                outIndices[(triBase + ti) * 3 + 2] = vbase + idx.z;
+
+            if (level == 0) {
+                int vbase = atomicAdd(atomicVerts, 3);
+                int triOut = atomicAdd(atomicTris, 1);
+                if (!geometry_reservation_fits(vbase, 3, triOut, 1, atomicVerts, atomicTris))
+                    return;
+                for (int vi = 0; vi < 3; vi++) {
+                    outVerts[vbase + vi] = ftheta_project(fp[vi], poseData, camData);
+                    outVertColors[vbase + vi] = color;
+                }
+                outIndices[triOut * 3 + 0] = vbase;
+                outIndices[triOut * 3 + 1] = vbase + 1;
+                outIndices[triOut * 3 + 2] = vbase + 2;
+            } else {
+                int nV = bary_vertex_count(level);
+                int nT = bary_triangle_count(level);
+                int vbase = atomicAdd(atomicVerts, nV);
+                int triBase = atomicAdd(atomicTris, nT);
+                if (!geometry_reservation_fits(vbase, nV, triBase, nT, atomicVerts, atomicTris))
+                    return;
+                for (int v = 0; v < nV; v++) {
+                    float2 uv = bary_vertex_uv(v, level);
+                    float wb = 1.0f - uv.x - uv.y;
+                    float3 wp_sub = make_float3(
+                        wb * fp[0].x + uv.x * fp[1].x + uv.y * fp[2].x,
+                        wb * fp[0].y + uv.x * fp[1].y + uv.y * fp[2].y,
+                        wb * fp[0].z + uv.x * fp[1].z + uv.y * fp[2].z);
+                    outVerts[vbase + v] = ftheta_project(wp_sub, poseData, camData);
+                    outVertColors[vbase + v] = color;
+                }
+                for (int ti = 0; ti < nT; ti++) {
+                    int3 idx = bary_triangle_indices(ti, level);
+                    outIndices[(triBase + ti) * 3 + 0] = vbase + idx.x;
+                    outIndices[(triBase + ti) * 3 + 1] = vbase + idx.y;
+                    outIndices[(triBase + ti) * 3 + 2] = vbase + idx.z;
+                }
             }
         }
     }
@@ -1754,6 +2057,9 @@ __global__ void cubePoolFlatKernel(
     float4 qr = make_float4(qx, qy, qz, qw);
     float3 tr = make_float3(tr_x, tr_y, tr_z);
     float3 sc = make_float3(sc_x, sc_y, sc_z);
+    if (!cube_in_front(tr, qr, sc, poseData, params.cullBehindCamera))
+        return;
+
     float3 cw = cube_cam_world(poseData);
     bool cameraInside = point_inside_cube_d(cw, tr, qr, sc);
 
@@ -1784,11 +2090,17 @@ __global__ void cubePoolFlatKernel(
             float3 wv = quat_rotate_d(qr, lv);
             corners[ci] = make_float3(wv.x + tr.x, wv.y + tr.y, wv.z + tr.z);
         }
+        if (!face_in_front(corners, poseData, params.cullBehindCamera))
+            return;
 
         float corner_t[4];
         for (int ci = 0; ci < 4; ci++) {
             int vi = (ci == 0) ? i0 : (ci == 1) ? i1 : (ci == 2) ? i2 : i3;
-            corner_t[ci] = CUBE_VERTS_D[vi].x + 0.5f;
+            // CUBE_FLAG_FLAT_FACES holds a face to one colour, the front face
+            // to the front colour and the other five to the back.
+            corner_t[ci] = (renderFlags & 2u)
+                ? ((faceIdx == 3) ? 1.0f : 0.0f)
+                : (CUBE_VERTS_D[vi].x + 0.5f);
         }
 
         if (subdiv == 0) {
@@ -1877,7 +2189,9 @@ __global__ void cubePoolFlatKernel(
                                        atomicVerts, atomicTris))
             return;
         float img_w = camData[2], img_h = camData[3];
-        float EDGE_WIDTH = get_wireframe_width(params);
+        float edgeWidth = get_wireframe_width(params);
+        int edgeNdc = params.widthInNdc;
+        float edgeScaling = params.depthScaling;
         uint32_t ec = pack_rgba8(0.784f, 0.784f, 0.784f);
 
         for (int seg = 0; seg < numSegs; seg++) {
@@ -1885,15 +2199,13 @@ __global__ void cubePoolFlatKernel(
             float tb = (float)(seg + 1) / (float)numSegs;
             float3 pa = make_float3(wv0.x + ta*(wv1.x-wv0.x), wv0.y + ta*(wv1.y-wv0.y), wv0.z + ta*(wv1.z-wv0.z));
             float3 pb = make_float3(wv0.x + tb*(wv1.x-wv0.x), wv0.y + tb*(wv1.y-wv0.y), wv0.z + tb*(wv1.z-wv0.z));
+            clip_to_near(pa, pb, poseData, params.cullBehindCamera);
             float4 ca = ftheta_project(pa, poseData, camData);
             float4 cb = ftheta_project(pb, poseData, camData);
             float wa = fmaxf(fabsf(ca.w), 0.001f), wb = fmaxf(fabsf(cb.w), 0.001f);
-            float dx = cb.x/wb - ca.x/wa, dy = cb.y/wb - ca.y/wa;
-            float dl = sqrtf(dx*dx + dy*dy);
-            if (dl < 1e-6f) { dl = 1.0f; dx = 1.0f; dy = 0.0f; }
-            dx /= dl; dy /= dl;
-            float px = -dy, py = dx;
-            float ox = px*EDGE_WIDTH/img_w, oy = py*EDGE_WIDTH/img_h;
+            float ox, oy;
+            get_edge_offset(ca, cb, wa, wb, img_w, img_h, edgeWidth, edgeNdc,
+                            edgeScaling, ox, oy);
             float zba = -0.001f*ca.w, zbb = -0.001f*cb.w;
             int sv = vbase + seg * 4;
             int st = triBase + seg * 2;
@@ -1959,7 +2271,7 @@ __global__ void fragmentKernel(
     uint8_t* __restrict__ output,
     int width, int height, int crWidth, int crHeight,
     int camIdx,
-    float depthScaling, int cameraTypeId)
+    float depthScaling, int cameraTypeId, int noDepthFade)
 {
     int px = blockIdx.x * blockDim.x + threadIdx.x;
     int py = blockIdx.y * blockDim.y + threadIdx.y;
@@ -2027,7 +2339,10 @@ __global__ void fragmentKernel(
     // Depth-based fog: darken with distance (matches GL fragment shader)
     // Disabled for BEV cameras and when depthScaling is off
     float z_interp = b0 * p0.z + b1 * p1.z + b2 * p2.z;
-    float fog = (depthScaling > 0.5f && cameraTypeId != 1)
+    // A colour dims towards black with distance unless the caller says not to,
+    // which one matching a renderer that dims nothing needs. Line widths still
+    // narrow with distance either way; the two are asked for separately.
+    float fog = (depthScaling > 0.5f && cameraTypeId != 1 && !noDepthFade)
         ? fminf(fmaxf((1.0f - z_interp) * 0.5f, 0.0f), 1.0f) : 1.0f;
     r *= fog;
     g *= fog;
@@ -2072,6 +2387,7 @@ void ludusCudaDestroy(NVDR_CTX_ARGS, LudusCudaState& s)
     if (s.atomicTriangleCount) cudaFree(s.atomicTriangleCount);
     if (s.outputBuffer) cudaFree(s.outputBuffer);
     if (s.colorPalette) cudaFree(s.colorPalette);
+    if (s.widthTable) cudaFree(s.widthTable);
     if (s.msaaBuffer) cudaFree(s.msaaBuffer);
     memset(&s, 0, sizeof(LudusCudaState));
 }
@@ -2087,10 +2403,26 @@ void ludusCudaUploadColorPalette(LudusCudaState& s, const uint32_t* hostPalette,
     }
 }
 
+void ludusCudaUploadWidthTable(LudusCudaState& s, const float* hostWidths, int count)
+{
+    if (s.widthTable) { cudaFree(s.widthTable); s.widthTable = nullptr; }
+    s.widthTableSize = 0;
+    if (count > 0 && hostWidths) {
+        CUDA_CHECK(cudaMalloc(&s.widthTable, count * sizeof(float)));
+        CUDA_CHECK(cudaMemcpy(s.widthTable, hostWidths, count * sizeof(float), cudaMemcpyHostToDevice));
+        s.widthTableSize = count;
+    }
+}
+
 //------------------------------------------------------------------------
 // Ensure geometry buffers are large enough.
 
-static void ensureBuffers(LudusCudaState& s, int maxVerts, int maxTris)
+// Counts are taken as 64-bit because the estimates that produce them are
+// products of scene-sized terms, and in `int` those wrap: a negative count
+// sign-extends through the (size_t) casts below into a request of some
+// exabytes, which cudaMalloc reports as the card being out of memory on a card
+// that is doing nothing.
+static void ensureBuffers(LudusCudaState& s, int64_t maxVerts, int64_t maxTris)
 {
     if (maxVerts <= s.allocatedVertices && maxTris <= s.allocatedTriangles)
         return;
@@ -2098,9 +2430,20 @@ static void ensureBuffers(LudusCudaState& s, int maxVerts, int maxTris)
     if (s.projectedVertices) cudaFree(s.projectedVertices);
     if (s.triangleIndices) cudaFree(s.triangleIndices);
     if (s.vertexColors) cudaFree(s.vertexColors);
+    s.projectedVertices = nullptr;
+    s.triangleIndices = nullptr;
+    s.vertexColors = nullptr;
 
-    s.allocatedVertices = maxVerts * 2;
-    s.allocatedTriangles = maxTris * 2;
+    // The kernels index these buffers with int and compare against int atomic
+    // counters, so a capacity past INT_MAX cannot be honoured whatever the card
+    // holds.
+    int64_t verts = maxVerts * 2;
+    int64_t tris = maxTris * 2;
+    if (verts > INT_MAX) verts = INT_MAX;
+    if (tris > INT_MAX) tris = INT_MAX;
+
+    s.allocatedVertices = (int)verts;
+    s.allocatedTriangles = (int)tris;
     s.maxVertices = s.allocatedVertices;
     s.maxTriangles = s.allocatedTriangles;
 
@@ -2113,13 +2456,86 @@ static void ensureBuffers(LudusCudaState& s, int maxVerts, int maxTris)
     //         s.allocatedVertices, vertBytes / (1024*1024),
     //         s.allocatedTriangles, triBytes / (1024*1024));
 
-    CUDA_CHECK(cudaMalloc(&s.projectedVertices, vertBytes));
-    CUDA_CHECK(cudaMalloc(&s.triangleIndices, triBytes));
-    CUDA_CHECK(cudaMalloc(&s.vertexColors, colBytes));
+    cudaError_t status = cudaMalloc(&s.projectedVertices, vertBytes);
+    if (status == cudaSuccess) status = cudaMalloc(&s.triangleIndices, triBytes);
+    if (status == cudaSuccess) status = cudaMalloc(&s.vertexColors, colBytes);
+
+    // A capacity of zero against buffers that are not there is what keeps the
+    // geometry kernels from writing through them: they bound every write by
+    // these counters, so the draw reports an overflow and the camera comes out
+    // blank rather than the process dying in the rasterizer.
+    if (status != cudaSuccess) {
+        fprintf(stderr,
+                "[LudusCuda] no room for geometry buffers of %d vertices and %d "
+                "triangles (%zu MB): %s\n",
+                s.allocatedVertices, s.allocatedTriangles,
+                (vertBytes + triBytes + colBytes) / (1024 * 1024),
+                cudaGetErrorString(status));
+        if (s.projectedVertices) cudaFree(s.projectedVertices);
+        if (s.triangleIndices) cudaFree(s.triangleIndices);
+        s.projectedVertices = nullptr;
+        s.triangleIndices = nullptr;
+        s.vertexColors = nullptr;
+        s.allocatedVertices = 0;
+        s.allocatedTriangles = 0;
+        s.maxVertices = 0;
+        s.maxTriangles = 0;
+    }
+
     CUDA_CHECK(cudaMemcpy(s.atomicVertexCount + 1, &s.maxVertices,
                           sizeof(int), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(s.atomicTriangleCount + 1, &s.maxTriangles,
                           sizeof(int), cudaMemcpyHostToDevice));
+}
+
+// What an estimate may ask for up front, in triangles.
+//
+// An estimate is a first guess and is treated as one. A draw that comes up
+// short sets the overflow flag, and the retry that follows asks for the counts
+// the kernels actually produced, which then stand for the rest of the run. So
+// a guess trimmed to this costs one redraw, while an untrimmed guess costs
+// whatever the arithmetic happens to produce: the terms below multiply the
+// varrays live at a single timestamp by the number of pools, and a map
+// uploaded at one timestamp -- which is how a static scene is stamped -- puts
+// the entire map in that first factor. Measured against a clip that tripped
+// this, the guess was 1.88 billion triangles a camera and the kernels drew
+// 654 thousand. A million is about 144 MB of buffers once doubled, and covers
+// the densest map clips measured here.
+static const int64_t ESTIMATE_TRIANGLE_CEILING = 1024 * 1024;
+
+// Buffers for an estimated triangle count, vertices following at three a
+// triangle as the geometry kernels emit them.
+static void estimateBuffers(LudusCudaState& s, int64_t maxTris)
+{
+    if (maxTris > ESTIMATE_TRIANGLE_CEILING) maxTris = ESTIMATE_TRIANGLE_CEILING;
+    if (maxTris < 1024) maxTris = 1024;
+    ensureBuffers(s, maxTris * 3, maxTris);
+}
+
+// Whether a picture can be drawn at twice its size and averaged back down.
+//
+// The rasterizer maps a triangle's clip coordinates onto the viewport it is
+// given and the offset only says where on the surface that viewport lands, so
+// a picture too big for one viewport cannot be drawn a tile at a time: every
+// tile would hold the whole picture, squeezed. A larger viewport writes
+// outside its buffers rather than failing, so such a picture is drawn at its
+// own size and left unsmoothed.
+static bool supersamples(const LudusCudaState& s, int width, int height)
+{
+    if (s.msaaSamples < 4)
+        return false;
+    if (width * 2 <= CR_MAXVIEWPORT_SIZE && height * 2 <= CR_MAXVIEWPORT_SIZE)
+        return true;
+
+    static bool warned = false;
+    if (!warned) {
+        warned = true;
+        fprintf(stderr,
+                "[LudusCuda] %dx%d cannot be supersampled, twice it being past the "
+                "rasterizer's limit of %d a side; drawing it unsmoothed\n",
+                width, height, CR_MAXVIEWPORT_SIZE);
+    }
+    return false;
 }
 
 //------------------------------------------------------------------------
@@ -2158,22 +2574,20 @@ void ludusCudaRender(
     int tessCubeMul = hasTess ? (1 << (2 * s.maxTessCube)) : 1;
 
     // Estimate worst-case per-camera geometry
-    int maxTrisPerCam = numTriangles * tessPolyMul  // polygon triangles
-                      + numCubes * 12         // immediate-mode cube faces (2 per face)
-                      + numCubes * 24         // immediate-mode cube wireframe edges
-                      + totalPoolCubes * 12 * tessCubeMul  // pool cube faces
-                      + totalPoolCubes * 24 * tessCubeMul  // pool cube wireframe edges
-                      + totalDots * 6         // dot hexagons (6 tris each)
-                      + numPolylines * 512 * tessLineMul;  // polyline segments
-    int maxVertsPerCam = maxTrisPerCam * 3;
-    if (maxVertsPerCam < 1024) maxVertsPerCam = 1024;
-    if (maxTrisPerCam < 1024) maxTrisPerCam = 1024;
+    int64_t maxTrisPerCam = (int64_t)numTriangles * tessPolyMul  // polygon triangles
+                      + (int64_t)numCubes * 12         // immediate-mode cube faces (2 per face)
+                      + (int64_t)numCubes * 24         // immediate-mode cube wireframe edges
+                      + (int64_t)totalPoolCubes * 12 * tessCubeMul  // pool cube faces
+                      + (int64_t)totalPoolCubes * 24 * tessCubeMul  // pool cube wireframe edges
+                      + (int64_t)totalDots * 6         // dot hexagons (6 tris each)
+                      + (int64_t)numPolylines * 512 * tessLineMul;  // polyline segments
 
-    ensureBuffers(s, maxVertsPerCam, maxTrisPerCam);
+    estimateBuffers(s, maxTrisPerCam);
 
-    // SSAA: render at 2x resolution when MSAA >= 4
+    // SSAA: draw at twice the size and average when the size allows.
+    bool smoothed = supersamples(s, width, height);
     int ssW = width, ssH = height;
-    if (s.msaaSamples >= 4) {
+    if (smoothed) {
         ssW = width * 2;
         ssH = height * 2;
     }
@@ -2185,7 +2599,7 @@ void ludusCudaRender(
     s.cr->setBufferSize(crWidth, crHeight, 1);
 
     // Allocate hi-res intermediate buffer for SSAA
-    if (s.msaaSamples >= 4) {
+    if (smoothed) {
         int needed = 4 * ssW * ssH;
         if (s.msaaBufferSize < needed) {
             if (s.msaaBuffer) cudaFree(s.msaaBuffer);
@@ -2224,6 +2638,7 @@ void ludusCudaRender(
                 s.atomicVertexCount, s.atomicTriangleCount);
             cubeWireframeKernel<<<numCubes, 12, 0, stream>>>(
                 cubes, numCubes, camData, poseData,
+                wireframe_width_of(s), s.widthInNdc, s.depthScaling, s.cullBehindCamera,
                 (float4*)s.projectedVertices, s.triangleIndices, s.vertexColors,
                 s.atomicVertexCount, s.atomicTriangleCount);
         }
@@ -2239,6 +2654,7 @@ void ludusCudaRender(
                 pool.scales, pool.colors,
                 pool.numCubes, pool.queryTimestampUs, pool.maxExtrapolationUs,
                 pool.renderFlags,
+                wireframe_width_of(s), s.widthInNdc, s.depthScaling, s.cullBehindCamera,
                 camData, poseData, s.tessellationThreshold, s.maxTessCube,
                 (float4*)s.projectedVertices, s.triangleIndices, s.vertexColors,
                 s.atomicVertexCount, s.atomicTriangleCount);
@@ -2247,7 +2663,8 @@ void ludusCudaRender(
         if (numPolylines > 0) {
             polylineGeometryKernel<<<numPolylines, 1, 0, stream>>>(
                 polylineHeaders, numPolylines, vertices,
-                camData, poseData, s.tessellationThreshold, s.maxTessPolyline,
+                camData, poseData, s.tessellationThreshold, s.maxTessPolyline, s.widthInNdc,
+                s.cullBehindCamera,
                 (float4*)s.projectedVertices, s.triangleIndices, s.vertexColors,
                 s.atomicVertexCount, s.atomicTriangleCount);
         }
@@ -2276,8 +2693,8 @@ void ludusCudaRender(
                     "[LudusCuda] geometry capacity exceeded (%d/%d vertices, %d/%d triangles); "
                     "growing buffers\n",
                     actualVerts, s.maxVertices, actualTris, s.maxTriangles);
-            int requiredVerts = actualVerts > s.maxVertices ? actualVerts : s.maxVertices + 1;
-            int requiredTris = actualTris > s.maxTriangles ? actualTris : s.maxTriangles + 1;
+            int64_t requiredVerts = actualVerts > s.maxVertices ? actualVerts : (int64_t)s.maxVertices + 1;
+            int64_t requiredTris = actualTris > s.maxTriangles ? actualTris : (int64_t)s.maxTriangles + 1;
             ensureBuffers(s, requiredVerts, requiredTris);
             if (geometryRetryCount++ == 0) {
                 --camIdx;
@@ -2347,7 +2764,7 @@ void ludusCudaRender(
         // === Fragment pass (barycentric interpolation) ===
         const uint32_t* crColor = (const uint32_t*)s.cr->getColorBuffer();
 
-        if (s.msaaSamples >= 4) {
+        if (smoothed) {
             dim3 fragGrid((ssW + 7) / 8, (ssH + 7) / 8);
             dim3 fragBlock(8, 8);
             fragmentKernel<<<fragGrid, fragBlock, 0, stream>>>(
@@ -2355,7 +2772,7 @@ void ludusCudaRender(
                 (const float4*)s.projectedVertices, s.vertexColors,
                 s.msaaBuffer,
                 ssW, ssH, crWidth, crHeight, 0,
-                1.0f, 0);
+                1.0f, 0, s.noDepthFade);
             dim3 dsGrid((width + 7) / 8, (height + 7) / 8);
             downsampleKernel<<<dsGrid, dim3(8, 8), 0, stream>>>(
                 s.msaaBuffer, outputPtr,
@@ -2368,7 +2785,7 @@ void ludusCudaRender(
                 (const float4*)s.projectedVertices, s.vertexColors,
                 outputPtr,
                 width, height, crWidth, crHeight, camIdx,
-                1.0f, 0);
+                1.0f, 0, s.noDepthFade);
         }
     }
 
@@ -2416,24 +2833,22 @@ void ludusCudaRenderTimestamped(
     if (mvPl < 1) mvPl = 1;
     if (mvPg < 1) mvPg = 1;
 
-    int maxTrisPerCam = mvPl * numPolylinePools * 512 * tessLineMul
-                      + mvPg * numPolygonPools  * 64  * tessPolyMul
-                      + totalCubes * 12 * tessCubeMul
-                      + totalCubes * 24 * tessCubeMul
-                      + mvPl * numPolylinePools * 42;
-    int maxVertsPerCam = maxTrisPerCam * 3;
-    if (maxVertsPerCam < 1024) maxVertsPerCam = 1024;
-    if (maxTrisPerCam < 1024) maxTrisPerCam = 1024;
+    int64_t maxTrisPerCam = (int64_t)mvPl * numPolylinePools * 512 * tessLineMul
+                      + (int64_t)mvPg * numPolygonPools  * 64  * tessPolyMul
+                      + (int64_t)totalCubes * 12 * tessCubeMul
+                      + (int64_t)totalCubes * 24 * tessCubeMul
+                      + (int64_t)mvPl * numPolylinePools * 42;
 
     // Debug: uncomment to log geometry budget
-    // fprintf(stderr, "[LudusCudaTS] budget: mvPl=%d mvPg=%d totalCubes=%d maxTris=%d maxVerts=%d\n",
-    //         mvPl, mvPg, totalCubes, maxTrisPerCam, maxVertsPerCam);
+    // fprintf(stderr, "[LudusCudaTS] budget: mvPl=%d mvPg=%d totalCubes=%d maxTris=%lld\n",
+    //         mvPl, mvPg, totalCubes, (long long)maxTrisPerCam);
 
-    ensureBuffers(s, maxVertsPerCam, maxTrisPerCam);
+    estimateBuffers(s, maxTrisPerCam);
 
-    // SSAA: render at 2x resolution when MSAA >= 4
+    // SSAA: draw at twice the size and average when the size allows.
+    bool smoothed = supersamples(s, width, height);
     int ssW = width, ssH = height;
-    if (s.msaaSamples >= 4) {
+    if (smoothed) {
         ssW = width * 2;
         ssH = height * 2;
     }
@@ -2444,7 +2859,7 @@ void ludusCudaRenderTimestamped(
     s.cr->setBufferSize(crWidth, crHeight, 1);
 
     // Allocate hi-res intermediate buffer for SSAA
-    if (s.msaaSamples >= 4) {
+    if (smoothed) {
         int needed = 4 * ssW * ssH;
         if (s.msaaBufferSize < needed) {
             if (s.msaaBuffer) cudaFree(s.msaaBuffer);
@@ -2516,8 +2931,8 @@ void ludusCudaRenderTimestamped(
                     "[LudusCudaTS] geometry capacity exceeded (%d/%d vertices, %d/%d triangles); "
                     "growing buffers\n",
                     actualVerts, s.maxVertices, actualTris, s.maxTriangles);
-            int requiredVerts = actualVerts > s.maxVertices ? actualVerts : s.maxVertices + 1;
-            int requiredTris = actualTris > s.maxTriangles ? actualTris : s.maxTriangles + 1;
+            int64_t requiredVerts = actualVerts > s.maxVertices ? actualVerts : (int64_t)s.maxVertices + 1;
+            int64_t requiredTris = actualTris > s.maxTriangles ? actualTris : (int64_t)s.maxTriangles + 1;
             ensureBuffers(s, requiredVerts, requiredTris);
             if (geometryRetryCount++ == 0) {
                 --camIdx;
@@ -2577,7 +2992,7 @@ void ludusCudaRenderTimestamped(
 
         // Fragment pass (barycentric interpolation)
         const uint32_t* crColor = (const uint32_t*)s.cr->getColorBuffer();
-        if (s.msaaSamples >= 4) {
+        if (smoothed) {
             dim3 fragGrid((ssW + 7) / 8, (ssH + 7) / 8);
             dim3 fragBlock(8, 8);
             fragmentKernel<<<fragGrid, fragBlock, 0, stream>>>(
@@ -2585,7 +3000,7 @@ void ludusCudaRenderTimestamped(
                 (const float4*)s.projectedVertices, s.vertexColors,
                 s.msaaBuffer,
                 ssW, ssH, crWidth, crHeight, 0,
-                params.depthScaling, params.cameraTypeId);
+                params.depthScaling, params.cameraTypeId, params.noDepthFade);
             dim3 dsGrid((width + 7) / 8, (height + 7) / 8);
             downsampleKernel<<<dsGrid, dim3(8, 8), 0, stream>>>(
                 s.msaaBuffer, outputPtr,
@@ -2598,7 +3013,7 @@ void ludusCudaRenderTimestamped(
                 (const float4*)s.projectedVertices, s.vertexColors,
                 outputPtr,
                 width, height, crWidth, crHeight, camIdx,
-                params.depthScaling, params.cameraTypeId);
+                params.depthScaling, params.cameraTypeId, params.noDepthFade);
         }
     }
 

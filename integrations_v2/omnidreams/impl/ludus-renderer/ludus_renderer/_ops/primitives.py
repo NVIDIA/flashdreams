@@ -57,6 +57,10 @@ CAMERA_TYPE_BEV = 1
 
 # Cube render flags
 CUBE_FLAG_WIREFRAME = 1
+CUBE_FLAG_FLAT_FACES = 2
+"""Hold each face to one colour rather than blending back to front across the
+box. The front face takes the front colour and the other five the back, which
+is what a caller drawing something whose front alone is coloured needs."""
 
 
 # -----------------------------------------------------------------------------
