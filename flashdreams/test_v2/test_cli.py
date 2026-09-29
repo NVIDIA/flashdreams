@@ -151,7 +151,9 @@ def test_mp4_accepts_total_model_steps(
     assert received == [(None, expected)]
 
 
-def test_mp4_passes_timeout_and_total_model_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mp4_passes_timeout_and_total_model_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Both may be named; the command does not treat them as exclusive."""
     received = _record_run(monkeypatch)
 
