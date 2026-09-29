@@ -208,7 +208,7 @@ PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF = derive_config(
 PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV = derive_config(
     PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
     name="lingbot-world-v2-1p3b-causal-fast-max-perf-taehv",
-    decoder=TeahvVAEDecoderConfig(),
+    decoder=TaehvVAEDecoderConfig(),
 )
 """Maximum-throughput 1.3B preset with the approximate TAEHV decoder."""
 
