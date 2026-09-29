@@ -497,10 +497,11 @@ class LudusCudaTimestampedContext:
 
         On, a cube every corner of which sits behind that plane is dropped, a
         face is dropped the same way, and a line crossing the plane stops at
-        it. A face with corners either side of the plane is left whole on
-        purpose, so a box the camera is inside can still smear across the
-        frame: cutting one means carrying its per-corner colour blend through
-        the cut, which is more surgery than it has so far been worth.
+        it. A face with corners either side of the plane keeps the pieces of
+        it in front and drops the rest, cut at the seams of its tessellation
+        rather than exactly at the plane, so its edge there is a step or two
+        coarser than the line's. A face too small to have been tessellated is
+        dropped whole instead.
         Off, they are projected anyway: a point behind the camera has
         nowhere to go on the image, so it is pushed well off centre, which
         keeps a stray point out of the frame but turns a box straddling the

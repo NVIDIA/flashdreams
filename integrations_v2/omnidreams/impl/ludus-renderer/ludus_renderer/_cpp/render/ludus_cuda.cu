@@ -602,6 +602,8 @@ __device__ static bool cube_in_front_euler(
     float3 tr, float3 rot, float3 sc, const float* __restrict__ poseData, int culling);
 __device__ static bool face_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling);
+__device__ static bool face_wholly_in_front(
+    const float3* corners, const float* __restrict__ poseData, int culling);
 __device__ static void clip_to_near(
     float3& from, float3& to, const float* __restrict__ poseData, int culling);
 
@@ -649,7 +651,7 @@ __global__ void cubeGeometryKernel(
         corners[i] = rodrigues(sv, rot);
         corners[i].x += tr.x; corners[i].y += tr.y; corners[i].z += tr.z;
     }
-    if (!face_in_front(corners, poseData, cullBehind))
+    if (!face_wholly_in_front(corners, poseData, cullBehind))
         return;
 
     int vbase = atomicAdd(atomicVerts, 4);
@@ -878,14 +880,10 @@ __device__ static bool cube_in_front_euler(
 
 // The same question of one face, for a box the camera has drawn level with.
 //
-// A face is kept whole as soon as one corner is in front, and the corners
-// behind are then projected as they fall, so a box the camera has driven into
-// can still stretch a face across the frame. That is the intended boundary of
-// this option rather than an oversight in it. Cutting the quad at the plane
-// means carrying the per-corner colour blend through the cut, and dropping
-// any face with a corner behind would pop it out of the picture while most of
-// it was still plainly in view. With culling left off, which is the default,
-// every such face is drawn this way in any case.
+// One corner in front is enough to keep the face, which only settles whether
+// there is anything to draw at all. What of it actually stands in front of
+// the camera is settled per tessellated piece by subtri_in_front, and for a
+// face with no tessellation to cut down by face_wholly_in_front.
 __device__ static bool face_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling)
 {
@@ -930,6 +928,53 @@ __device__ static void clip_to_near(
         from = crossing;
     else
         to = crossing;
+}
+
+// The stricter question, for a face there is no tessellation to cut down: it
+// is drawn only if the whole of it stands in front of the plane. A quad this
+// coarse is a small one, so losing it outright costs little, and a face near
+// enough to cross the plane is tessellated finely enough to be cut instead.
+__device__ static bool face_wholly_in_front(
+    const float3* corners, const float* __restrict__ poseData, int culling)
+{
+    if (!culling)
+        return true;
+    for (int corner = 0; corner < 4; corner++) {
+        if (camera_depth(corners[corner], poseData) <= NEAR_DEPTH)
+            return false;
+    }
+    return true;
+}
+
+// Whether one tessellated piece of a face stands wholly in front of the near
+// plane, and so can be drawn without dragging a corner from behind the camera
+// across the picture with it.
+//
+// Keeping a face for a single corner in front leaves the rest of it to be
+// drawn, the part across the plane included, which is the very thing culling
+// is here to prevent: a box the camera has drawn level with stretches a face
+// from one edge of the frame to the other. Judging the pieces instead cuts the
+// face down to what is really in front of the camera. Depth is affine in world
+// position, so a piece's depth at each of its points is the same barycentric
+// blend of the face's three corner depths that placed the point, and nothing
+// has to be projected to be judged.
+//
+// The cut follows the tessellation rather than the plane, so it falls a step
+// shy of the true crossing; a face near enough to cross the plane is near
+// enough to be tessellated finely, and an untessellated one is dropped whole
+// by the caller.
+__device__ static __forceinline__ bool subtri_in_front(
+    int3 idx, int subdiv, float d0, float d1, float d2, int culling)
+{
+    if (!culling)
+        return true;
+    int at[3] = { idx.x, idx.y, idx.z };
+    for (int i = 0; i < 3; i++) {
+        float2 uv = bary_vertex_uv(at[i], subdiv);
+        if ((1.0f - uv.x - uv.y) * d0 + uv.x * d1 + uv.y * d2 <= NEAR_DEPTH)
+            return false;
+    }
+    return true;
 }
 
 // A point behind the camera brought onto the near plane, along the line from
@@ -1176,8 +1221,8 @@ __global__ void cubePoolFusedKernel(
                 corners[i] = quat_rotate_d(qr, sv);
                 corners[i].x += tr.x; corners[i].y += tr.y; corners[i].z += tr.z;
             }
-            // Whole faces only: one corner in front keeps all four, uncut.
-            // See face_in_front for why a face across the plane stays whole.
+            // Wholly behind drops the face here; a face across the plane is
+            // cut down to its pieces in front when its triangles are written.
             if (!face_in_front(corners, poseData, cullBehind))
                 return;
 
@@ -1215,8 +1260,15 @@ __global__ void cubePoolFusedKernel(
                         bc_col.y + gt*(fc_col.y - bc_col.y),
                         bc_col.z + gt*(fc_col.z - bc_col.z));
                 }
+                float d0 = camera_depth(v0, poseData);
+                float d1 = camera_depth(v1, poseData);
+                float d2 = camera_depth(v2, poseData);
                 for (int ti = 0; ti < nT; ti++) {
                     int3 idx = bary_triangle_indices(ti, subdiv);
+                    // A piece reaching behind the camera collapses to a point
+                    // rather than going unwritten, its room being reserved.
+                    if (!subtri_in_front(idx, subdiv, d0, d1, d2, cullBehind))
+                        idx = make_int3(idx.x, idx.x, idx.x);
                     outIndices[(toff + ti)*3 + 0] = voff + idx.x;
                     outIndices[(toff + ti)*3 + 1] = voff + idx.y;
                     outIndices[(toff + ti)*3 + 2] = voff + idx.z;
@@ -2163,6 +2215,8 @@ __global__ void cubePoolFlatKernel(
         }
 
         if (subdiv == 0) {
+            if (!face_wholly_in_front(corners, poseData, params.cullBehindCamera))
+                return;
             int vbase = atomicAdd(atomicVerts, 4);
             int triBase = atomicAdd(atomicTris, 2);
             if (!geometry_reservation_fits(vbase, 4, triBase, 2, atomicVerts, atomicTris))
@@ -2207,8 +2261,16 @@ __global__ void cubePoolFlatKernel(
                     float r = bc_r + gt*(fc_r-bc_r), g = bc_g + gt*(fc_g-bc_g), b = bc_b + gt*(fc_b-bc_b);
                     outVertColors[vbase + v] = pack_rgba8(r, g, b);
                 }
+                float d0 = camera_depth(tw[0], poseData);
+                float d1 = camera_depth(tw[1], poseData);
+                float d2 = camera_depth(tw[2], poseData);
                 for (int ti = 0; ti < nT; ti++) {
                     int3 idx = bary_triangle_indices(ti, subdiv);
+                    // A piece reaching behind the camera collapses to a point
+                    // rather than going unwritten, its room being reserved.
+                    if (!subtri_in_front(idx, subdiv, d0, d1, d2,
+                                         params.cullBehindCamera))
+                        idx = make_int3(idx.x, idx.x, idx.x);
                     outIndices[(triBase+ti)*3+0]=vbase+idx.x;
                     outIndices[(triBase+ti)*3+1]=vbase+idx.y;
                     outIndices[(triBase+ti)*3+2]=vbase+idx.z;
