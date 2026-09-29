@@ -148,16 +148,12 @@ class _PipelineConfig:
         return self.pipeline
 
 
-def _conditioning(
-    *,
-    camera_poses: torch.Tensor | None = None,
-) -> Cam2VConditioning:
+def _conditioning() -> Cam2VConditioning:
     return Cam2VConditioning(
         prompt="camera demo",
         first_frame_path=Path("first.jpg"),
         base_intrinsics=torch.tensor([1.0, 1.0, 0.5, 0.5]),
         world_scale=1.0,
-        camera_poses=camera_poses,
     )
 
 
@@ -235,9 +231,7 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_updates_status() -> Non
 
 
 def _input_test_model_loop(
-    *,
-    log_model_timing: bool = False,
-    camera_poses: torch.Tensor | None = None,
+    *, log_model_timing: bool = False
 ) -> tuple[Cam2VModelLoop, Cam2VModelState, _Pipeline]:
     """Return a registered CPU model loop for camera-input tests."""
     pipeline = _Pipeline()
@@ -250,7 +244,7 @@ def _input_test_model_loop(
             video_height=1,
         ),
         config=Cam2VSessionConfig(
-            conditioning=_conditioning(camera_poses=camera_poses),
+            conditioning=_conditioning(),
             total_blocks=4,
             device=torch.device("cpu"),
             first_frame_dtype=torch.float32,
@@ -269,51 +263,6 @@ def _input_test_model_loop(
         failure_queue=queue.Queue(),
     )
     return model_loop, state, pipeline
-
-
-def test_model_loop_uses_default_poses_then_continues_from_final_pose() -> None:
-    """Consume a short default trajectory before falling back to live control."""
-    camera_poses = torch.eye(4).repeat(3, 1, 1)
-    camera_poses[:, 0, 3] = torch.tensor([0.0, 1.0, 2.0])
-    model_loop, state, pipeline = _input_test_model_loop(camera_poses=camera_poses)
-
-    model_loop.step(0, UserInputEvents([]))
-    assert pipeline.camera_input is not None
-    torch.testing.assert_close(pipeline.camera_input.poses, camera_poses[:2])
-    assert state.default_camera_poses_enabled
-
-    model_loop.step(1, UserInputEvents([]))
-    assert pipeline.camera_input is not None
-    torch.testing.assert_close(
-        pipeline.camera_input.poses,
-        torch.stack((camera_poses[-1], camera_poses[-1])),
-    )
-    assert not state.default_camera_poses_enabled
-
-
-def test_keyboard_input_disables_default_camera_poses() -> None:
-    """Switch permanently to live integration on the first keyboard event."""
-    camera_poses = torch.eye(4).repeat(4, 1, 1)
-    camera_poses[:, 0, 3] = torch.tensor([10.0, 20.0, 30.0, 40.0])
-    model_loop, state, pipeline = _input_test_model_loop(camera_poses=camera_poses)
-
-    model_loop.step(
-        0,
-        UserInputEvents(
-            [
-                KeyboardUserInputEvent(
-                    timestamp=uint64(0),
-                    key="w",
-                    state=KeyboardInputState.PRESSED,
-                )
-            ]
-        ),
-    )
-
-    assert pipeline.camera_input is not None
-    assert not state.default_camera_poses_enabled
-    assert torch.all(pipeline.camera_input.poses[:, 0, 3] == 0.0)
-    assert torch.all(pipeline.camera_input.poses[:, 2, 3] > 0.0)
 
 
 def test_model_loop_reset_restores_existing_generation_state() -> None:
@@ -337,7 +286,6 @@ def test_model_loop_reset_restores_existing_generation_state() -> None:
         elapsed_s=1.0,
     )
     state.comparison_pending_generated_frames = torch.ones((1, 3, 1, 1))
-    state.default_camera_poses_enabled = False
 
     model_loop.reset()
 
@@ -353,7 +301,6 @@ def test_model_loop_reset_restores_existing_generation_state() -> None:
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ]
-    assert state.default_camera_poses_enabled
     assert state.steady_started_at is None
     assert state.steady_frames_generated == 0
     assert state._recent_model_frame_rate_tracker.snapshot().frames_per_second() == 0.0
