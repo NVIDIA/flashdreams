@@ -500,8 +500,11 @@ class LudusCudaTimestampedContext:
         it. A face with corners either side of the plane keeps the pieces of
         it in front and drops the rest, cut at the seams of its tessellation
         rather than exactly at the plane, so its edge there is a step or two
-        coarser than the line's. A face too small to have been tessellated is
-        dropped whole instead.
+        coarser than the line's; such a face is tessellated for the purpose
+        whatever set_tessellation_threshold asked for. Only a pooled cube is
+        cut this way. An immediately drawn one has no tessellation to cut, so
+        the corners behind the plane are drawn onto it instead, which keeps
+        the face whole but pulls that edge of it in.
         Off, they are projected anyway: a point behind the camera has
         nowhere to go on the image, so it is pushed well off centre, which
         keeps a stray point out of the frame but turns a box straddling the
