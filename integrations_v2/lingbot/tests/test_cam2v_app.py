@@ -87,8 +87,6 @@ def test_application_uses_lingbot_pipeline_config() -> None:
     assert application.session_desc().video_width == 832
     assert application.session_desc().video_height == 464
     assert application.session_desc().frames_per_second_for_step == 16
-    assert application.defaults.first_frame_dtype is torch.float32
-    assert application.defaults.first_frame_interpolation == "torch_bicubic"
     assert isinstance(create_app(), LingbotCam2VApplication)
 
 

@@ -44,12 +44,9 @@ ResizeInterpolation: TypeAlias = Literal[
     "area",
     "cubic",
     "lanczos4",
-    "torch_bicubic",
 ]
 """Resize interpolation names accepted by runner image/video helpers.
 
-``torch_bicubic`` is first-frame-only and preserves floating-point samples for
-model pipelines whose reference preprocessing uses ``F.interpolate``.
 """
 
 VideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "btchw", "bcthw"]
@@ -311,18 +308,6 @@ def load_first_frame_tensor(
         image = read_first_frame_rgb(path, install_hint=install_hint)
     else:
         image = read_image_rgb(path, install_hint=install_hint)
-    if interpolation == "torch_bicubic":
-        tensor = rgb_image_to_normalized_tensor(
-            image,
-            device=device,
-            dtype=torch.float32,
-        )
-        return F.interpolate(
-            tensor,
-            size=(pixel_height, pixel_width),
-            mode="bicubic",
-            align_corners=False,
-        ).to(dtype=dtype)
     image = resize_rgb_image(
         image,
         pixel_height=pixel_height,
